@@ -1,0 +1,14 @@
+[package]
+name = "torvox-integration-tests"
+version = "0.1.0"
+edition = "2024"
+description = "Integration tests for Torvox terminal emulator"
+license = "UNLICENSED"
+
+[dependencies]
+torvox-core = { workspace = true }
+torvox-terminal = { workspace = true }
+torvox-renderer = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }

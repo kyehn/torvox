@@ -1,0 +1,17 @@
+[package]
+name = "torvox-gui-android"
+version = "0.1.0"
+edition = "2024"
+description = "Android BoltFFI bridge for Torvox terminal UI"
+license = "UNLICENSED"
+
+[lib]
+name = "torvox_android"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+torvox-core = { workspace = true }
+torvox-terminal = { workspace = true }
+torvox-renderer = { workspace = true, default-features = false }
+boltffi = { workspace = true }
+thiserror = { workspace = true }
