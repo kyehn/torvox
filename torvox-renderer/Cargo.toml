@@ -1,0 +1,26 @@
+[package]
+name = "torvox-renderer"
+version = "0.1.0"
+edition = "2024"
+description = "GPU-native terminal renderer for Torvox (wgpu 29 + cosmic-text + swash)"
+license = "UNLICENSED"
+
+[dependencies]
+torvox-core = { workspace = true }
+wgpu = { workspace = true }
+bytemuck = { workspace = true }
+cosmic-text = { workspace = true }
+fontdb = { workspace = true }
+swash = { workspace = true }
+guillotiere = { workspace = true }
+thiserror = { workspace = true }
+raw-window-handle = { workspace = true }
+pollster = "0.4"
+winit = { version = "0.30", optional = true }
+
+[features]
+default = ["winit"]
+
+[[example]]
+name = "basic_render"
+required-features = ["winit"]

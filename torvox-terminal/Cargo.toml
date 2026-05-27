@@ -1,0 +1,18 @@
+[package]
+name = "torvox-terminal"
+version = "0.1.0"
+edition = "2024"
+description = "Terminal state machine, VT parser, and PTY management for Torvox"
+license = "UNLICENSED"
+
+[dependencies]
+torvox-core = { workspace = true }
+vte = { workspace = true }
+nix = { workspace = true }
+libc = { workspace = true }
+thiserror = { workspace = true }
+flume = { workspace = true }
+bitflags = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
