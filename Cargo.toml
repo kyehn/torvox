@@ -1,0 +1,43 @@
+[workspace]
+resolver = "2"
+members = [
+  "torvox-core",
+  "torvox-terminal",
+  "torvox-renderer",
+  "torvox-gui-android",
+  "torvox-exec",
+  "torvox-fuzz/fuzz",
+  "torvox-integration-tests",
+  "torvox-bench",
+]
+package.edition = "2024"
+package.rust-version = "1.95"
+package.license = "UNLICENSED"
+
+[workspace.dependencies]
+torvox-core = { path = "torvox-core" }
+torvox-terminal = { path = "torvox-terminal" }
+torvox-renderer = { path = "torvox-renderer", default-features = false }
+torvox-gui-android = { path = "torvox-gui-android" }
+
+vte = "0.15"
+libc = "0.2"
+nix = { version = "0.31.3", features = ["term", "process", "signal", "fs"] }
+serde = { version = "1", default-features = false, features = [
+  "derive",
+  "alloc",
+] }
+thiserror = { version = "2", default-features = false }
+wgpu = "29.0.3"
+bytemuck = { version = "1", features = ["derive"] }
+cosmic-text = "0.19"
+fontdb = "0.23"
+swash = "0.2.7"
+guillotiere = "0.7"
+
+boltffi = "0.25"
+
+flume = "0.11"
+bitflags = "2"
+proptest = "1.11"
+raw-window-handle = "0.6"

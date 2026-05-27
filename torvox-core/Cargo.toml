@@ -1,0 +1,15 @@
+[package]
+name = "torvox-core"
+version = "0.1.0"
+edition = "2024"
+description = "Core types for Torvox terminal emulator (no_std compatible)"
+license = "UNLICENSED"
+
+[dependencies]
+serde = { workspace = true }
+thiserror = { workspace = true, optional = true }
+
+[features]
+default = ["std", "alloc"]
+std = ["thiserror", "serde/std"]
+alloc = ["serde/alloc"]

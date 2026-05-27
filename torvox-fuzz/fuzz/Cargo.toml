@@ -1,0 +1,31 @@
+[package]
+name = "torvox-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[[bin]]
+name = "fuzz_vt_parser"
+path = "fuzz_targets/fuzz_vt_parser.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "fuzz_osc_parse"
+path = "fuzz_targets/fuzz_osc_parse.rs"
+test = false
+bench = false
+
+[[bin]]
+name = "fuzz_grid_resize"
+path = "fuzz_targets/fuzz_grid_resize.rs"
+test = false
+bench = false
+
+[dependencies]
+torvox-core = { path = "../../torvox-core" }
+torvox-terminal = { path = "../../torvox-terminal" }
+libfuzzer-sys = "0.4"
