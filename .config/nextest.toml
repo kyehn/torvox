@@ -1,0 +1,8 @@
+[profile.ci]
+# C（日志行已移除）
+# Inherits from default
+slow-timeout = { period = "120s" }
+test-threads = 2
+
+[profile.ci.junit]
+path = "junit.xml"

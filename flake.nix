@@ -1,44 +1,38 @@
 {
-  description = "Torvox — Android 终端模拟器";
-
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-    flake-parts.url = "github:hercules-ci/flake-parts";
-    fenix.url = "github:nix-community/fenix";
+    flake-parts = {
+      url = "github:hercules-ci/flake-parts";
+      inputs.nixpkgs-lib.follows = "nixpkgs";
+    };
+    fenix = {
+      url = "github:nix-community/fenix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
-
   outputs =
     inputs:
     inputs.flake-parts.lib.mkFlake { inherit inputs; } {
-      systems = [
-        "x86_64-linux"
-        "aarch64-linux"
-      ];
-
+      systems = inputs.nixpkgs.lib.systems.flakeExposed;
       perSystem =
-        { pkgs, system, ... }:
+        {
+          pkgs,
+          system,
+          ...
+        }:
         {
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
             config.allowUnfree = true;
             overlays = [ inputs.fenix.overlays.default ];
           };
-
-          packages.rust-toolchain = pkgs.fenix.stable.withComponents [
-            "cargo"
-            "clippy"
-            "rust-src"
-            "rustc"
-            "rustfmt"
-          ];
-
-          # ── 格式化器 ──────────────────────────────────────
           formatter = pkgs.nixfmt-tree.override {
             nixfmtPackage = pkgs.nixfmt-rs;
-            runtimeInputs = [
-              pkgs.taplo
-              pkgs.yamlfmt
-              pkgs.shfmt
+            runtimeInputs = with pkgs; [
+              taplo
+              yamlfmt
+              rustfmt
+              typos
             ];
             settings.formatter = {
               toml = {
@@ -53,235 +47,131 @@
                   "*.yml"
                 ];
               };
-              shell = {
-                command = "shfmt";
+              rustfmt = {
+                command = "rustfmt";
                 options = [
-                  "-w"
-                  "-i"
-                  "2"
-                  "-ci"
+                  "--config"
+                  "skip_children=true"
+                  "--edition"
+                  "2024"
+                  "--style-edition"
+                  "2024"
                 ];
+                includes = [ "*.rs" ];
+              };
+              typos = {
+                command = "typos";
                 includes = [
-                  "*.sh"
-                  "*.bash"
+                  "*.rs"
+                  "*.kt"
+                  "*.md"
+                  "*.toml"
+                  "*.nix"
+                  "*.yml"
+                  "*.yaml"
                 ];
               };
             };
           };
-
-          # ── 质量检查 ──────────────────────────────────────
-          checks =
-            let
-              toolchain = pkgs.fenix.stable.withComponents [
-                "cargo"
-                "clippy"
-                "rust-src"
-                "rustc"
-                "rustfmt"
-              ];
-              native-dependencies = [
-                toolchain
-                pkgs.cargo-nextest
-                pkgs.pkg-config
-                pkgs.openssl
-                pkgs.zig_0_15
-              ];
-              copy-source = "cp -r ${./.} . && chmod -R u+w .";
-            in
-            {
-              clippy =
-                pkgs.runCommand "check-clippy"
-                  {
-                    nativeBuildInputs = native-dependencies;
-                    RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
-                    LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-                      pkgs.pkg-config
-                      pkgs.openssl
-                    ];
-                  }
-                  ''
-                    ${copy-source}
-                    cargo clippy -- -D warnings
-                    touch $out
-                  '';
-
-              fmt =
-                pkgs.runCommand "check-fmt"
-                  {
-                    nativeBuildInputs = [ toolchain ];
-                  }
-                  ''
-                    ${copy-source}
-                    cargo fmt --check
-                    touch $out
-                  '';
-
-              tests =
-                pkgs.runCommand "check-tests"
-                  {
-                    nativeBuildInputs = native-dependencies;
-                    RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
-                    LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-                      pkgs.pkg-config
-                      pkgs.openssl
-                    ];
-                  }
-                  ''
-                    ${copy-source}
-                    cargo nextest run --workspace
-                    touch $out
-                  '';
-
-              proptest =
-                pkgs.runCommand "check-proptest"
-                  {
-                    nativeBuildInputs = native-dependencies;
-                    RUST_SRC_PATH = "${toolchain}/lib/rustlib/src/rust/library";
-                    LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-                      pkgs.pkg-config
-                      pkgs.openssl
-                    ];
-                  }
-                  ''
-                    ${copy-source}
-                    cargo test --workspace -- proptest
-                    touch $out
-                  '';
-
-              typos =
-                pkgs.runCommand "check-typos"
-                  {
-                    nativeBuildInputs = [ pkgs.typos ];
-                  }
-                  ''
-                    ${copy-source}
-                    typos
-                    touch $out
-                  '';
-
-              nixfmt =
-                pkgs.runCommand "check-nixfmt"
-                  {
-                    nativeBuildInputs = [ pkgs.nixfmt-rs ];
-                  }
-                  ''
-                    ${copy-source}
-                    find . -name '*.nix' \
-                      -not -path './target/*' \
-                      -not -path './.git/*' \
-                      -exec nixfmt --check {} +
-                    touch $out
-                  '';
-
-              cargo-deny =
-                pkgs.runCommand "check-cargo-deny"
-                  {
-                    nativeBuildInputs = [
-                      toolchain
-                      pkgs.cargo-deny
-                    ];
-                  }
-                  ''
-                    ${copy-source}
-                    cargo deny check
-                    touch $out
-                  '';
-
-              cargo-audit =
-                pkgs.runCommand "check-cargo-audit"
-                  {
-                    nativeBuildInputs = [
-                      toolchain
-                      pkgs.cargo-audit
-                    ];
-                  }
-                  ''
-                    ${copy-source}
-                    cargo audit
-                    touch $out
-                  '';
-
-              cargo-machete =
-                pkgs.runCommand "check-cargo-machete"
-                  {
-                    nativeBuildInputs = [
-                      toolchain
-                      pkgs.cargo-machete
-                    ];
-                  }
-                  ''
-                    ${copy-source}
-                    cargo machete
-                    touch $out
-                  '';
-
-              markdownlint =
-                pkgs.runCommand "check-markdownlint"
-                  {
-                    nativeBuildInputs = [
-                      pkgs.nodePackages.markdownlint-cli
-                    ];
-                  }
-                  ''
-                    ${copy-source}
-                    find . -name '*.md' \
-                      -not -path './target/*' \
-                      -not -path './.git/*' \
-                      -not -path './.opencode/*' \
-                      -exec markdownlint {} +
-                    touch $out
-                  '';
-            };
-
-          # ── 开发环境 ──────────────────────────────────────
           devShells.default = pkgs.mkShell {
-            name = "torvox-dev";
-            packages = [
-              # Rust
-              (pkgs.fenix.stable.withComponents [
-                "cargo"
-                "clippy"
-                "rust-src"
-                "rustc"
-                "rustfmt"
+            name = "default";
+            packages = with pkgs; [
+              (fenix.combine [
+                (fenix.stable.withComponents [
+                  "cargo"
+                  "clippy"
+                  "rust-src"
+                  "rustc"
+                  "rustfmt"
+                ])
+                fenix.targets.thumbv6m-none-eabi.stable.rust-std
+                fenix.targets.x86_64-linux-android.stable.rust-std
+                fenix.targets.aarch64-linux-android.stable.rust-std
               ])
-              pkgs.cargo-nextest
-              pkgs.cargo-fuzz
-              pkgs.cargo-geiger
-              pkgs.cargo-audit
-              pkgs.cargo-ndk
-              pkgs.cargo-deny
-              pkgs.cargo-machete
-              pkgs.rust-analyzer
-
-              # Zig (Ghostty VT 构建依赖)
-              pkgs.zig_0_15
-
-              # Android
-              pkgs.kotlin
-              pkgs.gradle_9
-              pkgs.ktfmt
-              pkgs.ktlint
-              pkgs.android-tools
-
-              # 代码质量
-              pkgs.nushell
-              pkgs.taplo
-              pkgs.yamlfmt
-              pkgs.shfmt
-              pkgs.typos
-              pkgs.nodePackages.markdownlint-cli
-
-              # 原生依赖
-              pkgs.pkg-config
-              pkgs.openssl
+              cargo-nextest
+              cargo-fuzz
+              cargo-llvm-cov
+              cargo-geiger
+              cargo-audit
+              cargo-deny
+              cargo-machete
+              cargo-mutants
+              rust-analyzer
+              kotlin
+              gradle_9
+              jdk
+              ktfmt
+              ktlint
+              android-tools
+              nushell
+              taplo
+              yamlfmt
+              typos
+              vale
+              markdownlint-cli2
+              mesa
+              mold
+              vulkan-loader
+              vulkan-tools
+              nixfmt-rs
+              statix
+              deadnix
+              pkg-config
+              openssl
+              zig_0_15
+              cargo-ndk
+              maestro
+              semgrep
+              systemd
+              imagemagick
+              fontconfig
+              noto-fonts-cjk-sans
+              libpulseaudio
+              (lib.getLib stdenv.cc.cc)
+              (python3.withPackages (
+                ps: with ps; [
+                  pyte
+                  sphinx
+                  sphinx-rtd-theme
+                  pip
+                  (rapidocr.overridePythonAttrs (oldAttrs: {
+                    postPatch = (oldAttrs.postPatch or "") + ''
+                      substituteInPlace rapidocr/config.yaml \
+                        --replace-fail "model_root_dir: null" "model_root_dir: /tmp/.rapidocr-models"
+                      substituteInPlace rapidocr/utils/parse_parameters.py \
+                        --replace-fail "cfg = OmegaConf.load(file_path)" "cfg = OmegaConf.load(file_path if file_path else str(Path(__file__).parent.parent / 'config.yaml'))"
+                    '';
+                  }))
+                ]
+              ))
+              git
+              curl
+              jq
+              gnutar
+              gzip
+              patch
             ];
             env = {
-              LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath [
-                pkgs.pkg-config
-                pkgs.openssl
-              ];
+              LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (
+                with pkgs;
+                [
+                  pkg-config
+                  openssl
+                  vulkan-loader
+                  mesa
+                  stdenv.cc.cc
+                  libpulseaudio
+                ]
+              );
+              VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
             };
+            shellHook = ''
+              set -e
+              export PATH="${pkgs.lib.makeBinPath [ pkgs.zig_0_15 ]}:$PATH"
+              export GHOSTTY_SOURCE_DIR="$(nu scripts/bootstrap-libghostty.nu | tail -1)"
+              nu scripts/fetch-aosp-testkey.nu
+              nu scripts/download-rapidocr-models.nu
+            '';
           };
         };
     };

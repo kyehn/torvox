@@ -1,0 +1,49 @@
+name: Android Tests
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  gradle-checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@main
+      - uses: actions/checkout@main
+        with:
+          repository: ${{ github.actor }}/kudzu
+          path: result-kudzu
+      - uses: ./result-kudzu/.github/actions/install-nix
+      - uses: cachix/cachix-action@master
+        continue-on-error: true
+        with:
+          name: ${{ secrets.CACHIX_NAME }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: actions/cache@main
+        with:
+          path: |
+            ~/.gradle/caches/
+            ~/.gradle/wrapper/
+          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+      - run: |
+          scripts/test-android-gradle.nu
+        env:
+          NIXPKGS_ALLOW_UNFREE: "1"
+          NIXPKGS_ALLOW_INSECURE: "1"
+          NIXPKGS_ACCEPT_ANDROID_SDK_LICENSE: "1"
+      - uses: actions/upload-artifact@main
+        if: always()
+        continue-on-error: true
+        with:
+          name: gradle-reports
+          path: |
+            android/app/build/reports/
+            android/app/build/test-results/
+            android/app/src/test/resources/roborazzi/
