@@ -1,0 +1,10 @@
+{"tests":[
+{"seq":"48656c6c6f","name":"Hello plain text","cells":[{"char":"H","fg":"","bg":""},{"char":"e","fg":"","bg":""},{"char":"l","fg":"","bg":""},{"char":"l","fg":"","bg":""},{"char":"o","fg":"","bg":""}]},
+{"seq":"576f726c64","name":"World plain text","cells":[{"char":"W","fg":"","bg":""},{"char":"o","fg":"","bg":""},{"char":"r","fg":"","bg":""},{"char":"l","fg":"","bg":""},{"char":"d","fg":"","bg":""}]},
+{"seq":"4869210a5468657265","name":"Hi LF There","cells":[{"char":"H","fg":"","bg":""},{"char":"i","fg":"","bg":""},{"char":"!","fg":"","bg":""}]},
+{"seq":"414243444546474849","name":"ABCDEF plain","cells":[{"char":"A","fg":"","bg":""},{"char":"B","fg":"","bg":""},{"char":"C","fg":"","bg":""},{"char":"D","fg":"","bg":""},{"char":"E","fg":"","bg":""},{"char":"F","fg":"","bg":""},{"char":"G","fg":"","bg":""},{"char":"H","fg":"","bg":""},{"char":"I","fg":"","bg":""}]},
+{"seq":"546573740d0a","name":"Test CRLF","cells":[{"char":"T","fg":"","bg":""},{"char":"e","fg":"","bg":""},{"char":"s","fg":"","bg":""},{"char":"t","fg":"","bg":""}]},
+{"seq":"4f4b","name":"OK plain","cells":[{"char":"O","fg":"","bg":""},{"char":"K","fg":"","bg":""}]},
+{"seq":"586d6c","name":"Xml short","cells":[{"char":"X","fg":"","bg":""},{"char":"m","fg":"","bg":""},{"char":"l","fg":"","bg":""}]},
+{"seq":"666f6f626172","name":"foobar plain","cells":[{"char":"f","fg":"","bg":""},{"char":"o","fg":"","bg":""},{"char":"o","fg":"","bg":""},{"char":"b","fg":"","bg":""},{"char":"a","fg":"","bg":""},{"char":"r","fg":"","bg":""}]}
+]}

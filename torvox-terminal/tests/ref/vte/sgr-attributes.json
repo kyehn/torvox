@@ -1,0 +1,10 @@
+{"tests":[
+{"seq":"1b5b316d42","name":"SGR 1 bold","cells":[{"char":"B","fg":"","bg":"","bold":true}]},
+{"seq":"1b5b326d44","name":"SGR 2 dim","cells":[{"char":"D","fg":"","bg":"","dim":true}]},
+{"seq":"1b5b336d49","name":"SGR 3 italic","cells":[{"char":"I","fg":"","bg":"","italic":true}]},
+{"seq":"1b5b346d55","name":"SGR 4 underline","cells":[{"char":"U","fg":"","bg":"","underline":true}]},
+{"seq":"1b5b356d42","name":"SGR 5 blink","cells":[{"char":"B","fg":"","bg":"","blink":true}]},
+{"seq":"1b5b376d52","name":"SGR 7 reverse","cells":[{"char":"R","fg":"","bg":"","reverse":true}]},
+{"seq":"1b5b386d48","name":"SGR 8 hidden","cells":[{"char":"H","fg":"","bg":"","hidden":true}]},
+{"seq":"1b5b396d53","name":"SGR 9 strikethrough","cells":[{"char":"S","fg":"","bg":"","strikethrough":true}]}
+]}

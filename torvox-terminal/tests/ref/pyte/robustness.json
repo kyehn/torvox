@@ -1,0 +1,17 @@
+[
+  {"seq":"1b5b334180","rows":[{"cells":[]}],"desc":"CSI with 0x80 byte"},
+  {"seq":"1b5b3341ff","rows":[{"cells":[]}],"desc":"CSI with 0xFF byte"},
+  {"seq":"1b5b303063","rows":[{"cells":[]}],"desc":"DA param 0"},
+  {"seq":"1b5b303b3048","rows":[{"cells":[]}],"desc":"CUP 0,0"},
+  {"seq":"1b5b3130303b32303048","rows":[{"cells":[]}],"desc":"CUP 100,200 beyond"},
+  {"seq":"1b5b2d313b2d3548","rows":[{"cells":[]}],"desc":"CUP negative params"},
+  {"seq":"1b5b3c313b3e48656c6c6f","rows":[{"cells":[]}],"desc":"CSI with <> prefixes"},
+  {"seq":"1b5b213141","rows":[{"cells":[]}],"desc":"DEC private CSI !"},
+  {"seq":"1b5f48656c6c6f1c","rows":[{"cells":[]}],"desc":"APC string"},
+  {"seq":"1b5e48656c6c6f1c","rows":[{"cells":[]}],"desc":"PM string"},
+  {"seq":"1b5d303b3f07","rows":[{"cells":[]}],"desc":"OSC ST with BEL"},
+  {"seq":"1b5d303b5465737409","rows":[{"cells":[]}],"desc":"OSC ST with TAB"},
+  {"seq":"9090","rows":[{"cells":[]}],"desc":"double 0x90 DCS"},
+  {"seq":"9c1b5c","rows":[{"cells":[]}],"desc":"ST then ESC \\"},
+  {"seq":"1b5b3f313b326c0a","rows":[{"cells":[]}],"desc":"DECRST 1,2 + LF"}
+]

@@ -1,4 +1,145 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">Torvox</string>
+
+    <!-- Settings screen -->
+    <string name="settings">Settings</string>
+    <string name="back">Back</string>
+
+    <!-- Appearance -->
+    <string name="appearance">Appearance</string>
+    <string name="font_size">Font Size</string>
+    <string name="font_family">Font Family</string>
+    <string name="system_default">System Default</string>
+    <string name="change">Change</string>
+    <string name="select_font_family">Select Font Family</string>
+    <string name="pick_font_file">Pick from file…</string>
+    <string name="copy">Copy</string>
+    <string name="paste">Paste</string>
+    <string name="select_all">Select All</string>
+    <string name="share">Share</string>
+    <string name="cancel">Cancel</string>
+
+    <!-- Advanced -->
+    <string name="advanced">Advanced</string>
+    <string name="use_nerd_font_glyphs">Use Nerd Font glyphs</string>
+    <string name="nerd_font_desc">Use fallback font for Nerd Font icon glyphs</string>
+    <string name="semantic_selection">Semantic selection (OSC 133)</string>
+    <string name="semantic_selection_desc">Use shell prompt markers for smart text selection</string>
+    <string name="bootstrap_url_label">Bootstrap URL</string>
+    <string name="bootstrap_url_placeholder">https://github.com/termux/termux-packages/releases/...</string>
+    <string name="bootstrap_desc">Bootstrap packages for package management</string>
+    <string name="bootstrap_presets">Presets</string>
+    <string name="bootstrap_preset_termux">Termux Default</string>
+    <string name="bootstrap_preset_termux_desc">Standard Termux bootstrap with bash, coreutils, and package manager</string>
+    <string name="bootstrap_preset_custom">Custom / Empty</string>
+    <string name="bootstrap_preset_custom_desc">Start with an empty root filesystem</string>
+    <string name="install">Install</string>
+    <string name="bootstrap">Bootstrap</string>
+    <string name="bootstrap_install">Install Bootstrap</string>
+    <string name="bootstrap_installing">Installing\u2026</string>
+    <string name="session_restore">Restore sessions</string>
+    <string name="session_restore_desc">Reopen previous sessions on app start</string>
+    <string name="session_restore_off_desc">Sessions will not be restored on app start</string>
+    <string name="on">On</string>
+    <string name="off">Off</string>
+    <string name="select_all_action">Select All</string>
+    <string name="keyboard_mode">Keyboard Mode</string>
+    <string name="keyboard_secure">Secure</string>
+    <string name="keyboard_secure_desc">No suggestions, no autocorrect, no personalization</string>
+    <string name="keyboard_standard">Standard</string>
+    <string name="keyboard_standard_desc">Full IME with autocorrect and suggestions</string>
+    <string name="keyboard_raw">Raw</string>
+    <string name="keyboard_raw_desc">No IME — physical keyboard and raw key events only</string>
+
+    <!-- Software Theme -->
+    <string name="software_theme">Software Theme</string>
+
+    <!-- Terminal Theme -->
+    <string name="theme">Terminal Theme</string>
+    <string name="day">Day</string>
+    <string name="night">Night</string>
+    <string name="follow_system">Follow System</string>
+    <string name="day_theme">Day Theme</string>
+    <string name="night_theme">Night Theme</string>
+    <string name="md_you">Material You</string>
+    <string name="fixed">Fixed</string>
+
+    <!-- Terminal -->
+    <string name="terminal">Terminal</string>
+    <string name="shell">Shell</string>
+    <string name="shell_placeholder">/system/bin/sh</string>
+    <string name="scrollback_lines">Scrollback Lines</string>
+
+    <!-- Session -->
+    <string name="sessions">Sessions</string>
+
+    <!-- ModifierBar -->
+    <string name="settings_button">Settings</string>
+
+    <!-- Terminal screen -->
+    <string name="terminal_title">Torvox</string>
+    <string name="close">Close</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_new_session">New Session</string>
+    <string name="cd_settings">Settings</string>
+    <string name="cd_close_session">Close session</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">Terminal Session</string>
+    <string name="notification_channel_desc">Persistent notification for active terminal sessions</string>
+    <string name="notification_active_single">Terminal session active</string>
+    <string name="notification_active_plural">%d terminal sessions active</string>
+
+    <!-- Feedback -->
+    <string name="copied_chars">Copied %d chars</string>
+    <string name="pasted_chars">Pasted %d chars</string>
+
+    <!-- Error -->
+    <string name="unsupported_abi">Unsupported ABI: %s</string>
+    <!-- Accessibility -->
+    <string name="sessions_accessible">%d sessions</string>
+    <string name="title_changed">Terminal title changed to %s</string>
+
+    <!-- USB Serial -->
+    <string name="usb_serial">USB Serial</string>
+    <string name="usb_serial_desc">Connect to USB serial adapters (CDC-ACM, FTDI, CH340)</string>
+
+    <!-- MCP Server -->
+    <string name="mcp_server">MCP Server</string>
+    <string name="mcp_server_desc">Expose terminal via Model Context Protocol socket</string>
+
+    <!-- Text Search -->
+    <string name="text_search">Text Search</string>
+    <string name="text_search_desc">Search terminal output</string>
+    <string name="search_placeholder">Search terminal…</string>
+    <string name="search_next">Next</string>
+    <string name="search_previous">Previous</string>
+    <string name="search_close">Close search</string>
+    <string name="search_no_results">No results</string>
+    <string name="search_result_of">%d of %d</string>
+
+    <!-- File Manager -->
+    <string name="file_manager">File Manager</string>
+    <string name="cd_file_manager">Open file manager</string>
+
+    <!-- Volume Key Mapping -->
+    <string name="volume_key_map">Volume Key Mapping</string>
+    <string name="volume_key_map_desc">Map volume up to Ctrl and volume down to Fn</string>
+
+    <!-- Clear App Data -->
+    <string name="clear_app_data" translatable="false">Clear App Data</string>
+    <string name="clear_app_data_desc" translatable="false">Reset all settings, sessions, and logs. This will not delete bootstrap files or home directory.</string>
+    <string name="clear_app_data_confirm" translatable="false">Are you sure you want to clear all app data? This action cannot be undone. Settings, session history, and logs will be permanently deleted. Bootstrap files and home directory will not be affected.</string>
+    <string name="clear_app_data_action" translatable="false">Clear</string>
+
+    <!-- Font CJK Warning -->
+    <string name="cjk_fallback_missing_warning">No CJK fallback font detected. East Asian characters may not render correctly.</string>
+
+    <!-- Cursor Settings -->
+    <string name="cursor_blink">Cursor Blink</string>
+    <string name="cursor_blink_desc">Toggle cursor blinking animation</string>
+    <string name="cursor_speed">Blink Speed</string>
+    <string name="cursor_style_label">Cursor Style</string>
 </resources>

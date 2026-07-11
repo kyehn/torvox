@@ -1,0 +1,10 @@
+{"tests":[
+{"input":"Row1\\nRow2\\nRow3\\nRow4\\nRow5\\e[2S","output":"Row3","description":"SU 2 scrolls up, Row3 at top"},
+{"input":"Row1\\nRow2\\nRow3\\nRow4\\nRow5\\e[T","output":"","description":"SD 1 scrolls down, top blank"},
+{"input":"Row1\\nRow2\\nRow3\\nRow4\\nRow5\\e[2T","output":"","description":"SD 2 scrolls down"},
+{"input":"Row1\\nRow2\\nRow3\\nRow4\\nRow5\\e[3;5r\\e[2S","output":"Row1","description":"SU in scroll region preserves outside"},
+{"input":"Row1\\nRow2\\nRow3\\nRow4\\nRow5\\e[3;5r\\e[T","output":"Row1","description":"SD in scroll region preserves outside"},
+{"input":"Row1\\nRow2\\nRow3\\nRow4\\nRow5\\e[3;1H\\e[2L","output":"Row1","description":"IL 2 at row 3 shifts content"},
+{"input":"Row1\\nRow2\\nRow3\\nRow4\\nRow5\\e[3;1H\\e[2M","output":"Row1","description":"DL 2 at row 3 removes content"},
+{"input":"Row1\\nRow2\\nRow3\\nRow4\\nRow5\\e[2H\\e[2L","output":"Row1","description":"IL at row 2 pushes down"}
+]}

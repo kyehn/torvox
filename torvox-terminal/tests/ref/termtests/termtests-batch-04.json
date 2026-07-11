@@ -1,0 +1,65 @@
+{
+  "description": "Edge cases & color properties",
+  "tests": [
+    {
+      "input": "AB",
+      "output": "AB",
+      "description": "color basic"
+    },
+    {
+      "input": "\u001b[31;1mRED\u001b[0m",
+      "output": "RED",
+      "description": "color prop"
+    },
+    {
+      "input": "\u001b[31mRed\u001b[32mGreen\u001b[34mBlue",
+      "output": "RedGreenBlue",
+      "description": "color switches"
+    },
+    {
+      "input": "\u001b[1mBold\u001b[0mNormal",
+      "output": "BoldNormal",
+      "description": "bold reset"
+    },
+    {
+      "input": "\u001b[4mUnderline",
+      "output": "Underline",
+      "description": "underline preserve"
+    },
+    {
+      "input": "\u001b[41mBgRed\u001b[0mNormal",
+      "output": "BgRedNormal",
+      "description": "bg color reset"
+    },
+    {
+      "input": "\u001b[31;1;4mAll\u001b[0mNone",
+      "output": "AllNone",
+      "description": "multi attr reset"
+    },
+    {
+      "input": "\u001b[H\u001b[2JA",
+      "output": "A",
+      "description": "cursor right from home"
+    },
+    {
+      "input": "\u001b[2B\n",
+      "output": "",
+      "description": "cursor down then newline"
+    },
+    {
+      "input": "\u001b[1i",
+      "output": "",
+      "description": "port aux on (ignore)"
+    },
+    {
+      "input": "\u001b[2i",
+      "output": "",
+      "description": "port aux off (ignore)"
+    },
+    {
+      "input": "A\u001b[KB",
+      "output": "B",
+      "description": "EL 0 cursor right of A"
+    }
+  ]
+}

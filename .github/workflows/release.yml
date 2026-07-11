@@ -1,27 +1,75 @@
 name: Release
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *'
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: write
 jobs:
-  build:
+  build-and-release:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      NIXPKGS_ALLOW_UNFREE: "1"
+      NIXPKGS_ALLOW_INSECURE: "1"
+      NIXPKGS_ACCEPT_ANDROID_SDK_LICENSE: "1"
     steps:
       - uses: actions/checkout@main
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@main
         with:
-          targets: aarch64-linux-android,x86_64-linux-android
-      - uses: actions/setup-java@main
+          repository: ${{ github.actor }}/kudzu
+          path: result-kudzu
+      - uses: ./result-kudzu/.github/actions/install-nix
+      - uses: cachix/cachix-action@master
+        continue-on-error: true
         with:
-          distribution: temurin
-          java-version: 17
-      - uses: android-actions/setup-android@main
+          name: ${{ secrets.CACHIX_NAME }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - run: |
-          cargo install cargo-ndk@4.1.2
-          cargo ndk -t arm64-v8a -t x86_64 --manifest-path torvox-gui-android/Cargo.toml -o android/app/src/main/jniLibs build --release
-      - working-directory: android
-        run: ./gradlew assembleRelease
-      - uses: actions/upload-artifact@master
+          scripts/build-android-libs.nu --profile release
+          scripts/build-apk.nu --release
+      - uses: actions/upload-artifact@main
         with:
-          name: torvox-release
+          name: torvox-release-apk
           path: android/app/build/outputs/apk/release/*.apk
+      - run: |
+          scripts/build-apk.nu --debug
+      - uses: actions/upload-artifact@main
+        continue-on-error: true
+        with:
+          name: torvox-debug-apk
+          path: android/app/build/outputs/apk/debug/*.apk
+      - run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: aosp_atd
+          arch: x86_64
+          ram-size: 1536M
+          emulator-boot-timeout: 600
+          cores: 2
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: |
+            set -e
+            nix develop --command nu ${{ github.workspace }}/scripts/test-emulator.nu
+      - uses: actions/upload-artifact@main
+        continue-on-error: true
+        with:
+          name: emulator-results
+          path: |
+            emulator-results/
+            build/compare-results/
+      - if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@master
+        with:
+          generate_release_notes: false
+          files: android/app/build/outputs/apk/release/*.apk

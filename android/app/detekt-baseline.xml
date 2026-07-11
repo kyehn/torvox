@@ -1,0 +1,25 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<SmellBaseline>
+  <ManuallySuppressedIssues/>
+  <CurrentIssues>
+    <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun controlByteForKeyCode(keyCode: Int): Byte?</ID>
+    <ID>CyclomaticComplexMethod:TerminalScreen.kt$@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) @Suppress("DEPRECATION") @Composable fun TerminalScreen( modifier: Modifier = Modifier, viewModel: TerminalViewModel = hiltViewModel(), onSettings: () -> Unit = {}, isOverlayVisible: Boolean = false, )</ID>
+    <ID>CyclomaticComplexMethod:TerminalViewModel.kt$TerminalViewModel$private fun extractSelectedText(selection: SelectionState): String</ID>
+    <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
+    <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
+    <ID>CyclomaticComplexMethod:UrlSelectionTest.kt$UrlSelectionTest$private fun expandAcrossUrlWrap( lines: List&lt;String>, row: Int, wordStartCol: Int, wordEndCol: Int, ): UrlSpan?</ID>
+    <ID>LongMethod:SessionDrawer.kt$@Composable fun SessionDrawer( viewModel: TerminalViewModel, onSettings: () -> Unit, onSearch: () -> Unit, onClose: () -> Unit, )</ID>
+    <ID>LongMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsScreen( viewModel: TerminalViewModel, onBack: () -> Unit, )</ID>
+    <ID>LongMethod:TerminalScreen.kt$@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) @Suppress("DEPRECATION") @Composable fun TerminalScreen( modifier: Modifier = Modifier, viewModel: TerminalViewModel = hiltViewModel(), onSettings: () -> Unit = {}, isOverlayVisible: Boolean = false, )</ID>
+    <ID>LongMethod:TextSearchBar.kt$@Composable fun TextSearchBar( query: String, onQueryChange: (String) -> Unit, resultCount: Int, currentResultIndex: Int, onPrevious: () -> Unit, onNext: () -> Unit, onClose: () -> Unit, caseSensitive: Boolean = false, onCaseSensitiveToggle: (Boolean) -> Unit = {}, autoCaseSensitive: Boolean = false, modifier: Modifier = Modifier, )</ID>
+    <ID>LongMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
+    <ID>LongMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
+    <ID>LongParameterList:ModifierBar.kt$( onCopy: (() -> Unit)?, onSelectAll: (() -> Unit)?, onPaste: (() -> Unit)?, onDismiss: (() -> Unit)?, textColor: Color, backgroundColor: Color, buttonHeight: androidx.compose.ui.unit.Dp, modifier: Modifier, )</ID>
+    <ID>UnusedImports:ModifierBarComprehensiveTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
+    <ID>UnusedImports:ModifierBarScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
+    <ID>UnusedImports:ScreenshotGoldenTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
+    <ID>UnusedImports:SettingsScreenScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
+    <ID>UnusedImports:TerminalScreenScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
+    <ID>UnusedImports:ThemeSettingsComposeTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
+  </CurrentIssues>
+</SmellBaseline>

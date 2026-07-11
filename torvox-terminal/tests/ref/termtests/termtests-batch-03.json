@@ -1,0 +1,54 @@
+{
+  "tests": [
+    {
+      "input": "A\\e[B\\e[GB",
+      "output": "AB",
+      "description": "Down then home then B"
+    },
+    {
+      "input": "ABC\\e[3DXYZ",
+      "output": "XYZ",
+      "description": "Back 3 overwrite"
+    },
+    {
+      "input": "\\e[31;1mBOLD RED",
+      "output": "BOLD RED",
+      "description": "Bold red combo"
+    },
+    {
+      "input": "\\e[32;4mGREEN UNDER",
+      "output": "GREEN UNDER",
+      "description": "Green underline"
+    },
+    {
+      "input": "\\e[33;5mYELLOW BLINK",
+      "output": "YELLOW BLINK",
+      "description": "Yellow blink"
+    },
+    {
+      "input": "\\e[34;1;4mBLUE BOLD UNDER",
+      "output": "BLUE BOLD UNDER",
+      "description": "Blue bold underline"
+    },
+    {
+      "input": "\\e[35;3mMAG ITALIC",
+      "output": "MAG ITALIC",
+      "description": "Magenta italic"
+    },
+    {
+      "input": "Line1\\r\\nLine2",
+      "output": "Line1\n          Line2",
+      "description": "CRLF"
+    },
+    {
+      "input": "A\\tB",
+      "output": "A       B",
+      "description": "Tab"
+    },
+    {
+      "input": "\\e[H\\e[JHello",
+      "output": "Hello",
+      "description": "Clear screen then text"
+    }
+  ]
+}

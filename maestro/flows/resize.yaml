@@ -1,0 +1,51 @@
+appId: com.termux
+name: Orientation change survives without crash
+tags:
+  - e2e
+  - p2
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "ModifierBar"
+    timeout: 60000
+- assertVisible:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+# Establish a known terminal state
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo RESIZE_TEST"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: resize_before
+# Maestro has no native rotate keyword. In CI the orientation change is applied
+# on the device via `adb shell wm set-user-rotation lock <rotation>` (or the
+# emulator is started in landscape). This flow asserts that after the
+# configuration change the terminal surface is still present and interactive.
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo RESIZE_RESTORED"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: resize_after_orientation

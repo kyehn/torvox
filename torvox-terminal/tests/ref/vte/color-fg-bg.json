@@ -1,0 +1,10 @@
+{"tests":[
+{"seq":"1b5b333b34336d58","name":"SGR 3 italic + 43 bg yellow","cells":[{"char":"X","fg":"","bg":"aa5500","italic":true}]},
+{"seq":"1b5b33313b34316d58","name":"SGR 31 fg red + 41 bg red","cells":[{"char":"X","fg":"aa0000","bg":"aa0000"}]},
+{"seq":"1b5b33323b34326d58","name":"SGR 32 fg green + 42 bg green","cells":[{"char":"X","fg":"00aa00","bg":"00aa00"}]},
+{"seq":"1b5b39313b3130336d58","name":"SGR 91 bright fg red + 103 bright bg yellow","cells":[{"char":"X","fg":"ff5555","bg":"ffff55"}]},
+{"seq":"1b5b3331383b323b3235353b303b306d58","name":"SGR 38;2;255;0;0 fg red","cells":[{"char":"X","fg":"ff0000","bg":""}]},
+{"seq":"1b5b34383b323b303b3235353b306d58","name":"SGR 48;2;0;255;0 bg green","cells":[{"char":"X","fg":"","bg":"00ff00"}]},
+{"seq":"1b5b33383b353b3139366d58","name":"SGR 38;5;196 fg indexed red","cells":[{"char":"X","fg":"ff0000","bg":""}]},
+{"seq":"1b5b34383b353b32316d58","name":"SGR 48;5;21 bg indexed blue","cells":[{"char":"X","fg":"","bg":"0000ff"}]}
+]}

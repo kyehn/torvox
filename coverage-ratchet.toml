@@ -1,0 +1,36 @@
+[workspace]
+initial_threshold = 25.0
+target_threshold = 60.0
+ratchet_increment = 1.0
+
+[crates.torvox-core]
+threshold = 45.0
+target = 60.0
+
+[crates.torvox-terminal]
+threshold = 30.0
+target = 60.0
+
+[crates.torvox-renderer]
+threshold = 25.0
+target = 60.0
+
+[crates.torvox-gui-android]
+threshold = 15.0
+target = 50.0
+
+[crates.torvox-integration-tests]
+threshold = 15.0
+target = 50.0
+
+[crates.torvox-mcp]
+threshold = 20.0
+target = 55.0
+
+[ratchet]
+enabled = true
+auto_bump = true
+require_clean_ci = true
+
+[cargo-llvm-cov]
+exclude_lines = ["mod tests", "unreachable!", "todo!"]

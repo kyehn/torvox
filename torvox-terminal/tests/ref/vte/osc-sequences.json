@@ -1,0 +1,12 @@
+{"tests":[
+{"seq":"1d324f70656e5469746c651b5c","name":"OSC 0 set title","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1d314e65775469746c651b5c","name":"OSC 1 set icon title","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1d324d795469746c651b5c","name":"OSC 2 set title","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1d31303b236666303030301b5c","name":"OSC 10 fg color","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1d31313b233030306666661b5c","name":"OSC 11 bg color","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1d31323b236666303030301b5c","name":"OSC 12 cursor color","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1d343b313b236666303030301b5c","name":"OSC 4 palette 1 red","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1d343b323b233030666630301b5c","name":"OSC 4 palette 2 green","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1d343b333b233030303066661b5c","name":"OSC 4 palette 3 blue","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1d383b3b68747470733a2f2f6578616d706c652e636f6d1b5c58","name":"OSC 8 hyperlink","cells":[{"char":" ","fg":"","bg":""}]}
+]}

@@ -1,0 +1,41 @@
+appId: com.termux
+name: Type into terminal and verify echo
+tags:
+  - e2e
+  - p0
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+# Focus the terminal surface and type the command
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo hello"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+# Terminal text is rendered on a GPU canvas (SurfaceView) so it is not part of
+# the view hierarchy; the echo is verified via screenshot. The terminal must
+# remain interactive and visible after typing.
+- takeScreenshot: type_command_echo_hello
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"

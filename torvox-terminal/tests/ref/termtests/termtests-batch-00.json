@@ -1,0 +1,54 @@
+{
+  "tests": [
+    {
+      "input": "Hello",
+      "output": "Hello",
+      "description": "Plain text"
+    },
+    {
+      "input": "\\e[31mRED\\e[0m",
+      "output": "RED",
+      "description": "SGR 31 red"
+    },
+    {
+      "input": "\\e[32mGREEN\\e[0m",
+      "output": "GREEN",
+      "description": "SGR 32 green"
+    },
+    {
+      "input": "\\e[33mYELLOW\\e[0m",
+      "output": "YELLOW",
+      "description": "SGR 33 yellow"
+    },
+    {
+      "input": "\\e[34mBLUE\\e[0m",
+      "output": "BLUE",
+      "description": "SGR 34 blue"
+    },
+    {
+      "input": "\\e[1mBOLD\\e[0m",
+      "output": "BOLD",
+      "description": "SGR 1 bold"
+    },
+    {
+      "input": "\\e[3mITALIC\\e[0m",
+      "output": "ITALIC",
+      "description": "SGR 3 italic"
+    },
+    {
+      "input": "\\e[4mUNDER\\e[0m",
+      "output": "UNDER",
+      "description": "SGR 4 underline"
+    },
+    {
+      "input": "AB",
+      "output": "AB",
+      "description": "Simple characters"
+    },
+    {
+      "input": "A\\e[2CB",
+      "output": "A B",
+      "description": "CUF 2"
+    }
+  ]
+}

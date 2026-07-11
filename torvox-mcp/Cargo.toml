@@ -1,0 +1,27 @@
+[package]
+name = "torvox-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Model Context Protocol (MCP) server for AI agent inspection of Torvox terminal sessions"
+
+[[bin]]
+name = "torvox-mcp"
+path = "src/main.rs"
+
+[dependencies]
+torvox-core = { workspace = true }
+serde = { workspace = true }
+serde_json = "1"
+thiserror = { workspace = true }
+flume = { workspace = true }
+clap = { version = "4", features = ["derive"] }
+log = { workspace = true }
+env_logger = "0.11"
+
+[dev-dependencies]
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
+
+[lints]
+workspace = true

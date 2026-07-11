@@ -1,0 +1,41 @@
+appId: "com.termux"
+name: "Add session via drawer and verify"
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "ModifierBar"
+# Open drawer to see session list
+- tapOn:
+    id: "Key_DRAWER"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "SessionDrawer"
+- assertVisible:
+    id: "AddSessionButton"
+# Add a new session
+- tapOn:
+    id: "AddSessionButton"
+- waitForAnimationToEnd:
+    timeout: 5000
+# Verify terminal is still responsive (drawer closed)
+- assertVisible:
+    id: "TerminalContent"
+- tapOn:
+    id: "Key_ESC"
+- tapOn:
+    id: "Key_CTRL"
+- takeScreenshot: session_added

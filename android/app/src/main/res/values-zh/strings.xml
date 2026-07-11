@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Torvox</string>
+
+    <!-- Settings screen -->
+    <string name="settings">设置</string>
+    <string name="back">返回</string>
+
+    <!-- Appearance -->
+    <string name="appearance">外观</string>
+    <string name="font_size">字体大小</string>
+    <string name="font_family">字体</string>
+    <string name="system_default">系统默认</string>
+    <string name="change">更改</string>
+    <string name="select_font_family">选择字体</string>
+    <string name="pick_font_file">从文件选择…</string>
+    <string name="copy">复制</string>
+    <string name="paste">粘贴</string>
+    <string name="cancel">取消</string>
+    <string name="select_all">全选</string>
+    <string name="select_all_action">全选</string>
+    <string name="share">分享</string>
+
+    <!-- Advanced -->
+    <string name="advanced">高级</string>
+    <string name="use_nerd_font_glyphs">使用 Nerd Font 图标</string>
+    <string name="nerd_font_desc">使用备用字体显示 Nerd Font 图标字形</string>
+    <string name="semantic_selection">语义选择 (OSC 133)</string>
+    <string name="semantic_selection_desc">使用 Shell 提示符标记进行智能文本选择</string>
+    <string name="bootstrap_url_label">Bootstrap URL</string>
+    <string name="bootstrap_url_placeholder">https://github.com/termux/termux-packages/releases/...</string>
+    <string name="bootstrap_desc">包管理的引导程序包</string>
+    <string name="bootstrap_presets">预设</string>
+    <string name="bootstrap_preset_termux">Termux 默认</string>
+    <string name="bootstrap_preset_termux_desc">标准 Termux 引导程序，包含 bash、coreutils 和包管理器</string>
+    <string name="bootstrap_preset_custom">自定义 / 空</string>
+    <string name="bootstrap_preset_custom_desc">以空根文件系统启动</string>
+    <string name="install">安装</string>
+    <string name="bootstrap">引导程序</string>
+    <string name="bootstrap_install">安装引导程序</string>
+    <string name="bootstrap_installing">安装中\u2026</string>
+    <string name="session_restore">恢复会话</string>
+    <string name="session_restore_desc">在应用启动时重新打开之前的会话</string>
+    <string name="keyboard_mode">键盘模式</string>
+    <string name="keyboard_secure">安全模式</string>
+    <string name="keyboard_secure_desc">无建议、无自动纠正、无个性化学习</string>
+    <string name="keyboard_standard">标准模式</string>
+    <string name="keyboard_standard_desc">完整输入法，支持自动纠正和建议</string>
+    <string name="keyboard_raw">原始模式</string>
+    <string name="keyboard_raw_desc">无输入法 — 仅物理键盘和原始按键事件</string>
+
+    <!-- Software theme -->
+    <string name="software_theme">软件主题</string>
+
+    <!-- Terminal theme -->
+    <string name="theme">终端主题</string>
+    <string name="day">日间</string>
+    <string name="night">夜间</string>
+    <string name="follow_system">跟随系统</string>
+    <string name="day_theme">日间主题</string>
+    <string name="night_theme">夜间主题</string>
+    <string name="md_you">Material You</string>
+    <string name="fixed">固定</string>
+
+    <!-- Terminal -->
+    <string name="terminal">终端</string>
+    <string name="shell">壳</string>
+    <string name="shell_placeholder">/system/bin/sh</string>
+    <string name="scrollback_lines">回滚行数</string>
+
+    <!-- Session -->
+    <string name="sessions">会话</string>
+
+    <!-- ModifierBar -->
+    <string name="settings_button">设置</string>
+
+    <!-- Terminal screen -->
+    <string name="terminal_title">Torvox</string>
+    <string name="close">关闭</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_new_session">新建会话</string>
+    <string name="cd_settings">设置</string>
+    <string name="cd_close_session">关闭会话</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">终端会话</string>
+    <string name="notification_channel_desc">用于活跃终端会话的持久通知</string>
+    <string name="notification_active_single">终端会话活跃中</string>
+    <string name="notification_active_plural">%d 个终端会话活跃中</string>
+
+    <!-- Feedback -->
+    <string name="copied_chars">已复制 %d 个字符</string>
+    <string name="pasted_chars">已粘贴 %d 个字符</string>
+
+    <!-- Error -->
+    <string name="unsupported_abi">不支持的 ABI: %s</string>
+    <!-- Accessibility -->
+    <string name="sessions_accessible">%d 个会话</string>
+    <string name="title_changed">终端标题已更改为 %s</string>
+
+    <!-- USB Serial -->
+    <string name="usb_serial">USB 串口</string>
+    <string name="usb_serial_desc">连接 USB 串口适配器（CDC-ACM、FTDI、CH340）</string>
+
+    <!-- MCP Server -->
+    <string name="mcp_server">MCP 服务器</string>
+    <string name="mcp_server_desc">通过 Model Context Protocol 套接字暴露终端</string>
+
+    <!-- Text Search -->
+    <string name="text_search">文本搜索</string>
+    <string name="text_search_desc">搜索终端输出</string>
+    <string name="search_placeholder">搜索终端…</string>
+    <string name="search_next">下一个</string>
+    <string name="search_previous">上一个</string>
+    <string name="search_close">关闭搜索</string>
+    <string name="search_no_results">无结果</string>
+    <string name="search_result_of">第 %d 个，共 %d 个</string>
+
+    <!-- File Manager -->
+    <string name="file_manager">文件管理器</string>
+    <string name="cd_file_manager">打开文件管理器</string>
+
+    <!-- Volume Key Mapping -->
+    <string name="volume_key_map">音量键映射</string>
+    <string name="volume_key_map_desc">音量加映射为 Ctrl，音量减映射为 Fn</string>
+
+    <!-- Cursor Settings -->
+    <string name="session_restore_off_desc">应用启动时不会恢复之前的会话</string>
+    <string name="on">开</string>
+    <string name="off">关</string>
+    <string name="cjk_fallback_missing_warning">未检测到 CJK 回退字体。东亚字符可能无法正确显示。</string>
+    <string name="cursor_blink">光标闪烁</string>
+    <string name="cursor_blink_desc">切换光标闪烁动画</string>
+    <string name="cursor_speed">闪烁速度</string>
+    <string name="cursor_style_label">光标样式</string>
+</resources>

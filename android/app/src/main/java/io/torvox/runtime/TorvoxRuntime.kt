@@ -1,0 +1,1230 @@
+package io.torvox.runtime
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.media.AudioManager
+import android.media.ToneGenerator
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import android.view.Surface
+import androidx.compose.ui.graphics.Color
+import dagger.hilt.android.qualifiers.ApplicationContext
+import io.torvox.bridge.BridgeTheme
+import io.torvox.bridge.Shell
+import io.torvox.bridge.TerminalConfig
+import io.torvox.bridge.TorvoxBridge
+import io.torvox.bridge.createBridge
+import io.torvox.settings.SettingsRepository
+import io.torvox.ui.theme.BuiltInThemes
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import java.util.concurrent.ConcurrentHashMap
+import javax.inject.Inject
+import javax.inject.Singleton
+
+data class RuntimeState(
+    val isRunning: Boolean = false,
+    val title: String = "Torvox",
+    val rows: Int = 24,
+    val cols: Int = 80,
+    val activeSessionId: Long = 0L,
+    val sessionIds: List<Long> = emptyList(),
+)
+
+private class SessionEntry(
+    val id: Long,
+    var bridge: TorvoxBridge?,
+    var renderThread: Thread?,
+    @Volatile var running: Boolean,
+    val savePath: String,
+    @Volatile var blitCallback: (() -> Unit)? = null,
+) {
+    @Volatile var dirtySignal: java.util.concurrent.CountDownLatch = java.util.concurrent.CountDownLatch(1)
+
+    @Volatile var forceRenderRequested: Boolean = false
+
+    @Volatile var scrollOffset: UInt = 0u
+}
+
+@Singleton
+class TorvoxRuntime
+@Inject
+constructor(
+    @ApplicationContext private val context: Context,
+    private val settingsRepository: SettingsRepository,
+) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val _state = MutableStateFlow(RuntimeState())
+    val state: StateFlow<RuntimeState> = _state.asStateFlow()
+
+    private val sessions = ConcurrentHashMap<Long, SessionEntry>()
+
+    @Volatile var accentColor: Int = 0xFF2196F3.toInt()
+
+    @Volatile var selectionBgColor: Int = 0xFF45475A.toInt()
+
+    @Volatile var cellWidth: Float = 0f
+
+    @Volatile var cellHeight: Float = 0f
+
+    private val renderGeneration =
+        java.util.concurrent.atomic
+            .AtomicInteger(0)
+
+    @Volatile private var activeSessionId: Long = 0L
+
+    @Volatile private var stopped = false
+
+    @Volatile private var starting = false
+    private val stopLock = Any()
+    private val sessionLock = Any()
+
+    private var foregroundServiceRunning = false
+
+    private fun startForegroundServiceIfNeeded() {
+        if (!foregroundServiceRunning) {
+            io.torvox.service.TerminalForegroundService
+                .start(context)
+            foregroundServiceRunning = true
+            LogUtil.d("TorvoxRuntime", "foreground service started")
+        }
+    }
+
+    private fun stopForegroundService() {
+        if (foregroundServiceRunning) {
+            io.torvox.service.TerminalForegroundService
+                .stop(context)
+            foregroundServiceRunning = false
+            LogUtil.d("TorvoxRuntime", "foreground service stopped")
+        }
+    }
+
+    private data class SelectionStateSnapshot(
+        val startRow: UInt,
+        val startCol: UInt,
+        val endRow: UInt,
+        val endCol: UInt,
+        val hasSelection: Boolean,
+        val mode: Byte,
+    )
+
+    private val selectionState =
+        java.util.concurrent.atomic.AtomicReference(
+            SelectionStateSnapshot(0u, 0u, 0u, 0u, false, 0),
+        )
+
+    fun setScrollOffset(offset: UInt) {
+        val entry = sessions[activeSessionId] ?: return
+        entry.scrollOffset = offset
+        entry.bridge?.setScrollOffset(offset)
+        // Call render directly to ensure immediate visual feedback
+        entry.bridge?.render()
+        entry.dirtySignal.countDown()
+    }
+
+    fun getScrollOffset(): UInt = sessions[activeSessionId]?.scrollOffset ?: 0u
+
+    fun forceRender() {
+        val entry = sessions[activeSessionId] ?: return
+        entry.forceRenderRequested = true
+        entry.dirtySignal.countDown()
+    }
+
+    private fun sessionSavePath(id: Long): String {
+        val sessionsDirectory = context.getDir("sessions", Context.MODE_PRIVATE)
+        return java.io.File(sessionsDirectory, "session_$id.bin").absolutePath
+    }
+
+    private suspend fun buildConfig(
+        rows: UInt = 24u,
+        cols: UInt = 80u,
+    ): TerminalConfig {
+        val configReads =
+            coroutineScope {
+                val shellDeferred = async { settingsRepository.shell.first() }
+                val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
+                val fontDeferred = async { computeFontSizeTenths() }
+                val themeDeferred = async { resolveThemeName() }
+                ConfigReads(
+                    shellPath = shellDeferred.await(),
+                    scrollbackLines = scrollbackDeferred.await(),
+                    fontSizeTenths = fontDeferred.await(),
+                    themeName = themeDeferred.await(),
+                )
+            }
+        val resolvedTheme = BuiltInThemes.byName(configReads.themeName)
+        val shell = resolveShell(configReads.shellPath)
+        val bridgeTheme = makeBridgeTheme(resolvedTheme)
+        accentColor = bridgeTheme.ansi5
+        selectionBgColor = bridgeTheme.selectionBg
+        val prefixDir = java.io.File(context.filesDir, "bootstrap/usr").absolutePath
+        val homeDir = java.io.File(context.filesDir, "home").absolutePath
+        val bashFile = java.io.File("$prefixDir/bin/bash")
+        val bashComplete =
+            bashFile.exists() &&
+                java.io.File("$prefixDir/lib").isDirectory &&
+                java.io.File("$prefixDir/etc").isDirectory
+        val effectivePrefix = if (bashComplete) prefixDir else ""
+        val effectiveShell = if (bashComplete) Shell.Custom("$prefixDir/bin/bash") else shell
+        val effectiveHome =
+            if (bashComplete) {
+                homeDir
+            } else {
+                java.io
+                    .File(context.filesDir, "home")
+                    .apply {
+                        if (!mkdirs()) {
+                            Log.w("TorvoxRuntime", "Failed to create home directory: $this")
+                        }
+                    }.absolutePath
+            }
+        val effectivePath: String =
+            if (bashComplete) {
+                "$prefixDir/bin:${System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }}"
+            } else {
+                System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
+            }
+        return TerminalConfig(
+            shell = effectiveShell,
+            rows = rows,
+            cols = cols,
+            scrollbackLines = configReads.scrollbackLines.toUInt(),
+            font_size_tenths = configReads.fontSizeTenths,
+            theme = bridgeTheme,
+            home = effectiveHome,
+            user = System.getProperty("user.name") ?: "shell",
+            path = effectivePath,
+            workingDirectory = effectiveHome,
+            prefix = effectivePrefix,
+        )
+    }
+
+    private companion object {
+        private const val TENTHS_PER_UNIT = 10
+        private const val FONT_SIZE_DISPLAY_RATIO = 0.6f
+        private const val FONT_SIZE_MIN_PX = 300
+        private const val FONT_SIZE_MAX_PX = 600
+        private const val FONT_SIZE_HEIGHT_RATIO = 0.5f
+        private const val FONT_SIZE_HEIGHT_MIN_PX = 250
+        private const val FONT_SIZE_HEIGHT_MAX_PX = 500
+        private const val RENDER_ERROR_LOG_FREQUENCY = 60
+        private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
+        private const val RENDER_ERROR_SLEEP_MS = 50L
+        private const val RENDER_LATCH_TIMEOUT_MS = 16L
+        private const val RENDER_DIAGNOSTIC_FREQUENCY = 60
+        private const val THREAD_JOIN_TIMEOUT_MS = 500L
+        private const val BEL_TONE_STREAM_TYPE = AudioManager.STREAM_NOTIFICATION
+        private const val BEL_TONE_VOLUME = 50
+        private const val BEL_TONE_TYPE = ToneGenerator.TONE_PROP_ACK
+        private const val BEL_TONE_DURATION_MILLIS = 200
+        private const val RENDER_COOLDOWN_MS = 1000L
+    }
+
+    private data class ConfigReads(
+        val shellPath: String,
+        val scrollbackLines: Int,
+        val fontSizeTenths: UInt,
+        val themeName: String,
+    )
+
+    internal suspend fun computeFontSizeTenths(): UInt {
+        val userFontSize = settingsRepository.fontSize.first()
+        val density = context.resources.displayMetrics.density
+        val cellHeightPixels = userFontSize * density
+        return (cellHeightPixels * TENTHS_PER_UNIT.toFloat()).toInt().toUInt()
+    }
+
+    internal suspend fun resolveThemeName(): String {
+        val themeMode = settingsRepository.themeMode.first()
+        val dayTheme = settingsRepository.dayThemeName.first()
+        val nightTheme = settingsRepository.nightThemeName.first()
+        val singleTheme = settingsRepository.themeName.first()
+        val systemDark =
+            (
+                context.resources.configuration.uiMode and
+                    android.content.res.Configuration.UI_MODE_NIGHT_MASK
+                ) ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val effectiveDark =
+            when (settingsRepository.appThemeMode.first()) {
+                "day" -> false
+                "night" -> true
+                else -> systemDark
+            }
+        return when (themeMode) {
+            "day" -> dayTheme
+            "night" -> nightTheme
+            "fixed" -> singleTheme
+            else -> if (effectiveDark) nightTheme else dayTheme
+        }
+    }
+
+    private fun resolveShell(shellPath: String): Shell = if (shellPath == "/system/bin/sh" || shellPath.isEmpty()) {
+        Shell.SystemDefault
+    } else {
+        Shell.Custom(shellPath)
+    }
+
+    private fun makeBridgeTheme(resolvedTheme: io.torvox.ui.theme.TerminalTheme): BridgeTheme {
+        fun colorToInt(color: androidx.compose.ui.graphics.Color): Int = ((color.alpha * 255).toInt() shl 24) or
+            ((color.red * 255).toInt() shl 16) or
+            ((color.green * 255).toInt() shl 8) or
+            (color.blue * 255).toInt()
+        val backgroundColor = colorToInt(resolvedTheme.background)
+        val foregroundColor = colorToInt(resolvedTheme.foreground)
+        val cursor = colorToInt(resolvedTheme.cursor)
+        val ansiInts = resolvedTheme.ansi.map(::colorToInt)
+        val resolvedSelectionBg = if (resolvedTheme.selectionBg == Color.Transparent) Color(0xFF45475A) else resolvedTheme.selectionBg
+        return BridgeTheme(
+            name = resolvedTheme.name,
+            bg = backgroundColor,
+            fg = foregroundColor,
+            cursor = cursor,
+            selectionBg = colorToInt(resolvedSelectionBg),
+            ansi0 = ansiInts[0],
+            ansi1 = ansiInts[1],
+            ansi2 = ansiInts[2],
+            ansi3 = ansiInts[3],
+            ansi4 = ansiInts[4],
+            ansi5 = ansiInts[5],
+            ansi6 = ansiInts[6],
+            ansi7 = ansiInts[7],
+            ansi8 = ansiInts[8],
+            ansi9 = ansiInts[9],
+            ansi10 = ansiInts[10],
+            ansi11 = ansiInts[11],
+            ansi12 = ansiInts[12],
+            ansi13 = ansiInts[13],
+            ansi14 = ansiInts[14],
+            ansi15 = ansiInts[15],
+        )
+    }
+
+    suspend fun start(
+        surface: Surface?,
+        width: Int,
+        height: Int,
+        blitCallback: (() -> Unit)? = null,
+    ) {
+        if (stopped) return
+        synchronized(sessionLock) {
+            if (sessions.isNotEmpty() || starting) return
+            starting = true
+        }
+        stopped = false
+        LogUtil.d("TorvoxRuntime", "start() called: surface=$surface width=$width height=$height")
+        LogcatFileWriter.write("TorvoxRuntime", "start() called: surface=$surface width=$width height=$height")
+        val displayW = context.resources.displayMetrics.widthPixels
+        val displayH = context.resources.displayMetrics.heightPixels
+        val density = context.resources.displayMetrics.density
+        LogUtil.d(
+            "TorvoxRuntime",
+            "displayMetrics: w=$displayW h=$displayH density=$density",
+        )
+
+        val bypassMinSurface = System.getProperty("torvox.test.minSurface") != null
+
+        if (!bypassMinSurface && (width <= 0 || height <= 0)) {
+            LogUtil.e("TorvoxRuntime", "start() called with non-positive dimensions, waiting for surfaceChanged")
+            starting = false
+            return
+        }
+
+        val minWidth = (displayW * FONT_SIZE_DISPLAY_RATIO).toInt().coerceIn(FONT_SIZE_MIN_PX, FONT_SIZE_MAX_PX)
+        val minHeight = (displayH * FONT_SIZE_HEIGHT_RATIO).toInt().coerceIn(FONT_SIZE_HEIGHT_MIN_PX, FONT_SIZE_HEIGHT_MAX_PX)
+        if (!bypassMinSurface && (width < minWidth || height < minHeight)) {
+            LogUtil.w(
+                "TorvoxRuntime",
+                "start() called with small surface ${width}x$height (display=${displayW}x$displayH min=${minWidth}x$minHeight), waiting for correct surfaceChanged",
+            )
+            starting = false
+            return
+        }
+
+        var windowPointer = 0L
+        if (surface != null) {
+            windowPointer = getNativeWindowPtr(surface)
+            LogUtil.d("TorvoxRuntime", "windowPointer=0x${windowPointer.toString(16)}")
+            if (windowPointer == 0L) {
+                LogUtil.e("TorvoxRuntime", "getNativeWindowPtr returned 0 - surface invalid!")
+                val fallbackPointer = getNativeWindowPtrReflection(surface)
+                LogUtil.d("TorvoxRuntime", "reflection fallback: 0x${fallbackPointer.toString(16)}")
+                if (fallbackPointer == 0L) {
+                    LogUtil.e("TorvoxRuntime", "all methods to get window ptr failed, aborting start")
+                    starting = false
+                    return
+                }
+                windowPointer = fallbackPointer
+            }
+        } else {
+            LogUtil.d("TorvoxRuntime", "no surface — using GPU offscreen rendering path")
+        }
+
+        try {
+            // Allow test override via system property (no DataStore dependency)
+            val testUrl = System.getProperty("torvox.test.bootstrapUrl")
+            val bootstrapUrl = if (testUrl != null) testUrl else settingsRepository.bootstrapUrl.first()
+            if (bootstrapUrl.isNotEmpty()) {
+                LogUtil.d("TorvoxRuntime", "Bootstrap URL set: $bootstrapUrl")
+                val downloader = io.torvox.installer.BootstrapDownloader(context)
+                val installer =
+                    io.torvox.installer.BootstrapInstaller(
+                        prefixDir = java.io.File(context.filesDir, "bootstrap/usr"),
+                        homeDir = java.io.File(context.filesDir, "home"),
+                        stagingDir = java.io.File(context.filesDir, "bootstrap/usr-staging"),
+                    )
+                val secondStage =
+                    io.torvox.installer.SecondStageRunner(
+                        prefixDir = java.io.File(context.filesDir, "bootstrap/usr"),
+                        homeDir = java.io.File(context.filesDir, "home"),
+                    )
+                val orchestrator = io.torvox.installer.BootstrapOrchestrator(downloader, installer, secondStage)
+                when (orchestrator.getInstallStatus()) {
+                    io.torvox.installer.BootstrapOrchestrator.Status.NOT_INSTALLED -> {
+                        LogUtil.d("TorvoxRuntime", "Bootstrap not installed, starting install...")
+                        val result = orchestrator.ensureBootstrap(bootstrapUrl)
+                        LogUtil.d("TorvoxRuntime", "Bootstrap result: $result")
+                    }
+
+                    io.torvox.installer.BootstrapOrchestrator.Status.INSTALLED -> {
+                        LogUtil.d("TorvoxRuntime", "Bootstrap already installed")
+                    }
+
+                    else -> {}
+                }
+            }
+            val configStartNs = System.nanoTime()
+            val config = buildConfig()
+            LogUtil.d(
+                "TorvoxRuntime",
+                "buildConfig: fontSizeTenths=${config.font_size_tenths} rows=${config.rows} cols=${config.cols} theme=${config.theme.name} elapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms",
+            )
+            val bridgeStartNs = System.nanoTime()
+            val bridge = createBridge(config)
+            LogUtil.d("TorvoxRuntime", "bridge created: ${bridge.ping()} elapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms")
+
+            bridge.setSystemLocale(
+                java.util.Locale
+                    .getDefault()
+                    .toLanguageTag(),
+            )
+            LogUtil.d("TorvoxRuntime", "setSystemLocale: ${java.util.Locale.getDefault().toLanguageTag()}")
+
+            val userFontsDir =
+                context.filesDir.resolve("fonts").apply {
+                    if (!mkdirs()) {
+                        Log.w("TorvoxRuntime", "Failed to create fonts directory: $this")
+                    }
+                }
+            bridge.setExtraFontPaths(listOf(userFontsDir.absolutePath))
+            LogUtil.d("TorvoxRuntime", "setExtraFontPaths: ${userFontsDir.absolutePath}")
+
+            val sessionId = 1L
+            val savePath = sessionSavePath(sessionId)
+            bridge.setSavePath(savePath)
+
+            bridge.setNativeWindow(windowPointer, width, height)
+            LogUtil.d("TorvoxRuntime", "setNativeWindow OK: width=$width height=$height")
+
+            val spawnStartNs = System.nanoTime()
+            val spawnResult = bridge.spawnTerminal(config.rows, config.cols)
+            val spawnElapsedMs = (System.nanoTime() - spawnStartNs) / 1_000_000
+            LogUtil.d(
+                "TorvoxRuntime",
+                "spawnTerminal: rows=${config.rows} cols=${config.cols} result=$spawnResult elapsed=${spawnElapsedMs}ms",
+            )
+
+            val shouldRestore = settingsRepository.sessionRestore.first()
+            if (shouldRestore && bridge.hasSavedSession(savePath)) {
+                LogUtil.d("TorvoxRuntime", "restoring saved session from $savePath")
+                try {
+                    bridge.restoreSession(savePath)
+                } catch (exception: Exception) {
+                    LogUtil.e("TorvoxRuntime", "Session restore failed, deleting corrupted file", exception)
+                    java.io.File(savePath).delete()
+                }
+            } else if (!shouldRestore && bridge.hasSavedSession(savePath)) {
+                LogUtil.d("TorvoxRuntime", "session_restore=OFF, deleting saved session")
+                java.io.File(savePath).delete()
+            }
+
+            try {
+                val initialFontFamily = settingsRepository.fontFamily.first()
+                val effectiveFont = io.torvox.resolveEffectiveFontFamily(initialFontFamily)
+                bridge.setFontFamily(effectiveFont)
+                bridge.setTheme(config.theme)
+                val cursorStyle = settingsRepository.cursorStyle.first()
+                bridge.setCursorStyle(cursorStyle)
+                LogUtil.d(
+                    "TorvoxRuntime",
+                    "settings applied: fontFamily=$effectiveFont theme=${config.theme.name} cursorStyle=$cursorStyle",
+                )
+            } catch (exception: Exception) {
+                LogUtil.e("TorvoxRuntime", "Failed to apply initial settings (continuing with defaults)", exception)
+            }
+
+            val entry =
+                SessionEntry(
+                    id = sessionId,
+                    bridge = bridge,
+                    renderThread = null,
+                    running = true,
+                    savePath = savePath,
+                )
+            sessions[sessionId] = entry
+            activeSessionId = sessionId
+            if (blitCallback != null) {
+                entry.blitCallback = blitCallback
+            }
+            bridge.render()
+            startRenderThread(entry)
+
+            _state.value =
+                RuntimeState(
+                    isRunning = true,
+                    rows = config.rows.toInt(),
+                    cols = config.cols.toInt(),
+                    activeSessionId = sessionId,
+                    sessionIds = listOf(sessionId),
+                )
+            LogUtil.d(
+                "TorvoxRuntime",
+                "session $sessionId config: rows=${config.rows} cols=${config.cols} fontSizeTenths=${config.font_size_tenths}",
+            )
+            LogUtil.d("TorvoxRuntime", "session $sessionId started")
+            startForegroundServiceIfNeeded()
+        } catch (exception: Exception) {
+            LogUtil.e("TorvoxRuntime", "Failed to start terminal", exception)
+            LogcatFileWriter.write("TorvoxRuntime", "FAILED to start terminal: ${exception.message}\n${exception.stackTraceToString()}")
+        } finally {
+            starting = false
+        }
+    }
+
+    // Architecture Note: each session currently creates its own bridge with a
+    // separate GPU surface (surface.rs owns the wgpu pipeline per ANativeWindow).
+    // Sharing a single pre-initialized GPU pipeline across sessions is a possible
+    // future optimization (could cut session-creation time) but is not yet
+    // implemented — do not assume a shared pipeline exists.
+    suspend fun createSession(
+        surface: Surface,
+        width: Int,
+        height: Int,
+    ): Long {
+        if (width <= 0 || height <= 0) {
+            LogUtil.e("TorvoxRuntime", "createSession: invalid dimensions ${width}x$height")
+            return -1L
+        }
+        if (!surface.isValid) {
+            LogUtil.e("TorvoxRuntime", "createSession: surface is not valid")
+            return -1L
+        }
+        val nextId = (sessions.keys.maxOrNull() ?: 0L) + 1
+        LogUtil.d("TorvoxRuntime", "createSession() id=$nextId")
+
+        try {
+            val configStartNs = System.nanoTime()
+            val config = buildConfig()
+            val bridgeStartNs = System.nanoTime()
+            val bridge = createBridge(config)
+            LogUtil.d(
+                "TorvoxRuntime",
+                "createSession id=$nextId configElapsed=${(System.nanoTime() - configStartNs) / 1_000_000}ms bridgeElapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms",
+            )
+            bridge.setSystemLocale(
+                java.util.Locale
+                    .getDefault()
+                    .toLanguageTag(),
+            )
+
+            try {
+                val initialFontFamily = settingsRepository.fontFamily.first()
+                val effectiveFont = io.torvox.resolveEffectiveFontFamily(initialFontFamily)
+                bridge.setFontFamily(effectiveFont)
+                bridge.setTheme(config.theme)
+                val cursorStyle = settingsRepository.cursorStyle.first()
+                bridge.setCursorStyle(cursorStyle)
+            } catch (exception: Exception) {
+                LogUtil.e("TorvoxRuntime", "Failed to apply settings to new session (continuing with defaults)", exception)
+            }
+
+            val savePath = sessionSavePath(nextId)
+            bridge.setSavePath(savePath)
+
+            val entry =
+                SessionEntry(
+                    id = nextId,
+                    bridge = bridge,
+                    renderThread = null,
+                    running = false,
+                    savePath = savePath,
+                )
+            synchronized(sessionLock) {
+                sessions[nextId] = entry
+
+                try {
+                    switchSessionInternal(
+                        nextId,
+                        surface,
+                        width,
+                        height,
+                        needsSpawn = true,
+                        spawnRows = config.rows,
+                        spawnCols = config.cols,
+                    )
+                } catch (exception: Exception) {
+                    LogUtil.e("TorvoxRuntime", "Failed to switch to new session $nextId, rolling back", exception)
+                    sessions.remove(nextId)
+                    throw exception
+                }
+
+                updateState()
+            }
+            LogUtil.d("TorvoxRuntime", "session $nextId created and activated")
+            return nextId
+        } catch (exception: Exception) {
+            LogUtil.e("TorvoxRuntime", "Failed to create session $nextId", exception)
+            LogcatFileWriter.write(
+                "TorvoxRuntime",
+                "FAILED to create session $nextId: ${exception.message}\n${exception.stackTraceToString()}",
+            )
+            return -1L
+        }
+    }
+
+    fun switchSession(
+        id: Long,
+        surface: Surface,
+        width: Int,
+        height: Int,
+    ) {
+        switchSessionInternal(id, surface, width, height)
+        updateState()
+    }
+
+    private fun switchSessionInternal(
+        id: Long,
+        surface: Surface,
+        width: Int,
+        height: Int,
+        needsSpawn: Boolean = false,
+        spawnRows: UInt = 24u,
+        spawnCols: UInt = 80u,
+    ) {
+        synchronized(sessionLock) {
+            val target =
+                sessions[id] ?: run {
+                    LogUtil.e("TorvoxRuntime", "switchSession: session $id not found")
+                    return
+                }
+            if (id == activeSessionId && !needsSpawn) return
+            if (stopped) {
+                LogUtil.e("TorvoxRuntime", "switchSession: runtime is stopped, aborting")
+                return
+            }
+
+            val windowPointer = getNativeWindowPtr(surface)
+            if (windowPointer == 0L) {
+                LogUtil.e("TorvoxRuntime", "switchSession: failed to get native window ptr")
+                return
+            }
+
+            if (!surface.isValid) {
+                LogUtil.e("TorvoxRuntime", "switchSession: surface is no longer valid, aborting")
+                return
+            }
+
+            val current = sessions[activeSessionId]
+            if (current != null) {
+                try {
+                    stopRenderThread(current)
+                    // Release the old bridge's GPU surface before the new bridge
+                    // creates its own on the same ANativeWindow. This avoids
+                    // VK_ERROR_NATIVE_WINDOW_IN_USE_KHR from the Vulkan driver
+                    // when two wgpu surfaces share the same ANativeWindow.
+                    current.bridge?.releaseGpuSurface()
+                } catch (exception: Exception) {
+                    LogUtil.e("TorvoxRuntime", "switchSession: error stopping current session", exception)
+                }
+            }
+
+            try {
+                if (stopped) {
+                    LogUtil.e("TorvoxRuntime", "switchSessionInternal: runtime stopped, aborting")
+                    return
+                }
+                if (needsSpawn) {
+                    target.bridge?.setNativeWindow(windowPointer, width, height)
+                    val spawnResult = target.bridge?.spawnTerminal(spawnRows, spawnCols)
+                    LogUtil.d(
+                        "TorvoxRuntime",
+                        "switchSessionInternal spawnTerminal for session $id rows=$spawnRows cols=$spawnCols result=$spawnResult",
+                    )
+                } else {
+                    target.bridge?.setNativeWindow(windowPointer, width, height)
+                    // Always update the GPU surface after setNativeWindow.
+                    // If releaseGpuSurface was called on this bridge during a
+                    // previous session switch, the wgpu surface is gone and must
+                    // be recreated from the current ANativeWindow via updateNativeWindow.
+                    target.bridge?.updateNativeWindow(windowPointer, width, height)
+                }
+                target.running = true
+                startRenderThread(target)
+                activeSessionId = id
+                target.bridge?.let { syncGridDimensions(it) }
+                LogUtil.d("TorvoxRuntime", "switched to session $id")
+            } catch (exception: Exception) {
+                LogUtil.e("TorvoxRuntime", "switchSession: setNativeWindow failed for session $id", exception)
+            }
+        }
+    }
+
+    fun closeSession(
+        id: Long,
+        surface: Surface? = null,
+        width: Int = 0,
+        height: Int = 0,
+    ) {
+        synchronized(sessionLock) {
+            val entry = sessions[id] ?: return
+            LogUtil.d("TorvoxRuntime", "closeSession($id)")
+
+            if (id == activeSessionId) {
+                stopRenderThread(entry)
+            }
+            entry.bridge?.releaseGpuSurface()
+            entry.bridge?.close()
+            sessions.remove(id)
+            io.torvox.service.TerminalForegroundService
+                .updateSessionCount(context, sessions.size)
+
+            // If we closed the active session, switch to another
+            if (id == activeSessionId) {
+                val remaining = sessions.keys.sorted()
+                if (remaining.isNotEmpty()) {
+                    val newId = remaining.last()
+                    activeSessionId = newId
+                    val newEntry =
+                        sessions[newId] ?: run {
+                            LogUtil.w("TorvoxRuntime", "closeSession: new active session $newId already removed")
+                            activeSessionId = 0L
+                            updateState()
+                            return
+                        }
+                    newEntry.running = true
+                    val bridge =
+                        newEntry.bridge ?: run {
+                            LogUtil.w("TorvoxRuntime", "closeSession: new active session $newId has no bridge")
+                            activeSessionId = 0L
+                            updateState()
+                            return
+                        }
+                    if (surface != null && width > 0 && height > 0) {
+                        val windowPointer = getNativeWindowPtr(surface)
+                        if (windowPointer != 0L) {
+                            try {
+                                bridge.setNativeWindow(windowPointer, width, height)
+                                bridge.updateNativeWindow(windowPointer, width, height)
+                            } catch (exception: Exception) {
+                                LogUtil.e("TorvoxRuntime", "closeSession: failed to rebind GPU for session $newId", exception)
+                            }
+                        }
+                    }
+                    startRenderThread(newEntry)
+                    bridge.let { syncGridDimensions(it) }
+                    LogUtil.d("TorvoxRuntime", "closeSession: restarted render for session $newId")
+                } else {
+                    activeSessionId = 0L
+                }
+            }
+            updateState()
+        }
+    }
+
+    suspend fun applySettings() {
+        val config = buildConfig()
+        val fontFamily = settingsRepository.fontFamily.first()
+        val effectiveFontFamily = io.torvox.resolveEffectiveFontFamily(fontFamily)
+        val cursorStyle = settingsRepository.cursorStyle.first()
+        sessions.values.forEach { entry ->
+            entry.bridge?.setFontSize(config.font_size_tenths)
+            entry.bridge?.setFontFamily(effectiveFontFamily)
+            entry.bridge?.setTheme(config.theme)
+            entry.bridge?.setCursorStyle(cursorStyle)
+            entry.bridge?.resize(config.rows, config.cols)
+            entry.dirtySignal.countDown()
+        }
+    }
+
+    suspend fun applyFontSettings() {
+        val fontSizeTenths = computeFontSizeTenths()
+        val fontFamily = settingsRepository.fontFamily.first()
+        val effectiveFontFamily = io.torvox.resolveEffectiveFontFamily(fontFamily)
+        LogUtil.d(
+            "TorvoxRuntime",
+            "applyFontSettings: fontFamily='$fontFamily' effective='$effectiveFontFamily' fontSizeTenths=$fontSizeTenths sessions=${sessions.size}",
+        )
+        sessions.values.forEach { entry ->
+            try {
+                val familyResult = entry.bridge?.setFontFamily(effectiveFontFamily)
+                LogUtil.d("TorvoxRuntime", "setFontFamily result: $familyResult")
+                entry.bridge?.setFontSizeInPlace(fontSizeTenths)
+                entry.bridge?.let { syncGridDimensions(it) }
+            } catch (exception: Exception) {
+                LogUtil.e("TorvoxRuntime", "applyFontSettings failed for session", exception)
+            }
+        }
+    }
+
+    fun loadFontFile(path: String): String? {
+        val entry = sessions.values.firstOrNull() ?: return null
+        return entry.bridge?.loadFontFile(path)
+    }
+
+    fun writeToPty(data: ByteArray): Boolean {
+        val entry = sessions[activeSessionId]
+        if (entry != null && entry.running) {
+            val written = entry.bridge?.writeToPty(data) ?: false
+            entry.dirtySignal.countDown()
+            return written
+        }
+        LogUtil.w("TorvoxRuntime", "writeToPty: no active running session to receive write")
+        return false
+    }
+
+    fun bridge(): TorvoxBridge? = sessions[activeSessionId]?.bridge
+
+    fun activeSessionBridge(id: Long): TorvoxBridge? = sessions[id]?.bridge
+
+    fun focusChange(focused: Boolean) {
+        sessions.forEach { (_, entry) ->
+            entry.bridge?.focusEvent(focused)
+        }
+    }
+
+    fun currentCwd(): String {
+        val entry = sessions[activeSessionId] ?: return ""
+        return entry.bridge?.cwd() ?: ""
+    }
+
+    fun currentSessionIds(): List<Long> = sessions.keys.sorted()
+
+    fun currentActiveSessionId(): Long = activeSessionId
+
+    suspend fun saveSession() {
+        val shouldSave = settingsRepository.sessionRestore.first()
+        if (!shouldSave) {
+            LogUtil.d("TorvoxRuntime", "session_restore=OFF, skipping save")
+            return
+        }
+        val entry = sessions[activeSessionId] ?: return
+        entry.bridge?.setSavePath(entry.savePath)
+        try {
+            entry.bridge?.saveSession(entry.savePath)
+            LogUtil.d("TorvoxRuntime", "session saved to ${entry.savePath}")
+        } catch (exception: Exception) {
+            LogUtil.e("TorvoxRuntime", "Session save failed", exception)
+        }
+    }
+
+    suspend fun saveAllSessions() {
+        val shouldSave = settingsRepository.sessionRestore.first()
+        if (!shouldSave) return
+        sessions.values.forEach { entry ->
+            try {
+                entry.bridge?.setSavePath(entry.savePath)
+                entry.bridge?.saveSession(entry.savePath)
+                LogUtil.d("TorvoxRuntime", "session ${entry.id} saved to ${entry.savePath}")
+            } catch (exception: Exception) {
+                LogUtil.e("TorvoxRuntime", "Session ${entry.id} save failed", exception)
+            }
+        }
+    }
+
+    fun stop() {
+        synchronized(stopLock) {
+            if (stopped) return
+            stopped = true
+        }
+        synchronized(sessionLock) {
+            sessions.values.forEach { entry ->
+                stopRenderThread(entry)
+                entry.bridge?.releaseSurface()
+                entry.bridge?.close()
+            }
+            sessions.clear()
+            activeSessionId = 0L
+        }
+        _state.value = RuntimeState()
+        stopForegroundService()
+    }
+
+    fun pauseRendering() {
+        synchronized(sessionLock) {
+            sessions.values.forEach { entry ->
+                if (entry.running) {
+                    stopRenderThread(entry)
+                    entry.running = false
+                    LogUtil.d("TorvoxRuntime", "pauseRendering: session ${entry.id} stopped")
+                }
+            }
+        }
+    }
+
+    fun resumeRendering() {
+        synchronized(sessionLock) {
+            sessions.values.forEach { entry ->
+                if (!entry.running && entry.bridge != null) {
+                    try {
+                        entry.running = true
+                        startRenderThread(entry)
+                        LogUtil.d("TorvoxRuntime", "resumeRendering: session ${entry.id} restarted")
+                    } catch (exception: Exception) {
+                        LogUtil.e("TorvoxRuntime", "resumeRendering failed for session ${entry.id}", exception)
+                    }
+                }
+            }
+        }
+    }
+
+    fun setSelection(
+        startRow: UInt,
+        startCol: UInt,
+        endRow: UInt,
+        endCol: UInt,
+        hasSelection: Boolean,
+        mode: Byte = 0,
+    ) {
+        LogUtil.d("TorvoxRuntime", "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection mode=$mode")
+        selectionState.set(SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection, mode))
+        val entry = sessions[activeSessionId]
+        entry?.bridge?.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode)
+        entry?.dirtySignal?.countDown()
+    }
+
+    fun expandAndSetSelection(
+        row: UInt,
+        col: UInt,
+        mode: Byte = 0,
+    ): Pair<Pair<UInt, UInt>, Pair<UInt, UInt>>? {
+        LogUtil.d("TorvoxRuntime", "expandAndSetSelection: row=$row col=$col mode=$mode")
+        val entry = sessions[activeSessionId] ?: return null
+        val bounds = entry.bridge?.expandAndSetSelection(row, col, mode) ?: return null
+        val (start, end) = bounds
+        selectionState.set(SelectionStateSnapshot(start.first, start.second, end.first, end.second, true, mode))
+        entry.dirtySignal.countDown()
+        return bounds
+    }
+
+    fun resize(
+        rows: Int,
+        cols: Int,
+    ) {
+        val entry = sessions[activeSessionId] ?: return
+        entry.bridge?.resize(rows.toUInt(), cols.toUInt())
+        _state.value = _state.value.copy(rows = rows, cols = cols)
+        entry.dirtySignal.countDown()
+    }
+
+    fun recomputeGrid(
+        width: Int,
+        height: Int,
+    ) {
+        val bridge = sessions[activeSessionId]?.bridge ?: return
+        bridge.recomputeGrid(width.toUInt(), height.toUInt())
+        syncGridDimensions(bridge)
+    }
+
+    fun updateNativeWindow(
+        windowPointer: Long,
+        width: Int,
+        height: Int,
+    ) {
+        val entry = sessions[activeSessionId] ?: return
+        try {
+            entry.bridge?.updateNativeWindow(windowPointer, width, height)
+            entry.bridge?.let { syncGridDimensions(it) }
+            if (entry.renderThread?.isAlive != true) {
+                LogUtil.d("TorvoxRuntime", "updateNativeWindow: render thread dead, restarting for session ${entry.id}")
+                startRenderThread(entry)
+            }
+        } catch (exception: Exception) {
+            LogUtil.e("TorvoxRuntime", "updateNativeWindow failed", exception)
+        }
+    }
+
+    private fun syncGridDimensions(bridge: TorvoxBridge) {
+        val rows = bridge.getGridRows()
+        val cols = bridge.getGridCols()
+        cellWidth = bridge.getCellWidth()
+        cellHeight = bridge.getCellHeight()
+        val sizeChanged = rows != _state.value.rows || cols != _state.value.cols
+        if (rows > 0 && cols > 0 && sizeChanged) {
+            _state.value = _state.value.copy(rows = rows, cols = cols)
+        }
+    }
+
+    fun setBlitCallback(callback: () -> Unit) {
+        val entry = sessions[activeSessionId] ?: return
+        entry.blitCallback = callback
+    }
+
+    fun destroy() {
+        stop()
+        scope.cancel()
+    }
+
+    private fun startRenderThread(entry: SessionEntry) {
+        stopRenderThread(entry)
+        val generation = renderGeneration.incrementAndGet()
+        entry.running = true
+        entry.renderThread =
+            Thread({
+                var diagCount = 0
+                var consecutiveErrors = 0
+                var lastScrollOffset = UInt.MAX_VALUE
+                var lastSelection = SelectionStateSnapshot(0u, 0u, 0u, 0u, false, 0)
+                LogUtil.d("TorvoxRuntime", "render thread started for session ${entry.id} generation=$generation")
+                while (entry.running && renderGeneration.get() == generation) {
+                    try {
+                        val bridge = entry.bridge ?: break
+                        val selectionSnapshot = selectionState.get()
+                        if (selectionSnapshot != lastSelection) {
+                            bridge.setSelection(
+                                selectionSnapshot.startRow,
+                                selectionSnapshot.startCol,
+                                selectionSnapshot.endRow,
+                                selectionSnapshot.endCol,
+                                selectionSnapshot.hasSelection,
+                                selectionSnapshot.mode,
+                            )
+                            lastSelection = selectionSnapshot
+                        }
+                        val currentScrollOffset = entry.scrollOffset
+                        if (currentScrollOffset != lastScrollOffset) {
+                            bridge.setScrollOffset(currentScrollOffset)
+                            lastScrollOffset = currentScrollOffset
+                        }
+                        val result = bridge.render()
+                        if (result < 0) {
+                            consecutiveErrors++
+                            if (consecutiveErrors == 1) {
+                                LogUtil.e("TorvoxRuntime", "session ${entry.id} render error code=$result")
+                                LogcatFileWriter.write(
+                                    "TorvoxRuntime",
+                                    "session ${entry.id} render error code=$result",
+                                )
+                            } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
+                                LogUtil.e("TorvoxRuntime", "session ${entry.id} render error $result (x$consecutiveErrors)")
+                            }
+                            if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
+                                LogUtil.e("TorvoxRuntime", "session ${entry.id} too many render errors, entering cooldown")
+                                Thread.sleep(RENDER_COOLDOWN_MS)
+                                consecutiveErrors = 0
+                                LogUtil.i("TorvoxRuntime", "session ${entry.id} render thread resumed after cooldown")
+                            }
+                            Thread.sleep(RENDER_ERROR_SLEEP_MS)
+                        } else {
+                            if (consecutiveErrors > 0) {
+                                LogUtil.i(
+                                    "TorvoxRuntime",
+                                    "session ${entry.id} recovered after $consecutiveErrors errors",
+                                )
+                            }
+                            consecutiveErrors = 0
+                            try {
+                                if (bridge.pollBel()) {
+                                    val toneGenerator = ToneGenerator(BEL_TONE_STREAM_TYPE, BEL_TONE_VOLUME)
+                                    try {
+                                        toneGenerator.startTone(BEL_TONE_TYPE, BEL_TONE_DURATION_MILLIS)
+                                    } finally {
+                                        toneGenerator.release()
+                                    }
+                                }
+                            } catch (exception: Exception) {
+                                LogUtil.w("TorvoxRuntime", "BEL poll failed for session ${entry.id}", exception)
+                            }
+                            try {
+                                val notification = bridge.pollNotification()
+                                if (notification != null) {
+                                    val (title, body) = notification
+                                    val toastText = if (title.isNotEmpty()) "$title: $body" else body
+                                    Handler(Looper.getMainLooper()).post {
+                                        android.widget.Toast
+                                            .makeText(context, toastText, android.widget.Toast.LENGTH_LONG)
+                                            .show()
+                                    }
+                                    io.torvox.ui
+                                        .TerminalNotificationHelper(context)
+                                        .showNotification(title, body)
+                                }
+                            } catch (exception: Exception) {
+                                LogUtil.e(
+                                    "TorvoxRuntime",
+                                    "notification poll/display failed for session ${entry.id}; terminal notification dropped",
+                                    exception,
+                                )
+                            }
+                            try {
+                                val clipboardText = bridge.pollClipboard()
+                                if (clipboardText != null) {
+                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                    val clipData = ClipData.newPlainText("terminal clipboard", clipboardText)
+                                    clipboard.setPrimaryClip(clipData)
+                                }
+                            } catch (exception: Exception) {
+                                LogUtil.e(
+                                    "TorvoxRuntime",
+                                    "clipboard poll/set failed for session ${entry.id}; clipboard update skipped",
+                                    exception,
+                                )
+                            }
+                            try {
+                                entry.blitCallback?.invoke()
+                            } catch (exception: Exception) {
+                                LogUtil.w("TorvoxRuntime", "blitCallback failed for session ${entry.id}", exception)
+                            }
+                            diagCount++
+                            if (diagCount == 1) {
+                                val terminalText =
+                                    try {
+                                        bridge.getTerminalText()
+                                    } catch (exception: Exception) {
+                                        LogUtil.e("TorvoxRuntime", "diagnostics query failed", exception)
+                                        null
+                                    }
+                                val scrollbackLength = bridge.scrollbackLength()
+                                val preview = terminalText?.take(80) ?: "null"
+                                LogUtil.d(
+                                    "TorvoxRuntime",
+                                    "session ${entry.id} first render OK: " +
+                                        "scrollback=$scrollbackLength " +
+                                        "text='$preview'",
+                                )
+                            }
+                            if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
+                                val scrollbackLength = bridge.scrollbackLength()
+                                val terminalText =
+                                    try {
+                                        bridge.getTerminalText()
+                                    } catch (exception: Exception) {
+                                        LogUtil.e("TorvoxRuntime", "diagnostics query failed", exception)
+                                        null
+                                    }
+                                LogUtil.d(
+                                    "TorvoxRuntime",
+                                    "session ${entry.id} scrollback=$scrollbackLength text='${terminalText?.take(80) ?: "N/A"}'",
+                                )
+                                val title =
+                                    try {
+                                        bridge.getActiveSessionTitle()
+                                    } catch (exception: Exception) {
+                                        LogUtil.e("TorvoxRuntime", "diagnostics query failed", exception)
+                                        ""
+                                    }
+                                if (title.isNotEmpty() && title != _state.value.title) {
+                                    _state.value = _state.value.copy(title = title)
+                                }
+                            }
+                            if (diagCount % (RENDER_DIAGNOSTIC_FREQUENCY * 10) == 0) {
+                                LogUtil.d("TorvoxRuntime", "session ${entry.id} render alive: $diagCount")
+                            }
+                            if (!entry.forceRenderRequested) {
+                                val signal = java.util.concurrent.CountDownLatch(1)
+                                entry.dirtySignal = signal
+                                try {
+                                    signal.await(RENDER_LATCH_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
+                                } catch (_: InterruptedException) {
+                                    Thread.currentThread().interrupt()
+                                    break
+                                }
+                            }
+                            entry.forceRenderRequested = false
+                        }
+                    } catch (exception: Exception) {
+                        consecutiveErrors++
+                        if (consecutiveErrors == 1) {
+                            LogUtil.e("TorvoxRuntime", "session ${entry.id} first render exception", exception)
+                        } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
+                            LogUtil.e("TorvoxRuntime", "session ${entry.id} render exception", exception)
+                        }
+                        if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
+                            LogUtil.e("TorvoxRuntime", "session ${entry.id} too many render exceptions, entering cooldown", exception)
+                            Thread.sleep(RENDER_COOLDOWN_MS)
+                            consecutiveErrors = 0
+                            LogUtil.i("TorvoxRuntime", "session ${entry.id} render thread resumed after cooldown")
+                        }
+                        Thread.sleep(RENDER_ERROR_SLEEP_MS)
+                    }
+                }
+                LogUtil.d("TorvoxRuntime", "render thread stopped for session ${entry.id}")
+            }, "TorvoxRender-${entry.id}").apply {
+                isDaemon = true
+                start()
+            }
+    }
+
+    private fun stopRenderThread(entry: SessionEntry) {
+        entry.running = false
+        entry.renderThread?.let { thread ->
+            thread.interrupt()
+            thread.join(THREAD_JOIN_TIMEOUT_MS)
+        }
+        entry.renderThread = null
+    }
+
+    private fun updateState() {
+        val currentTitle = sessions[activeSessionId]?.bridge?.getActiveSessionTitle() ?: _state.value.title
+        _state.value =
+            RuntimeState(
+                isRunning = sessions.isNotEmpty(),
+                title = currentTitle.ifEmpty { _state.value.title },
+                rows = _state.value.rows,
+                cols = _state.value.cols,
+                activeSessionId = activeSessionId,
+                sessionIds = sessions.keys.sorted(),
+            )
+    }
+
+    fun getNativeWindowPtr(surface: Surface): Long = try {
+        if (!io.torvox.bridge.NativeWindow
+                .isNativeLoaded()
+        ) {
+            LogUtil.w("TorvoxRuntime", "Native lib not loaded, using reflection fallback")
+            return getNativeWindowPtrReflection(surface)
+        }
+        io.torvox.bridge.NativeWindow
+            .getNativeWindowPtr(surface)
+    } catch (exception: Throwable) {
+        LogUtil.w("TorvoxRuntime", "JNI getNativeWindowPtr not available, falling back to mNativeObject reflection")
+        getNativeWindowPtrReflection(surface)
+    }
+
+    private fun getNativeWindowPtrReflection(surface: Surface): Long {
+        try {
+            val method = surface.javaClass.getMethod("getNativeWindow")
+            return (method.invoke(surface) as? Long) ?: 0L
+        } catch (exception: Exception) {
+            LogUtil.w("TorvoxRuntime", "getNativeWindow method reflection failed", exception)
+        }
+        try {
+            val field = surface.javaClass.getDeclaredField("mNativeObject")
+            field.isAccessible = true
+            return field.getLong(surface)
+        } catch (exception: Exception) {
+            LogUtil.w("TorvoxRuntime", "mNativeObject field reflection failed", exception)
+        }
+        LogUtil.e("TorvoxRuntime", "All methods to get native window pointer failed")
+        return 0L
+    }
+}

@@ -1,0 +1,18 @@
+# Maestro flow: text selection + copy + paste
+# Run: maestro test app/src/androidTest/java/io/torvox/ui/SelectionMaestroTest.yaml
+appId: com.termux
+---
+- launchApp
+- waitForAnimationToEnd:
+    timeout: 5000
+- longPressOn:
+    point: "50%,50%"
+    duration: 1000
+- assertVisible: "Copy"
+- assertVisible: "Select All"
+- tapOn: "Copy"
+- assertNotVisible: "Copy"
+- longPressOn:
+    point: "50%,50%"
+    duration: 1000
+- assertVisible: "Paste"

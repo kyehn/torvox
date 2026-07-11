@@ -1,0 +1,12 @@
+{"tests":[
+{"input":"\\e[HX","output":"X","description":"CUP home + write X"},
+{"input":"\\e[5;10HX","output":"         X","description":"CUP 5;10 + write X"},
+{"input":"X\\e[5B","output":"X","description":"CUD 5 from top"},
+{"input":"X\\e[5C","output":"X","description":"CUF 5"},
+{"input":"\\e[10GX","output":"         X","description":"CHA 10 + write X"},
+{"input":"\\e[5dX","output":"","description":"VPA 5 + write X (empty first row)"},
+{"input":"\\e[5;10fX","output":"         X","description":"HVP 5;10 + write X"},
+{"input":"\\e[10eX","output":"X","description":"VPR 10 + write X (nothing on row 0)"},
+{"input":"\\e[3EX","output":"X","description":"CNL 3 from home + write X"},
+{"input":"\\e[5;10H\\e[FX","output":"         X","description":"CPL from row 5 goes up"}
+]}

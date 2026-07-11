@@ -24,17 +24,17 @@ fn main() {
             eprintln!("  Or invoke via symlink: ln -s torvox-exec ls; ./ls");
             std::process::exit(1);
         }
-        let cmd = &args[1];
+        let command = &args[1];
         let cmd_args = &args[2..];
-        exec_command(cmd, cmd_args);
+        exec_command(command, cmd_args);
     } else {
         let cmd_args = &args[1..];
         exec_command(name, cmd_args);
     }
 }
 
-fn exec_command(cmd: &str, args: &[String]) {
-    let c_cmd = std::ffi::CString::new(cmd).unwrap_or_else(|e| {
+fn exec_command(command: &str, args: &[String]) {
+    let c_cmd = std::ffi::CString::new(command).unwrap_or_else(|e| {
         eprintln!("torvox-exec: invalid command name: {e}");
         std::process::exit(1);
     });
@@ -46,7 +46,7 @@ fn exec_command(cmd: &str, args: &[String]) {
             })
         }))
         .collect();
-    let err = nix::unistd::execvp(c_cmd.as_c_str(), &c_args).unwrap_err();
-    eprintln!("torvox-exec: exec {cmd} failed: {err}");
+    let error = nix::unistd::execvp(c_cmd.as_c_str(), &c_args).unwrap_err();
+    eprintln!("torvox-exec: exec {command} failed: {error}");
     std::process::exit(1);
 }

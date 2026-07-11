@@ -1,0 +1,11 @@
+{"tests":[
+{"seq":"1b5b404142","name":"ICH default (1) then write AB","cells":[{"char":" ","fg":"","bg":""},{"char":"A","fg":"","bg":""},{"char":"B","fg":"","bg":""}]},
+{"seq":"1b5b3240414243","name":"ICH 2 then write ABC","cells":[{"char":" ","fg":"","bg":""},{"char":" ","fg":"","bg":""},{"char":"A","fg":"","bg":""},{"char":"B","fg":"","bg":""},{"char":"C","fg":"","bg":""}]},
+{"seq":"1b5b504142","name":"DCH 1 (default) with AB","cells":[{"char":"B","fg":"","bg":""}]},
+{"seq":"1b5b335041424344","name":"DCH 3 shift","cells":[{"char":"D","fg":"","bg":""}]},
+{"seq":"1b5b3558414243444546","name":"ECH 5 erase 5","cells":[{"char":" ","fg":"","bg":""},{"char":" ","fg":"","bg":""},{"char":" ","fg":"","bg":""},{"char":" ","fg":"","bg":""},{"char":" ","fg":"","bg":""},{"char":"F","fg":"","bg":""}]},
+{"seq":"1b5b584142","name":"ECH 1 (default)","cells":[{"char":" ","fg":"","bg":""},{"char":"B","fg":"","bg":""}]},
+{"seq":"1b5b314041","name":"ICH 1 write A after","cells":[{"char":" ","fg":"","bg":""},{"char":"A","fg":"","bg":""}]},
+{"seq":"1b5b504142","name":"DCH from col 1","cells":[{"char":"B","fg":"","bg":""}]},
+{"seq":"1b5b5858595a","name":"ECH on empty preserves later","cells":[{"char":" ","fg":"","bg":""},{"char":" ","fg":"","bg":""},{"char":" ","fg":"","bg":""}]}
+]}

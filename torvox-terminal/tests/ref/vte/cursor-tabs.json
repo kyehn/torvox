@@ -1,0 +1,10 @@
+{"tests":[
+{"seq":"094142","name":"HT default tab","cells":[{"char":" ","fg":"","bg":""},{"char":"A","fg":"","bg":""},{"char":"B","fg":"","bg":""}]},
+{"seq":"1b480941424344","name":"HTS set tab then HT write","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3367094142","name":"TBC 3 clear all tabs then HT","cells":[{"char":"A","fg":"","bg":""},{"char":"B","fg":"","bg":""}]},
+{"seq":"1b5b30470941","name":"TBC 0 clear current tab","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b480941","name":"HTS set tab then HT arrival","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"09410942","name":"HT then write A then B at col 9","cells":[{"char":" ","fg":"","bg":""},{"char":" ","fg":"","bg":""},{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b354731480941","name":"HTS at col 5 then HT from col 0","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b310949","name":"CHT 1 tab forward","cells":[{"char":" ","fg":"","bg":""}]}
+]}

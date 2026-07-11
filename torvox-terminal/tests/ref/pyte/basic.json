@@ -1,0 +1,17 @@
+[
+  {"seq":"41","rows":[{"cells":[{"ch":"A"}]}],"desc":"ASCII A"},
+  {"seq":"42","rows":[{"cells":[{"ch":"B"}]}],"desc":"ASCII B"},
+  {"seq":"48656c6c6f","rows":[{"cells":[{"ch":"H"},{"ch":"e"},{"ch":"l"},{"ch":"l"},{"ch":"o"}]}],"desc":"Hello"},
+  {"seq":"576f726c64","rows":[{"cells":[{"ch":"W"},{"ch":"o"},{"ch":"r"},{"ch":"l"},{"ch":"d"}]}],"desc":"World"},
+  {"seq":"1b5b33316d524544","rows":[{"cells":[{"ch":"R","attr":{"fg":"#FF0000"}},{"ch":"E"},{"ch":"D"}]}],"desc":"SGR 31 red"},
+  {"seq":"1b5b33326d475245454e","rows":[{"cells":[{"ch":"G","attr":{"fg":"#00FF00"}},{"ch":"R"},{"ch":"E"},{"ch":"E"},{"ch":"N"}]}],"desc":"SGR 32 green"},
+  {"seq":"1b5b33346d424c5545","rows":[{"cells":[{"ch":"B","attr":{"fg":"#0000FF"}},{"ch":"L"},{"ch":"U"},{"ch":"E"}]}],"desc":"SGR 34 blue"},
+  {"seq":"1b5b313b33316d424f4c44","rows":[{"cells":[{"ch":"B","attr":{"fg":"#FF0000","bold":true}},{"ch":"O"},{"ch":"L"},{"ch":"D"}]}],"desc":"SGR 1+31 bold red"},
+  {"seq":"1b5b346d554e444552","rows":[{"cells":[{"ch":"U","attr":{"underline":true}},{"ch":"N"},{"ch":"D"},{"ch":"E"},{"ch":"R"}]}],"desc":"SGR 4 underline"},
+  {"seq":"1b5b376d52455645525345","rows":[{"cells":[{"ch":"R","attr":{"reverse":true}},{"ch":"E"},{"ch":"V"},{"ch":"E"},{"ch":"R"},{"ch":"S"},{"ch":"E"}]}],"desc":"SGR 7 reverse"},
+  {"seq":"1b5b306d","rows":[{"cells":[]}],"desc":"SGR 0 reset"},
+  {"seq":"1b5b31481b5b334d1b5b357058","rows":[{"cells":[],"desc":"CUP moved, DL"}]},
+  {"seq":"1b5b324a","rows":[{"cells":[]}],"desc":"ED 2 clear screen"},
+  {"seq":"1b5b480a","rows":[{"cells":[]}],"desc":"CUP home"},
+  {"seq":"1b5b334a","rows":[{"cells":[]}],"desc":"ED 3 clear scrollback"}
+]

@@ -1,0 +1,48 @@
+appId: "com.termux"
+name: "Theme settings and navigation"
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+# Open drawer
+- tapOn:
+    id: "Key_DRAWER"
+- waitForAnimationToEnd:
+    timeout: 3000
+# Navigate to settings
+- tapOn:
+    id: "SettingsButton"
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertVisible:
+    id: "SettingsScreen"
+# Scroll to theme options
+- scrollUntilVisible:
+    element:
+      text: "Terminal Theme"
+    direction: DOWN
+- assertVisible:
+    text: "Dracula Plus"
+- scrollUntilVisible:
+    element:
+      id: "SettingsBackButton"
+    direction: UP
+# Back to terminal
+- tapOn:
+    id: "SettingsBackButton"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "ModifierBar"
+- takeScreenshot: theme_verify_complete

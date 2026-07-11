@@ -1,0 +1,12 @@
+{"tests":[
+{"input":"ABCDEFGHIJ\\e[5G\\e[0K","output":"ABCD","description":"EL 0 from col 5"},
+{"input":"ABCDEFGHIJ\\e[5G\\e[1K","output":"     FGHIJ","description":"EL 1 from col 5"},
+{"input":"ABCDEFGHIJ\\e[2K","output":"","description":"EL 2 entire line"},
+{"input":"AAABBBCCCDDDEEEFFF\\e[2;1H\\e[0J","output":"AAABBB","description":"ED 0 from row 2"},
+{"input":"AAABBBCCCDDDEEEFFF\\e[3;1H\\e[1J","output":"   DDDEEEFFF","description":"ED 1 from row 3"},
+{"input":"AAABBBCCCDDDEEEFFF\\e[2J","output":"","description":"ED 2 entire display"},
+{"input":"1234567890\\e[5G\\e[3X","output":"1234   90","description":"ECH 3 from col 5"},
+{"input":"ABCDE\\e[3G\\e[2P","output":"ABE","description":"DCH 2 from col 3"},
+{"input":"ABCDE\\e[3G\\e[2@","output":"AB  CDE","description":"ICH 2 at col 3"},
+{"input":"11111\\r22222\\r\\e[0K","output":"22222","description":"CR + EL 0"}
+]}

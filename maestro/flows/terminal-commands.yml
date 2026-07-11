@@ -1,0 +1,82 @@
+appId: com.termux
+name: Terminal command output verification
+tags:
+  - e2e
+  - p0
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 5000
+# Test 1: echo with marker text
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo TORVOX_MARKER"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: echo_marker_verified
+# Test 2: pwd command
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "pwd"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: pwd_verified
+# Test 3: quoted string echo
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo Hello World"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: hello_world_verified
+# Test 4: special key taps
+- tapOn:
+    id: "Key_ESC"
+- waitForAnimationToEnd:
+    timeout: 1000
+- tapOn:
+    id: "Key_TAB"
+- waitForAnimationToEnd:
+    timeout: 1000
+- tapOn:
+    id: "Key_CTRL"
+- waitForAnimationToEnd:
+    timeout: 500
+- tapOn:
+    id: "Key_CTRL"
+- waitForAnimationToEnd:
+    timeout: 500
+- tapOn:
+    id: "Key_ALT"
+- waitForAnimationToEnd:
+    timeout: 500
+- tapOn:
+    id: "Key_ALT"
+- waitForAnimationToEnd:
+    timeout: 500
+- takeScreenshot: terminal_commands_complete

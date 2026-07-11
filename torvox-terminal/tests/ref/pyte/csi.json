@@ -1,0 +1,426 @@
+[
+  {
+    "seq": "1b5b3141",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CUU 1"
+  },
+  {
+    "seq": "1b5b3542",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CUD 5"
+  },
+  {
+    "seq": "1b5b313043",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CUF 10"
+  },
+  {
+    "seq": "1b5b3544",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CUB 5"
+  },
+  {
+    "seq": "1b5b353b313048",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CUP 5,10"
+  },
+  {
+    "seq": "1b5b3147313830",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CHA 18"
+  },
+  {
+    "seq": "1b5b3270",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "RIS"
+  },
+  {
+    "seq": "1b5b63",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "DA"
+  },
+  {
+    "seq": "0a",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "LF"
+  },
+  {
+    "seq": "0d",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CR"
+  },
+  {
+    "seq": "09",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "HT"
+  },
+  {
+    "seq": "08",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "BS"
+  },
+  {
+    "seq": "07",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "BEL"
+  },
+  {
+    "seq": "1b5b354730",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CHA 0"
+  },
+  {
+    "seq": "1b5b303b303048",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CUP 0,0"
+  },
+  {
+    "seq": "1b4f42",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "SS3 B"
+  },
+  {
+    "seq": "1b5b33413100",
+    "lines": [
+      ""
+    ],
+    "desc": "CUU 1 buffer boundary"
+  },
+  {
+    "seq": "1b5b3130304100000c",
+    "lines": [
+      ""
+    ],
+    "desc": "CUU large 100"
+  },
+  {
+    "seq": "1b5b313030424120426f6c",
+    "lines": [
+      ""
+    ],
+    "desc": "CUD 100 then text"
+  },
+  {
+    "seq": "1b5b33304341",
+    "lines": [
+      ""
+    ],
+    "desc": "CUF to right"
+  },
+  {
+    "seq": "1b5b3b356d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR empty+5 = blink"
+  },
+  {
+    "seq": "1b5b313b333b346d6d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR bold+italic+underline"
+  },
+  {
+    "seq": "1b5b303b303b303b303b30",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR all zeros"
+  },
+  {
+    "seq": "1b5b383b3038306d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 8 conceal"
+  },
+  {
+    "seq": "1b5b3238386d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 288 unknown"
+  },
+  {
+    "seq": "1b5b3239302b416e732b31",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 290+Ans+1"
+  },
+  {
+    "seq": "1b5b3342313030303030",
+    "lines": [
+      ""
+    ],
+    "desc": "CUD huge 100000"
+  },
+  {
+    "seq": "1b5b317044656c2033",
+    "lines": [
+      ""
+    ],
+    "desc": "DCH + write"
+  },
+  {
+    "seq": "1b5b346c5b",
+    "lines": [
+      ""
+    ],
+    "desc": "RM 4 insert off"
+  },
+  {
+    "seq": "1b5b34685b5b355b",
+    "lines": [
+      ""
+    ],
+    "desc": "SM 4 insert on"
+  },
+  {
+    "seq": "1b5b32304c",
+    "lines": [
+      ""
+    ],
+    "desc": "IL 20 large"
+  },
+  {
+    "seq": "1b5b32304d",
+    "lines": [
+      ""
+    ],
+    "desc": "DL 20 large"
+  },
+  {
+    "seq": "1b5b31303b31304846",
+    "lines": [
+      ""
+    ],
+    "desc": "CUP F at 10;10"
+  },
+  {
+    "seq": "1b5b313b333b357472",
+    "lines": [
+      ""
+    ],
+    "desc": "CUP multi param F"
+  },
+  {
+    "seq": "1b5b323b383061626f7574",
+    "lines": [
+      ""
+    ],
+    "desc": "CHA about at 8"
+  },
+  {
+    "seq": "1b5b7a6f64696163",
+    "lines": [
+      ""
+    ],
+    "desc": "DECSPS z"
+  },
+  {
+    "seq": "1b5b33413100",
+    "lines": [
+      ""
+    ],
+    "desc": "CUU 1 buffer boundary"
+  },
+  {
+    "seq": "1b5b3130304100000c",
+    "lines": [
+      ""
+    ],
+    "desc": "CUU large 100"
+  },
+  {
+    "seq": "1b5b313030424120426f6c",
+    "lines": [
+      ""
+    ],
+    "desc": "CUD 100 then text"
+  },
+  {
+    "seq": "1b5b33304341",
+    "lines": [
+      ""
+    ],
+    "desc": "CUF to right"
+  },
+  {
+    "seq": "1b5b3b356d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR empty+5 = blink"
+  },
+  {
+    "seq": "1b5b313b333b346d6d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR bold+italic+underline"
+  },
+  {
+    "seq": "1b5b303b303b303b303b30",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR all zeros"
+  },
+  {
+    "seq": "1b5b383b3038306d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 8 conceal"
+  },
+  {
+    "seq": "1b5b3238386d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 288 unknown"
+  },
+  {
+    "seq": "1b5b3239302b416e732b31",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 290+Ans+1"
+  },
+  {
+    "seq": "1b5b3342313030303030",
+    "lines": [
+      ""
+    ],
+    "desc": "CUD huge 100000"
+  },
+  {
+    "seq": "1b5b317044656c2033",
+    "lines": [
+      ""
+    ],
+    "desc": "DCH + write"
+  },
+  {
+    "seq": "1b5b346c5b",
+    "lines": [
+      ""
+    ],
+    "desc": "RM 4 insert off"
+  },
+  {
+    "seq": "1b5b34685b5b355b",
+    "lines": [
+      ""
+    ],
+    "desc": "SM 4 insert on"
+  },
+  {
+    "seq": "1b5b32304c",
+    "lines": [
+      ""
+    ],
+    "desc": "IL 20 large"
+  },
+  {
+    "seq": "1b5b32304d",
+    "lines": [
+      ""
+    ],
+    "desc": "DL 20 large"
+  },
+  {
+    "seq": "1b5b31303b31304846",
+    "lines": [
+      ""
+    ],
+    "desc": "CUP F at 10;10"
+  },
+  {
+    "seq": "1b5b313b333b357472",
+    "lines": [
+      ""
+    ],
+    "desc": "CUP multi param F"
+  },
+  {
+    "seq": "1b5b323b383061626f7574",
+    "lines": [
+      ""
+    ],
+    "desc": "CHA about at 8"
+  },
+  {
+    "seq": "1b5b7a6f64696163",
+    "lines": [
+      ""
+    ],
+    "desc": "DECSPS z"
+  }
+]

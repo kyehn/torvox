@@ -1,0 +1,7 @@
+suite:
+  name: Torvox Smoke Tests
+  tags:
+    - smoke
+flows:
+  - ../flows/launch-and-verify.yml
+  - ../flows/rapid-modifier-taps.yml

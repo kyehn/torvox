@@ -1,0 +1,54 @@
+{
+  "tests": [
+    {
+      "input": "\\e[5;10HX",
+      "output": "X",
+      "description": "CUP to 5;10"
+    },
+    {
+      "input": "\\e[38;5;1mX\\e[0m",
+      "output": "X",
+      "description": "256 color red"
+    },
+    {
+      "input": "\\e[38;5;196mX",
+      "output": "X",
+      "description": "256 bright red"
+    },
+    {
+      "input": "\\e[38;2;255;0;0mX",
+      "output": "X",
+      "description": "Truecolor red"
+    },
+    {
+      "input": "\\e[38;2;0;255;0mX",
+      "output": "X",
+      "description": "Truecolor green"
+    },
+    {
+      "input": "AB\\e[2D\\e[2P",
+      "output": "",
+      "description": "DCH 2 deletes AB"
+    },
+    {
+      "input": "CDE\\e[G\\e[3@X",
+      "output": "   X",
+      "description": "ICH 3 then write X"
+    },
+    {
+      "input": "World",
+      "output": "World",
+      "description": "Termtests basic"
+    },
+    {
+      "input": "\\e[H5",
+      "output": "5",
+      "description": "Home then type 5"
+    },
+    {
+      "input": "\\e[2J\\e[HA",
+      "output": "A",
+      "description": "Clear then type A"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+appId: "com.termux"
+name: "Modifier bar key interaction after launch"
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "TerminalContent"
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "Key_ESC"
+- tapOn:
+    id: "Key_CTRL"
+- tapOn:
+    id: "Key_CTRL"
+- takeScreenshot: modifier_after_tap

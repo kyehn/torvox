@@ -1,9 +1,8 @@
 [package]
 name = "torvox-integration-tests"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Integration tests for Torvox terminal emulator"
-license = "UNLICENSED"
 
 [dependencies]
 torvox-core = { workspace = true }
@@ -11,4 +10,9 @@ torvox-terminal = { workspace = true }
 torvox-renderer = { workspace = true }
 
 [dev-dependencies]
-proptest = { workspace = true }
+toml = { workspace = true }
+wgpu = { workspace = true }
+futures = { workspace = true }
+
+[lints]
+workspace = true

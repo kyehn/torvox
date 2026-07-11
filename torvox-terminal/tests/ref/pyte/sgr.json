@@ -1,0 +1,17 @@
+[
+  {"seq":"1b5b34346d0a","rows":[{"cells":[]}],"desc":"SGR 44 bg blue + newline"},
+  {"seq":"1b5b333b34346d54657374","rows":[{"cells":[{"ch":"T","attr":{"fg":"#FF0000","bg":"#0000FF"}},{"ch":"e"},{"ch":"s"},{"ch":"t"}]}],"desc":"SGR 31+44 fg red bg blue"},
+  {"seq":"1b5b39336d","rows":[{"cells":[]}],"desc":"SGR 93 fg bright yellow"},
+  {"seq":"1b5b3130346d","rows":[{"cells":[]}],"desc":"SGR 104 bg bright green"},
+  {"seq":"1b5b33383b353b3132376d","rows":[{"cells":[]}],"desc":"SGR 38:5:127"},
+  {"seq":"1b5b34383b353b3235356d","rows":[{"cells":[]}],"desc":"SGR 48:5:255 white bg"},
+  {"seq":"1b5b33383b323b3235353b303b303b353b31303b31306d","rows":[{"cells":[]}],"desc":"SGR 38:2:255:0:0 fg red"},
+  {"seq":"1b5b35336d","rows":[{"cells":[]}],"desc":"SGR 53 overline"},
+  {"seq":"1b5b393d310a","rows":[{"cells":[]}],"desc":"DECSET 9 enable"},
+  {"seq":"1b5b3f3235680a","rows":[{"cells":[]}],"desc":"DECSET 35 enable"},
+  {"seq":"1b5b3f313030306c","rows":[{"cells":[]}],"desc":"DECRST 1000 disable mouse"},
+  {"seq":"1b5b3f3130303668","rows":[{"cells":[]}],"desc":"DECSET 1006 SGR mouse"},
+  {"seq":"48656c6c6f1b5b424d6f7265","rows":[{"cells":[{"ch":"H"},{"ch":"e"},{"ch":"l"},{"ch":"l"},{"ch":"o"},{"ch":"\n"},{"ch":"M"},{"ch":"o"},{"ch":"r"},{"ch":"e"}]}],"desc":"Hello\\nMore"},
+  {"seq":"1b5b324a1b5b3148336d","rows":[{"cells":[]}],"desc":"ED 2 then home + SGR 3 italic"},
+  {"seq":"1b5b324a1b5b3148346d","rows":[{"cells":[]}],"desc":"ED 2 then home + SGR 4 underline"}
+]

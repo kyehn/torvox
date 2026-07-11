@@ -1,0 +1,18 @@
+appId: com.termux
+name: Launch and verify terminal renders
+tags:
+  - smoke
+  - p0
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+- takeScreenshot: launch_terminal

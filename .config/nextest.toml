@@ -1,0 +1,8 @@
+[profile.ci]
+# CI profile: limits parallelism to avoid OOM on constrained runners
+# Inherits from default
+slow-timeout = { period = "120s" }
+test-threads = 2
+
+[profile.ci.junit]
+path = "junit.xml"

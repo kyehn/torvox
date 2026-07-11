@@ -1,0 +1,11 @@
+[
+  {"seq":"1b5d303b48656c6c6f1c","rows":[{"cells":[]}],"desc":"OSC 0 icon title"},
+  {"seq":"1b5d323b5465726d696e616c1c","rows":[{"cells":[]}],"desc":"OSC 2 window title"},
+  {"seq":"1b5d343b313b236666303030301c","rows":[{"cells":[]}],"desc":"OSC 4 palette index 1 red"},
+  {"seq":"1b5d31303b236666303030301c","rows":[{"cells":[]}],"desc":"OSC 10 fg color red"},
+  {"seq":"1b5d31313b233030303066661c","rows":[{"cells":[]}],"desc":"OSC 11 bg color blue"},
+  {"seq":"1b5d3132331c","rows":[{"cells":[]}],"desc":"OSC 123 empty"},
+  {"seq":"1b5d523b44617461426173651c","rows":[{"cells":[]}],"desc":"OSC R reset colors"},
+  {"seq":"1b5d373b3f1c","rows":[{"cells":[]}],"desc":"OSC 7 query cwd"},
+  {"seq":"1b5d35323b3c4f6c6c65681c","rows":[{"cells":[]}],"desc":"OSC 52 clipboard set"}
+]
