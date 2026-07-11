@@ -1,0 +1,75 @@
+appId: com.termux
+name: Session persistence across app restart
+tags:
+  - e2e
+  - p1
+---
+# Launch fresh app
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "ModifierBar"
+    timeout: 60000
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+# Type a command that produces identifiable output
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo PERSIST_MARKER"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- assertVisible:
+    id: "TerminalContent"
+- takeScreenshot: persist_before_restart
+# Close the app (force-stop)
+- stopApp: com.termux
+- waitForAnimationToEnd:
+    timeout: 2000
+# Reopen the app (NOT clearState — keep session data)
+- launchApp:
+    clearState: false
+    stopApp: false
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "ModifierBar"
+    timeout: 60000
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: persist_after_restart
+# Verify terminal is still functional after restore
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo RESTORE_OK"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: persist_functional_after_restore

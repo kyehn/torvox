@@ -1,0 +1,70 @@
+diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
+index 8ee700252..b7313356c 100644
+--- a/src/terminal/Screen.zig
++++ b/src/terminal/Screen.zig
+@@ -193,6 +193,7 @@ pub const SavedCursor = struct {
+     pending_wrap: bool,
+     origin: bool,
+     charset: CharsetState,
++    cursor_style: CursorStyle,
+ };
+ 
+ /// State required for all charset operations.
+diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
+index d41e47501..6b496c5a5 100644
+--- a/src/terminal/Terminal.zig
++++ b/src/terminal/Terminal.zig
+@@ -682,7 +682,10 @@ pub fn print(self: *Terminal, c: u21) !void {
+     // If we're at the column limit, then we need to wrap the next time.
+     // In this case, we don't move the cursor.
+     if (self.screens.active.cursor.x == right_limit - 1) {
+-        self.screens.active.cursor.pending_wrap = true;
++        if (self.modes.get(.wraparound)) {
++            self.screens.active.cursor.pending_wrap = true;
++        }
++        // DECAWM off: cursor stays at right margin, next char overwrites
+         return;
+     }
+ 
+@@ -1112,6 +1115,7 @@ pub fn saveCursor(self: *Terminal) void {
+         .pending_wrap = self.screens.active.cursor.pending_wrap,
+         .origin = self.modes.get(.origin),
+         .charset = self.screens.active.charset,
++        .cursor_style = self.screens.active.cursor.cursor_style,
+     };
+ }
+ 
+@@ -1128,6 +1132,7 @@ pub fn restoreCursor(self: *Terminal) void {
+         .pending_wrap = false,
+         .origin = false,
+         .charset = .{},
++        .cursor_style = .block,
+     };
+ 
+     // Set the style first because it can fail
+@@ -1145,6 +1150,7 @@ pub fn restoreCursor(self: *Terminal) void {
+ 
+     self.screens.active.charset = saved.charset;
+     self.modes.set(.origin, saved.origin);
++    self.screens.active.cursor.cursor_style = saved.cursor_style;
+     self.screens.active.cursor.pending_wrap = saved.pending_wrap;
+     self.screens.active.cursor.protected = saved.protected;
+     self.screens.active.cursorAbsolute(
+@@ -1669,7 +1675,7 @@ pub fn scrollDown(self: *Terminal, count: usize) void {
+ 
+     // Move to the top of the scroll region
+     self.screens.active.cursorAbsolute(self.scrolling_region.left, self.scrolling_region.top);
+-    self.insertLines(count);
++    self.insertLines(@max(count, 1));
+ }
+ 
+ /// Removes amount lines from the top of the scroll region. The remaining lines
+@@ -1702,7 +1708,7 @@ pub fn scrollUp(self: *Terminal, count: usize) !void {
+ 
+         // Clamp count to the scroll region height.
+         const region_height = self.scrolling_region.bottom + 1;
+-        const adjusted_count = @min(count, region_height);
++        const adjusted_count = @min(@max(count, 1), region_height);
+ 
+         // TODO: Create an optimized version that can scroll N times
+         // This isn't critical because in most cases, scrollUp is used

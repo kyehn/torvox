@@ -1,0 +1,68 @@
+appId: com.termux
+name: Full user journey
+tags:
+  - e2e
+  - p0
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "ModifierBar"
+# Tap drawer button to open session drawer
+- tapOn:
+    id: "Key_DRAWER"
+- waitForAnimationToEnd:
+    timeout: 3000
+# Navigate to settings
+- tapOn:
+    id: "SettingsButton"
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertVisible:
+    id: "SettingsScreen"
+- assertVisible:
+    text: "Appearance"
+- scrollUntilVisible:
+    element:
+      text: "Terminal Theme"
+    direction: DOWN
+- assertVisible:
+    text: "Terminal Theme"
+- scrollUntilVisible:
+    element:
+      text: "Terminal"
+    direction: DOWN
+- assertVisible:
+    text: "Terminal"
+# Scroll up to make back button visible
+- scrollUntilVisible:
+    element:
+      id: "SettingsBackButton"
+    direction: UP
+- tapOn:
+    id: "SettingsBackButton"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "ModifierBar"
+- tapOn:
+    id: "Key_ESC"
+- tapOn:
+    id: "Key_TAB"
+- tapOn:
+    id: "Key_CTRL"
+- tapOn:
+    id: "Key_ALT"
+- takeScreenshot: full_journey_complete

@@ -1,0 +1,59 @@
+# Codecov configuration
+# Ratchets coverage over time, fails PRs that drop coverage.
+codecov:
+  require_ci_to_pass: true
+  notify:
+    after_n_builds: 3
+    wait_for_ci: true
+coverage:
+  precision: 2
+  round: down
+  range: "70...90"
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 1% # Allow 1% drop without failing
+        if_ci_failed: error
+        only_pulls: false
+    patch:
+      default:
+        target: 80%
+        threshold: 5%
+  ignore:
+    - "android/benchmark/**"
+    - "fuzz/**"
+    - "torvox-bench/**"
+    - "**/examples/**"
+    - "**/tests/**"
+    - "android/app/src/androidTest/**"
+  # Per-file rules from coverage-ratchet.toml
+  individual_flags:
+    - torvox-core
+    - torvox-terminal
+    - torvox-renderer
+flag_management:
+  default_rules:
+    carryforward: true
+    statuses:
+      - type: project
+        target: 70%
+      - type: patch
+        target: 80%
+  individual:
+    - path: torvox-core/
+      name: torvox-core
+      statuses:
+        - type: project
+          target: 75%
+    - path: torvox-terminal/
+      name: torvox-terminal
+      statuses:
+        - type: project
+          target: 65%
+comment:
+  layout: "header, diff, flags, components, files, footer"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true

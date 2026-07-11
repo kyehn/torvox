@@ -1,0 +1,27 @@
+[files]
+extend-exclude = [
+  "fuzz/corpus/",
+  "fuzz/artifacts/",
+  "fuzz/seeds/",
+  "target/",
+  ".github/",
+  "**/res/values*/strings.xml",
+]
+
+[default]
+extend-ignore-re = ["UDID"]
+
+[default.extend-words]
+hel = "hel"
+Hel = "Hel"
+ABD = "ABD"
+nd = "nd"
+aktive = "aktive"
+Apparence = "Apparence"
+Fixe = "Fixe"
+pris = "pris"
+BA = "BA"
+Pn = "Pn"
+decid = "decid"
+Secon = "Secon"
+Thir = "Thir"
