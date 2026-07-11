@@ -1,0 +1,66 @@
+appId: com.termux
+name: Drawer navigation
+tags:
+  - e2e
+  - p1
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "ModifierBar"
+# Open drawer
+- tapOn:
+    id: "Key_DRAWER"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "SessionDrawer"
+# Assert "Sessions" label is visible in drawer
+- assertVisible:
+    text: "Sessions"
+# Tap Settings button in drawer
+- tapOn:
+    id: "SettingsButton"
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertVisible:
+    id: "SettingsScreen"
+# Verify Font Family is visible in settings
+- scrollUntilVisible:
+    element:
+      text: "Font Family"
+    direction: DOWN
+- assertVisible:
+    text: "Font Family"
+# Go back to terminal
+- tapOn:
+    id: "SettingsBackButton"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+# Open drawer again
+- tapOn:
+    id: "Key_DRAWER"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "SessionDrawer"
+# Assert the add session button exists
+- assertVisible:
+    id: "AddSessionButton"
+- takeScreenshot: drawer_navigation_complete

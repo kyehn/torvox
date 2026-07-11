@@ -1,0 +1,47 @@
+appId: com.termux
+name: Modifier bar key interaction
+tags:
+  - smoke
+  - p1
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+# Key presence
+- assertVisible:
+    id: "Key_ESC"
+- assertVisible:
+    id: "Key_TAB"
+- assertVisible:
+    id: "Key_CTRL"
+- assertVisible:
+    id: "Key_ALT"
+# Key interaction
+- tapOn:
+    id: "Key_ESC"
+- waitForAnimationToEnd:
+    timeout: 500
+- tapOn:
+    id: "Key_CTRL"
+- waitForAnimationToEnd:
+    timeout: 500
+- tapOn:
+    id: "Key_ALT"
+- waitForAnimationToEnd:
+    timeout: 500
+- takeScreenshot: modifier_bar_interact

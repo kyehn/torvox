@@ -1,0 +1,85 @@
+appId: com.termux
+name: Modifier keys functional test
+tags:
+  - e2e
+  - p1
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+# Tap CTRL to toggle it on (Once state)
+- tapOn:
+    id: "Key_CTRL"
+- waitForAnimationToEnd:
+    timeout: 500
+# Type 'c' while CTRL is active — sends SIGINT, should not crash
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 1000
+- inputText: "c"
+- hideKeyboard
+- waitForAnimationToEnd:
+    timeout: 1000
+# Verify app is still alive and terminal is visible
+- assertVisible:
+    id: "TerminalScreen"
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+- takeScreenshot: modifier_ctrl_c_sent
+# Untoggle CTRL
+- tapOn:
+    id: "Key_CTRL"
+- waitForAnimationToEnd:
+    timeout: 500
+# Now type normally
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo MODIFIER_OK"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: modifier_keys_verified
+# Also test ALT toggle
+- tapOn:
+    id: "Key_ALT"
+- waitForAnimationToEnd:
+    timeout: 500
+- assertVisible:
+    id: "TerminalScreen"
+# Untoggle ALT
+- tapOn:
+    id: "Key_ALT"
+- waitForAnimationToEnd:
+    timeout: 500
+# Terminal should still work
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo ALT_TEST"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: alt_modifier_verified

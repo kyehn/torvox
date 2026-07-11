@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Torvox</string>
+    <string name="settings">설정</string>
+    <string name="back">뒤로</string>
+    <string name="appearance">모양</string>
+    <string name="font_size">글꼴 크기</string>
+    <string name="font_family">글꼴</string>
+    <string name="system_default">시스템 기본값</string>
+    <string name="change">변경</string>
+    <string name="select_font_family">글꼴 선택</string>
+    <string name="pick_font_file">파일에서 선택…</string>
+    <string name="copy">복사</string>
+    <string name="paste">붙여넣기</string>
+    <string name="cancel">취소</string>
+    <string name="select_all">모두 선택</string>
+    <string name="select_all_action">모두 선택</string>
+    <string name="share">공유</string>
+
+    <!-- Advanced -->
+    <string name="advanced">고급</string>
+    <string name="use_nerd_font_glyphs">Nerd Font 글리프 사용</string>
+    <string name="nerd_font_desc">대체 글꼴을 사용하여 Nerd Font 글리프 표시</string>
+    <string name="semantic_selection">의미적 선택 (OSC 133)</string>
+    <string name="semantic_selection_desc">셸 프롬프트 마커를 사용한 지능형 텍스트 선택</string>
+    <string name="bootstrap_url_label">Bootstrap URL</string>
+    <string name="bootstrap_url_placeholder">https://github.com/termux/termux-packages/releases/...</string>
+    <string name="bootstrap_desc">패키지 관리를 위한 부트스트랩 패키지</string>
+    <string name="bootstrap_presets">프리셋</string>
+    <string name="bootstrap_preset_termux">Termux 기본값</string>
+    <string name="bootstrap_preset_termux_desc">bash, coreutils, 패키지 관리자가 포함된 표준 Termux 부트스트랩</string>
+    <string name="bootstrap_preset_custom">사용자 지정 / 빈</string>
+    <string name="bootstrap_preset_custom_desc">빈 루트 파일 시스템으로 시작</string>
+    <string name="bootstrap">부트스트랩</string>
+    <string name="bootstrap_install">부트스트랩 설치</string>
+    <string name="bootstrap_installing">설치 중\u2026</string>
+    <string name="session_restore">세션 복원</string>
+    <string name="session_restore_desc">앱 시작 시 이전 세션을 다시 열기</string>
+    <string name="keyboard_mode">키보드 모드</string>
+    <string name="keyboard_secure">보안 모드</string>
+    <string name="keyboard_secure_desc">제안 없음, 자동 수정 없음, 개인화 없음</string>
+    <string name="keyboard_standard">표준 모드</string>
+    <string name="keyboard_standard_desc">자동 수정 및 제안이 포함된 전체 입력 방식</string>
+    <string name="keyboard_raw">원시 모드</string>
+    <string name="keyboard_raw_desc">입력 방식 없음 — 물리적 키보드 및 원시 키 이벤트만</string>
+    <string name="software_theme">소프트웨어 테마</string>
+    <string name="theme">터미널 테마</string>
+    <string name="day">낮</string>
+    <string name="night">밤</string>
+    <string name="follow_system">시스템 따름</string>
+    <string name="day_theme">낮 테마</string>
+    <string name="night_theme">밤 테마</string>
+    <string name="md_you">Material You</string>
+    <string name="fixed">고정</string>
+    <string name="terminal">터미널</string>
+    <string name="shell">셸</string>
+    <string name="shell_placeholder">/system/bin/sh</string>
+    <string name="scrollback_lines">스크롤백 줄 수</string>
+    <string name="sessions">세션</string>
+    <string name="settings_button">설정</string>
+    <string name="terminal_title">Torvox</string>
+    <string name="close">닫기</string>
+    <string name="cd_new_session">새 세션</string>
+    <string name="cd_settings">설정</string>
+    <string name="cd_close_session">세션 닫기</string>
+    <string name="notification_channel_name">터미널 세션</string>
+    <string name="notification_channel_desc">활성 터미널 세션을 위한 알림</string>
+    <string name="notification_active_single">터미널 세션이 활성화되었습니다</string>
+    <string name="notification_active_plural">%d개 터미널 세션이 활성화되었습니다</string>
+    <string name="copied_chars">%d자를 복사했습니다</string>
+    <string name="pasted_chars">%d자를 붙여넣었습니다</string>
+    <string name="unsupported_abi">지원되지 않는 ABI: %s</string>
+    <string name="sessions_accessible">%d 세션</string>
+    <string name="title_changed">터미널 제목이 %s(으)로 변경됨</string>
+
+    <!-- USB Serial -->
+    <string name="usb_serial">USB 시리얼</string>
+    <string name="usb_serial_desc">USB 시리얼 어댑터 연결 (CDC-ACM, FTDI, CH340)</string>
+
+    <!-- MCP Server -->
+    <string name="mcp_server">MCP 서버</string>
+    <string name="mcp_server_desc">Model Context Protocol 소켓으로 터미널 노출</string>
+
+    <!-- Text Search -->
+    <string name="text_search">텍스트 검색</string>
+    <string name="text_search_desc">터미널 출력 검색</string>
+    <string name="search_placeholder">터미널 검색…</string>
+    <string name="search_next">다음</string>
+    <string name="search_previous">이전</string>
+    <string name="search_close">검색 닫기</string>
+    <string name="search_no_results">결과 없음</string>
+    <string name="search_result_of">%d / %d</string>
+
+    <!-- File Manager -->
+    <string name="file_manager">파일 관리자</string>
+    <string name="cd_file_manager">파일 관리자 열기</string>
+
+    <!-- Volume Key Mapping -->
+    <string name="volume_key_map">볼륨 키 매핑</string>
+    <string name="volume_key_map_desc">볼륨 업을 Ctrl, 볼륨 다운을 Fn으로 매핑</string>
+    <string name="install">설치</string>
+
+    <!-- Cursor Settings -->
+    <string name="session_restore_off_desc">앱 시작 시 세션이 복원되지 않습니다</string>
+    <string name="on">켜짐</string>
+    <string name="off">꺼짐</string>
+    <string name="cjk_fallback_missing_warning">CJK 대체 글꼴이 감지되지 않았습니다. 동아시아 문자가 올바르게 표시되지 않을 수 있습니다.</string>
+    <string name="cursor_blink">커서 깜빡임</string>
+    <string name="cursor_blink_desc">커서 깜빡임 애니메이션 켜기/끄기</string>
+    <string name="cursor_speed">깜빡임 속도</string>
+    <string name="cursor_style_label">커서 스타일</string>
+</resources>

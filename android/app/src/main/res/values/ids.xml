@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <item name="terminal_menu_copy" type="id" />
+    <item name="terminal_menu_paste" type="id" />
+    <item name="terminal_menu_select_all" type="id" />
+    <item name="terminal_menu_share" type="id" />
+</resources>

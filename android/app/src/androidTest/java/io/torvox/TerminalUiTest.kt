@@ -10,7 +10,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -35,7 +38,7 @@ class TerminalUiTest {
     @Before
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        device.wait(Until.hasObject(By.pkg("io.torvox").depth(0)), 10000)
+        device.wait(Until.hasObject(By.pkg("com.termux").depth(0)), 10000)
     }
 
     // ── 1. App Launch Tests ──────────────────────────────
@@ -51,14 +54,14 @@ class TerminalUiTest {
     @Test
     fun appPackageNameIsCorrect() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
-        assertEquals("io.torvox", appContext.packageName)
+        assertEquals("com.termux", appContext.packageName)
     }
 
     @Test
     fun appHasLauncherActivity() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         val pm = appContext.packageManager
-        val intent = pm.getLaunchIntentForPackage("io.torvox")
+        val intent = pm.getLaunchIntentForPackage("com.termux")
         assertNotNull("App should have launch intent", intent)
     }
 
@@ -177,14 +180,14 @@ class TerminalUiTest {
             downEvent.recycle()
 
             for (i in 1..10) {
-                val y = startY + (endY - startY) * i / 10f
+                val currentY = startY + (endY - startY) * i / 10f
                 val moveEvent =
                     MotionEvent.obtain(
                         0,
                         i * 16L,
                         MotionEvent.ACTION_MOVE,
                         centerX,
-                        y,
+                        currentY,
                         0,
                     )
                 contentView.dispatchTouchEvent(moveEvent)
@@ -296,7 +299,7 @@ class TerminalUiTest {
     fun appHasCorrectPermissions() {
         val appContext = InstrumentationRegistry.getInstrumentation().targetContext
         val pm = appContext.packageManager
-        val appInfo = pm.getApplicationInfo("io.torvox", 0)
+        val appInfo = pm.getApplicationInfo("com.termux", 0)
         assertNotNull("App should have package info", appInfo)
         assertEquals("App should have correct target SDK", 36, appInfo.targetSdkVersion)
     }

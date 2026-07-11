@@ -1,0 +1,49 @@
+appId: "com.termux"
+name: "App survives rapid modifier bar taps"
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 30000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "Key_ESC"
+- tapOn:
+    id: "Key_ESC"
+- tapOn:
+    id: "Key_TAB"
+- tapOn:
+    id: "Key_CTRL"
+- tapOn:
+    id: "Key_ALT"
+- tapOn:
+    id: "Key_HOME"
+- tapOn:
+    id: "Key_END"
+- tapOn:
+    id: "Key_PGUP"
+- tapOn:
+    id: "Key_PGDN"
+- tapOn:
+    id: "Key_↑"
+- tapOn:
+    id: "Key_↓"
+- tapOn:
+    id: "Key_←"
+- tapOn:
+    id: "Key_→"
+- tapOn:
+    id: "Key_TAB"
+- tapOn:
+    id: "Key_CTRL"
+- tapOn:
+    id: "Key_ALT"
+- waitForAnimationToEnd:
+    timeout: 2000
+- assertVisible:
+    id: "TerminalScreen"
+- takeScreenshot: rapid_taps_survived

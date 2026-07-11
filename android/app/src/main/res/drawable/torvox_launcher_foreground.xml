@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Foreground layer for adaptive icon.
+     Converted from assets/logo-vector.svg (512x512 → 108dp viewport, scale 0.2109375).
+     Gradients replaced with solid midpoint colors. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Terminal window group: translate(70,146) rotate(-24,127.5,110) in SVG coords -->
+    <group
+        android:translateX="14.77"
+        android:translateY="30.80"
+        android:pivotX="26.90"
+        android:pivotY="23.20"
+        android:rotation="-24">
+
+        <!-- Terminal body (255×220 rx=39 → 53.8×46.4 rx=8.2) -->
+        <path
+            android:pathData="M8.2,0 L45.6,0 Q53.8,0 53.8,8.2 L53.8,38.2 Q53.8,46.4 45.6,46.4 L8.2,46.4 Q0,46.4 0,38.2 L0,8.2 Q0,0 8.2,0 Z"
+            android:fillColor="#232c3d"
+            android:strokeColor="#b9e0e7"
+            android:strokeWidth="1.6"/>
+
+        <!-- Inner glow (white 5%) -->
+        <path
+            android:pathData="M8.4,1.2 L45.3,1.2 Q52.6,1.2 52.6,8.4 L52.6,38.0 Q52.6,45.2 45.3,45.2 L8.4,45.2 Q1.2,45.2 1.2,38.0 L1.2,8.4 Q1.2,1.2 8.4,1.2 Z"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="0.4"
+            android:strokeAlpha="0.05"
+            android:fillColor="#00000000"/>
+
+        <!-- Red dot (cx=31 cy=55 r=7.6) -->
+        <path
+            android:pathData="A1.6,1.6 0 1,1 9.74,11.6 A1.6,1.6 0 1,1 6.54,11.6 A1.6,1.6 0 1,1 9.74,11.6 Z"
+            android:fillColor="#ff8a6c"/>
+
+        <!-- Yellow dot (cx=56 cy=55 r=7.6) -->
+        <path
+            android:pathData="A1.6,1.6 0 1,1 15.01,11.6 A1.6,1.6 0 1,1 11.81,11.6 A1.6,1.6 0 1,1 15.01,11.6 Z"
+            android:fillColor="#ffdb67"/>
+
+        <!-- Green dot (cx=81 cy=55 r=7.6) -->
+        <path
+            android:pathData="A1.6,1.6 0 1,1 20.29,11.6 A1.6,1.6 0 1,1 17.09,11.6 A1.6,1.6 0 1,1 20.29,11.6 Z"
+            android:fillColor="#86e96d"/>
+
+        <!-- Prompt ">" chevron (M63,98 L84,118 L63,138) -->
+        <path
+            android:pathData="M13.29,20.67 L17.72,24.89 L13.29,29.11"
+            android:strokeColor="#eef7f9"
+            android:strokeWidth="2.74"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:fillColor="#00000000"/>
+
+        <!-- Prompt "_" underscore (M100,132 L128,132) -->
+        <path
+            android:pathData="M21.09,27.84 L27.00,27.84"
+            android:strokeColor="#d8e0eb"
+            android:strokeWidth="2.64"
+            android:strokeLineCap="round"
+            android:fillColor="#00000000"/>
+
+    </group>
+
+    <!-- 4-pointed star at translate(401,110) → (84.6,23.2) -->
+    <group
+        android:translateX="84.61"
+        android:translateY="23.20">
+
+        <!-- Star with cutout (fill-rule: evenodd) -->
+        <path
+            android:pathData="M0,-6.96 L2.11,-2.11 L6.96,0 L2.11,2.11 L0,6.96 L-2.11,2.11 L-6.96,0 L-2.11,-2.11 Z M0,-2.74 L1.27,0 L0,2.74 L-1.27,0 Z"
+            android:fillColor="#ffb467"
+            android:fillType="evenOdd"/>
+
+        <!-- Star outline glow -->
+        <path
+            android:pathData="M0,-6.12 L1.69,-1.90 L6.12,0 L1.69,1.90 L0,6.12 L-1.69,1.90 L-6.12,0 L-1.69,-1.90 Z"
+            android:strokeColor="#fff2cf"
+            android:strokeWidth="0.42"
+            android:strokeAlpha="0.35"
+            android:fillColor="#00000000"/>
+
+    </group>
+
+    <!-- Trailing pixel squares -->
+    <path
+        android:pathData="M75.17,41.38 l1.48,0 l0,1.48 l-1.48,0 Z"
+        android:fillColor="#f1b26c"
+        android:fillAlpha="0.8"/>
+
+    <path
+        android:pathData="M77.70,36.58 l2.11,0 l0,2.11 l-2.11,0 Z"
+        android:fillColor="#f1b26c"
+        android:fillAlpha="0.6"/>
+
+    <path
+        android:pathData="M79.72,32.14 l1.69,0 l0,1.69 l-1.69,0 Z"
+        android:fillColor="#f1b26c"
+        android:fillAlpha="0.4"/>
+
+</vector>

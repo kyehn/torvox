@@ -1,0 +1,14 @@
+{"tests":[
+{"seq":"1b5b53","name":"SU 1 scroll up","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3253","name":"SU 2","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b354d","name":"DL 5 delete lines","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b544142","name":"SD default scroll down len2","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3254","name":"SD 2","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b354c","name":"IL 5 insert 5 lines","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b4c414243","name":"IL then write ABC","cells":[{"char":"A","fg":"","bg":""},{"char":"B","fg":"","bg":""},{"char":"C","fg":"","bg":""}]},
+{"seq":"1b5b3253","name":"SU 2 after writing","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b4d","name":"DL 1 delete line","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b314c","name":"IL 1 insert 1","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b314d","name":"DL 1 delete 1 at home","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b324c","name":"IL 2 insert 2","cells":[{"char":" ","fg":"","bg":""}]}
+]}

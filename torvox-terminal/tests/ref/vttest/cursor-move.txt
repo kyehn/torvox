@@ -1,0 +1,4 @@
+# vttest cursor movement test
+\x1b[2J\x1b[H
+\x1b[5B\x1b[10CA
+Expected: cursor at row 5, col 10, 'A' written

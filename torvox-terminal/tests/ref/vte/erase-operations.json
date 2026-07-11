@@ -1,0 +1,12 @@
+{"tests":[
+{"seq":"1b5b304b","name":"EL 0 to end (default)","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b314b","name":"EL 1 to start","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b324b","name":"EL 2 entire line","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b304a","name":"ED 0 from cursor to end","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b314a","name":"ED 1 from start to cursor","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b324a","name":"ED 2 entire display","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b504142","name":"DCH default (at home, shift AB)","cells":[{"char":"B","fg":"","bg":""}]},
+{"seq":"1b5b32505859","name":"DCH 2 shift XY","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b34585859","name":"ECH 4 erase 4 chars","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b4c","name":"IL 1","cells":[{"char":" ","fg":"","bg":""}]}
+]}

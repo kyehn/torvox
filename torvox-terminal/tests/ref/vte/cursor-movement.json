@@ -1,0 +1,345 @@
+{
+ "tests": [
+  {
+   "seq": "1b5b31",
+   "name": "CUU 1",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b3541",
+   "name": "CUU 5",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b414141",
+   "name": "CUU default 3 times",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b31303041",
+   "name": "CUU 100 clamps",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b42",
+   "name": "CUD 1",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b3542",
+   "name": "CUD 5",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b43",
+   "name": "CUF 1",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b313043",
+   "name": "CUF 10",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b44",
+   "name": "CUB 1",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b3544",
+   "name": "CUB 5",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b313b3148",
+   "name": "CUP 1;1 home",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b353b313048",
+   "name": "CUP 5;10",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b32343b383048",
+   "name": "CUP 24;80 bottom-right",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b3130303b31303048",
+   "name": "CUP overflow clamped",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b313047",
+   "name": "CHA 10",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b313564",
+   "name": "VPA 15",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b3561",
+   "name": "HPR 5",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b3365",
+   "name": "VPR 3",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b353b313066",
+   "name": "HVP 5;10",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    }
+   ]
+  },
+  {
+   "seq": "1b5b3345",
+   "name": "CNL 3",
+   "cells": [
+    {
+     "char": " ",
+     "fg": "",
+     "bg": ""
+    },
+    {
+     "seq": "1b5b3346",
+     "name": "CNL 3",
+     "cells": []
+    },
+    {
+     "seq": "1b5b3345",
+     "name": "CPL 3",
+     "cells": []
+    },
+    {
+     "seq": "1b5b31303041",
+     "name": "CUU 100 clamp",
+     "cells": []
+    },
+    {
+     "seq": "1b5b31303042",
+     "name": "CUD 100 clamp",
+     "cells": []
+    },
+    {
+     "seq": "1b5b31303043",
+     "name": "CUF 100 clamp",
+     "cells": []
+    },
+    {
+     "seq": "1b5b31303044",
+     "name": "CUB 100 clamp",
+     "cells": []
+    },
+    {
+     "seq": "1b5b3130303b31303048",
+     "name": "CUP clamped",
+     "cells": []
+    },
+    {
+     "seq": "1b5b48",
+     "name": "CUP default home",
+     "cells": []
+    },
+    {
+     "seq": "1b5b31303047",
+     "name": "CHA 100 clamp",
+     "cells": []
+    },
+    {
+     "seq": "1b5b31303064",
+     "name": "VPA 100 clamp",
+     "cells": []
+    },
+    {
+     "seq": "1b5b31303065",
+     "name": "VPR 100",
+     "cells": []
+    },
+    {
+     "seq": "1b5b31303061",
+     "name": "HPR 100",
+     "cells": []
+    },
+    {
+     "seq": "1b5b3130303b31303066",
+     "name": "HVP clamped",
+     "cells": []
+    },
+    {
+     "seq": "1b5b4641",
+     "name": "CUF default + A",
+     "cells": [
+      {
+       "char": "A",
+       "fg": "",
+       "bg": ""
+      }
+     ]
+    },
+    {
+     "seq": "1b5b45414243",
+     "name": "CNL 3 param + ABC",
+     "cells": []
+    }
+   ]
+  },
+  {
+   "seq": "1b5b313b3148",
+   "name": "CUP 1;1",
+   "cells": []
+  },
+  {
+   "seq": "1b5b315032",
+   "name": "DCH param",
+   "cells": []
+  },
+  {
+   "seq": "1b5b31305a",
+   "name": "CBT 10",
+   "cells": []
+  },
+  {
+   "seq": "1b5b3520",
+   "name": "HTS",
+   "cells": []
+  },
+  {
+   "seq": "1b5b313048",
+   "name": "CUP 1;1 alt",
+   "cells": []
+  },
+  {
+   "seq": "1b5b323430",
+   "name": "VPA 240 clamp",
+   "cells": []
+  },
+  {
+   "seq": "1b5b32303061",
+   "name": "HPR 200 clamp",
+   "cells": []
+  },
+  {
+   "seq": "1b5b32303065",
+   "name": "VPR 200 clamp",
+   "cells": []
+  }
+ ]
+}

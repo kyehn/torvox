@@ -1,0 +1,8 @@
+# vttest scroll test sequence
+# Send 100 lines, verify only last 24 visible
+\x1b[2J\x1b[H
+Line1
+Line2
+Line3
+# ... truncated for reference
+Expected: after 100 lines, only lines 77-100 visible in 24-row terminal

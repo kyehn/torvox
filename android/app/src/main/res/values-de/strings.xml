@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Torvox</string>
+    <string name="settings">Einstellungen</string>
+    <string name="back">Zurück</string>
+    <string name="appearance">Erscheinungsbild</string>
+    <string name="font_size">Schriftgröße</string>
+    <string name="font_family">Schriftart</string>
+    <string name="system_default">Systemstandard</string>
+    <string name="change">Ändern</string>
+    <string name="select_font_family">Schriftart auswählen</string>
+    <string name="pick_font_file">Aus Datei wählen…</string>
+    <string name="copy">Kopieren</string>
+    <string name="paste">Einfügen</string>
+    <string name="cancel">Abbrechen</string>
+    <string name="select_all">Alles auswählen</string>
+    <string name="select_all_action">Alles auswählen</string>
+    <string name="share">Teilen</string>
+
+    <!-- Advanced -->
+    <string name="advanced">Erweitert</string>
+    <string name="use_nerd_font_glyphs">Nerd-Font-Glyphen verwenden</string>
+    <string name="nerd_font_desc">Ersatzschrift verwenden, um Nerd-Font-Glyphen anzuzeigen</string>
+    <string name="semantic_selection">Semantische Auswahl (OSC 133)</string>
+    <string name="semantic_selection_desc">Intelligente Textauswahl mit Shell-Prompt-Markierungen verwenden</string>
+    <string name="bootstrap_url_label">Bootstrap-URL</string>
+    <string name="bootstrap_url_placeholder">https://github.com/termux/termux-packages/releases/...</string>
+    <string name="bootstrap_desc">Bootstrap-Pakete für Paketverwaltung</string>
+    <string name="bootstrap_presets">Voreinstellungen</string>
+    <string name="bootstrap_preset_termux">Termux Standard</string>
+    <string name="bootstrap_preset_termux_desc">Standard-Termux-Bootstrap mit bash, coreutils und Paketmanager</string>
+    <string name="bootstrap_preset_custom">Benutzerdefiniert / Leer</string>
+    <string name="bootstrap_preset_custom_desc">Mit leerem Root-Dateisystem starten</string>
+    <string name="bootstrap">Bootstrap</string>
+    <string name="bootstrap_install">Bootstrap installieren</string>
+    <string name="bootstrap_installing">Installation\u2026</string>
+    <string name="session_restore">Sitzung wiederherstellen</string>
+    <string name="session_restore_desc">Vorherige Sitzung beim Start der App wieder öffnen</string>
+    <string name="keyboard_mode">Tastaturmodus</string>
+    <string name="keyboard_secure">Sicher</string>
+    <string name="keyboard_secure_desc">Keine Vorschläge, keine Autokorrektur, keine Personalisierung</string>
+    <string name="keyboard_standard">Standard</string>
+    <string name="keyboard_standard_desc">Vollständige Eingabe mit Autokorrektur und Vorschlägen</string>
+    <string name="keyboard_raw">Roh</string>
+    <string name="keyboard_raw_desc">Keine Eingabemethode — nur physische Tastatur und Roh-Tastendruckereignisse</string>
+    <string name="software_theme">Software-Design</string>
+    <string name="theme">Terminal-Design</string>
+    <string name="day">Tag</string>
+    <string name="night">Nacht</string>
+    <string name="follow_system">System folgen</string>
+    <string name="day_theme">Tag-Design</string>
+    <string name="night_theme">Nacht-Design</string>
+    <string name="md_you">Material You</string>
+    <string name="fixed">Fest</string>
+    <string name="terminal">Terminal</string>
+    <string name="shell">Shell</string>
+    <string name="shell_placeholder">/system/bin/sh</string>
+    <string name="scrollback_lines">Scrollback-Zeilen</string>
+    <string name="sessions">Sitzungen</string>
+    <string name="settings_button">Einstellungen</string>
+    <string name="terminal_title">Torvox</string>
+    <string name="close">Schließen</string>
+    <string name="cd_new_session">Neue Sitzung</string>
+    <string name="cd_settings">Einstellungen</string>
+    <string name="cd_close_session">Sitzung schließen</string>
+    <string name="notification_channel_name">Terminal-Sitzung</string>
+    <string name="notification_channel_desc">Benachrichtigung für aktive Terminal-Sitzungen</string>
+    <string name="notification_active_single">Terminal-Sitzung aktiv</string>
+    <string name="notification_active_plural">%d Terminal-Sitzungen aktiv</string>
+    <string name="copied_chars">%d Zeichen kopiert</string>
+    <string name="pasted_chars">%d Zeichen eingefügt</string>
+    <string name="unsupported_abi">Nicht unterstützte ABI: %s</string>
+    <string name="sessions_accessible">%d Sitzungen</string>
+    <string name="title_changed">Terminaltitel geändert zu %s</string>
+
+    <!-- USB Serial -->
+    <string name="usb_serial">USB-Seriell</string>
+    <string name="usb_serial_desc">Verbindung zu USB-Seriell-Adaptern (CDC-ACM, FTDI, CH340)</string>
+
+    <!-- MCP Server -->
+    <string name="mcp_server">MCP-Server</string>
+    <string name="mcp_server_desc">Terminal über Model Context Protocol Socket verfügbar machen</string>
+
+    <!-- Text Search -->
+    <string name="text_search">Textsuche</string>
+    <string name="text_search_desc">Terminalausgabe durchsuchen</string>
+    <string name="search_placeholder">Terminal durchsuchen…</string>
+    <string name="search_next">Weiter</string>
+    <string name="search_previous">Zurück</string>
+    <string name="search_close">Suche schließen</string>
+    <string name="search_no_results">Keine Ergebnisse</string>
+    <string name="search_result_of">%d von %d</string>
+
+    <!-- File Manager -->
+    <string name="file_manager">Dateimanager</string>
+    <string name="cd_file_manager">Dateimanager öffnen</string>
+
+    <!-- Volume Key Mapping -->
+    <string name="volume_key_map">Lautstärketasten-Zuordnung</string>
+    <string name="volume_key_map_desc">Lauter auf Ctrl und Leiser auf Fn zuordnen</string>
+    <string name="install">Installieren</string>
+
+    <!-- Cursor Settings -->
+    <string name="session_restore_off_desc">Sitzungen werden beim App-Start nicht wiederhergestellt</string>
+    <string name="on">Ein</string>
+    <string name="off">Aus</string>
+    <string name="cjk_fallback_missing_warning">Keine CJK-Schriftart erkannt. Ostasiatische Zeichen werden möglicherweise nicht korrekt dargestellt.</string>
+    <string name="cursor_blink">Cursor blinken</string>
+    <string name="cursor_blink_desc">Cursor-Blinkanimation ein-/ausschalten</string>
+    <string name="cursor_speed">Blinkgeschwindigkeit</string>
+    <string name="cursor_style_label">Cursor-Stil</string>
+</resources>

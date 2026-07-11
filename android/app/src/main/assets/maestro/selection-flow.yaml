@@ -1,0 +1,17 @@
+appId: io.torvox
+---
+- launchApp:
+    clearState: true
+- waitForAnimationToEnd
+- extendedWaitUntil:
+    visible: "Shell"
+    timeout: 10000
+- tapOn:
+    point: "200,400"
+- longPressOn:
+    point: "200,400"
+- assertVisible: "Copy"
+- assertVisible: "Select All"
+- tapOn: "Select All"
+- assertVisible: "Copy"
+- tapOn: "Copy"

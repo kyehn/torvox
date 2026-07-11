@@ -1,0 +1,88 @@
+appId: com.termux
+name: Terminal text search
+tags:
+  - e2e
+  - p2
+---
+# Launch
+- launchApp:
+    clearState: false
+    stopApp: false
+- waitForAnimationToEnd:
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: "ModifierBar"
+    timeout: 30000
+# Open session drawer
+- tapOn:
+    id: "Key_DRAWER"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "SessionDrawer"
+# Tap search button in drawer
+- tapOn:
+    id: "SearchButton"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "TextSearchBar"
+- assertVisible:
+    id: "SearchTextField"
+- assertVisible:
+    id: "SearchCaseSensitive"
+- assertVisible:
+    id: "SearchNext"
+- assertVisible:
+    id: "SearchPrevious"
+- assertVisible:
+    id: "SearchClose"
+# Type a single-character query (finds many matches)
+- tapOn:
+    id: "SearchTextField"
+- inputText: "e"
+- waitForAnimationToEnd:
+    timeout: 2000
+- assertVisible:
+    id: "SearchResultCount"
+- takeScreenshot: search_query_typed
+# Navigate next
+- tapOn:
+    id: "SearchNext"
+- waitForAnimationToEnd:
+    timeout: 1000
+- takeScreenshot: search_next_match
+# Navigate previous
+- tapOn:
+    id: "SearchPrevious"
+- waitForAnimationToEnd:
+    timeout: 1000
+- takeScreenshot: search_previous_match
+# Toggle case sensitivity
+- tapOn:
+    id: "SearchCaseSensitive"
+- waitForAnimationToEnd:
+    timeout: 1000
+- takeScreenshot: search_case_toggled
+# Type a longer query
+- tapOn:
+    id: "SearchTextField"
+- inputText: " TORVOX"
+- waitForAnimationToEnd:
+    timeout: 2000
+- tapOn:
+    id: "SearchNext"
+- waitForAnimationToEnd:
+    timeout: 1000
+- takeScreenshot: search_long_query
+# Close search
+- tapOn:
+    id: "SearchClose"
+- waitForAnimationToEnd:
+    timeout: 2000
+- assertNotVisible:
+    id: "TextSearchBar"
+- assertVisible:
+    id: "ModifierBar"
+- takeScreenshot: text_search_complete

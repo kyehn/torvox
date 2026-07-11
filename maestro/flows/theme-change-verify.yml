@@ -1,0 +1,68 @@
+appId: com.termux
+name: Theme change and verification
+tags:
+  - e2e
+  - p1
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "ModifierBar"
+    timeout: 60000
+- assertVisible:
+    id: "ModifierBar"
+# Open drawer to Settings
+- tapOn:
+    id: "Key_DRAWER"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "SettingsButton"
+- tapOn:
+    id: "SettingsButton"
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertVisible:
+    id: "SettingsScreen"
+- takeScreenshot: settings_open
+# Scroll to Theme section
+- scrollUntilVisible:
+    element:
+      text: "Terminal Theme"
+    direction: DOWN
+- takeScreenshot: theme_section_visible
+# Scroll to Font Family section
+- scrollUntilVisible:
+    element:
+      text: "Font Family"
+    direction: DOWN
+- takeScreenshot: font_section_visible
+# Go back to terminal
+- tapOn:
+    id: "SettingsBackButton"
+- waitForAnimationToEnd:
+    timeout: 3000
+# Verify terminal still renders after settings
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+# Type to confirm terminal is functional
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "echo THEME_SETTINGS_OK"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: theme_change_verified

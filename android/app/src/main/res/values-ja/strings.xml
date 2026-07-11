@@ -1,0 +1,138 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Torvox</string>
+
+    <!-- Settings screen -->
+    <string name="settings">設定</string>
+    <string name="back">戻る</string>
+
+    <!-- Appearance -->
+    <string name="appearance">外観</string>
+    <string name="font_size">フォントサイズ</string>
+    <string name="font_family">フォント</string>
+    <string name="system_default">システムデフォルト</string>
+    <string name="change">変更</string>
+    <string name="select_font_family">フォントを選択</string>
+    <string name="pick_font_file">ファイルから選択…</string>
+    <string name="copy">コピー</string>
+    <string name="paste">ペースト</string>
+    <string name="cancel">キャンセル</string>
+    <string name="select_all">すべて選択</string>
+    <string name="select_all_action">すべて選択</string>
+    <string name="share">共有</string>
+
+    <!-- Advanced -->
+    <string name="advanced">詳細</string>
+    <string name="use_nerd_font_glyphs">Nerd Font グリフを使用</string>
+    <string name="nerd_font_desc">フォールバックフォントを使用して Nerd Font グリフを表示</string>
+    <string name="semantic_selection">意味的選択 (OSC 133)</string>
+    <string name="semantic_selection_desc">Shell プロンプトマーカーを使用したインテリジェントなテキスト選択</string>
+    <string name="bootstrap_url_label">Bootstrap URL</string>
+    <string name="bootstrap_url_placeholder">https://github.com/termux/termux-packages/releases/...</string>
+    <string name="bootstrap_desc">パッケージ管理用のブートストラップパッケージ</string>
+    <string name="bootstrap_presets">プリセット</string>
+    <string name="bootstrap_preset_termux">Termux デフォルト</string>
+    <string name="bootstrap_preset_termux_desc">bash、coreutils、パッケージマネージャーを含む標準Termuxブートストラップ</string>
+    <string name="bootstrap_preset_custom">カスタム / 空</string>
+    <string name="bootstrap_preset_custom_desc">空のrootファイルシステムで開始</string>
+    <string name="bootstrap">ブートストラップ</string>
+    <string name="bootstrap_install">ブートストラップをインストール</string>
+    <string name="bootstrap_installing">インストール中\u2026</string>
+    <string name="session_restore">セッション復元</string>
+    <string name="session_restore_desc">アプリ起動時に前回のセッションを再開する</string>
+    <string name="keyboard_mode">キーボードモード</string>
+    <string name="keyboard_secure">セキュア</string>
+    <string name="keyboard_secure_desc">提案なし、自動補正なし、パーソナライゼーションなし</string>
+    <string name="keyboard_standard">標準</string>
+    <string name="keyboard_standard_desc">自動補正と提案を含む完全な入力方式</string>
+    <string name="keyboard_raw">Raw</string>
+    <string name="keyboard_raw_desc">入力方式なし — フィジカルキーボードとRawキーイベントのみ</string>
+
+    <!-- Software Theme -->
+    <string name="software_theme">ソフトウェアテーマ</string>
+
+    <!-- Terminal Theme -->
+    <string name="theme">端末テーマ</string>
+    <string name="day">昼</string>
+    <string name="night">夜</string>
+    <string name="follow_system">システムに従う</string>
+    <string name="day_theme">昼テーマ</string>
+    <string name="night_theme">夜テーマ</string>
+    <string name="md_you">Material You</string>
+    <string name="fixed">固定</string>
+
+    <!-- Terminal -->
+    <string name="terminal">端末</string>
+    <string name="shell">シェル</string>
+    <string name="shell_placeholder">/system/bin/sh</string>
+    <string name="scrollback_lines">スクロールバック行数</string>
+
+    <!-- Session -->
+    <string name="sessions">セッション</string>
+
+    <!-- ModifierBar -->
+    <string name="settings_button">設定</string>
+
+    <!-- Terminal screen -->
+    <string name="terminal_title">Torvox</string>
+    <string name="close">閉じる</string>
+
+    <!-- Content descriptions -->
+    <string name="cd_new_session">新規セッション</string>
+    <string name="cd_settings">設定</string>
+    <string name="cd_close_session">セッションを閉じる</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">端末セッション</string>
+    <string name="notification_channel_desc">アクティブな端末セッションの通知</string>
+    <string name="notification_active_single">端末セッションがアクティブです</string>
+    <string name="notification_active_plural">%d 個の端末セッションがアクティブです</string>
+
+    <!-- Feedback -->
+    <string name="copied_chars">%d 文字をコピーしました</string>
+    <string name="pasted_chars">%d 文字をペーストしました</string>
+
+    <!-- Error -->
+    <string name="unsupported_abi">未対応の ABI: %s</string>
+
+    <!-- Accessibility -->
+    <string name="sessions_accessible">%d セッション</string>
+    <string name="title_changed">端末タイトルが %s に変更されました</string>
+
+    <!-- USB Serial -->
+    <string name="usb_serial">USB シリアル</string>
+    <string name="usb_serial_desc">USB シリアルアダプターに接続 (CDC-ACM, FTDI, CH340)</string>
+
+    <!-- MCP Server -->
+    <string name="mcp_server">MCP サーバー</string>
+    <string name="mcp_server_desc">Model Context Protocol ソケットで端末を公開</string>
+
+    <!-- Text Search -->
+    <string name="text_search">テキスト検索</string>
+    <string name="text_search_desc">端末出力を検索</string>
+    <string name="search_placeholder">端末を検索…</string>
+    <string name="search_next">次へ</string>
+    <string name="search_previous">前へ</string>
+    <string name="search_close">検索を閉じる</string>
+    <string name="search_no_results">結果なし</string>
+    <string name="search_result_of">%d / %d</string>
+
+    <!-- File Manager -->
+    <string name="file_manager">ファイルマネージャー</string>
+    <string name="cd_file_manager">ファイルマネージャーを開く</string>
+
+    <!-- Volume Key Mapping -->
+    <string name="volume_key_map">音量キーマッピング</string>
+    <string name="volume_key_map_desc">音量上げを Ctrl、音量下げを Fn に割り当て</string>
+    <string name="install">インストール</string>
+
+    <!-- Cursor Settings -->
+    <string name="session_restore_off_desc">アプリ起動時にセッションは復元されません</string>
+    <string name="on">オン</string>
+    <string name="off">オフ</string>
+    <string name="cjk_fallback_missing_warning">CJK フォールバックフォントが見つかりません。東アジア文字が正しく表示されない可能性があります。</string>
+    <string name="cursor_blink">カーソル点滅</string>
+    <string name="cursor_blink_desc">カーソル点滅アニメーションの切り替え</string>
+    <string name="cursor_speed">点滅速度</string>
+    <string name="cursor_style_label">カーソルスタイル</string>
+</resources>

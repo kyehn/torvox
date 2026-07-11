@@ -1,0 +1,459 @@
+[
+  {
+    "seq": "1b5b324a1b5b31000000",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "ED 2 + large CUP"
+  },
+  {
+    "seq": "1b5b303030303b3030303048",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "CUP with leading zeros"
+  },
+  {
+    "seq": "1b5b33313b313b343b313b353b313b373b313b383b313b31306d",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "SGR multi-param"
+  },
+  {
+    "seq": "1b5b3f313b326c",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "DECRST 1,2"
+  },
+  {
+    "seq": "1b5b3f373b3868",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "DECSET 7,8"
+  },
+  {
+    "seq": "1b5b32303b32346c",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "DECRST 20,24"
+  },
+  {
+    "seq": "1b5b3f31303030683130303768",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "multi DECSET"
+  },
+  {
+    "seq": "1b5b324a1b5b393930303030304700004100",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "large param not crash"
+  },
+  {
+    "seq": "1b5b3f3130323568",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "DECSET 1025"
+  },
+  {
+    "seq": "1b5b3f3133303068",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "DECSET 1300"
+  },
+  {
+    "seq": "1b5b3f3930303168",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "DECSET 9001"
+  },
+  {
+    "seq": "1b5b3230323668",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "DECSET 2026"
+  },
+  {
+    "seq": "1b5b2020",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "unknown CSI bytes"
+  },
+  {
+    "seq": "1b5b",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "incomplete CSI"
+  },
+  {
+    "seq": "1b",
+    "rows": [
+      {
+        "cells": []
+      }
+    ],
+    "desc": "incomplete ESC"
+  },
+  {
+    "seq": "1b5b33316d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 31 set (empty)"
+  },
+  {
+    "seq": "1b5b313b3335b01b5b336d",
+    "lines": [
+      ""
+    ],
+    "desc": "Multi SGR"
+  },
+  {
+    "seq": "1b5b327a1b5b48",
+    "lines": [
+      ""
+    ],
+    "desc": "DECSPS"
+  },
+  {
+    "seq": "1b5b73631b5b1b5b",
+    "lines": [
+      ""
+    ],
+    "desc": "DECSC save"
+  },
+  {
+    "seq": "1b5b38766572746578",
+    "lines": [
+      ""
+    ],
+    "desc": "DECRC retrieve"
+  },
+  {
+    "seq": "1b5b3b316d32",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR none param"
+  },
+  {
+    "seq": "1b5b3338",
+    "lines": [
+      ""
+    ],
+    "desc": "Incomplete SGR"
+  },
+  {
+    "seq": "1b5b3f3168",
+    "lines": [
+      ""
+    ],
+    "desc": "DECCKM set"
+  },
+  {
+    "seq": "1b5b3f376c",
+    "lines": [
+      ""
+    ],
+    "desc": "DECAWM reset"
+  },
+  {
+    "seq": "1b5b3f323568",
+    "lines": [
+      ""
+    ],
+    "desc": "DECTECM set"
+  },
+  {
+    "seq": "1b5b3f32356c",
+    "lines": [
+      ""
+    ],
+    "desc": "DECTECM reset"
+  },
+  {
+    "seq": "1b5b313464656c657465",
+    "lines": [
+      ""
+    ],
+    "desc": "DL edit"
+  },
+  {
+    "seq": "1b5b3230596f21",
+    "lines": [
+      ""
+    ],
+    "desc": "SU 0 fix"
+  },
+  {
+    "seq": "1b5b3032326d42",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 22 no effect without 1"
+  },
+  {
+    "seq": "1b5b3032366d53",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 26 proportional spacing"
+  },
+  {
+    "seq": "1b5b35306d1b5b35316d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 50-51 framed"
+  },
+  {
+    "seq": "1b5b343a314d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR colon subparams"
+  },
+  {
+    "seq": "1b5b33393a353b333a3333",
+    "lines": [
+      ""
+    ],
+    "desc": "CSI colon"
+  },
+  {
+    "seq": "1b5b3f3130303668",
+    "lines": [
+      ""
+    ],
+    "desc": "DEC 1006 mode set"
+  },
+  {
+    "seq": "1b5b3f313030326c",
+    "lines": [
+      ""
+    ],
+    "desc": "DEC 1002 mode reset"
+  },
+  {
+    "seq": "1b5b32532048656c6c6f",
+    "lines": [
+      ""
+    ],
+    "desc": "SU 2 scroll"
+  },
+  {
+    "seq": "1b5b32730303348",
+    "lines": [
+      ""
+    ],
+    "desc": "SD 2 scroll DOWN"
+  },
+  {
+    "seq": "1b5b383b32343b383074",
+    "lines": [
+      ""
+    ],
+    "desc": "XTWINOPS 8"
+  },
+  {
+    "seq": "1b5b33316d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 31 set (empty)"
+  },
+  {
+    "seq": "1b5b313b3335b01b5b336d",
+    "lines": [
+      ""
+    ],
+    "desc": "Multi SGR"
+  },
+  {
+    "seq": "1b5b327a1b5b48",
+    "lines": [
+      ""
+    ],
+    "desc": "DECSPS"
+  },
+  {
+    "seq": "1b5b73631b5b1b5b",
+    "lines": [
+      ""
+    ],
+    "desc": "DECSC save"
+  },
+  {
+    "seq": "1b5b38766572746578",
+    "lines": [
+      ""
+    ],
+    "desc": "DECRC retrieve"
+  },
+  {
+    "seq": "1b5b3b316d32",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR none param"
+  },
+  {
+    "seq": "1b5b3338",
+    "lines": [
+      ""
+    ],
+    "desc": "Incomplete SGR"
+  },
+  {
+    "seq": "1b5b3f3168",
+    "lines": [
+      ""
+    ],
+    "desc": "DECCKM set"
+  },
+  {
+    "seq": "1b5b3f376c",
+    "lines": [
+      ""
+    ],
+    "desc": "DECAWM reset"
+  },
+  {
+    "seq": "1b5b3f323568",
+    "lines": [
+      ""
+    ],
+    "desc": "DECTECM set"
+  },
+  {
+    "seq": "1b5b3f32356c",
+    "lines": [
+      ""
+    ],
+    "desc": "DECTECM reset"
+  },
+  {
+    "seq": "1b5b313464656c657465",
+    "lines": [
+      ""
+    ],
+    "desc": "DL edit"
+  },
+  {
+    "seq": "1b5b3230596f21",
+    "lines": [
+      ""
+    ],
+    "desc": "SU 0 fix"
+  },
+  {
+    "seq": "1b5b3032326d42",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 22 no effect without 1"
+  },
+  {
+    "seq": "1b5b3032366d53",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 26 proportional spacing"
+  },
+  {
+    "seq": "1b5b35306d1b5b35316d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR 50-51 framed"
+  },
+  {
+    "seq": "1b5b343a314d",
+    "lines": [
+      ""
+    ],
+    "desc": "SGR colon subparams"
+  },
+  {
+    "seq": "1b5b33393a353b333a3333",
+    "lines": [
+      ""
+    ],
+    "desc": "CSI colon"
+  },
+  {
+    "seq": "1b5b3f3130303668",
+    "lines": [
+      ""
+    ],
+    "desc": "DEC 1006 mode set"
+  },
+  {
+    "seq": "1b5b3f313030326c",
+    "lines": [
+      ""
+    ],
+    "desc": "DEC 1002 mode reset"
+  },
+  {
+    "seq": "1b5b32532048656c6c6f",
+    "lines": [
+      ""
+    ],
+    "desc": "SU 2 scroll"
+  },
+  {
+    "seq": "1b5b32730303348",
+    "lines": [
+      ""
+    ],
+    "desc": "SD 2 scroll DOWN"
+  },
+  {
+    "seq": "1b5b383b32343b383074",
+    "lines": [
+      ""
+    ],
+    "desc": "XTWINOPS 8"
+  }
+]

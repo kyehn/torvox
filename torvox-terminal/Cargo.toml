@@ -1,18 +1,27 @@
 [package]
 name = "torvox-terminal"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Terminal state machine, VT parser, and PTY management for Torvox"
-license = "UNLICENSED"
 
 [dependencies]
 torvox-core = { workspace = true }
-vte = { workspace = true }
 nix = { workspace = true }
 libc = { workspace = true }
 thiserror = { workspace = true }
 flume = { workspace = true }
-bitflags = { workspace = true }
+log = { workspace = true }
+libghostty-vt = { workspace = true, features = ["png"] }
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
 
 [dev-dependencies]
+base64 = "0.22"
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
 proptest = { workspace = true }
+shuttle = "0.9"
+
+[lints]
+workspace = true

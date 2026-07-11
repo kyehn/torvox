@@ -1,0 +1,22 @@
+{"tests":[
+{"input":"\\e[1mBOLD\\e[0m","output":"BOLD","description":"SGR 1 bold"},
+{"input":"\\e[2mDIM\\e[0m","output":"DIM","description":"SGR 2 dim"},
+{"input":"\\e[3mITALIC\\e[0m","output":"ITALIC","description":"SGR 3 italic"},
+{"input":"\\e[4mUNDER\\e[0m","output":"UNDER","description":"SGR 4 underline"},
+{"input":"\\e[5mBLINK\\e[0m","output":"BLINK","description":"SGR 5 blink"},
+{"input":"\\e[7mREVERSE\\e[0m","output":"REVERSE","description":"SGR 7 reverse"},
+{"input":"\\e[8mHIDDEN\\e[0m","output":"HIDDEN","description":"SGR 8 hidden"},
+{"input":"\\e[9mSTRIKE\\e[0m","output":"STRIKE","description":"SGR 9 strikethrough"},
+{"input":"\\e[53mOVER\\e[0m","output":"OVER","description":"SGR 53 overline"},
+{"input":"\\e[30mBlack\\e[0m","output":"Black","description":"SGR 30 fg black"},
+{"input":"\\e[31mRed\\e[0m","output":"Red","description":"SGR 31 fg red"},
+{"input":"\\e[32mGreen\\e[0m","output":"Green","description":"SGR 32 fg green"},
+{"input":"\\e[33mYellow\\e[0m","output":"Yellow","description":"SGR 33 fg yellow"},
+{"input":"\\e[34mBlue\\e[0m","output":"Blue","description":"SGR 34 fg blue"},
+{"input":"\\e[35mMagenta\\e[0m","output":"Magenta","description":"SGR 35 fg magenta"},
+{"input":"\\e[36mCyan\\e[0m","output":"Cyan","description":"SGR 36 fg cyan"},
+{"input":"\\e[37mWhite\\e[0m","output":"White","description":"SGR 37 fg white"},
+{"input":"\\e[1;31mBoldRed\\e[0m","output":"BoldRed","description":"SGR 1;31 bold red"},
+{"input":"\\e[3;33mItalicYellow\\e[0m","output":"ItalicYellow","description":"SGR 3;33 italic yellow"},
+{"input":"\\e[1;3;34mBoldItalicBlue\\e[0m","output":"BoldItalicBlue","description":"SGR 1;3;34 bold italic blue"}
+]}

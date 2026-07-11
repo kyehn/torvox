@@ -1,0 +1,5 @@
+# vttest tab test
+\x1b[2J\x1b[H
+\x1b[3g\x1b[9G\x1bH\x1b[17G\x1bH\x1b[25G\x1bH\x1b[H
+\x09X\x09Y\x09Z
+Expected: X at col 8, Y at col 16, Z at col 24

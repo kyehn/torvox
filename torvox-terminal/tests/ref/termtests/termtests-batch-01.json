@@ -1,0 +1,54 @@
+{
+  "tests": [
+    {
+      "input": "A\\e[3DB",
+      "output": "B A",
+      "description": "CUB 3 then B"
+    },
+    {
+      "input": "\\e[3;10HX",
+      "output": "X",
+      "description": "CUP to 3;10"
+    },
+    {
+      "input": "Test\\e[2K",
+      "output": "",
+      "description": "EL 2 erases line"
+    },
+    {
+      "input": "ABC\\e[1K",
+      "output": "   ABC",
+      "description": "EL 1 from start"
+    },
+    {
+      "input": "\\e[1mB\\e[22mN",
+      "output": "BN",
+      "description": "Bold on/off"
+    },
+    {
+      "input": "\\e[3mI\\e[23mN",
+      "output": "IN",
+      "description": "Italic on/off"
+    },
+    {
+      "input": "\\e[4mU\\e[24mN",
+      "output": "UN",
+      "description": "Underline on/off"
+    },
+    {
+      "input": "\\e[9mS\\e[29mN",
+      "output": "SN",
+      "description": "Strikethrough on/off"
+    },
+    {
+      "input": "\\e[7mR\\e[27mN",
+      "output": "RN",
+      "description": "Reverse on/off"
+    },
+    {
+      "input": "A\\e[5CB",
+      "output": "A    B",
+      "description": "CUF 5 with spaces"
+    }
+  ]
+}

@@ -1,0 +1,65 @@
+appId: "com.termux"
+name: "Theme app mode switching"
+tags:
+  - e2e
+  - p1
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 60000
+# Open drawer to Settings
+- tapOn:
+    id: "Key_DRAWER"
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "SettingsButton"
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertVisible:
+    id: "SettingsScreen"
+# Scroll to Software Theme section
+- scrollUntilVisible:
+    element:
+      text: "Software Theme"
+    direction: DOWN
+- takeScreenshot: app_theme_section
+# Tap Night mode
+- tapOn:
+    text: "Night"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: app_theme_set_to_night
+# Tap Day mode
+- tapOn:
+    text: "Day"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: app_theme_set_to_day
+# Tap Follow System
+- tapOn:
+    text: "Follow System"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: app_theme_set_to_follow_system
+# Go back to terminal
+- tapOn:
+    id: "SettingsBackButton"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+- takeScreenshot: app_theme_switch_complete

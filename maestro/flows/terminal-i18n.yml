@@ -1,0 +1,76 @@
+appId: com.termux
+name: Terminal i18n verification
+tags:
+  - e2e
+  - p1
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "TerminalScreen"
+- assertVisible:
+    id: "ModifierBar"
+- assertVisible:
+    id: "TerminalContent"
+# Open settings via drawer
+- swipe:
+    start: 3%,50%
+    end: 50%,50%
+    duration: 500
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "SettingsButton"
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertVisible:
+    id: "SettingsScreen"
+# Verify English UI strings
+- assertVisible:
+    text: "Appearance"
+- assertVisible:
+    text: "Font Size"
+- scrollUntilVisible:
+    element:
+      text: "Software Theme"
+    direction: DOWN
+- assertVisible:
+    text: "Software Theme"
+- scrollUntilVisible:
+    element:
+      text: "Terminal Theme"
+    direction: DOWN
+- assertVisible:
+    text: "Terminal Theme"
+- assertVisible:
+    text: "Follow System"
+- assertVisible:
+    text: "Fixed"
+- scrollUntilVisible:
+    element:
+      text: "Terminal"
+    direction: DOWN
+- assertVisible:
+    text: "Terminal"
+- assertVisible:
+    text: "Shell"
+- takeScreenshot: i18n_english
+# Back to terminal
+- tapOn:
+    id: "SettingsBackButton"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    id: "TerminalScreen"

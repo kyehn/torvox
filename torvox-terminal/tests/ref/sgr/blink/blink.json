@@ -1,0 +1,1769 @@
+{
+  "cursor_row": 0,
+  "cursor_col": 13,
+  "cursor_visible": true,
+  "rows": 24,
+  "cols": 80,
+  "cells": [
+    {
+      "codepoint": 66,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": true,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 76,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": true,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 73,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": true,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 78,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": true,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 75,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": true,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 78,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 79,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 66,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 76,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 73,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 78,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 75,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "codepoint": 0,
+      "bold": false,
+      "dim": false,
+      "italic": false,
+      "underline": false,
+      "blink": false,
+      "reverse": false,
+      "strikethrough": false,
+      "fg": [
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "bg": [
+        0.0,
+        0.0,
+        0.0,
+        1.0
+      ]
+    }
+  ]
+}

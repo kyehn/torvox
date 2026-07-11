@@ -1,0 +1,12 @@
+{"tests":[
+{"seq":"1b5b3f3130303068","name":"DECSET 1000 mouse tracking","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3f313030306c","name":"DECRST 1000 mouse","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3f323568","name":"DECSET 25 cursor visible","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3f32356c","name":"DECRST 25 cursor hidden","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3f3768","name":"DECSET 7 autowrap","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3f376c","name":"DECRST 7 no autowrap","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3f3130303068","name":"DECSET 1006 SGR mouse","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3f3230303468","name":"DECSET 2004 bracketed paste","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3f3130343968","name":"DECSET 1049 alt screen","cells":[{"char":" ","fg":"","bg":""}]},
+{"seq":"1b5b3f363h","name":"DECSET 6 origin mode","cells":[{"char":" ","fg":"","bg":""}]}
+]}
