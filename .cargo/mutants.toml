@@ -1,0 +1,36 @@
+# Mutation testing configuration
+# Run: nix develop --command "cargo mutants --package <crate>"
+# CI:  nix develop --command "nu scripts/check-rust.nu"
+
+timeout = 60  # seconds per mutation (nextest runs <10s per crate)
+test_tool = "nextest"
+threshold = 0.60
+
+examine_globs = [
+  "torvox-core/src/**/*.rs",
+  "torvox-terminal/src/**/*.rs",
+  "torvox-renderer/src/**/*.rs",
+  "torvox-mcp/src/**/*.rs",
+]
+
+# Files excluded from mutation testing:
+# - tests/ benches/ examples/ fuzz/: not production code
+# - build.rs: simple metadata, no logic
+# - pty.rs: contains unsafe fork() — mutations could create fork bombs
+# - shader/** : WGSL shader source, not Rust code
+# - grid.rs, selection.rs: excluded from --mutants (quick) for speed;
+#   run `nix develop --command "cargo mutants --package torvox-core --include grid.rs selection.rs"`
+#   for deep coverage
+exclude_globs = [
+  "**/target/**",
+  "**/tests/**",
+  "**/benches/**",
+  "**/examples/**",
+  "**/fuzz/**",
+  "**/test_data/**",
+  "**/build.rs",
+  "torvox-core/src/grid.rs",
+  "torvox-core/src/selection.rs",
+  "torvox-terminal/src/pty.rs",
+  "torvox-renderer/src/shader/**",
+]

@@ -1,73 +1,117 @@
-// Cell rendering shader - instanced quads for terminal cells
-// Each instance represents one cell in the terminal grid
+struct Uniforms {
+    projection: mat4x4<f32>,
+    atlas_size: vec2<f32>,
+    _padding: vec2<f32>,
+};
+
+@group(0) @binding(0) var<uniform> uniforms: Uniforms;
+@group(0) @binding(1) var atlas_texture: texture_2d<f32>;
+@group(0) @binding(2) var atlas_sampler: sampler;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
+    @location(0) cell_uv: vec2<f32>,
     @location(1) fg_color: vec4<f32>,
     @location(2) bg_color: vec4<f32>,
-    @location(3) flags: f32,
-};
-
-struct Uniforms {
-    projection: mat4x4<f32>,
-    cell_size: vec2<f32>,
-    atlas_size: vec2<f32>,
-};
-
-@group(0) @binding(0)
-var<uniform> uniforms: Uniforms;
-
-@group(0) @binding(1)
-var atlas_texture: texture_2d<f32>;
-
-@group(0) @binding(2)
-var atlas_sampler: sampler;
-
-// Vertex attributes for each quad corner
-// Position is in grid coordinates (will be transformed to screen space)
-struct VertexInput {
-    @location(0) corner: vec2<f32>,      // -1 to 1 quad corner
-    @location(1) cell_pos: vec2<f32>,    // grid position (x, y)
-    @location(2) atlas_offset: vec2<f32>, // UV offset into atlas
-    @location(3) atlas_size: vec2<f32>,   // size in atlas
-    @location(4) fg_color: vec4<f32>,     // foreground color
-    @location(5) bg_color: vec4<f32>,     // background color
-    @location(6) flags: f32,              // cell flags (bold, italic, etc.)
+    @location(3) has_glyph: f32,
+    @location(4) bearing: vec2<f32>,
+    @location(5) glyph_size_px: vec2<f32>,
+    @location(6) quad_size: vec2<f32>,
+    @location(7) uv_offset: vec2<f32>,
+    @location(8) glyph_advance_w: f32,
+    @location(9) flags: f32,
 };
 
 @vertex
-fn vs_main(in: VertexInput) -> VertexOutput {
-    var out: VertexOutput;
+fn vs_main(
+    @location(0) offset: vec2<f32>,
+    @location(1) quad_origin: vec2<f32>,
+    @location(2) uv_offset: vec2<f32>,
+    @location(3) uv_size: vec2<f32>,
+    @location(4) fg_color: vec4<f32>,
+    @location(5) bg_color: vec4<f32>,
+    @location(6) quad_size: vec2<f32>,
+    @location(7) flags: f32,
+    @location(8) bearing: vec2<f32>,
+    @location(9) glyph_advance_w: f32,
+) -> VertexOutput {
+    let half_quad = quad_size * 0.5;
+    let world_pos = quad_origin + half_quad + offset * half_quad;
+    let clip_pos = uniforms.projection * vec4<f32>(world_pos, 0.0, 1.0);
 
-    // Transform grid position to screen space
-    let screen_pos = (in.cell_pos + in.corner * 0.5) * uniforms.cell_size;
-
-    // Apply projection matrix
-    out.position = uniforms.projection * vec4<f32>(screen_pos, 0.0, 1.0);
-
-    // Calculate UV coordinates into atlas
-    // Corner is -1 to 1, map to 0 to 1
-    let uv_corner = (in.corner + 1.0) * 0.5;
-    out.uv = in.atlas_offset + uv_corner * in.atlas_size;
-
-    out.fg_color = in.fg_color;
-    out.bg_color = in.bg_color;
-    out.flags = in.flags;
-
-    return out;
+    var output: VertexOutput;
+    output.position = clip_pos;
+    let uv_corner = offset * 0.5 + vec2<f32>(0.5);
+    output.cell_uv = uv_corner;
+    output.fg_color = fg_color;
+    output.bg_color = bg_color;
+    output.has_glyph = f32(uv_size.x * uv_size.y > 0.0);
+    output.bearing = bearing;
+    output.glyph_size_px = uv_size * uniforms.atlas_size;
+    output.quad_size = quad_size;
+    output.uv_offset = uv_offset;
+    output.glyph_advance_w = glyph_advance_w;
+    output.flags = flags;
+    return output;
 }
 
 @fragment
-fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    // Sample atlas texture
-    let atlas_sample = textureSample(atlas_texture, atlas_sampler, in.uv);
+fn fs_main(
+    @location(0) cell_uv: vec2<f32>,
+    @location(1) fg_color: vec4<f32>,
+    @location(2) bg_color: vec4<f32>,
+    @location(3) has_glyph: f32,
+    @location(4) bearing: vec2<f32>,
+    @location(5) glyph_size_px: vec2<f32>,
+    @location(6) quad_size: vec2<f32>,
+    @location(7) uv_offset: vec2<f32>,
+    @location(8) glyph_advance_w: f32,
+    @location(9) flags: f32,
+) -> @location(0) vec4<f32> {
+    var color: vec4<f32>;
+    if has_glyph > 0.5 {
+        let cell_px = cell_uv * quad_size;
+        // X: scale glyph width to match cell width (Termux canvas.scale equivalent).
+        // Narrow glyphs (advance_w < cell_w) are stretched; wide glyphs compressed.
+        let scaled_x = cell_px.x * glyph_advance_w / quad_size.x;
+        // Y: use natural font metrics. bearing.y positions the glyph relative to
+        // the cell top (ascent_px - placement.top). For CJK fallback glyphs where
+        // placement.top > ascent_px, bearing.y is negative — the glyph extends
+        // above the cell and the in_glyph check clips it naturally.
+        // This matches Kitty/Ghostty: glyphs are NOT scaled vertically;
+        // oversized glyphs are clipped symmetrically via bearing offset.
+        let glyph_px = vec2<f32>(scaled_x - bearing.x, cell_px.y - bearing.y);
+        let in_glyph = all(glyph_px >= vec2<f32>(0.0)) && all(glyph_px < glyph_size_px);
+        if in_glyph {
+            let corrected_uv = uv_offset + glyph_px / uniforms.atlas_size;
+            let texel = textureSample(atlas_texture, atlas_sampler, corrected_uv);
+            color = mix(bg_color, fg_color, texel.r);
+        } else {
+            color = bg_color;
+        }
+    } else {
+        color = bg_color;
+    }
 
-    // Alpha is the glyph coverage
-    let glyph_alpha = atlas_sample.a;
+    let f = u32(flags);
+    let deco_color = fg_color;
+    let deco_thickness = 0.06;
+    if (f & 64u) != 0u && cell_uv.y < deco_thickness {
+        color = deco_color;
+    }
+    if (f & 32u) != 0u && abs(cell_uv.y - 0.5) < deco_thickness * 0.5 {
+        color = deco_color;
+    }
+    if (f & 8u) != 0u && cell_uv.y > 1.0 - deco_thickness {
+        color = deco_color;
+    }
+    if (f & 256u) != 0u && abs(cell_uv.y - 0.92) < deco_thickness * 0.4 {
+        color = deco_color;
+    }
 
-    // Blend: background where no glyph, foreground where glyph exists
-    let color = mix(in.bg_color.rgb, in.fg_color.rgb, glyph_alpha);
+    if (f & 128u) != 0u {
+        color = vec4<f32>(color.rgb * 0.5, color.a);
+    }
 
-    return vec4<f32>(color, 1.0);
+    return color;
 }

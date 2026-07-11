@@ -1,0 +1,88 @@
+appId: "com.termux"
+name: "All 14 modifier bar keys exist and are clickable"
+---
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "ModifierBar"
+# Row 1 keys
+- assertVisible:
+    id: "Key_ESC"
+- assertVisible:
+    id: "Key_DRAWER"
+- assertVisible:
+    id: "Key_SCROLL"
+- assertVisible:
+    id: "Key_HOME"
+- assertVisible:
+    id: "Key_↑"
+- assertVisible:
+    id: "Key_END"
+- assertVisible:
+    id: "Key_PGUP"
+# Row 2 keys
+- assertVisible:
+    id: "Key_TAB"
+- assertVisible:
+    id: "Key_CTRL"
+- assertVisible:
+    id: "Key_ALT"
+- assertVisible:
+    id: "Key_←"
+- assertVisible:
+    id: "Key_↓"
+- assertVisible:
+    id: "Key_→"
+- assertVisible:
+    id: "Key_PGDN"
+# Click non-drawer keys to verify they work
+- tapOn:
+    id: "Key_ESC"
+- tapOn:
+    id: "Key_SCROLL"
+- tapOn:
+    id: "Key_HOME"
+- tapOn:
+    id: "Key_↑"
+- tapOn:
+    id: "Key_END"
+- tapOn:
+    id: "Key_PGUP"
+- tapOn:
+    id: "Key_TAB"
+- tapOn:
+    id: "Key_CTRL"
+- tapOn:
+    id: "Key_ALT"
+- tapOn:
+    id: "Key_←"
+- tapOn:
+    id: "Key_↓"
+- tapOn:
+    id: "Key_→"
+- tapOn:
+    id: "Key_PGDN"
+# Open drawer
+- tapOn:
+    id: "Key_DRAWER"
+- waitForAnimationToEnd:
+    timeout: 2000
+- assertVisible:
+    id: "SessionDrawer"
+# Close drawer with back press
+- pressKey: Back
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: all_keys_clicked

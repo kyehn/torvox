@@ -1,9 +1,8 @@
 [package]
 name = "torvox-exec"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Multi-call binary for W^X workaround on Android (Termux-proven pattern)"
-license = "UNLICENSED"
 
 [[bin]]
 name = "torvox-exec"
@@ -11,3 +10,6 @@ path = "src/main.rs"
 
 [dependencies]
 nix = { workspace = true }
+
+[lints]
+workspace = true

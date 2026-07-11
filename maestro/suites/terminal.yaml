@@ -1,0 +1,11 @@
+suite:
+  name: Torvox Terminal Flows
+  tags:
+    - terminal
+appId: com.termux
+flows:
+  - ../flows/launch.yaml
+  - ../flows/type.yaml
+  - ../flows/paste.yaml
+  - ../flows/resize.yaml
+  - ../flows/selection.yaml

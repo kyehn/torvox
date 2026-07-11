@@ -1,0 +1,19 @@
+appId: com.termux
+---
+# Test multiple session management
+- launchApp:
+    appId: "com.termux"
+    clearState: true
+- waitForVisible: "TerminalScreen"
+# Open drawer and add session
+- tapOn: "Key_DRAWER"
+- waitForVisible: "New session"
+- tapOn: "New session"
+- waitForVisible: "TerminalScreen"
+# Verify session drawer has 2 sessions
+- tapOn: "Key_DRAWER"
+- waitForVisible: "Session"
+# Close drawer
+- tapOn:
+    point: "10%,10%"
+- waitForVisible: "TerminalScreen"

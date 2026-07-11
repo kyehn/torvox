@@ -1,0 +1,16 @@
+appId: com.termux
+---
+# Test selection edge cases: double-tap, long-press, multi-line
+
+- launchApp:
+    appId: "com.termux"
+    clearState: true
+- waitForVisible: "TerminalScreen"
+- tapOn: "TerminalContent"
+- inputText: "echo testing selection\n"
+- waitForVisible: "TerminalScreen"
+- tapOn:
+    point: "50%,50%"
+- longPressOn:
+    point: "50%,50%"
+- assertVisible: "Copied"

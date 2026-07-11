@@ -1,11 +1,22 @@
 [package]
 name = "torvox-bench"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 description = "Criterion benchmarks for Torvox terminal operations"
-license = "UNLICENSED"
 
 [dependencies]
 torvox-core = { workspace = true }
 torvox-terminal = { workspace = true }
 torvox-renderer = { workspace = true }
+wgpu = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+guillotiere = "0.7"
+
+[[bench]]
+name = "terminal_bench"
+harness = false
+
+[lints]
+workspace = true
