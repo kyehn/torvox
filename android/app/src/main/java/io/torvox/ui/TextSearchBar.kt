@@ -30,11 +30,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.SoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -43,12 +45,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.torvox.R
-
-data class SearchResult(
-    val lineIndex: Int,
-    val startIndex: Int,
-    val endIndex: Int,
-)
 
 private fun isWideChar(ch: Char): Boolean {
     val type = Character.getType(ch)
@@ -126,10 +122,17 @@ fun TextSearchBar(
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
-
-    LaunchedEffect(Unit) {
-        focusRequester.requestFocus()
+    val escapeHandler: (KeyEvent) -> Boolean = {
+        if (it.type == KeyEventType.KeyUp && it.key == Key.Escape) {
+            keyboardController?.hide()
+            onClose()
+            true
+        } else {
+            false
+        }
     }
+
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
     Row(
         modifier =
@@ -138,159 +141,206 @@ fun TextSearchBar(
             .height(56.dp)
             .background(MaterialTheme.colorScheme.surfaceContainerHigh)
             .padding(horizontal = 8.dp, vertical = 0.dp)
-            .onPreviewKeyEvent { event ->
-                if (event.type == KeyEventType.KeyUp && event.key == Key.Escape) {
-                    keyboardController?.hide()
-                    onClose()
-                    true
-                } else {
-                    false
-                }
-            },
+            .onPreviewKeyEvent(escapeHandler),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        OutlinedTextField(
-            value = query,
-            onValueChange = onQueryChange,
-            modifier =
-            Modifier
-                .weight(1f)
-                .focusRequester(focusRequester)
-                .testTag("SearchTextField"),
-            placeholder = {
-                Text(
-                    text = stringResource(R.string.search_placeholder),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    fontSize = 14.sp,
-                )
-            },
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            keyboardActions =
-            KeyboardActions(
-                onNext = { onNext() },
-            ),
-            colors =
-            OutlinedTextFieldDefaults.colors(
-                focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline,
-                cursorColor = MaterialTheme.colorScheme.primary,
-            ),
+        SearchTextField(
+            query = query,
+            onQueryChange = onQueryChange,
+            focusRequester = focusRequester,
+            onNext = onNext,
+            modifier = Modifier.weight(1f),
         )
 
-        val aaColor =
-            when {
-                caseSensitive -> MaterialTheme.colorScheme.primary
-                autoCaseSensitive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
-                else -> MaterialTheme.colorScheme.onSurfaceVariant
-            }
+        SearchToggleButtons(
+            caseSensitive = caseSensitive,
+            autoCaseSensitive = autoCaseSensitive,
+            fuzzyMatch = fuzzyMatch,
+            onCaseSensitiveToggle = onCaseSensitiveToggle,
+            onFuzzyMatchToggle = onFuzzyMatchToggle,
+        )
 
-        IconButton(
-            onClick = { onCaseSensitiveToggle(!caseSensitive) },
-            modifier = Modifier.size(32.dp).testTag("SearchCaseSensitive"),
-        ) {
-            Text(
-                text = "Aa",
-                fontSize = 13.sp,
-                color = aaColor,
-            )
+        SearchResultCounter(query, resultCount, currentResultIndex)
+        SearchNavButtons(resultCount, onPrevious, onNext)
+        SearchCloseButton(onClose, keyboardController)
+    }
+}
+
+@Composable
+private fun SearchToggleButtons(
+    caseSensitive: Boolean,
+    autoCaseSensitive: Boolean,
+    fuzzyMatch: Boolean,
+    onCaseSensitiveToggle: (Boolean) -> Unit,
+    onFuzzyMatchToggle: (Boolean) -> Unit,
+) {
+    val aaColor =
+        when {
+            caseSensitive -> MaterialTheme.colorScheme.primary
+            autoCaseSensitive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+            else -> MaterialTheme.colorScheme.onSurfaceVariant
         }
 
-        IconButton(
-            onClick = { onFuzzyMatchToggle(!fuzzyMatch) },
-            modifier =
-            Modifier
-                .size(32.dp)
-                .testTag("SearchFuzzyMatch")
-                .semantics {
-                    contentDescription = if (fuzzyMatch) "Disable fuzzy match" else "Enable fuzzy match"
-                },
-        ) {
-            Text(
-                text = "~",
-                fontSize = 13.sp,
-                color =
-                if (fuzzyMatch) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-            )
-        }
+    IconButton(
+        onClick = { onCaseSensitiveToggle(!caseSensitive) },
+        modifier = Modifier.size(32.dp).testTag("SearchCaseSensitive"),
+    ) {
+        Text(
+            text = "Aa",
+            fontSize = 13.sp,
+            color = aaColor,
+        )
+    }
 
-        Spacer(modifier = Modifier.width(4.dp))
-
-        if (query.isNotEmpty()) {
-            Text(
-                text =
-                if (resultCount == 0) {
-                    stringResource(R.string.search_no_results)
-                } else {
-                    stringResource(R.string.search_result_of, currentResultIndex + 1, resultCount)
-                },
-                fontSize = 12.sp,
-                color =
-                if (resultCount == 0) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                modifier = Modifier.testTag("SearchResultCount"),
-            )
-        }
-
-        Spacer(modifier = Modifier.width(4.dp))
-
-        IconButton(
-            onClick = onPrevious,
-            enabled = resultCount > 0,
-            modifier = Modifier.size(32.dp).testTag("SearchPrevious"),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowUp,
-                contentDescription = stringResource(R.string.search_previous),
-                tint =
-                if (resultCount > 0) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                },
-                modifier = Modifier.size(20.dp),
-            )
-        }
-
-        IconButton(
-            onClick = onNext,
-            enabled = resultCount > 0,
-            modifier = Modifier.size(32.dp).testTag("SearchNext"),
-        ) {
-            Icon(
-                imageVector = Icons.Filled.KeyboardArrowDown,
-                contentDescription = stringResource(R.string.search_next),
-                tint =
-                if (resultCount > 0) {
-                    MaterialTheme.colorScheme.onSurface
-                } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-                },
-                modifier = Modifier.size(20.dp),
-            )
-        }
-
-        IconButton(
-            onClick = {
-                keyboardController?.hide()
-                onClose()
+    IconButton(
+        onClick = { onFuzzyMatchToggle(!fuzzyMatch) },
+        modifier =
+        Modifier
+            .size(32.dp)
+            .testTag("SearchFuzzyMatch")
+            .semantics {
+                contentDescription = if (fuzzyMatch) "Disable fuzzy match" else "Enable fuzzy match"
             },
-            modifier = Modifier.size(32.dp).testTag("SearchClose"),
-        ) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = stringResource(R.string.search_close),
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.size(20.dp),
+    ) {
+        Text(
+            text = "~",
+            fontSize = 13.sp,
+            color =
+            if (fuzzyMatch) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+        )
+    }
+}
+
+@Composable
+private fun SearchResultCounter(
+    query: String,
+    resultCount: Int,
+    currentResultIndex: Int,
+) {
+    Spacer(modifier = Modifier.width(4.dp))
+    if (query.isNotEmpty()) {
+        Text(
+            text =
+            if (resultCount == 0) {
+                stringResource(R.string.search_no_results)
+            } else {
+                stringResource(R.string.search_result_of, currentResultIndex + 1, resultCount)
+            },
+            fontSize = 12.sp,
+            color =
+            if (resultCount == 0) {
+                MaterialTheme.colorScheme.error
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.testTag("SearchResultCount"),
+        )
+    }
+}
+
+@Composable
+private fun SearchNavButtons(
+    resultCount: Int,
+    onPrevious: () -> Unit,
+    onNext: () -> Unit,
+) {
+    Spacer(modifier = Modifier.width(4.dp))
+    IconButton(
+        onClick = onPrevious,
+        enabled = resultCount > 0,
+        modifier = Modifier.size(32.dp).testTag("SearchPrevious"),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.KeyboardArrowUp,
+            contentDescription = stringResource(R.string.search_previous),
+            tint =
+            if (resultCount > 0) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+            },
+            modifier = Modifier.size(20.dp),
+        )
+    }
+
+    IconButton(
+        onClick = onNext,
+        enabled = resultCount > 0,
+        modifier = Modifier.size(32.dp).testTag("SearchNext"),
+    ) {
+        Icon(
+            imageVector = Icons.Filled.KeyboardArrowDown,
+            contentDescription = stringResource(R.string.search_next),
+            tint =
+            if (resultCount > 0) {
+                MaterialTheme.colorScheme.onSurface
+            } else {
+                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
+            },
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@Composable
+private fun SearchTextField(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    focusRequester: FocusRequester,
+    onNext: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQueryChange,
+        modifier =
+        modifier
+            .focusRequester(focusRequester)
+            .testTag("SearchTextField"),
+        placeholder = {
+            Text(
+                text = stringResource(R.string.search_placeholder),
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                fontSize = 14.sp,
             )
-        }
+        },
+        singleLine = true,
+        textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+        keyboardActions =
+        KeyboardActions(
+            onNext = { onNext() },
+        ),
+        colors =
+        OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+            cursorColor = MaterialTheme.colorScheme.primary,
+        ),
+    )
+}
+
+@Composable
+private fun SearchCloseButton(
+    onClose: () -> Unit,
+    keyboardController: SoftwareKeyboardController?,
+) {
+    IconButton(
+        onClick = {
+            keyboardController?.hide()
+            onClose()
+        },
+        modifier = Modifier.size(32.dp).testTag("SearchClose"),
+    ) {
+        Icon(
+            imageVector = Icons.Default.Close,
+            contentDescription = stringResource(R.string.search_close),
+            tint = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }

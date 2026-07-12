@@ -354,4 +354,67 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn move_to_preserves_style_and_visibility() {
+        let mut c = CursorState {
+            row: 5,
+            col: 10,
+            style: CursorStyle::Bar,
+            visible: false,
+        };
+        c.move_to(20, 30);
+        assert_eq!(c.row, 20, "row should update");
+        assert_eq!(c.col, 30, "col should update");
+        assert_eq!(c.style, CursorStyle::Bar, "style must survive move_to");
+        assert!(!c.visible, "visibility must survive move_to");
+    }
+
+    #[test]
+    fn move_up_preserves_col() {
+        let mut c = CursorState::new(10, 42);
+        c.move_up(3);
+        assert_eq!(c.row, 7, "row should decrease");
+        assert_eq!(c.col, 42, "col must survive move_up");
+        assert!(c.visible, "visible must survive move_up");
+        assert_eq!(c.style, CursorStyle::Block, "style must survive move_up");
+    }
+
+    #[test]
+    fn move_down_preserves_style_and_visibility() {
+        let mut c = CursorState {
+            row: 0,
+            col: 15,
+            style: CursorStyle::Underline,
+            visible: false,
+        };
+        c.move_down(5, 24);
+        assert_eq!(c.row, 5, "row should increase");
+        assert_eq!(c.col, 15, "col must survive move_down");
+        assert_eq!(
+            c.style,
+            CursorStyle::Underline,
+            "style must survive move_down"
+        );
+        assert!(!c.visible, "visibility must survive move_down");
+    }
+
+    #[test]
+    fn carriage_return_preserves_style_and_visibility() {
+        let mut c = CursorState {
+            row: 7,
+            col: 42,
+            style: CursorStyle::Bar,
+            visible: false,
+        };
+        c.carriage_return();
+        assert_eq!(c.row, 7, "carriage_return should not change row");
+        assert_eq!(c.col, 0, "carriage_return should reset col to 0");
+        assert_eq!(
+            c.style,
+            CursorStyle::Bar,
+            "style must survive carriage_return"
+        );
+        assert!(!c.visible, "visibility must survive carriage_return");
+    }
 }

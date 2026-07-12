@@ -375,8 +375,8 @@ class FfiContractTest {
         val r = WireReader(byteArrayOf(1))
         try {
             r.readI32()
-            throw AssertionError("Expected IndexOutOfBoundsException")
-        } catch (_: IndexOutOfBoundsException) {
+            throw AssertionError("Expected IllegalArgumentException")
+        } catch (_: IllegalArgumentException) {
             // expected
         }
     }

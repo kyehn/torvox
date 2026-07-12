@@ -668,6 +668,26 @@ right-Alt mode via `TerminalConfig`.
 
 ---
 
+### FR-057: Repository Standards — Banned Binary Artifacts
+
+**Requirement**: The repository SHALL NOT contain golden images (reference PNG
+screenshots used for pixel-by-pixel comparison) or font file blobs (`.ttf`,
+`.otf`, `.woff`, `.woff2`, `.eot`). All rendering verification SHALL use
+logical assertions (pixel-coordinate checks, OCR text detection, Nix font
+paths) instead of image comparison or bundled binaries.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | No `.png` files exist in `torvox-renderer/screenshots/` or `torvox-renderer/test-screenshots/` | `git ls-files 'torvox-renderer/screenshots/*.png' 'torvox-renderer/test-screenshots/*.png'` |
+| 2 | No `*_golden.png` files in test data | `git ls-files 'torvox-renderer/test_data/*_golden.png'` |
+| 3 | No golden images in roborazzi resources | `git ls-files 'android/app/src/test/resources/roborazzi/*.png'` |
+| 4 | No font files (`.ttf`, `.otf`, `.woff`, `.woff2`, `.eot`) in any directory | `git ls-files '*.ttf' '*.otf' '*.woff' '*.woff2' '*.eot'` |
+| 5 | All rendering tests use pixel-coordinate assertions or OCR text detection, not image comparison | Code review |
+| 6 | Banned artifact patterns are in `.gitignore` | `.gitignore` contains the banned patterns |
+| 7 | Fonts are installed via Nix, not bundled in repo | `grep -c 'fonts' flake.nix` — should be > 0 |
+
+---
+
 ## 11. Non-Functional: Safety
 
 ### NFR-001: Zero Unsafe in torvox-core

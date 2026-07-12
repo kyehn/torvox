@@ -2,6 +2,7 @@
 //!
 //! # Requirements
 //! - [FR-020](crate) — Input: keyboard encoding (Kitty protocol)
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -23,7 +24,7 @@ pub struct SearchMatch {
 
 /// Render snapshot of the terminal grid.
 /// Built on the terminal thread; consumed by the renderer thread.
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct GridSnapshot {
     pub rows: u32,
     pub cols: u32,
@@ -222,6 +223,18 @@ enum Command {
     Terminate,
 }
 
+/// Non-blocking snapshot cache for the render hot path.
+/// Each frame the render thread checks for a pending response, then issues a
+/// new command. The returned snapshot is at most 1 frame behind, which is
+/// harmless for rendering (the surface diffs against `prev_cells`). Crucially
+/// the render thread never blocks on the VT thread while holding the session
+/// lock, so main-thread work (IME input, settings) is never stalled.
+struct SnapshotCache {
+    cached: GridSnapshot,
+    pending_rx: Option<Receiver<GridSnapshot>>,
+    initialized: bool,
+}
+
 struct RunConfig {
     command_receiver: Receiver<Command>,
     query_receiver: Receiver<Command>,
@@ -232,6 +245,10 @@ struct RunConfig {
     foreground_color: [u8; 3],
     ansi_colors: [[u8; 3]; 16],
     response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
+    /// Counts how many times the VT thread actually rebuilt the grid
+    /// snapshot (vs reusing the cached one). Exposed for tests/diagnostics
+    /// to prove the snapshot cache skips rebuilds on unchanged frames.
+    snapshot_rebuild_count: Arc<AtomicU64>,
 }
 
 /// Thread-safe wrapper around libghostty_vt::Terminal.
@@ -244,6 +261,25 @@ pub struct GhosttyTerminal {
     pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
     key_encode_rx: Receiver<Vec<u8>>,
     key_encode_tx_base: Sender<Vec<u8>>,
+    snapshot_cache: Mutex<SnapshotCache>,
+    snapshot_rebuild_count: Arc<AtomicU64>,
+}
+
+/// Decide whether the VT thread must rebuild the grid snapshot from the
+/// terminal, as opposed to cloning the previously built (cached) snapshot.
+///
+/// Rebuild only when the grid content changed (`grid_dirty`, set by
+/// `Command::Write` / `Resize` / `SetTheme`), the scroll offset changed, or
+/// there is no cached snapshot yet. When none of these hold the grid content
+/// is byte-for-byte identical to the cached snapshot, so reusing it cannot
+/// yield a stale frame while skipping ~1920 per-cell ghostty FFI calls.
+pub(crate) fn snapshot_needs_rebuild(
+    grid_dirty: bool,
+    scroll_offset: u32,
+    cached_scroll_offset: u32,
+    has_cache: bool,
+) -> bool {
+    grid_dirty || scroll_offset != cached_scroll_offset || !has_cache
 }
 
 impl GhosttyTerminal {
@@ -286,6 +322,8 @@ impl GhosttyTerminal {
         let (query_tx, query_rx) = flume::unbounded::<Command>();
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = pty_write_responses.clone();
+        let snapshot_rebuild_count = Arc::new(AtomicU64::new(0));
+        let snapshot_rebuild_count_for_run = snapshot_rebuild_count.clone();
         let handle = thread::Builder::new()
             .name("ghostty-terminal".into())
             .spawn(move || {
@@ -299,6 +337,7 @@ impl GhosttyTerminal {
                     foreground_color: initial_fg,
                     ansi_colors: initial_ansi,
                     response_buffer: pty_for_run,
+                    snapshot_rebuild_count: snapshot_rebuild_count_for_run,
                 })
             })
             .map_err(|e| format!("failed to spawn terminal thread: {e}"))?;
@@ -311,7 +350,13 @@ impl GhosttyTerminal {
             handle: Some(handle),
             pty_write_responses,
             key_encode_rx,
+            snapshot_rebuild_count,
             key_encode_tx_base,
+            snapshot_cache: Mutex::new(SnapshotCache {
+                cached: GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS),
+                pending_rx: None,
+                initialized: false,
+            }),
         })
     }
 
@@ -421,9 +466,11 @@ impl GhosttyTerminal {
             }
             Command::ReadVisibleText(tx) => {
                 let rows = terminal.rows().unwrap_or(24) as u32;
+                let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
                 let mut text = String::new();
                 for row in 0..rows {
-                    if let Some(line) = Self::read_line_text_impl(terminal, row) {
+                    // read_line_text_impl expects an absolute row (history + viewport).
+                    if let Some(line) = Self::read_line_text_impl(terminal, scrollback_rows + row) {
                         text.push_str(&line);
                         text.push('\n');
                     }
@@ -507,6 +554,15 @@ impl GhosttyTerminal {
         ));
 
         let query_receiver = config.query_receiver;
+
+        // Cache the last built grid snapshot so we skip the expensive
+        // per-cell ghostty FFI rebuild when neither the grid content nor the
+        // scroll offset changed since the previous frame. The VT thread is
+        // single-threaded and processes commands sequentially, so there is no
+        // race between marking `grid_dirty` and rebuilding.
+        let mut cached_snapshot: Option<GridSnapshot> = None;
+        let mut cached_scroll_offset: u32 = u32::MAX;
+        let mut grid_dirty = true;
         loop {
             // Wait for the next command from the bounded channel. Use a
             // timeout so we periodically check the query channel even when
@@ -530,7 +586,10 @@ impl GhosttyTerminal {
             // theme change, font change) take effect before queries check the
             // updated terminal state.
             match command {
-                Command::Write(data) => terminal.vt_write(&data),
+                Command::Write(data) => {
+                    terminal.vt_write(&data);
+                    grid_dirty = true;
+                }
                 Command::FlushAck(tx) => {
                     if let Err(error) = tx.send(()) {
                         log::error!("ghostty_terminal: command channel send failed: {error}");
@@ -569,6 +628,7 @@ impl GhosttyTerminal {
                         );
                         terminal.vt_write(osc4.as_bytes());
                     }
+                    grid_dirty = true;
                 }
                 Command::Resize { rows, cols } => {
                     if let Err(error) = terminal.resize(
@@ -579,15 +639,37 @@ impl GhosttyTerminal {
                     ) {
                         log::error!("ghostty_terminal: resize failed: {error}");
                     }
+                    grid_dirty = true;
                 }
                 Command::TakeSnapshot { tx, scroll_offset } => {
-                    let snapshot = Self::build_snapshot(
-                        &terminal,
-                        default_fg,
-                        default_bg,
-                        &config.ansi_colors,
+                    let needs_rebuild = snapshot_needs_rebuild(
+                        grid_dirty,
                         scroll_offset,
+                        cached_scroll_offset,
+                        cached_snapshot.is_some(),
                     );
+                    let snapshot = if needs_rebuild {
+                        config
+                            .snapshot_rebuild_count
+                            .fetch_add(1, Ordering::Relaxed);
+                        let snap = Self::build_snapshot(
+                            &terminal,
+                            default_fg,
+                            default_bg,
+                            &config.ansi_colors,
+                            scroll_offset,
+                        );
+                        cached_snapshot = Some(snap.clone());
+                        cached_scroll_offset = scroll_offset;
+                        grid_dirty = false;
+                        snap
+                    } else {
+                        // INVARIANT: when `needs_rebuild` is false, `cached_snapshot`
+                        // is always `Some` (the third clause above guarantees it).
+                        cached_snapshot
+                            .clone()
+                            .expect("cached_snapshot present when not rebuilding")
+                    };
                     if let Err(error) = tx.send(snapshot) {
                         log::error!("ghostty_terminal: command channel send failed: {error}");
                     }
@@ -605,9 +687,13 @@ impl GhosttyTerminal {
                 }
                 Command::ReadVisibleText(tx) => {
                     let rows = terminal.rows().unwrap_or(24) as u32;
+                    let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
                     let mut text = String::new();
                     for row in 0..rows {
-                        if let Some(line) = Self::read_line_text_impl(&terminal, row) {
+                        // read_line_text_impl expects an absolute row (history + viewport).
+                        if let Some(line) =
+                            Self::read_line_text_impl(&terminal, scrollback_rows + row)
+                        {
                             text.push_str(&line);
                             text.push('\n');
                         }
@@ -970,6 +1056,21 @@ impl GhosttyTerminal {
         self.take_snapshot_with_scroll(0)
     }
 
+    /// Number of times the VT thread actually rebuilt the grid snapshot
+    /// (vs reusing the cached snapshot) since this terminal was created.
+    /// Used by tests to prove the snapshot cache skips rebuilds on
+    /// unchanged frames.
+    pub fn snapshot_rebuild_count(&self) -> u64 {
+        self.snapshot_rebuild_count.load(Ordering::Relaxed)
+    }
+
+    /// Returns a **fresh** grid snapshot for the current terminal state.
+    ///
+    /// This always blocks until the VT thread has processed the request, so
+    /// callers observe the latest grid content (never a stale cached frame).
+    /// The VT thread rebuilds the snapshot only when the grid or scroll offset
+    /// actually changed (see `snapshot_needs_rebuild`), so the blocking cost is
+    /// a single channel round-trip and is cheap when the grid is unchanged.
     pub fn take_snapshot_with_scroll(&self, scroll_offset: u32) -> GridSnapshot {
         let (tx, rx) = bounded(1);
         if let Err(error) = self
@@ -977,6 +1078,7 @@ impl GhosttyTerminal {
             .send(Command::TakeSnapshot { tx, scroll_offset })
         {
             log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            return GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS);
         }
         match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(snapshot) => snapshot,
@@ -985,6 +1087,47 @@ impl GhosttyTerminal {
                 GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS)
             }
         }
+    }
+
+    /// Non-blocking snapshot read for the **render hot path**.
+    ///
+    /// Returns `None` on the very first call (the cache is primed by issuing a
+    /// command, populated on the next call). Thereafter it returns the latest
+    /// available snapshot without ever blocking on the VT thread — so the
+    /// render thread can call this while holding the session lock without
+    /// stalling main-thread work (IME input, settings). The returned snapshot
+    /// is at most 1 frame behind, which is harmless because the surface diffs
+    /// against `prev_cells`.
+    pub fn try_take_snapshot_with_scroll(&self, scroll_offset: u32) -> Option<GridSnapshot> {
+        let mut cache = self.snapshot_cache.lock().expect("snapshot mutex");
+
+        // Collect any pending response from the previous command.
+        if let Some(rx) = &cache.pending_rx
+            && let Ok(snapshot) = rx.try_recv()
+        {
+            cache.cached = snapshot;
+        }
+
+        if !cache.initialized {
+            // First call: issue a command so the cache populates next frame,
+            // then return None (the surface skips this one frame).
+            let (tx, rx) = bounded(1);
+            let _ = self
+                .cmd_tx
+                .send(Command::TakeSnapshot { tx, scroll_offset });
+            cache.pending_rx = Some(rx);
+            cache.initialized = true;
+            return None;
+        }
+
+        // Issue a command for the next frame's snapshot.
+        let (tx, rx) = bounded(1);
+        let _ = self
+            .cmd_tx
+            .send(Command::TakeSnapshot { tx, scroll_offset });
+        cache.pending_rx = Some(rx);
+
+        Some(cache.cached.clone())
     }
 
     pub fn take_kgp_image(&self, image_id: u32) -> Option<KgpImageData> {
@@ -10223,5 +10366,60 @@ mod tests_s2_fixes {
             "fuzzy search should return at least 3 distinct match positions, got {}",
             positions.len()
         );
+    }
+}
+
+#[cfg(test)]
+mod snapshot_cache_unit_tests {
+    use super::snapshot_needs_rebuild;
+
+    #[test]
+    fn rebuild_required_on_first_call_without_cache() {
+        assert!(snapshot_needs_rebuild(false, 0, 0, false));
+    }
+
+    #[test]
+    fn rebuild_skipped_when_cache_present_and_unchanged() {
+        // grid unchanged, scroll unchanged, cache present → reuse.
+        assert!(!snapshot_needs_rebuild(false, 0, 0, true));
+        assert!(!snapshot_needs_rebuild(false, 42, 42, true));
+    }
+
+    #[test]
+    fn rebuild_required_when_grid_dirty() {
+        assert!(snapshot_needs_rebuild(true, 0, 0, true));
+        // grid dirty dominates even if scroll matches and cache present.
+        assert!(snapshot_needs_rebuild(true, 7, 7, true));
+    }
+
+    #[test]
+    fn rebuild_required_when_scroll_offset_changes() {
+        // grid unchanged but viewport moved → different rows shown.
+        assert!(snapshot_needs_rebuild(false, 1, 0, true));
+        assert!(snapshot_needs_rebuild(false, 100, 50, true));
+    }
+
+    #[test]
+    fn truth_table_exhaustive() {
+        // (grid_dirty, scroll_same, has_cache) -> expect
+        let cases = [
+            (false, true, true, false),
+            (false, true, false, true),
+            (false, false, true, true),
+            (false, false, false, true),
+            (true, true, true, true),
+            (true, true, false, true),
+            (true, false, true, true),
+            (true, false, false, true),
+        ];
+        for (grid_dirty, scroll_same, has_cache, expect) in cases {
+            let scroll_offset = if scroll_same { 0 } else { 1 };
+            let cached_scroll_offset = 0;
+            assert_eq!(
+                snapshot_needs_rebuild(grid_dirty, scroll_offset, cached_scroll_offset, has_cache),
+                expect,
+                "grid_dirty={grid_dirty} scroll_same={scroll_same} has_cache={has_cache}"
+            );
+        }
     }
 }

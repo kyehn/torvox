@@ -1,5 +1,6 @@
 package io.torvox
 
+import android.annotation.SuppressLint
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -55,7 +56,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Inject
-    lateinit var torvoxRuntime: TorvoxRuntime
+    lateinit var torvoxRuntime: TorvoxRuntime // Dagger injection — lateinit required
 
     private var logFile: File? = null
     private var logWriter: BufferedWriter? = null
@@ -318,6 +319,7 @@ class MainActivity : ComponentActivity() {
         previousNightMode = currentNightMode
     }
 
+    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val handled = terminalViewModel.handleLayoutAwareHardwareKey(event)
         if (handled) {

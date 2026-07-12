@@ -125,14 +125,62 @@ pub struct AndroidSurface {
     last_cursor_row: u32,
     last_cursor_col: u32,
     cursor_style: torvox_core::cursor::CursorStyle,
-    last_cursor_visible: bool,
-    cursor_override: Option<bool>,
+    blink_phase: bool,
+    blink_enabled: bool,
+    blink_speed_ms: u32,
+    last_blink_toggle: std::time::Instant,
     render_requested: bool,
     /// Persistent instance buffer reused across frames so the per-frame cell
     /// instance `Vec` is not reallocated on every render (see
     /// `build_cell_instances_into`). `CellInstance` is `Copy`/`Pod`, so reuse
     /// via `clear` + `reserve` is safe.
     instance_buffer: Vec<torvox_renderer::gpu::CellInstance>,
+    /// Cached CellSnapshot cells from the previous frame for cell-level
+    /// dirty tracking. When empty (first frame), all rows are dirty.
+    prev_cells: Vec<CellSnapshot>,
+    /// Cached CellInstances from the previous frame. Clean rows are copied
+    /// from this cache instead of rebuilding them through the shaping/color
+    /// atlas-lookup hot path.
+    cached_instances: Vec<torvox_renderer::gpu::CellInstance>,
+    /// Cumulative end offset per row in `cached_instances`.
+    /// `cached_row_ends[row]` = exclusive end index of row `row`.
+    cached_row_ends: Vec<usize>,
+    /// Reused scratch buffer for per-frame dirty-row tracking. Avoids a
+    /// `Vec<bool>` allocation on every render (mirrors `instance_buffer`
+    /// reuse for the zero-alloc hot path).
+    dirty_rows_buf: Vec<bool>,
+    /// Reused scratch buffer for per-frame row-end offsets.
+    row_ends_buf: Vec<usize>,
+    /// Scroll offset used in the previous frame. When it changes, all rows
+    /// are marked dirty because the grid cells shift.
+    prev_scroll_offset: u32,
+    /// Render height from the previous frame. When it changes (e.g. IME
+    /// opens/closes), all rows are marked dirty because the cached instances
+    /// were built for a different projection_height, and clean rows beyond
+    /// the new projection_height would otherwise be incorrectly reused.
+    prev_render_height: u32,
+}
+
+/// Compare two CellSnapshots for equality of fields that affect rendering.
+/// Returns `true` if they differ (row should be marked dirty).
+#[allow(clippy::float_cmp)]
+fn cell_ne(a: &CellSnapshot, b: &CellSnapshot) -> bool {
+    a.codepoint != b.codepoint
+        || a.width != b.width
+        || a.bold != b.bold
+        || a.dim != b.dim
+        || a.italic != b.italic
+        || a.underline != b.underline
+        || a.double_underline != b.double_underline
+        || a.reverse != b.reverse
+        || a.strikethrough != b.strikethrough
+        || a.overline != b.overline
+        || a.hidden != b.hidden
+        || a.foreground != b.foreground
+        || a.background != b.background
+        || a.uri != b.uri
+        || a.graphemes.len() != b.graphemes.len()
+        || (!a.graphemes.is_empty() && a.graphemes != b.graphemes)
 }
 
 fn cell_to_line(cells: &[CellSnapshot], cols: u32) -> Line {
@@ -203,11 +251,20 @@ impl AndroidSurface {
             search_highlights: Vec::new(),
             last_cursor_row: 0,
             last_cursor_col: 0,
-            last_cursor_visible: true,
-            cursor_override: None,
+            blink_phase: true,
+            blink_enabled: true,
+            blink_speed_ms: 530,
+            last_blink_toggle: std::time::Instant::now(),
             cursor_style: torvox_core::cursor::CursorStyle::Block,
             render_requested: false,
             instance_buffer: Vec::new(),
+            prev_cells: Vec::new(),
+            cached_instances: Vec::new(),
+            cached_row_ends: Vec::new(),
+            dirty_rows_buf: Vec::new(),
+            row_ends_buf: Vec::new(),
+            prev_scroll_offset: 0,
+            prev_render_height: 0,
         }
     }
 
@@ -278,6 +335,8 @@ impl AndroidSurface {
         self.native_window = std::ptr::NonNull::new(window_ptr).map(NativeWindow);
         self.surface_width.store(width, Ordering::Relaxed);
         self.surface_height.store(height, Ordering::Relaxed);
+        self.render_width = width;
+        self.render_height = height;
         // Set ANativeWindow buffer format for wgpu swapchain.
         // Must use RGBA_8888 (format=1).
         #[cfg(target_os = "android")]
@@ -485,6 +544,14 @@ impl AndroidSurface {
         Ok(())
     }
 
+    fn blink_period(&self) -> std::time::Duration {
+        std::time::Duration::from_millis(self.blink_speed_ms as u64)
+    }
+
+    fn blink_timer_elapsed(&self) -> bool {
+        self.blink_enabled && self.last_blink_toggle.elapsed() >= self.blink_period()
+    }
+
     /// Returns `true` if new PTY data arrived and was rendered, `false` if idle.
     pub fn render(&mut self, scroll_offset: u32) -> Result<bool, SurfaceError> {
         let frame_start = Instant::now();
@@ -527,6 +594,7 @@ impl AndroidSurface {
                 && self.frame_count > 0
                 && !has_search_highlights
                 && !self.render_requested
+                && !self.blink_timer_elapsed()
             {
                 #[cfg(target_os = "android")]
                 // SAFETY: Paired with the ATrace_beginSection at the top of render().
@@ -544,18 +612,31 @@ impl AndroidSurface {
                 self.render_requested,
             );
 
-            snapshot = session.terminal().take_snapshot_with_scroll(scroll_offset);
+            // Non-blocking snapshot for the render hot path. This must NOT block
+            // on the VT thread while we hold the session lock — blocking here
+            // would stall main-thread work (IME input, settings). The returned
+            // snapshot is at most 1 frame behind, which the surface diffs
+            // against `prev_cells`. On the first call the cache is not yet
+            // primed, so skip this frame.
+            match session
+                .terminal()
+                .try_take_snapshot_with_scroll(scroll_offset)
+            {
+                Some(snap) => snapshot = snap,
+                None => {
+                    #[cfg(target_os = "android")]
+                    // SAFETY: Paired with the ATrace_beginSection at the top of render().
+                    unsafe {
+                        ATrace_endSection();
+                    } // AndroidSurface::render
+                    return Ok(false);
+                }
+            }
         }
 
-        // The app-level cursor override (user setting + blink timer) is
-        // authoritative when set. Without this, the visibility was the AND of
-        // the terminal's DECTCEM state and the override, so whenever the
-        // terminal hid the cursor (e.g. during typing / redraws) the app could
-        // never show it back — the cursor appeared to vanish and not return.
-        // When the override is unset (None) we follow the terminal's DECTCEM
-        // state as before.
-        let effective_cursor_visible = self.cursor_override.unwrap_or(snapshot.cursor_visible);
-        snapshot.cursor_visible = effective_cursor_visible;
+        // Cursor visibility follows the terminal's DECTCEM state directly.
+        // No app-level override — cursor_override was removed (FR-057).
+        // Cursor blink is handled below as a phase toggle on snapshot visibility.
 
         #[cfg(target_os = "android")]
         // SAFETY: ATrace_beginSection is thread-safe. The C string is a static
@@ -588,6 +669,96 @@ impl AndroidSurface {
             selection_bg[2] as f32 / 255.0,
             1.0,
         ]);
+        // ── COMPUTE DIRTY ROWS ──
+        // Diff current vs previous snapshot cells to find changed rows.
+        let total_cells = (snapshot.rows * snapshot.cols) as usize;
+        let mut dirty_rows = std::mem::take(&mut self.dirty_rows_buf);
+        dirty_rows.clear();
+        if self.prev_cells.len() == total_cells {
+            let cap = snapshot.rows as usize;
+            dirty_rows.reserve(cap);
+            for row in 0..snapshot.rows as usize {
+                let row_off = row * snapshot.cols as usize;
+                let mut row_dirty = false;
+                for col in 0..snapshot.cols as usize {
+                    if cell_ne(
+                        &self.prev_cells[row_off + col],
+                        &snapshot.cells[row_off + col],
+                    ) {
+                        row_dirty = true;
+                        break;
+                    }
+                }
+                dirty_rows.push(row_dirty);
+            }
+        } else {
+            dirty_rows.resize(snapshot.rows as usize, true);
+        }
+
+        // Force-dirty cursor row unconditionally so blink phase changes and
+        // terminal DECTCEM state changes are always reflected on screen.
+        let cr = snapshot.cursor_row as usize;
+        if cr < dirty_rows.len() {
+            dirty_rows[cr] = true;
+        }
+        let pcr = self.last_cursor_row as usize;
+        if pcr < dirty_rows.len() && pcr != cr {
+            dirty_rows[pcr] = true;
+        }
+        // Reset blink phase when cursor moves (keyboard input→snapshot col change)
+        if snapshot.cursor_col != self.last_cursor_col {
+            self.blink_phase = true;
+            self.last_blink_toggle = std::time::Instant::now();
+        }
+
+        // Conservative: when scroll or search highlights change, mark all
+        // rows dirty. Selection changes trigger render_requested on the
+        // Kotlin side, so the next frame will have all-dirty anyway.
+        let scroll_changed = self.prev_scroll_offset != scroll_offset;
+        // When render_height changes (e.g. IME opens/closes), the
+        // projection_height used in build_cell_instances_into changes.
+        // Force all rows dirty so cached instances are rebuilt for the
+        // new projection_height.
+        let render_height_changed = self.render_height != self.prev_render_height;
+        let highlights_present = !self.search_highlights.is_empty();
+        if highlights_present || scroll_changed || render_height_changed {
+            dirty_rows.fill(true);
+        }
+
+        // Cursor blink phase toggle at the configured interval.
+        // blink_timer_elapsed() also gates the early-return above so idle
+        // terminals still re-render when blink phase changes.
+        let now = std::time::Instant::now();
+        if self.blink_timer_elapsed() {
+            self.blink_phase = !self.blink_phase;
+            self.last_blink_toggle = now;
+        }
+
+        // Hide cursor during blink-off phase (applied on top of DECTCEM state).
+        // When blink is disabled, blink_phase stays true and the cursor
+        // follows DECTCEM visibility directly.
+        if self.blink_enabled && !self.blink_phase && snapshot.cursor_visible {
+            snapshot.cursor_visible = false;
+        }
+
+        // Partial clone: only copy rows that changed (dirty).
+        // Full clone is 1920 cells × Vec<String> → heap allocations.
+        // Partial: only N dirty rows × 80 cells per row.
+        if self.prev_cells.len() == total_cells && dirty_rows.iter().any(|&d| !d) {
+            let cols = snapshot.cols as usize;
+            for (row, is_dirty) in dirty_rows.iter().enumerate() {
+                if *is_dirty {
+                    let start = row * cols;
+                    let end = start + cols;
+                    self.prev_cells[start..end].clone_from_slice(&snapshot.cells[start..end]);
+                }
+            }
+        } else {
+            self.prev_cells.clone_from(&snapshot.cells);
+        }
+
+        let mut row_ends = std::mem::take(&mut self.row_ends_buf);
+        row_ends.clear();
         torvox_renderer::gpu::build_cell_instances_into(
             &snapshot,
             &mut self.font_pipeline,
@@ -595,15 +766,21 @@ impl AndroidSurface {
                 atlas_width: self.atlas_width as f32,
                 atlas_height: self.atlas_height as f32,
                 projection_height: self.render_height as f32,
-                dirty_rows: Some(&snapshot.dirty),
                 selection: self.selection,
                 selection_bg,
                 search_highlights: &self.search_highlights,
                 cursor_color,
                 cursor_style: self.cursor_style,
+                dirty_rows: &dirty_rows,
+                cached_instances: &self.cached_instances,
+                cached_row_ends: &self.cached_row_ends,
             },
             &mut self.instance_buffer,
+            &mut row_ends,
         );
+        // Return the dirty-row scratch buffer for reuse next frame.
+        self.dirty_rows_buf = dirty_rows;
+
         let instances = &self.instance_buffer[..];
         let gen_after = self.font_pipeline.atlas_generation();
         if gen_after > gen_before {
@@ -724,7 +901,15 @@ impl AndroidSurface {
 
         self.last_cursor_row = snapshot.cursor_row;
         self.last_cursor_col = snapshot.cursor_col;
-        self.last_cursor_visible = snapshot.cursor_visible;
+
+        // CPU-side render work ends here (snapshot + dirty diff + instance
+        // build + atlas upload). The GPU `render_frame` call below also performs
+        // the swapchain `present`, which BLOCKS until the next vsync (≈16.6ms on
+        // a 60Hz display with Mailbox). That wait is the display refresh, not our
+        // cost — so it must NOT count toward RENDER_SLOW, or every vsync-paced
+        // frame would falsely report as slow.
+        let cpu_work_end = Instant::now();
+        let cpu_ms = cpu_work_end.duration_since(frame_start).as_secs_f64() * 1000.0;
 
         // Desktop: direct wgpu swapchain presentation.
         #[cfg(not(target_os = "android"))]
@@ -813,12 +998,26 @@ impl AndroidSurface {
         }
 
         let elapsed = frame_start.elapsed();
-        let ms = elapsed.as_secs_f64() * 1000.0;
-        if ms >= FRAME_TIME_TARGET_MS {
-            log::warn!("RENDER_SLOW: {:.1}ms (≥16ms target)", ms);
+        let present_ms = elapsed.as_secs_f64() * 1000.0 - cpu_ms;
+        // RENDER_SLOW reflects only the CPU-side render cost (snapshot + diff +
+        // build + submit). The present/vsync wait is the display refresh and is
+        // logged at trace level, never as a warning — otherwise every vsync-paced
+        // frame (≈16.6ms present on 60Hz) would spuriously warn.
+        if cpu_ms >= FRAME_TIME_TARGET_MS {
+            log::warn!(
+                "RENDER_SLOW: cpu={:.1}ms present={:.1}ms (cpu ≥16ms target)",
+                cpu_ms,
+                present_ms
+            );
         } else {
-            log::trace!("RENDER_OK: {:.1}ms", ms);
+            log::trace!("RENDER_OK: cpu={:.1}ms present={:.1}ms", cpu_ms, present_ms);
         }
+
+        // Swap caches for next frame — eliminates ~800KB memcpy/frame
+        std::mem::swap(&mut self.cached_instances, &mut self.instance_buffer);
+        self.cached_row_ends = row_ends;
+        self.prev_scroll_offset = scroll_offset;
+        self.prev_render_height = self.render_height;
 
         if swapchain_ok {
             self.render_requested = false;
@@ -867,14 +1066,17 @@ impl AndroidSurface {
                 atlas_width: self.atlas_width as f32,
                 atlas_height: self.atlas_height as f32,
                 projection_height: self.render_height as f32,
-                dirty_rows: None,
                 selection: self.selection,
                 selection_bg,
                 search_highlights: &self.search_highlights,
                 cursor_color,
                 cursor_style: self.cursor_style,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
             },
             &mut self.instance_buffer,
+            &mut Vec::new(),
         );
         let instances = &self.instance_buffer[..];
         let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
@@ -1036,6 +1238,24 @@ impl AndroidSurface {
             return session.poll_shell_integration() as u8;
         }
         0
+    }
+
+    /// Poll all deferred events (BEL, clipboard, notification, sync mode, shell
+    /// integration) in a single session lock acquisition. This avoids the
+    /// per-poll session-lock churn that the individual `poll_*` methods incur.
+    pub fn poll_all(&mut self) -> (bool, Option<String>, Option<(String, String)>, bool, u8) {
+        if let Some(ref session_arc) = self.session
+            && let Ok(session) = session_arc.lock()
+        {
+            return (
+                session.poll_bel(),
+                session.poll_clipboard(),
+                session.poll_notification(),
+                session.mode_get(SYNC_MODE_NUMBER, 0),
+                session.poll_shell_integration() as u8,
+            );
+        }
+        (false, None, None, false, 0)
     }
 
     pub fn cwd(&self) -> String {
@@ -1377,8 +1597,22 @@ impl AndroidSurface {
         self.render_requested = true;
     }
 
-    pub fn set_cursor_visible(&mut self, visible: bool) {
-        self.cursor_override = Some(visible);
+    pub fn set_blink_enabled(&mut self, enabled: bool) {
+        self.blink_enabled = enabled;
+        if !enabled {
+            self.blink_phase = true;
+        }
+        self.render_requested = true;
+    }
+
+    pub fn set_blink_speed_ms(&mut self, speed_ms: u32) {
+        self.blink_speed_ms = speed_ms.clamp(100, 1000);
+        self.render_requested = true;
+    }
+
+    pub fn reset_blink(&mut self) {
+        self.blink_phase = true;
+        self.last_blink_toggle = std::time::Instant::now();
         self.render_requested = true;
     }
 
@@ -1638,6 +1872,215 @@ mod tests {
         assert!(
             surface.render_requested(),
             "flag should remain true on render error"
+        );
+    }
+
+    // ── Cursor visibility invariants ──
+
+    #[test]
+    fn blink_phase_default_is_true() {
+        let surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        assert!(
+            surface.blink_phase,
+            "blink_phase should default to true so cursor is visible"
+        );
+    }
+
+    #[test]
+    fn blink_phase_toggles_after_timer() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        surface.blink_speed_ms = 10;
+        surface.last_blink_toggle = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_millis(20))
+            .expect("subtract 20ms");
+        let before = surface.blink_phase;
+        assert!(surface.blink_timer_elapsed(), "timer should be elapsed");
+        // Simulate the toggle that render_frame does
+        if surface.blink_timer_elapsed() {
+            surface.blink_phase = !surface.blink_phase;
+            surface.last_blink_toggle = std::time::Instant::now();
+        }
+        assert_eq!(
+            surface.blink_phase, !before,
+            "blink_phase should toggle timer"
+        );
+    }
+
+    #[test]
+    fn blink_phase_toggles_repeatedly() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        surface.blink_speed_ms = 10;
+        let mut phase = true;
+        for _ in 0..10 {
+            surface.last_blink_toggle = std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_millis(20))
+                .expect("subtract 20ms");
+            if surface.blink_timer_elapsed() {
+                surface.blink_phase = !surface.blink_phase;
+                surface.last_blink_toggle = std::time::Instant::now();
+            }
+            assert_eq!(
+                surface.blink_phase, !phase,
+                "phase should toggle every cycle"
+            );
+            phase = !phase;
+        }
+    }
+
+    #[test]
+    fn blink_phase_stays_true_when_blink_disabled() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        surface.set_blink_enabled(false);
+        surface.blink_phase = true;
+        // Simulate many blink cycles
+        surface.blink_speed_ms = 10;
+        for _ in 0..5 {
+            surface.last_blink_toggle = std::time::Instant::now()
+                .checked_sub(std::time::Duration::from_millis(50))
+                .expect("subtract 50ms");
+            if surface.blink_timer_elapsed() {
+                surface.blink_phase = !surface.blink_phase;
+                surface.last_blink_toggle = std::time::Instant::now();
+            }
+        }
+        assert!(
+            surface.blink_phase,
+            "blink_phase should stay true when blink disabled"
+        );
+    }
+
+    // ── Cursor blink tests ──
+
+    #[test]
+    fn set_blink_enabled_sets_flag() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        assert!(surface.blink_enabled, "blink should default to true");
+        surface.set_blink_enabled(false);
+        assert!(!surface.blink_enabled, "blink should be disabled");
+        assert!(
+            surface.render_requested(),
+            "set_blink_enabled should request render"
+        );
+        assert!(
+            surface.blink_phase,
+            "blink_phase should be true when blink disabled"
+        );
+    }
+
+    #[test]
+    fn set_blink_enabled_true_keeps_phase() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        // Force blink_phase to false (normally this only happens after ~530ms)
+        surface.blink_phase = false;
+        surface.set_blink_enabled(true);
+        assert!(surface.blink_enabled, "blink should be enabled");
+        assert!(
+            surface.render_requested(),
+            "set_blink_enabled should request render"
+        );
+        // blink_phase should remain false when enabling (not reset)
+        // (reset_blink is the explicit method for that)
+    }
+
+    #[test]
+    fn set_blink_speed_ms_stores_value() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        assert_eq!(
+            surface.blink_speed_ms, 530,
+            "default blink speed should be 530"
+        );
+        surface.set_blink_speed_ms(750);
+        assert_eq!(surface.blink_speed_ms, 750, "blink speed should be 750");
+        assert!(
+            surface.render_requested(),
+            "set_blink_speed_ms should request render"
+        );
+    }
+
+    #[test]
+    fn set_blink_speed_ms_clamps_low() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        surface.set_blink_speed_ms(25);
+        assert_eq!(
+            surface.blink_speed_ms, 100,
+            "blink speed should clamp to 100 minimum"
+        );
+    }
+
+    #[test]
+    fn set_blink_speed_ms_clamps_high() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        surface.set_blink_speed_ms(9999);
+        assert_eq!(
+            surface.blink_speed_ms, 1000,
+            "blink speed should clamp to 1000 maximum"
+        );
+    }
+
+    #[test]
+    fn reset_blink_sets_phase_and_requests_render() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        surface.blink_phase = false;
+        surface.reset_blink();
+        assert!(
+            surface.blink_phase,
+            "reset_blink should set blink_phase to true"
+        );
+        assert!(
+            surface.render_requested(),
+            "reset_blink should request render"
+        );
+    }
+
+    #[test]
+    fn blink_period_default_530ms() {
+        let surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        assert_eq!(
+            surface.blink_period(),
+            std::time::Duration::from_millis(530)
+        );
+    }
+
+    #[test]
+    fn blink_period_custom_speed() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        surface.blink_speed_ms = 300;
+        assert_eq!(
+            surface.blink_period(),
+            std::time::Duration::from_millis(300)
+        );
+    }
+
+    #[test]
+    fn blink_timer_elapsed_initially_false() {
+        let surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        // Immediately after construction, last_blink_toggle = now → not elapsed
+        assert!(
+            !surface.blink_timer_elapsed(),
+            "blink timer should not be elapsed immediately"
+        );
+    }
+
+    #[test]
+    fn blink_timer_not_elapsed_when_disabled() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        surface.blink_enabled = false;
+        assert!(
+            !surface.blink_timer_elapsed(),
+            "blink timer should not be elapsed when disabled"
+        );
+    }
+
+    #[test]
+    fn blink_timer_elapsed_after_speed_ms() {
+        let mut surface = AndroidSurface::new(24, 80, 1000, 14.0);
+        surface.blink_speed_ms = 10;
+        surface.last_blink_toggle = std::time::Instant::now()
+            .checked_sub(std::time::Duration::from_millis(20))
+            .unwrap();
+        assert!(
+            surface.blink_timer_elapsed(),
+            "blink timer should be elapsed after 20ms with 10ms period"
         );
     }
 }

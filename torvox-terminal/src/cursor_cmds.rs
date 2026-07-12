@@ -82,7 +82,7 @@ pub fn assert_write_appears(t: &mut GhosttyTerminal, text: &str, exp_row: u32, e
     t.flush();
     let snap = t.take_snapshot();
     let index = (exp_row * snap.cols + exp_col) as usize;
-    let first_char = text.chars().next().unwrap() as u32;
+    let first_char = text.chars().next().expect("test text must not be empty") as u32;
     assert_eq!(
         snap.cells[index].codepoint, first_char,
         "Text '{}' should appear at ({}, {})",

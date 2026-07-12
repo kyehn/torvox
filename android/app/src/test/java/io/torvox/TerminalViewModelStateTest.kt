@@ -1,3 +1,6 @@
+// TODO(kotlin-2.4.0-false-positive): K2 smart-cast false positive, remove when upgrading Kotlin compiler
+@file:Suppress("UNNECESSARY_NOT_NULL_ASSERTION")
+
 package io.torvox
 
 import org.junit.Assert.assertEquals

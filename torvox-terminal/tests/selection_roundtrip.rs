@@ -113,3 +113,24 @@ fn selection_empty_when_nothing_selected() {
     let snap = t.take_snapshot();
     assert_invariants(&snap);
 }
+
+#[test]
+fn read_visible_text_returns_viewport_not_history_after_scroll() {
+    // Regression: read_visible_text must return the VISIBLE viewport, not the
+    // first N history rows. With scrollback present, read_line_text_impl takes
+    // an absolute row, so the visible read must offset by scrollback_rows.
+    let mut t = term();
+    for line in 0..60 {
+        t.vt_write(format!("LINE_{line:02}\r\n").as_bytes());
+    }
+    t.flush();
+    let text = t.read_visible_text();
+    assert!(
+        text.contains("LINE_59"),
+        "visible text must contain the last written line, got: {text:?}"
+    );
+    assert!(
+        !text.contains("LINE_00"),
+        "visible text must NOT contain scrolled-off history line LINE_00, got: {text:?}"
+    );
+}

@@ -1088,7 +1088,8 @@ private fun BootstrapSection(
         BootstrapPresetItem(
             preset = preset,
             colors = PresetColors(accentColor, textColor, secondaryText),
-            modifier = Modifier.testTag(
+            modifier =
+            Modifier.testTag(
                 if (index == 0) "BootstrapPreset_TermuxDefault" else "BootstrapPreset_CustomEmpty",
             ),
             onAction = {
@@ -1227,9 +1228,12 @@ internal fun fallbackSystemFonts(): List<String> {
                 "sans-serif-condensed",
             )
         for (family in knownFamilies) {
-            val typeface = android.graphics.Typeface.create(family, android.graphics.Typeface.NORMAL)
-            if (typeface != null && seen.add(family.lowercase())) {
+            try {
+                android.graphics.Typeface.create(family, android.graphics.Typeface.NORMAL)
+                seen.add(family.lowercase())
                 fonts.add(family)
+            } catch (_: RuntimeException) {
+                // Not running on Android (unit test with stubs)
             }
         }
     }

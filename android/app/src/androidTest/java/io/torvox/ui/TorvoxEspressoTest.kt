@@ -76,8 +76,11 @@ class TorvoxEspressoTest {
                     location[1] + view.height * MENU_BUTTON_RELATIVE_Y,
                 )
             }
+
+        @Suppress("DEPRECATION")
+        fun createClickAction() = GeneralClickAction(Tap.SINGLE, menuCoordinates, Press.FINGER)
         return androidx.test.espresso.action.ViewActions.actionWithAssertions(
-            GeneralClickAction(Tap.SINGLE, menuCoordinates, Press.FINGER),
+            createClickAction(),
         )
     }
 

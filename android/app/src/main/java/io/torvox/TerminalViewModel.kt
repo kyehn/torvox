@@ -33,7 +33,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -261,9 +260,6 @@ constructor(
         settingsRepository.cursorSpeed
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), 530)
 
-    private val _cursorVisible = MutableStateFlow(true)
-    val cursorVisible: StateFlow<Boolean> = _cursorVisible.asStateFlow()
-
     private val _availableFonts = MutableStateFlow<List<String>>(emptyList())
     val availableFonts: StateFlow<List<String>> = _availableFonts.asStateFlow()
 
@@ -337,50 +333,24 @@ constructor(
         }
         viewModelScope.launch {
             cursorBlink.collect { enabled ->
-                if (enabled) {
-                    startCursorBlinkTimer()
-                } else {
-                    stopCursorBlinkTimer()
-                    setCursorVisible(true)
-                }
+                val bridge = runtime.bridge() ?: return@collect
+                bridge.setCursorBlinkEnabled(enabled)
+                runtime.forceRender()
             }
         }
         viewModelScope.launch {
-            cursorSpeed.collect { _ ->
-                if (cursorBlink.value) {
-                    startCursorBlinkTimer()
-                }
+            cursorSpeed.collect { speed ->
+                val bridge = runtime.bridge() ?: return@collect
+                bridge.setCursorBlinkSpeedMs(speed.coerceIn(100, 1000))
+                runtime.forceRender()
             }
         }
-    }
-
-    private var cursorBlinkJob: kotlinx.coroutines.Job? = null
-
-    private fun startCursorBlinkTimer() {
-        cursorBlinkJob?.cancel()
-        val intervalMs = cursorSpeed.value.toLong().coerceIn(100L, 1000L)
-        cursorBlinkJob =
-            viewModelScope.launch(Dispatchers.Default) {
-                while (isActive) {
-                    kotlinx.coroutines.delay(intervalMs)
-                    withContext(Dispatchers.Main) {
-                        setCursorVisible(!cursorVisible.value)
-                    }
-                }
-            }
-    }
-
-    private fun stopCursorBlinkTimer() {
-        cursorBlinkJob?.cancel()
-        cursorBlinkJob = null
     }
 
     fun resetCursorBlink() {
-        if (cursorBlink.value) {
-            stopCursorBlinkTimer()
-            setCursorVisible(true)
-            startCursorBlinkTimer()
-        }
+        val bridge = runtime.bridge() ?: return
+        bridge.resetCursorBlink()
+        runtime.forceRender()
     }
 
     private fun loadFonts() {
@@ -708,12 +678,18 @@ constructor(
     fun setCursorBlink(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setCursorBlink(enabled)
+            val bridge = runtime.bridge() ?: return@launch
+            bridge.setCursorBlinkEnabled(enabled)
+            runtime.forceRender()
         }
     }
 
     fun setCursorSpeed(speedMs: Int) {
         viewModelScope.launch {
             settingsRepository.setCursorSpeed(speedMs)
+            val bridge = runtime.bridge() ?: return@launch
+            bridge.setCursorBlinkSpeedMs(speedMs.coerceIn(100, 1000))
+            runtime.forceRender()
         }
     }
 
@@ -724,15 +700,6 @@ constructor(
             bridge.setCursorStyle(style)
             runtime.forceRender()
         }
-    }
-
-    fun setCursorVisible(visible: Boolean) {
-        _cursorVisible.value = visible
-        val bridge = runtime.bridge() ?: return
-        bridge.setCursorVisible(visible)
-        // Call render directly AND signal the dirty latch for redundancy
-        bridge.render()
-        runtime.forceRender()
     }
 
     fun setThemeName(name: String) {

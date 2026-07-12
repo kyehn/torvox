@@ -233,6 +233,10 @@ pub struct FontPipeline {
     /// deterministic for a given font/size, so per-frame re-shaping of
     /// identical runs is skipped. Cleared whenever the font identity changes.
     shape_cache: LruCache<String, Vec<ShapedGlyphInfo>>,
+    /// Pre-computed glyph IDs for ASCII characters (0-127). Populated lazily
+    /// on first lookup; avoids font-database charmap queries for >95% of
+    /// terminal cells, which are ASCII on every subsequent frame.
+    ascii_glyph_ids: [Option<swash::GlyphId>; 128],
 }
 
 impl FontPipeline {
@@ -298,6 +302,7 @@ impl FontPipeline {
                 NonZeroUsize::new(SHAPE_CACHE_CAPACITY)
                     .expect("SHAPE_CACHE_CAPACITY must be non-zero"),
             ),
+            ascii_glyph_ids: [None; 128],
         };
 
         if pipeline.font_id.is_none() {
@@ -841,6 +846,23 @@ impl FontPipeline {
     pub fn glyph_information(&mut self, ch: char) -> Option<GlyphInfo> {
         let primary_font_id = self.font_id?;
 
+        // Fast path: for ASCII characters whose glyph ID is already cached
+        // from a previous frame, skip the font-database charmap query and go
+        // straight to the glyph cache. Terminal cells are overwhelmingly ASCII
+        // (>95%), so this avoids ~80K charmap calls/second at 60fps.
+        if (ch as u32) < 128
+            && let Some(gid) = self.ascii_glyph_ids[ch as usize]
+        {
+            let key = GlyphKey {
+                font_id: primary_font_id,
+                glyph_id: gid,
+                pixel_size: self.font_size as u16,
+            };
+            if let Some(info) = self.glyph_cache.get(&key).cloned() {
+                return Some(info);
+            }
+        }
+
         let glyph_id = {
             let db = self.font_system.db();
             db.with_face_data(primary_font_id, |font_data, face_index| {
@@ -849,6 +871,11 @@ impl FontPipeline {
                 Some(charmap.map(ch))
             })?
         }?;
+
+        // Cache glyph ID for future ASCII fast-path lookups
+        if (ch as u32) < 128 {
+            self.ascii_glyph_ids[ch as usize] = Some(glyph_id);
+        }
 
         let has_cjk_fallback = !self.cjk_fallback_ids.is_empty();
 
@@ -1270,6 +1297,7 @@ impl FontPipeline {
                 NonZeroUsize::new(SHAPE_CACHE_CAPACITY)
                     .expect("SHAPE_CACHE_CAPACITY must be non-zero"),
             ),
+            ascii_glyph_ids: [None; 128],
         };
 
         pipeline.find_monospace_font();

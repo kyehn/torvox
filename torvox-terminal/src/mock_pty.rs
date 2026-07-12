@@ -44,28 +44,28 @@ impl MockPtyHandle {
     pub fn inject_output(&self, data: &[u8]) {
         self.inner
             .lock()
-            .unwrap()
+            .expect("mock mutex poisoned")
             .output_buffer
             .push_back(data.to_vec());
     }
 
     pub fn drain_written(&self) -> Vec<Vec<u8>> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("mock mutex poisoned");
         std::mem::take(&mut inner.input_buffer)
             .into_iter()
             .collect()
     }
 
     pub fn set_exited(&self) {
-        self.inner.lock().unwrap().child_exited = true;
+        self.inner.lock().expect("mock mutex poisoned").child_exited = true;
     }
 
     pub fn is_exited(&self) -> bool {
-        self.inner.lock().unwrap().child_exited
+        self.inner.lock().expect("mock mutex poisoned").child_exited
     }
 
     pub fn written(&self) -> Vec<u8> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().expect("mock mutex poisoned");
         let mut result = Vec::new();
         for chunk in &inner.input_buffer {
             result.extend_from_slice(chunk);
@@ -74,23 +74,23 @@ impl MockPtyHandle {
     }
 
     pub fn resize(&self, rows: u16, cols: u16) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("mock mutex poisoned");
         inner.rows = rows;
         inner.cols = cols;
     }
 
     pub fn rows(&self) -> u16 {
-        self.inner.lock().unwrap().rows
+        self.inner.lock().expect("mock mutex poisoned").rows
     }
 
     pub fn cols(&self) -> u16 {
-        self.inner.lock().unwrap().cols
+        self.inner.lock().expect("mock mutex poisoned").cols
     }
 }
 
 impl Pty for MockPty {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("mock mutex poisoned");
         if inner.child_exited {
             return Err(io::Error::new(
                 io::ErrorKind::BrokenPipe,
@@ -102,7 +102,7 @@ impl Pty for MockPty {
     }
 
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("mock mutex poisoned");
         if inner.child_exited && inner.output_buffer.is_empty() {
             return Ok(0);
         }
@@ -122,7 +122,7 @@ impl Pty for MockPty {
     }
 
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner.lock().expect("mock mutex poisoned");
         inner.rows = rows;
         inner.cols = cols;
         Ok(())
@@ -143,7 +143,7 @@ impl Pty for MockPty {
     }
 
     fn wait(&self) -> nix::Result<nix::sys::wait::WaitStatus> {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner.lock().expect("mock mutex poisoned");
         if inner.child_exited {
             Ok(nix::sys::wait::WaitStatus::Exited(
                 nix::unistd::Pid::from_raw(-1),

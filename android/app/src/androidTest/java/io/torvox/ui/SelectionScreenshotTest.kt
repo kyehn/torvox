@@ -1,3 +1,6 @@
+// TODO(kotlin-2.4.0-false-positive): K2 false positive
+@file:Suppress("UNNECESSARY_NOT_NULL_ASSERTION")
+
 package io.torvox.ui
 
 import android.content.ClipData
@@ -9,7 +12,7 @@ import android.view.MotionEvent
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import io.torvox.MainActivity

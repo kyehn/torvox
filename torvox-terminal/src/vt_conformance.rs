@@ -914,7 +914,7 @@ fn da_primary_response() {
     t.flush();
     let r = t.drain_pty_write_responses();
     if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().unwrap());
+        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
         assert!(resp.starts_with("\x1b[?"), "DA1: starts with CSI ?");
     }
 }
@@ -926,7 +926,7 @@ fn da_secondary_response() {
     t.flush();
     let r = t.drain_pty_write_responses();
     if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().unwrap());
+        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
         assert!(resp.starts_with("\x1b[>"), "DA2: starts with CSI >");
     }
 }
@@ -938,7 +938,7 @@ fn dsr_device_status() {
     t.flush();
     let r = t.drain_pty_write_responses();
     if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().unwrap());
+        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
         assert!(resp.contains("\x1b["), "DSR: CSI response");
     }
 }
@@ -950,7 +950,7 @@ fn cpr_cursor_report() {
     t.flush();
     let r = t.drain_pty_write_responses();
     if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().unwrap());
+        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
         assert!(resp.contains("\x1b["), "CPR: CSI response");
     }
 }
@@ -1065,7 +1065,7 @@ fn kitty_keyboard_push_pop() {
     t.flush();
     let r = t.drain_pty_write_responses();
     if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().unwrap());
+        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
         assert!(resp.contains("?"), "Kitty query: '?' in response");
     }
 }
@@ -1083,7 +1083,7 @@ fn decrqm_response_format() {
         t.flush();
         let r = t.drain_pty_write_responses();
         if !r.is_empty() {
-            let resp = String::from_utf8_lossy(r.last().unwrap());
+            let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
             assert!(resp.starts_with("\x1b[?"), "DECRQM {mode}: CSI ?");
         }
     }
@@ -1645,7 +1645,8 @@ fn xtwinops_11_report_window_state_detection() {
     t.flush();
     let responses = t.drain_pty_write_responses();
     if !responses.is_empty() {
-        let resp = String::from_utf8_lossy(responses.last().unwrap());
+        let resp =
+            String::from_utf8_lossy(responses.last().expect("expected at least one response"));
         assert!(
             resp.starts_with("\x1b["),
             "XTWINOPS 11: response starts with CSI"
@@ -2895,7 +2896,8 @@ fn dec_modes_exhaustive() {
         t.flush();
         let responses = t.drain_pty_write_responses();
         if !responses.is_empty() {
-            let resp = String::from_utf8_lossy(responses.last().unwrap());
+            let resp =
+                String::from_utf8_lossy(responses.last().expect("expected at least one response"));
             assert!(
                 resp.contains(&format!("{}", mode)),
                 "DECRQM mode {mode}: response contains mode"
@@ -2972,7 +2974,8 @@ fn osc_queries_exhaustive() {
         t.flush();
         let resp = t.drain_pty_write_responses();
         if !resp.is_empty() {
-            let text = String::from_utf8_lossy(resp.last().unwrap());
+            let text =
+                String::from_utf8_lossy(resp.last().expect("expected at least one response"));
             assert!(
                 text.contains(&format!("{}", q)),
                 "OSC {q} query: response mentions {q}"

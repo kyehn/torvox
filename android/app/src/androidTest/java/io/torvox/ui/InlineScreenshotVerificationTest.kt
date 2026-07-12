@@ -1,3 +1,6 @@
+// TODO(kotlin-2.4.0-false-positive)
+@file:Suppress("UNNECESSARY_SAFE_CALL", "USELESS_CAST", "UNNECESSARY_NOT_NULL_ASSERTION")
+
 package io.torvox.ui
 
 import android.content.ClipData

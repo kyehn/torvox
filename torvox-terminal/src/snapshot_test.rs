@@ -254,7 +254,9 @@ pub fn run_ref_test(
     let actual = capture_snapshot(&term);
 
     if env::var("UPDATE_EXPECT").as_deref() == Ok("1") {
-        let parent = json_path.parent().unwrap();
+        let parent = json_path
+            .parent()
+            .expect("snapshot path must have a parent directory");
         fs::create_dir_all(parent).ok();
         save_snapshot(json_path, &actual);
         eprintln!("UPDATED: {}", json_path.display());
@@ -328,7 +330,9 @@ pub fn run_ref_test_dir(dir: &str, rows: u32, cols: u32, scrollback: u32) {
         let json_path = path.with_extension("json");
         eprintln!(
             "  ref {dir}/{}",
-            path.file_stem().unwrap().to_string_lossy()
+            path.file_stem()
+                .expect("snapshot path must have a file stem")
+                .to_string_lossy()
         );
         run_ref_test(&path, &json_path, rows, cols, scrollback);
     }
