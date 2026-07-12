@@ -1,5 +1,14 @@
-// @REQ_TERM_001
-// @REQ_TERM_002
+//! Session orchestrator — wires PTY reader, VT parser, and process waiter together.
+//!
+//! # Requirements
+//! - [FR-009](crate) — Input: Ctrl-C, Ctrl-D, Ctrl-Z signal passthrough
+//! - [FR-027](crate) — Session: double-fork child with PID tracking
+//! - [FR-028](crate) — Process: exited callback
+//! - [FR-029](crate) — Scrollback: scroll up
+//! - [FR-039](crate) — MCP: server lifecycle
+//! - [FR-043](crate) — MCP: I/O multiplexing
+//! - [NFR-005](crate) — Session: zombie reaping
+//! - [NFR-024](crate) — Session: crash recovery
 use std::fs::File;
 use std::io::Read;
 use std::os::unix::io::AsRawFd;

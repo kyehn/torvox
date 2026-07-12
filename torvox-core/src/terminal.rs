@@ -1,5 +1,7 @@
-// @REQ_CORE_003
 //! TerminalState — cursor, modes, tabs, and VT state machine.
+//!
+//! # Requirements
+//! - [FR-021](crate) — Terminal: state machine
 use alloc::string::{String, ToString};
 use alloc::vec::Vec;
 

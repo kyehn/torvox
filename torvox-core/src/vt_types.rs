@@ -1,4 +1,7 @@
 //! VT sequence types — CSI, OSC, ESC definitions.
+//!
+//! # Requirements
+//! - [FR-021](crate) — Terminal: state machine
 use alloc::string::String;
 use alloc::vec::Vec;
 

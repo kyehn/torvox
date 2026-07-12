@@ -1,5 +1,8 @@
 //! JNI bridge for calling NDK functions that boltffi/JNA cannot provide.
 //! Provides a reliable way to obtain an ANativeWindow pointer from a Surface object.
+//!
+//! # Requirements
+//! - [FR-051](crate) — Surface: JNI/NDK ANativeWindow
 
 use core::ffi::c_void;
 

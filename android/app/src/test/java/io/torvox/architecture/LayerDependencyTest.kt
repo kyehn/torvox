@@ -1,6 +1,3 @@
-// @REQ_ANDR_001
-// @REQ_ANDR_007
-// @REQ_ANDR_013
 package io.torvox.architecture
 
 import com.tngtech.archunit.junit.AnalyzeClasses

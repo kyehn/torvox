@@ -1,5 +1,12 @@
-// @REQ_CORE_002
 //! Terminal grid buffer — rows, columns, scrolling, dirty tracking.
+//!
+//! # Requirements
+//! - [FR-005](crate) — Alt-screen buffer
+//! - [FR-007](crate) — Scrollback buffer with configurable limit
+//! - [FR-029](crate) — Scrollback: scroll up
+//! - [FR-030](crate) — Scrollback: scroll down
+//! - [FR-032](crate) — Scrollback: search
+//! - [NFR-008](crate) — Memory: resize with O(1) cell moves
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};

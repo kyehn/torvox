@@ -3,6 +3,11 @@ package io.torvox.bridge
 import android.util.Log
 import android.view.Surface
 
+/**
+ * Native JNI window operations — ANativeWindow pointer acquisition.
+ *
+ * @see FR-051 Surface: JNI/NDK ANativeWindow
+ */
 object NativeWindow {
     private var nativeLoaded = false
 

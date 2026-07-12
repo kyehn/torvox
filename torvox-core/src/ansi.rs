@@ -1,4 +1,7 @@
 //! ANSI 256-color table — color cube and grayscale ramp.
+//!
+//! # Requirements
+//! - [FR-004](crate) — ANSI: 256-color palette
 pub const ANSI_256: [[u8; 3]; 256] = {
     let mut table = [[0u8; 3]; 256];
     let mut i = 0;

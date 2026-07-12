@@ -1,4 +1,7 @@
 //! C0 and C1 control code definitions.
+//!
+//! # Requirements
+//! - [FR-008](crate) — Tab stops: set/reset
 use serde::{Deserialize, Serialize};
 
 /// C0 control codes (0x00-0x1F)

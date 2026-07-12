@@ -1,4 +1,12 @@
-// @REQ_REND_007
+//! Font shaping and glyph rasterization — cosmic-text + swash pipeline.
+//!
+//! # Requirements
+//! - [FR-011](crate) — Font: shaping and glyph rasterization
+//! - [FR-012](crate) — Glyph: atlas allocation (guillotiere)
+//! - [FR-016](crate) — Font: fallback chain and coverage
+//! - [NFR-007](crate) — Font: CJK character coverage
+//! - [NFR-011](crate) — Font: Unicode 16.0 support
+
 use std::num::NonZeroUsize;
 
 use cosmic_text::FontSystem;

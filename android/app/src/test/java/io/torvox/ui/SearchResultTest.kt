@@ -1,13 +1,11 @@
 package io.torvox.ui
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SearchResultTest {
-
     @Test
     fun searchResultData() {
         val r = SearchResult(lineIndex = 5, startIndex = 10, endIndex = 20)
