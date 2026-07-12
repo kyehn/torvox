@@ -1,3 +1,6 @@
+// TODO(kotlin-2.4.0-false-positive): K2 smart-cast false positive, remove when upgrading Kotlin compiler
+@file:Suppress("UNNECESSARY_SAFE_CALL")
+
 package io.torvox.ui
 
 import android.annotation.SuppressLint
@@ -109,11 +112,7 @@ constructor(
         private const val EDGE_SCROLL_INTERVAL_MS = 50L
     }
 
-    private fun getAccentColor(): Int {
-        val viewModel = viewModel ?: return 0xFF2196F3.toInt()
-        val runtime = viewModel.runtime ?: return 0xFF2196F3.toInt()
-        return runtime.accentColor
-    }
+    private fun getAccentColor(): Int = viewModel?.runtime?.accentColor ?: 0xFF2196F3.toInt()
 
     private var viewModel: TerminalViewModel? = null
     private var rows: Int = DEFAULT_ROWS
@@ -136,7 +135,7 @@ constructor(
     fun setSearchHighlights(data: ByteArray) {
         val bridge = viewModel?.runtime?.bridge() ?: return
         bridge.setSearchHighlights(data)
-        bridge.render()
+        viewModel?.runtime?.forceRender()
     }
 
     fun clearSearchHighlights() {
@@ -677,7 +676,7 @@ constructor(
     private val edgeScrollHandler = android.os.Handler(android.os.Looper.getMainLooper())
     private var edgeScrollRunning = false
     private var pendingEdgeScroll: Int = 0 // +1 = up, -1 = down, 0 = none
-    private lateinit var edgeScrollRunnable: Runnable
+    private var edgeScrollRunnable: Runnable = Runnable { }
 
     val isSelectingText: Boolean
         get() =
@@ -703,10 +702,6 @@ constructor(
             ): Boolean {
                 if (isSelectingText) return false
                 val scrollbackLen = currentScrollbackLength()
-                Log.d(
-                    TAG,
-                    "onScroll: distY=$distanceY cellH=$cellHeight offset=$scrollOffset scrollback=$scrollbackLen",
-                )
                 if (!isScrolling) {
                     isScrolling = true
                     onScrollingStateChanged?.invoke(true)
@@ -1121,8 +1116,9 @@ constructor(
         if (targetOffset != scrollOffset) {
             scrollOffset = targetOffset
             onScrollChanged?.invoke(scrollOffset)
-            // Ensure render fires so the GPU picks up the new scroll offset
-            viewModel?.runtime?.bridge()?.render()
+            // Signal the render thread (vsync-paced) instead of blocking the UI
+            // thread with a synchronous GPU render on every scroll event.
+            viewModel?.runtime?.forceRender()
         }
     }
 
@@ -1489,7 +1485,6 @@ constructor(
             }
         }
 
-        Log.v(TAG, "onTouchEvent: action=${event.actionMasked} xy=(${event.x},${event.y}) touchEnabled=$touchEnabled")
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
 
@@ -1617,7 +1612,7 @@ constructor(
                     }
                     // Flush the new selection state to the Rust renderer so it
                     // paints the selection highlight at the correct position.
-                    viewModel?.runtime?.bridge()?.render()
+                    viewModel?.runtime?.forceRender()
                 }
                 handleDragState = HandleDrag.NONE
                 try {
@@ -1678,6 +1673,10 @@ constructor(
         terminalViewModel.surfaceWidth = width
         terminalViewModel.surfaceHeight = height
         terminalViewModel.runtime.bridge()?.setSurfaceSize(width, height)
+        // Resize the terminal grid (rows/cols) to match the new viewport.
+        // This ensures the PTY knows its correct dimensions when IME opens,
+        // and the GPU renders exactly the visible number of rows.
+        terminalViewModel.runtime.recomputeGrid(width, height)
         val surface =
             cachedSurface ?: (
                 surfaceTexture?.let {

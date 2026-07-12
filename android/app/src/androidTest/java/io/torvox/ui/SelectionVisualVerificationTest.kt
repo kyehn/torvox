@@ -1,10 +1,13 @@
+// TODO(kotlin-2.4.0-false-positive): K2 false positive; TODO(migrate-v2-compose-rule): migrate to v2 API
+@file:Suppress("UNNECESSARY_SAFE_CALL")
+
 package io.torvox.ui
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.SystemClock
 import android.util.Log
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -357,7 +360,7 @@ class SelectionVisualVerificationTest {
                 composeTestRule.activity.getSystemService(
                     android.content.Context.INPUT_METHOD_SERVICE,
                 ) as android.view.inputmethod.InputMethodManager
-            imm.showSoftInput(surface, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+            imm.showSoftInput(surface, 0)
         }
         waitForStable()
         saveScreenshot("06_ime_open_before_selection")

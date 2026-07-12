@@ -10,8 +10,8 @@
 # Verification commands use `cargo test --workspace` for the full suite
 # or `cargo test --package <crate>` for crate-specific verification.
 
-version: 1.0
-last_updated: 2026-07-11
+version: 1.1
+last_updated: 2026-07-12
 
 requirements:
 
@@ -725,6 +725,16 @@ requirements:
       - "torvox-core/tests/config_integration.rs"
       - "torvox-core/tests/config_drift.rs"
     verification: "cargo test --package torvox-core"
+
+  FR-057:
+    description: "The repository SHALL NOT contain golden images or font file blobs. All rendering verification SHALL use logical assertions (pixel-coordinate checks, OCR text detection, Nix font paths) instead of image comparison or bundled binaries."
+    design:
+      - "docs/standards/QUALITY-GATE.md#golden-image-ban-policy"
+      - "docs/standards/QUALITY-GATE.md#font-file-ban-policy"
+    api: []
+    tests:
+      - "tool_lint"  # git ls-files checks in CI
+    verification: "git ls-files 'torvox-renderer/screenshots/*.png' 'torvox-renderer/test-screenshots/*.png' 'torvox-renderer/test_data/*_golden.png' 'android/app/src/test/resources/roborazzi/*.png' '*.ttf' '*.otf' '*.woff' '*.woff2' '*.eot' | wc -l"
 
   # ==========================================================================
   # 4.1 Safety (NFR-001 — NFR-005)

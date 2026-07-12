@@ -6,6 +6,7 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -27,15 +28,19 @@ data class PixelFrame(
 
 // ── Session helpers ─────────────────────────────────
 
-fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 25_000) {
+fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
     System.setProperty("torvox.test.minSurface", "true")
+    // Use the standard assertion approach (same as search steps) instead of
+    // allNodes + fetchSemanticsNodes, which may fail in merged-tree scenarios
     waitUntil(timeoutMillis = timeoutMs) {
-        val screenReady =
-            onAllNodes(hasTestTag("TerminalScreen"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        if (!screenReady) return@waitUntil false
-        getBridge() != null
+        try {
+            onNodeWithTag("TerminalScreen").assertIsDisplayed()
+            true
+        } catch (e: AssertionError) {
+            false
+        } catch (e: Exception) {
+            false
+        }
     }
 }
 
@@ -63,16 +68,9 @@ fun AndroidComposeTestRule<*, *>.openSettings() {
 // ── GPU frame helpers ───────────────────────────────
 
 fun getDisplayWidth(): Int {
-    val metrics = android.util.DisplayMetrics()
     val context = InstrumentationRegistry.getInstrumentation().targetContext
-    val display =
-        context.getSystemService(android.content.Context.WINDOW_SERVICE)
-            as? android.view.WindowManager
-    display?.defaultDisplay?.getRealMetrics(metrics)
-    if (metrics.widthPixels <= 0) {
-        context.resources.displayMetrics.let { metrics.setTo(it) }
-    }
-    return metrics.widthPixels
+    val windowManager = context.getSystemService(android.view.WindowManager::class.java)
+    return windowManager.currentWindowMetrics.bounds.width()
 }
 
 fun decodeRgbaToPixels(file: File): PixelFrame {

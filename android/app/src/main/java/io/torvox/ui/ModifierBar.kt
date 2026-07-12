@@ -118,11 +118,7 @@ fun ModifierBar(
 
     if (barMode == ModifierBarMode.SelectionActions) {
         SelectionActionsBar(
-            onCopy = onCopy,
-            onSelectAll = onSelectAll,
-            onPaste = onPaste,
-            onShare = onShare,
-            onDismiss = onDismiss,
+            actions = SelectionActions(onCopy, onSelectAll, onPaste, onShare, onDismiss),
             textColor = textColor,
             backgroundColor = backgroundColor,
             buttonHeight = buttonHeight,
@@ -253,23 +249,27 @@ fun ModifierBar(
     }
 }
 
+private data class SelectionActions(
+    val onCopy: (() -> Unit)?,
+    val onSelectAll: (() -> Unit)?,
+    val onPaste: (() -> Unit)?,
+    val onShare: (() -> Unit)?,
+    val onDismiss: (() -> Unit)?,
+)
+
 @Composable
 private fun SelectionActionsBar(
-    onCopy: (() -> Unit)?,
-    onSelectAll: (() -> Unit)?,
-    onPaste: (() -> Unit)?,
-    onShare: (() -> Unit)?,
-    onDismiss: (() -> Unit)?,
+    actions: SelectionActions,
     textColor: Color,
     backgroundColor: Color,
     buttonHeight: androidx.compose.ui.unit.Dp,
     modifier: Modifier,
 ) {
-    val actions = mutableListOf<Pair<String, () -> Unit>>()
-    if (onCopy != null) actions.add("Copy" to onCopy)
-    if (onSelectAll != null) actions.add("Select All" to onSelectAll)
-    if (onPaste != null) actions.add("Paste" to onPaste)
-    if (onShare != null) actions.add("Share" to onShare)
+    val actionList = mutableListOf<Pair<String, () -> Unit>>()
+    if (actions.onCopy != null) actionList.add("Copy" to actions.onCopy)
+    if (actions.onSelectAll != null) actionList.add("Select All" to actions.onSelectAll)
+    if (actions.onPaste != null) actionList.add("Paste" to actions.onPaste)
+    if (actions.onShare != null) actionList.add("Share" to actions.onShare)
 
     Row(
         modifier =
@@ -280,7 +280,7 @@ private fun SelectionActionsBar(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        for ((label, action) in actions) {
+        for ((label, action) in actionList) {
             ExtraKeyButton(
                 text = label,
                 onClick = action,
@@ -289,10 +289,10 @@ private fun SelectionActionsBar(
                 contentDescription = label,
             )
         }
-        if (onDismiss != null) {
+        if (actions.onDismiss != null) {
             ExtraKeyButton(
                 text = "\u00d7",
-                onClick = onDismiss,
+                onClick = actions.onDismiss,
                 textColor = textColor,
                 testTag = "Action_Dismiss",
                 contentDescription = "Dismiss selection",
@@ -514,22 +514,22 @@ private fun RowScope.ExtraKeyButton(
     contentDescription: String? = null,
     onRepeat: (() -> Unit)? = null,
 ) {
-    val active = modifierState?.let { it != ModifierState.Off } ?: isActive
     val isLocked = modifierState == ModifierState.Locked
     val isOnce = modifierState == ModifierState.Once
 
     var isPressed by remember { mutableStateOf(false) }
 
+    val pressedColor = Color(0xFF7F7F7F)
     val targetBg =
         when {
             isLocked -> MaterialTheme.colorScheme.primary
             isOnce -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
             isActive -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+            isPressed -> pressedColor
             else -> Color.Transparent
         }
-    val pressedOverlay = Color.White.copy(alpha = 0.12f)
     val animatedBg by animateColorAsState(
-        targetValue = if (isPressed && !active) pressedOverlay else targetBg,
+        targetValue = targetBg,
         animationSpec = tween(durationMillis = 100),
         label = "btnBg",
     )
@@ -590,7 +590,7 @@ private fun RowScope.ExtraKeyButton(
             .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
             .then(
                 Modifier.background(
-                    if (active || isPressed) animatedBg else Color.Transparent,
+                    animatedBg,
                     RoundedCornerShape(4.dp),
                 ),
             ).then(if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier)

@@ -11,6 +11,7 @@ import io.torvox.settings.SettingsRepository
 import io.torvox.ui.ModifierState
 import io.torvox.ui.next
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -29,6 +30,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class TerminalViewModelTest {
     @Test
     fun testDefaultState() {
@@ -146,6 +148,7 @@ class TerminalViewModelTest {
     }
 }
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 @Config(application = android.app.Application::class)
 class TerminalViewModelThemeTest {
@@ -197,6 +200,9 @@ class TerminalViewModelThemeTest {
         coEvery { settingsRepository.setNightThemeName(any()) } returns Unit
         coEvery { settingsRepository.setThemeMode(any()) } returns Unit
         coEvery { settingsRepository.setAppThemeMode(any()) } returns Unit
+        coEvery { settingsRepository.setCursorBlink(any()) } returns Unit
+        coEvery { settingsRepository.setCursorStyle(any()) } returns Unit
+        coEvery { settingsRepository.setCursorSpeed(any()) } returns Unit
         coEvery { runtime.applySettings() } returns Unit
         viewModel =
             TerminalViewModel(
@@ -250,5 +256,49 @@ class TerminalViewModelThemeTest {
         testDispatcher.scheduler.advanceUntilIdle()
         coVerify { settingsRepository.setAppThemeMode("night") }
         coVerify { runtime.applySettings() }
+    }
+
+    @Test
+    fun cursorBlink_initialState() = runTest(testDispatcher) {
+        assertEquals(true, viewModel.cursorBlink.value)
+    }
+
+    @Test
+    fun cursorStyle_initialState() = runTest(testDispatcher) {
+        assertEquals("block", viewModel.cursorStyle.value)
+    }
+
+    @Test
+    fun cursorSpeed_initialState() = runTest(testDispatcher) {
+        assertEquals(530, viewModel.cursorSpeed.value)
+    }
+
+    @Test
+    fun setCursorBlink_storesSetting() = runTest(testDispatcher) {
+        viewModel.setCursorBlink(false)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { settingsRepository.setCursorBlink(false) }
+    }
+
+    @Test
+    fun setCursorSpeed_storesSetting() = runTest(testDispatcher) {
+        viewModel.setCursorSpeed(300)
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { settingsRepository.setCursorSpeed(300) }
+    }
+
+    @Test
+    fun setCursorStyle_storesSetting() = runTest(testDispatcher) {
+        viewModel.setCursorStyle("bar")
+        testDispatcher.scheduler.advanceUntilIdle()
+        coVerify { settingsRepository.setCursorStyle("bar") }
+    }
+
+    @Test
+    fun resetCursorBlink_handlesNullBridge() = runTest(testDispatcher) {
+        // Bridge is null in test — should not throw
+        viewModel.resetCursorBlink()
+        testDispatcher.scheduler.advanceUntilIdle()
+        // No exception expected
     }
 }

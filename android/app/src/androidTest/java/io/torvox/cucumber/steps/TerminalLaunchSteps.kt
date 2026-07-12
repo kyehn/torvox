@@ -35,7 +35,6 @@ constructor(
     fun surfaceViewIsVisible() {
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
             val surface = findTerminalSurface(activity)
-            assert(surface != null) { "SurfaceView should exist" }
             assert(surface.width > 0) { "SurfaceView width should be positive" }
             assert(surface.height > 0) { "SurfaceView height should be positive" }
         }

@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://torvox.app/schemas/mcp.json",
+  "$id": "mcp-schema.json",
   "title": "Torvox MCP Server",
   "description": "JSON-RPC 2.0 API for Torvox terminal emulator MCP server over Unix domain socket. Exposes terminal session state to AI agents for inspection and structured interaction.",
   "type": "object",

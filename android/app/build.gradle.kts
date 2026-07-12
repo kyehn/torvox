@@ -128,8 +128,8 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("androidx.compose.foundation:foundation")
 
-    implementation("com.google.dagger:hilt-android:2.60")
-    ksp("com.google.dagger:hilt-android-compiler:2.60")
+    implementation("com.google.dagger:hilt-android:2.60.1")
+    ksp("com.google.dagger:hilt-android-compiler:2.60.1")
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
     implementation("androidx.hilt:hilt-navigation-compose:1.3.0")
 
@@ -146,9 +146,9 @@ dependencies {
     testImplementation(composeBom)
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("androidx.compose.ui:ui-test-manifest")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.65.0")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.65.0")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.65.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.68.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.68.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.68.0")
     testImplementation("androidx.test:core:1.7.0")
     testImplementation("com.tngtech.archunit:archunit-junit4:1.4.0")
 
@@ -162,15 +162,21 @@ dependencies {
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.compose.ui:ui-test-manifest")
-    androidTestImplementation("com.google.dagger:hilt-android-testing:2.60")
-    kspAndroidTest("com.google.dagger:hilt-android-compiler:2.60")
+    androidTestImplementation("com.google.dagger:hilt-android-testing:2.60.1")
+    kspAndroidTest("com.google.dagger:hilt-android-compiler:2.60.1")
     androidTestImplementation("com.google.mlkit:text-recognition:16.0.1")
 
     androidTestImplementation("io.cucumber:cucumber-android:7.18.1")
 
-    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi:1.65.0")
-    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.65.0")
-    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.65.0")
+    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi:1.68.0")
+    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.68.0")
+    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.68.0")
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    compilerOptions {
+        allWarningsAsErrors.set(true)
+    }
 }
 
 val workingDirForCargo = rootProject.projectDir.parentFile!!

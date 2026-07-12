@@ -116,11 +116,9 @@ constructor(
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
             val surface = findTerminalSurface(activity) as TerminalSurface
             val text = surface.getSelectedText()
-            if (text != null) {
-                val context = InstrumentationRegistry.getInstrumentation().targetContext
-                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("terminal", text))
-            }
+            val context = InstrumentationRegistry.getInstrumentation().targetContext
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("terminal", text))
         }
     }
 
@@ -179,7 +177,7 @@ constructor(
     fun userOpensIme() {
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
             val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(activity.window.decorView.findFocus(), InputMethodManager.SHOW_IMPLICIT)
+            imm.showSoftInput(activity.window.decorView.findFocus(), 0)
         }
         composeRuleHolder.composeRule.waitForIdle()
     }

@@ -1,6 +1,7 @@
+
 package io.torvox.cucumber
 
-import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import io.cucumber.junit.WithJunitRule
 import io.torvox.MainActivity
 import org.junit.Rule

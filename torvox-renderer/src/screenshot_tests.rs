@@ -11,12 +11,22 @@ const TEST_PADDING_Y: u32 = 10;
 
 fn theme_fg() -> [f32; 4] {
     let c = torvox_core::config::Theme::catppuccin_mocha().foreground;
-    [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0, 1.0]
+    [
+        c[0] as f32 / 255.0,
+        c[1] as f32 / 255.0,
+        c[2] as f32 / 255.0,
+        1.0,
+    ]
 }
 
 fn theme_bg() -> [f32; 4] {
     let c = torvox_core::config::Theme::catppuccin_mocha().background;
-    [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0, 1.0]
+    [
+        c[0] as f32 / 255.0,
+        c[1] as f32 / 255.0,
+        c[2] as f32 / 255.0,
+        1.0,
+    ]
 }
 
 fn theme_clear_color() -> wgpu::Color {
@@ -31,12 +41,20 @@ fn theme_clear_color() -> wgpu::Color {
 
 fn theme_ansi(i: usize) -> [f32; 4] {
     let c = torvox_core::config::Theme::catppuccin_mocha().ansi[i];
-    [c[0] as f32 / 255.0, c[1] as f32 / 255.0, c[2] as f32 / 255.0, 1.0]
+    [
+        c[0] as f32 / 255.0,
+        c[1] as f32 / 255.0,
+        c[2] as f32 / 255.0,
+        1.0,
+    ]
 }
 
 fn run_ocr(png_path: &std::path::Path) -> String {
     let output = std::process::Command::new("rapidocr")
-        .args(["-img", png_path.to_str().unwrap()])
+        .args([
+            "-img",
+            png_path.to_str().expect("test PNG path is valid UTF-8"),
+        ])
         .output()
         .expect("rapidocr CLI must be available");
     assert!(
@@ -62,8 +80,9 @@ fn save_png_raw(rgb: &[u8], width: u32, height: u32, path: &std::path::Path) {
 }
 
 fn test_out_dir() -> std::path::PathBuf {
-    let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    p.push("test-screenshots");
+    // Use temp dir — golden images banned from repo (FR-080)
+    let mut p = std::env::temp_dir();
+    p.push("torvox-test-screenshots");
     let _ = std::fs::create_dir_all(&p);
     p
 }
@@ -81,24 +100,34 @@ fn render_grid(
         panic!("no GPU for {test_name}");
     };
     let atlas_dim: u32 = 512;
-    let mut font_pipeline = crate::font::FontPipeline::new(atlas_dim as i32, atlas_dim as i32, 20.0);
+    let mut font_pipeline =
+        crate::font::FontPipeline::new(atlas_dim as i32, atlas_dim as i32, 20.0);
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let width = (grid.cols as f32 * cell_w).round() as u32 + TEST_PADDING_X;
     let height = (grid.rows as f32 * cell_h).round() as u32 + TEST_PADDING_Y;
-    let Some(mut ctx) = setup_test_gpu_context_custom(instance, adapter, device, queue, width, height) else {
+    let Some(mut ctx) =
+        setup_test_gpu_context_custom(instance, adapter, device, queue, width, height)
+    else {
         panic!("no ctx for {test_name}");
     };
     if let Some(c) = clear_color {
         ctx.bg_color = c;
     }
     ctx.initialize_pipeline_and_bind_group(atlas_dim, atlas_dim, width, height);
-    let instances = build_cell_instances_from_flat(grid, &mut font_pipeline, atlas_dim as f32, atlas_dim as f32);
+    let instances = build_cell_instances_from_flat(
+        grid,
+        &mut font_pipeline,
+        atlas_dim as f32,
+        atlas_dim as f32,
+    );
     assert!(
         !instances.is_empty(),
         "{test_name}: 0 instances (font/glyph load failed)"
     );
     ctx.upload_atlas(font_pipeline.atlas_bitmap(), atlas_dim, atlas_dim);
-    let pixels = ctx.render_to_buffer(&instances, &[]).expect("render_to_buffer failed");
+    let pixels = ctx
+        .render_to_buffer(&instances, &[])
+        .expect("render_to_buffer failed");
 
     let out_dir = test_out_dir();
     let png_path = out_dir.join(format!("{test_name}.png"));
@@ -153,8 +182,17 @@ fn assert_swap_proof_by_total_brightness(
     unselected_h: u32,
     margin_total: i64,
 ) {
-    let sel_total = region_total_brightness(pixels, width, selected_x, selected_y, selected_w, selected_h);
-    let unsel_total = region_total_brightness(pixels, width, unselected_x, unselected_y, unselected_w, unselected_h);
+    let sel_total = region_total_brightness(
+        pixels, width, selected_x, selected_y, selected_w, selected_h,
+    );
+    let unsel_total = region_total_brightness(
+        pixels,
+        width,
+        unselected_x,
+        unselected_y,
+        unselected_w,
+        unselected_h,
+    );
     assert!(
         sel_total > unsel_total + margin_total,
         "{test_name}: selected region brightness {sel_total} should exceed unselected {unsel_total} \
@@ -281,7 +319,12 @@ where
                 let (c, r) = queue[front];
                 front += 1;
 
-                for &(nc, nr) in &[(c.wrapping_sub(1), r), (c + 1, r), (c, r.wrapping_sub(1)), (c, r + 1)] {
+                for &(nc, nr) in &[
+                    (c.wrapping_sub(1), r),
+                    (c + 1, r),
+                    (c, r.wrapping_sub(1)),
+                    (c, r + 1),
+                ] {
                     if nc < cols && nr < rows {
                         let nidx = (nr * cols + nc) as usize;
                         if marked_cells[nidx] && !visited[nidx] {
@@ -423,7 +466,12 @@ fn ocr_search_highlight_reverses_colors() {
     }
     grid.selected[0..5].fill(true);
 
-    let (pixels, w, h) = render_grid("SEARCH_HIGHLIGHT", &grid, Some("TEXT"), Some(theme_clear_color()));
+    let (pixels, w, h) = render_grid(
+        "SEARCH_HIGHLIGHT",
+        &grid,
+        Some("TEXT"),
+        Some(theme_clear_color()),
+    );
 
     let cols = grid.cols;
     let rows = grid.rows;
@@ -432,7 +480,10 @@ fn ocr_search_highlight_reverses_colors() {
 
     // Layer 2: auto-detect reverse-color region, verify region found
     let regions = find_reverse_color_regions(&pixels, w, h, cols, rows, 400, 5);
-    assert!(!regions.is_empty(), "SEARCH_HIGHLIGHT: no reverse-color region found");
+    assert!(
+        !regions.is_empty(),
+        "SEARCH_HIGHLIGHT: no reverse-color region found"
+    );
     assert_eq!(
         regions.len(),
         1,
@@ -464,7 +515,18 @@ fn ocr_search_highlight_reverses_colors() {
     );
 
     // Layer 3: pixel swap proof — selected cols 0-4 vs unselected cols 6-10 (5 cells each)
-    assert_search_row_swap_proof(&pixels, w, cell_w, cell_h, "SEARCH_HIGHLIGHT", 0, 0, 6, 5, 15_000);
+    assert_search_row_swap_proof(
+        &pixels,
+        w,
+        cell_w,
+        cell_h,
+        "SEARCH_HIGHLIGHT",
+        0,
+        0,
+        6,
+        5,
+        15_000,
+    );
 }
 
 /// Two rows with different bg colors from theme: row 0 = ansi[0] (black), row 1 = ansi[8] (gray).
@@ -489,7 +551,12 @@ fn ocr_search_previous_result_different_color() {
     }
     grid.selected[20..25].fill(true); // "MATCH" selected
 
-    let (pixels, w, h) = render_grid("SEARCH_PREV_RESULT", &grid, Some("MATCH"), Some(theme_clear_color()));
+    let (pixels, w, h) = render_grid(
+        "SEARCH_PREV_RESULT",
+        &grid,
+        Some("MATCH"),
+        Some(theme_clear_color()),
+    );
 
     let cols = grid.cols;
     let rows = grid.rows;
@@ -498,7 +565,10 @@ fn ocr_search_previous_result_different_color() {
 
     // Layer 2: auto-detect reverse-color regions, verify OCR
     let regions = find_reverse_color_regions(&pixels, w, h, cols, rows, 400, 5);
-    assert!(!regions.is_empty(), "SEARCH_PREV_RESULT: no reverse-color region found");
+    assert!(
+        !regions.is_empty(),
+        "SEARCH_PREV_RESULT: no reverse-color region found"
+    );
     assert_eq!(
         regions.len(),
         1,
@@ -509,7 +579,10 @@ fn ocr_search_previous_result_different_color() {
     // BFS merges both rows (vertical adjacency). Crop the full merged region
     // (both rows) for OCR — rapidocr requires at least 32px input height.
     let (rx, ry, rw, rh) = regions[0];
-    assert!(rh >= cell_h * 2, "SEARCH_PREV_RESULT: merged height {rh} < 2*{cell_h}");
+    assert!(
+        rh >= cell_h * 2,
+        "SEARCH_PREV_RESULT: merged height {rh} < 2*{cell_h}"
+    );
 
     let pad_x = cell_w;
     let pad_y = 5;
@@ -580,7 +653,12 @@ fn ocr_search_next_result_different_color() {
     }
     grid.selected[21..26].fill(true);
 
-    let (pixels, w, h) = render_grid("SEARCH_NEXT_RESULT", &grid, Some("FOCUS"), Some(theme_clear_color()));
+    let (pixels, w, h) = render_grid(
+        "SEARCH_NEXT_RESULT",
+        &grid,
+        Some("FOCUS"),
+        Some(theme_clear_color()),
+    );
 
     let cols = grid.cols;
     let rows = grid.rows;
@@ -589,7 +667,10 @@ fn ocr_search_next_result_different_color() {
 
     // Layer 2: auto-detect reverse-color regions, verify OCR
     let regions = find_reverse_color_regions(&pixels, w, h, cols, rows, 400, 5);
-    assert!(!regions.is_empty(), "SEARCH_NEXT_RESULT: no reverse-color region found");
+    assert!(
+        !regions.is_empty(),
+        "SEARCH_NEXT_RESULT: no reverse-color region found"
+    );
     assert_eq!(
         regions.len(),
         1,
@@ -600,7 +681,10 @@ fn ocr_search_next_result_different_color() {
     // BFS merges both rows (vertical adjacency). Crop the full merged region
     // (both rows) for OCR — rapidocr requires at least 32px input height.
     let (rx, ry, rw, rh) = regions[0];
-    assert!(rh >= cell_h * 2, "SEARCH_NEXT_RESULT: merged height {rh} < 2*{cell_h}");
+    assert!(
+        rh >= cell_h * 2,
+        "SEARCH_NEXT_RESULT: merged height {rh} < 2*{cell_h}"
+    );
 
     let pad_x = cell_w;
     let pad_y = 5;
@@ -676,7 +760,10 @@ fn visual_long_press_blank() {
         intro.contains("RapidOCROutput"),
         "blank screen should produce RapidOCR metadata, got: '{ocr_out}'"
     );
-    let metadata = &trimmed[..trimmed.find(|c| c == ')').map(|i| i + 1).unwrap_or(trimmed.len())];
+    let metadata = &trimmed[..trimmed
+        .find(|c| c == ')')
+        .map(|i| i + 1)
+        .unwrap_or(trimmed.len())];
     assert!(
         metadata.contains("txts=None") || metadata.contains("txts=()"),
         "blank screen 'txts' should be empty: '{ocr_out}'"
@@ -685,7 +772,11 @@ fn visual_long_press_blank() {
     // 2. All pixels are within dark range (GPU clear + space cells produce
     // theme-bg-derived values; exact u8 may vary by GPU due to floating-point
     // rounding in the clear pass, so we only verify the screen is dark).
-    let max_channel = pixels.chunks(4).map(|p| p[0].max(p[1]).max(p[2])).max().unwrap_or(255);
+    let max_channel = pixels
+        .chunks(4)
+        .map(|p| p[0].max(p[1]).max(p[2]))
+        .max()
+        .unwrap_or(255);
     assert!(
         max_channel < 100,
         "LONG_PRESS_BLANK: brightest channel value {max_channel} >= 100 — screen should be dark",
@@ -718,7 +809,12 @@ fn visual_long_press_text() {
     let rows = grid.rows;
 
     // Layer 1: whole-image OCR
-    let (pixels, w, h) = render_grid("LONG_PRESS_TEXT", &grid, Some("WORD"), Some(theme_clear_color()));
+    let (pixels, w, h) = render_grid(
+        "LONG_PRESS_TEXT",
+        &grid,
+        Some("WORD"),
+        Some(theme_clear_color()),
+    );
 
     // Layer 2: region detection — find reverse-color cells and OCR the region
     let regions = find_reverse_color_regions(&pixels, w, h, cols, rows, 382, 3);
@@ -732,8 +828,11 @@ fn visual_long_press_text() {
         let cell_x = rx / cell_w;
         cell_x <= 6 && cell_x + (rw + cell_w - 1) / cell_w >= 10
     });
-    assert!(word_region.is_some(), "LONG_PRESS_TEXT: no region covering cols 6-9");
-    let (rx, ry, rw, rh) = word_region.unwrap();
+    assert!(
+        word_region.is_some(),
+        "LONG_PRESS_TEXT: no region covering cols 6-9"
+    );
+    let (rx, ry, rw, rh) = word_region.expect("must be Some after is_some assert");
     extract_and_ocr_region(&pixels, w, h, "LONG_PRESS_TEXT_SEL", rx, ry, rw, rh, "WORD");
 
     // Layer 3: pixel proof — swap proof by total brightness
@@ -776,7 +875,12 @@ fn visual_cursor_position() {
     grid.selected[13] = true;
 
     // Layer 1: whole-image OCR
-    let (pixels, w, h) = render_grid("CURSOR_POS", &grid, Some("CURSOR"), Some(theme_clear_color()));
+    let (pixels, w, h) = render_grid(
+        "CURSOR_POS",
+        &grid,
+        Some("CURSOR"),
+        Some(theme_clear_color()),
+    );
 
     // Layer 2: region detection — find reverse-color cells for each cursor
     let cols = grid.cols;
@@ -812,7 +916,8 @@ fn visual_cursor_position() {
                     sel_total += pixels[si] as i64 + pixels[si + 1] as i64 + pixels[si + 2] as i64;
                 }
                 if ui + 2 < pixels.len() {
-                    unsel_total += pixels[ui] as i64 + pixels[ui + 1] as i64 + pixels[ui + 2] as i64;
+                    unsel_total +=
+                        pixels[ui] as i64 + pixels[ui + 1] as i64 + pixels[ui + 2] as i64;
                 }
             }
         }
@@ -843,7 +948,12 @@ fn visual_cursor_move() {
 
     // Position 1: cursor at col 5
     grid.selected[5] = true;
-    let (pixels1, w1, h1) = render_grid("CURSOR_MOVE_POS1", &grid, Some("CURSOR"), Some(theme_clear_color()));
+    let (pixels1, w1, h1) = render_grid(
+        "CURSOR_MOVE_POS1",
+        &grid,
+        Some("CURSOR"),
+        Some(theme_clear_color()),
+    );
     let cw1 = (w1 - TEST_PADDING_X) / grid.cols;
     let ch1 = (h1 - TEST_PADDING_Y) / grid.rows;
 
@@ -865,7 +975,12 @@ fn visual_cursor_move() {
     // Position 2: cursor moved to col 8, col 5 unselected
     grid.selected[5] = false;
     grid.selected[8] = true;
-    let (pixels2, w2, h2) = render_grid("CURSOR_MOVE_POS2", &grid, Some("CURSOR"), Some(theme_clear_color()));
+    let (pixels2, w2, h2) = render_grid(
+        "CURSOR_MOVE_POS2",
+        &grid,
+        Some("CURSOR"),
+        Some(theme_clear_color()),
+    );
     let cw2 = (w2 - TEST_PADDING_X) / grid.cols;
     let ch2 = (h2 - TEST_PADDING_Y) / grid.rows;
 
@@ -899,7 +1014,12 @@ fn visual_select_all() {
     }
     grid.selected.fill(true);
 
-    let (pixels, w, h) = render_grid("SELECT_ALL", &grid, Some("SELECTED"), Some(theme_clear_color()));
+    let (pixels, w, h) = render_grid(
+        "SELECT_ALL",
+        &grid,
+        Some("SELECTED"),
+        Some(theme_clear_color()),
+    );
 
     let cell_w = (w - TEST_PADDING_X) / grid.cols;
     let cell_h = (h - TEST_PADDING_Y) / grid.rows;

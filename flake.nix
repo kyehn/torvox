@@ -173,6 +173,18 @@
               nu scripts/download-rapidocr-models.nu
             '';
           };
+          packages.rust-toolchain-latest = pkgs.fenix.combine [
+            (pkgs.fenix.latest.withComponents [
+              "cargo"
+              "clippy"
+              "rust-src"
+              "rustc"
+              "rustfmt"
+            ])
+            pkgs.fenix.targets.thumbv6m-none-eabi.latest.rust-std
+            pkgs.fenix.targets.x86_64-linux-android.latest.rust-std
+            pkgs.fenix.targets.aarch64-linux-android.latest.rust-std
+          ];
         };
     };
 }

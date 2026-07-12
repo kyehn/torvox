@@ -449,6 +449,7 @@ pub struct TorvoxBridge {
     surface_ready: std::sync::atomic::AtomicBool,
     cell_width: std::sync::atomic::AtomicU32,
     cell_height: std::sync::atomic::AtomicU32,
+    scrollback_length: std::sync::atomic::AtomicU32,
 }
 
 impl TorvoxBridge {
@@ -554,6 +555,7 @@ impl TorvoxBridge {
             cell_width: std::sync::atomic::AtomicU32::new(0),
             cell_height: std::sync::atomic::AtomicU32::new(0),
             surface_ready: std::sync::atomic::AtomicBool::new(false),
+            scrollback_length: std::sync::atomic::AtomicU32::new(0),
         }
     }
 
@@ -675,6 +677,16 @@ impl TorvoxBridge {
                     detail: e.to_string(),
                 });
             self.store_cell_metrics(surface);
+            // Cache scrollback length so the main thread can read it lock-free
+            // via `scrollback_length()` without contending on the session lock.
+            if let Some(session_arc) = self.session.lock().ok().and_then(|g| g.as_ref().cloned())
+                && let Ok(session) = session_arc.lock()
+            {
+                self.scrollback_length.store(
+                    session.terminal().scrollback_length(),
+                    std::sync::atomic::Ordering::Relaxed,
+                );
+            }
             result
         } else {
             Ok(false)
@@ -795,6 +807,30 @@ impl TorvoxBridge {
             .as_mut()
             .map(|s| s.poll_shell_integration())
             .unwrap_or(0)
+    }
+
+    /// Poll all deferred events (BEL, clipboard, notification, sync mode, shell
+    /// integration) in a single surface-lock acquisition. This replaces the 5
+    /// separate `poll_*` calls that each acquired the surface mutex on their
+    /// own, eliminating ~4 extra JNI round-trips and lock acquisitions per
+    /// render frame and reducing surface-lock contention with the main thread.
+    pub fn poll_all(&self) -> (bool, Option<String>, Option<(String, String)>, bool, u8) {
+        // Keep the C symbol alive for JNA — LTO strips unreferenced extern functions.
+        #[cfg(target_os = "android")]
+        unsafe {
+            std::hint::black_box(torvox_bridge_poll_all(0));
+        }
+        let mut surface_guard = match self.surface.lock() {
+            Ok(g) => g,
+            Err(poisoned) => {
+                log::error!("surface mutex poisoned in poll_all");
+                poisoned.into_inner()
+            }
+        };
+        surface_guard
+            .as_mut()
+            .map(|s| s.poll_all())
+            .unwrap_or_default()
     }
 
     pub fn poll_sync_active(&self) -> bool {
@@ -929,16 +965,8 @@ impl TorvoxBridge {
     }
 
     pub fn scrollback_length(&self) -> u32 {
-        if let Ok(guard) = self.session.lock()
-            && let Some(session_arc) = guard.as_ref()
-            && let Ok(session) = session_arc.lock()
-        {
-            let len = session.terminal().scrollback_length();
-            log::info!("SCROLLBACK_LEN: {}", len);
-            return len;
-        }
-        log::warn!("SCROLLBACK_LEN: session not available, returning 0");
-        0
+        self.scrollback_length
+            .load(std::sync::atomic::Ordering::Relaxed)
     }
 
     pub fn scrollback_line(&self, index: u32) -> Option<String> {
@@ -1598,12 +1626,32 @@ impl TorvoxBridge {
         Ok(())
     }
 
-    pub fn set_cursor_visible(&self, visible: bool) -> Result<(), TerminalError> {
+    pub fn set_cursor_blink_enabled(&self, enabled: bool) -> Result<(), TerminalError> {
         let mut surface_guard = self.surface.lock().map_err(|e| TerminalError::PtyError {
             detail: format!("lock failed: {}", e),
         })?;
         if let Some(surface) = surface_guard.as_mut() {
-            surface.set_cursor_visible(visible);
+            surface.set_blink_enabled(enabled);
+        }
+        Ok(())
+    }
+
+    pub fn set_cursor_blink_speed_ms(&self, speed_ms: u32) -> Result<(), TerminalError> {
+        let mut surface_guard = self.surface.lock().map_err(|e| TerminalError::PtyError {
+            detail: format!("lock failed: {}", e),
+        })?;
+        if let Some(surface) = surface_guard.as_mut() {
+            surface.set_blink_speed_ms(speed_ms);
+        }
+        Ok(())
+    }
+
+    pub fn reset_cursor_blink(&self) -> Result<(), TerminalError> {
+        let mut surface_guard = self.surface.lock().map_err(|e| TerminalError::PtyError {
+            detail: format!("lock failed: {}", e),
+        })?;
+        if let Some(surface) = surface_guard.as_mut() {
+            surface.reset_blink();
         }
         Ok(())
     }
@@ -2785,7 +2833,7 @@ pub unsafe extern "C" fn torvox_bridge_poll_notification(handle: i64) -> i64 {
                 Some(c) => c,
                 None => {
                     // Body is empty but title is valid; use empty body
-                    std::ffi::CString::new("").unwrap()
+                    std::ffi::CString::new("").expect("empty string has no null bytes")
                 }
             };
             // Allocate a buffer holding both pointers: [title_ptr, body_ptr]
@@ -2819,6 +2867,106 @@ pub unsafe extern "C" fn torvox_bridge_free_notification(ptr: i64) {
 }
 
 /// # Safety
+/// `handle` must be a valid bridge handle previously returned by `torvox_bridge_new`.
+/// Returns a heap-allocated `PollAllFFI` pointer (free with `torvox_bridge_free_poll_all`).
+/// Aggregates every deferred event the render thread drains each frame into a single
+/// surface-lock acquisition, eliminating the per-poll lock churn of `poll_bel` /
+/// `poll_clipboard` / `poll_notification` / `poll_sync_active` / `poll_shell_integration`.
+#[repr(C)]
+pub struct PollAllFFI {
+    pub bel: u8,
+    pub sync_active: u8,
+    pub shell_integration: u8,
+    pub clipboard_ptr: i64,
+    pub notification_ptr: i64,
+}
+
+/// # Safety
+/// `handle` must be a valid bridge handle previously returned by `torvox_bridge_new`.
+/// Returns a heap-allocated `PollAllFFI` pointer (free with `torvox_bridge_free_poll_all`)
+/// that batches the per-frame event polls into a single surface-lock acquisition.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_poll_all(handle: i64) -> i64 {
+    let bridge = match unsafe { bridge_from_handle(handle) } {
+        Some(b) => b,
+        None => return 0,
+    };
+    let result = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| bridge.poll_all()))
+    {
+        Ok(r) => r,
+        Err(panic_info) => {
+            let message = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "panic in FFI call".to_string()
+            };
+            log::error!("FFI panic in torvox_bridge_poll_all: {}", message);
+            return 0;
+        }
+    };
+    let clipboard_ptr = match result.1 {
+        Some(s) => match safe_cstring(s) {
+            Some(c) => c.into_raw() as i64,
+            None => 0,
+        },
+        None => 0,
+    };
+    let notification_ptr = match result.2 {
+        Some((title, body)) => {
+            let title_c = match safe_cstring(title) {
+                Some(c) => c,
+                None => return 0,
+            };
+            let body_c = match safe_cstring(body) {
+                Some(c) => c,
+                None => {
+                    // SAFETY: title_c was created from safe_cstring above and is valid here.
+                    unsafe {
+                        std::mem::drop(std::ffi::CString::from_raw(title_c.into_raw()));
+                    }
+                    return 0;
+                }
+            };
+            let buf = Box::new([title_c.into_raw(), body_c.into_raw()]);
+            Box::into_raw(buf) as i64
+        }
+        None => 0,
+    };
+    let ffi = PollAllFFI {
+        bel: if result.0 { 1 } else { 0 },
+        sync_active: if result.3 { 1 } else { 0 },
+        shell_integration: result.4,
+        clipboard_ptr,
+        notification_ptr,
+    };
+    Box::into_raw(Box::new(ffi)) as i64
+}
+
+/// # Safety
+/// `ptr` must be a valid pointer previously returned by `torvox_bridge_poll_all`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_free_poll_all(ptr: i64) {
+    if ptr != 0 {
+        // SAFETY: ptr was returned by torvox_bridge_poll_all, which allocates a
+        // Box<PollAllFFI> plus (optionally) a clipboard CString and a notification
+        // pointer buffer. This reconstruction is the inverse.
+        unsafe {
+            let ffi = Box::from_raw(ptr as *mut PollAllFFI);
+            if ffi.clipboard_ptr != 0 {
+                let _ = std::ffi::CString::from_raw(ffi.clipboard_ptr as *mut std::ffi::c_char);
+            }
+            if ffi.notification_ptr != 0 {
+                let buf = Box::from_raw(ffi.notification_ptr as *mut [*const std::ffi::c_char; 2]);
+                drop(std::ffi::CString::from_raw(buf[0].cast_mut()));
+                drop(std::ffi::CString::from_raw(buf[1].cast_mut()));
+            }
+        }
+    }
+}
+
+/// # Safety
 /// `handle` must be a valid surface handle previously returned by `torvox_bridge_new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn torvox_bridge_cwd(handle: i64) -> *mut std::ffi::c_char {
@@ -2843,7 +2991,9 @@ pub unsafe extern "C" fn torvox_bridge_cwd(handle: i64) -> *mut std::ffi::c_char
     let cwd = if cwd.is_empty() { "unknown" } else { &cwd };
     match safe_cstring(cwd.to_string()) {
         Some(c_cwd) => c_cwd.into_raw(),
-        None => std::ffi::CString::new("unknown").unwrap().into_raw(),
+        None => std::ffi::CString::new("unknown")
+            .expect("literal string has no null bytes")
+            .into_raw(),
     }
 }
 
@@ -3117,9 +3267,31 @@ pub unsafe extern "C" fn torvox_bridge_clear_background_image(handle: i64) {
 /// # Safety
 /// `handle` must be a valid pointer to a `TorvoxBridge` created by `torvox_bridge_new`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn torvox_bridge_set_cursor_visible(handle: i64, visible: i32) {
-    if let Err(error) = with_bridge(handle, |bridge| bridge.set_cursor_visible(visible != 0)) {
-        log::error!("bridge: torvox_bridge_set_cursor_visible failed: {error}");
+pub unsafe extern "C" fn torvox_bridge_set_cursor_blink_enabled(handle: i64, enabled: i32) {
+    if let Err(error) = with_bridge(handle, |bridge| {
+        bridge.set_cursor_blink_enabled(enabled != 0)
+    }) {
+        log::error!("bridge: torvox_bridge_set_cursor_blink_enabled failed: {error}");
+    }
+}
+
+/// # Safety
+/// `handle` must be a valid pointer to a `TorvoxBridge` created by `torvox_bridge_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_set_cursor_blink_speed_ms(handle: i64, speed_ms: i32) {
+    if let Err(error) = with_bridge(handle, |bridge| {
+        bridge.set_cursor_blink_speed_ms(speed_ms as u32)
+    }) {
+        log::error!("bridge: torvox_bridge_set_cursor_blink_speed_ms failed: {error}");
+    }
+}
+
+/// # Safety
+/// `handle` must be a valid pointer to a `TorvoxBridge` created by `torvox_bridge_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_reset_cursor_blink(handle: i64) {
+    if let Err(error) = with_bridge(handle, |bridge| bridge.reset_cursor_blink()) {
+        log::error!("bridge: torvox_bridge_reset_cursor_blink failed: {error}");
     }
 }
 

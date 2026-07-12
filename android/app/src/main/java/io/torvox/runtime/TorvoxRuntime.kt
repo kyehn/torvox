@@ -41,7 +41,7 @@ data class RuntimeState(
     val sessionIds: List<Long> = emptyList(),
 )
 
-private class SessionEntry(
+private data class SessionEntry(
     val id: Long,
     var bridge: TorvoxBridge?,
     var renderThread: Thread?,
@@ -49,9 +49,31 @@ private class SessionEntry(
     val savePath: String,
     @Volatile var blitCallback: (() -> Unit)? = null,
 ) {
-    @Volatile var dirtySignal: java.util.concurrent.CountDownLatch = java.util.concurrent.CountDownLatch(1)
+    // Reusable render-thread signaling primitive. Replaces the previous
+    // per-frame `CountDownLatch`, which had a lost-wakeup race: after
+    // `bridge.render()` the loop published a fresh latch and waited, but a
+    // producer `countDown()` on the stale latch during the render left the new
+    // latch unsignaled, so the thread waited the full timeout. A coalescing
+    // flag under a lock/condition avoids both the race and the per-frame
+    // allocation.
+    val renderLock =
+        java.util.concurrent.locks
+            .ReentrantLock()
+    val renderCondition = renderLock.newCondition()
+
+    @Volatile var renderSignaled: Boolean = false
 
     @Volatile var forceRenderRequested: Boolean = false
+
+    fun notifyRender() {
+        renderLock.lock()
+        try {
+            renderSignaled = true
+            renderCondition.signal()
+        } finally {
+            renderLock.unlock()
+        }
+    }
 
     @Volatile var scrollOffset: UInt = 0u
 }
@@ -126,10 +148,12 @@ constructor(
     fun setScrollOffset(offset: UInt) {
         val entry = sessions[activeSessionId] ?: return
         entry.scrollOffset = offset
-        entry.bridge?.setScrollOffset(offset)
-        // Call render directly to ensure immediate visual feedback
-        entry.bridge?.render()
-        entry.dirtySignal.countDown()
+        // The render thread already reads entry.scrollOffset and calls
+        // bridge.setScrollOffset() under the surface lock, so calling it here
+        // would be a redundant JNA round-trip + surface-lock acquisition on the
+        // calling thread (often the UI thread during scroll). Just signal the
+        // render thread to pick up the change.
+        entry.notifyRender()
     }
 
     fun getScrollOffset(): UInt = sessions[activeSessionId]?.scrollOffset ?: 0u
@@ -137,7 +161,7 @@ constructor(
     fun forceRender() {
         val entry = sessions[activeSessionId] ?: return
         entry.forceRenderRequested = true
-        entry.dirtySignal.countDown()
+        entry.notifyRender()
     }
 
     private fun sessionSavePath(id: Long): String {
@@ -465,9 +489,13 @@ constructor(
                 bridge.setTheme(config.theme)
                 val cursorStyle = settingsRepository.cursorStyle.first()
                 bridge.setCursorStyle(cursorStyle)
+                val cursorBlinkEnabled = settingsRepository.cursorBlink.first()
+                bridge.setCursorBlinkEnabled(cursorBlinkEnabled)
+                val cursorBlinkSpeedMs = settingsRepository.cursorSpeed.first()
+                bridge.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
                 LogUtil.d(
                     "TorvoxRuntime",
-                    "settings applied: fontFamily=$effectiveFont theme=${config.theme.name} cursorStyle=$cursorStyle",
+                    "settings applied: fontFamily=$effectiveFont theme=${config.theme.name} cursorStyle=$cursorStyle cursorBlink=$cursorBlinkEnabled cursorSpeed=$cursorBlinkSpeedMs",
                 )
             } catch (exception: Exception) {
                 LogUtil.e("TorvoxRuntime", "Failed to apply initial settings (continuing with defaults)", exception)
@@ -554,6 +582,10 @@ constructor(
                 bridge.setTheme(config.theme)
                 val cursorStyle = settingsRepository.cursorStyle.first()
                 bridge.setCursorStyle(cursorStyle)
+                val cursorBlinkEnabled = settingsRepository.cursorBlink.first()
+                bridge.setCursorBlinkEnabled(cursorBlinkEnabled)
+                val cursorBlinkSpeedMs = settingsRepository.cursorSpeed.first()
+                bridge.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
             } catch (exception: Exception) {
                 LogUtil.e("TorvoxRuntime", "Failed to apply settings to new session (continuing with defaults)", exception)
             }
@@ -756,13 +788,17 @@ constructor(
         val fontFamily = settingsRepository.fontFamily.first()
         val effectiveFontFamily = io.torvox.resolveEffectiveFontFamily(fontFamily)
         val cursorStyle = settingsRepository.cursorStyle.first()
+        val cursorBlinkEnabled = settingsRepository.cursorBlink.first()
+        val cursorBlinkSpeedMs = settingsRepository.cursorSpeed.first()
         sessions.values.forEach { entry ->
             entry.bridge?.setFontSize(config.font_size_tenths)
             entry.bridge?.setFontFamily(effectiveFontFamily)
             entry.bridge?.setTheme(config.theme)
             entry.bridge?.setCursorStyle(cursorStyle)
+            entry.bridge?.setCursorBlinkEnabled(cursorBlinkEnabled)
+            entry.bridge?.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
             entry.bridge?.resize(config.rows, config.cols)
-            entry.dirtySignal.countDown()
+            entry.notifyRender()
         }
     }
 
@@ -795,7 +831,7 @@ constructor(
         val entry = sessions[activeSessionId]
         if (entry != null && entry.running) {
             val written = entry.bridge?.writeToPty(data) ?: false
-            entry.dirtySignal.countDown()
+            entry.notifyRender()
             return written
         }
         LogUtil.w("TorvoxRuntime", "writeToPty: no active running session to receive write")
@@ -909,7 +945,7 @@ constructor(
         selectionState.set(SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection, mode))
         val entry = sessions[activeSessionId]
         entry?.bridge?.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode)
-        entry?.dirtySignal?.countDown()
+        entry?.notifyRender()
     }
 
     fun expandAndSetSelection(
@@ -922,7 +958,7 @@ constructor(
         val bounds = entry.bridge?.expandAndSetSelection(row, col, mode) ?: return null
         val (start, end) = bounds
         selectionState.set(SelectionStateSnapshot(start.first, start.second, end.first, end.second, true, mode))
-        entry.dirtySignal.countDown()
+        entry.notifyRender()
         return bounds
     }
 
@@ -933,7 +969,7 @@ constructor(
         val entry = sessions[activeSessionId] ?: return
         entry.bridge?.resize(rows.toUInt(), cols.toUInt())
         _state.value = _state.value.copy(rows = rows, cols = cols)
-        entry.dirtySignal.countDown()
+        entry.notifyRender()
     }
 
     fun recomputeGrid(
@@ -1042,8 +1078,11 @@ constructor(
                                 )
                             }
                             consecutiveErrors = 0
+                            // Single lock acquisition that drains BEL, clipboard,
+                            // notification, sync mode, and shell integration.
                             try {
-                                if (bridge.pollBel()) {
+                                val poll = bridge.pollAll()
+                                if (poll.bel) {
                                     val toneGenerator = ToneGenerator(BEL_TONE_STREAM_TYPE, BEL_TONE_VOLUME)
                                     try {
                                         toneGenerator.startTone(BEL_TONE_TYPE, BEL_TONE_DURATION_MILLIS)
@@ -1051,13 +1090,8 @@ constructor(
                                         toneGenerator.release()
                                     }
                                 }
-                            } catch (exception: Exception) {
-                                LogUtil.w("TorvoxRuntime", "BEL poll failed for session ${entry.id}", exception)
-                            }
-                            try {
-                                val notification = bridge.pollNotification()
-                                if (notification != null) {
-                                    val (title, body) = notification
+                                if (poll.notification != null) {
+                                    val (title, body) = poll.notification
                                     val toastText = if (title.isNotEmpty()) "$title: $body" else body
                                     Handler(Looper.getMainLooper()).post {
                                         android.widget.Toast
@@ -1068,24 +1102,15 @@ constructor(
                                         .TerminalNotificationHelper(context)
                                         .showNotification(title, body)
                                 }
-                            } catch (exception: Exception) {
-                                LogUtil.e(
-                                    "TorvoxRuntime",
-                                    "notification poll/display failed for session ${entry.id}; terminal notification dropped",
-                                    exception,
-                                )
-                            }
-                            try {
-                                val clipboardText = bridge.pollClipboard()
-                                if (clipboardText != null) {
+                                if (poll.clipboard != null) {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clipData = ClipData.newPlainText("terminal clipboard", clipboardText)
+                                    val clipData = ClipData.newPlainText("terminal clipboard", poll.clipboard)
                                     clipboard.setPrimaryClip(clipData)
                                 }
                             } catch (exception: Exception) {
                                 LogUtil.e(
                                     "TorvoxRuntime",
-                                    "clipboard poll/set failed for session ${entry.id}; clipboard update skipped",
+                                    "pollAll failed for session ${entry.id}; deferred events dropped",
                                     exception,
                                 )
                             }
@@ -1096,57 +1121,32 @@ constructor(
                             }
                             diagCount++
                             if (diagCount == 1) {
-                                val terminalText =
-                                    try {
-                                        bridge.getTerminalText()
-                                    } catch (exception: Exception) {
-                                        LogUtil.e("TorvoxRuntime", "diagnostics query failed", exception)
-                                        null
-                                    }
-                                val scrollbackLength = bridge.scrollbackLength()
-                                val preview = terminalText?.take(80) ?: "null"
-                                LogUtil.d(
-                                    "TorvoxRuntime",
-                                    "session ${entry.id} first render OK: " +
-                                        "scrollback=$scrollbackLength " +
-                                        "text='$preview'",
-                                )
+                                LogUtil.d("TorvoxRuntime", "session ${entry.id} first render OK")
                             }
                             if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
-                                val scrollbackLength = bridge.scrollbackLength()
-                                val terminalText =
-                                    try {
-                                        bridge.getTerminalText()
-                                    } catch (exception: Exception) {
-                                        LogUtil.e("TorvoxRuntime", "diagnostics query failed", exception)
-                                        null
-                                    }
-                                LogUtil.d(
-                                    "TorvoxRuntime",
-                                    "session ${entry.id} scrollback=$scrollbackLength text='${terminalText?.take(80) ?: "N/A"}'",
-                                )
                                 val title =
                                     try {
                                         bridge.getActiveSessionTitle()
                                     } catch (exception: Exception) {
-                                        LogUtil.e("TorvoxRuntime", "diagnostics query failed", exception)
+                                        LogUtil.e("TorvoxRuntime", "title query failed", exception)
                                         ""
                                     }
                                 if (title.isNotEmpty() && title != _state.value.title) {
                                     _state.value = _state.value.copy(title = title)
                                 }
                             }
-                            if (diagCount % (RENDER_DIAGNOSTIC_FREQUENCY * 10) == 0) {
-                                LogUtil.d("TorvoxRuntime", "session ${entry.id} render alive: $diagCount")
-                            }
                             if (!entry.forceRenderRequested) {
-                                val signal = java.util.concurrent.CountDownLatch(1)
-                                entry.dirtySignal = signal
+                                entry.renderLock.lock()
                                 try {
-                                    signal.await(RENDER_LATCH_TIMEOUT_MS, java.util.concurrent.TimeUnit.MILLISECONDS)
-                                } catch (_: InterruptedException) {
-                                    Thread.currentThread().interrupt()
-                                    break
+                                    while (!entry.renderSignaled && !entry.forceRenderRequested) {
+                                        entry.renderCondition.await(
+                                            RENDER_LATCH_TIMEOUT_MS,
+                                            java.util.concurrent.TimeUnit.MILLISECONDS,
+                                        )
+                                    }
+                                    entry.renderSignaled = false
+                                } finally {
+                                    entry.renderLock.unlock()
                                 }
                             }
                             entry.forceRenderRequested = false
@@ -1206,7 +1206,7 @@ constructor(
         io.torvox.bridge.NativeWindow
             .getNativeWindowPtr(surface)
     } catch (exception: Throwable) {
-        LogUtil.w("TorvoxRuntime", "JNI getNativeWindowPtr not available, falling back to mNativeObject reflection")
+        LogUtil.w("TorvoxRuntime", "JNI getNativeWindowPtr not available, falling back to mNativeObject reflection", exception)
         getNativeWindowPtrReflection(surface)
     }
 

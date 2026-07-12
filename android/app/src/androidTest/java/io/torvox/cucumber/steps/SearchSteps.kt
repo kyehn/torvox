@@ -91,10 +91,17 @@ constructor(
 
     @When("^the user opens the search bar from the session panel$")
     fun userOpensSearchBar() {
-        composeRuleHolder.composeRule
+        val composeRule = composeRuleHolder.composeRule
+
+        // Tap SearchButton directly (ModalNavigationDrawer composes drawer content even when closed)
+        composeRule
             .onNodeWithTag("SearchButton")
             .performClick()
-        composeRuleHolder.composeRule.waitForIdle()
+        composeRule.waitForIdle()
+
+        // After SearchButton click, handle the drawer close coroutine launch timing
+        // The onClose launches a coroutine; wait for animations
+        composeRule.waitForIdle()
     }
 
     @When("^the user searches for \"([^\"]+)\"$")
@@ -198,6 +205,12 @@ constructor(
         composeRuleHolder.composeRule.waitForIdle()
     }
 
+    @When("^the user waits (\\d+) seconds$")
+    fun userWaitsSeconds(seconds: Int) {
+        Thread.sleep(seconds * 1000L)
+        composeRuleHolder.composeRule.waitForIdle()
+    }
+
     @When("^the soft keyboard opens$")
     fun softKeyboardOpens() {
         composeRuleHolder.composeRule
@@ -208,8 +221,15 @@ constructor(
 
     @Then("^the search bar is displayed at the bottom$")
     fun searchBarIsDisplayedAtBottom() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TextSearchBar")
+        val composeRule = composeRuleHolder.composeRule
+        composeRule.waitForIdle()
+
+        // The search bar is at the bottom; check its internal nodes
+        composeRule
+            .onNodeWithTag("SearchTextField")
+            .assertIsDisplayed()
+        composeRule
+            .onNodeWithTag("SearchClose")
             .assertIsDisplayed()
     }
 
