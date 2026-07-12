@@ -56,7 +56,7 @@ comments:
   CommentOverPrivateProperty:
     active: false
   DeprecatedBlockTag:
-    active: false
+    active: true
   EndOfSentenceFormat:
     active: false
     endOfSentenceFormat: '([.?!][ \t\n\r\f<])|([.?!:]$)'
@@ -88,8 +88,8 @@ comments:
 complexity:
   active: true
   CognitiveComplexMethod:
-    active: false
-    threshold: 15
+    active: true
+    threshold: 30
   ComplexCondition:
     active: true
     threshold: 12
@@ -119,7 +119,8 @@ complexity:
     active: false
     ignoredLabels: []
   LargeClass:
-    active: false
+    active: true
+    threshold: 500
   LongMethod:
     active: true
     threshold: 80
@@ -159,8 +160,14 @@ complexity:
     excludeStringsWithLessThan5Characters: true
     ignoreStringsRegex: '$^'
   TooManyFunctions:
-    active: false
-    ignoreAnnotatedFunctions: []
+    active: true
+    thresholdInFiles: 20
+    thresholdInClasses: 15
+    thresholdInInterfaces: 15
+    thresholdInObjects: 15
+    thresholdInEnums: 15
+    ignoreDeprecated: true
+    ignoreAnnotatedFunctions: ['Composable']
 coroutines:
   active: true
   GlobalCoroutineUsage:
@@ -239,7 +246,7 @@ exceptions:
     active: true
     ignoreLabeled: false
   SwallowedException:
-    active: false
+    active: true
   ThrowingExceptionFromFinally:
     active: true
   ThrowingExceptionInMain:
@@ -260,7 +267,7 @@ exceptions:
   ThrowingNewInstanceOfSameException:
     active: true
   TooGenericExceptionCaught:
-    active: false
+    active: true
   TooGenericExceptionThrown:
     active: false
 naming:
@@ -307,7 +314,7 @@ naming:
     active: false
     parameterPattern: '[a-z][A-Za-z0-9]*|_'
   MatchingDeclarationName:
-    active: false
+    active: true
   MemberNameEqualsClassName:
     active: true
     ignoreOverridden: true
@@ -422,13 +429,13 @@ potential-bugs:
   IteratorNotThrowingNoSuchElementException:
     active: true
   LateinitUsage:
-    active: false
+    active: true
     excludes: ['**/test/**', '**/androidTest/**', '**/commonTest/**', '**/jvmTest/**', '**/androidUnitTest/**', '**/androidInstrumentedTest/**', '**/jsTest/**', '**/iosTest/**']
     ignoreOnClassesPattern: ''
   MapGetWithNotNullAssertionOperator:
     active: true
   MissingPackageDeclaration:
-    active: false
+    active: true
     excludes: ['**/*.kts']
   NullCheckOnMutableProperty:
     active: false
@@ -472,14 +479,14 @@ style:
     singleLine: 'necessary'
     multiLine: 'consistent'
   CanBeNonNullable:
-    active: false
+    active: true
   CascadingCallWrapping:
     active: false
     includeElvis: true
   ClassOrdering:
     active: false
   CollapsibleIfStatements:
-    active: false
+    active: true
   DataClassContainsFunctions:
     active: false
     conversionFunctionPrefix:
@@ -566,7 +573,7 @@ style:
   MagicNumber:
     active: false
   MandatoryBracesLoops:
-    active: false
+    active: true
   MaxChainedCallsOnSameLine:
     active: false
     maxChainedCalls: 5
@@ -589,7 +596,7 @@ style:
   NewLineAtEndOfFile:
     active: true
   NoTabs:
-    active: false
+    active: true
   NullableBooleanCheck:
     active: false
   ObjectLiteralToLambda:
@@ -603,7 +610,7 @@ style:
   ProtectedMemberInFinalClass:
     active: true
   RedundantExplicitType:
-    active: false
+    active: true
   RedundantHigherOrderMapUsage:
     active: true
   RedundantVisibilityModifierRule:
@@ -615,7 +622,7 @@ style:
   SerialVersionUIDInSerializableClass:
     active: true
   SpacingBetweenPackageAndImports:
-    active: false
+    active: true
   StringShouldBeRawString:
     active: false
     maxEscapedCharacterCount: 2
@@ -623,7 +630,7 @@ style:
   ThrowsCount:
     active: false
   TrailingWhitespace:
-    active: false
+    active: true
   TrimMultilineRawString:
     active: false
     trimmingMethods:
@@ -642,7 +649,7 @@ style:
   UnnecessaryBackticks:
     active: false
   UnnecessaryBracesAroundTrailingLambda:
-    active: false
+    active: true
   UnnecessaryFilter:
     active: true
   UnnecessaryInheritance:
@@ -650,7 +657,7 @@ style:
   UnnecessaryInnerClass:
     active: false
   UnnecessaryLet:
-    active: false
+    active: true
   UnnecessaryParentheses:
     active: false
     allowForUnclearPrecedence: false
@@ -663,7 +670,7 @@ style:
   UnusedPrivateClass:
     active: true
   UnusedPrivateMember:
-    active: false
+    active: true
   UnusedPrivateProperty:
     active: true
     allowedNames: '_|ignored|expected|serialVersionUID'
@@ -676,7 +683,7 @@ style:
   UseCheckOrError:
     active: true
   UseDataClass:
-    active: false
+    active: true
     allowVars: false
   UseEmptyCounterpart:
     active: false

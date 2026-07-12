@@ -3,14 +3,14 @@ plugins {
     id("com.android.library") version "9.2.1" apply false
     id("org.jetbrains.dokka") version "2.2.0" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.4.0" apply false
-    id("com.google.dagger.hilt.android") version "2.60" apply false
-    id("com.google.devtools.ksp") version "2.3.9" apply false
-    id("io.github.takahirom.roborazzi") version "1.65.0" apply false
+    id("com.google.dagger.hilt.android") version "2.60.1" apply false
+    id("com.google.devtools.ksp") version "2.3.10" apply false
+    id("io.github.takahirom.roborazzi") version "1.68.0" apply false
     id("com.diffplug.spotless") version "8.8.0" apply false
     id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
     id("androidx.benchmark") version "1.5.0-alpha06" apply false
     id("androidx.baselineprofile") version "1.5.0-alpha06" apply false
-    id("com.github.ben-manes.versions") version "0.52.0" apply false
+    id("com.github.ben-manes.versions") version "0.54.0" apply false
 }
 
 val verrors = mutableListOf<String>()

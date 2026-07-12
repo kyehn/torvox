@@ -275,6 +275,7 @@ The primary users are:
 | FR-054 | The system SHALL provide 16 built-in color themes: Catppuccin Mocha, Catppuccin Latte, Dracula+, Nord, Tokyo Night, Rose Pine, Gruvbox Dark, Gruvbox Light, Everforest Dark, One Dark, One Light, Monokai, Ayu Dark, Ayu Light, Kanagawa Wave, and Night Owl. | `torvox-core/src/config.rs` (`Theme::all_built_in()`) |
 | FR-055 | The system SHALL support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots. | `torvox-core/src/config.rs` (`Theme::parse_custom()`) |
 | FR-056 | The system SHALL support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via `TerminalConfig`. | `torvox-core/src/config.rs` |
+| FR-057 | The repository SHALL NOT contain golden images (reference PNG screenshots used for pixel-by-pixel comparison). All rendering verification SHALL use logical assertions (pixel-coordinate checks, OCR text detection) instead of image comparison. | `docs/standards/QUALITY-GATE.md`, `.gitignore` |
 
 ---
 
@@ -468,6 +469,7 @@ Each requirement is linked to its verification method, test command, and accepta
 | FR-054 | Provide 16 built-in color themes: Catppuccin Mocha, Catppuccin Latte, Dracula+, Nord, Tokyo Night, Rose Pine, Gruvbox Dark, Gruvbox Light, Everforest Dark, One Dark, One Light, Monokai, Ayu Dark, Ayu Light, Kanagawa Wave, and Night Owl. | Automated Test | `cargo test --package torvox-core && cd android && ./gradlew testDebugUnitTest` | §FR-054§ (Built-in Themes) |
 | FR-055 | Support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots. | Automated Test | `cargo test --package torvox-core` | §FR-055§ (Custom Theme Definition) |
 | FR-056 | Support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via `TerminalConfig`. | Automated Test | `cargo test --package torvox-core` | §FR-056§ (Terminal Configuration) |
+| FR-057 | Repository SHALL NOT contain golden images; rendering verification SHALL use logical assertions or OCR. | Tool Inspection | `git ls-files '*.png' | grep -E 'screenshots|golden|roborazzi' | wc -l` | §FR-057§ (Golden Image Ban) |
 | NFR-001 | `torvox-core` SHALL contain zero `unsafe` blocks. The build MUST fail if `cargo geiger --package torvox-core` reports any `unsafe` usage. | Tool Inspection | `cargo geiger --package torvox-core` | §NFR-001§ (Zero Unsafe in Core) |
 | NFR-002 | All `unsafe` blocks in the codebase SHALL be preceded by a `// SAFETY:` comment explaining the invariants. | Tool Inspection | `cargo geiger --all` | §NFR-002§ (SAFETY Comments) |
 | NFR-003 | The system SHALL not panic in error paths. Library functions SHALL return `Result` or `Option` rather than panicking. | Automated Test | `cargo test --workspace` | §NFR-003§ (No Panic in Error Paths) |

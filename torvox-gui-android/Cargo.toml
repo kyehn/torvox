@@ -20,7 +20,7 @@ log = { workspace = true }
 android_logger = "0.15"
 
 [dev-dependencies]
-wgpu = { workspace = true, features = ["noop"] }
+wgpu = { workspace = true, features = ["noop", "vulkan"] }
 
 [lints]
 workspace = true

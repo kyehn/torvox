@@ -490,6 +490,11 @@ private interface TorvoxNative : Library {
 
     fun torvox_bridge_free_notification(ptr: Long)
 
+    /** Aggregates all per-frame poll results into a single surface-lock acquisition. */
+    fun torvox_bridge_poll_all(handle: Long): Long
+
+    fun torvox_bridge_free_poll_all(ptr: Long)
+
     fun torvox_bridge_search_in_scrollback(
         handle: Long,
         query_ptr: ByteArray?,
@@ -527,10 +532,17 @@ private interface TorvoxNative : Library {
 
     fun torvox_bridge_clear_background_image(handle: Long)
 
-    fun torvox_bridge_set_cursor_visible(
+    fun torvox_bridge_set_cursor_blink_enabled(
         handle: Long,
-        visible: Int,
+        enabled: Int,
     )
+
+    fun torvox_bridge_set_cursor_blink_speed_ms(
+        handle: Long,
+        speed_ms: Int,
+    )
+
+    fun torvox_bridge_reset_cursor_blink(handle: Long)
 
     fun torvox_bridge_set_cursor_style(
         handle: Long,
@@ -602,7 +614,7 @@ class TorvoxBridge(
     private var closed = false
 
     private fun ensureOpen() {
-        if (closed) throw IllegalStateException("TorvoxBridge is closed")
+        check(!closed) { "TorvoxBridge is closed" }
     }
 
     private fun <T> callOk(
@@ -719,6 +731,58 @@ class TorvoxBridge(
         val body = bodyPtr?.getString(0, "UTF-8") ?: ""
         ensureLib().torvox_bridge_free_notification(pointer)
         return if (title.isNotEmpty() || body.isNotEmpty()) title to body else null
+    }
+
+    /** Result of a single-lock [pollAll] call. */
+    data class PollAllResult(
+        val bel: Boolean,
+        val clipboard: String?,
+        val notification: Pair<String, String>?,
+        val syncActive: Boolean,
+        val shellIntegration: Int,
+    )
+
+    /**
+     * Polls all deferred events (BEL, clipboard, notification, sync mode, shell
+     * integration) in a single JNI call + surface-lock acquisition. Replaces the
+     * 5 separate `poll_*` JNA calls that each acquired the surface mutex on their
+     * own, eliminating ~4 extra round-trips and lock acquisitions per render frame.
+     */
+    fun pollAll(): PollAllResult {
+        val pointer = ensureLib().torvox_bridge_poll_all(handle)
+        if (pointer == 0L) {
+            return PollAllResult(false, null, null, false, 0)
+        }
+        val buffer = Pointer(pointer)
+        // Layout (see PollAllFFI in bridge.rs): bel:u8, sync_active:u8,
+        // shell_integration:u8, _pad:u8, clipboard_ptr:i64, notification_ptr:i64
+        val bel = buffer.getByte(0) != 0.toByte()
+        val syncActive = buffer.getByte(1) != 0.toByte()
+        val shellIntegration = buffer.getByte(2).toInt() and 0xFF
+        val clipboardPtr = buffer.getLong(8)
+        val notificationPtr = buffer.getLong(16)
+        val clipboard =
+            if (clipboardPtr != 0L) {
+                val text = Pointer(clipboardPtr).getString(0, "UTF-8")
+                ensureLib().torvox_bridge_free_string(clipboardPtr)
+                text
+            } else {
+                null
+            }
+        val notification =
+            if (notificationPtr != 0L) {
+                val nbuf = Pointer(notificationPtr)
+                val titlePtr = nbuf.getPointer(0)
+                val bodyPtr = nbuf.getPointer(8)
+                val title = titlePtr?.getString(0, "UTF-8") ?: ""
+                val body = bodyPtr?.getString(0, "UTF-8") ?: ""
+                ensureLib().torvox_bridge_free_notification(notificationPtr)
+                if (title.isNotEmpty() || body.isNotEmpty()) title to body else null
+            } else {
+                null
+            }
+        ensureLib().torvox_bridge_free_poll_all(pointer)
+        return PollAllResult(bel, clipboard, notification, syncActive, shellIntegration)
     }
 
     fun cwd(): String {
@@ -1036,8 +1100,16 @@ class TorvoxBridge(
         ensureLib().torvox_bridge_clear_background_image(handle)
     }
 
-    fun setCursorVisible(visible: Boolean) {
-        ensureLib().torvox_bridge_set_cursor_visible(handle, if (visible) 1 else 0)
+    fun setCursorBlinkEnabled(enabled: Boolean) {
+        ensureLib().torvox_bridge_set_cursor_blink_enabled(handle, if (enabled) 1 else 0)
+    }
+
+    fun setCursorBlinkSpeedMs(speedMs: Int) {
+        ensureLib().torvox_bridge_set_cursor_blink_speed_ms(handle, speedMs)
+    }
+
+    fun resetCursorBlink() {
+        ensureLib().torvox_bridge_reset_cursor_blink(handle)
     }
 
     fun setCursorStyle(style: String) {

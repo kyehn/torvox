@@ -2,7 +2,7 @@ use criterion::{BatchSize, Criterion, Throughput, criterion_group, criterion_mai
 use std::hint::black_box;
 use torvox_core::grid::Grid;
 use torvox_core::line::Line;
-use torvox_terminal::ghostty_terminal::GhosttyTerminal;
+use torvox_terminal::ghostty_terminal::{CellSnapshot, GhosttyTerminal};
 
 // ── B01-B09: Existing (preserved and enhanced) ────────────────────────
 
@@ -573,6 +573,63 @@ fn bench_fuzz_throughput(c: &mut Criterion) {
 }
 
 // ── B25: CPU idle usage estimate ────────────────────────────────────
+// ── B27: Cached instance copy overhead (the P0 fix) ─────────────────
+fn bench_cached_copy_vs_swap(c: &mut Criterion) {
+    use std::mem::size_of;
+    use torvox_renderer::gpu::CellInstance;
+
+    const SIZE: usize = 10_000; // ~800KB, realistic frame size
+    let items: Vec<CellInstance> = std::iter::repeat(CellInstance {
+        quad_origin: [0.0; 2],
+        atlas_offset: [0.0; 2],
+        atlas_size: [1.0; 2],
+        fg_color: [1.0; 4],
+        bg_color: [0.0; 4],
+        quad_size: [10.0; 2],
+        flags: 0.0,
+        bearing: [0.0; 2],
+        glyph_advance_width: 10.0,
+    })
+    .take(SIZE)
+    .collect();
+
+    let total_bytes = SIZE * size_of::<CellInstance>();
+    let mut group = c.benchmark_group("B27_cached_copy");
+    group.throughput(Throughput::Bytes(total_bytes as u64));
+
+    // OLD: clear() + extend_from_slice() — ~800KB memcpy every frame
+    group.bench_function("clear_extend_10k", |b| {
+        let mut cached = Vec::with_capacity(items.len());
+        b.iter(|| {
+            cached.clear();
+            cached.extend_from_slice(&items);
+            std::hint::black_box(cached.as_ptr());
+        });
+    });
+
+    // NEW: std::mem::swap — O(1) pointer swap, zero copy
+    group.bench_function("swap_10k", |b| {
+        b.iter_batched(
+            || {
+                // cached=old frame data (empty for first frame)
+                // data=current frame instances
+                let cached = Vec::new();
+                let data = items.clone();
+                (cached, data)
+            },
+            |(mut cached, mut data)| {
+                std::mem::swap(&mut cached, &mut data);
+                // Now cached holds current frame (for dirty row cache)
+                // data holds previous cached (will be cleared by build_cell_instances_into)
+                std::hint::black_box(cached.as_ptr());
+            },
+            BatchSize::SmallInput,
+        );
+    });
+
+    group.finish();
+}
+
 fn bench_cpu_idle(c: &mut Criterion) {
     c.bench_function("B25_cpu_idle_terminal_exists", |b| {
         b.iter(|| {
@@ -602,7 +659,7 @@ fn bench_grid_fill_comprehensive(c: &mut Criterion) {
 fn bench_gpu_render_throughput(c: &mut Criterion) {
     use torvox_core::cursor::CursorStyle;
     use torvox_renderer::font::FontPipeline;
-    use torvox_renderer::gpu::{GpuContext, build_cell_instances_from_snapshot};
+    use torvox_renderer::gpu::GpuContext;
 
     let mut ctx = GpuContext::new_with_no_surface();
     ctx.surface_config = Some(wgpu::SurfaceConfiguration {
@@ -638,26 +695,135 @@ fn bench_gpu_render_throughput(c: &mut Criterion) {
     terminal.flush();
     let snap = terminal.take_snapshot();
 
+    let mut instance_buffer = Vec::new();
+    let mut row_ends = Vec::new();
+    let mut cached_instances = Vec::new();
+    let mut cached_row_ends = Vec::new();
+
+    // Warm up: build one frame to populate cache
+    {
+        let config = torvox_renderer::gpu::CellInstanceConfig {
+            atlas_width: 256.0,
+            atlas_height: 256.0,
+            projection_height: 600.0,
+            dirty_rows: &[],
+            selection: None,
+            selection_bg: None,
+            search_highlights: &[],
+            cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+            cursor_style: CursorStyle::Block,
+            cached_instances: &cached_instances,
+            cached_row_ends: &cached_row_ends,
+        };
+        torvox_renderer::gpu::build_cell_instances_into(
+            &snap,
+            &mut font_pipeline,
+            config,
+            &mut instance_buffer,
+            &mut row_ends,
+        );
+        cached_instances.clear();
+        cached_instances.extend_from_slice(&instance_buffer);
+        cached_row_ends.clear();
+        cached_row_ends.extend_from_slice(&row_ends);
+    }
+
     c.bench_function("B26_gpu_render_snapshot_24x80", |b| {
         b.iter(|| {
-            let instances = build_cell_instances_from_snapshot(
+            let config = torvox_renderer::gpu::CellInstanceConfig {
+                atlas_width: 256.0,
+                atlas_height: 256.0,
+                projection_height: 600.0,
+                dirty_rows: &[],
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+                cursor_style: CursorStyle::Block,
+                cached_instances: &cached_instances,
+                cached_row_ends: &cached_row_ends,
+            };
+            instance_buffer.clear();
+            row_ends.clear();
+            torvox_renderer::gpu::build_cell_instances_into(
                 &snap,
                 &mut font_pipeline,
-                torvox_renderer::gpu::CellInstanceConfig {
-                    atlas_width: 256.0,
-                    atlas_height: 256.0,
-                    dirty_rows: None,
-                    selection: None,
-                    selection_bg: None,
-                    search_highlights: &[],
-                    cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
-                    cursor_style: CursorStyle::Block,
-                },
+                config,
+                &mut instance_buffer,
+                &mut row_ends,
             );
-            let pixels = ctx.render_to_buffer(&instances, &[]).unwrap();
+            // Simulate old surface.rs cached copy (the P0 bottleneck)
+            cached_instances.clear();
+            cached_instances.extend_from_slice(&instance_buffer);
+            cached_row_ends.clear();
+            cached_row_ends.extend_from_slice(&row_ends);
+            let pixels = ctx.render_to_buffer(&instance_buffer, &[]).unwrap();
             black_box(pixels.len());
         });
     });
+
+    // Same setup, but measure instance building WITHOUT GPU render
+    c.bench_function("B26_gpu_build_only_24x80", |b| {
+        b.iter(|| {
+            let config = torvox_renderer::gpu::CellInstanceConfig {
+                atlas_width: 256.0,
+                atlas_height: 256.0,
+                projection_height: 600.0,
+                dirty_rows: &[],
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+                cursor_style: CursorStyle::Block,
+                cached_instances: &cached_instances,
+                cached_row_ends: &cached_row_ends,
+            };
+            instance_buffer.clear();
+            row_ends.clear();
+            torvox_renderer::gpu::build_cell_instances_into(
+                &snap,
+                &mut font_pipeline,
+                config,
+                &mut instance_buffer,
+                &mut row_ends,
+            );
+            std::hint::black_box(instance_buffer.len());
+        });
+    });
+
+    // Measure GPU render ONLY with pre-built instances
+    {
+        // Build instances once
+        let config = torvox_renderer::gpu::CellInstanceConfig {
+            atlas_width: 256.0,
+            atlas_height: 256.0,
+            projection_height: 600.0,
+            dirty_rows: &[],
+            selection: None,
+            selection_bg: None,
+            search_highlights: &[],
+            cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+            cursor_style: CursorStyle::Block,
+            cached_instances: &cached_instances,
+            cached_row_ends: &cached_row_ends,
+        };
+        let mut built_instances = Vec::new();
+        let mut _row_ends = Vec::new();
+        torvox_renderer::gpu::build_cell_instances_into(
+            &snap,
+            &mut font_pipeline,
+            config,
+            &mut built_instances,
+            &mut _row_ends,
+        );
+
+        c.bench_function("B26_gpu_render_only_24x80", |b| {
+            b.iter(|| {
+                let pixels = ctx.render_to_buffer(&built_instances, &[]).unwrap();
+                std::hint::black_box(pixels.len());
+            });
+        });
+    }
 }
 
 // ── B50-B52: Grid cell access patterns ─────────────────────────────
@@ -869,6 +1035,47 @@ fn bench_sgr_apply(c: &mut Criterion) {
     });
 }
 
+fn bench_prev_cells_clone(c: &mut Criterion) {
+    let cols = 80;
+    let rows = 24;
+    let total = cols * rows;
+    let cells: Vec<CellSnapshot> = vec![CellSnapshot::default(); total];
+
+    let mut group = c.benchmark_group("B28_prev_cells_clone");
+    group.throughput(Throughput::Elements(total as u64));
+
+    // Full clone: Clone all 1920 cells via clone_from
+    group.bench_function("full_clone_1920", |b| {
+        let mut prev = cells.clone();
+        b.iter(|| black_box(prev.clone_from(&cells)));
+    });
+
+    // Partial clone: 1 dirty row = 80 cells via clone_from_slice
+    group.bench_function("partial_1row_dirty", |b| {
+        let mut prev = cells.clone();
+        let start = 3 * cols;
+        let end = start + cols;
+        b.iter(|| {
+            prev[start..end].clone_from_slice(&cells[start..end]);
+            black_box(&prev);
+        });
+    });
+
+    // Partial clone: 10 dirty rows = 800 cells
+    group.bench_function("partial_10rows_dirty", |b| {
+        let mut prev = cells.clone();
+        let rows_10: Vec<(usize, usize)> = (0..10).map(|r| (r * cols, r * cols + cols)).collect();
+        b.iter(|| {
+            for &(start, end) in &rows_10 {
+                prev[start..end].clone_from_slice(&cells[start..end]);
+            }
+            black_box(&prev);
+        });
+    });
+
+    group.finish();
+}
+
 criterion_group!(
     vt_benches,
     bench_device_create,
@@ -916,6 +1123,8 @@ criterion_group!(
     bench_fuzz_throughput,
     bench_cpu_idle,
     bench_gpu_render_throughput,
+    bench_cached_copy_vs_swap,
+    bench_prev_cells_clone,
 );
 
 criterion_group!(

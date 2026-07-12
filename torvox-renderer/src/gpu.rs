@@ -1014,14 +1014,14 @@ impl GpuContext {
     }
 
     fn select_present_mode(caps: &wgpu::SurfaceCapabilities) -> wgpu::PresentMode {
-        if caps.present_modes.contains(&wgpu::PresentMode::Immediate) {
-            wgpu::PresentMode::Immediate
-        } else if caps.present_modes.contains(&wgpu::PresentMode::AutoNoVsync) {
-            wgpu::PresentMode::AutoNoVsync
-        } else if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
+        if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
             wgpu::PresentMode::Mailbox
-        } else {
+        } else if caps.present_modes.contains(&wgpu::PresentMode::Fifo) {
             wgpu::PresentMode::Fifo
+        } else if caps.present_modes.contains(&wgpu::PresentMode::AutoVsync) {
+            wgpu::PresentMode::AutoVsync
+        } else {
+            wgpu::PresentMode::Immediate
         }
     }
 
@@ -2405,12 +2405,20 @@ pub struct CellInstanceConfig<'a> {
     pub atlas_width: f32,
     pub atlas_height: f32,
     pub projection_height: f32,
-    pub dirty_rows: Option<&'a [bool]>,
     pub selection: Option<SelectionRange>,
     pub selection_bg: Option<[f32; 4]>,
     pub search_highlights: &'a [SearchHighlight],
     pub cursor_color: Option<[f32; 4]>,
     pub cursor_style: torvox_core::cursor::CursorStyle,
+    /// Per-row dirty flags. Empty slice = all rows dirty (full rebuild).
+    pub dirty_rows: &'a [bool],
+    /// Cached CellInstances from the previous frame — used as source for
+    /// non-dirty rows so we avoid re-executing the shaping/color/atlas
+    /// lookup hot path for unchanged cells.
+    pub cached_instances: &'a [CellInstance],
+    /// Cumulative end offsets for each row in `cached_instances`.
+    /// `cached_row_ends[row]` = exclusive end index of row `row`.
+    pub cached_row_ends: &'a [usize],
 }
 
 pub fn build_cell_instances_from_snapshot(
@@ -2419,7 +2427,14 @@ pub fn build_cell_instances_from_snapshot(
     config: CellInstanceConfig<'_>,
 ) -> Vec<CellInstance> {
     let mut instances = Vec::new();
-    build_cell_instances_into(snapshot, font_pipeline, config, &mut instances);
+    let mut _row_ends = Vec::new();
+    build_cell_instances_into(
+        snapshot,
+        font_pipeline,
+        config,
+        &mut instances,
+        &mut _row_ends,
+    );
     instances
 }
 
@@ -2446,11 +2461,11 @@ pub fn build_cell_instances_into(
     font_pipeline: &mut crate::font::FontPipeline,
     config: CellInstanceConfig<'_>,
     instances: &mut Vec<CellInstance>,
+    row_ends: &mut Vec<usize>,
 ) {
     let atlas_width = config.atlas_width;
     let atlas_height = config.atlas_height;
     let projection_height = config.projection_height;
-    let dirty_rows = config.dirty_rows;
     let selection = config.selection;
     let selection_bg = config.selection_bg;
     let search_highlights = config.search_highlights;
@@ -2472,7 +2487,17 @@ pub fn build_cell_instances_into(
     }
 
     instances.clear();
-    instances.reserve((rows * cols) as usize);
+    let use_cache = !config.dirty_rows.is_empty()
+        && config.dirty_rows.len() >= rows as usize
+        && config.cached_row_ends.len() >= rows as usize
+        && config.cached_instances.len() > config.cached_row_ends[rows as usize - 1];
+    if use_cache {
+        // Estimate capacity from cached total (typically matches or is close)
+        instances.reserve(config.cached_instances.len());
+    } else {
+        instances.reserve((rows * cols) as usize);
+    }
+    row_ends.clear();
 
     let cursor_row = snapshot.cursor_row;
     let cursor_col = snapshot.cursor_col;
@@ -2493,87 +2518,32 @@ pub fn build_cell_instances_into(
     }
 
     for row in 0..rows {
+        // ── PROJECTION CLIP ──
+        // Must run before the cached row path so that rows beyond the
+        // visible area are always skipped, even when their content is
+        // clean. Otherwise, when the surface shrinks (e.g. IME opens),
+        // clean rows below the new projection_height would still be
+        // copied from cache, wasting GPU bandwidth and potentially
+        // rendering at wrong positions.
         if projection_height > 0.0 && (row as f32 * cell_h) >= projection_height {
             break;
         }
-        if let Some(dirty) = dirty_rows
-            && row < dirty.len() as u32
-            && !dirty[row as usize]
-        {
-            for col in 0..cols {
-                let idx = (row * cols + col) as usize;
-                let cell = &snapshot.cells[idx];
-                let is_selected = selection.is_some_and(|s| s.contains(row, col, cols));
-                let is_cursor = cursor_visible && row == cursor_row && col == cursor_col;
-                let (mut fg, mut bg) = if cell.reverse {
-                    (cell.background, cell.foreground)
-                } else {
-                    (cell.foreground, cell.background)
-                };
-                if is_selected {
-                    if let Some(sbg) = selection_bg {
-                        bg = sbg;
-                    } else {
-                        std::mem::swap(&mut fg, &mut bg);
-                    }
-                }
-                if let Some(hl) = cell_highlight(row, col, &highlights_by_row) {
-                    apply_search_highlight(&mut fg, &mut bg, *hl);
-                }
-                let (fg, bg, quad_origin, quad_size) = if is_cursor {
-                    let raw_cursor_bg = cursor_color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                    let cursor_alpha = match cursor_style {
-                        torvox_core::cursor::CursorStyle::Block => CURSOR_BLOCK_ALPHA,
-                        _ => CURSOR_LINE_ALPHA,
-                    };
-                    let cursor_bg = [
-                        raw_cursor_bg[0],
-                        raw_cursor_bg[1],
-                        raw_cursor_bg[2],
-                        raw_cursor_bg[3] * cursor_alpha,
-                    ];
-                    let base_x = col as f32 * cell_w;
-                    let base_y = row as f32 * cell_h;
-                    match cursor_style {
-                        torvox_core::cursor::CursorStyle::Block => {
-                            (bg, cursor_bg, [base_x, base_y], [cell_w, cell_h])
-                        }
-                        torvox_core::cursor::CursorStyle::Bar => (
-                            [0.0, 0.0, 0.0, 0.0],
-                            cursor_bg,
-                            [base_x, base_y],
-                            [cell_w * CURSOR_BAR_WIDTH_RATIO, cell_h],
-                        ),
-                        torvox_core::cursor::CursorStyle::Underline => (
-                            [0.0, 0.0, 0.0, 0.0],
-                            cursor_bg,
-                            [
-                                base_x,
-                                base_y + cell_h - cell_h * CURSOR_UNDERLINE_HEIGHT_RATIO,
-                            ],
-                            [cell_w, cell_h * CURSOR_UNDERLINE_HEIGHT_RATIO],
-                        ),
-                    }
-                } else {
-                    (
-                        fg,
-                        bg,
-                        [col as f32 * cell_w, row as f32 * cell_h],
-                        [cell_w, cell_h],
-                    )
-                };
-                instances.push(CellInstance {
-                    quad_origin,
-                    atlas_offset: [0.0; 2],
-                    atlas_size: [0.0; 2],
-                    fg_color: fg,
-                    bg_color: bg,
-                    quad_size,
-                    flags: 0.0,
-                    bearing: [0.0; 2],
-                    glyph_advance_width: 0.0,
-                });
-            }
+
+        // ── CACHED ROW PATH ──
+        // When the row is clean (no cell content changed, no cursor, no selection,
+        // no search highlight), copy the previous frame's instances directly.
+        // This avoids re-executing the shaping, color blending, and atlas lookup
+        // hot path for every cell in every frame.
+        if use_cache && !config.dirty_rows[row as usize] {
+            let ru = row as usize;
+            let start = if ru == 0 {
+                0_usize
+            } else {
+                config.cached_row_ends[ru - 1]
+            };
+            let end = config.cached_row_ends[ru];
+            instances.extend_from_slice(&config.cached_instances[start..end]);
+            row_ends.push(instances.len());
             continue;
         }
         let mut skip_cols = 0u32;
@@ -3008,6 +2978,58 @@ mod tests {
         let proj = orthographic_projection(800.0, 600.0);
         assert!((proj[0][0] - 2.0 / 800.0).abs() < f32::EPSILON);
         assert!((proj[1][1] + 2.0 / 600.0).abs() < f32::EPSILON);
+    }
+
+    /// Locks the vsync fix (#1): present mode must prefer a vsync-capable mode
+    /// (Mailbox/Fifo/AutoVsync) over `Immediate`, which disables vsync and lets
+    /// the render thread flood the GPU with unthrottled frames (the original
+    /// Android lag root cause).
+    #[test]
+    fn select_present_mode_prefers_vsync() {
+        fn base_caps() -> wgpu::SurfaceCapabilities {
+            wgpu::SurfaceCapabilities {
+                formats: vec![wgpu::TextureFormat::Rgba8Unorm],
+                present_modes: vec![wgpu::PresentMode::Immediate],
+                alpha_modes: vec![wgpu::CompositeAlphaMode::Opaque],
+                usages: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            }
+        }
+
+        // Mailbox available -> Mailbox (vsync + drop oldest). Never Immediate.
+        let mut caps = base_caps();
+        caps.present_modes = vec![
+            wgpu::PresentMode::Immediate,
+            wgpu::PresentMode::Mailbox,
+            wgpu::PresentMode::Fifo,
+        ];
+        assert_eq!(
+            GpuContext::select_present_mode(&caps),
+            wgpu::PresentMode::Mailbox,
+            "Mailbox (vsync) must win over Immediate"
+        );
+
+        // No Mailbox -> Fifo (vsync).
+        let mut caps = base_caps();
+        caps.present_modes = vec![wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo];
+        assert_eq!(
+            GpuContext::select_present_mode(&caps),
+            wgpu::PresentMode::Fifo
+        );
+
+        // No Mailbox/Fifo -> AutoVsync (still vsync).
+        let mut caps = base_caps();
+        caps.present_modes = vec![wgpu::PresentMode::Immediate, wgpu::PresentMode::AutoVsync];
+        assert_eq!(
+            GpuContext::select_present_mode(&caps),
+            wgpu::PresentMode::AutoVsync
+        );
+
+        // Only Immediate -> Immediate (last resort; the lag mode we fixed away).
+        let base = base_caps();
+        assert_eq!(
+            GpuContext::select_present_mode(&base),
+            wgpu::PresentMode::Immediate
+        );
     }
 
     #[test]
@@ -3594,12 +3616,14 @@ mod tests {
                 atlas_width: 2048.0,
                 atlas_height: 2048.0,
                 projection_height: 0.0,
-                dirty_rows: None,
                 selection: None,
                 selection_bg: None,
                 search_highlights: &[],
                 cursor_color,
                 cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
             },
         );
         assert_eq!(instances.len(), 2);
@@ -3640,12 +3664,14 @@ mod tests {
                 atlas_width: 2048.0,
                 atlas_height: 2048.0,
                 projection_height: 0.0,
-                dirty_rows: None,
                 selection: None,
                 selection_bg: None,
                 search_highlights: &[],
                 cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
                 cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
             },
         );
         assert_eq!(instances.len(), 1);
@@ -3687,12 +3713,14 @@ mod tests {
                 atlas_width: 2048.0,
                 atlas_height: 2048.0,
                 projection_height: 768.0,
-                dirty_rows: None,
                 selection: None,
                 selection_bg: None,
                 search_highlights: &[],
                 cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
                 cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
             },
         );
         assert_eq!(instances.len(), 1);
@@ -3746,12 +3774,14 @@ mod tests {
                 atlas_width: 2048.0,
                 atlas_height: 2048.0,
                 projection_height: 768.0,
-                dirty_rows: None,
                 selection,
                 selection_bg: None,
                 search_highlights: &[],
                 cursor_color: None,
                 cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
             },
         );
         assert_eq!(instances.len(), 1);
@@ -4059,7 +4089,9 @@ mod tests {
             "build_cell_instances_from_flat returned 0 instances - font/glyph load failure"
         );
         ctx.upload_atlas(font_pipeline.atlas_bitmap(), atlas_dim, atlas_dim);
-        let pixels = ctx.render_to_buffer(&instances, &[]).unwrap();
+        let pixels = ctx
+            .render_to_buffer(&instances, &[])
+            .expect("wgpu render must succeed");
 
         assert_eq!(
             pixels.len(),
@@ -4132,7 +4164,9 @@ mod tests {
         ctx.ensure_bg_pipeline(50, 50);
 
         // render_to_buffer must not panic — bg pipeline initialization is valid
-        let result = ctx.render_to_buffer(&[], &[]).unwrap();
+        let result = ctx
+            .render_to_buffer(&[], &[])
+            .expect("wgpu render must succeed");
 
         // Verify render produced valid RGBA data (50×50×4 bytes)
         assert_eq!(result.len(), 50 * 50 * 4, "bg opaque render output size");
@@ -4175,7 +4209,9 @@ mod tests {
         ctx.ensure_bg_pipeline(50, 50);
 
         // render_to_buffer must not panic
-        let result = ctx.render_to_buffer(&[], &[]).unwrap();
+        let result = ctx
+            .render_to_buffer(&[], &[])
+            .expect("wgpu render must succeed");
 
         assert_eq!(
             result.len(),
@@ -4212,7 +4248,9 @@ mod tests {
             return;
         };
 
-        let result = ctx.render_to_buffer(&[], &[]).unwrap();
+        let result = ctx
+            .render_to_buffer(&[], &[])
+            .expect("wgpu render must succeed");
 
         let idx = (25 * 50 + 25) * 4;
         assert_eq!(
@@ -4300,12 +4338,14 @@ mod tests {
                 atlas_width: 2048.0,
                 atlas_height: 2048.0,
                 projection_height: 768.0,
-                dirty_rows: None,
                 selection: None,
                 selection_bg: None,
                 search_highlights: &highlights,
                 cursor_color: None,
                 cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
             },
         );
         assert_eq!(instances.len(), 1);
@@ -4350,12 +4390,14 @@ mod tests {
                 atlas_width: 2048.0,
                 atlas_height: 2048.0,
                 projection_height: 0.0,
-                dirty_rows: None,
                 selection: None,
                 selection_bg: None,
                 search_highlights: &highlights,
                 cursor_color: Some([0.5, 0.5, 1.0, 1.0]),
                 cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
             },
         );
         assert_eq!(instances.len(), 1);
@@ -4440,7 +4482,7 @@ mod tests {
         let by_row = group_highlights_by_row(&highlights);
         let hl = cell_highlight(0, 3, &by_row);
         assert!(hl.is_some(), "cell (0,3) should have highlight");
-        let color = hl.unwrap();
+        let color = hl.expect("cell must have highlight");
         assert_eq!(color[3], 160, "alpha should be preserved");
     }
 
@@ -4456,7 +4498,7 @@ mod tests {
         let by_row = group_highlights_by_row(&highlights);
         let hl = cell_highlight(0, 3, &by_row);
         assert!(hl.is_some(), "cell (0,3) should have highlight");
-        let color = hl.unwrap();
+        let color = hl.expect("cell must have highlight");
         assert_eq!(color[3], 64, "alpha should be preserved");
     }
 
@@ -4488,7 +4530,7 @@ mod tests {
         let by_row = group_highlights_by_row(&highlights);
         let hl = cell_highlight(0, 5, &by_row);
         assert!(hl.is_some(), "should find highlight at row 0 col 5");
-        assert_eq!(hl.unwrap()[3], 0);
+        assert_eq!(hl.expect("must have highlight")[3], 0);
     }
 
     #[test]
@@ -4512,7 +4554,11 @@ mod tests {
         // First highlight (other match)
         let hl = cell_highlight(0, 1, &by_row);
         assert!(hl.is_some(), "cell (0,1) should have other match highlight");
-        assert_eq!(hl.unwrap()[3], 64, "other match alpha should be 64");
+        assert_eq!(
+            hl.expect("other match must have highlight")[3],
+            64,
+            "other match alpha should be 64"
+        );
 
         // Between highlights — no highlight
         assert!(
@@ -4526,7 +4572,460 @@ mod tests {
             hl.is_some(),
             "cell (0,12) should have current match highlight"
         );
-        assert_eq!(hl.unwrap()[3], 160, "current match alpha should be 160");
+        assert_eq!(
+            hl.expect("current match must have highlight")[3],
+            160,
+            "current match alpha should be 160"
+        );
+    }
+
+    // ── Cursor shape tests ──
+
+    #[test]
+    fn cursor_block_full_cell_size() {
+        use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+        let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+        font_pipeline.rasterize_ascii();
+        let (cell_w, cell_h) = font_pipeline.cell_metrics();
+        let cells = vec![CellSnapshot {
+            codepoint: 0x20,
+            ..Default::default()
+        }];
+        let snapshot = GridSnapshot {
+            rows: 1,
+            cols: 1,
+            cursor_visible: true,
+            cursor_style: torvox_core::cursor::CursorStyle::Block,
+            cells,
+            dirty: vec![true],
+            ..Default::default()
+        };
+        let instances = build_cell_instances_from_snapshot(
+            &snapshot,
+            &mut font_pipeline,
+            CellInstanceConfig {
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
+                projection_height: 768.0,
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+                cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
+            },
+        );
+        assert_eq!(instances.len(), 1);
+        let cell = &instances[0];
+        assert_eq!(
+            cell.quad_size[0], cell_w,
+            "Block cursor width should equal cell width"
+        );
+        assert_eq!(
+            cell.quad_size[1], cell_h,
+            "Block cursor height should equal cell height"
+        );
+    }
+
+    #[test]
+    fn cursor_bar_width_ratio() {
+        use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+        let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+        font_pipeline.rasterize_ascii();
+        let (cell_w, cell_h) = font_pipeline.cell_metrics();
+        let cells = vec![CellSnapshot {
+            codepoint: 0x20,
+            ..Default::default()
+        }];
+        let snapshot = GridSnapshot {
+            rows: 1,
+            cols: 1,
+            cursor_visible: true,
+            cursor_style: torvox_core::cursor::CursorStyle::Bar,
+            cells,
+            dirty: vec![true],
+            ..Default::default()
+        };
+        let instances = build_cell_instances_from_snapshot(
+            &snapshot,
+            &mut font_pipeline,
+            CellInstanceConfig {
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
+                projection_height: 768.0,
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+                cursor_style: torvox_core::cursor::CursorStyle::Bar,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
+            },
+        );
+        assert_eq!(instances.len(), 1);
+        let cell = &instances[0];
+        let expected_w = cell_w * 0.15;
+        assert!(
+            (cell.quad_size[0] - expected_w).abs() < 0.01,
+            "Bar cursor width should be {expected_w}, got {}",
+            cell.quad_size[0]
+        );
+        assert_eq!(
+            cell.quad_size[1], cell_h,
+            "Bar cursor height should equal cell height"
+        );
+    }
+
+    #[test]
+    fn cursor_underline_height_ratio() {
+        use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+        let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+        font_pipeline.rasterize_ascii();
+        let (cell_w, cell_h) = font_pipeline.cell_metrics();
+        let cells = vec![CellSnapshot {
+            codepoint: 0x20,
+            ..Default::default()
+        }];
+        let snapshot = GridSnapshot {
+            rows: 1,
+            cols: 1,
+            cursor_visible: true,
+            cursor_style: torvox_core::cursor::CursorStyle::Underline,
+            cells,
+            dirty: vec![true],
+            ..Default::default()
+        };
+        let instances = build_cell_instances_from_snapshot(
+            &snapshot,
+            &mut font_pipeline,
+            CellInstanceConfig {
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
+                projection_height: 768.0,
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+                cursor_style: torvox_core::cursor::CursorStyle::Underline,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
+            },
+        );
+        assert_eq!(instances.len(), 1);
+        let cell = &instances[0];
+        let expected_h = cell_h * 0.15;
+        assert!(
+            (cell.quad_size[1] - expected_h).abs() < 0.01,
+            "Underline cursor height should be {expected_h}, got {}",
+            cell.quad_size[1]
+        );
+        assert_eq!(
+            cell.quad_size[0], cell_w,
+            "Underline cursor width should equal cell width"
+        );
+    }
+
+    #[test]
+    fn cursor_not_rendered_when_visible_false() {
+        use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+        let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+        font_pipeline.rasterize_ascii();
+        let cells = vec![CellSnapshot {
+            codepoint: 0x20,
+            ..Default::default()
+        }];
+        let snapshot = GridSnapshot {
+            rows: 1,
+            cols: 1,
+            cursor_visible: false,
+            cursor_style: torvox_core::cursor::CursorStyle::Block,
+            cells,
+            dirty: vec![true],
+            ..Default::default()
+        };
+        let instances = build_cell_instances_from_snapshot(
+            &snapshot,
+            &mut font_pipeline,
+            CellInstanceConfig {
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
+                projection_height: 768.0,
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+                cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
+            },
+        );
+        assert_eq!(instances.len(), 1);
+        let cell = &instances[0];
+        // Non-cursor blank cell uses default background, not cursor color
+        assert_ne!(
+            cell.bg_color,
+            [1.0, 1.0, 1.0, 0.7],
+            "cursor cell should not have block alpha bg when cursor_visible=false"
+        );
+    }
+
+    #[test]
+    fn cursor_at_origin() {
+        use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+        let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+        font_pipeline.rasterize_ascii();
+        let cells = vec![CellSnapshot {
+            codepoint: 'A' as u32,
+            ..Default::default()
+        }];
+        let snapshot = GridSnapshot {
+            rows: 1,
+            cols: 1,
+            cursor_visible: true,
+            cursor_row: 0,
+            cursor_col: 0,
+            cursor_style: torvox_core::cursor::CursorStyle::Block,
+            cells,
+            dirty: vec![true],
+            ..Default::default()
+        };
+        let instances = build_cell_instances_from_snapshot(
+            &snapshot,
+            &mut font_pipeline,
+            CellInstanceConfig {
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
+                projection_height: 24.0,
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+                cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
+            },
+        );
+        assert_eq!(
+            instances.len(),
+            1,
+            "cursor at (0,0) must produce an instance"
+        );
+        let cell = &instances[0];
+        assert_eq!(
+            cell.bg_color,
+            [1.0, 1.0, 1.0, 0.7],
+            "cursor at origin must render with block alpha"
+        );
+    }
+
+    #[test]
+    fn cursor_with_text_and_block_style() {
+        use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+        let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+        font_pipeline.rasterize_ascii();
+        let cells = vec![CellSnapshot {
+            codepoint: 'X' as u32,
+            foreground: [0.0, 1.0, 0.0, 1.0],
+            background: [0.0, 0.0, 1.0, 1.0],
+            ..Default::default()
+        }];
+        let snapshot = GridSnapshot {
+            rows: 1,
+            cols: 1,
+            cursor_visible: true,
+            cursor_style: torvox_core::cursor::CursorStyle::Block,
+            cells,
+            dirty: vec![true],
+            ..Default::default()
+        };
+        let cursor_color = Some([1.0, 1.0, 1.0, 1.0]);
+        let instances = build_cell_instances_from_snapshot(
+            &snapshot,
+            &mut font_pipeline,
+            CellInstanceConfig {
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
+                projection_height: 24.0,
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color,
+                cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
+            },
+        );
+        assert_eq!(instances.len(), 1);
+        let cell = &instances[0];
+        // Block cursor swaps fg/bg: fg becomes original bg, bg becomes cursor color×alpha
+        assert_eq!(
+            cell.fg_color,
+            [0.0, 0.0, 1.0, 1.0],
+            "block cursor on text: fg should be original bg"
+        );
+        assert_eq!(
+            cell.bg_color,
+            [1.0, 1.0, 1.0, 0.7],
+            "block cursor on text: bg should be cursor color with block alpha"
+        );
+    }
+
+    #[test]
+    fn cursor_with_text_and_bar_style() {
+        use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+        let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+        font_pipeline.rasterize_ascii();
+        let cells = vec![CellSnapshot {
+            codepoint: 'X' as u32,
+            foreground: [0.0, 1.0, 0.0, 1.0],
+            background: [0.0, 0.0, 1.0, 1.0],
+            ..Default::default()
+        }];
+        let snapshot = GridSnapshot {
+            rows: 1,
+            cols: 1,
+            cursor_visible: true,
+            cursor_style: torvox_core::cursor::CursorStyle::Bar,
+            cells,
+            dirty: vec![true],
+            ..Default::default()
+        };
+        let cursor_color = Some([1.0, 1.0, 1.0, 1.0]);
+        let instances = build_cell_instances_from_snapshot(
+            &snapshot,
+            &mut font_pipeline,
+            CellInstanceConfig {
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
+                projection_height: 24.0,
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color,
+                cursor_style: torvox_core::cursor::CursorStyle::Bar,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
+            },
+        );
+        assert_eq!(instances.len(), 1);
+        let cell = &instances[0];
+        // Bar cursor does NOT swap fg/bg — it just sets bg to cursor color
+        assert_eq!(
+            cell.fg_color,
+            [0.0, 1.0, 0.0, 1.0],
+            "bar cursor on text: fg should be original foreground"
+        );
+        assert_eq!(
+            cell.bg_color,
+            [1.0, 1.0, 1.0, 0.9],
+            "bar cursor on text: bg should be cursor color with line alpha"
+        );
+    }
+
+    #[test]
+    fn cursor_with_text_and_underline_style() {
+        use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+        let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+        font_pipeline.rasterize_ascii();
+        let cells = vec![CellSnapshot {
+            codepoint: 'X' as u32,
+            foreground: [0.0, 1.0, 0.0, 1.0],
+            background: [0.0, 0.0, 1.0, 1.0],
+            ..Default::default()
+        }];
+        let snapshot = GridSnapshot {
+            rows: 1,
+            cols: 1,
+            cursor_visible: true,
+            cursor_style: torvox_core::cursor::CursorStyle::Underline,
+            cells,
+            dirty: vec![true],
+            ..Default::default()
+        };
+        let cursor_color = Some([1.0, 1.0, 1.0, 1.0]);
+        let instances = build_cell_instances_from_snapshot(
+            &snapshot,
+            &mut font_pipeline,
+            CellInstanceConfig {
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
+                projection_height: 24.0,
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color,
+                cursor_style: torvox_core::cursor::CursorStyle::Underline,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
+            },
+        );
+        assert_eq!(instances.len(), 1);
+        let cell = &instances[0];
+        // Underline cursor does NOT swap fg/bg — it just sets bg to cursor color
+        assert_eq!(
+            cell.fg_color,
+            [0.0, 1.0, 0.0, 1.0],
+            "underline cursor on text: fg should be original foreground"
+        );
+        assert_eq!(
+            cell.bg_color,
+            [1.0, 1.0, 1.0, 0.9],
+            "underline cursor on text: bg should be cursor color with line alpha"
+        );
+    }
+
+    #[test]
+    fn cursor_color_custom_values() {
+        use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+        let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+        font_pipeline.rasterize_ascii();
+        let cells = vec![CellSnapshot {
+            codepoint: 0x20,
+            ..Default::default()
+        }];
+        let snapshot = GridSnapshot {
+            rows: 1,
+            cols: 1,
+            cursor_visible: true,
+            cursor_style: torvox_core::cursor::CursorStyle::Block,
+            cells,
+            dirty: vec![true],
+            ..Default::default()
+        };
+        let custom_color = Some([0.5, 0.3, 0.8, 1.0]);
+        let instances = build_cell_instances_from_snapshot(
+            &snapshot,
+            &mut font_pipeline,
+            CellInstanceConfig {
+                atlas_width: 2048.0,
+                atlas_height: 2048.0,
+                projection_height: 24.0,
+                selection: None,
+                selection_bg: None,
+                search_highlights: &[],
+                cursor_color: custom_color,
+                cursor_style: torvox_core::cursor::CursorStyle::Block,
+                dirty_rows: &[],
+                cached_instances: &[],
+                cached_row_ends: &[],
+            },
+        );
+        assert_eq!(instances.len(), 1);
+        let cell = &instances[0];
+        assert_eq!(
+            cell.bg_color,
+            [0.5, 0.3, 0.8, 0.7],
+            "custom cursor color should be reflected with block alpha multiplier"
+        );
     }
 
     include!("screenshot_tests.rs");

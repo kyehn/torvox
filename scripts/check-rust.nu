@@ -11,6 +11,7 @@ def main [] {
     cargo test -p torvox-integration-tests --test tool_lint -- --test-threads 1
     cargo nextest run --workspace --profile ci --retries 2 -E 'not binary(tool_lint)'
 
+    let RUSTC = (nix build --print-out-paths --impure .#rust-toolchain-latest | str trim) + "/bin/rustc"
     for target in [
         "fuzz_vt_parser"
         "fuzz_osc_parse"
@@ -19,6 +20,6 @@ def main [] {
         "fuzz_selection"
         "fuzz_attrs"
     ] {
-        ^cargo fuzz run --fuzz-dir fuzz $target -- -max_total_time=5
+        RUSTC=$RUSTC cargo fuzz run --fuzz-dir fuzz $target -- -max_total_time=5
     }
 }
