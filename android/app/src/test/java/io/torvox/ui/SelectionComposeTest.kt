@@ -1,7 +1,6 @@
 package io.torvox.ui
 
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
-import com.github.takahirom.roborazzi.RoborazziRule
 import io.torvox.RobolectricActivityRule
 import io.torvox.TestActivity
 import org.junit.Assert.assertEquals
@@ -24,14 +23,6 @@ class SelectionComposeTest {
         AndroidComposeTestRule(
             RobolectricActivityRule(TestActivity::class.java),
             activityProvider = { it.activity },
-        )
-
-    @get:Rule
-    val roborazziRule =
-        RoborazziRule(
-            RoborazziRule.Options(
-                outputDirectoryPath = "src/test/resources/roborazzi",
-            ),
         )
 
     @Test

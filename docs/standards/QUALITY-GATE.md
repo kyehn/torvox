@@ -98,3 +98,51 @@ Add the following to the pre-commit checklist:
 - [ ] `docs/traceability.yml` updated if requirement/design/API/test mapping changed
 - [ ] New ADR created if a design decision was made
 - [ ] All documentation lint checks pass (`cargo test -p torvox-integration-tests --test tool_lint`)
+
+## Golden Image Ban Policy (FR-057)
+
+Golden images (reference PNG screenshots used for pixel-by-pixel comparison) are
+**strictly banned** from this repository. Reason: they are not human-verified
+and cannot be audited for correctness during code review.
+
+### What is banned
+
+- ✅ **Allowed**: OCR verification (tests that render output and use `rapidocr`
+  CLI to detect expected text)
+- ✅ **Allowed**: Pixel-level logical assertions (tests that sample specific
+  pixel coordinates and assert color values, e.g. "center pixel is red")
+- ✅ **Allowed**: Temporary PNG files written to `std::env::temp_dir()` for
+  intermediate processing (e.g. OCR input)
+- ❌ **Banned**: Golden images stored in the repo (`*.png` in any
+  `screenshots/`, `test-screenshots/`, `test_data/*_golden.png`, or
+  `resources/roborazzi/` directory)
+- ❌ **Banned**: GitHub-hosted reference screenshots that must be identical
+  across environments
+- ❌ **Banned**: test logic whose sole purpose is to compare against a golden
+  image (use OCR text verification or pixel assertion instead)
+
+### Enforcement
+
+- `torvox-renderer/screenshots/`, `torvox-renderer/test-screenshots/`,
+  `torvox-renderer/test_data/*_golden.png`, and
+  `android/app/src/test/resources/roborazzi/` are in `.gitignore`.
+- CI has no golden-image-comparison step.
+- All rendering tests must use either OCR verification (`rapidocr`) or
+  pixel-coordinate assertions.
+- Any committed golden image will be rejected by code review (SRS FR-057).
+
+## Font File Ban Policy (FR-057)
+
+Font files (`.ttf`, `.otf`, `.woff`, `.woff2`, `.eot`) are **strictly banned**
+from this repository. Reason: fonts SHALL be installed via Nix (`flake.nix`),
+not bundled as binary blobs in git.
+
+- ✅ **Allowed**: Font references in `flake.nix` and Nix shell
+- ❌ **Banned**: Any `.ttf`, `.otf`, `.woff`, `.woff2`, or `.eot` file in any
+  directory of the repository
+
+### Enforcement
+
+- `*.ttf`, `*.otf`, `*.woff`, `*.woff2`, `*.eot` are in `.gitignore`.
+- CI has no local font file dependency — all fonts come from the Nix store.
+- Any committed font file will be rejected by code review (SRS FR-057).

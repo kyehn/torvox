@@ -4,7 +4,6 @@ import io.torvox.SelectionAnchor
 import io.torvox.SelectionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SelectionHandlePositionTest {
@@ -124,7 +123,6 @@ class SelectionHandlePositionTest {
 
     @Test
     fun smartJoinLines_noWrapFromMultilineSelection() {
-        val parts = listOf("hello wor", "ld")
         val result = "hello world" // smartJoinLines should join without newline
         assertEquals(result, "hello world")
     }
