@@ -590,8 +590,12 @@ private fun readWireBytes(buffer: FfiBuf): ByteArray {
     return Pointer(buffer.pointer).getByteArray(0, buffer.length)
 }
 
-// ── TorvoxBridge ──────────────────────────────────────────────────────
-
+/**
+ * JNA bridge to the native torvox library — wire encoding and session lifecycle.
+ *
+ * @see FR-049 Bridge: boltffi ↔ JNA wire format
+ * @see FR-050 Bridge: rkyv serialization
+ */
 class TorvoxBridge(
     private val handle: Long,
 ) : AutoCloseable {
@@ -1085,6 +1089,11 @@ class TorvoxBridge(
     fun isClosed(): Boolean = closed
 }
 
+/**
+ * Create a new TorvoxBridge instance with the given config.
+ *
+ * @see FR-049 Bridge: boltffi ↔ JNA wire format
+ */
 fun createBridge(config: TerminalConfig): TorvoxBridge {
     val library = ensureLib()
     val wireBytes = config.wireEncode()
