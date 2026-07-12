@@ -779,7 +779,10 @@ impl McpServer {
                             "list_directory", "read_file",
                             "read_clipboard", "write_clipboard",
                             "raise_notification", "scroll_terminal",
-                            "feed_terminal_output"
+                            "feed_terminal_output",
+                            "queue_terminal_input",
+                            "list_queued_inputs",
+                            "cancel_queued_input"
                         ],
                         "rendering": "gpu-wgpu",
                         "font_system": "cosmic-text",

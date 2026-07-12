@@ -1,4 +1,7 @@
 //! Select Graphic Rendition (SGR) attribute parsing.
+//!
+//! # Requirements
+//! - [FR-003](crate) — SGR: bold, italic, underline, blink, inverse, strikethrough
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 

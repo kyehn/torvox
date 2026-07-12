@@ -1,5 +1,7 @@
-// @REQ_CORE_004
 //! Terminal event types — focus, cwd, clipboard, notification.
+//!
+//! # Requirements
+//! - [FR-028](crate) — Process: exited callback
 use alloc::string::String;
 use serde::{Deserialize, Serialize};
 

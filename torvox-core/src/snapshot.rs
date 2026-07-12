@@ -1,5 +1,7 @@
-// @REQ_CORE_005
 //! Rkyv-serializable snapshot for the Android bridge.
+//!
+//! # Requirements
+//! - [FR-050](crate) — Bridge: rkyv serialization
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 

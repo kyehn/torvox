@@ -1,5 +1,7 @@
-// @REQ_CORE_007
 //! Cursor style and state definitions.
+//!
+//! # Requirements
+//! - [FR-006](crate) — Cursor: DECTCEM visible/hidden, style
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
