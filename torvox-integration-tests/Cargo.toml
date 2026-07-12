@@ -13,6 +13,7 @@ torvox-renderer = { workspace = true }
 toml = { workspace = true }
 wgpu = { workspace = true }
 futures = { workspace = true }
+regex-lite = "0.1"
 
 [lints]
 workspace = true

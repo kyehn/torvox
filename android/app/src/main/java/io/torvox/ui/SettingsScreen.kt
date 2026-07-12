@@ -1045,7 +1045,7 @@ private fun BootstrapSection(
         label = { Text(stringResource(R.string.bootstrap_url_label)) },
         placeholder = { Text(stringResource(R.string.bootstrap_url_placeholder)) },
         singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag("BootstrapUrlInput"),
         colors =
         OutlinedTextFieldDefaults.colors(
             focusedBorderColor = accentColor,
@@ -1078,11 +1078,19 @@ private fun BootstrapSection(
                 termuxUrl,
                 stringResource(R.string.bootstrap_preset_termux_desc),
             ),
+            Triple(
+                stringResource(R.string.bootstrap_preset_custom),
+                "",
+                stringResource(R.string.bootstrap_preset_custom_desc),
+            ),
         )
-    presets.forEach { preset ->
+    presets.forEachIndexed { index, preset ->
         BootstrapPresetItem(
             preset = preset,
             colors = PresetColors(accentColor, textColor, secondaryText),
+            modifier = Modifier.testTag(
+                if (index == 0) "BootstrapPreset_TermuxDefault" else "BootstrapPreset_CustomEmpty",
+            ),
             onAction = {
                 url = preset.second
                 onUrlChanged(preset.second)
@@ -1105,7 +1113,7 @@ private fun BootstrapInstallButton(
     Button(
         onClick = onRunBootstrap,
         enabled = !bootstrapRunning,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().testTag("BootstrapInstallButton"),
         colors = ButtonDefaults.buttonColors(containerColor = accentColor),
     ) {
         if (bootstrapRunning) {
@@ -1132,6 +1140,7 @@ private fun BootstrapInstallButton(
             text = bootstrapResult,
             style = MaterialTheme.typography.bodySmall,
             color = textColor.copy(alpha = 0.7f),
+            modifier = Modifier.testTag("BootstrapResultText"),
         )
     }
 }
@@ -1146,6 +1155,7 @@ private data class PresetColors(
 private fun BootstrapPresetItem(
     preset: Triple<String, String, String>,
     colors: PresetColors,
+    modifier: Modifier = Modifier,
     onAction: () -> Unit,
 ) {
     val (label, _, description) = preset
@@ -1154,7 +1164,7 @@ private fun BootstrapPresetItem(
         shape = RoundedCornerShape(8.dp),
         color = colors.accent.copy(alpha = 0.08f),
         border = BorderStroke(1.dp, colors.accent),
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = modifier.fillMaxWidth().padding(vertical = 2.dp),
     ) {
         Row(
             modifier = Modifier.padding(12.dp).fillMaxWidth(),

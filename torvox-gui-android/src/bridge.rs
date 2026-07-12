@@ -1,6 +1,10 @@
-// @REQ_ANDR_001
-// @REQ_ANDR_002
-// @REQ_ANDR_003
+//! BoltFFI data bridge — single export location for Rust↔Kotlin bridge types.
+//!
+//! # Requirements
+//! - [FR-039](crate) — MCP: server lifecycle
+//! - [FR-049](crate) — Bridge: boltffi ↔ JNA wire format
+//! - [FR-050](crate) — Bridge: rkyv serialization
+
 const DEFAULT_GRID_ROWS: u32 = 24;
 const DEFAULT_GRID_COLS: u32 = 80;
 /// FFI-safe bridge type for a terminal cell.
@@ -863,6 +867,11 @@ impl TorvoxBridge {
             detail: format!("lock failed: {}", e),
         })?;
         if let Some(surface) = surface_guard.as_mut() {
+            // Re-apply the theme background before updating the native window
+            // so the wgpu swapchain clear color matches this session's theme
+            // rather than the default deep-blue (catppuccin mocha bg) or
+            // the previous session's background.
+            surface.set_theme(self.config.theme.clone().into());
             surface
                 .update_native_window(window_ptr as *mut std::ffi::c_void, width, height)
                 .map_err(|e| TerminalError::PtyError {

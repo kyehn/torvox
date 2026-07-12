@@ -1,4 +1,7 @@
-// @REQ_TERM_003
+//! PTY master/slave creation — only allowed fork unsafe.
+//!
+//! # Requirements
+//! - [FR-026](crate) — PTY: master/slave pair creation
 use std::io;
 use std::os::unix::io::{AsRawFd, OwnedFd, RawFd};
 use std::time::Duration;

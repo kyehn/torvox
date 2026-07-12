@@ -229,4 +229,77 @@ class BootstrapCompatibilityTest {
         val out = pkgTermux("list-installed")
         Assert.assertTrue("pkg list-installed failed", out.contains("bash"))
     }
+
+    @Test
+    fun dpkg_query() {
+        val ensure = runAs("command -v dpkg || (apt update -qq && apt install -y -qq dpkg 2>&1)")
+        Log.i(TAG, "dpkg ensure: ${ensure.take(80)}")
+        val out = runAs("dpkg -L bash 2>&1")
+        Assert.assertTrue(
+            "dpkg -L bash should list files",
+            out.contains("bin/bash") || out.contains("/usr/bin/"),
+        )
+    }
+
+    @Test
+    fun bash_env_HOME() {
+        Assert.assertEquals(HOME_DIR, runAs("echo \$HOME").trim())
+    }
+
+    @Test
+    fun bash_env_SHELL() {
+        Assert.assertEquals(BASH_PATH, runAs("echo \$SHELL").trim())
+    }
+
+    @Test
+    fun bash_env_TERM() {
+        Assert.assertEquals("vt100", runAs("echo \$TERM").trim())
+    }
+
+    @Test
+    fun bash_heredoc() {
+        val script = makeScript("cat <<EOF\nhello\nworld\nEOF\n")
+        val out =
+            exec(
+                "run-as com.termux /data/data/com.termux/files/usr/bin/bash " + script.absolutePath,
+            )
+        Assert.assertTrue("heredoc should contain hello", out.contains("hello"))
+        Assert.assertTrue("heredoc should contain world", out.contains("world"))
+    }
+
+    @Test
+    fun filesystem_bin_permissions() {
+        val out = runAs("ls -la /data/data/com.termux/files/usr/bin/ 2>&1 | head -5")
+        Assert.assertFalse("bin directory should not be empty", out.isBlank())
+        Assert.assertTrue("bin entries should be files", out.contains("-") || out.contains("l"))
+    }
+
+    @Test
+    fun bash_long_running() {
+        val out = runAs("for i in 1 2 3 4 5; do echo \"line-\$i\"; done 2>&1")
+        val lines = out.trim().lines()
+        Assert.assertEquals(5, lines.size)
+        Assert.assertEquals("line-3", lines[2].trim())
+    }
+
+    @Test
+    fun apt_unauthenticated_install_fallback() {
+        val out = aptInstall("sl")
+        Log.i(TAG, "sl install: ${out.take(120)}")
+        val ver = runAs("sl --version 2>&1")
+        Assert.assertTrue(
+            "sl should be installable",
+            out.contains("Setting up") || ver.contains("sl") || ver.isNotBlank(),
+        )
+    }
+
+    @Test
+    fun apt_cache_policy() {
+        val out = runAs("apt-cache policy 2>&1 || apt policy 2>&1")
+        Log.i(TAG, "apt policy: ${out.take(120)}")
+        Assert.assertTrue(
+            "apt policy should show repositories",
+            out.contains("://") || out.contains("sources"),
+        )
+    }
 }

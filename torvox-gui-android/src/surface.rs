@@ -1,6 +1,10 @@
-// @REQ_ANDR_004
-// @REQ_ANDR_005
-// @REQ_ANDR_006
+//! AndroidSurface — render pipeline lifecycle for Android TextureView.
+//!
+//! # Requirements
+//! - [FR-018](crate) — Surface: Android TextureView lifecycle
+//! - [FR-024](crate) — Surface: resolution change handling
+//! - [FR-052](crate) — Surface: SurfaceView → TextureView migration
+
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::Arc;

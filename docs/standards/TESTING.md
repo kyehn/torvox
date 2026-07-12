@@ -10,10 +10,10 @@
 ## Rust Tests
 
 ```bash
-nix develop --command "cargo nextest run --workspace --profile ci"            # Rust tests
-nix develop --command "cargo nextest --package torvox-core"                 # core only
-nix develop --command "cargo nextest --package torvox-terminal"             # terminal only
-nix develop --command "cargo nextest run --package torvox-core --test property_tests"
+cargo nextest run --workspace --profile ci            # Rust tests
+cargo nextest --package torvox-core                 # core only
+cargo nextest --package torvox-terminal             # terminal only
+cargo nextest run --package torvox-core --test property_tests
 ```
 
 ## Test File Locations
@@ -33,16 +33,16 @@ nix develop --command "cargo nextest run --package torvox-core --test property_t
 - VtSegment: Text, Csi, Esc, Osc, Control, PrivateCsi, DecPrivate, Sgr, Dcs
 - Grid state machine: WriteChar, Newline, Backspace, CursorUp/Down/Left/Right, CarriageReturn, Tab, ClearLine, ClearScreen, InsertLines, DeleteLines, ScrollUp, Resize, AlternateBuffer, SetOriginMode, ScrollRegion, OriginMode, InsertMode, ReverseIndex — ModelGrid vs real Grid
 - DST simulation: PtyOutput, UserInput, Resize, Render, SurfaceCreated, SurfaceDestroyed, Flush, WriteText — 100K ops, 10 seeds
-- Shuttle concurrency: nightly-only, enable via `RUSTFLAGS="--cfg shuttle_tests" nix develop --command "cargo +nightly test -p torvox-terminal"`
-- Structured VT fuzz: `nix develop --command "cargo fuzz run fuzz_vt_structured"` (6 target types, 20s each)
+- Shuttle concurrency: nightly-only, enable via `RUSTFLAGS="--cfg shuttle_tests" cargo +nightly test -p torvox-terminal`
+- Structured VT fuzz: `cargo fuzz run fuzz_vt_structured` (6 target types, 20s each)
 - Wire format fuzz: `cargo fuzz run fuzz_wire`
 
 ## Android Tests
 
 ```bash
-nix develop --command "cd android && ./gradlew testDebugUnitTest"            # unit tests
-nix develop --command "cd android && ./gradlew roborazziDebug"                # screenshot tests
-nix develop --command "cd android && ./gradlew connectedDebugAndroidTest"     # instrumented
+cd android && ./gradlew testDebugUnitTest            # unit tests
+cd android && ./gradlew roborazziDebug                # screenshot tests
+cd android && ./gradlew connectedDebugAndroidTest     # instrumented
 ```
 
 ### Six test types and where each lives
@@ -52,7 +52,7 @@ right type for the behavior under test — do not collapse them into one.
 
 | # | Type | Location | What it covers |
 |---|------|----------|----------------|
-| 1 | **Unit** (Rust) | `torvox-core/tests/`, `torvox-terminal/tests/`, `torvox-gui-android/tests/`, `torvox-bench/benches/` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, bridge round-trip. Runs on host via `nix develop --command "cargo nextest"`. |
+| 1 | **Unit** (Rust) | `torvox-core/tests/`, `torvox-terminal/tests/`, `torvox-gui-android/tests/`, `torvox-bench/benches/` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, bridge round-trip. Runs on host via `cargo nextest`. |
 | 2 | **Roborazzi** (screenshot) | `android/app/src/test/java/io/torvox/screenshot/*ScreenshotTest.kt`; goldens in `android/app/src/test/resources/roborazzi/` | Pixel-exact Compose/UI rendering under Robolectric. |
 | 3 | **Compose UI** | `android/app/src/test/java/io/torvox/ui/*ComposeTest.kt` (Robolectric) and `android/app/src/androidTest/java/io/torvox/ui/*ComposeTest.kt` (instrumented) | Compose widget state/interaction (theme switch, selection handles). |
 | 4 | **Maestro** | `android/app/src/androidTest/java/io/torvox/ui/*.yaml` flow files (e.g. `SelectionMaestroTest.yaml`) | End-to-end on-device flows driven by Maestro YAML. |
@@ -63,7 +63,7 @@ right type for the behavior under test — do not collapse them into one.
 
 Golden images live in `android/app/src/test/resources/roborazzi/` and are committed to git.
 
-- **Script runner**: `nix develop --command "nu scripts/test-android-gradle.nu"`
+- **Script runner**: `nu scripts/test-android-gradle.nu`
 
 CI fails on golden mismatch. Download `gradle-reports` artifact from the failed run
 
@@ -76,5 +76,54 @@ Used by `torvox-renderer/tests/text_ocr_test.rs` to verify font rendering end-to
 ## Emulator Tests
 
 ```bash
-nix develop --command "nu scripts/test-emulator.nu"                         # automated emulator tests
+nu scripts/test-emulator.nu                         # automated emulator tests
 ```
+
+---
+
+## Traceability
+
+### Requirement-to-Test Mapping
+
+Every functional requirement (FR-xxx) and non-functional requirement (NFR-xxx) in
+`docs/srs.md` must be traceable to at least one test. The traceability matrix is
+maintained in `docs/traceability.yml`.
+
+### Verification Methods
+
+| Method | Description | CI Command |
+|--------|-------------|------------|
+| **unit** | Rust unit/integration test | `cargo nextest run --workspace --profile ci` |
+| **doctest** | Rust doc-test (executable examples in `///` comments) | `cargo test --doc` |
+| **property** | Property-based test (proptest/quickcheck) | `cargo nextest run --package torvox-core --test property_tests` |
+| **fuzz** | Fuzz target | `cargo fuzz run <target> -- -max_total_time=5` |
+| **lint** | Lint/static analysis check | `cargo clippy --all -- --deny warnings` |
+| **android-unit** | Android unit test (Robolectric) | `./gradlew testDebugUnitTest` |
+| **screenshot** | Roborazzi screenshot test | `./gradlew roborazziDebug` |
+| **instrumented** | Android instrumented test | `./gradlew connectedDebugAndroidTest` |
+| **maestro** | Maestro E2E flow | `maestro test <flow.yaml>` |
+| **ui-automator** | UiAutomator cross-app test | Via instrumented test suite |
+| **espresso** | Espresso in-app interaction test | Via instrumented test suite |
+| **emulator** | Full emulator E2E test | `nu scripts/test-emulator.nu` |
+| **tool-lint** | External tool quality check | `cargo test -p torvox-integration-tests --test tool_lint` |
+| **docs-validate** | Documentation structural validation | `cargo test -p torvox-integration-tests --test tool_lint -- docs_*` |
+
+### Adding Tests for New Requirements
+
+When adding a new requirement to `docs/srs.md`:
+
+1. Determine which verification method(s) apply
+2. Add or update test(s) in the appropriate test directory
+3. Update `docs/traceability.yml` with the new requirement-to-test mapping
+4. Run the relevant test command and confirm it passes
+
+### SRS ID Checks
+
+The following structural checks ensure traceability integrity:
+
+- Every `FR-\d{3}` / `NFR-\d{3}` in `docs/srs.md` follows the format
+- Every referenced requirement in `docs/traceability.yml` exists in `docs/srs.md`
+- Every acceptance criterion in `docs/acceptance.md` references a valid requirement ID
+- Every ADR in `docs/adr/` references at least one requirement ID
+
+These checks run as part of `tool_lint.rs` (see `cargo test -p torvox-integration-tests --test tool_lint`).

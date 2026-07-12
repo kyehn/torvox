@@ -1,5 +1,12 @@
-// @REQ_CORE_006
 //! Terminal configuration — Theme, FontConfig, RenderConfig, TerminalConfig.
+//!
+//! # Requirements
+//! - [FR-016](crate) — Font: size, family, ligatures
+//! - [FR-017](crate) — Configuration: hot-reload on SIGHUP
+//! - [FR-025](crate) — Theme: light/dark mode
+//! - [FR-054](crate) — Configuration: general platform config
+//! - [FR-055](crate) — Configuration: UI color scheme
+//! - [FR-056](crate) — Configuration: font configuration
 use alloc::string::String;
 use alloc::vec;
 use alloc::vec::Vec;

@@ -1,11 +1,14 @@
-// @REQ_REND_001
-// @REQ_REND_002
-// @REQ_REND_003
-// @REQ_REND_004
-// @REQ_REND_005
-// @REQ_REND_006
-// @REQ_REND_008
-// @REQ_SYS_003
+//! Wgpu GPU render pipeline — atlas, instance management, and surface rendering.
+//!
+//! # Requirements
+//! - [FR-012](crate) — Glyph: atlas allocation (guillotiere)
+//! - [FR-014](crate) — Render: threaded GPU with frame pacing
+//! - [FR-015](crate) — Font: size, family, ligatures
+//! - [FR-017](crate) — Configuration: hot-reload on SIGHUP
+//! - [FR-018](crate) — Surface: Android TextureView lifecycle
+//! - [FR-019](crate) — Render: 60 FPS on modern devices, 30 FPS on emulators
+//! - [NFR-022](crate) — Render: crash recovery
+
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 use thiserror::Error;
@@ -2420,6 +2423,20 @@ pub fn build_cell_instances_from_snapshot(
     instances
 }
 
+/// Apply a search highlight to a cell's foreground and background colors.
+///
+/// When the highlight alpha is >= 128 (current match), the foreground and
+/// background are swapped (inverted) to produce a strong "反色" effect.
+/// When alpha is < 128 (other match), only the background is tinted with
+/// the highlight color, leaving the foreground unchanged.
+#[inline]
+fn apply_search_highlight(fg: &mut [f32; 4], bg: &mut [f32; 4], hl: [u8; 4]) {
+    if hl[3] >= 128 {
+        std::mem::swap(fg, bg);
+    }
+    *bg = blend_highlight(*bg, hl);
+}
+
 /// Like [`build_cell_instances_from_snapshot`] but reuses a caller-owned
 /// `instances` buffer, clearing it first. Reusing the buffer avoids a fresh
 /// `Vec` heap allocation on every rendered frame (the hot path would otherwise
@@ -2501,9 +2518,7 @@ pub fn build_cell_instances_into(
                     }
                 }
                 if let Some(hl) = cell_highlight(row, col, &highlights_by_row) {
-                    // Invert fg and bg for search highlighted cells (反色效果)
-                    std::mem::swap(&mut fg, &mut bg);
-                    bg = blend_highlight(bg, *hl);
+                    apply_search_highlight(&mut fg, &mut bg, *hl);
                 }
                 let (fg, bg, quad_origin, quad_size) = if is_cursor {
                     let raw_cursor_bg = cursor_color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
@@ -2587,9 +2602,7 @@ pub fn build_cell_instances_into(
                     }
                 }
                 if let Some(hl) = cell_highlight(row, col, &highlights_by_row) {
-                    // Invert fg and bg for search highlighted cells (反色效果)
-                    std::mem::swap(&mut fg, &mut bg);
-                    bg = blend_highlight(bg, *hl);
+                    apply_search_highlight(&mut fg, &mut bg, *hl);
                 }
                 let base_x = col as f32 * cell_w;
                 let base_y = row as f32 * cell_h;
@@ -2729,9 +2742,7 @@ pub fn build_cell_instances_into(
                         }
                     }
                     if let Some(hl) = cell_highlight(row, gcol, &highlights_by_row) {
-                        // Invert fg and bg for search highlighted cells
-                        std::mem::swap(&mut gfg, &mut gbg);
-                        gbg = blend_highlight(gbg, *hl);
+                        apply_search_highlight(&mut gfg, &mut gbg, *hl);
                     }
                     let (gfg_scoped, gbg_scoped) = if g_cursor {
                         let raw_cursor_bg = cursor_color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
@@ -2824,9 +2835,7 @@ pub fn build_cell_instances_into(
                 }
             }
             if let Some(hl) = cell_highlight(row, col, &highlights_by_row) {
-                // Invert fg and bg for search highlighted cells
-                std::mem::swap(&mut fg, &mut bg);
-                bg = blend_highlight(bg, *hl);
+                apply_search_highlight(&mut fg, &mut bg, *hl);
             }
 
             let (fg, bg) = if is_cursor {
@@ -4403,6 +4412,121 @@ mod tests {
         assert!(sel.contains(2, 0, 80));
         assert!(!sel.contains(1, 4, 80)); // before start_col on start row
         assert!(!sel.contains(0, 5, 80)); // before first row
+    }
+
+    // ── Search highlight helpers and tests ───────────────────────────
+
+    /// Test helper: groups `SearchHighlight`s by row, just like
+    /// `build_cell_instances_into` does inline.
+    fn group_highlights_by_row(
+        highlights: &[SearchHighlight],
+    ) -> HashMap<i32, Vec<&SearchHighlight>> {
+        let mut by_row: HashMap<i32, Vec<&SearchHighlight>> = HashMap::new();
+        for h in highlights {
+            by_row.entry(h.row).or_default().push(h);
+        }
+        by_row
+    }
+
+    #[test]
+    fn search_highlight_current_match_inverts_fg_bg() {
+        // Current match: alpha >= 128 triggers fg/bg swap
+        let highlights = vec![SearchHighlight {
+            row: 0,
+            start_col: 2,
+            end_col_exclusive: 5,
+            color: [200, 100, 50, 160], // current match: alpha >= 128
+        }];
+        let by_row = group_highlights_by_row(&highlights);
+        let hl = cell_highlight(0, 3, &by_row);
+        assert!(hl.is_some(), "cell (0,3) should have highlight");
+        let color = hl.unwrap();
+        assert_eq!(color[3], 160, "alpha should be preserved");
+    }
+
+    #[test]
+    fn search_highlight_other_match_no_invert() {
+        // Other match: alpha < 128 should NOT swap fg and bg
+        let highlights = vec![SearchHighlight {
+            row: 0,
+            start_col: 2,
+            end_col_exclusive: 5,
+            color: [100, 150, 200, 64], // other match: alpha < 128
+        }];
+        let by_row = group_highlights_by_row(&highlights);
+        let hl = cell_highlight(0, 3, &by_row);
+        assert!(hl.is_some(), "cell (0,3) should have highlight");
+        let color = hl.unwrap();
+        assert_eq!(color[3], 64, "alpha should be preserved");
+    }
+
+    #[test]
+    fn search_highlight_outside_range_not_found() {
+        let highlights = vec![SearchHighlight {
+            row: 0,
+            start_col: 2,
+            end_col_exclusive: 5,
+            color: [200, 100, 50, 160],
+        }];
+        let by_row = group_highlights_by_row(&highlights);
+        // Before start
+        assert!(cell_highlight(0, 1, &by_row).is_none());
+        // After end (end_col_exclusive)
+        assert!(cell_highlight(0, 5, &by_row).is_none());
+        // Wrong row
+        assert!(cell_highlight(1, 3, &by_row).is_none());
+    }
+
+    #[test]
+    fn search_highlight_zero_alpha_no_invert() {
+        let highlights = vec![SearchHighlight {
+            row: 0,
+            start_col: 0,
+            end_col_exclusive: 10,
+            color: [100, 150, 200, 0], // fully transparent
+        }];
+        let by_row = group_highlights_by_row(&highlights);
+        let hl = cell_highlight(0, 5, &by_row);
+        assert!(hl.is_some(), "should find highlight at row 0 col 5");
+        assert_eq!(hl.unwrap()[3], 0);
+    }
+
+    #[test]
+    fn search_highlight_multiple_matches_same_row() {
+        let highlights = vec![
+            SearchHighlight {
+                row: 0,
+                start_col: 0,
+                end_col_exclusive: 3,
+                color: [200, 100, 50, 64], // other match
+            },
+            SearchHighlight {
+                row: 0,
+                start_col: 10,
+                end_col_exclusive: 15,
+                color: [200, 100, 50, 160], // current match
+            },
+        ];
+        let by_row = group_highlights_by_row(&highlights);
+
+        // First highlight (other match)
+        let hl = cell_highlight(0, 1, &by_row);
+        assert!(hl.is_some(), "cell (0,1) should have other match highlight");
+        assert_eq!(hl.unwrap()[3], 64, "other match alpha should be 64");
+
+        // Between highlights — no highlight
+        assert!(
+            cell_highlight(0, 5, &by_row).is_none(),
+            "cell (0,5) should not be highlighted"
+        );
+
+        // Second highlight (current match)
+        let hl = cell_highlight(0, 12, &by_row);
+        assert!(
+            hl.is_some(),
+            "cell (0,12) should have current match highlight"
+        );
+        assert_eq!(hl.unwrap()[3], 160, "current match alpha should be 160");
     }
 
     include!("screenshot_tests.rs");

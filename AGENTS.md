@@ -7,15 +7,15 @@ Torvox is a GPU-accelerated Android terminal emulator using wgpu (Vulkan) for re
 ## Setup and Commands
 
 ```bash
-nix develop --command "cargo test --workspace" # All Rust tests
-nix develop --command "cargo clippy --all -- --deny warnings" # Lint
-nix develop --command "cargo fmt --check" # Format check
-nix develop --command "cd android && ./gradlew assembleDebug" # Android debug APK
-nix develop --command "cd android && ./gradlew spotlessCheck detekt" # Kotlin lint
-nix develop --command "nu scripts/check-rust.nu" # Rust CI script
-nix develop --command "nu scripts/test-android-gradle.nu" # Android CI script
-nix develop --command "cargo test --package torvox-core"
-nix develop --command "cargo test run --package torvox-core --test property_tests"
+cargo test --workspace # All Rust tests
+cargo clippy --all -- --deny warnings # Lint
+cargo fmt --check # Format check
+cd android && ./gradlew assembleDebug # Android debug APK
+cd android && ./gradlew spotlessCheck detekt # Kotlin lint
+nu scripts/check-rust.nu # Rust CI script
+nu scripts/test-android-gradle.nu # Android CI script
+cargo test --package torvox-core
+cargo test run --package torvox-core --test property_tests
 ```
 
 ---
@@ -24,11 +24,11 @@ nix develop --command "cargo test run --package torvox-core --test property_test
 
 Checklist:
 
-1. `nix develop --command "cargo test --workspace"` exits 0
-2. `nix develop --command "cargo clippy --all -- --deny warnings"` exits 0
-3. `nix develop --command "cargo fmt --check"` exits 0
-4. `nix develop --command "cd android && ./gradlew spotlessCheck detekt"` exits 0
-5. `nix develop --command "cargo geiger --package torvox-core"` shows no new `unsafe`
+1. `cargo test --workspace` exits 0
+2. `cargo clippy --all -- --deny warnings` exits 0
+3. `cargo fmt --check` exits 0
+4. `cd android && ./gradlew spotlessCheck detekt` exits 0
+5. `cargo geiger --package torvox-core` shows no new `unsafe`
 6. Bridge type sync: if `torvox-core` types changed, `bridge.rs` + `TorvoxBridge.kt` updated
 
 ---
@@ -59,46 +59,26 @@ Checklist:
 
 ---
 
-## Architecture
+## Architecture — Summary
 
-### Crate Direction (strict one-way, violations break the build)
+See `docs/architecture.md` for the full architecture document including module boundaries, data flow, thread model, design decisions with requirement traceability, and error handling strategy.
 
-```text
-libghostty-vt / libghostty-vt-sys         ← Ghostty VT parser (vendored)
-    ↑
-torvox-core (no_std, serde + unicode-width)  ← Data model, Grid, Cell, Event
-    ↑
-torvox-terminal (libghostty-vt + nix + flume) ← PTY, VT parse, Session
-    ↑
-torvox-renderer (wgpu + cosmic-text + swash + guillotiere) ← GPU render
-    ↑
-torvox-gui-android (boltffi + JNA)           ← Kotlin↔Rust bridge
-    ↑
-android/app (Kotlin + Compose)               ← Android UI
-```
-
-Verify: `nix develop --command "cargo metadata --no-deps --format-version 1"`
-
-### Thread Model
-
-6-7 threads per session. PTY reader and render threads always active; process waiter exits when child exits.
+### Crate Direction (strict one-way)
 
 ```text
-PTY Reader → GhosttyTerminal (dedicated thread, flume channel) → Grid
-Input Writer → PTY Master
-Process Waiter → waitpid
-→ RenderThread (CountDownLatch wake) → wgpu → SurfaceView
+libghostty-vt / libghostty-vt-sys ← torvox-core ← torvox-terminal ←
+torvox-renderer ← torvox-gui-android ← android/app
 ```
 
-### Render Pipeline
+Each crate depends only on the crate directly below it in the chain. Violations break the build. Verify with `cargo metadata --no-deps --format-version 1`.
 
-GPU-only via wgpu (Vulkan everywhere, including Android). No GL, no CPU software path. Emulator use SwiftShader. Linux use Lavapipe.
+### Thread Count
 
-```text
-PTY → flume → GhosttyTerminal → DirtyMask → RenderThread
-→ cosmic-text shape + swash glyph rasterize → guillotiere pack
-→ wgpu atlas upload → Instance[] → wgpu render_frame → SurfaceView
-```
+6-7 threads per session (PTY Reader, Input Writer, Process Waiter, RenderThread, plus shared bridge/MCP threads). See `docs/architecture.md#4-thread-model`.
+
+### Render Path
+
+GPU-only via wgpu (Vulkan). No GL, no CPU software fallback. Emulators use SwiftShader; Linux uses Lavapipe. See `docs/architecture.md#3-data-flow` for the full pipeline.
 
 ---
 
@@ -106,10 +86,10 @@ PTY → flume → GhosttyTerminal → DirtyMask → RenderThread
 
 - Read `docs/standards/STYLE.md` before writing any file
 - `torvox-core` is `#![no_std]`: no `std::`, no `alloc::` unless behind `#[cfg(feature = "std")]`
-- `torvox-core` has zero `unsafe`: verify with `nix develop --command "cargo geiger --package torvox-core"`
+- `torvox-core` has zero `unsafe`: verify with `cargo geiger --package torvox-core`
 - Sync `torvox-gui-android/src/bridge.rs` types when changing `torvox-core` types
 - Run `TorvoxBridge.kt` JNA bindings check when modifying bridge types
-- Lint after every file change: `nix develop --command "cargo clippy --all -- --deny warnings"`
+- Lint after every file change: `cargo clippy --all -- --deny warnings`
 - No magic numbers: use named constants with descriptive names
 - No abbreviations: `config` not `cfg`, `background` not `bg`, `application` not `app`, `terminal` not `term`
 - No `#[allow]` in production source code (test helpers excepted)
@@ -127,7 +107,7 @@ PTY → flume → GhosttyTerminal → DirtyMask → RenderThread
 - Read `docs/standards/TESTING.md` before writing tests
 - Test public API only, not internal implementation
 - One test = one behavior
-- Run full suite before commit: `nix develop --command "cargo test --workspace"`
+- Run full suite before commit: `cargo test --workspace`
 
 ## Long Output Handling
 

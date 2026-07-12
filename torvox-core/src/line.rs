@@ -1,4 +1,7 @@
 //! Terminal display line with cell storage and scrollback semantics.
+//!
+//! # Requirements
+//! - [FR-005](crate) — Alt-screen buffer
 use alloc::boxed::Box;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};

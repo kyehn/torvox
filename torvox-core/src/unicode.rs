@@ -1,4 +1,8 @@
 //! Unicode width classification for terminal cell layout.
+//!
+//! # Requirements
+//! - [FR-020](crate) — Input: keyboard encoding (Kitty protocol)
+//! - [FR-021](crate) — Terminal: state machine
 use serde::{Deserialize, Serialize};
 use unicode_width::UnicodeWidthChar;
 

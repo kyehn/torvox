@@ -34,7 +34,7 @@ The environment is deterministic: SDK paths, tool availability, and system state
 - For directories that SHOULD exist: check explicitly and exit with non-zero if missing
 - No intermediate variables like `let start = ... let elapsed = ...` that add no clarity
 - No `$env.ANDROID_HOME/platform-tools/adb` or hardcoded path bin usage — `adb`, `emulator`, `sdkmanager`, `avdmanager` come from nix devShell (`android-tools` package)
-- No `nu scripts/xxx.nu` inside nu scripts — use `./scripts/xxx.nu` (shebang) or `nix develop --command "nu scripts/xxx.nu"`
+- No `nu scripts/xxx.nu` inside nu scripts — use `./scripts/xxx.nu` (shebang) or `nu scripts/xxx.nu`
 - No multi-level single directories for vendored sources — clone directly to `vendor/<name>/` not `vendor/<name>/src/`
 - No `rustup target add` or cross-compilation targets in check scripts — only workspace tests
 - No silent `if ($dir | path exists)` for maestro/flows directories — let `ls` fail naturally if missing
@@ -53,7 +53,7 @@ The environment is deterministic: SDK paths, tool availability, and system state
 
 All environment management via Nix. No system shell builds.
 
-- Always: `nix develop`, `nix develop --command "cargo build"`, `nix fmt`
+- Always: `nix develop`, `cargo build`, `nix fmt`
 - No abbreviated variable names
 - ShellHook is the primary mechanism; checks and formatter defined in flake.nix
 
@@ -132,3 +132,38 @@ contract for new work; violating them regresses a fixed bug.
 - `unsafe` is confined to `pty.rs` fork/exec and the gui-android FFI, each with
   a `// SAFETY:` comment. `torvox-core` and `torvox-renderer` remain
   `#![forbid(unsafe_code)]`.
+
+## FFI Conventions
+
+### Bridge Type Sync
+
+- When modifying `torvox-core` types, update `torvox-gui-android/src/bridge.rs` types (single FFI export location)
+- Update `TorvoxBridge.kt` JNA bindings when bridge types change
+- The `SessionSnapshot` type (rkyv-serialized) is the primary Android bridge serialization type
+
+### Naming Across Rust and Kotlin
+
+- Rust naming: `snake_case` for variables/functions, `UpperCamelCase` for types
+- Kotlin follows Android/Kotlin conventions
+- Bridge fields should use the same name in both sides
+- No abbreviations in bridge field names
+
+### Safety
+
+- `unsafe` confined to `pty.rs` fork/exec and `gui-android` FFI
+- Every `unsafe` block must have a `// SAFETY:` comment
+- `torvox-core` and `torvox-renderer` use `#![forbid(unsafe_code)]`
+
+### Boltffi Rules
+
+- Only one export location: `torvox-gui-android/src/bridge.rs`
+- No `message` field in boltffi Error types (conflicts with Kotlin `Throwable.message`)
+- Boltffi CLI does not generate bridge code — use JNA manual binding (TorvoxBridge.kt)
+
+## Documentation Standards
+
+- All public Rust API items must have `///` doc comments
+- Rust doc comments can contain executable examples (doctests)
+- Kotlin public API items must have `/** ... */` KDoc comments
+- Every requirement ID (FR-xxx, NFR-xxx) referenced in comments must match `docs/srs.md`
+- Every design decision must reference a requirement ID

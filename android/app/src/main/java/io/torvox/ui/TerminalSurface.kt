@@ -773,9 +773,10 @@ constructor(
                     return true
                 }
                 if (isScrolling) {
+                    // Just end the scroll state; do NOT reset scrollOffset to 0
+                    // because that would undo the user's scroll on every tap,
+                    // making scrollback feel unusable ("scrolling doesn't work").
                     isScrolling = false
-                    scrollOffset = 0
-                    onScrollChanged?.invoke(0)
                     onScrollingStateChanged?.invoke(false)
                     return true
                 }

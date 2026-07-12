@@ -1,6 +1,7 @@
-// @REQ_TERM_004
-// @REQ_TERM_005
-// @REQ_TERM_006
+//! Ghostty VT engine wrapper — provides VT100/xterm emulation.
+//!
+//! # Requirements
+//! - [FR-020](crate) — Input: keyboard encoding (Kitty protocol)
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -10192,5 +10193,35 @@ mod tests_s2_fixes {
         t.flush();
         let results = t.search_all_in_scrollback("xyz", true, false);
         assert!(results.is_empty(), "no-match query must return empty vec");
+    }
+
+    /// P1-S3: fuzzy search returns ALL near-matches per line, not just the closest
+    #[test]
+    fn search_all_in_scrollback_fuzzy_finds_multiple_per_line() {
+        let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+        t.vt_write(b"hello helxo heplo\n");
+        t.flush();
+        let results = t.search_all_in_scrollback("hello", true, true);
+        // "hello" at col 0 (exact match), "helxo" at col 6 (1 edit), "heplo" at col 12 (1 edit)
+        // With query len=5, max_distance = max(1, 5/3) = 1
+        // So all three should match since each is ≤1 edit from "hello"
+        assert!(
+            results.len() >= 3,
+            "fuzzy search should find all three near-matches, found {}",
+            results.len()
+        );
+        // Verify all three positions are within bounds
+        for m in &results {
+            assert!(m.start_col < m.end_col, "start_col must precede end_col");
+            assert!(m.row == 0, "all matches on row 0");
+        }
+        // Verify the third match is different from the first (not deduped to nearest)
+        let positions: std::collections::HashSet<(u32, u32)> =
+            results.iter().map(|m| (m.start_col, m.end_col)).collect();
+        assert!(
+            positions.len() >= 3,
+            "fuzzy search should return at least 3 distinct match positions, got {}",
+            positions.len()
+        );
     }
 }

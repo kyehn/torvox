@@ -1,7 +1,18 @@
-/// OSC sequence interceptor that strips handled OSC sequences from terminal
-/// output before it reaches the VT emulator. Inspired by Haven's OscHandler.
-///
-/// Handled OSC types (stripped from output and emitted as [`OscEvent`]s):
+//! OSC sequence interceptor that strips handled OSC sequences from terminal
+//! output before it reaches the VT emulator. Inspired by Haven's OscHandler.
+//!
+//! # Requirements
+//! - [FR-033](crate) — Scrollback: terminal content
+//! - [FR-034](crate) — Clipboard: set/get bridge
+//! - [FR-035](crate) — Clipboard: OSC 52 set
+//! - [FR-036](crate) — Clipboard: OSC 52 get
+//! - [FR-037](crate) — Filesystem: cwd reporting
+//! - [FR-038](crate) — Filesystem: readable working directory
+//! - [FR-040](crate) — Notification: iTerm2 OSC 9
+//! - [FR-041](crate) — Notification: OSC 777
+//! - [NFR-023](crate) — Clipboard: UTF-8 safe, protocol-agnostic
+//!
+//! Handled OSC types (stripped from output and emitted as [`OscEvent`]s):
 ///    7 — current working directory (`OscEvent::Cwd`)
 ///    8 — hyperlinks (open/close) (`OscEvent::Hyperlink`)
 ///    9 — notifications (iTerm2-style) (`OscEvent::Notification`)

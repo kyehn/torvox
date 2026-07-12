@@ -1,5 +1,9 @@
-// @REQ_CORE_001
 //! Cell, Color, Attrs, and DirtyMask — the terminal's atomic display unit.
+//!
+//! # Requirements
+//! - [FR-004](crate) — ANSI color palette
+//! - [FR-013](crate) — DirtyMask tracking
+//! - [NFR-010](crate) — Rust nightly compatibility
 use serde::{Deserialize, Serialize};
 
 #[cfg_attr(

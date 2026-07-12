@@ -1,4 +1,7 @@
 //! CSI (Control Sequence Introducer) handlers.
+//!
+//! # Requirements
+//! - [FR-006](crate) — Cursor: DECTCEM visible/hidden, style
 use crate::{sgr::parse_sgr, terminal::TerminalState};
 
 /// CSI (Control Sequence Introducer) sequence handler
