@@ -10,9 +10,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -222,6 +220,19 @@ fun TerminalScreen(
                 surfaceRef.value?.searchActive = false
             }
 
+            fun scrollToMatchIfNeeded(match: SearchResult) {
+                val surface = surfaceRef.value ?: return
+                val visibleRows = surface.getRows()
+                val scrollbackLen = surface.getMaxScrollOffset()
+                val scrollOffset = surface.getScrollOffset()
+                val firstVisibleRow = scrollbackLen - scrollOffset
+                val lastVisibleRow = firstVisibleRow + visibleRows - 1
+                if (match.lineIndex !in firstVisibleRow..lastVisibleRow) {
+                    val centeredRow = (match.lineIndex - visibleRows / 2).coerceAtLeast(0)
+                    surface.scrollToRow(centeredRow)
+                }
+            }
+
             suspend fun performSearch() {
                 val query = searchState.query
                 if (query.isEmpty()) {
@@ -259,10 +270,7 @@ fun TerminalScreen(
                         previousQuery = query,
                     )
                 if (results.isNotEmpty()) {
-                    val match = results[newIndex]
-                    val visibleRows = surfaceRef.value?.getRows() ?: 24
-                    val centeredRow = (match.lineIndex - visibleRows / 2).coerceAtLeast(0)
-                    surfaceRef.value?.scrollToRow(centeredRow)
+                    scrollToMatchIfNeeded(results[newIndex])
                 }
             }
 
@@ -485,12 +493,8 @@ fun TerminalScreen(
                                         searchState.resultCount - 1
                                     }
                                 val match = searchState.results[newIndex]
-                                val visibleRows = surfaceRef.value?.getRows() ?: 24
-                                val scrollbackLen = surfaceRef.value?.getMaxScrollOffset() ?: 0
-                                val centeredRow = (match.lineIndex - visibleRows / 2).coerceAtLeast(0)
-                                val targetScroll = (scrollbackLen - centeredRow).coerceIn(0, scrollbackLen)
-                                surfaceRef.value?.scrollToRow(centeredRow)
-                                Log.d("TerminalScreen", "Search prev: match row=${match.lineIndex} scroll=$targetScroll")
+                                scrollToMatchIfNeeded(match)
+                                Log.d("TerminalScreen", "Search prev: match row=${match.lineIndex}")
                                 searchState = searchState.copy(currentIndex = newIndex)
                             }
                         },
@@ -503,12 +507,8 @@ fun TerminalScreen(
                                         0
                                     }
                                 val match = searchState.results[newIndex]
-                                val visibleRows = surfaceRef.value?.getRows() ?: 24
-                                val scrollbackLen = surfaceRef.value?.getMaxScrollOffset() ?: 0
-                                val centeredRow = (match.lineIndex - visibleRows / 2).coerceAtLeast(0)
-                                val targetScroll = (scrollbackLen - centeredRow).coerceIn(0, scrollbackLen)
-                                surfaceRef.value?.scrollToRow(centeredRow)
-                                Log.d("TerminalScreen", "Search next: match row=${match.lineIndex} scroll=$targetScroll")
+                                scrollToMatchIfNeeded(match)
+                                Log.d("TerminalScreen", "Search next: match row=${match.lineIndex}")
                                 searchState = searchState.copy(currentIndex = newIndex)
                             }
                         },

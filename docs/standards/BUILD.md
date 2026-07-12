@@ -71,8 +71,7 @@ and any CI workflow that invokes them.
 16. **No `which`** — All tool paths guaranteed by nix.
 
 17. **No `nu` script execution inside scripts** — Never call `nu scripts/xxx.nu`
-     inside a `.nu` script. Use shebang or `nix develop --command nu
-     scripts/xxx.nu`.
+     inside a `.nu` script. Use shebang or `nu scripts/xxx.nu`.
 
 18. **No sdkmanager** — Never invoke `sdkmanager` for NDK or SDK component
      installation.

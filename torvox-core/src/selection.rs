@@ -1,5 +1,9 @@
-// @REQ_CORE_008
 //! Selection modes — character, word, line, and block selection.
+//!
+//! # Requirements
+//! - [FR-015](crate) — Selection: render highlight
+//! - [FR-022](crate) — Selection: word boundary
+//! - [FR-023](crate) — Selection: line-at-a-time
 use serde::{Deserialize, Serialize};
 
 fn is_word_char(character: char) -> bool {
