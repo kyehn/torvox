@@ -6,10 +6,13 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
@@ -28,9 +31,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.viewinterop.AndroidView
@@ -199,11 +202,11 @@ fun TerminalScreen(
 
         Box(
             modifier =
-                Modifier
-                    .fillMaxSize()
-                    .testTag("TerminalScreen")
-                    .background(terminalBg)
-                    .statusBarsPadding(),
+            Modifier
+                .fillMaxSize()
+                .testTag("TerminalScreen")
+                .background(terminalBg)
+                .statusBarsPadding(),
         ) {
             LaunchedEffect(drawerState.isOpen) {
                 surfaceRef.value?.drawerOpen = drawerState.isOpen
@@ -292,187 +295,208 @@ fun TerminalScreen(
                     },
                 )
 
-            Box(
+            Column(
                 modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .testTag("TerminalContent"),
+                Modifier
+                    .fillMaxSize()
+                    .testTag("TerminalContent")
+                    .imePadding()
+                    .then(
+                        if (WindowInsets.ime.getBottom(LocalDensity.current) <= 0) {
+                            Modifier.navigationBarsPadding()
+                        } else {
+                            Modifier
+                        },
+                    ),
             ) {
-                AndroidView(
-                    factory = { context ->
-                        io.torvox.ui
-                            .TerminalSurface(context)
-                            .apply { setTag("TerminalSurfaceView") }
-                            .also { surface ->
-                                surfaceRef.value = surface
-                                surface.onScrollChanged = { offset ->
-                                    composeScrollOffset = offset
-                                    viewModel.runtime.setScrollOffset(offset.toUInt())
-                                    viewModel.runtime.bridge()?.render()
-                                }
-                            }.apply {
-                                initialize(viewModel)
-                                setDimensions(runtimeState.rows, runtimeState.cols)
-                                onSwipeLeft = {
-                                    viewModel.writeToPty("\u001b".toByteArray())
-                                }
-                                onSwipeRight = {
-                                    viewModel.writeToPty("\t".toByteArray())
-                                }
-                                onCopyRequested = { text ->
-                                    scope.launch {
-                                        snackbarHostState.currentSnackbarData?.dismiss()
-                                        snackbarHostState.showSnackbar(
-                                            message = context.getString(R.string.copied_chars, text.length),
-                                            duration = SnackbarDuration.Short,
-                                        )
+                // Terminal content area — fills remaining space above the bar
+                Box(
+                    modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                ) {
+                    AndroidView(
+                        factory = { context ->
+                            io.torvox.ui
+                                .TerminalSurface(context)
+                                .apply { setTag("TerminalSurfaceView") }
+                                .also { surface ->
+                                    surfaceRef.value = surface
+                                    surface.onScrollChanged = { offset ->
+                                        composeScrollOffset = offset
+                                        viewModel.runtime.setScrollOffset(offset.toUInt())
+                                        viewModel.runtime.forceRender()
                                     }
-                                }
-                                onPasteRequested = {
-                                    val count = viewModel.pasteFromClipboard()
-                                    if (count > 0) {
+                                }.apply {
+                                    initialize(viewModel)
+                                    setDimensions(runtimeState.rows, runtimeState.cols)
+                                    onSwipeLeft = {
+                                        viewModel.writeToPty("\u001b".toByteArray())
+                                    }
+                                    onSwipeRight = {
+                                        viewModel.writeToPty("\t".toByteArray())
+                                    }
+                                    onCopyRequested = { text ->
                                         scope.launch {
                                             snackbarHostState.currentSnackbarData?.dismiss()
                                             snackbarHostState.showSnackbar(
-                                                message = context.getString(R.string.pasted_chars, count),
+                                                message = context.getString(R.string.copied_chars, text.length),
                                                 duration = SnackbarDuration.Short,
                                             )
                                         }
                                     }
+                                    onPasteRequested = {
+                                        val count = viewModel.pasteFromClipboard()
+                                        if (count > 0) {
+                                            scope.launch {
+                                                snackbarHostState.currentSnackbarData?.dismiss()
+                                                snackbarHostState.showSnackbar(
+                                                    message = context.getString(R.string.pasted_chars, count),
+                                                    duration = SnackbarDuration.Short,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    onZoomChanged = { increase ->
+                                        val current = viewModel.fontSize.value
+                                        val step = if (increase) 2f else -2f
+                                        val newSize = (current + step).coerceIn(FONT_SIZE_MIN, FONT_SIZE_MAX)
+                                        viewModel.setFontSize(newSize)
+                                    }
+                                    post {
+                                        requestFocus()
+                                    }
                                 }
-                                onZoomChanged = { increase ->
-                                    val current = viewModel.fontSize.value
-                                    val step = if (increase) 2f else -2f
-                                    val newSize = (current + step).coerceIn(FONT_SIZE_MIN, FONT_SIZE_MAX)
-                                    viewModel.setFontSize(newSize)
-                                }
-                                post {
-                                    requestFocus()
-                                }
+                        },
+                        update = { surface ->
+                            surface.touchEnabled = !isOverlayVisible
+                            // Only re-layout when the terminal grid dimensions
+                            // actually change (resize / font change). The
+                            // AndroidView update block runs on every
+                            // recomposition of TerminalScreen, so an
+                            // unconditional requestLayout() here forced a
+                            // full View layout pass on every selection drag
+                            // and scroll event — a key source of UI jank.
+                            if (runtimeState.rows > 0 &&
+                                runtimeState.cols > 0 &&
+                                (
+                                    surface.getRows() != runtimeState.rows ||
+                                        surface.getCols() != runtimeState.cols
+                                    )
+                            ) {
+                                surface.setDimensions(runtimeState.rows, runtimeState.cols)
+                                surface.requestLayout()
                             }
-                    },
-                    update = { surface ->
-                        surface.touchEnabled = !isOverlayVisible
-                        if (runtimeState.rows > 0 && runtimeState.cols > 0) {
-                            surface.setDimensions(runtimeState.rows, runtimeState.cols)
+                        },
+                        modifier = Modifier.fillMaxSize(),
+                    )
+
+                    if (selectionActive) {
+                        val selStart = selection.start
+                        val selEnd = selection.end
+                        val loRow = min(selStart.row, selEnd.row)
+                        val hiRow = max(selStart.row, selEnd.row)
+                        val loCol: Int
+                        val hiCol: Int
+                        if (selStart.row <= selEnd.row) {
+                            loCol = selStart.col
+                            hiCol = selEnd.col
+                        } else {
+                            loCol = selEnd.col
+                            hiCol = selStart.col
                         }
-                        surface.requestLayout()
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
+                        val themeAccent = if (state.selectionAccent != 0) Color(state.selectionAccent) else resolvedTerminalTheme.foreground
 
-                if (selectionActive) {
-                    val selStart = selection.start
-                    val selEnd = selection.end
-                    val loRow = min(selStart.row, selEnd.row)
-                    val hiRow = max(selStart.row, selEnd.row)
-                    val loCol: Int
-                    val hiCol: Int
-                    if (selStart.row <= selEnd.row) {
-                        loCol = selStart.col
-                        hiCol = selEnd.col
-                    } else {
-                        loCol = selEnd.col
-                        hiCol = selStart.col
-                    }
-                    val themeAccent = if (state.selectionAccent != 0) Color(state.selectionAccent) else resolvedTerminalTheme.foreground
-
-                    fun colorToArgb(color: androidx.compose.ui.graphics.Color): Int =
-                        android.graphics.Color.argb(
+                        fun colorToArgb(color: androidx.compose.ui.graphics.Color): Int = android.graphics.Color.argb(
                             (color.alpha * 255).toInt(),
                             (color.red * 255).toInt(),
                             (color.green * 255).toInt(),
                             (color.blue * 255).toInt(),
                         )
-                    val themeAccentArgb = colorToArgb(themeAccent)
+                        val themeAccentArgb = colorToArgb(themeAccent)
 
-                    if (selection.dragging) {
-                        LaunchedEffect(true) {
-                            surfaceRef.value?.hideSelectionHandles()
-                        }
-                    } else {
-                        LaunchedEffect(loRow, loCol, hiRow, hiCol, themeAccentArgb) {
-                            surfaceRef.value?.showSelectionHandles(loRow, loCol, hiRow, hiCol, themeAccentArgb)
-                        }
-                    }
-                } else {
-                    LaunchedEffect(selectionActive) {
-                        surfaceRef.value?.hideSelectionHandles()
-                    }
-                }
-
-                val pasteReq = state.pastePopupRequest
-                if (!selectionActive && pasteReq != null) {
-                    val surface = surfaceRef.value
-                    if (surface != null) {
-                        PasteChipOverlay(
-                            row = pasteReq.row,
-                            col = pasteReq.col,
-                            cellWidth = surface.cellWidth,
-                            cellHeight = surface.cellHeight,
-                            scrollOffset = surface.getScrollOffset(),
-                            onPaste = {
-                                viewModel.pasteFromClipboard()
-                                viewModel.consumePastePopupRequest()
-                            },
-                            accentColor = Color(state.selectionAccent),
-                            backgroundColor = Color(state.selectionBg),
-                        )
-                    }
-                }
-
-                if (showTextSearch && searchState.hasResults) {
-                    val surface = surfaceRef.value
-                    if (surface != null) {
-                        val rows = surface.getRows()
-                        val scrollbackCount = surface.getMaxScrollOffset()
-                        val scrollOffset = surface.getScrollOffset()
-                        val themeForeground = resolvedTerminalTheme.foreground
-                        val themeSelectionBg = resolvedTerminalTheme.selectionBg
-
-                        val writer = io.torvox.bridge.WireWriter()
-                        writer.writeI32(searchState.resultCount)
-                        for ((index, match) in searchState.results.withIndex()) {
-                            val gridRow = match.lineIndex - scrollbackCount + scrollOffset
-                            if (gridRow < 0 || gridRow >= rows) continue
-                            val isCurrent = index == searchState.currentIndex
-                            writer.writeI32(gridRow)
-                            writer.writeI32(match.startIndex)
-                            writer.writeI32(match.endIndex.coerceAtLeast(match.startIndex + 1))
-                            if (isCurrent) {
-                                // Current match: use foreground color at moderate opacity
-                                // so the text appears "lit up" — distinctly different from
-                                // the subtle selectionBg overlay of other matches.
-                                writer.writeByte((themeForeground.red * 255).toInt().toByte())
-                                writer.writeByte((themeForeground.green * 255).toInt().toByte())
-                                writer.writeByte((themeForeground.blue * 255).toInt().toByte())
-                                writer.writeByte(160.toByte()) // ~63% opacity
-                            } else {
-                                // Other matches: selection_bg semi-transparent overlay
-                                writer.writeByte((themeSelectionBg.red * 255).toInt().toByte())
-                                writer.writeByte((themeSelectionBg.green * 255).toInt().toByte())
-                                writer.writeByte((themeSelectionBg.blue * 255).toInt().toByte())
-                                writer.writeByte((SEARCH_MATCH_ALPHA * 255).toInt().toByte()) // 25%
+                        if (selection.dragging) {
+                            LaunchedEffect(true) {
+                                surfaceRef.value?.hideSelectionHandles()
+                            }
+                        } else {
+                            LaunchedEffect(loRow, loCol, hiRow, hiCol, themeAccentArgb) {
+                                surfaceRef.value?.showSelectionHandles(loRow, loCol, hiRow, hiCol, themeAccentArgb)
                             }
                         }
-                        val highlightBytes = writer.toByteArray()
-                        // Single call: surface.setSearchHighlights internally calls bridge.setSearchHighlights + bridge.render
-                        surface.setSearchHighlights(highlightBytes)
-                        searchState = searchState.copy(highlightsActive = true)
+                    } else {
+                        LaunchedEffect(selectionActive) {
+                            surfaceRef.value?.hideSelectionHandles()
+                        }
                     }
-                } else if (searchState.highlightsActive) {
-                    surfaceRef.value?.clearSearchHighlights()
-                    searchState = searchState.copy(highlightsActive = false)
-                }
-            }
 
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .imePadding(),
-                contentAlignment = Alignment.BottomCenter,
-            ) {
+                    val pasteReq = state.pastePopupRequest
+                    if (!selectionActive && pasteReq != null) {
+                        val surface = surfaceRef.value
+                        if (surface != null) {
+                            PasteChipOverlay(
+                                row = pasteReq.row,
+                                col = pasteReq.col,
+                                cellWidth = surface.cellWidth,
+                                cellHeight = surface.cellHeight,
+                                scrollOffset = surface.getScrollOffset(),
+                                onPaste = {
+                                    viewModel.pasteFromClipboard()
+                                    viewModel.consumePastePopupRequest()
+                                },
+                                accentColor = Color(state.selectionAccent),
+                                backgroundColor = Color(state.selectionBg),
+                            )
+                        }
+                    }
+
+                    if (showTextSearch && searchState.hasResults) {
+                        val surface = surfaceRef.value
+                        if (surface != null) {
+                            val rows = surface.getRows()
+                            val scrollbackCount = surface.getMaxScrollOffset()
+                            val scrollOffset = surface.getScrollOffset()
+                            val themeForeground = resolvedTerminalTheme.foreground
+                            val themeSelectionBg = resolvedTerminalTheme.selectionBg
+
+                            val writer = io.torvox.bridge.WireWriter()
+                            writer.writeI32(searchState.resultCount)
+                            for ((index, match) in searchState.results.withIndex()) {
+                                val gridRow = match.lineIndex - scrollbackCount + scrollOffset
+                                if (gridRow < 0 || gridRow >= rows) continue
+                                val isCurrent = index == searchState.currentIndex
+                                writer.writeI32(gridRow)
+                                writer.writeI32(match.startIndex)
+                                writer.writeI32(match.endIndex.coerceAtLeast(match.startIndex + 1))
+                                if (isCurrent) {
+                                    // Current match: use foreground color at moderate opacity
+                                    // so the text appears "lit up" — distinctly different from
+                                    // the subtle selectionBg overlay of other matches.
+                                    writer.writeByte((themeForeground.red * 255).toInt().toByte())
+                                    writer.writeByte((themeForeground.green * 255).toInt().toByte())
+                                    writer.writeByte((themeForeground.blue * 255).toInt().toByte())
+                                    writer.writeByte(160.toByte()) // ~63% opacity
+                                } else {
+                                    // Other matches: selection_bg semi-transparent overlay
+                                    writer.writeByte((themeSelectionBg.red * 255).toInt().toByte())
+                                    writer.writeByte((themeSelectionBg.green * 255).toInt().toByte())
+                                    writer.writeByte((themeSelectionBg.blue * 255).toInt().toByte())
+                                    writer.writeByte((SEARCH_MATCH_ALPHA * 255).toInt().toByte()) // 25%
+                                }
+                            }
+                            val highlightBytes = writer.toByteArray()
+                            // Single call: surface.setSearchHighlights internally calls bridge.setSearchHighlights + bridge.render
+                            surface.setSearchHighlights(highlightBytes)
+                            searchState = searchState.copy(highlightsActive = true)
+                        }
+                    } else if (searchState.highlightsActive) {
+                        surfaceRef.value?.clearSearchHighlights()
+                        searchState = searchState.copy(highlightsActive = false)
+                    }
+                }
+
+                // Bottom bar — below terminal, above IME
                 if (showTextSearch) {
                     TextSearchBar(
                         query = searchState.query,
@@ -539,8 +563,8 @@ fun TerminalScreen(
 
                     ModifierBar(
                         modifier =
-                            Modifier
-                                .testTag("ModifierBar"),
+                        Modifier
+                            .testTag("ModifierBar"),
                         onKeyClick = { data ->
                             viewModel.writeToPty(data.toByteArray())
                         },
@@ -564,38 +588,38 @@ fun TerminalScreen(
                         toolbarLayout = rememberToolbarLayout(),
                         barMode = barMode,
                         onCopy =
-                            if (selectionActive) {
-                                {
-                                    viewModel.copySelectionToClipboard()
-                                    viewModel.clearSelection()
-                                }
-                            } else {
-                                null
-                            },
+                        if (selectionActive) {
+                            {
+                                viewModel.copySelectionToClipboard()
+                                viewModel.clearSelection()
+                            }
+                        } else {
+                            null
+                        },
                         onSelectAll =
-                            if (selectionActive) {
-                                { viewModel.selectAll() }
-                            } else {
-                                null
-                            },
+                        if (selectionActive) {
+                            { viewModel.selectAll() }
+                        } else {
+                            null
+                        },
                         onPaste =
-                            if (selectionActive && hasClipboard) {
-                                { viewModel.pasteFromClipboard() }
-                            } else {
-                                null
-                            },
+                        if (selectionActive && hasClipboard) {
+                            { viewModel.pasteFromClipboard() }
+                        } else {
+                            null
+                        },
                         onShare =
-                            if (selectionActive) {
-                                { viewModel.shareSelection() }
-                            } else {
-                                null
-                            },
+                        if (selectionActive) {
+                            { viewModel.shareSelection() }
+                        } else {
+                            null
+                        },
                         onDismiss =
-                            if (selectionActive) {
-                                { viewModel.clearSelection() }
-                            } else {
-                                null
-                            },
+                        if (selectionActive) {
+                            { viewModel.clearSelection() }
+                        } else {
+                            null
+                        },
                     )
                 }
             }

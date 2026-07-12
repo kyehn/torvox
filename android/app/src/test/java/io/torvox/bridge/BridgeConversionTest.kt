@@ -119,9 +119,29 @@ class BridgeConversionTest {
         assertEquals(0, theme.fg)
         assertEquals(0, theme.cursor)
         assertEquals(0, theme.selectionBg)
-        for (i in 0..15) {
-            val field = BridgeTheme::class.members.first { it.name == "ansi$i" }
-            assertEquals("ansi$i default", 0, field.call(theme))
+        val ansiFields =
+            theme.run {
+                listOf(
+                    ansi0,
+                    ansi1,
+                    ansi2,
+                    ansi3,
+                    ansi4,
+                    ansi5,
+                    ansi6,
+                    ansi7,
+                    ansi8,
+                    ansi9,
+                    ansi10,
+                    ansi11,
+                    ansi12,
+                    ansi13,
+                    ansi14,
+                    ansi15,
+                )
+            }
+        for ((i, value) in ansiFields.withIndex()) {
+            assertEquals("ansi$i default", 0, value)
         }
     }
 

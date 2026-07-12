@@ -63,30 +63,12 @@ fn text_render_ocr_verify() {
         }
     }
 
-    let screenshot_dir = std::path::Path::new("screenshots");
-    let _ = std::fs::create_dir_all(screenshot_dir);
-    let png_path = screenshot_dir.join("text_ocr_test.png");
+    let png_path = std::env::temp_dir().join("torvox_text_ocr_test.png");
 
     let img = image::RgbaImage::from_raw(total_width, total_height, buf).expect("create RgbaImage");
     img.save(&png_path).expect("save PNG");
 
-    // Preprocess: invert + threshold for better OCR
-    let preprocess_path = screenshot_dir.join("text_ocr_test_pre.png");
-    let _ = Command::new("magick")
-        .args([
-            &png_path.to_string_lossy(),
-            "-negate",
-            "-threshold",
-            "50%",
-            &preprocess_path.to_string_lossy(),
-        ])
-        .output();
-
-    let ocr_input = if preprocess_path.exists() {
-        &preprocess_path
-    } else {
-        &png_path
-    };
+    let ocr_input = &png_path;
 
     let output = Command::new("rapidocr")
         .arg("-img")

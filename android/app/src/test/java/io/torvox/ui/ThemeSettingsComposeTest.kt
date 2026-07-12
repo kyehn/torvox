@@ -4,7 +4,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import com.github.takahirom.roborazzi.RoborazziRule
 import io.torvox.RobolectricActivityRule
 import io.torvox.TestActivity
 import io.torvox.ui.theme.BuiltInThemes
@@ -26,14 +25,6 @@ class ThemeSettingsComposeTest {
         AndroidComposeTestRule(
             RobolectricActivityRule(TestActivity::class.java),
             activityProvider = { it.activity },
-        )
-
-    @get:Rule
-    val roborazziRule =
-        RoborazziRule(
-            RoborazziRule.Options(
-                outputDirectoryPath = "src/test/resources/roborazzi",
-            ),
         )
 
     @Test

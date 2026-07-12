@@ -2,24 +2,55 @@
 <SmellBaseline>
   <ManuallySuppressedIssues/>
   <CurrentIssues>
+    <ID>CognitiveComplexMethod:BootstrapDownloader.kt$BootstrapDownloader$suspend fun download( url: String, arch: String, ): Result&lt;File></ID>
+    <ID>CognitiveComplexMethod:ModifierBar.kt$@Suppress("LongParameterList", "CyclomaticComplexMethod") @Composable private fun ConfigurableModifierBar( toolbarLayout: List&lt;ToolbarItem>, onKeyClick: (String) -> Unit, onDrawerClick: () -> Unit, onScrollClick: () -> Unit, ctrlState: ModifierState, altState: ModifierState, onToggleCtrl: () -> Unit, onToggleAlt: () -> Unit, textColor: Color, backgroundColor: Color, modifier: Modifier, label: (String) -> String, )</ID>
+    <ID>CognitiveComplexMethod:SettingsScreen.kt$@Composable internal fun AppThemeSelector( selectedMode: String, onModeSelected: (String) -> Unit, textColor: Color, cardBackground: Color, accentColor: Color, )</ID>
+    <ID>CognitiveComplexMethod:TerminalScreen.kt$@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) @Suppress("DEPRECATION", "CyclomaticComplexMethod", "LongMethod") @Composable fun TerminalScreen( modifier: Modifier = Modifier, viewModel: TerminalViewModel = hiltViewModel(), onSettings: () -> Unit = {}, isOverlayVisible: Boolean = false, )</ID>
+    <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$@Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth") // Acceptable — dispatches ~15 distinct gesture/intent types override fun onTouchEvent(event: MotionEvent): Boolean</ID>
+    <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection</ID>
+    <ID>CognitiveComplexMethod:TerminalViewModel.kt$TerminalViewModel$@Suppress("CyclomaticComplexMethod") private fun extractSelectedText( selection: SelectionState, scrollOffset: Int = 0, ): String</ID>
+    <ID>CognitiveComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
+    <ID>CognitiveComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun controlByteForKeyCode(keyCode: Int): Byte?</ID>
-    <ID>CyclomaticComplexMethod:TerminalScreen.kt$@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) @Suppress("DEPRECATION") @Composable fun TerminalScreen( modifier: Modifier = Modifier, viewModel: TerminalViewModel = hiltViewModel(), onSettings: () -> Unit = {}, isOverlayVisible: Boolean = false, )</ID>
-    <ID>CyclomaticComplexMethod:TerminalViewModel.kt$TerminalViewModel$private fun extractSelectedText(selection: SelectionState): String</ID>
     <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
-    <ID>CyclomaticComplexMethod:UrlSelectionTest.kt$UrlSelectionTest$private fun expandAcrossUrlWrap( lines: List&lt;String>, row: Int, wordStartCol: Int, wordEndCol: Int, ): UrlSpan?</ID>
+    <ID>LargeClass:TerminalSurface.kt$TerminalSurface : TextureViewSurfaceTextureListener</ID>
+    <ID>LargeClass:TerminalViewModel.kt$TerminalViewModel : ViewModel</ID>
+    <ID>LargeClass:TorvoxRuntime.kt$TorvoxRuntime</ID>
+    <ID>LateinitUsage:MainActivity.kt$MainActivity$@Inject lateinit var torvoxRuntime: TorvoxRuntime // Dagger injection — lateinit required</ID>
     <ID>LongMethod:SessionDrawer.kt$@Composable fun SessionDrawer( viewModel: TerminalViewModel, onSettings: () -> Unit, onSearch: () -> Unit, onClose: () -> Unit, )</ID>
-    <ID>LongMethod:SettingsScreen.kt$@OptIn(ExperimentalMaterial3Api::class) @Composable fun SettingsScreen( viewModel: TerminalViewModel, onBack: () -> Unit, )</ID>
-    <ID>LongMethod:TerminalScreen.kt$@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) @Suppress("DEPRECATION") @Composable fun TerminalScreen( modifier: Modifier = Modifier, viewModel: TerminalViewModel = hiltViewModel(), onSettings: () -> Unit = {}, isOverlayVisible: Boolean = false, )</ID>
-    <ID>LongMethod:TextSearchBar.kt$@Composable fun TextSearchBar( query: String, onQueryChange: (String) -> Unit, resultCount: Int, currentResultIndex: Int, onPrevious: () -> Unit, onNext: () -> Unit, onClose: () -> Unit, caseSensitive: Boolean = false, onCaseSensitiveToggle: (Boolean) -> Unit = {}, autoCaseSensitive: Boolean = false, modifier: Modifier = Modifier, )</ID>
     <ID>LongMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>LongMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
-    <ID>LongParameterList:ModifierBar.kt$( onCopy: (() -> Unit)?, onSelectAll: (() -> Unit)?, onPaste: (() -> Unit)?, onDismiss: (() -> Unit)?, textColor: Color, backgroundColor: Color, buttonHeight: androidx.compose.ui.unit.Dp, modifier: Modifier, )</ID>
+    <ID>TooGenericExceptionCaught:BootstrapDownloader.kt$BootstrapDownloader$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:BootstrapInstaller.kt$BootstrapInstaller$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:BootstrapOrchestrator.kt$BootstrapOrchestrator$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:LogcatFileWriter.kt$LogcatFileWriter$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity.&lt;no name provided>$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:SecondStageRunner.kt$SecondStageRunner$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:SecondStageRunner.kt$SecondStageRunner$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:SettingsScreen.kt$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$error: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:ToolbarPreferences.kt$ToolbarPreferences$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TorvoxApp.kt$TorvoxApp$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TorvoxRuntime.kt$TorvoxRuntime$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TorvoxRuntime.kt$TorvoxRuntime$exception: Throwable</ID>
+    <ID>TooGenericExceptionCaught:UsbSerialManager.kt$UsbSerialManager$exception: Exception</ID>
+    <ID>TooManyFunctions:SettingsRepository.kt$SettingsRepository</ID>
+    <ID>TooManyFunctions:TerminalSurface.kt$TerminalSurface : TextureViewSurfaceTextureListener</ID>
+    <ID>TooManyFunctions:TerminalViewModel.kt$TerminalViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:TorvoxBridge.kt$TorvoxBridge : AutoCloseable</ID>
+    <ID>TooManyFunctions:TorvoxBridge.kt$TorvoxNative : Library</ID>
+    <ID>TooManyFunctions:TorvoxRuntime.kt$TorvoxRuntime</ID>
+    <ID>TooManyFunctions:UsbSerialManager.kt$UsbSerialManager : Closeable</ID>
     <ID>UnusedImports:ModifierBarComprehensiveTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
     <ID>UnusedImports:ModifierBarScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
     <ID>UnusedImports:ScreenshotGoldenTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
-    <ID>UnusedImports:SettingsScreenScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
     <ID>UnusedImports:TerminalScreenScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
-    <ID>UnusedImports:ThemeSettingsComposeTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
+    <ID>UseDataClass:SettingsDataStoreProvider.kt$SettingsDataStoreProvider</ID>
   </CurrentIssues>
 </SmellBaseline>
