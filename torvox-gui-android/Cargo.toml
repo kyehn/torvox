@@ -9,6 +9,7 @@ name = "torvox_android"
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
+flume = { workspace = true }
 torvox-core = { workspace = true, features = ["rkyv"] }
 rkyv = { workspace = true, features = ["std", "bytecheck"] }
 torvox-terminal = { workspace = true }

@@ -450,6 +450,11 @@ pub struct TorvoxBridge {
     cell_width: std::sync::atomic::AtomicU32,
     cell_height: std::sync::atomic::AtomicU32,
     scrollback_length: std::sync::atomic::AtomicU32,
+    /// Lock-free sender for user-initiated PTY writes (keyboard/IME/paste).
+    /// Captured once at session spawn so `write_to_pty`/`process_key_event`
+    /// never block on the session mutex — avoiding UI-thread stalls while the
+    /// render thread holds that lock during `process_output`.
+    user_write_tx: std::sync::Mutex<Option<flume::Sender<Vec<u8>>>>,
 }
 
 impl TorvoxBridge {
@@ -556,6 +561,7 @@ impl TorvoxBridge {
             cell_height: std::sync::atomic::AtomicU32::new(0),
             surface_ready: std::sync::atomic::AtomicBool::new(false),
             scrollback_length: std::sync::atomic::AtomicU32::new(0),
+            user_write_tx: std::sync::Mutex::new(None),
         }
     }
 
@@ -589,11 +595,19 @@ impl TorvoxBridge {
                     detail: e.to_string(),
                 })?;
         match self.session.lock() {
-            Ok(mut session_guard) => *session_guard = Some(session_arc),
+            Ok(mut session_guard) => *session_guard = Some(session_arc.clone()),
             Err(poisoned) => {
                 let mut session_guard = poisoned.into_inner();
-                *session_guard = Some(session_arc);
+                *session_guard = Some(session_arc.clone());
                 log::warn!("spawn_terminal: session mutex was poisoned, recovered");
+            }
+        }
+        // Capture the lock-free user-write sender once so subsequent
+        // write_to_pty / process_key_event calls never touch the session mutex.
+        if let Ok(session_guard) = session_arc.lock() {
+            let sender = session_guard.user_write_sender();
+            if let Ok(mut tx_guard) = self.user_write_tx.lock() {
+                *tx_guard = Some(sender);
             }
         }
         Ok(0)
@@ -651,11 +665,16 @@ impl TorvoxBridge {
 
     fn store_cell_metrics(&self, surface: &crate::surface::AndroidSurface) {
         let (cell_width, cell_height) = surface.font_pipeline().cell_metrics();
-        log::info!(
-            "store_cell_metrics: cell_width={} cell_height={}",
-            cell_width,
-            cell_height
-        );
+        // Only log on change to avoid per-frame log spam
+        let prev_w = f32::from_bits(self.cell_width.load(std::sync::atomic::Ordering::Relaxed));
+        let prev_h = f32::from_bits(self.cell_height.load(std::sync::atomic::Ordering::Relaxed));
+        if (prev_w - cell_width).abs() > 0.01 || (prev_h - cell_height).abs() > 0.01 {
+            log::trace!(
+                "store_cell_metrics: cell_width={} cell_height={}",
+                cell_width,
+                cell_height
+            );
+        }
         self.cell_width
             .store(cell_width.to_bits(), std::sync::atomic::Ordering::Relaxed);
         self.cell_height
@@ -663,7 +682,47 @@ impl TorvoxBridge {
     }
 
     /// Returns `Ok(true)` if new data was rendered, `Ok(false)` if idle.
+    /// Process ghostty PTY output and take a cell snapshot.
+    /// Called BEFORE the surface lock so ghostty C code never blocks the
+    /// surface mutex.  Returns `(had_output, snapshot)`.
+    fn process_session_for_render(
+        &self,
+    ) -> Result<(bool, torvox_terminal::ghostty_terminal::GridSnapshot), TerminalError> {
+        let session_arc = self
+            .session
+            .lock()
+            .map_err(|e| TerminalError::PtyError {
+                detail: format!("session lock poisoned: {e}"),
+            })?
+            .as_ref()
+            .cloned()
+            .ok_or(TerminalError::PtyError {
+                detail: "no active session for render".to_string(),
+            })?;
+        let mut session_guard = session_arc.lock().map_err(|e| TerminalError::PtyError {
+            detail: format!("session inner lock poisoned: {e}"),
+        })?;
+        let scroll_offset = self
+            .scroll_offset
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let had_output = session_guard.process_output();
+        let snapshot = session_guard
+            .terminal()
+            .try_take_snapshot_with_scroll(scroll_offset)
+            .ok_or(TerminalError::PtyError {
+                detail: "snapshot unavailable — VT thread busy".to_string(),
+            })?;
+        Ok((had_output, snapshot))
+    }
+
     pub fn render(&self) -> Result<bool, TerminalError> {
+        // Step 1 – process ghostty output / take snapshot OUTSIDE the surface
+        // lock so that ghostty C code (potentially 100+ ms) never stalls the
+        // surface mutex.  The main thread can still apply settings / resize /
+        // IME input while ghostty is working.
+        let session_out = self.process_session_for_render()?;
+
+        // Step 2 – lock surface only for the fast GPU path
         let mut surface_guard = self.surface.lock().map_err(|e| TerminalError::PtyError {
             detail: format!("lock failed: {}", e),
         })?;
@@ -672,7 +731,7 @@ impl TorvoxBridge {
                 .scroll_offset
                 .load(std::sync::atomic::Ordering::Relaxed);
             let result = surface
-                .render(scroll_offset)
+                .render_frame(scroll_offset, session_out.0, session_out.1)
                 .map_err(|e| TerminalError::PtyError {
                     detail: e.to_string(),
                 });
@@ -1505,33 +1564,23 @@ impl TorvoxBridge {
     }
 
     pub fn write_to_pty(&self, data: Vec<u8>) -> Result<(), TerminalError> {
-        let session_arc = {
-            let guard = self
-                .session
-                .lock()
-                .map_err(|_| TerminalError::SessionUnavailable {
-                    detail: "session mutex poisoned".to_string(),
-                })?;
-            match guard.as_ref() {
-                Some(session_arc) => session_arc.clone(),
-                None => {
-                    return Err(TerminalError::SessionUnavailable {
-                        detail: "no active session".to_string(),
-                    });
-                }
-            }
-        };
-        let mut session = session_arc
+        let guard = self
+            .user_write_tx
             .lock()
             .map_err(|_| TerminalError::SessionUnavailable {
-                detail: "session inner mutex poisoned".to_string(),
+                detail: "user-write channel mutex poisoned".to_string(),
             })?;
-        session.write(&data).map_err(|error| {
-            log::error!("bridge: PTY write failed: {error}");
-            TerminalError::PtyError {
-                detail: format!("PTY write failed: {error}"),
-            }
-        })
+        match guard.as_ref() {
+            Some(sender) => sender.send(data).map_err(|error| {
+                log::error!("bridge: user PTY write channel closed: {error}");
+                TerminalError::PtyError {
+                    detail: format!("user PTY write channel closed: {error}"),
+                }
+            }),
+            None => Err(TerminalError::SessionUnavailable {
+                detail: "no active session — user-write channel not initialized".to_string(),
+            }),
+        }
     }
 
     pub fn process_key_event(
@@ -1542,47 +1591,68 @@ impl TorvoxBridge {
         unicode_char: u32,
         unshifted_char: u32,
     ) -> Result<(), TerminalError> {
-        let session_arc = {
-            let guard = self
-                .session
+        // Encode the key under the session lock (terminal state is mutated),
+        // then enqueue the bytes on the lock-free channel so the actual PTY
+        // write happens on the render thread. This keeps the UI thread off the
+        // session mutex's write path and avoids stalls while the render thread
+        // holds that lock during process_output.
+        let encoded = {
+            let session_arc = {
+                let guard = self
+                    .session
+                    .lock()
+                    .map_err(|_| TerminalError::SessionUnavailable {
+                        detail: "session mutex poisoned".to_string(),
+                    })?;
+                match guard.as_ref() {
+                    Some(session_arc) => session_arc.clone(),
+                    None => {
+                        return Err(TerminalError::SessionUnavailable {
+                            detail: "no active session".to_string(),
+                        });
+                    }
+                }
+            };
+            let session = session_arc
                 .lock()
                 .map_err(|_| TerminalError::SessionUnavailable {
-                    detail: "session mutex poisoned".to_string(),
+                    detail: "session inner mutex poisoned".to_string(),
                 })?;
-            match guard.as_ref() {
-                Some(session_arc) => session_arc.clone(),
-                None => {
-                    return Err(TerminalError::SessionUnavailable {
-                        detail: "no active session".to_string(),
-                    });
-                }
-            }
+            session.key_encode(
+                key_code,
+                modifiers as u16,
+                action,
+                unicode_char,
+                unshifted_char,
+            )
         };
-        let mut session = session_arc
-            .lock()
-            .map_err(|_| TerminalError::SessionUnavailable {
-                detail: "session inner mutex poisoned".to_string(),
-            })?;
-        if let Some(encoded) = session.key_encode(
-            key_code,
-            modifiers as u16,
-            action,
-            unicode_char,
-            unshifted_char,
-        ) && !encoded.is_empty()
+        if let Some(encoded) = encoded
+            && !encoded.is_empty()
         {
-            log::debug!(
+            log::trace!(
                 "bridge: process_key_event key_code={key_code} modifiers={modifiers} action={action} unicode={unicode_char} encoded_len={}",
                 encoded.len()
             );
-            session.write(&encoded).map_err(|error| {
-                log::error!("bridge: PTY write (key) failed: {error}");
-                TerminalError::PtyError {
-                    detail: format!("PTY write (key) failed: {error}"),
-                }
-            })?;
+            let guard =
+                self.user_write_tx
+                    .lock()
+                    .map_err(|_| TerminalError::SessionUnavailable {
+                        detail: "user-write channel mutex poisoned".to_string(),
+                    })?;
+            match guard.as_ref() {
+                Some(sender) => sender.send(encoded).map_err(|error| {
+                    log::error!("bridge: key PTY write channel closed: {error}");
+                    TerminalError::PtyError {
+                        detail: format!("key PTY write channel closed: {error}"),
+                    }
+                }),
+                None => Err(TerminalError::SessionUnavailable {
+                    detail: "no active session — user-write channel not initialized".to_string(),
+                }),
+            }
+        } else {
+            Ok(())
         }
-        Ok(())
     }
 
     pub fn set_background_image(
@@ -3307,6 +3377,98 @@ pub unsafe extern "C" fn torvox_bridge_set_cursor_style(
     let style = read_string(style_ptr, style_len);
     if let Err(error) = with_bridge(handle, |bridge| bridge.set_cursor_style(style)) {
         log::error!("bridge: torvox_bridge_set_cursor_style failed: {error}");
+    }
+}
+
+/// Convert [f32; 4] (RGBA 0..1) to u32 ARGB.
+#[inline]
+fn to_argb(color: &[f32; 4]) -> u32 {
+    let r = (color[0].clamp(0.0, 1.0) * 255.0) as u32;
+    let g = (color[1].clamp(0.0, 1.0) * 255.0) as u32;
+    let b = (color[2].clamp(0.0, 1.0) * 255.0) as u32;
+    let a = (color[3].clamp(0.0, 1.0) * 255.0) as u32;
+    (a << 24) | (r << 16) | (g << 8) | b
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_get_snapshot(
+    handle: i64,
+    scroll_offset: u32,
+    buf: *mut u8,
+    buf_len: u32,
+) -> i32 {
+    let bridge = match (handle as *mut TorvoxBridge).as_mut() {
+        Some(b) => b,
+        None => return -1,
+    };
+    let session_guard = match bridge.session.lock() {
+        Ok(g) => g,
+        Err(_) => return -1,
+    };
+    let session = match session_guard.as_ref() {
+        Some(s) => s,
+        None => return 0,
+    };
+    let session_inner = match session.lock() {
+        Ok(g) => g,
+        Err(_) => return -1,
+    };
+    let snapshot = match session_inner
+        .terminal()
+        .try_take_snapshot_with_scroll(scroll_offset)
+    {
+        Some(s) => s,
+        None => return 0,
+    };
+    let rows = snapshot.rows;
+    let cols = snapshot.cols;
+    let total = (rows * cols) as usize;
+    let needed = 20 + total * 12;
+    if (buf_len as usize) < needed {
+        return -1;
+    }
+    *(buf as *mut u32) = rows;
+    *(buf.add(4) as *mut u32) = cols;
+    *(buf.add(8) as *mut u32) = snapshot.cursor_row;
+    *(buf.add(12) as *mut u32) = snapshot.cursor_col;
+    *(buf.add(16) as *mut u8) = if snapshot.cursor_visible { 1 } else { 0 };
+    for i in 0..total {
+        let cell = &snapshot.cells[i];
+        let off = buf.add(20 + i * 12);
+        *(off as *mut u32) = cell.codepoint;
+        *(off.add(4) as *mut u32) = to_argb(&cell.foreground);
+        *(off.add(8) as *mut u32) = to_argb(&cell.background);
+    }
+    total as i32
+}
+
+/// # Safety
+///
+/// `handle` must be a valid bridge handle. `path_ptr` must point to `path_len` valid bytes
+/// or be null when `path_len` is 0.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_load_font_file(
+    handle: i64,
+    path_ptr: *const u8,
+    path_len: i32,
+) -> *mut core::ffi::c_char {
+    let bridge = match (handle as *mut TorvoxBridge).as_mut() {
+        Some(b) => b,
+        None => return std::ptr::null_mut(),
+    };
+    let path = {
+        let slice = if path_len >= 0 && !path_ptr.is_null() {
+            unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) }
+        } else {
+            return std::ptr::null_mut();
+        };
+        String::from_utf8_lossy(slice).into_owned()
+    };
+    match bridge.load_font_file(path) {
+        Some(family) => std::ffi::CString::new(family)
+            .unwrap_or_default()
+            .into_raw(),
+        None => std::ptr::null_mut(),
     }
 }
 

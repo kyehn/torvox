@@ -326,7 +326,6 @@ fun TerminalScreen(
                                     surface.onScrollChanged = { offset ->
                                         composeScrollOffset = offset
                                         viewModel.runtime.setScrollOffset(offset.toUInt())
-                                        viewModel.runtime.forceRender()
                                     }
                                 }.apply {
                                     initialize(viewModel)
@@ -564,7 +563,8 @@ fun TerminalScreen(
                     ModifierBar(
                         modifier =
                         Modifier
-                            .testTag("ModifierBar"),
+                            .testTag("ModifierBar")
+                            .navigationBarsPadding(),
                         onKeyClick = { data ->
                             viewModel.writeToPty(data.toByteArray())
                         },
