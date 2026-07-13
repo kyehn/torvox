@@ -38,6 +38,13 @@ pub extern "system" fn Java_io_torvox_bridge_NativeWindow_getNativeWindowPtr(
     // valid JNI pointers (checked non-null above). The returned pointer
     // is valid until released via ANativeWindow_release.
     let ptr = unsafe { ANativeWindow_fromSurface(env, surface) };
-    log::debug!("JNI ANativeWindow_fromSurface returned: {:p}", ptr);
+    log::info!(
+        "JNI ANativeWindow_fromSurface returned: ptr={:p} val={}",
+        ptr,
+        ptr as i64
+    );
+    if ptr.is_null() {
+        log::error!("JNI ANativeWindow_fromSurface returned NULL!");
+    }
     ptr as i64
 }

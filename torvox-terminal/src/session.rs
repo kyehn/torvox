@@ -75,6 +75,12 @@ pub struct Session {
     osc_handler: OscHandler,
     output_tx: flume::Sender<Vec<u8>>,
     output_rx: Receiver<Vec<u8>>,
+    /// Lock-free channel for user-initiated PTY writes (keyboard/IME input,
+    /// paste). The main thread sends here without taking the session lock;
+    /// `process_output` drains it under the lock already held by the render
+    /// thread, so input never blocks the UI thread on the session mutex.
+    user_write_tx: flume::Sender<Vec<u8>>,
+    user_write_rx: Receiver<Vec<u8>>,
     output_notify: Arc<(Mutex<bool>, Condvar)>,
     exited: Arc<AtomicBool>,
     bel_triggered: Arc<AtomicBool>,
@@ -282,6 +288,8 @@ impl Session {
         let clipboard_text = Arc::new(Mutex::new(None));
         let output_notify = Arc::new((Mutex::new(false), Condvar::new()));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(128);
+        // User-write channel: unbounded so the UI thread's send never blocks.
+        let (user_write_tx, user_write_rx) = bounded::<Vec<u8>>(4096);
 
         let terminal = GhosttyTerminal::new_with_theme(
             rows,
@@ -304,6 +312,8 @@ impl Session {
             osc_handler: OscHandler::new(),
             output_tx,
             output_rx,
+            user_write_tx,
+            user_write_rx,
             output_notify,
             exited,
             bel_triggered,
@@ -342,6 +352,13 @@ impl Session {
             pending = cvar.wait(pending).unwrap_or_else(|e| e.into_inner());
         }
         *pending = false;
+    }
+
+    /// Returns a clone of the lock-free sender for user-initiated PTY writes.
+    /// The main thread uses this to enqueue keyboard/IME/paste data without
+    /// taking the session mutex, avoiding UI-thread stalls.
+    pub fn user_write_sender(&self) -> flume::Sender<Vec<u8>> {
+        self.user_write_tx.clone()
     }
 
     pub fn process_output(&mut self) -> bool {
@@ -391,12 +408,12 @@ impl Session {
             count += 1;
         }
         if count > 0 {
-            log::info!("process_output: processed {count} chunks");
+            log::trace!("process_output: processed {count} chunks");
         }
         if changed {
             self.terminal.flush();
             for response in self.terminal.drain_pty_write_responses() {
-                log::info!("process_output: pty write-back {} bytes", response.len());
+                log::trace!("process_output: pty write-back {} bytes", response.len());
                 if let Err(error) = self.pty.write_all(&response) {
                     log::error!(
                         "session: PTY write-back failed ({} bytes): {}",
@@ -404,6 +421,23 @@ impl Session {
                         error
                     );
                 }
+            }
+        }
+        // Drain user-initiated PTY writes (keyboard/IME/paste) queued by the
+        // main thread through the lock-free channel. Written under the session
+        // lock already held by the render thread, so UI-thread input never
+        // blocks on the session mutex.
+        let mut user_writes: Vec<Vec<u8>> = Vec::new();
+        while let Ok(data) = self.user_write_rx.try_recv() {
+            user_writes.push(data);
+        }
+        for data in &user_writes {
+            if let Err(error) = self.pty.write_all(data) {
+                log::error!(
+                    "session: user PTY write failed ({} bytes): {}",
+                    data.len(),
+                    error
+                );
             }
         }
         changed

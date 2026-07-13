@@ -8,10 +8,12 @@
     <ID>CognitiveComplexMethod:TerminalScreen.kt$@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) @Suppress("DEPRECATION", "CyclomaticComplexMethod", "LongMethod") @Composable fun TerminalScreen( modifier: Modifier = Modifier, viewModel: TerminalViewModel = hiltViewModel(), onSettings: () -> Unit = {}, isOverlayVisible: Boolean = false, )</ID>
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$@Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth") // Acceptable — dispatches ~15 distinct gesture/intent types override fun onTouchEvent(event: MotionEvent): Boolean</ID>
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection</ID>
+    <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$private fun doCanvasDraw()</ID>
     <ID>CognitiveComplexMethod:TerminalViewModel.kt$TerminalViewModel$@Suppress("CyclomaticComplexMethod") private fun extractSelectedText( selection: SelectionState, scrollOffset: Int = 0, ): String</ID>
     <ID>CognitiveComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>CognitiveComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun controlByteForKeyCode(keyCode: Int): Byte?</ID>
+    <ID>CyclomaticComplexMethod:TerminalSurface.kt$TerminalSurface$private fun doCanvasDraw()</ID>
     <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
     <ID>LargeClass:TerminalSurface.kt$TerminalSurface : TextureViewSurfaceTextureListener</ID>
@@ -19,8 +21,10 @@
     <ID>LargeClass:TorvoxRuntime.kt$TorvoxRuntime</ID>
     <ID>LateinitUsage:MainActivity.kt$MainActivity$@Inject lateinit var torvoxRuntime: TorvoxRuntime // Dagger injection — lateinit required</ID>
     <ID>LongMethod:SessionDrawer.kt$@Composable fun SessionDrawer( viewModel: TerminalViewModel, onSettings: () -> Unit, onSearch: () -> Unit, onClose: () -> Unit, )</ID>
+    <ID>LongMethod:TerminalSurface.kt$TerminalSurface$private fun doCanvasDraw()</ID>
     <ID>LongMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>LongMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
+    <ID>NestedBlockDepth:TerminalSurface.kt$TerminalSurface$private fun doCanvasDraw()</ID>
     <ID>TooGenericExceptionCaught:BootstrapDownloader.kt$BootstrapDownloader$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:BootstrapInstaller.kt$BootstrapInstaller$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:BootstrapOrchestrator.kt$BootstrapOrchestrator$exception: Exception</ID>

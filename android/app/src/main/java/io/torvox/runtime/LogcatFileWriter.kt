@@ -1,6 +1,7 @@
 package io.torvox.runtime
 
 import android.content.Context
+import android.os.StrictMode
 import android.util.Log
 import java.io.File
 import java.io.FileWriter
@@ -15,28 +16,33 @@ object LogcatFileWriter {
     private val lock = Any()
 
     fun init(context: Context) {
-        synchronized(lock) {
-            try {
-                val baseDir =
-                    context.getExternalFilesDir(null)
-                        ?: context.getDir("logs_root", Context.MODE_PRIVATE)
-                val logsDirectory =
-                    File(baseDir, "logs").also { dir ->
-                        if (!dir.mkdirs()) {
-                            Log.w("LogcatFileWriter", "Failed to create logs directory: $dir")
+        val prev = StrictMode.allowThreadDiskWrites()
+        try {
+            synchronized(lock) {
+                try {
+                    val baseDir =
+                        context.getExternalFilesDir(null)
+                            ?: context.getDir("logs_root", Context.MODE_PRIVATE)
+                    val logsDirectory =
+                        File(baseDir, "logs").also { dir ->
+                            if (!dir.mkdirs()) {
+                                Log.w("LogcatFileWriter", "Failed to create logs directory: $dir")
+                            }
                         }
+                    if (!logsDirectory.isDirectory) {
+                        Log.e("LogcatFileWriter", "Failed to create logs directory at ${logsDirectory.absolutePath}")
+                        return
                     }
-                if (!logsDirectory.isDirectory) {
-                    Log.e("LogcatFileWriter", "Failed to create logs directory at ${logsDirectory.absolutePath}")
-                    return
+                    val file = File(logsDirectory, "debug.log")
+                    logFile = file
+                    fileWriter = FileWriter(file, true)
+                    Log.d("LogcatFileWriter", "Log file: ${file.absolutePath}")
+                } catch (exception: Exception) {
+                    Log.e("LogcatFileWriter", "Failed to init file logging", exception)
                 }
-                val file = File(logsDirectory, "debug.log")
-                logFile = file
-                fileWriter = FileWriter(file, true)
-                Log.d("LogcatFileWriter", "Log file: ${file.absolutePath}")
-            } catch (exception: Exception) {
-                Log.e("LogcatFileWriter", "Failed to init file logging", exception)
             }
+        } finally {
+            StrictMode.setThreadPolicy(prev)
         }
     }
 
