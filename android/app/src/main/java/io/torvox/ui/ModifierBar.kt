@@ -1,6 +1,8 @@
 package io.torvox.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -24,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -519,6 +522,12 @@ private fun RowScope.ExtraKeyButton(
 
     var isPressed by remember { mutableStateOf(false) }
 
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.90f else 1f,
+        animationSpec = spring(dampingRatio = 0.5f, stiffness = 800f),
+        label = "btnScale",
+    )
+
     val pressedColor = Color(0xFF7F7F7F)
     val targetBg =
         when {
@@ -594,7 +603,10 @@ private fun RowScope.ExtraKeyButton(
                     RoundedCornerShape(4.dp),
                 ),
             ).then(if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier)
-            .then(gestureModifier),
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }.then(gestureModifier),
         contentAlignment = Alignment.Center,
     ) {
         Text(
