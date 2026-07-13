@@ -18,8 +18,8 @@ use torvox_renderer::font::FontPipeline;
 use torvox_renderer::gpu::GpuContext;
 use torvox_renderer::gpu::SearchHighlight;
 use torvox_renderer::gpu::SelectionRange;
-use torvox_terminal::ghostty_terminal::CellSnapshot;
 use torvox_terminal::ghostty_terminal::KgpImageData;
+use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
 use torvox_terminal::session::Session;
 use torvox_terminal::shell_env::ShellEnv;
 
@@ -553,7 +553,50 @@ impl AndroidSurface {
     }
 
     /// Returns `true` if new PTY data arrived and was rendered, `false` if idle.
+    /// GPU-only render path.  Called from bridge after `process_session_for_render`
+    /// has already processed ghostty output and taken a snapshot while the surface
+    /// lock was NOT held.  The surface lock is held during this call but only for
+    /// fast GPU operations (atlas upload, instance building, wgpu render pass).
+    pub fn render_frame(
+        &mut self,
+        scroll_offset: u32,
+        had_output: bool,
+        snapshot: torvox_terminal::ghostty_terminal::GridSnapshot,
+    ) -> Result<bool, SurfaceError> {
+        self.render_inner(scroll_offset, had_output, snapshot)
+    }
+
+    /// Full render path: process ghostty output, take snapshot, then run GPU work.
+    /// Used by tests and as a fallback when the bridge path is not available.
     pub fn render(&mut self, scroll_offset: u32) -> Result<bool, SurfaceError> {
+        let had_output;
+        let snapshot;
+        {
+            let mut guard = self
+                .session
+                .as_ref()
+                .ok_or(SurfaceError::NoSession)?
+                .lock()
+                .map_err(|_| SurfaceError::NoSession)?;
+            let session = &mut *guard;
+            had_output = session.process_output();
+            snapshot = match session
+                .terminal()
+                .try_take_snapshot_with_scroll(scroll_offset)
+            {
+                Some(snap) => snap,
+                None => return Ok(false),
+            };
+        }
+        self.render_inner(scroll_offset, had_output, snapshot)
+    }
+
+    fn render_inner(
+        &mut self,
+        scroll_offset: u32,
+        had_output: bool,
+        mut snapshot: torvox_terminal::ghostty_terminal::GridSnapshot,
+    ) -> Result<bool, SurfaceError> {
         let frame_start = Instant::now();
         #[cfg(target_os = "android")]
         // SAFETY: ATrace_beginSection/endSection are thread-safe NDK functions.
@@ -569,70 +612,37 @@ impl AndroidSurface {
             self.native_window.is_some(),
         );
 
-        let had_output;
-        let mut snapshot;
         let has_search_highlights = !self.search_highlights.is_empty();
-        {
-            let mut guard = self
-                .session
-                .as_ref()
-                .ok_or(SurfaceError::NoSession)?
-                .lock()
-                .map_err(|_| SurfaceError::NoSession)?;
-            let session = &mut *guard;
-            had_output = session.process_output();
-            // Skip expensive snapshot + GPU render when nothing changed.
-            // Render even without PTY output when search highlights are pending
-            // so the user sees the highlighted matches immediately.
-            if has_search_highlights {
-                log::info!(
-                    "render: search highlights pending, proceeding (count={})",
-                    self.search_highlights.len()
-                );
-            }
-            if !had_output
-                && self.frame_count > 0
-                && !has_search_highlights
-                && !self.render_requested
-                && !self.blink_timer_elapsed()
-            {
-                #[cfg(target_os = "android")]
-                // SAFETY: Paired with the ATrace_beginSection at the top of render().
-                // These NDK functions are thread-safe and the call is correctly nested.
-                unsafe {
-                    ATrace_endSection();
-                } // AndroidSurface::render
-                return Ok(false);
-            }
+        // Skip expensive snapshot + GPU render when nothing changed.
+        // Render even without PTY output when search highlights are pending
+        // so the user sees the highlighted matches immediately.
+        if has_search_highlights {
             log::info!(
-                "RENDER_PROCEED: had_output={} frame_count={} highlights={} render_requested={}",
-                had_output,
-                self.frame_count,
-                has_search_highlights,
-                self.render_requested,
+                "render: search highlights pending, proceeding (count={})",
+                self.search_highlights.len()
             );
-
-            // Non-blocking snapshot for the render hot path. This must NOT block
-            // on the VT thread while we hold the session lock — blocking here
-            // would stall main-thread work (IME input, settings). The returned
-            // snapshot is at most 1 frame behind, which the surface diffs
-            // against `prev_cells`. On the first call the cache is not yet
-            // primed, so skip this frame.
-            match session
-                .terminal()
-                .try_take_snapshot_with_scroll(scroll_offset)
-            {
-                Some(snap) => snapshot = snap,
-                None => {
-                    #[cfg(target_os = "android")]
-                    // SAFETY: Paired with the ATrace_beginSection at the top of render().
-                    unsafe {
-                        ATrace_endSection();
-                    } // AndroidSurface::render
-                    return Ok(false);
-                }
-            }
         }
+        if !had_output
+            && self.frame_count > 0
+            && !has_search_highlights
+            && !self.render_requested
+            && !self.blink_timer_elapsed()
+        {
+            #[cfg(target_os = "android")]
+            // SAFETY: Paired with the ATrace_beginSection at the top of render_inner().
+            // These NDK functions are thread-safe and the call is correctly nested.
+            unsafe {
+                ATrace_endSection();
+            } // AndroidSurface::render
+            return Ok(false);
+        }
+        log::debug!(
+            "RENDER_PROCEED: had_output={} frame_count={} highlights={} render_requested={}",
+            had_output,
+            self.frame_count,
+            has_search_highlights,
+            self.render_requested,
+        );
 
         // Cursor visibility follows the terminal's DECTCEM state directly.
         // No app-level override — cursor_override was removed (FR-057).
@@ -771,6 +781,13 @@ impl AndroidSurface {
                 search_highlights: &self.search_highlights,
                 cursor_color,
                 cursor_style: self.cursor_style,
+                surface_bg: [
+                    self.theme.background[0] as f32 / 255.0,
+                    self.theme.background[1] as f32 / 255.0,
+                    self.theme.background[2] as f32 / 255.0,
+                    1.0,
+                ],
+                render_scale: torvox_renderer::gpu::RENDER_SCALE,
                 dirty_rows: &dirty_rows,
                 cached_instances: &self.cached_instances,
                 cached_row_ends: &self.cached_row_ends,
@@ -786,7 +803,7 @@ impl AndroidSurface {
         if gen_after > gen_before {
             let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
             let non_zero = atlas_data.iter().filter(|&&b| b != 0).count();
-            log::trace!(
+            log::debug!(
                 "atlas re-upload gen={}->{} non_zero_pixels={}",
                 gen_before,
                 gen_after,
@@ -874,7 +891,7 @@ impl AndroidSurface {
 
         if !instances.is_empty() {
             let first = &instances[0];
-            log::info!(
+            log::debug!(
                 "RENDER_INSTANCES: count={} first_cell=({:.0},{:.0}) bg=({},{},{}) fg=({},{},{}) flags={:.0} uv_size=({:.4},{:.4}) bearing=({:.1},{:.1}) advance_width={:.1}",
                 instances.len(),
                 first.quad_origin[0],
@@ -893,7 +910,7 @@ impl AndroidSurface {
                 first.glyph_advance_width,
             );
         } else {
-            log::warn!("RENDER_INSTANCES: ZERO instances — nothing to render!");
+            log::trace!("RENDER_INSTANCES: ZERO instances — nothing to render!");
         }
 
         self.title = snapshot.title.clone();
@@ -1005,12 +1022,12 @@ impl AndroidSurface {
         // frame (≈16.6ms present on 60Hz) would spuriously warn.
         if cpu_ms >= FRAME_TIME_TARGET_MS {
             log::warn!(
-                "RENDER_SLOW: cpu={:.1}ms present={:.1}ms (cpu ≥16ms target)",
+                "RENDER_SLOW: cpu={:.1}ms present={:.1}ms",
                 cpu_ms,
                 present_ms
             );
         } else {
-            log::trace!("RENDER_OK: cpu={:.1}ms present={:.1}ms", cpu_ms, present_ms);
+            log::debug!("RENDER_OK: cpu={:.1}ms present={:.1}ms", cpu_ms, present_ms);
         }
 
         // Swap caches for next frame — eliminates ~800KB memcpy/frame
@@ -1071,6 +1088,13 @@ impl AndroidSurface {
                 search_highlights: &self.search_highlights,
                 cursor_color,
                 cursor_style: self.cursor_style,
+                surface_bg: [
+                    self.theme.background[0] as f32 / 255.0,
+                    self.theme.background[1] as f32 / 255.0,
+                    self.theme.background[2] as f32 / 255.0,
+                    1.0,
+                ],
+                render_scale: torvox_renderer::gpu::RENDER_SCALE,
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],

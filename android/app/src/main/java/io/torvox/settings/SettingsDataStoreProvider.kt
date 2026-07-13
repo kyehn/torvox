@@ -1,6 +1,7 @@
 package io.torvox.settings
 
 import android.content.Context
+import android.os.StrictMode
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
@@ -15,7 +16,12 @@ class SettingsDataStoreProvider
 constructor(
     @ApplicationContext private val context: Context,
 ) {
-    internal val prefsDir: File = context.getDir("prefs", Context.MODE_PRIVATE)
+    internal val prefsDir: File =
+        StrictMode.allowThreadDiskReads().let { prev ->
+            context.getDir("prefs", Context.MODE_PRIVATE).also {
+                StrictMode.setThreadPolicy(prev)
+            }
+        }
 
     val dataStore: DataStore<Preferences> =
         PreferenceDataStoreFactory.create {

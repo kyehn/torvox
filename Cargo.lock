@@ -3150,6 +3150,7 @@ version = "0.1.0"
 dependencies = [
  "android_logger",
  "boltffi",
+ "flume",
  "log",
  "rkyv",
  "thiserror",

@@ -164,7 +164,6 @@ constructor(
     var drawerOpen: Boolean = false
         set(value) {
             field = value
-            Log.d(TAG, "drawerOpen=$value")
             if (value) {
                 hideSelectionHandles()
                 hideContextMenu()
@@ -211,7 +210,6 @@ constructor(
         leftDrawable.setTint(themeFgColor)
         rightDrawable.setTint(themeFgColor)
         val handleW = leftDrawable.intrinsicWidth
-        Log.d(TAG, "showSelHandles: start=($startRow,$startCol) end=($endRow,$endCol) handleW=$handleW")
         selectionHandleWidth = handleW
         val handleH = leftDrawable.intrinsicHeight
 
@@ -228,7 +226,6 @@ constructor(
             }
         startHandleRect.set(startX, startY, startX + handleW, startY + handleH)
         startHandleRect.inset(-handleW / 4, -handleH / 4)
-        Log.d(TAG, "showSelHandles: START popup at (${loc[0] + startX}, ${loc[1] + startY})")
 
         // END handle: positioned at bottom-right of end cell
         val visibleEndRow = (endRow - scrollOffset).coerceIn(0, rows - 1)
@@ -243,7 +240,6 @@ constructor(
             }
         endHandleRect.set(endX, endY, endX + handleW, endY + handleH)
         endHandleRect.inset(-handleW / 4, -handleH / 4)
-        Log.d(TAG, "showSelHandles: END popup at (${loc[0] + endX}, ${loc[1] + endY})")
     }
 
     private fun repositionHandle(
@@ -850,13 +846,11 @@ constructor(
                 longPressDragging = true
                 longPressStartX = event.x
                 longPressStartY = event.y
-                Log.d(TAG, "onLongPress: x=${event.x} y=${event.y} cellW=$cellWidth cellH=$cellHeight cols=$cols rows=$rows")
                 val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
                 val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
                 val bridge = viewModel?.runtime?.bridge()
                 val scrollbackLength = bridge?.scrollbackLength()?.toInt() ?: 0
                 val line = bridge?.scrollbackLine((scrollbackLength - scrollOffset + row).toUInt()) ?: ""
-                Log.d(TAG, "onLongPress: col=$col row=$row lineLen=${line.length}")
                 handleLongPress(event.x, event.y)
             }
         }
@@ -974,6 +968,7 @@ constructor(
         surfaceTextureListener = this
         isFocusable = true
         isFocusableInTouchMode = true
+        setWillNotDraw(false)
         scaleDetector.isQuickScaleEnabled = false
         contentDescription = context.getString(R.string.terminal)
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
@@ -1223,14 +1218,12 @@ constructor(
                     }
                     composingBuffer = newComposing
                     coalescer.updateComposingText(newComposing)
-                    Log.d(TAG, "setComposingText: '$newComposing' (len=${newComposing.length})")
                     return true
                 }
 
                 override fun finishComposingText(): Boolean {
                     composingBuffer = ""
                     coalescer.clearComposing()
-                    Log.d(TAG, "finishComposingText")
                     return true
                 }
 
@@ -1254,7 +1247,6 @@ constructor(
                     if (composingBuffer.isNotEmpty()) {
                         if (committedText == composingBuffer) {
                             // Already forwarded via composing deltas; do not resend.
-                            Log.d(TAG, "commitText: '$committedText' already composed, skipping resend")
                         } else {
                             terminalViewModel?.writeToPty(
                                 ByteArray(composingBuffer.length) { BACKSPACE_BYTE },
@@ -1350,11 +1342,9 @@ constructor(
     ) {
         val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
         val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
-        Log.d(TAG, "startSelectionAt: col=$col row=$row expand=$expandToWord vm=${viewModel != null}")
 
         if (expandToWord) {
             val (startCol, endCol) = expandWordSelection(row, col)
-            Log.d(TAG, "startSelectionAt: wordStart=$startCol wordEnd=$endCol")
             viewModel?.startSelection(row, startCol)
             viewModel?.updateSelection(row, endCol)
             viewModel?.endSelection(scrollOffset)
@@ -1435,7 +1425,6 @@ constructor(
             parent?.requestDisallowInterceptTouchEvent(true)
         }
         if (drawerOpen && event.x < drawerWidthPixels) {
-            Log.d(TAG, "onTouchEvent: passing through drawer touch at x=${event.x}")
             return false
         }
 
@@ -1637,7 +1626,6 @@ constructor(
         previousHeight: Int,
     ) {
         super.onSizeChanged(width, height, previousWidth, previousHeight)
-        Log.d(TAG, "onSizeChanged: $width x $height (was ${previousWidth}x$previousHeight)")
         if (width <= 0 || height <= 0) return
         if (width == previousWidth && height == previousHeight && previousWidth != 0) return
 
@@ -1711,7 +1699,6 @@ constructor(
         width: Int,
         height: Int,
     ) {
-        Log.d(TAG, "onSurfaceTextureAvailable: $width x $height")
         cachedSurface?.release()
         val textureSurface = Surface(surfaceTexture).also { cachedSurface = it }
         surfaceWidthPixels = width
@@ -1746,7 +1733,6 @@ constructor(
         width: Int,
         height: Int,
     ) {
-        Log.d(TAG, "onSurfaceTextureSizeChanged: $width x $height")
         surfaceWidthPixels = width
         surfaceHeightPixels = height
         recomputeRowsColsImmediate(width, height)
@@ -1759,7 +1745,6 @@ constructor(
     }
 
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
-        Log.d(TAG, "onSurfaceTextureDestroyed")
         if (isAttachedToWindow) {
             hideContextMenu()
         }
