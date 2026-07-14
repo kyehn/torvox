@@ -9,6 +9,7 @@ class BootstrapOrchestrator(
     private val downloader: BootstrapDownloader,
     private val installer: BootstrapInstaller,
     private val secondStageRunner: SecondStageRunner,
+    private val onProgress: BootstrapProgressCallback? = null,
 ) {
     enum class Status {
         NOT_INSTALLED,
@@ -32,23 +33,30 @@ class BootstrapOrchestrator(
             return@withContext Result.failure(Exception("No bootstrap URL available for this architecture"))
         }
         try {
+            onProgress?.onProgress(BootstrapProgress.Downloading(0, 0))
             val arch = detectAbi()
             val zipFile =
                 downloader.download(resolvedUrl, arch).getOrElse { exception ->
+                    onProgress?.onProgress(BootstrapProgress.Error("Download failed: ${exception.message}"))
                     return@withContext Result.failure(Exception("Download failed: ${exception.message}"))
                 }
             installer.install(zipFile).getOrElse { exception ->
+                onProgress?.onProgress(BootstrapProgress.Error("Install failed: ${exception.message}"))
                 return@withContext Result.failure(Exception("Install failed: ${exception.message}"))
             }
             val secondStageResult = secondStageRunner.run()
+            onProgress?.onProgress(BootstrapProgress.CreatingSymlinks)
             val messages = mutableListOf("Bootstrap installed successfully")
             if (secondStageResult.errors.isNotEmpty()) {
                 messages.add("${secondStageResult.errors.size} postinst scripts had errors")
             }
             zipFile.delete()
+            onProgress?.onProgress(BootstrapProgress.Complete)
             Result.success(messages.joinToString("; "))
         } catch (exception: Exception) {
-            Result.failure(Exception("Bootstrap orchestration failed: ${exception.message}", exception))
+            val message = "Bootstrap orchestration failed: ${exception.message}"
+            onProgress?.onProgress(BootstrapProgress.Error(message))
+            Result.failure(Exception(message, exception))
         }
     }
 

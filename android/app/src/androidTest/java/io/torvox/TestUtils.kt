@@ -47,8 +47,12 @@ fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
 fun AndroidComposeTestRule<*, *>.getBridge(): TorvoxBridge? {
     var bridge: TorvoxBridge? = null
     val rule = activityRule as ActivityScenarioRule<*>
-    rule.scenario.onActivity { activity: android.app.Activity ->
-        bridge = (activity as MainActivity).torvoxRuntime.bridge()
+    val deadlineMs = System.currentTimeMillis() + 15_000
+    while (bridge == null && System.currentTimeMillis() < deadlineMs) {
+        Thread.sleep(100)
+        rule.scenario.onActivity { activity: android.app.Activity ->
+            bridge = (activity as MainActivity).torvoxRuntime.bridge()
+        }
     }
     return bridge
 }

@@ -143,3 +143,4 @@ vendoring
 Vttest
 Ctrl
 cursor_style
+logcat

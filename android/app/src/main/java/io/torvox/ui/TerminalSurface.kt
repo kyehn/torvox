@@ -24,6 +24,7 @@ import android.view.Surface
 import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowInsets
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
@@ -32,6 +33,7 @@ import android.widget.PopupWindow
 import io.torvox.R
 import io.torvox.SelectionMode
 import io.torvox.TerminalViewModel
+import io.torvox.runtime.InputBatchBuffer
 import io.torvox.runtime.LogUtil
 
 private val modifierBarHeightPx: Int by lazy {
@@ -98,6 +100,7 @@ constructor(
         private const val ZOOM_THRESHOLD_LOW = 0.9f
         private const val ZOOM_THRESHOLD_HIGH = 1.1f
         private const val DRAWER_WIDTH_DP = 280
+        private const val RESIZE_SETTLE_MS = 50L
         private const val FLING_VELOCITY_DIVISOR = 100f
         private const val SUPPRESS_GRACE_PERIOD_NS = 200_000_000L
         private const val FLING_MAX_LINES = 50
@@ -152,6 +155,14 @@ constructor(
     private var magnifier: Magnifier? = null
     private var lastConfiguredWidth = 0
     private var lastConfiguredHeight = 0
+
+    // Predictive grid pre-computation for IME animation
+    private var predictiveRows: Int = 0
+    private var predictiveCols: Int = 0
+    private var predictiveCellWidth: Float = 0f
+    private var predictiveCellHeight: Float = 0f
+    private var imeAnimationInProgress: Boolean = false
+    private var imeAnimationEndRunnable: Runnable? = null
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
     var onScrollingStateChanged: ((isScrolling: Boolean) -> Unit)? = null
@@ -361,87 +372,107 @@ constructor(
                     view: View,
                     outRect: Rect,
                 ) {
-                    val selection = viewModel?.state?.value?.selection
-                    if (selection?.start == null || selection?.end == null) {
-                        outRect.set(0, 0, width, height)
-                        return
-                    }
-
-                    val rawLoRow = minOf(selection.start.row, selection.end.row) - scrollOffset
-                    val rawHiRow = maxOf(selection.start.row, selection.end.row) - scrollOffset
-
-                    val loRow: Int
-                    val hiRow: Int
-
-                    if (rawHiRow < 0 || rawLoRow >= rows) {
-                        loRow = rows / 2
-                        hiRow = rows / 2
-                    } else {
-                        loRow = rawLoRow.coerceIn(0, rows - 1)
-                        hiRow = rawHiRow.coerceIn(loRow, rows - 1)
-                    }
-
-                    val loCol = if (selection.start.row <= selection.end.row) selection.start.col else selection.end.col
-                    val hiCol = if (selection.start.row <= selection.end.row) selection.end.col else selection.start.col
-
-                    val imeInsetBottom =
-                        rootWindowInsets?.let {
-                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                                it
-                                    .getInsets(
-                                        android.view.WindowInsets.Type
-                                            .ime(),
-                                    ).bottom
-                            } else {
-                                @Suppress("DEPRECATION")
-                                val visibleFrame = Rect()
-                                @Suppress("DEPRECATION")
-                                getWindowVisibleDisplayFrame(visibleFrame)
-                                height - visibleFrame.bottom
-                            }
-                        } ?: 0
-                    val availableHeight = height - imeInsetBottom.coerceAtLeast(0)
-
-                    val topOfSelection = Math.round(loRow * cellHeight)
-                    val bottomOfSelection = Math.round((hiRow + 1) * cellHeight)
-                    val left = Math.round(loCol * cellWidth)
-                    val right = Math.round((hiCol + 1) * cellWidth)
-
-                    // Position the anchor rect OUTSIDE the selection so the floating
-                    // ActionMode toolbar does not obscure the selected text.
-                    // If selection is in the lower half, anchor above it.
-                    // If in the upper half, anchor below it.
-                    val midPoint = availableHeight / 2
-                    if (topOfSelection > midPoint) {
-                        // Selection in lower half → anchor rect above the selection
-                        val anchorTop =
-                            Math
-                                .round(topOfSelection - cellHeight)
-                                .coerceIn(0, availableHeight)
-                        val anchorBottom = topOfSelection.coerceIn(0, availableHeight)
-                        outRect.set(
-                            left.coerceIn(0, width),
-                            anchorTop,
-                            right.coerceIn(0, width),
-                            anchorBottom,
-                        )
-                    } else {
-                        // Selection in upper half → anchor rect below the selection
-                        val anchorTop = bottomOfSelection.coerceIn(0, availableHeight)
-                        val anchorBottom =
-                            Math
-                                .round(bottomOfSelection + cellHeight)
-                                .coerceIn(0, availableHeight)
-                        outRect.set(
-                            left.coerceIn(0, width),
-                            anchorTop,
-                            right.coerceIn(0, width),
-                            anchorBottom,
-                        )
+                    try {
+                        computeContentRect(outRect)
+                    } catch (_: IllegalArgumentException) {
+                        outRect.set(0, 0, 0, 0)
                     }
                 }
             }
+
         actionMode = startActionMode(callback, ActionMode.TYPE_FLOATING)
+    }
+
+    private fun computeContentRect(outRect: Rect) {
+        if (width <= 0 || height <= 0) {
+            outRect.set(0, 0, width.coerceAtLeast(0), height.coerceAtLeast(0))
+            return
+        }
+
+        val selection = viewModel?.state?.value?.selection
+        if (selection?.start == null || selection?.end == null) {
+            outRect.set(0, 0, width, height)
+            return
+        }
+
+        val rawLoRow = minOf(selection.start.row, selection.end.row) - scrollOffset
+        val rawHiRow = maxOf(selection.start.row, selection.end.row) - scrollOffset
+
+        val loRow: Int
+        val hiRow: Int
+
+        if (rawHiRow < 0 || rawLoRow >= rows) {
+            loRow = rows / 2
+            hiRow = rows / 2
+        } else {
+            loRow = rawLoRow.coerceIn(0, rows - 1)
+            hiRow = rawHiRow.coerceIn(loRow, rows - 1)
+        }
+
+        val loCol = if (selection.start.row <= selection.end.row) selection.start.col else selection.end.col
+        val hiCol = if (selection.start.row <= selection.end.row) selection.end.col else selection.start.col
+
+        val imeInsetBottom =
+            rootWindowInsets?.let {
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    it
+                        .getInsets(
+                            android.view.WindowInsets.Type
+                                .ime(),
+                        ).bottom
+                } else {
+                    @Suppress("DEPRECATION")
+                    val visibleFrame = Rect()
+                    @Suppress("DEPRECATION")
+                    getWindowVisibleDisplayFrame(visibleFrame)
+                    height - visibleFrame.bottom
+                }
+            } ?: 0
+        val availableHeight = (height - imeInsetBottom).coerceAtLeast(1)
+        val safeHeight = availableHeight
+        if (safeHeight <= 0) {
+            outRect.set(0, 0, width, height)
+            return
+        }
+        val safeWidth = width.coerceAtLeast(1)
+
+        val topOfSelection = Math.round(loRow * cellHeight)
+        val bottomOfSelection = Math.round((hiRow + 1) * cellHeight)
+        val left = Math.round(loCol * cellWidth)
+        val right = Math.round((hiCol + 1) * cellWidth)
+
+        // Position the anchor rect OUTSIDE the selection so the floating
+        // ActionMode toolbar does not obscure the selected text.
+        // If selection is in the lower half, anchor above it.
+        // If in the upper half, anchor below it.
+        val midPoint = safeHeight / 2
+        if (topOfSelection > midPoint) {
+            // Selection in lower half → anchor rect above the selection
+            val anchorTop =
+                Math
+                    .round(topOfSelection - cellHeight)
+                    .coerceIn(0, safeHeight)
+            val anchorBottom = topOfSelection.coerceIn(0, safeHeight)
+            outRect.set(
+                left.coerceIn(0, safeWidth),
+                anchorTop,
+                right.coerceIn(0, safeWidth),
+                anchorBottom,
+            )
+        } else {
+            // Selection in upper half → anchor rect below the selection
+            val anchorTop = bottomOfSelection.coerceIn(0, safeHeight)
+            val anchorBottom =
+                Math
+                    .round(bottomOfSelection + cellHeight)
+                    .coerceIn(0, safeHeight)
+            outRect.set(
+                left.coerceIn(0, safeWidth),
+                anchorTop,
+                right.coerceIn(0, safeWidth),
+                anchorBottom,
+            )
+        }
     }
 
     fun hideContextMenu() {
@@ -901,15 +932,18 @@ constructor(
 
         if (isOnEmptyArea || isOnWhitespace) {
             val endCol = (col + 1).coerceAtMost(cols - 1)
+            viewModel?.setSelectionMode(SelectionMode.Char)
             viewModel?.startSelection(row, col)
             viewModel?.updateSelection(row, endCol)
             viewModel?.endSelection(scrollOffset)
             showSelectionHandles(row, col, row, endCol, getAccentColor())
 
-            val clipboard = getClipboardManager()
-            if (clipboard?.hasPrimaryClip() == true) {
-                showContextMenu(row, col, hasSelection = false, hasClipboard = true)
-            }
+            Log.d(
+                "TorvoxSelection",
+                "LONG_PRESS empty/whitespace: row=$row col=$col endCol=$endCol " +
+                    "isOnEmptyArea=$isOnEmptyArea isOnWhitespace=$isOnWhitespace " +
+                    "mode=Char menu=PASTE_ONLY",
+            )
         } else {
             val bounds =
                 viewModel?.runtime?.expandAndSetSelection(
@@ -938,20 +972,20 @@ constructor(
                 endCol = col
             }
 
+            Log.d(
+                "TorvoxSelection",
+                "LONG_PRESS text: tapRow=$row tapCol=$col " +
+                    "expanded start=($startRow,$startCol) end=($endRow,$endCol) " +
+                    "mode=Word menu=FULL hasClipboard=$hasClipboard",
+            )
+
             viewModel?.startSelection(startRow, startCol)
             viewModel?.updateSelection(endRow, endCol)
             viewModel?.endSelection(scrollOffset)
             showSelectionHandles(startRow, startCol, endRow, endCol, getAccentColor())
-            showContextMenu(
-                row,
-                col,
-                hasSelection = true,
-                hasClipboard = hasClipboard,
-                selectionStartRow = startRow,
-                selectionEndRow = endRow,
-                selectionStartCol = startCol,
-                selectionEndCol = endCol,
-            )
+            // The selection menu is rendered by the Compose SelectionMenuOverlay,
+            // driven by the view-model selection state. We intentionally do NOT
+            // invoke the legacy ActionMode showContextMenu path here.
         }
     }
 
@@ -1061,9 +1095,43 @@ constructor(
             suppressUntilNanos = System.nanoTime() + SUPPRESS_GRACE_PERIOD_NS
         }
         if (hasFocus) {
+            isPaused = false
             suppressUntilNanos = System.nanoTime() + SUPPRESS_GRACE_PERIOD_NS
             currentInputConnection?.finishComposingText()
         }
+    }
+
+    override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+        val result = super.onApplyWindowInsets(insets)
+        val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
+        val totalHeight = height
+        if (imeBottom > 0) {
+            // IME is visible — compute what the grid will look like after the animation ends
+            val availableHeight = totalHeight - imeBottom
+            val cellWidth = viewModel?.runtime?.cellWidth ?: 0f
+            val cellHeight = viewModel?.runtime?.cellHeight ?: 0f
+            if (cellWidth > 0f && cellHeight > 0f && availableHeight > 0) {
+                predictiveCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
+                predictiveRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
+                predictiveCellWidth = cellWidth
+                predictiveCellHeight = cellHeight
+            }
+            imeAnimationInProgress = true
+        } else if (imeAnimationInProgress) {
+            // IME was visible and is now hidden — animation will follow.
+            // Don't set imeAnimationInProgress=false yet; let the settle
+            // runnable handle it after the final size change.
+        } else {
+            // No IME involved — nothing to predict.
+            predictiveRows = 0
+            predictiveCols = 0
+            imeAnimationInProgress = false
+            return result
+        }
+        // Cancel any pending settle runnable
+        imeAnimationEndRunnable?.let { removeCallbacks(it) }
+        imeAnimationEndRunnable = null
+        return result
     }
 
     fun initialize(viewModel: TerminalViewModel) {
@@ -1151,7 +1219,8 @@ constructor(
 
     fun consumePendingInput(): ByteArray? = viewModel?.consumePendingInput()
 
-    private val coalescer = InputCoalescer({ data -> viewModel?.writeToPty(data) })
+    private val inputBatchBuffer = InputBatchBuffer({ data -> viewModel?.writeToPty(data) })
+    private val coalescer = InputCoalescer({ data -> inputBatchBuffer.write(data) })
     private var currentInputConnection: InputConnection? = null
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
@@ -1326,16 +1395,6 @@ constructor(
         return builder.toString().trimEnd('\n')
     }
 
-    fun expandWordSelection(
-        row: Int,
-        col: Int,
-    ): Pair<Int, Int> {
-        val bridge = viewModel?.runtime?.bridge() ?: return Pair(col, col)
-        val scrollbackLength = bridge.scrollbackLength().toInt()
-        val line = bridge.scrollbackLine((scrollbackLength - scrollOffset + row).toUInt()) ?: return Pair(col, col)
-        return expandWordOnLine(line, col)
-    }
-
     private fun startSelectionAt(
         event: MotionEvent,
         expandToWord: Boolean = false,
@@ -1344,10 +1403,30 @@ constructor(
         val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
 
         if (expandToWord) {
-            val (startCol, endCol) = expandWordSelection(row, col)
-            viewModel?.startSelection(row, startCol)
-            viewModel?.updateSelection(row, endCol)
-            viewModel?.endSelection(scrollOffset)
+            // Use the core-backed expansion (CJK / URL aware) so double-tap word
+            // selection matches long-press exactly — no divergent client logic.
+            val bridge = viewModel?.runtime?.bridge()
+            val scrollbackLength = bridge?.scrollbackLength()?.toInt() ?: 0
+            val bounds =
+                viewModel?.runtime?.expandAndSetSelection(
+                    row = (scrollbackLength - scrollOffset + row).toUInt(),
+                    col = col.toUInt(),
+                    mode = 1,
+                )
+            if (bounds != null) {
+                val (start, end) = bounds
+                viewModel?.setSelectionMode(SelectionMode.Word)
+                viewModel?.startSelection(start.first.toInt(), start.second.toInt())
+                viewModel?.updateSelection(end.first.toInt(), end.second.toInt())
+                viewModel?.endSelection(scrollOffset)
+                Log.d(
+                    "TorvoxSelection",
+                    "DOUBLE_TAP word: tapRow=$row tapCol=$col " +
+                        "expanded start=(${start.first},${start.second}) end=(${end.first},${end.second})",
+                )
+            } else {
+                viewModel?.startSelection(row, col)
+            }
         } else {
             viewModel?.startSelection(row, col)
         }
@@ -1556,16 +1635,6 @@ constructor(
                         viewModel?.endSelection(scrollOffset)
                         val clipboard = getClipboardManager()
                         showSelectionHandles(sel.start.row, sel.start.col, sel.end.row, sel.end.col, getAccentColor())
-                        showContextMenu(
-                            sel.end.row,
-                            sel.end.col,
-                            hasSelection = true,
-                            hasClipboard = clipboard?.hasPrimaryClip() ?: false,
-                            selectionStartRow = sel.start.row,
-                            selectionEndRow = sel.end.row,
-                            selectionStartCol = sel.start.col,
-                            selectionEndCol = sel.end.col,
-                        )
                     }
                 }
                 edgeScrollRunning = false
@@ -1584,20 +1653,8 @@ constructor(
                             selection.end.col,
                             getAccentColor(),
                         )
-                        if (actionMode == null) {
-                            showContextMenu(
-                                selection.end.row,
-                                selection.end.col,
-                                hasSelection = true,
-                                hasClipboard = clipboard?.hasPrimaryClip() ?: false,
-                                selectionStartRow = selection.start.row,
-                                selectionEndRow = selection.end.row,
-                                selectionStartCol = selection.start.col,
-                                selectionEndCol = selection.end.col,
-                            )
-                        } else {
-                            actionMode?.invalidate()
-                        }
+                        // The selection menu is rendered by the Compose
+                        // SelectionMenuOverlay, driven by the view-model state.
                     }
                     // Flush the new selection state to the Rust renderer so it
                     // paints the selection highlight at the correct position.
@@ -1661,9 +1718,59 @@ constructor(
         terminalViewModel.surfaceWidth = width
         terminalViewModel.surfaceHeight = height
         terminalViewModel.runtime.bridge()?.setSurfaceSize(width, height)
-        // Resize the terminal grid (rows/cols) to match the new viewport.
-        // This ensures the PTY knows its correct dimensions when IME opens,
-        // and the GPU renders exactly the visible number of rows.
+
+        if (imeAnimationInProgress) {
+            applyResizeDuringIme(width, height, terminalViewModel)
+            return
+        }
+        applyResizeNormal(width, height, terminalViewModel)
+    }
+
+    private fun applyResizeDuringIme(
+        width: Int,
+        height: Int,
+        terminalViewModel: TerminalViewModel,
+    ) {
+        if (predictiveRows > 0 && predictiveCols > 0) {
+            rows = predictiveRows
+            cols = predictiveCols
+            terminalViewModel.runtime.cellWidth = predictiveCellWidth
+            terminalViewModel.runtime.cellHeight = predictiveCellHeight
+        }
+        terminalViewModel.runtime.recomputeGrid(width, height)
+        val surface = cachedSurface
+        if (surface != null) {
+            val windowPointer = terminalViewModel.runtime.getNativeWindowPtr(surface)
+            if (windowPointer != 0L) {
+                terminalViewModel.runtime.updateNativeWindow(
+                    windowPointer,
+                    width,
+                    height,
+                )
+            }
+        }
+        imeAnimationEndRunnable?.let { removeCallbacks(it) }
+        imeAnimationEndRunnable =
+            Runnable {
+                imeAnimationInProgress = false
+                imeAnimationEndRunnable = null
+                val runtimeState = terminalViewModel.runtime.state.value
+                if (runtimeState.rows > 0 && runtimeState.cols > 0) {
+                    rows = runtimeState.rows
+                    cols = runtimeState.cols
+                }
+                lastConfiguredWidth = terminalViewModel.surfaceWidth
+                lastConfiguredHeight = terminalViewModel.surfaceHeight
+            }.also { postDelayed(it, RESIZE_SETTLE_MS) }
+        lastConfiguredWidth = width
+        lastConfiguredHeight = height
+    }
+
+    private fun applyResizeNormal(
+        width: Int,
+        height: Int,
+        terminalViewModel: TerminalViewModel,
+    ) {
         terminalViewModel.runtime.recomputeGrid(width, height)
         val surface =
             cachedSurface ?: (
@@ -1745,6 +1852,8 @@ constructor(
     }
 
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+        viewModel?.runtime?.onSurfaceDestroyed()
+        viewModel?.runtime?.releaseAllGpuSurfaces()
         if (isAttachedToWindow) {
             hideContextMenu()
         }
