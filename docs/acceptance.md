@@ -956,6 +956,15 @@ the session. The reader thread SHALL log errors and continue reading.
 | 1 | Simulated PTY read errors do not terminate the session or crash the process | `cargo test --package torvox-terminal -- dst_simulation` ([`dst_simulation.rs`](torvox-terminal/tests/dst_simulation.rs)) |
 | 2 | Concurrent session stress tests verify robustness against I/O errors | `cargo test --package torvox-terminal -- concurrent_session` ([`concurrent_session.rs`](torvox-terminal/tests/concurrent_session.rs)) |
 
+### NFR-025: Unified Logging
+
+**Requirement**: The system SHALL provide unified logging infrastructure that writes to both logcat and a rotating file, with log levels configurable independently for each output.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | `logging.rs` exists with `TorvoxLogger` struct that implements `log::Log` | `ls torvox-gui-android/src/logging.rs` |
+| 2 | Dual-write capability (logcat + file) verified by `torvox_bridge_init_logger` and `torvox_bridge_set_log_file_path` exports | `nm target/*/libtorvox_gui_android.so \| grep torvox_bridge_init_logger` |
+
 ---
 
 ## Verification Environment Summary

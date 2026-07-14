@@ -10,7 +10,7 @@ object StrictModeConfig {
                 .detectDiskReads()
                 .detectDiskWrites()
                 .detectNetwork()
-                .detectCustomSlowCalls()
+                .detectUnbufferedIo()
                 .penaltyLog()
                 .build(),
         )

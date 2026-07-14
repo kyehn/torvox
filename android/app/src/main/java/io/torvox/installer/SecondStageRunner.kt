@@ -9,6 +9,7 @@ import java.io.File
 class SecondStageRunner(
     private val prefixDir: File,
     private val homeDir: File,
+    private val onProgress: BootstrapProgressCallback? = null,
 ) {
     companion object {
         private const val THREAD_JOIN_TIMEOUT_MS = 5_000L
@@ -38,48 +39,57 @@ class SecondStageRunner(
         val postinstDir = File(prefixDir, "var/lib/dpkg/info")
         val errors = mutableListOf<String>()
         if (postinstDir.isDirectory) {
-            postinstDir
-                .listFiles()
-                ?.filter { it.name.endsWith(".postinst") }
-                ?.forEach { script ->
-                    val packageName = script.name.removeSuffix(".postinst")
-                    try {
-                        Os.chmod(script.absolutePath, BootstrapInstaller.EXECUTABLE_FILE_MODE)
-                        val environment =
-                            mapOf(
-                                "DPKG_MAINTSCRIPT_PACKAGE" to packageName,
-                                "DPKG_MAINTSCRIPT_PACKAGE_REFCOUNT" to "1",
-                                "DPKG_MAINTSCRIPT_ARCH" to arch,
-                                "DPKG_MAINTSCRIPT_NAME" to "postinst",
-                                "DPKG_MAINTSCRIPT_DEBUG" to "0",
-                                "DPKG_RUNNING_VERSION" to dpkgVersion,
-                                "DPKG_FORCE" to "security-mac,downgrade",
-                                "DPKG_ADMINDIR" to File(prefixDir, "var/lib/dpkg").absolutePath,
-                                "DPKG_ROOT" to "",
-                                "HOME" to homeDir.absolutePath,
-                                "PATH" to "${File(prefixDir, "bin").absolutePath}:/system/bin:/system/xbin",
-                                "PREFIX" to prefixDir.absolutePath,
-                            )
-                        val proc =
-                            Runtime.getRuntime().exec(
-                                arrayOf(script.absolutePath, "configure"),
-                                environment.map { "${it.key}=${it.value}" }.toTypedArray(),
-                                File("/"),
-                            )
-                        val stdoutThread = Thread { proc.inputStream.bufferedReader().readText() }
-                        val stderrThread = Thread { proc.errorStream.bufferedReader().readText() }
-                        stdoutThread.start()
-                        stderrThread.start()
-                        val exitCode = proc.waitFor()
-                        stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
-                        stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
-                        if (exitCode != 0) {
-                            errors.add("$packageName postinst exited with code $exitCode")
-                        }
-                    } catch (exception: Exception) {
-                        errors.add("$packageName postinst error [${exception.javaClass.simpleName}]: ${exception.message}")
+            val scripts =
+                postinstDir
+                    .listFiles()
+                    ?.filter { it.name.endsWith(".postinst") }
+                    ?.toList()
+                    ?: emptyList()
+            val totalScripts = scripts.size
+            var scriptsCompleted = 0
+            scripts.forEach { script ->
+                onProgress?.onProgress(
+                    BootstrapProgress.RunningPostInstall(scriptsCompleted, totalScripts),
+                )
+                val packageName = script.name.removeSuffix(".postinst")
+                try {
+                    Os.chmod(script.absolutePath, BootstrapInstaller.EXECUTABLE_FILE_MODE)
+                    val environment =
+                        mapOf(
+                            "DPKG_MAINTSCRIPT_PACKAGE" to packageName,
+                            "DPKG_MAINTSCRIPT_PACKAGE_REFCOUNT" to "1",
+                            "DPKG_MAINTSCRIPT_ARCH" to arch,
+                            "DPKG_MAINTSCRIPT_NAME" to "postinst",
+                            "DPKG_MAINTSCRIPT_DEBUG" to "0",
+                            "DPKG_RUNNING_VERSION" to dpkgVersion,
+                            "DPKG_FORCE" to "security-mac,downgrade",
+                            "DPKG_ADMINDIR" to File(prefixDir, "var/lib/dpkg").absolutePath,
+                            "DPKG_ROOT" to "",
+                            "HOME" to homeDir.absolutePath,
+                            "PATH" to "${File(prefixDir, "bin").absolutePath}:/system/bin:/system/xbin",
+                            "PREFIX" to prefixDir.absolutePath,
+                        )
+                    val proc =
+                        Runtime.getRuntime().exec(
+                            arrayOf(script.absolutePath, "configure"),
+                            environment.map { "${it.key}=${it.value}" }.toTypedArray(),
+                            File("/"),
+                        )
+                    val stdoutThread = Thread { proc.inputStream.bufferedReader().readText() }
+                    val stderrThread = Thread { proc.errorStream.bufferedReader().readText() }
+                    stdoutThread.start()
+                    stderrThread.start()
+                    val exitCode = proc.waitFor()
+                    stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
+                    stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
+                    if (exitCode != 0) {
+                        errors.add("$packageName postinst exited with code $exitCode")
                     }
+                } catch (exception: Exception) {
+                    errors.add("$packageName postinst error [${exception.javaClass.simpleName}]: ${exception.message}")
                 }
+                scriptsCompleted++
+            }
         }
         writeTermuxEnv()
         Result(true, errors)

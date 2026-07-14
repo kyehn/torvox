@@ -385,6 +385,9 @@ private fun TorvoxNavHost(viewModelReady: (TerminalViewModel) -> Unit = {}) {
     val viewModel: TerminalViewModel = hiltViewModel()
     LaunchedEffect(viewModel) { viewModelReady(viewModel) }
     var showSettings by remember { mutableStateOf(false) }
+    LaunchedEffect(showSettings) {
+        viewModel.runtime.bridge()?.setRenderPaused(showSettings)
+    }
     val appThemeMode by viewModel.appThemeMode.collectAsState()
     val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     val context = LocalContext.current

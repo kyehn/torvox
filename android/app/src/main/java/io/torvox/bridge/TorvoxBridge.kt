@@ -164,30 +164,29 @@ data class BridgeTheme(
 
     companion object {
         @Suppress("FunctionNaming")
-        fun wireDecode(reader: WireReader): BridgeTheme =
-            BridgeTheme(
-                name = reader.readString(),
-                bg = reader.readI32(),
-                fg = reader.readI32(),
-                cursor = reader.readI32(),
-                selectionBg = reader.readI32(),
-                ansi0 = reader.readI32(),
-                ansi1 = reader.readI32(),
-                ansi2 = reader.readI32(),
-                ansi3 = reader.readI32(),
-                ansi4 = reader.readI32(),
-                ansi5 = reader.readI32(),
-                ansi6 = reader.readI32(),
-                ansi7 = reader.readI32(),
-                ansi8 = reader.readI32(),
-                ansi9 = reader.readI32(),
-                ansi10 = reader.readI32(),
-                ansi11 = reader.readI32(),
-                ansi12 = reader.readI32(),
-                ansi13 = reader.readI32(),
-                ansi14 = reader.readI32(),
-                ansi15 = reader.readI32(),
-            )
+        fun wireDecode(reader: WireReader): BridgeTheme = BridgeTheme(
+            name = reader.readString(),
+            bg = reader.readI32(),
+            fg = reader.readI32(),
+            cursor = reader.readI32(),
+            selectionBg = reader.readI32(),
+            ansi0 = reader.readI32(),
+            ansi1 = reader.readI32(),
+            ansi2 = reader.readI32(),
+            ansi3 = reader.readI32(),
+            ansi4 = reader.readI32(),
+            ansi5 = reader.readI32(),
+            ansi6 = reader.readI32(),
+            ansi7 = reader.readI32(),
+            ansi8 = reader.readI32(),
+            ansi9 = reader.readI32(),
+            ansi10 = reader.readI32(),
+            ansi11 = reader.readI32(),
+            ansi12 = reader.readI32(),
+            ansi13 = reader.readI32(),
+            ansi14 = reader.readI32(),
+            ansi15 = reader.readI32(),
+        )
     }
 }
 
@@ -227,25 +226,24 @@ data class TerminalConfig(
         private const val DEFAULT_FONT_SIZE_TENTHS = 140u
 
         @Suppress("FunctionNaming")
-        fun wireDecode(reader: WireReader): TerminalConfig =
-            TerminalConfig(
-                shell =
-                    when (reader.readI32()) {
-                        0 -> Shell.SystemDefault
-                        1 -> Shell.Custom(reader.readString())
-                        else -> Shell.SystemDefault
-                    },
-                rows = reader.readU32(),
-                cols = reader.readU32(),
-                scrollbackLines = reader.readU32(),
-                font_size_tenths = reader.readU32(),
-                theme = BridgeTheme.wireDecode(reader),
-                home = reader.readString(),
-                user = reader.readString(),
-                path = reader.readString(),
-                workingDirectory = reader.readString(),
-                prefix = reader.readString(),
-            )
+        fun wireDecode(reader: WireReader): TerminalConfig = TerminalConfig(
+            shell =
+            when (reader.readI32()) {
+                0 -> Shell.SystemDefault
+                1 -> Shell.Custom(reader.readString())
+                else -> Shell.SystemDefault
+            },
+            rows = reader.readU32(),
+            cols = reader.readU32(),
+            scrollbackLines = reader.readU32(),
+            font_size_tenths = reader.readU32(),
+            theme = BridgeTheme.wireDecode(reader),
+            home = reader.readString(),
+            user = reader.readString(),
+            path = reader.readString(),
+            workingDirectory = reader.readString(),
+            prefix = reader.readString(),
+        )
     }
 }
 
@@ -263,6 +261,16 @@ private interface TorvoxNative : Library {
     fun boltffi_torvox_bridge_ping(handle: Long): Int
 
     fun torvox_bridge_ping(handle: Long): Int
+
+    // / Global logger: initialise the Rust logging (idempotent).
+    // / Called once from TorvoxApp.onCreate.
+    fun torvox_init_logger()
+
+    // / Global logger: set the log file path for Rust log output.
+    fun torvox_set_log_file_path(
+        path: ByteArray,
+        path_len: Int,
+    )
 
     // Raw C-ABI wrappers for methods with scalar parameters
     fun torvox_bridge_set_native_window(
@@ -600,6 +608,18 @@ private interface TorvoxNative : Library {
         mode: Int,
     ): Long
 
+    fun torvox_bridge_set_selection_endpoint(
+        handle: Long,
+        handleSide: Byte,
+        anchorRow: Int,
+        anchorCol: Int,
+        otherRow: Int,
+        otherCol: Int,
+        mode: Int,
+        originRow: Int,
+        originCol: Int,
+    ): Long
+
     fun boltffi_torvox_bridge_set_search_highlights(
         handle: Long,
         data_ptr: ByteArray?,
@@ -669,6 +689,8 @@ private interface TorvoxNative : Library {
     fun boltffi_torvox_bridge_get_cell_height(handle: Long): Float
 
     fun torvox_bridge_get_cell_height(handle: Long): Float
+
+    fun torvox_bridge_get_grid_rows_cols(handle: Long): Long
 
     fun boltffi_torvox_bridge_get_default_font_name(handle: Long): Long
 
@@ -783,6 +805,11 @@ private interface TorvoxNative : Library {
 
     fun torvox_bridge_clear_background_image(handle: Long)
 
+    fun torvox_bridge_set_render_paused(
+        handle: Long,
+        paused: Int,
+    )
+
     fun boltffi_torvox_bridge_set_cursor_blink_enabled(
         handle: Long,
         enabled: Int,
@@ -829,6 +856,10 @@ private val libLock = Any()
 /** Force JNA into Android mode so it uses System.loadLibrary instead of dlopen. */
 fun initNativeProxy() {
     if (nativeLib != null) return
+    if (isRunningRobolectric()) {
+        android.util.Log.i("TorvoxBridge", "Robolectric environment detected — skipping native library load")
+        return
+    }
     // Tell JNA we're on Android so it uses System.loadLibrary (which works with the
     // classloader namespace) instead of dlopen (which fails on Android 15+ linker
     // namespaces). Must be set before any Native.load() call.
@@ -841,7 +872,21 @@ fun initNativeProxy() {
     nativeLib = Native.load("torvox_android", TorvoxNative::class.java)
 }
 
+/** Detect whether we are running in a Robolectric unit test environment. */
+private fun isRunningRobolectric(): Boolean = try {
+    Class.forName("org.robolectric.RobolectricTestRunner")
+    true
+} catch (_: ClassNotFoundException) {
+    false
+}
+
 private fun ensureLib(): TorvoxNative {
+    if (isRunningRobolectric()) {
+        throw IllegalStateException(
+            "TorvoxBridge native library is not available in Robolectric unit tests. " +
+                "Do not call TorvoxBridge functions from tests that run on Robolectric.",
+        )
+    }
     nativeLib?.let { return it }
     synchronized(libLock) {
         nativeLib?.let { return it }
@@ -1178,6 +1223,56 @@ class TorvoxBridge(
         return Pair(Pair(startRow, startCol), Pair(endRow, endCol))
     }
 
+    /**
+     * Move one endpoint of the active selection (set [handleSide]=0 to move the start, 1 to move
+     * the end) to the cell ([anchorRow], [anchorCol]) while keeping the opposite endpoint fixed.
+     * For Word mode the moved endpoint is re-expanded with the core [Selection] logic so drag-grow
+     * stays consistent with long-press. Returns the resulting ordered selection bounds, or null on
+     * failure.
+     */
+    fun setSelectionEndpoint(
+        handleSide: Byte,
+        anchorRow: UInt,
+        anchorCol: UInt,
+        otherRow: UInt,
+        otherCol: UInt,
+        mode: Byte,
+        originRow: UInt,
+        originCol: UInt,
+    ): Pair<Pair<UInt, UInt>, Pair<UInt, UInt>>? {
+        if (anchorRow > LOW_16_MASK.toUInt() ||
+            anchorCol > LOW_16_MASK.toUInt() ||
+            otherRow > LOW_16_MASK.toUInt() ||
+            otherCol > LOW_16_MASK.toUInt() ||
+            originRow > LOW_16_MASK.toUInt() ||
+            originCol > LOW_16_MASK.toUInt()
+        ) {
+            throw IllegalArgumentException(
+                "setSelectionEndpoint: row/col exceed the 16-bit wire packing range " +
+                    "(anchorRow=$anchorRow, anchorCol=$anchorCol, otherRow=$otherRow, " +
+                    "otherCol=$otherCol, originRow=$originRow, originCol=$originCol, max=$LOW_16_MASK)",
+            )
+        }
+        val result =
+            ensureLib().torvox_bridge_set_selection_endpoint(
+                handle,
+                handleSide,
+                anchorRow.toInt(),
+                anchorCol.toInt(),
+                otherRow.toInt(),
+                otherCol.toInt(),
+                mode.toInt(),
+                originRow.toInt(),
+                originCol.toInt(),
+            )
+        if (result < 0) return null
+        val startRow = (result and LOW_16_MASK).toUInt()
+        val startCol = ((result shr 16) and LOW_16_MASK).toUInt()
+        val endRow = ((result shr 32) and LOW_16_MASK).toUInt()
+        val endCol = ((result shr 48) and LOW_16_MASK).toUInt()
+        return Pair(Pair(startRow, startCol), Pair(endRow, endCol))
+    }
+
     fun setSearchHighlights(serialized: ByteArray) {
         ensureLib().torvox_bridge_set_search_highlights(handle, serialized, serialized.size)
     }
@@ -1190,6 +1285,9 @@ class TorvoxBridge(
 
     fun writeToPty(data: ByteArray): Boolean {
         val result = ensureLib().torvox_bridge_write_to_pty(handle, data, data.size)
+        if (result == 0) {
+            ensureLib().torvox_bridge_render(handle)
+        }
         return result == 0
     }
 
@@ -1350,6 +1448,8 @@ class TorvoxBridge(
 
     fun getCellHeight(): Float = ensureLib().torvox_bridge_get_cell_height(handle)
 
+    fun getGridRowsColsPacked(): Long = ensureLib().torvox_bridge_get_grid_rows_cols(handle)
+
     fun listFontFamilies(): List<String> {
         val pointer = ensureLib().torvox_bridge_list_font_families(handle)
         if (pointer == 0L) return emptyList()
@@ -1376,6 +1476,8 @@ class TorvoxBridge(
     fun clearBackgroundImage() {
         ensureLib().torvox_bridge_clear_background_image(handle)
     }
+
+    fun setRenderPaused(paused: Boolean) = ensureLib().torvox_bridge_set_render_paused(handle, if (paused) 1 else 0)
 
     fun setCursorBlinkEnabled(enabled: Boolean) {
         ensureLib().torvox_bridge_set_cursor_blink_enabled(handle, if (enabled) 1 else 0)
@@ -1436,6 +1538,21 @@ class TorvoxBridge(
     }
 
     fun isClosed(): Boolean = closed
+
+    companion object {
+        /** Initialise the Rust logging (idempotent). */
+        fun initLogger() {
+            if (isRunningRobolectric()) return
+            ensureLib().torvox_init_logger()
+        }
+
+        /** Set the Rust log file path (called from TorvoxApp.onCreate). */
+        fun setLogFilePath(path: String) {
+            if (isRunningRobolectric()) return
+            val bytes = path.toByteArray(Charsets.UTF_8)
+            ensureLib().torvox_set_log_file_path(bytes, bytes.size)
+        }
+    }
 }
 
 /**

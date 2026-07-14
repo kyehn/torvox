@@ -6,20 +6,20 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileInputStream
+import java.util.zip.ZipFile
 import java.util.zip.ZipInputStream
 
 class BootstrapInstaller(
     private val prefixDir: File,
     private val homeDir: File,
     private val stagingDir: File,
+    private val onProgress: BootstrapProgressCallback? = null,
 ) {
-    // SYMLINKS.txt format: "target <LEFT_ARROW> linkpath"
-    private val symlinksDelimiter = "\u2190"
-
     companion object {
         const val COPY_BUFFER_SIZE = 8096
-        const val EXECUTABLE_FILE_MODE = 0x1ED // rwxr-xr-x
+        const val EXECUTABLE_FILE_MODE = 0x1ED
         val EXEC_PREFIXES = listOf("bin/", "libexec/", "lib/apt/apt-helper", "lib/apt/methods/")
+        private const val EXTRACT_PROGRESS_INTERVAL = 10
     }
 
     fun needsInstall(): Boolean = !File(prefixDir, "bin/bash").exists()
@@ -30,10 +30,12 @@ class BootstrapInstaller(
         try {
             cleanupOld()
             createDirectories()
+            onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
             val symlinks = extractZip(zipFile)
             if (symlinks.isEmpty()) {
                 return@withContext Result.failure(Exception("No SYMLINKS.txt found in bootstrap ZIP"))
             }
+            onProgress?.onProgress(BootstrapProgress.CreatingSymlinks)
             createSymlinks(symlinks)
             atomicRename()
             ensureHomeAndTmp()
@@ -58,9 +60,16 @@ class BootstrapInstaller(
 
     private fun extractZip(zipFile: File): List<Pair<String, String>> {
         val symlinks = mutableListOf<Pair<String, String>>()
+        val totalEntries = ZipFile(zipFile).use { it.size() }
+        var lastReportedEntry = 0
         FileInputStream(zipFile).use { fis ->
             ZipInputStream(fis).use { zis ->
-                processZipEntries(zis, symlinks)
+                processZipEntries(zis, symlinks) { entryIndex ->
+                    if (entryIndex - lastReportedEntry >= EXTRACT_PROGRESS_INTERVAL || entryIndex == totalEntries) {
+                        lastReportedEntry = entryIndex
+                        onProgress?.onProgress(BootstrapProgress.Extracting(entryIndex, totalEntries))
+                    }
+                }
             }
         }
         return symlinks
@@ -69,8 +78,10 @@ class BootstrapInstaller(
     private fun processZipEntries(
         zis: ZipInputStream,
         symlinks: MutableList<Pair<String, String>>,
+        onEntryProcessed: (Int) -> Unit,
     ) {
         var entry = zis.nextEntry
+        var entryIndex = 0
         while (entry != null) {
             val name = entry.name
             if (name == "SYMLINKS.txt") {
@@ -82,20 +93,22 @@ class BootstrapInstaller(
                 targetFile.parentFile?.mkdirs()
                 targetFile.outputStream().use { out -> zis.copyTo(out, COPY_BUFFER_SIZE) }
                 if (isExecutable(name)) {
-                    Os.chmod(targetFile.absolutePath, EXECUTABLE_FILE_MODE) // rwxr-xr-x
+                    Os.chmod(targetFile.absolutePath, EXECUTABLE_FILE_MODE)
                 }
             }
+            entryIndex++
+            onEntryProcessed(entryIndex)
             entry = zis.nextEntry
         }
     }
 
-    private fun parseSymlinks(content: String): List<Pair<String, String>> = content.lines().filter { it.isNotBlank() }.mapNotNull { line ->
-        val parts = line.split(symlinksDelimiter)
-        if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
-    }
-
     private fun isExecutable(name: String): Boolean = EXEC_PREFIXES.any { name.startsWith(it) } ||
         name.startsWith("lib/apt/methods/")
+
+    private fun parseSymlinks(content: String): List<Pair<String, String>> = content.lines().filter { it.isNotBlank() }.mapNotNull { line ->
+        val parts = line.split(" -> ")
+        if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
+    }
 
     private fun createSymlinks(symlinks: List<Pair<String, String>>) {
         for ((target, linkPath) in symlinks) {

@@ -14,12 +14,14 @@ use std::time::Instant;
 
 use thiserror::Error;
 use torvox_core::line::Line;
+use torvox_core::snapshot::SessionSnapshot;
 use torvox_renderer::font::FontPipeline;
+use torvox_renderer::gpu::CellInstance;
 use torvox_renderer::gpu::GpuContext;
 use torvox_renderer::gpu::SearchHighlight;
 use torvox_renderer::gpu::SelectionRange;
+use torvox_terminal::ghostty_terminal::CellSnapshot;
 use torvox_terminal::ghostty_terminal::KgpImageData;
-use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
 use torvox_terminal::session::Session;
 use torvox_terminal::shell_env::ShellEnv;
 
@@ -117,6 +119,8 @@ pub struct AndroidSurface {
     surface_height: AtomicU32,
     render_width: u32,
     render_height: u32,
+    /// Last derived raster scale, kept to log changes only (fix D).
+    last_raster_scale: f32,
     native_window: Option<NativeWindow>,
     frame_count: u64,
     title: String,
@@ -218,6 +222,16 @@ fn line_to_text(line: &Line) -> String {
         .collect()
 }
 
+/// Requirement 4 (CJK font scale, Fix D): the glyph raster scale is the ratio of
+/// the physical surface width (ANativeWindow pixels) to the wgpu surface-config
+/// width (logical density). It is clamped to a sane range so a misreported
+/// surface metric cannot blow up the atlas. Pure + testable.
+fn compute_raster_scale(surface_width: u32, config_width: u32) -> f32 {
+    let surface_width = surface_width.max(1);
+    let config_width = config_width.max(1);
+    (surface_width as f32 / config_width as f32).clamp(0.5, 4.0)
+}
+
 impl AndroidSurface {
     pub fn new(rows: u32, cols: u32, scrollback_lines: u32, font_size: f32) -> Self {
         let atlas_width = ATLAS_WIDTH;
@@ -244,6 +258,7 @@ impl AndroidSurface {
             surface_height: AtomicU32::new(0),
             render_width: 0,
             render_height: 0,
+            last_raster_scale: 0.0,
             native_window: None,
             frame_count: 0,
             title: String::new(),
@@ -368,6 +383,12 @@ impl AndroidSurface {
         #[cfg(target_os = "android")]
         if let Some(gpu) = &mut self.gpu {
             if pointer_changed || !gpu.has_surface() {
+                // When the ANativeWindow has changed (foreground/background transition),
+                // the globally cached surface belongs to the old window and must be
+                // discarded before creating a new one on the new window.
+                if pointer_changed {
+                    GpuContext::clear_global_surface();
+                }
                 gpu.configure_android_surface(window_ptr, width.max(1), height.max(1))
                     .map_err(|e| SurfaceError::GpuInit(e.to_string()))?;
             } else {
@@ -769,6 +790,33 @@ impl AndroidSurface {
 
         let mut row_ends = std::mem::take(&mut self.row_ends_buf);
         row_ends.clear();
+        // Fix D: rasterize glyphs at font_size * raster_scale so the atlas
+        // matches the physical surface 1:1. The device pixel ratio is the ratio
+        // of the physical surface size (ANativeWindow) to the wgpu surface-config
+        // size (which the renderer configures at logical density). This is
+        // derived purely from surface metrics — never hardcoded — and equals the
+        // factor the compositor upscales the rendered buffer by.
+        let surf_w = self.surface_width.load(Ordering::Relaxed).max(1);
+        let cfg_w = self
+            .gpu
+            .as_ref()
+            .and_then(|g| g.surface_config.as_ref())
+            .map(|cfg| cfg.width.max(1))
+            .unwrap_or(1);
+        let raster_scale = compute_raster_scale(surf_w, cfg_w);
+        if (self.last_raster_scale - raster_scale).abs() > f32::EPSILON {
+            self.last_raster_scale = raster_scale;
+            log::debug!(
+                "RASTER_SCALE: scale={} (surface_w={} config_w={})",
+                raster_scale,
+                surf_w,
+                cfg_w
+            );
+        }
+        self.font_pipeline.set_raster_scale(raster_scale);
+        if let Some(gpu) = self.gpu.as_mut() {
+            gpu.set_raster_scale(raster_scale);
+        }
         torvox_renderer::gpu::build_cell_instances_into(
             &snapshot,
             &mut self.font_pipeline,
@@ -799,12 +847,61 @@ impl AndroidSurface {
         self.dirty_rows_buf = dirty_rows;
 
         let instances = &self.instance_buffer[..];
+
+        // DIAG: log first non-space cell's foreground color and instance count
+        let diag_has_glyph = |i: &CellInstance| i.atlas_size[0] > 0.0 && i.atlas_size[1] > 0.0;
+        let diag_first = instances.iter().find(|i| {
+            i.fg_color[0].abs() > 0.001
+                || i.fg_color[1].abs() > 0.001
+                || i.fg_color[2].abs() > 0.001
+        });
+        if let Some(diag) = diag_first {
+            log::warn!(
+                "RENDER_DIAG: instances={} fg=[{:.3},{:.3},{:.3}] bg=[{:.3},{:.3},{:.3}] has_glyph={} quad_size=[{:.1},{:.1}]",
+                instances.len(),
+                diag.fg_color[0],
+                diag.fg_color[1],
+                diag.fg_color[2],
+                diag.bg_color[0],
+                diag.bg_color[1],
+                diag.bg_color[2],
+                diag_has_glyph(diag),
+                diag.quad_size[0],
+                diag.quad_size[1],
+            );
+        } else if !instances.is_empty() {
+            log::warn!(
+                "RENDER_DIAG: {} instances all have black fg",
+                instances.len()
+            );
+            log::warn!(
+                "RENDER_DIAG: first instance fg=[{:.3},{:.3},{:.3}] bg=[{:.3},{:.3},{:.3}] has_glyph={} quad_size=[{:.1},{:.1}]",
+                instances[0].fg_color[0],
+                instances[0].fg_color[1],
+                instances[0].fg_color[2],
+                instances[0].bg_color[0],
+                instances[0].bg_color[1],
+                instances[0].bg_color[2],
+                diag_has_glyph(&instances[0]),
+                instances[0].quad_size[0],
+                instances[0].quad_size[1],
+            );
+        } else {
+            log::warn!("RENDER_DIAG: zero instances");
+        }
+
         let gen_after = self.font_pipeline.atlas_generation();
-        if gen_after > gen_before {
+        log::warn!(
+            "RENDER_DIAG: atlas gen {}->{}, {} instances",
+            gen_before,
+            gen_after,
+            instances.len(),
+        );
+        if gen_after != gen_before {
             let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
             let non_zero = atlas_data.iter().filter(|&&b| b != 0).count();
-            log::debug!(
-                "atlas re-upload gen={}->{} non_zero_pixels={}",
+            log::info!(
+                "RENDER_DIAG: atlas re-upload gen={}->{} non_zero_pixels={}",
                 gen_before,
                 gen_after,
                 non_zero,
@@ -1303,6 +1400,10 @@ impl AndroidSurface {
         self.session.is_some()
     }
 
+    pub fn gpu_mut(&mut self) -> Option<&mut GpuContext> {
+        self.gpu.as_mut()
+    }
+
     pub fn release_gpu_surface(&mut self) {
         if let Some(gpu) = &mut self.gpu {
             gpu.release_gpu_surface();
@@ -1328,6 +1429,17 @@ impl AndroidSurface {
             if let Some(ref prev) = previous_name {
                 self.font_pipeline.set_font_family(prev);
                 self.font_pipeline.rasterize_ascii();
+                if let Some(gpu) = &mut self.gpu {
+                    let (aw, ah) = self.font_pipeline.atlas_dimensions();
+                    gpu.update_bind_group(
+                        aw as f32,
+                        ah as f32,
+                        self.render_width as f32,
+                        self.render_height as f32,
+                    );
+                    let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
+                    gpu.upload_atlas(&atlas_data, aw, ah);
+                }
             }
             return false;
         }
@@ -1557,6 +1669,36 @@ impl AndroidSurface {
         Ok(())
     }
 
+    /// Requirement 4 (session restore, Fix G): rebuild the scrollback/visible text
+    /// so a restored session matches the saved row count without a spurious
+    /// trailing blank line. Pure + testable.
+    ///
+    /// 1. NUL padding becomes a real space (cell_to_line already maps a NUL
+    ///    codepoint to ' ', but normalize defensively) so blank rows carry
+    ///    visible blank content instead of garbage.
+    /// 2. Do NOT per-line `trim_end`: an intentional blank line is spaces, and
+    ///    trimming would collapse it. Middle blank lines must survive.
+    /// 3. Trim only genuinely-empty TRAILING lines (whitespace-only). The shell
+    ///    echoes the re-fed text and emits one prompt newline; a trailing
+    ///    whitespace-only row from the save/restore is the off-by-one extra
+    ///    blank line, so it is dropped here. Rows are joined with a single '\n'
+    ///    and NO trailing newline, which avoids advancing the cursor onto an
+    ///    extra empty row.
+    pub fn restore_session_lines_to_text(snapshot: &SessionSnapshot) -> String {
+        let mut lines: Vec<String> = snapshot
+            .scrollback_lines
+            .iter()
+            .chain(&snapshot.visible_lines)
+            .map(|line| line_to_text(line).replace('\0', " "))
+            .collect();
+        while let Some(last) = lines.last()
+            && last.trim().is_empty()
+        {
+            lines.pop();
+        }
+        lines.join("\n")
+    }
+
     pub fn restore_session(&mut self, path: &str) -> Result<(), SurfaceError> {
         use rkyv::rancor;
         use std::fs;
@@ -1570,21 +1712,22 @@ impl AndroidSurface {
         if let Some(ref session_arc) = self.session
             && let Ok(mut session) = session_arc.lock()
         {
-            // Join lines with a single '\n' and NO trailing newline: a trailing
-            // '\n' advances the cursor onto an extra empty row that was not part
-            // of the saved screen, producing spurious blank lines on restore.
-            let mut lines: Vec<String> = snapshot
-                .scrollback_lines
-                .iter()
-                .chain(&snapshot.visible_lines)
-                .map(|line| line_to_text(line).trim_end().to_string())
-                .collect();
-            while let Some(last) = lines.last()
-                && last.is_empty()
-            {
-                lines.pop();
-            }
-            let text = lines.join("\n");
+            // Fix G: rebuild the scrollback/visible text so a restored session
+            // matches the saved row count without a spurious trailing blank line.
+            //
+            // 1. NUL padding becomes a real space (cell_to_line already maps a NUL
+            //    codepoint to ' ', but normalize defensively) so blank rows carry
+            //    visible blank content instead of garbage.
+            // 2. Do NOT per-line `trim_end`: an intentional blank line is spaces,
+            //    and trimming would collapse it. Middle blank lines must survive
+            //    the re-feed (joined as an empty element => a blank row).
+            // 3. Trim only genuinely-empty TRAILING lines (whitespace-only). The
+            //    shell echoes the re-fed text and emits one prompt newline; a
+            //    trailing whitespace-only row from the save/restore is the
+            //    off-by-one extra blank line, so it is dropped here. Rows are
+            //    joined with a single '\n' and NO trailing newline, which avoids
+            //    advancing the cursor onto an extra empty row.
+            let text = Self::restore_session_lines_to_text(&snapshot);
             if !text.is_empty() {
                 session.terminal_mut().pty_write(text.as_bytes());
             }
@@ -2106,5 +2249,90 @@ mod tests {
             surface.blink_timer_elapsed(),
             "blink timer should be elapsed after 20ms with 10ms period"
         );
+    }
+
+    #[test]
+    fn compute_raster_scale_is_surface_over_config_width() {
+        // 2x physical surface vs logical config => scale 2.0.
+        assert!((compute_raster_scale(1080, 540) - 2.0).abs() < f32::EPSILON);
+        assert!((compute_raster_scale(540, 1080) - 0.5).abs() < f32::EPSILON);
+        // Not hardcoded: any ratio works; here 1.5x.
+        assert!((compute_raster_scale(1620, 1080) - 1.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn compute_raster_scale_clamps_extremes() {
+        // Surface much larger than config is clamped to 4.0.
+        assert_eq!(compute_raster_scale(10000, 100), 4.0);
+        // Surface much smaller than config is clamped to 0.5.
+        assert_eq!(compute_raster_scale(100, 10000), 0.5);
+        // A zero config width must not divide-by-zero (normalized to 1, then
+        // clamped to 4.0).
+        assert_eq!(compute_raster_scale(800, 0), 4.0);
+    }
+
+    #[test]
+    fn restore_session_nul_becomes_space_and_trims_trailing_blanks() {
+        // Build two visible rows: "ab\0" (NUL padding) and a trailing
+        // whitespace-only row that simulates the off-by-one blank line.
+        let row_a = cell_to_line(
+            &[
+                CellSnapshot {
+                    codepoint: 0x61,
+                    ..Default::default()
+                }, // a
+                CellSnapshot {
+                    codepoint: 0x62,
+                    ..Default::default()
+                }, // b
+                CellSnapshot {
+                    codepoint: 0x00,
+                    ..Default::default()
+                }, // NUL
+            ],
+            3,
+        );
+        let trailing_blank = cell_to_line(&[], 3); // all spaces
+        let snapshot = SessionSnapshot {
+            visible_lines: vec![row_a, trailing_blank],
+            scrollback_lines: vec![],
+            rows: 2,
+            cols: 3,
+            max_scrollback: DEFAULT_MAX_SCROLLBACK,
+        };
+        let text = AndroidSurface::restore_session_lines_to_text(&snapshot);
+        // NUL -> space, trailing whitespace-only row trimmed, single '\n', no
+        // trailing newline.
+        assert_eq!(text, "ab ");
+    }
+
+    #[test]
+    fn restore_session_preserves_middle_blank_lines() {
+        // A blank line in the MIDDLE must survive (no per-line trim_end).
+        let row_a = cell_to_line(
+            &[CellSnapshot {
+                codepoint: 0x61,
+                ..Default::default()
+            }],
+            1,
+        );
+        let middle_blank = cell_to_line(&[], 1);
+        let row_b = cell_to_line(
+            &[CellSnapshot {
+                codepoint: 0x62,
+                ..Default::default()
+            }],
+            1,
+        );
+        let snapshot = SessionSnapshot {
+            visible_lines: vec![row_a, middle_blank, row_b],
+            scrollback_lines: vec![],
+            rows: 3,
+            cols: 1,
+            max_scrollback: DEFAULT_MAX_SCROLLBACK,
+        };
+        let text = AndroidSurface::restore_session_lines_to_text(&snapshot);
+        // The middle blank line is spaces and must survive (no per-line trim_end).
+        assert_eq!(text, "a\n \nb");
     }
 }

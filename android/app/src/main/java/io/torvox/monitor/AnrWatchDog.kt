@@ -3,7 +3,6 @@ package io.torvox.monitor
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import io.torvox.BuildConfig
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
@@ -15,7 +14,6 @@ import java.util.concurrent.atomic.AtomicBoolean
 class AnrWatchDog(
     private val logDir: File,
     private val timeoutMs: Long = ANR_TIMEOUT_MILLIS,
-    private val killOnAnr: Boolean = !BuildConfig.DEBUG,
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -120,10 +118,8 @@ class AnrWatchDog(
 
             Log.e("AnrWatchDog", "ANR written to ${logFile.absolutePath}")
 
-            if (killOnAnr) {
-                Log.e("AnrWatchDog", "Killing process due to ANR")
-                SelfExit.exit(logDir, "ANR")
-            }
+            Log.e("AnrWatchDog", "Killing process due to ANR")
+            SelfExit.exit(logDir, "ANR")
         } catch (e: Exception) {
             Log.e("AnrWatchDog", "Unhandled exception in ANR handler", e)
         } finally {

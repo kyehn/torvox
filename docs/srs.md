@@ -329,6 +329,7 @@ The primary users are:
 | NFR-022 | The render thread SHALL detect GPU surface loss (Android configuration change, activity restart) and recreate the wgpu pipeline automatically. After 100 consecutive errors (~10 seconds), the thread SHALL exit permanently and require a new surface to restart. | `AGENTS.md` (Pitfall #13), `torvox-renderer/src/gpu.rs` |
 | NFR-023 | The OSC handler SHALL cap payload size at 1 MB (`MAX_PAYLOAD_BYTES`) to prevent denial-of-service via oversized OSC sequences. | `torvox-terminal/src/osc_handler.rs` |
 | NFR-024 | The system SHALL recover from PTY read errors without crashing the session. The reader thread SHALL log errors and continue reading. | `torvox-terminal/src/session.rs` |
+| NFR-025 | The system SHALL provide unified logging infrastructure that writes to both logcat and a rotating file, with log levels configurable independently for each output. | `torvox-gui-android/src/logging.rs` |
 
 ---
 
@@ -353,6 +354,7 @@ The primary users are:
 | Maintainability | — | NFR-012 — NFR-016 |
 | Compatibility | — | NFR-017 — NFR-021 |
 | Reliability | — | NFR-022 — NFR-024 |
+| Infrastructure | — | NFR-025 |
 
 ### B. Thread Model
 
@@ -494,3 +496,4 @@ Each requirement is linked to its verification method, test command, and accepta
 | NFR-022 | The render thread SHALL detect GPU surface loss (Android configuration change, activity restart) and recreate the wgpu pipeline automatically. After 100 consecutive errors (~10 seconds), the thread SHALL exit permanently and require a new surface to restart. | Automated Test | `cargo test --package torvox-gui-android` | §NFR-022§ (Render Thread Recovery) |
 | NFR-023 | The OSC handler SHALL cap payload size at 1 MB (`MAX_PAYLOAD_BYTES`) to prevent denial-of-service via oversized OSC sequences. | Automated Test | `cargo test --package torvox-terminal` | §NFR-023§ (OSC Payload Limit) |
 | NFR-024 | The system SHALL recover from PTY read errors without crashing the session. The reader thread SHALL log errors and continue reading. | Automated Test | `cargo test --package torvox-terminal` | §NFR-024§ (PTY Read Error Recovery) |
+| NFR-025 | The system SHALL provide unified logging infrastructure that writes to both logcat and a rotating file, with log levels configurable independently for each output. | Tool Inspection | `ls torvox-gui-android/src/logging.rs` | §NFR-025§ (Unified Logging) |

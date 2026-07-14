@@ -226,6 +226,13 @@ pub struct FontPipeline {
     font_id: Option<fontdb::ID>,
     cjk_fallback_ids: Vec<fontdb::ID>,
     font_size: f32,
+    /// Multiplier applied to glyph rasterization so the atlas bitmap matches the
+    /// physical (device-pixel-ratio scaled) surface 1:1 instead of the logical
+    /// font size. Without this, glyphs are rasterized at the logical size and the
+    /// GPU upscales by the DPR, producing blurry/rough text (worst for CJK).
+    /// Derived at runtime from the Android surface metrics (see `set_raster_scale`),
+    /// never hardcoded. A value of 1.0 preserves the legacy logical rasterization.
+    raster_scale: f32,
     atlas_generation: u64,
     system_locale: String,
     shaping_buffer: Option<cosmic_text::Buffer>,
@@ -279,7 +286,8 @@ impl FontPipeline {
 
         let scaler_context = ScaleContext::new();
         let atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(atlas_width, atlas_height));
-        let atlas_bitmap = vec![0u8; (atlas_width * atlas_height) as usize];
+        // Rgba8Unorm (4 bytes/pixel) for Mali-G57 compatibility
+        let atlas_bitmap = vec![0u8; (atlas_width * atlas_height * 4) as usize];
 
         let mut pipeline = Self {
             font_system,
@@ -303,6 +311,7 @@ impl FontPipeline {
                     .expect("SHAPE_CACHE_CAPACITY must be non-zero"),
             ),
             ascii_glyph_ids: [None; 128],
+            raster_scale: 1.0,
         };
 
         if pipeline.font_id.is_none() {
@@ -626,6 +635,14 @@ impl FontPipeline {
                 };
                 let effective_priority =
                     priority.saturating_sub(source_quality_penalty as i16) + outline_bonus;
+                log::info!(
+                    "CJK_CANDIDATE: family='{}' base={} locale={} is_vector={} eff_pri={}",
+                    family_name,
+                    base_priority,
+                    locale_boost,
+                    is_vector,
+                    effective_priority,
+                );
                 candidates.push((face.id, advance_px, effective_priority));
             }
         }
@@ -651,7 +668,7 @@ impl FontPipeline {
             MAX_CJK_FALLBACK_FONTS
         );
         if candidates.is_empty() || candidates.iter().all(|c| c.2 <= 0i16) {
-            log::warn!(
+            log::debug!(
                 "CJK_FALLBACK: no font with vector outlines found; CJK may render as bitmap"
             );
         }
@@ -680,6 +697,17 @@ impl FontPipeline {
             Self::find_font_by_name(db, family_name)
         };
         if let Some(id) = found {
+            let db = self.font_system.db();
+            let name = db
+                .face(id)
+                .and_then(|f| f.families.first().map(|(n, _)| n.clone()))
+                .unwrap_or_default();
+            log::info!(
+                "FONT_DIAG: set_font_family('{}') found id={:?} name='{}'",
+                family_name,
+                id,
+                name
+            );
             self.font_id = Some(id);
             self.glyph_cache.clear();
             self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
@@ -693,6 +721,10 @@ impl FontPipeline {
             self.find_cjk_fallback_fonts(&system_locale);
             return true;
         }
+        log::warn!(
+            "FONT_DIAG: set_font_family('{}') NOT FOUND in fontdb",
+            family_name
+        );
         false
     }
 
@@ -706,7 +738,12 @@ impl FontPipeline {
     pub fn set_font_size_in_place(&mut self, new_size: f32) -> (f32, f32) {
         self.font_size = new_size;
         self.glyph_cache.clear();
-        self.atlas_generation = 0;
+        self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
+            self.atlas_width as i32,
+            self.atlas_height as i32,
+        ));
+        self.atlas_bitmap.fill(0);
+        self.atlas_generation = self.atlas_generation.wrapping_add(1);
         self.rasterize_ascii();
         let (cw, ch) = self.cell_metrics();
         log::info!(
@@ -716,6 +753,36 @@ impl FontPipeline {
             ch
         );
         (cw, ch)
+    }
+
+    /// Set the rasterization scale = device pixel ratio. Glyphs are rasterized
+    /// at `font_size * raster_scale` so the atlas matches the physical surface
+    /// 1:1. `raster_scale` must be derived from the Android surface metrics
+    /// (e.g. physical width / (cols * logical cell width)); it is never
+    /// hardcoded. Changing it rebuilds the atlas at the new resolution.
+    pub fn set_raster_scale(&mut self, scale: f32) {
+        let scale = if scale > 0.0 && scale.is_finite() {
+            scale
+        } else {
+            1.0
+        };
+        if (scale - self.raster_scale).abs() < 1e-3 {
+            return;
+        }
+        self.raster_scale = scale;
+        self.glyph_cache.clear();
+        self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
+            self.atlas_width as i32,
+            self.atlas_height as i32,
+        ));
+        self.atlas_bitmap.fill(0);
+        self.atlas_generation = self.atlas_generation.wrapping_add(1);
+        self.rasterize_ascii();
+        log::info!("RASTER_SCALE: scale={:.3}", scale);
+    }
+
+    pub fn get_raster_scale(&self) -> f32 {
+        self.raster_scale
     }
 
     pub fn current_font_family_name(&self) -> Option<String> {
@@ -816,7 +883,24 @@ impl FontPipeline {
         if !cjk.is_empty() {
             parts.push(format!("CJK fallback: {}", cjk.join(", ")));
         } else {
-            parts.push("CJK fallback: none".to_string());
+            let primary_is_cjk = self.font_id.and_then(|id| db.face(id)).is_some_and(|face| {
+                face.families.iter().any(|(name, _)| {
+                    let l = name.to_lowercase();
+                    l.contains("cjk")
+                        || l.contains("chinese")
+                        || l.contains("japanese")
+                        || l.contains("korean")
+                        || l.contains(" sc")
+                        || l.contains(" tc")
+                        || l.contains(" jp")
+                        || l.contains(" kr")
+                })
+            });
+            if primary_is_cjk {
+                parts.push("CJK fallback: skipped (primary font supports CJK)".to_string());
+            } else {
+                parts.push("CJK fallback: none".to_string());
+            }
         }
         let (cw, ch) = self.cell_metrics();
         parts.push(format!("Cell: {:.1}x{:.1}px", cw, ch));
@@ -856,7 +940,7 @@ impl FontPipeline {
             let key = GlyphKey {
                 font_id: primary_font_id,
                 glyph_id: gid,
-                pixel_size: self.font_size as u16,
+                pixel_size: (self.font_size * self.raster_scale) as u16,
             };
             if let Some(info) = self.glyph_cache.get(&key).cloned() {
                 return Some(info);
@@ -962,7 +1046,7 @@ impl FontPipeline {
         let key = GlyphKey {
             font_id,
             glyph_id,
-            pixel_size: self.font_size as u16,
+            pixel_size: (self.font_size * self.raster_scale) as u16,
         };
 
         if let Some(info) = self.glyph_cache.get(&key).cloned() {
@@ -971,13 +1055,14 @@ impl FontPipeline {
 
         let db = self.font_system.db();
         let font_size = self.font_size;
+        let raster_size = font_size * self.raster_scale;
         let (image, advance_width) =
             db.with_face_data(font_id, |font_data, face_index| -> Option<(_, f32)> {
                 let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
                 let mut scaler = self
                     .scaler_context
                     .builder(font_ref)
-                    .size(font_size)
+                    .size(raster_size)
                     .hint(false)
                     .build();
                 let image = Render::new(&[Source::Outline]).render(&mut scaler, glyph_id);
@@ -1078,8 +1163,9 @@ impl FontPipeline {
                         if dst_x >= atlas_w {
                             break;
                         }
-                        let dst_idx = dst_y * atlas_w + dst_x;
+                        let dst_idx = (dst_y * atlas_w + dst_x) * 4;
                         if dst_idx < self.atlas_bitmap.len() {
+                            // R channel = coverage, GBA = 0 (Rgba8Unorm)
                             self.atlas_bitmap[dst_idx] = alpha;
                         }
                     }
@@ -1100,9 +1186,9 @@ impl FontPipeline {
                             break;
                         }
                         let src_idx = (y * width as usize + x) * bpp;
-                        let dst_idx = dst_y * atlas_w + dst_x;
+                        let dst_idx = (dst_y * atlas_w + dst_x) * 4;
                         if dst_idx < self.atlas_bitmap.len() && src_idx + 3 < image.data.len() {
-                            // RGBA→luminance for R8Unorm: use alpha as coverage
+                            // RGBA→luminance for Rgba8Unorm: use alpha as coverage in R channel
                             self.atlas_bitmap[dst_idx] = image.data[src_idx + 3];
                         }
                     }
@@ -1274,7 +1360,7 @@ impl FontPipeline {
 
         let scaler_context = ScaleContext::new();
         let atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(atlas_width, atlas_height));
-        let atlas_bitmap = vec![0u8; (atlas_width * atlas_height) as usize];
+        let atlas_bitmap = vec![0u8; (atlas_width * atlas_height * 4) as usize];
 
         let mut pipeline = Self {
             font_system,
@@ -1298,6 +1384,7 @@ impl FontPipeline {
                     .expect("SHAPE_CACHE_CAPACITY must be non-zero"),
             ),
             ascii_glyph_ids: [None; 128],
+            raster_scale: 1.0,
         };
 
         pipeline.find_monospace_font();
@@ -1822,7 +1909,8 @@ mod tests {
 
                 for y in 0..cmp_h {
                     for x in 0..cmp_w {
-                        let ai = (ay + y) * atlas_w + ax + x;
+                        let pixel = (ay + y) * atlas_w + ax + x;
+                        let ai = pixel * 4;
                         let fi = y * ft_stride + x * 4;
                         let atlas_pixel = atlas[ai];
                         let freetype_pixel = ft_data[fi + 3];
@@ -1908,8 +1996,8 @@ mod tests {
         let mut has_ink = false;
         for y in 0..info.height as usize {
             for x in 0..info.width as usize {
-                let idx = (ay + y) * atlas_w + ax + x;
-                if idx < atlas.len() && atlas[idx] > 0 {
+                let byte_offset = ((ay + y) * atlas_w + ax + x) * 4;
+                if byte_offset < atlas.len() && atlas[byte_offset] > 0 {
                     has_ink = true;
                     break;
                 }
@@ -2081,8 +2169,8 @@ mod tests {
         let mut has_ink = false;
         for y in 0..info.height as usize {
             for x in 0..info.width as usize {
-                let idx = (ay + y) * atlas_w + ax + x;
-                if idx < atlas.len() && atlas[idx] > 0 {
+                let byte_offset = ((ay + y) * atlas_w + ax + x) * 4;
+                if byte_offset < atlas.len() && atlas[byte_offset] > 0 {
                     has_ink = true;
                     break;
                 }
@@ -2731,6 +2819,134 @@ mod tests {
         assert!(
             bitmap.iter().any(|&b| b != 0),
             "atlas should have content after defrag"
+        );
+    }
+
+    const VENDOR_TTF: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../vendor/ghostty/src/font/res/TerminusTTF-Regular.ttf"
+    );
+
+    #[test]
+    fn load_font_file_valid_ttf_returns_family() {
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let family = p.load_font_file(std::path::Path::new(VENDOR_TTF));
+        let family = family.expect("load_font_file should return Some for valid TTF");
+        assert!(
+            !family.is_empty(),
+            "family name should not be empty, got '{family}'"
+        );
+        assert!(
+            family.contains("Terminus") || family.contains("TerminusTTF"),
+            "expected 'Terminus' in family name, got '{family}'"
+        );
+    }
+
+    #[test]
+    fn load_font_file_nonexistent_path_returns_none() {
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let result = p.load_font_file(std::path::Path::new("/nonexistent/path/to/font.ttf"));
+        assert!(result.is_none(), "should return None for nonexistent path");
+    }
+
+    #[test]
+    fn load_font_file_empty_file_returns_none() {
+        let dir = std::env::temp_dir().join("torvox_test_font_load");
+        let _ = std::fs::create_dir_all(&dir);
+        let empty_path = dir.join("empty.ttf");
+        std::fs::write(&empty_path, &[]).ok();
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let result = p.load_font_file(&empty_path);
+        assert!(result.is_none(), "empty file should return None");
+        let _ = std::fs::remove_file(&empty_path);
+    }
+
+    #[test]
+    fn load_font_file_corrupt_file_returns_none() {
+        let dir = std::env::temp_dir().join("torvox_test_font_load");
+        let _ = std::fs::create_dir_all(&dir);
+        let corrupt_path = dir.join("corrupt.ttf");
+        let garbage: Vec<u8> = (0..256).map(|i| (i ^ 0xAB) as u8).collect();
+        std::fs::write(&corrupt_path, &garbage).ok();
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let result = p.load_font_file(&corrupt_path);
+        assert!(result.is_none(), "corrupt file should return None");
+        let _ = std::fs::remove_file(&corrupt_path);
+    }
+
+    #[test]
+    fn load_font_file_multiple_times_works() {
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let first = p.load_font_file(std::path::Path::new(VENDOR_TTF));
+        let second = p.load_font_file(std::path::Path::new(VENDOR_TTF));
+        assert!(first.is_some(), "first load should succeed");
+        assert!(second.is_some(), "second load of same file should succeed");
+        assert_eq!(
+            first, second,
+            "loading same file twice should return same family"
+        );
+    }
+
+    #[test]
+    fn load_font_file_does_not_break_cell_metrics() {
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let (cw_before, ch_before) = p.cell_metrics();
+        assert!(
+            cw_before > 0.0 && ch_before > 0.0,
+            "initial metrics should be positive"
+        );
+        let family = p.load_font_file(std::path::Path::new(VENDOR_TTF));
+        assert!(family.is_some(), "should load vendor TTF");
+        let (cw_after, ch_after) = p.cell_metrics();
+        assert_eq!(
+            cw_before, cw_after,
+            "cell width unchanged after load_font_file"
+        );
+        assert_eq!(
+            ch_before, ch_after,
+            "cell height unchanged after load_font_file"
+        );
+    }
+
+    #[test]
+    fn load_font_file_loaded_font_can_be_set() {
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let family = p
+            .load_font_file(std::path::Path::new(VENDOR_TTF))
+            .expect("should load vendor TTF");
+        assert!(
+            p.set_font_family(&family),
+            "set_font_family should succeed for loaded font '{family}'"
+        );
+        let (cw, ch) = p.cell_metrics();
+        assert!(cw > 0.0, "cell width positive after setting loaded font");
+        assert!(ch > 0.0, "cell height positive after setting loaded font");
+    }
+
+    #[test]
+    fn load_font_file_unicode_path() {
+        let dir = std::env::temp_dir().join("torvox_test_unicode_字体");
+        let _ = std::fs::create_dir_all(&dir);
+        let target = dir.join("测试-font.ttf");
+        std::fs::copy(VENDOR_TTF, &target).expect("copy vendor TTF to unicode path");
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let family = p.load_font_file(&target);
+        assert!(family.is_some(), "should load font from unicode path");
+        assert!(!family.unwrap().is_empty(), "family should not be empty");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_font_file_after_set_font_family() {
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let fonts = p.list_monospace_fonts();
+        if let Some(first) = fonts.first() {
+            assert!(p.set_font_family(first), "set font family {first}");
+        }
+        let result = p.load_font_file(std::path::Path::new(VENDOR_TTF));
+        assert!(
+            result.is_some(),
+            "load after set_font_family should succeed"
         );
     }
 }
