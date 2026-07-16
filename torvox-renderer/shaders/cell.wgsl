@@ -1,7 +1,10 @@
 struct Uniforms {
     projection: mat4x4<f32>,
     atlas_size: vec2<f32>,
-    _padding: vec2<f32>,
+    raster_scale: f32,
+    image_active: f32,
+    default_bg_lo: vec2<f32>,
+    default_bg_hi: vec2<f32>,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -69,8 +72,14 @@ fn fs_main(
     @location(9) flags: f32,
 ) -> @location(0) vec4<f32> {
     var color: vec4<f32>;
+    // Glyph coverage (0 outside the glyph bitmap). Used for fix F so a
+    // default-background cell can show only the glyph over the wallpaper.
+    var glyph_coverage: f32 = 0.0;
     if has_glyph > 0.5 {
-        let cell_px = cell_uv * quad_size;
+        // World-space cell pixel coordinates scaled into the glyph atlas pixel
+        // space (rasterized at font_size * raster_scale). This keeps glyph
+        // bitmaps 1:1 with the physical surface so text is crisp (fix D).
+        let cell_px = cell_uv * quad_size * uniforms.raster_scale;
         // X: scale glyph width to match cell width (Termux canvas.scale equivalent).
         // Narrow glyphs (advance_w < cell_w) are stretched; wide glyphs compressed.
         let scaled_x = cell_px.x * glyph_advance_w / quad_size.x;
@@ -86,6 +95,7 @@ fn fs_main(
             let corrected_uv = uv_offset + glyph_px / uniforms.atlas_size;
             let texel = textureSample(atlas_texture, atlas_sampler, corrected_uv);
             color = mix(bg_color, fg_color, texel.r);
+            glyph_coverage = texel.r;
         } else {
             color = bg_color;
         }
@@ -111,6 +121,20 @@ fn fs_main(
 
     if (f & 128u) != 0u {
         color = vec4<f32>(color.rgb * 0.5, color.a);
+    }
+
+    // Fix F: when a background image is active, default-background cells are
+    // made transparent so the wallpaper shows through. Only the glyph (if any)
+    // is drawn over the wallpaper; the cell's background fills nothing.
+    if (uniforms.image_active > 0.5) {
+        let dbg = vec4<f32>(uniforms.default_bg_lo, uniforms.default_bg_hi);
+        let is_default_bg = abs(bg_color.r - dbg.r) < 0.004
+            && abs(bg_color.g - dbg.g) < 0.004
+            && abs(bg_color.b - dbg.b) < 0.004;
+        if (is_default_bg) {
+            // Glyph (if present) over a transparent background -> wallpaper shows.
+            color = vec4<f32>(fg_color.rgb, glyph_coverage);
+        }
     }
 
     return color;

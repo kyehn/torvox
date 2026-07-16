@@ -3,6 +3,7 @@ package io.torvox
 import android.app.Application
 import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
+import io.torvox.bridge.TorvoxBridge
 import io.torvox.monitor.AnrWatchDog
 import io.torvox.monitor.BootGuard
 import io.torvox.monitor.MemoryMonitor
@@ -24,7 +25,7 @@ import java.util.Date
 import java.util.Locale
 
 @HiltAndroidApp
-class TorvoxApp : Application() {
+open class TorvoxApp : Application() {
     private var anrWatchDog: AnrWatchDog? = null
     private var memoryMonitor: MemoryMonitor? = null
     private var thermalMonitor: ThermalMonitor? = null
@@ -37,6 +38,11 @@ class TorvoxApp : Application() {
         BootGuard(logDir).check()
         StrictModeConfig.install()
         LogcatFileWriter.init(this)
+        Thread({
+            getSharedPreferences("toolbar_prefs", MODE_PRIVATE)
+            TorvoxBridge.initLogger()
+            LogcatFileWriter.getLogFilePath()?.let { TorvoxBridge.setLogFilePath(it) }
+        }, "JNA-Init").start()
         installAnrWatchDog()
         installMemoryMonitor()
         installThermalMonitor()
@@ -84,6 +90,7 @@ class TorvoxApp : Application() {
             } catch (exception: Exception) {
                 Log.e("TorvoxApp", "Failed to write crash log", exception)
             }
+            SelfExit.exit(getDir("logs", MODE_PRIVATE), "Uncaught exception on ${thread.name}")
             defaultHandler?.uncaughtException(thread, throwable)
         }
     }

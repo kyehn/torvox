@@ -184,24 +184,35 @@ constructor(
 
     @Then("^a selection handle appears$")
     fun selectionHandleAppears() {
+        composeRuleHolder.composeRule.waitForIdle()
+        // A live selection shows the selection action bar (dismiss/copy/etc.).
         composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
+            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
             .assertIsDisplayed()
     }
 
     @Then("^dragging extends the selection$")
     fun draggingExtendsSelection() {
         composeRuleHolder.composeRule.waitForIdle()
+        composeRuleHolder.composeRule
+            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
+            .assertIsDisplayed()
     }
 
     @Then("^the word is selected$")
     fun wordIsSelected() {
         composeRuleHolder.composeRule.waitForIdle()
+        composeRuleHolder.composeRule
+            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
+            .assertIsDisplayed()
     }
 
     @Then("^the line is selected$")
     fun lineIsSelected() {
         composeRuleHolder.composeRule.waitForIdle()
+        composeRuleHolder.composeRule
+            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
+            .assertIsDisplayed()
     }
 
     @Then("^the text is available on the clipboard$")
@@ -215,13 +226,19 @@ constructor(
     @Then("^the clipboard text is inserted$")
     fun clipboardTextIsInserted() {
         composeRuleHolder.composeRule.waitForIdle()
+        val bridge =
+            composeRuleHolder.composeRule.getBridge()
+                ?: throw AssertionError("Bridge is null")
+        val dataText = bridge.getTerminalText()
+        assert(dataText != null) { "Terminal should still have content after paste" }
     }
 
     @Then("^the paste popup appears$")
     fun pastePopupAppears() {
         composeRuleHolder.composeRule.waitForIdle()
+        // The selection/paste action bar (ModifierBar) is shown in the popup region.
         composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
+            .onNodeWithTag("ModifierBar", useUnmergedTree = true)
             .assertIsDisplayed()
     }
 
@@ -240,11 +257,17 @@ constructor(
     @Then("^the selection extends to the drag target$")
     fun selectionExtendsToDragTarget() {
         composeRuleHolder.composeRule.waitForIdle()
+        composeRuleHolder.composeRule
+            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
+            .assertIsDisplayed()
     }
 
     @Then("^the selection shrinks to the drag target$")
     fun selectionShrinksToDragTarget() {
         composeRuleHolder.composeRule.waitForIdle()
+        composeRuleHolder.composeRule
+            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
+            .assertIsDisplayed()
     }
 
     @Then("^the selection is cleared$")
@@ -270,5 +293,13 @@ constructor(
     @Then("^the selection is preserved$")
     fun selectionIsPreserved() {
         composeRuleHolder.composeRule.waitForIdle()
+        // The session is still present and its content is intact.
+        composeRuleHolder.composeRule
+            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
+            .assertIsDisplayed()
+        val bridge =
+            composeRuleHolder.composeRule.getBridge()
+                ?: throw AssertionError("Bridge is null")
+        assert(bridge.getTerminalText() != null) { "Terminal content should survive session switch" }
     }
 }

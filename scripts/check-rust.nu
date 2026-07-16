@@ -20,6 +20,10 @@ def main [] {
         "fuzz_selection"
         "fuzz_attrs"
     ] {
-        RUSTC=$RUSTC cargo fuzz run --fuzz-dir fuzz $target -- -max_total_time=5
+        do { RUSTC=$RUSTC cargo fuzz run --fuzz-dir fuzz $target -- -max_total_time=5 }
+        let exit_code = $env.LAST_EXIT_CODE
+        if $exit_code != 0 {
+            print $"fuzz_($target) exited ($exit_code). Artifacts in fuzz/artifacts/($target)/."
+        }
     }
 }

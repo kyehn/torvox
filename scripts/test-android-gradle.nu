@@ -6,5 +6,5 @@
 
 def main [] {
     cd android
-    ./gradlew spotlessCheck detekt app:dokkaGenerate lintDebug lintVitalRelease testDebugUnitTest benchmark:testReleaseUnitTest baselineprofile:testDebugUnitTest app:recordRoborazziDebug -Dorg.gradle.internal.test.results.binary.enabled=false
+    ./gradlew spotlessCheck detekt app:dokkaGenerate lintDebug lintVitalRelease app:recordRoborazziDebug testDebugUnitTest benchmark:testReleaseUnitTest baselineprofile:testDebugUnitTest -Dorg.gradle.internal.test.results.binary.enabled=false
 }

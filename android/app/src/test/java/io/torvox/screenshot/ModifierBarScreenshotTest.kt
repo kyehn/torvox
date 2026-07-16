@@ -39,7 +39,7 @@ class ModifierBarScreenshotTest {
                 RoborazziOptions(
                     compareOptions =
                     RoborazziOptions.CompareOptions(
-                        changeThreshold = 1.0f,
+                        changeThreshold = 0.05f,
                     ),
                 ),
             ),

@@ -10,7 +10,7 @@
 //! - [NFR-022](crate) — Render: crash recovery
 
 use std::collections::HashMap;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use thiserror::Error;
 use torvox_core::selection::SelectionMode;
@@ -18,19 +18,18 @@ use wgpu::util::DeviceExt;
 
 const MIN_ATLAS_BUFFER_SIZE: u64 = 64;
 const DESIRED_FRAME_LATENCY: u32 = 2;
-const DESIRED_FRAME_LATENCY_ANDROID: u32 = 1;
+const DESIRED_FRAME_LATENCY_ANDROID: u32 = 2;
 const GPU_POLL_TIMEOUT: Duration = Duration::from_secs(2);
-/// Internal render resolution scale. The swapchain is configured at
-/// `size * RENDER_SCALE` and the compositor upscales the buffer to the
-/// view bounds. This drastically cuts the per-frame GPU present/blit cost
-/// on software Vulkan (SwiftShader), where a full-resolution present is the
-/// dominant cost. 0.75 keeps text crisp while cutting present work ~2.4x.
-pub const RENDER_SCALE: f32 = 0.75;
+/// Internal render resolution scale. 1.0 = native resolution for crisp text
+/// on real devices. Sub-1.0 values cause compositor upscale artifacts (blurry
+/// aliased text) especially visible on Mali GPU. The performance gain from
+/// 0.75x is negligible compared to the quality loss.
+pub const RENDER_SCALE: f32 = 1.0;
 const QUAD_VERTEX_COUNT: u32 = 6;
 const DEFAULT_BG_ALPHA: f32 = 0.8;
 
 #[cfg(target_os = "android")]
-const SURFACE_RELEASE_POLL_MS: u64 = 50;
+const SURFACE_RELEASE_POLL_MS: u64 = 500;
 
 fn log_gpu_error(error: &wgpu::Error) {
     log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
@@ -93,6 +92,13 @@ struct GlobalGpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
 }
+
+/// Global surface cache: prevents destroying+recreating a wgpu Surface on the
+/// same ANativeWindow across session switches. SwiftShader/emulator does not
+/// handle surface recreation on a shared window reliably — the cached surface
+/// is kept alive and reconfigured instead.
+static GLOBAL_SURFACE: OnceLock<Mutex<Option<(wgpu::Surface, wgpu::SurfaceConfiguration)>>> =
+    OnceLock::new();
 
 fn global_gpu() -> &'static GlobalGpu {
     static INSTANCE: OnceLock<GlobalGpu> = OnceLock::new();
@@ -207,7 +213,28 @@ pub struct CursorInstance {
 pub struct GpuUniforms {
     pub projection: [[f32; 4]; 4],
     pub atlas_size: [f32; 2],
-    pub _padding: [f32; 2],
+    /// Device pixel ratio applied to glyph rasterization. Multiply world-space
+    /// cell coordinates by this in the fragment shader so glyph bitmap pixels
+    /// (rasterized at `font_size * raster_scale`) map 1:1 onto the physical
+    /// surface. 1.0 preserves legacy logical rasterization.
+    pub raster_scale: f32,
+    /// 1.0 when a background image is active (so default-background cells must
+    /// become transparent to reveal the wallpaper), 0.0 otherwise.
+    pub image_active: f32,
+    /// The surface's default (theme) background color ([r,g,b,a]). Cells whose
+    /// background matches this are treated as "default" and, when a background
+    /// image is active, rendered with zero alpha (fix F). Split into two vec2
+    /// in the WGSL `Uniforms` so the std140 layout exactly matches this
+    /// #[repr(C)] layout.
+    pub default_bg: [f32; 4],
+}
+
+/// Requirement 4 (background image, Fix F): `image_active` is the uniform flag
+/// that tells the cell shader to make default-background cells transparent. It
+/// is 1.0 exactly when a background-image bind group is present, else 0.0.
+/// Pure + testable so the branch logic can be unit-tested without a GPU.
+pub fn image_active_value(bg_bind_group_present: bool) -> f32 {
+    if bg_bind_group_present { 1.0 } else { 0.0 }
 }
 
 #[repr(C)]
@@ -268,6 +295,10 @@ pub struct GpuContext {
     kgp_atlas_data: Vec<u8>,
     kgp_atlas_width: u32,
     kgp_atlas_height: u32,
+    raster_scale: f32,
+    blur_h_pipeline: Option<wgpu::RenderPipeline>,
+    blur_v_pipeline: Option<wgpu::RenderPipeline>,
+    render_paused: bool,
 }
 
 impl Drop for GpuContext {
@@ -280,6 +311,8 @@ impl Drop for GpuContext {
         self.bg_uniform_buffer = None;
         self.bg_bind_group = None;
         self.bg_sampler = None;
+        self.blur_h_pipeline = None;
+        self.blur_v_pipeline = None;
         self.bg_pipeline = None;
         self.bg_image_view = None;
         self.bg_image_texture = None;
@@ -417,7 +450,22 @@ impl GpuContext {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    // Fix F: alpha blending lets default-background cells
+                    // (alpha 0) reveal the wallpaper painted by the background
+                    // pass, while opaque cells behave exactly as before
+                    // (src-over with alpha 1 == replace).
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: Default::default(),
@@ -498,7 +546,7 @@ impl GpuContext {
             },
             fragment: Some(wgpu::FragmentState {
                 module: &bg_shader,
-                entry_point: Some("fs_main"),
+                entry_point: Some("fs_direct"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
                     blend: Some(wgpu::BlendState::REPLACE),
@@ -624,6 +672,97 @@ impl GpuContext {
             let (pipeline, layout) = Self::create_bg_pipeline(&self.device, format);
             self.bg_pipeline = Some(pipeline);
             self.bg_bind_group_layout = Some(layout);
+        }
+
+        if self.blur_h_pipeline.is_none() {
+            let blur_wgsl_source = include_str!("../shaders/background.wgsl");
+            let blur_shader = self
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("Background Blur Shader"),
+                    source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(blur_wgsl_source)),
+                });
+            let bg_pipeline_layout = self.bg_bind_group_layout.as_ref().map(|layout| {
+                self.device
+                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Blur Pipeline Layout"),
+                        bind_group_layouts: &[Some(layout)],
+                        immediate_size: 0,
+                    })
+            });
+            let layout = bg_pipeline_layout
+                .as_ref()
+                .expect("blur pipeline layout created");
+            self.blur_h_pipeline = Some(self.device.create_render_pipeline(
+                &wgpu::RenderPipelineDescriptor {
+                    label: Some("Background Blur H Pipeline"),
+                    layout: Some(layout),
+                    vertex: wgpu::VertexState {
+                        module: &blur_shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &[quad_corner_buffer_layout()],
+                        compilation_options: Default::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &blur_shader,
+                        entry_point: Some("fs_blur_h"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: Some(wgpu::BlendState::REPLACE),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        strip_index_format: None,
+                        front_face: wgpu::FrontFace::Ccw,
+                        cull_mode: None,
+                        polygon_mode: wgpu::PolygonMode::Fill,
+                        unclipped_depth: false,
+                        conservative: false,
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                },
+            ));
+            self.blur_v_pipeline = Some(self.device.create_render_pipeline(
+                &wgpu::RenderPipelineDescriptor {
+                    label: Some("Background Blur V Pipeline"),
+                    layout: Some(layout),
+                    vertex: wgpu::VertexState {
+                        module: &blur_shader,
+                        entry_point: Some("vs_main"),
+                        buffers: &[quad_corner_buffer_layout()],
+                        compilation_options: Default::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &blur_shader,
+                        entry_point: Some("fs_blur_v"),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: Some(wgpu::BlendState::REPLACE),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        strip_index_format: None,
+                        front_face: wgpu::FrontFace::Ccw,
+                        cull_mode: None,
+                        polygon_mode: wgpu::PolygonMode::Fill,
+                        unclipped_depth: false,
+                        conservative: false,
+                    },
+                    depth_stencil: None,
+                    multisample: wgpu::MultisampleState::default(),
+                    multiview_mask: None,
+                    cache: None,
+                },
+            ));
         }
 
         let pipeline = match self.bg_pipeline.as_ref() {
@@ -755,7 +894,14 @@ impl GpuContext {
         let uniforms = GpuUniforms {
             projection: proj,
             atlas_size: [self.kgp_atlas_width as f32, self.kgp_atlas_height as f32],
-            _padding: [0.0; 2],
+            raster_scale: self.raster_scale,
+            image_active: image_active_value(self.bg_bind_group.is_some()),
+            default_bg: [
+                self.bg_color.r as f32,
+                self.bg_color.g as f32,
+                self.bg_color.b as f32,
+                1.0,
+            ],
         };
         self.queue
             .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
@@ -838,6 +984,10 @@ impl GpuContext {
             kgp_atlas_data: Vec::new(),
             kgp_atlas_width: 0,
             kgp_atlas_height: 0,
+            raster_scale: 1.0,
+            blur_h_pipeline: None,
+            blur_v_pipeline: None,
+            render_paused: false,
         })
     }
 
@@ -893,6 +1043,10 @@ impl GpuContext {
             kgp_atlas_data: Vec::new(),
             kgp_atlas_width: 0,
             kgp_atlas_height: 0,
+            raster_scale: 1.0,
+            blur_h_pipeline: None,
+            blur_v_pipeline: None,
+            render_paused: false,
         }
     }
 
@@ -903,6 +1057,18 @@ impl GpuContext {
             b: background[2] as f64 / 255.0,
             a: 1.0,
         };
+    }
+
+    pub fn set_render_paused(&mut self, paused: bool) {
+        self.render_paused = paused;
+    }
+
+    /// Set the device-pixel-ratio raster scale used by the cell fragment shader
+    /// to map world-space cell coordinates onto the physical surface.
+    pub fn set_raster_scale(&mut self, scale: f32) {
+        if scale > 0.0 && scale.is_finite() {
+            self.raster_scale = scale;
+        }
     }
 
     pub fn set_background_params(&mut self, blur_radius: f32, alpha: f32) {
@@ -1006,13 +1172,18 @@ impl GpuContext {
     }
 
     fn select_alpha_mode(caps: &wgpu::SurfaceCapabilities) -> wgpu::CompositeAlphaMode {
-        if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
-            wgpu::CompositeAlphaMode::Opaque
-        } else if caps
+        // Fix F: prefer a transparent composite alpha mode so the window (and the
+        // in-app background image) can be transparent. Opaque is only used as a
+        // last resort when no transparent mode is supported by the WSI.
+        if caps
             .alpha_modes
             .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
         {
             wgpu::CompositeAlphaMode::PreMultiplied
+        } else if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Auto) {
+            wgpu::CompositeAlphaMode::Auto
+        } else if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
+            wgpu::CompositeAlphaMode::Opaque
         } else {
             caps.alpha_modes
                 .first()
@@ -1201,7 +1372,7 @@ impl GpuContext {
 
     /// Create GPU atlas texture.
     ///
-    /// Format: `R8Unorm` — a single-channel **linear** (non-sRGB) byte layout
+    /// Format: `Rgba8Unorm` — R channel holds glyph coverage; GBA = 0
     /// that matches font.rs CPU bitmap output. The glyph alpha-coverage data
     /// is already in the correct (linear) space, so no gamma correction is
     /// applied by the GPU on sampling. (Despite the "Unorm" name, this is NOT
@@ -1217,7 +1388,8 @@ impl GpuContext {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::R8Unorm,
+            // Rgba8Unorm: Mali GPU driver has issues with R8Unorm + Linear filtering
+            format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
         });
@@ -1248,7 +1420,7 @@ impl GpuContext {
                 data,
                 wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(width),
+                    bytes_per_row: Some(4 * width),
                     rows_per_image: Some(height),
                 },
                 wgpu::Extent3d {
@@ -1286,7 +1458,14 @@ impl GpuContext {
         let uniforms = GpuUniforms {
             projection: proj,
             atlas_size: [atlas_width, atlas_height],
-            _padding: [0.0; 2],
+            raster_scale: self.raster_scale,
+            image_active: image_active_value(self.bg_bind_group.is_some()),
+            default_bg: [
+                self.bg_color.r as f32,
+                self.bg_color.g as f32,
+                self.bg_color.b as f32,
+                1.0,
+            ],
         };
 
         let uniform_buffer = match self.cell_uniform_buffer.as_ref() {
@@ -1351,7 +1530,14 @@ impl GpuContext {
         let uniforms = GpuUniforms {
             projection: proj,
             atlas_size: [atlas_width as f32, atlas_height as f32],
-            _padding: [0.0; 2],
+            raster_scale: self.raster_scale,
+            image_active: image_active_value(self.bg_bind_group.is_some()),
+            default_bg: [
+                self.bg_color.r as f32,
+                self.bg_color.g as f32,
+                self.bg_color.b as f32,
+                1.0,
+            ],
         };
 
         if self.cell_uniform_buffer.is_none() {
@@ -1413,7 +1599,18 @@ impl GpuContext {
     }
 
     pub fn release_gpu_surface(&mut self) {
-        self.surface = None;
+        // Cache the surface globally instead of dropping — prevents the
+        // SwiftShader/emulator hang when a new wgpu Surface is created on
+        // the same ANativeWindow after this one is destroyed.
+        if self.surface.is_some() {
+            let surface = self.surface.take().unwrap();
+            let config = self.surface_config.take();
+            if let Some(config) = config
+                && let Ok(mut guard) = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock()
+            {
+                *guard = Some((surface, config));
+            }
+        }
         self.surface_config = None;
         if let Err(error) = self.device.poll(wgpu::PollType::Wait {
             submission_index: None,
@@ -1421,10 +1618,17 @@ impl GpuContext {
         }) {
             log::warn!("release_gpu_surface: device poll error: {error}");
         }
-        // Give the Vulkan driver (especially SwiftShader) time to finish
-        // asynchronous surface destruction before the next create_surface call.
         #[cfg(target_os = "android")]
         std::thread::sleep(std::time::Duration::from_millis(SURFACE_RELEASE_POLL_MS));
+    }
+
+    /// Clear the global surface cache (e.g., when the ANativeWindow pointer changes
+    /// on foreground/background transitions, the cached surface is invalid for the
+    /// new window and must be discarded).
+    pub fn clear_global_surface() {
+        if let Ok(mut guard) = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock() {
+            *guard = None;
+        }
     }
 
     pub fn has_surface(&self) -> bool {
@@ -1438,15 +1642,63 @@ impl GpuContext {
     /// Create a wgpu Surface from an Android ANativeWindow and configure
     /// it with the existing device+queue.  Does NOT request a new adapter
     /// or create a new device — call after `initialize_pipeline_and_bind_group`.
+    ///
+    /// On session switches the old surface is cached in [`GLOBAL_SURFACE`]
+    /// (see [`Self::release_gpu_surface`]) instead of being dropped — we
+    /// try to reuse it here, avoiding the SwiftShader/emulator hang that
+    /// occurs when a new wgpu Surface is created on the same ANativeWindow
+    /// after destroying the previous one.
     pub fn configure_android_surface(
         &mut self,
         window_ptr: *mut std::ffi::c_void,
         width: u32,
         height: u32,
     ) -> Result<(), GpuError> {
-        // Drop old surface FIRST to release ANativeWindow before creating a new one.
-        // Poll the device to ensure the old surface's Vulkan resources are fully released
-        // before creating a new surface (prevents SIGABRT on SwiftShader/emulator).
+        // 1. Reuse a globally-cached surface when available (avoids recreating
+        //    on the same ANativeWindow — the source of the multi-session hang).
+        if self.surface.is_none()
+            && let Ok(mut guard) = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock()
+            && let Some((cached_surface, cached_config)) = guard.take()
+        {
+            let new_config = wgpu::SurfaceConfiguration {
+                width: ((width as f32 * RENDER_SCALE) as u32).max(1),
+                height: ((height as f32 * RENDER_SCALE) as u32).max(1),
+                ..cached_config
+            };
+            cached_surface.configure(&self.device, &new_config);
+            self.surface = Some(cached_surface);
+            self.surface_config = Some(new_config.clone());
+            self.projection_width = new_config.width;
+            self.projection_height = new_config.height;
+            if let Some(buf) = &self.cell_uniform_buffer {
+                let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
+                let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
+                let proj =
+                    orthographic_projection(new_config.width as f32, new_config.height as f32);
+                let uniforms = GpuUniforms {
+                    projection: proj,
+                    atlas_size: [aw as f32, ah as f32],
+                    raster_scale: self.raster_scale,
+                    image_active: image_active_value(self.bg_bind_group.is_some()),
+                    default_bg: [
+                        self.bg_color.r as f32,
+                        self.bg_color.g as f32,
+                        self.bg_color.b as f32,
+                        1.0,
+                    ],
+                };
+                self.queue
+                    .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
+            }
+            log::info!(
+                "configure_android_surface: {}x{} (reused cached surface, projection updated)",
+                new_config.width,
+                new_config.height,
+            );
+            return Ok(());
+        }
+
+        // 2. No cached surface — drop any old surface first, then create new.
         self.surface = None;
         self.surface_config = None;
         if let Err(error) = self.device.poll(wgpu::PollType::Wait {
@@ -1508,8 +1760,31 @@ impl GpuContext {
         surface.configure(&self.device, &config);
         self.surface = Some(surface);
 
+        self.projection_width = config.width;
+        self.projection_height = config.height;
+
+        if let Some(buf) = &self.cell_uniform_buffer {
+            let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
+            let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
+            let proj = orthographic_projection(config.width as f32, config.height as f32);
+            let uniforms = GpuUniforms {
+                projection: proj,
+                atlas_size: [aw as f32, ah as f32],
+                raster_scale: self.raster_scale,
+                image_active: image_active_value(self.bg_bind_group.is_some()),
+                default_bg: [
+                    self.bg_color.r as f32,
+                    self.bg_color.g as f32,
+                    self.bg_color.b as f32,
+                    1.0,
+                ],
+            };
+            self.queue
+                .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
+        }
+
         log::info!(
-            "configure_android_surface: {}x{} format={:?} alpha={:?} present={:?}",
+            "configure_android_surface: {}x{} format={:?} alpha={:?} present={:?} (projection updated)",
             config.width,
             config.height,
             format,
@@ -1539,7 +1814,34 @@ impl GpuContext {
         config.height = scaled_height;
         surface.configure(&self.device, config);
 
-        log::info!("RECONFIGURE_SWAPCHAIN: {}x{}", width, height);
+        self.projection_width = scaled_width;
+        self.projection_height = scaled_height;
+
+        if let Some(buf) = &self.cell_uniform_buffer {
+            let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
+            let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
+            let proj = orthographic_projection(scaled_width as f32, scaled_height as f32);
+            let uniforms = GpuUniforms {
+                projection: proj,
+                atlas_size: [aw as f32, ah as f32],
+                raster_scale: self.raster_scale,
+                image_active: image_active_value(self.bg_bind_group.is_some()),
+                default_bg: [
+                    self.bg_color.r as f32,
+                    self.bg_color.g as f32,
+                    self.bg_color.b as f32,
+                    1.0,
+                ],
+            };
+            self.queue
+                .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
+        }
+
+        log::info!(
+            "RECONFIGURE_SWAPCHAIN: {}x{} (projection updated)",
+            width,
+            height
+        );
     }
 
     pub fn warmup(&self) {
@@ -1643,6 +1945,9 @@ impl GpuContext {
         instances: &[CellInstance],
         kgp_instances: &[KgpInstance],
     ) -> Result<(), GpuError> {
+        if self.render_paused {
+            return Ok(());
+        }
         let mut cfg_width = self
             .surface_config
             .as_ref()
@@ -1721,7 +2026,14 @@ impl GpuContext {
             let uniforms = GpuUniforms {
                 projection: proj,
                 atlas_size: [aw as f32, ah as f32],
-                _padding: [0.0; 2],
+                raster_scale: self.raster_scale,
+                image_active: image_active_value(self.bg_bind_group.is_some()),
+                default_bg: [
+                    self.bg_color.r as f32,
+                    self.bg_color.g as f32,
+                    self.bg_color.b as f32,
+                    1.0,
+                ],
             };
             if let Some(buf) = &self.cell_uniform_buffer {
                 self.queue
@@ -1783,8 +2095,62 @@ impl GpuContext {
             }
         }
 
-        // Background image render pass (before cell pass)
-        if let (Some(bg_pipeline), Some(bg_bind_group)) = (&self.bg_pipeline, &self.bg_bind_group) {
+        // Background image render pass (two-pass separable blur when active)
+        if let (Some(bg_bind_group), Some(blur_h), Some(blur_v)) = (
+            self.bg_bind_group.as_ref(),
+            self.blur_h_pipeline.as_ref(),
+            self.blur_v_pipeline.as_ref(),
+        ) && self.bg_blur_radius >= 0.5
+        {
+            // Pass 1: Horizontal blur → main framebuffer
+            {
+                let mut h_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Blur H Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(self.bg_color),
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                h_pass.set_pipeline(blur_h);
+                h_pass.set_bind_group(0, bg_bind_group, &[]);
+                h_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
+                h_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
+                h_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+                h_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
+            }
+            // Pass 2: Vertical blur → main framebuffer
+            {
+                let mut v_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Blur V Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                v_pass.set_pipeline(blur_v);
+                v_pass.set_bind_group(0, bg_bind_group, &[]);
+                v_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
+                v_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
+                v_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+                v_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
+            }
+        } else if let (Some(bg_pipeline), Some(bg_bind_group)) =
+            (&self.bg_pipeline, &self.bg_bind_group)
+        {
             {
                 let mut bg_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Background Render Pass"),
@@ -2498,6 +2864,7 @@ pub fn build_cell_instances_into(
     cell_w *= config.render_scale;
     cell_h *= config.render_scale;
     let ascent_pixels = font_pipeline.ascent_pixels();
+    let raster_scale = font_pipeline.get_raster_scale();
     let expected = (snapshot.rows * snapshot.cols) as usize;
     if snapshot.cells.len() < expected {
         log::warn!(
@@ -2784,13 +3151,15 @@ pub fn build_cell_instances_into(
                         let uv_y = info.atlas_y as f32 / atlas_height;
                         let uv_w = info.width as f32 / atlas_width;
                         let uv_h = info.height as f32 / atlas_height;
-                        let bearing_x = info.placement.left as f32 + sg.x_offset;
-                        let glyph_h = info.height as f32;
-                        let raw_bearing_y = ascent_pixels - info.placement.top as f32;
+                        let bearing_x = info.placement.left as f32 + sg.x_offset * raster_scale;
+                        let glyph_h = info.height as f32 / raster_scale;
+                        let raw_bearing_y =
+                            ascent_pixels * raster_scale - info.placement.top as f32;
                         let bearing_y = if glyph_h > cell_h {
-                            (cell_h - glyph_h) / 2.0 + sg.y_offset
+                            (cell_h - glyph_h) / 2.0 * raster_scale * raster_scale
+                                + sg.y_offset * raster_scale
                         } else {
-                            raw_bearing_y + sg.y_offset
+                            raw_bearing_y + sg.y_offset * raster_scale
                         };
 
                         instances.push(CellInstance {
@@ -2896,8 +3265,8 @@ pub fn build_cell_instances_into(
                 let uv_h = info.height as f32 / atlas_height;
 
                 let bearing_x = info.placement.left as f32;
-                let glyph_h = info.height as f32;
-                let raw_bearing_y = ascent_pixels - info.placement.top as f32;
+                let glyph_h = info.height as f32 / raster_scale;
+                let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
                 let bearing_y = if glyph_h > cell_h {
                     (cell_h - glyph_h) / 2.0
                 } else {
@@ -2930,10 +3299,10 @@ pub fn build_cell_instances_into(
                     let uv_w = info.width as f32 / atlas_width;
                     let uv_h = info.height as f32 / atlas_height;
                     let bearing_x = info.placement.left as f32;
-                    let glyph_h = info.height as f32;
-                    let raw_bearing_y = ascent_pixels - info.placement.top as f32;
+                    let glyph_h = info.height as f32 / raster_scale;
+                    let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
                     let bearing_y = if glyph_h > cell_h {
-                        (cell_h - glyph_h) / 2.0
+                        (cell_h - glyph_h) / 2.0 * raster_scale
                     } else {
                         raw_bearing_y
                     };
@@ -2977,10 +3346,10 @@ pub fn build_cell_instances_into(
                     let uv_w = info.width as f32 / atlas_width;
                     let uv_h = info.height as f32 / atlas_height;
                     let bearing_x = info.placement.left as f32;
-                    let glyph_h = info.height as f32;
-                    let raw_bearing_y = ascent_pixels - info.placement.top as f32;
+                    let glyph_h = info.height as f32 / raster_scale;
+                    let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
                     let bearing_y = if glyph_h > cell_h {
-                        (cell_h - glyph_h) / 2.0
+                        (cell_h - glyph_h) / 2.0 * raster_scale
                     } else {
                         raw_bearing_y
                     };
@@ -3012,6 +3381,14 @@ pub fn build_cell_instances_into(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn f32_eq(a: f32, b: f32) -> bool {
+        (a - b).abs() < f32::EPSILON
+    }
+
+    fn f32_arrays_equal(a: &[f32], b: &[f32]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| f32_eq(*x, *y))
+    }
 
     #[test]
     fn cell_instance_size() {
@@ -3102,8 +3479,8 @@ mod tests {
 
         let (character, foreground_out, background_out) = grid.cell(2, 3).unwrap();
         assert_eq!(character, 'A');
-        assert_eq!(foreground_out, foreground);
-        assert_eq!(background_out, background);
+        assert!(f32_arrays_equal(&foreground_out, &foreground));
+        assert!(f32_arrays_equal(&background_out, &background));
     }
 
     #[test]
@@ -3129,12 +3506,12 @@ mod tests {
         assert_eq!(instances.len(), 4);
 
         let cell0 = &instances[0];
-        assert_eq!(cell0.quad_origin, [0.0, 0.0]);
-        assert_eq!(cell0.bg_color, [0.0, 0.0, 0.0, 1.0]);
+        assert!(f32_arrays_equal(&cell0.quad_origin, &[0.0, 0.0]));
+        assert!(f32_arrays_equal(&cell0.bg_color, &[0.0, 0.0, 0.0, 1.0]));
 
         let cell1 = &instances[1];
-        assert_eq!(cell1.quad_origin, [cell_w, 0.0]);
-        assert_eq!(cell1.bg_color, [0.5, 0.5, 0.5, 1.0]);
+        assert!(f32_arrays_equal(&cell1.quad_origin, &[cell_w, 0.0]));
+        assert!(f32_arrays_equal(&cell1.bg_color, &[0.5, 0.5, 0.5, 1.0]));
     }
 
     #[test]
@@ -3152,18 +3529,18 @@ mod tests {
         };
         let bytes = bytemuck::bytes_of(&c);
         let back: &CellInstance = bytemuck::from_bytes(bytes);
-        assert_eq!(back.quad_origin, [1.0, 2.0]);
-        assert_eq!(back.flags, 5.0);
-        assert_eq!(back.glyph_advance_width, 8.0);
+        assert!(f32_arrays_equal(&back.quad_origin, &[1.0, 2.0]));
+        assert!(f32_eq(back.flags, 5.0));
+        assert!(f32_eq(back.glyph_advance_width, 8.0));
     }
 
     #[test]
     fn cell_instance_zeroable() {
         let c: CellInstance = bytemuck::Zeroable::zeroed();
-        assert_eq!(c.quad_origin, [0.0, 0.0]);
-        assert_eq!(c.fg_color, [0.0, 0.0, 0.0, 0.0]);
-        assert_eq!(c.flags, 0.0);
-        assert_eq!(c.bearing, [0.0, 0.0]);
+        assert!(f32_arrays_equal(&c.quad_origin, &[0.0, 0.0]));
+        assert!(f32_arrays_equal(&c.fg_color, &[0.0, 0.0, 0.0, 0.0]));
+        assert!(f32_eq(c.flags, 0.0));
+        assert!(f32_arrays_equal(&c.bearing, &[0.0, 0.0]));
     }
 
     #[test]
@@ -3199,12 +3576,15 @@ mod tests {
         };
         let bytes = bytemuck::bytes_of(&c);
         let back: &CursorInstance = bytemuck::from_bytes(bytes);
-        assert_eq!(back.cursor_size, [10.0, 20.0]);
+        assert!(f32_arrays_equal(&back.cursor_size, &[10.0, 20.0]));
     }
 
     #[test]
     fn gpu_uniforms_size() {
-        assert_eq!(std::mem::size_of::<GpuUniforms>(), 80);
+        // #[repr(C)] layout: 64 (mat4) + 8 (vec2) + 4 + 4 (raster_scale,
+        // image_active) + 16 (default_bg [f32;4]) = 96. Matches the WGSL
+        // std140 `Uniforms` (default_bg split into two vec2).
+        assert_eq!(std::mem::size_of::<GpuUniforms>(), 96);
     }
 
     #[test]
@@ -3262,7 +3642,7 @@ mod tests {
     fn flat_grid_default_fg_is_white() {
         let grid = FlatGrid::new(2, 2);
         for f in &grid.foreground {
-            assert_eq!(*f, [1.0, 1.0, 1.0, 1.0]);
+            assert!(f32_arrays_equal(f, &[1.0, 1.0, 1.0, 1.0]));
         }
     }
 
@@ -3270,7 +3650,7 @@ mod tests {
     fn flat_grid_default_bg_is_black() {
         let grid = FlatGrid::new(2, 2);
         for b in &grid.background {
-            assert_eq!(*b, [0.0, 0.0, 0.0, 1.0]);
+            assert!(f32_arrays_equal(b, &[0.0, 0.0, 0.0, 1.0]));
         }
     }
 
@@ -3282,8 +3662,8 @@ mod tests {
         grid.set_cell(0, 0, 'H', foreground, background);
         let (character, foreground_loaded, background_loaded) = grid.cell(0, 0).unwrap();
         assert_eq!(character, 'H');
-        assert_eq!(foreground_loaded, foreground);
-        assert_eq!(background_loaded, background);
+        assert!(f32_arrays_equal(&foreground_loaded, &foreground));
+        assert!(f32_arrays_equal(&background_loaded, &background));
     }
 
     #[test]
@@ -3304,7 +3684,7 @@ mod tests {
         assert_eq!(instances.len(), 5);
         // All spaces, atlas_size should be 0
         for inst in &instances {
-            assert_eq!(inst.atlas_size, [0.0, 0.0]);
+            assert!(f32_arrays_equal(&inst.atlas_size, &[0.0, 0.0]));
         }
     }
 
@@ -3603,12 +3983,16 @@ mod tests {
         let uniforms_800 = GpuUniforms {
             projection: orthographic_projection(800.0, 600.0),
             atlas_size: [1024.0, 1024.0],
-            _padding: [0.0; 2],
+            raster_scale: 1.0,
+            image_active: 0.0,
+            default_bg: [0.0, 0.0, 0.0, 1.0],
         };
         let uniforms_400 = GpuUniforms {
             projection: orthographic_projection(800.0, 400.0),
             atlas_size: [1024.0, 1024.0],
-            _padding: [0.0; 2],
+            raster_scale: 1.0,
+            image_active: 0.0,
+            default_bg: [0.0, 0.0, 0.0, 1.0],
         };
 
         // Same projection/atlas layout, different height
@@ -3626,7 +4010,7 @@ mod tests {
         // Write/readback via bytemuck
         let bytes = bytemuck::bytes_of(&uniforms_400);
         let back: &GpuUniforms = bytemuck::from_bytes(bytes);
-        assert_eq!(back.projection[1][1], uniforms_400.projection[1][1]);
+        assert!(f32_eq(back.projection[1][1], uniforms_400.projection[1][1]));
     }
 
     #[test]
@@ -3669,20 +4053,20 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 2);
         let cursor_cell = &instances[0];
         // Block cursor alpha = cursor_color[3] * 0.7 (CURSOR_BLOCK_ALPHA constant)
-        assert_eq!(
-            cursor_cell.bg_color,
-            [1.0, 1.0, 1.0, 0.7],
+        assert!(
+            f32_arrays_equal(&cursor_cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
             "cursor cell bg should be white with block alpha when cursor_visible=true"
         );
         let non_cursor_cell = &instances[1];
-        assert_ne!(
-            non_cursor_cell.bg_color,
-            [1.0, 1.0, 1.0, 1.0],
+        assert!(
+            !f32_arrays_equal(&non_cursor_cell.bg_color, &[1.0, 1.0, 1.0, 1.0]),
             "non-cursor cell bg should NOT be white"
         );
     }
@@ -3717,13 +4101,14 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_ne!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 1.0],
+        assert!(
+            !f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 1.0]),
             "cursor cell should not have white bg when cursor_visible=false"
         );
     }
@@ -3766,18 +4151,20 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
         // Reverse video swaps fg/bg: blank cell bg must become the foreground,
         // fg must become the background.
-        assert_eq!(
-            cell.bg_color, foreground,
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &foreground),
             "reversed blank cell bg must equal foreground"
         );
-        assert_eq!(
-            cell.fg_color, background,
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &background),
             "reversed blank cell fg must equal background"
         );
     }
@@ -3827,18 +4214,18 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_eq!(
-            cell.fg_color,
-            [0.0, 0.0, 0.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &[0.0, 0.0, 0.0, 1.0]),
             "selected cell fg should be original bg (swap)"
         );
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 0.0, 0.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 0.0, 0.0, 1.0]),
             "selected cell bg should be original fg (swap)"
         );
     }
@@ -3965,7 +4352,7 @@ mod tests {
         adapter: wgpu::Adapter,
         device: wgpu::Device,
         queue: wgpu::Queue,
-    ) -> Option<GpuContext> {
+    ) -> GpuContext {
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Vertex Buffer"),
             contents: bytemuck::cast_slice(QUAD_CORNERS),
@@ -4020,9 +4407,13 @@ mod tests {
             kgp_atlas_data: Vec::new(),
             kgp_atlas_width: 0,
             kgp_atlas_height: 0,
+            raster_scale: 1.0,
+            blur_h_pipeline: None,
+            blur_v_pipeline: None,
+            render_paused: false,
         };
         ctx.initialize_pipeline_and_bind_group(256, 256, 50, 50);
-        Some(ctx)
+        ctx
     }
 
     fn setup_test_gpu_context_custom(
@@ -4032,7 +4423,7 @@ mod tests {
         queue: wgpu::Queue,
         width: u32,
         height: u32,
-    ) -> Option<GpuContext> {
+    ) -> GpuContext {
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Vertex Buffer"),
             contents: bytemuck::cast_slice(QUAD_CORNERS),
@@ -4092,9 +4483,13 @@ mod tests {
             kgp_atlas_data: Vec::new(),
             kgp_atlas_width: 0,
             kgp_atlas_height: 0,
+            raster_scale: 1.0,
+            blur_h_pipeline: None,
+            blur_v_pipeline: None,
+            render_paused: false,
         };
         ctx.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
-        Some(ctx)
+        ctx
     }
 
     #[test]
@@ -4105,11 +4500,8 @@ mod tests {
         let width = 480u32;
         let height = 60u32;
         let atlas_dim = width.max(256);
-        let Some(mut ctx) =
-            setup_test_gpu_context_custom(instance, adapter, device, queue, width, height)
-        else {
-            return;
-        };
+        let mut ctx =
+            setup_test_gpu_context_custom(instance, adapter, device, queue, width, height);
         // Ensure GPU atlas dimensions match the font pipeline atlas (both must be square)
         ctx.initialize_pipeline_and_bind_group(atlas_dim, atlas_dim, width, height);
 
@@ -4198,9 +4590,7 @@ mod tests {
         let Some((instance, adapter, device, queue)) = create_test_device() else {
             return;
         };
-        let Some(mut ctx) = setup_test_gpu_context(instance, adapter, device, queue) else {
-            return;
-        };
+        let mut ctx = setup_test_gpu_context(instance, adapter, device, queue);
 
         let pixel = [255u8, 0, 0, 255];
         let pixels: Vec<u8> = pixel.repeat(50 * 50);
@@ -4243,9 +4633,7 @@ mod tests {
         let Some((instance, adapter, device, queue)) = create_test_device() else {
             return;
         };
-        let Some(mut ctx) = setup_test_gpu_context(instance, adapter, device, queue) else {
-            return;
-        };
+        let mut ctx = setup_test_gpu_context(instance, adapter, device, queue);
 
         let pixel = [255u8, 0, 0, 255];
         let pixels: Vec<u8> = pixel.repeat(50 * 50);
@@ -4289,9 +4677,7 @@ mod tests {
         let Some((instance, adapter, device, queue)) = create_test_device() else {
             return;
         };
-        let Some(mut ctx) = setup_test_gpu_context(instance, adapter, device, queue) else {
-            return;
-        };
+        let mut ctx = setup_test_gpu_context(instance, adapter, device, queue);
 
         let result = ctx
             .render_to_buffer(&[], &[])
@@ -4328,7 +4714,7 @@ mod tests {
         let base = [0.0, 0.0, 0.0, 1.0];
         let red_hl = [255, 0, 0, 255];
         let blended = blend_highlight(base, red_hl);
-        assert_eq!(blended, [1.0, 0.0, 0.0, 1.0]);
+        assert!(f32_arrays_equal(&blended, &[1.0, 0.0, 0.0, 1.0]));
     }
 
     #[test]
@@ -4336,7 +4722,7 @@ mod tests {
         let base = [0.2, 0.3, 0.4, 1.0];
         let transparent = [255, 0, 0, 0];
         let blended = blend_highlight(base, transparent);
-        assert_eq!(blended, base);
+        assert!(f32_arrays_equal(&blended, &base));
     }
 
     #[test]
@@ -4391,6 +4777,8 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
@@ -4443,13 +4831,14 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_eq!(
-            cell.bg_color,
-            [0.5, 0.5, 1.0, 0.7],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[0.5, 0.5, 1.0, 0.7]),
             "cursor cell bg should be cursor color (with block alpha), not highlight color"
         );
     }
@@ -4660,16 +5049,18 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_eq!(
-            cell.quad_size[0], cell_w,
+        assert!(
+            f32_eq(cell.quad_size[0], cell_w),
             "Block cursor width should equal cell width"
         );
-        assert_eq!(
-            cell.quad_size[1], cell_h,
+        assert!(
+            f32_eq(cell.quad_size[1], cell_h),
             "Block cursor height should equal cell height"
         );
     }
@@ -4708,6 +5099,8 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
@@ -4718,8 +5111,8 @@ mod tests {
             "Bar cursor width should be {expected_w}, got {}",
             cell.quad_size[0]
         );
-        assert_eq!(
-            cell.quad_size[1], cell_h,
+        assert!(
+            f32_eq(cell.quad_size[1], cell_h),
             "Bar cursor height should equal cell height"
         );
     }
@@ -4758,6 +5151,8 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
@@ -4768,8 +5163,8 @@ mod tests {
             "Underline cursor height should be {expected_h}, got {}",
             cell.quad_size[1]
         );
-        assert_eq!(
-            cell.quad_size[0], cell_w,
+        assert!(
+            f32_eq(cell.quad_size[0], cell_w),
             "Underline cursor width should equal cell width"
         );
     }
@@ -4807,14 +5202,15 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
         // Non-cursor blank cell uses default background, not cursor color
-        assert_ne!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.7],
+        assert!(
+            !f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
             "cursor cell should not have block alpha bg when cursor_visible=false"
         );
     }
@@ -4854,6 +5250,8 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(
@@ -4862,9 +5260,8 @@ mod tests {
             "cursor at (0,0) must produce an instance"
         );
         let cell = &instances[0];
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.7],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
             "cursor at origin must render with block alpha"
         );
     }
@@ -4905,19 +5302,19 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
         // Block cursor swaps fg/bg: fg becomes original bg, bg becomes cursor color×alpha
-        assert_eq!(
-            cell.fg_color,
-            [0.0, 0.0, 1.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &[0.0, 0.0, 1.0, 1.0]),
             "block cursor on text: fg should be original bg"
         );
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.7],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
             "block cursor on text: bg should be cursor color with block alpha"
         );
     }
@@ -4958,19 +5355,19 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
         // Bar cursor does NOT swap fg/bg — it just sets bg to cursor color
-        assert_eq!(
-            cell.fg_color,
-            [0.0, 1.0, 0.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &[0.0, 1.0, 0.0, 1.0]),
             "bar cursor on text: fg should be original foreground"
         );
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.9],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.9]),
             "bar cursor on text: bg should be cursor color with line alpha"
         );
     }
@@ -5011,19 +5408,19 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
         // Underline cursor does NOT swap fg/bg — it just sets bg to cursor color
-        assert_eq!(
-            cell.fg_color,
-            [0.0, 1.0, 0.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &[0.0, 1.0, 0.0, 1.0]),
             "underline cursor on text: fg should be original foreground"
         );
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.9],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.9]),
             "underline cursor on text: bg should be cursor color with line alpha"
         );
     }
@@ -5062,15 +5459,83 @@ mod tests {
                 dirty_rows: &[],
                 cached_instances: &[],
                 cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
             },
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_eq!(
-            cell.bg_color,
-            [0.5, 0.3, 0.8, 0.7],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[0.5, 0.3, 0.8, 0.7]),
             "custom cursor color should be reflected with block alpha multiplier"
         );
+    }
+
+    #[test]
+    fn render_paused_skips_frame() {
+        let mut ctx = GpuContext::new_with_no_surface();
+        assert!(!ctx.render_paused, "should start unpaused");
+        // Without a surface config, render should fail when not paused
+        assert!(
+            ctx.render_frame(&[], &[]).is_err(),
+            "expected error when not paused and no surface"
+        );
+        // When paused, render should succeed immediately (skips surface check)
+        ctx.set_render_paused(true);
+        assert!(
+            ctx.render_frame(&[], &[]).is_ok(),
+            "expected ok when paused regardless of surface"
+        );
+    }
+
+    #[test]
+    fn render_paused_toggle_resumes_rendering() {
+        let mut ctx = GpuContext::new_with_no_surface();
+        // Pause then unpause
+        ctx.set_render_paused(true);
+        assert!(
+            ctx.render_frame(&[], &[]).is_ok(),
+            "paused skips surface check"
+        );
+        ctx.set_render_paused(false);
+        assert!(
+            ctx.render_frame(&[], &[]).is_err(),
+            "unpaused fails without surface (correct behavior)"
+        );
+    }
+
+    #[test]
+    fn render_paused_remains_paused_after_multiple_frames() {
+        let mut ctx = GpuContext::new_with_no_surface();
+        ctx.set_render_paused(true);
+        for _ in 0..10 {
+            assert!(
+                ctx.render_frame(&[], &[]).is_ok(),
+                "paused render must stay ok across multiple frames"
+            );
+        }
+    }
+
+    #[test]
+    fn new_with_no_surface_starts_unpaused() {
+        let ctx = GpuContext::new_with_no_surface();
+        assert!(!ctx.render_paused, "new context must start unpaused");
+    }
+
+    #[test]
+    fn set_render_paused_idempotent() {
+        let mut ctx = GpuContext::new_with_no_surface();
+        ctx.set_render_paused(true);
+        ctx.set_render_paused(true);
+        assert!(ctx.render_frame(&[], &[]).is_ok(), "double-pause still ok");
+    }
+
+    #[test]
+    fn image_active_value_flag_matches_bg_bind_group() {
+        // Fix F branch logic: a background image being active is exactly the
+        // uniform flag that makes default-background cells transparent.
+        assert!(f32_eq(image_active_value(true), 1.0));
+        assert!(f32_eq(image_active_value(false), 0.0));
     }
 
     include!("screenshot_tests.rs");

@@ -451,10 +451,14 @@ pub struct TorvoxBridge {
     cell_height: std::sync::atomic::AtomicU32,
     scrollback_length: std::sync::atomic::AtomicU32,
     /// Lock-free sender for user-initiated PTY writes (keyboard/IME/paste).
-    /// Captured once at session spawn so `write_to_pty`/`process_key_event`
-    /// never block on the session mutex — avoiding UI-thread stalls while the
-    /// render thread holds that lock during `process_output`.
+    /// Captured once at session spawn so `write_to_pty` never blocks on the
+    /// session mutex — avoiding UI-thread stalls while the render thread holds
+    /// that lock during `process_output`.
+    /// Clone of ghostty terminal's command sender for lock-free key encoding.
+    /// Captured once during spawn_terminal so process_key_event never needs
+    /// the session mutex, eliminating UI-thread stalls from lock contention.
     user_write_tx: std::sync::Mutex<Option<flume::Sender<Vec<u8>>>>,
+    key_cmd_tx: std::sync::Mutex<Option<flume::Sender<torvox_terminal::ghostty_terminal::Command>>>,
 }
 
 impl TorvoxBridge {
@@ -541,11 +545,7 @@ where
 impl TorvoxBridge {
     pub fn new(config: TerminalConfig) -> Self {
         #[cfg(target_os = "android")]
-        android_logger::init_once(
-            android_logger::Config::default()
-                .with_max_level(log::LevelFilter::Debug)
-                .with_tag("TorvoxRust"),
-        );
+        crate::logging::init();
         std::panic::set_hook(Box::new(|info| {
             log::error!("PANIC: {info}");
             if let Some(location) = info.location() {
@@ -562,6 +562,7 @@ impl TorvoxBridge {
             surface_ready: std::sync::atomic::AtomicBool::new(false),
             scrollback_length: std::sync::atomic::AtomicU32::new(0),
             user_write_tx: std::sync::Mutex::new(None),
+            key_cmd_tx: std::sync::Mutex::new(None),
         }
     }
 
@@ -602,12 +603,15 @@ impl TorvoxBridge {
                 log::warn!("spawn_terminal: session mutex was poisoned, recovered");
             }
         }
-        // Capture the lock-free user-write sender once so subsequent
-        // write_to_pty / process_key_event calls never touch the session mutex.
+        // Capture lock-free senders once so subsequent calls never touch the session mutex.
         if let Ok(session_guard) = session_arc.lock() {
-            let sender = session_guard.user_write_sender();
-            if let Ok(mut tx_guard) = self.user_write_tx.lock() {
-                *tx_guard = Some(sender);
+            let user_tx = session_guard.user_write_sender();
+            if let Ok(mut guard) = self.user_write_tx.lock() {
+                *guard = Some(user_tx);
+            }
+            let key_tx = session_guard.clone_cmd_tx();
+            if let Ok(mut guard) = self.key_cmd_tx.lock() {
+                *guard = Some(key_tx);
             }
         }
         Ok(0)
@@ -651,6 +655,31 @@ impl TorvoxBridge {
                 .map_err(|e| TerminalError::PtyError {
                     detail: e.to_string(),
                 })?;
+            {
+                let t = &self.config.theme;
+                let bg = [
+                    ((t.bg >> 16) & 0xFF) as u8,
+                    ((t.bg >> 8) & 0xFF) as u8,
+                    (t.bg & 0xFF) as u8,
+                ];
+                let fg = [
+                    ((t.fg >> 16) & 0xFF) as u8,
+                    ((t.fg >> 8) & 0xFF) as u8,
+                    (t.fg & 0xFF) as u8,
+                ];
+                let cursor = [
+                    ((t.cursor >> 16) & 0xFF) as u8,
+                    ((t.cursor >> 8) & 0xFF) as u8,
+                    (t.cursor & 0xFF) as u8,
+                ];
+                log::info!(
+                    "BRIDGE_DIAG: set_theme name='{}' bg={:?} fg={:?} cursor={:?}",
+                    t.name,
+                    bg,
+                    fg,
+                    cursor,
+                );
+            }
             surface.set_theme(self.config.theme.clone().into());
             *surface_guard = Some(surface);
         }
@@ -715,12 +744,45 @@ impl TorvoxBridge {
         Ok((had_output, snapshot))
     }
 
-    pub fn render(&self) -> Result<bool, TerminalError> {
-        // Step 1 – process ghostty output / take snapshot OUTSIDE the surface
-        // lock so that ghostty C code (potentially 100+ ms) never stalls the
-        // surface mutex.  The main thread can still apply settings / resize /
-        // IME input while ghostty is working.
-        let session_out = self.process_session_for_render()?;
+    /// Like `process_session_for_render` but skips the ghostty `process_output`
+    /// call entirely. Used for blink/force-rendered frames where no new PTY
+    /// data has arrived, avoiding a ~50ms stall per frame from ghostty C code.
+    fn process_session_for_render_skip_output(
+        &self,
+    ) -> Result<(bool, torvox_terminal::ghostty_terminal::GridSnapshot), TerminalError> {
+        let session_arc = self
+            .session
+            .lock()
+            .map_err(|e| TerminalError::PtyError {
+                detail: format!("session lock poisoned: {e}"),
+            })?
+            .as_ref()
+            .cloned()
+            .ok_or(TerminalError::PtyError {
+                detail: "no active session for render".to_string(),
+            })?;
+        let session_guard = session_arc.lock().map_err(|e| TerminalError::PtyError {
+            detail: format!("session inner lock poisoned: {e}"),
+        })?;
+        let scroll_offset = self
+            .scroll_offset
+            .load(std::sync::atomic::Ordering::Relaxed);
+        // Intentionally skip process_output() — no new ghostty data to process.
+        let snapshot = session_guard
+            .terminal()
+            .try_take_snapshot_with_scroll(scroll_offset)
+            .ok_or(TerminalError::PtyError {
+                detail: "snapshot unavailable — VT thread busy".to_string(),
+            })?;
+        Ok((false, snapshot))
+    }
+
+    pub fn render(&self, skip_output: bool) -> Result<bool, TerminalError> {
+        let session_out = if skip_output {
+            self.process_session_for_render_skip_output()?
+        } else {
+            self.process_session_for_render()?
+        };
 
         // Step 2 – lock surface only for the fast GPU path
         let mut surface_guard = self.surface.lock().map_err(|e| TerminalError::PtyError {
@@ -738,7 +800,10 @@ impl TorvoxBridge {
             self.store_cell_metrics(surface);
             // Cache scrollback length so the main thread can read it lock-free
             // via `scrollback_length()` without contending on the session lock.
-            if let Some(session_arc) = self.session.lock().ok().and_then(|g| g.as_ref().cloned())
+            // Only query when there's new output to avoid polluting logs on idle.
+            if session_out.0
+                && let Some(session_arc) =
+                    self.session.lock().ok().and_then(|g| g.as_ref().cloned())
                 && let Ok(session) = session_arc.lock()
             {
                 self.scrollback_length.store(
@@ -1225,6 +1290,131 @@ impl TorvoxBridge {
         Ok((row, col, row, col))
     }
 
+    /// Move one endpoint of an active selection to a new cell while keeping the
+    /// other endpoint fixed, then (for Word mode) re-expand the moved endpoint
+    /// using the same core `Selection` logic used by long-press. This unifies
+    /// drag-grow with long-press so word/URL/CJK boundaries stay consistent and
+    /// there is no divergent client-side expansion.
+    ///
+    /// * `handle_side` — 0 to move the start endpoint, 1 to move the end endpoint.
+    /// * `anchor_row`/`anchor_col` — the cell the dragged handle moved to.
+    /// * `other_row`/`other_col` — the fixed (opposite) endpoint.
+    /// * `mode` — selection mode (0=Char, 1=Word, 2=Line, 3=Block).
+    /// * `origin_row`/`origin_col` — the original long-press cell (preserved as the
+    ///   selection origin for the renderer).
+    ///
+    /// Returns the resulting ordered `(start_row, start_col, end_row, end_col)`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn set_selection_endpoint(
+        &self,
+        handle_side: u8,
+        anchor_row: i32,
+        anchor_col: i32,
+        other_row: i32,
+        other_col: i32,
+        mode: u8,
+        origin_row: i32,
+        origin_col: i32,
+    ) -> Result<(u32, u32, u32, u32), TerminalError> {
+        let mode_enum = match mode {
+            0 => torvox_core::selection::SelectionMode::Char,
+            1 => torvox_core::selection::SelectionMode::Word,
+            2 => torvox_core::selection::SelectionMode::Line,
+            3 => torvox_core::selection::SelectionMode::Block,
+            _ => torvox_core::selection::SelectionMode::Char,
+        };
+        let mut surface_guard = self.surface.lock().map_err(|e| TerminalError::PtyError {
+            detail: format!("lock failed: {}", e),
+        })?;
+        if let Some(surface) = surface_guard.as_mut() {
+            if let Ok(guard) = self.session.lock()
+                && let Some(session_arc) = guard.as_ref()
+                && let Ok(session) = session_arc.lock()
+            {
+                let snapshot = session.terminal().take_snapshot();
+                let cols = snapshot.cols;
+                let cell_at = |r: u32, c: u32| -> Option<char> {
+                    let idx = (r * cols + c) as usize;
+                    snapshot
+                        .cells
+                        .get(idx)
+                        .and_then(|s| char::from_u32(s.codepoint))
+                };
+
+                let fixed = torvox_core::selection::SelectionAnchor {
+                    row: other_row.max(0) as u32,
+                    col: other_col.max(0) as u32,
+                };
+                let moved = torvox_core::selection::SelectionAnchor {
+                    row: anchor_row.max(0) as u32,
+                    col: anchor_col.max(0) as u32,
+                };
+
+                let (new_start, new_end) =
+                    if mode_enum == torvox_core::selection::SelectionMode::Word {
+                        // Re-expand only the word the dragged handle landed on.
+                        let moved_word =
+                            torvox_core::selection::Selection::new(moved, moved, mode_enum)
+                                .expand(cell_at);
+                        let (mws, mwe) = moved_word.ordered();
+                        if handle_side == 0 {
+                            (mws, fixed)
+                        } else {
+                            (fixed, mwe)
+                        }
+                    } else if handle_side == 0 {
+                        (moved, fixed)
+                    } else {
+                        (fixed, moved)
+                    };
+
+                surface.set_selection(Some(torvox_renderer::gpu::SelectionRange {
+                    start_row: new_start.row as i32,
+                    start_col: new_start.col as i32,
+                    end_row: new_end.row as i32,
+                    end_col: new_end.col as i32,
+                    active: true,
+                    mode: mode_enum,
+                    origin: Some((origin_row, origin_col)),
+                }));
+                let (lo, hi) = if new_start.row < new_end.row
+                    || (new_start.row == new_end.row && new_start.col <= new_end.col)
+                {
+                    (new_start, new_end)
+                } else {
+                    (new_end, new_start)
+                };
+                log::debug!(
+                    "set_selection_endpoint handle={} mode={} -> start=({},{}), end=({},{}), anchor=({},{}), fixed=({},{}), origin=({},{}), moved_word=({},{}),({},{}))",
+                    handle_side,
+                    mode,
+                    lo.row,
+                    lo.col,
+                    hi.row,
+                    hi.col,
+                    anchor_row,
+                    anchor_col,
+                    other_row,
+                    other_col,
+                    origin_row,
+                    origin_col,
+                    new_start.row,
+                    new_start.col,
+                    new_end.row,
+                    new_end.col,
+                );
+                return Ok((lo.row, lo.col, hi.row, hi.col));
+            }
+            surface.set_selection(None);
+        }
+        Ok((
+            anchor_row.max(0) as u32,
+            anchor_col.max(0) as u32,
+            anchor_row.max(0) as u32,
+            anchor_col.max(0) as u32,
+        ))
+    }
+
     /// Deserialize search highlights from wire format and set them on the surface.
     ///
     /// Wire format: [count: i32 LE] then for each highlight:
@@ -1555,6 +1745,20 @@ impl TorvoxBridge {
         DEFAULT_GRID_COLS
     }
 
+    /// Returns (rows, cols) in a single session-lock acquisition.
+    /// Prefer this over separate `get_grid_rows()` + `get_grid_cols()` calls
+    /// to halve JNA round-trips and lock contention.
+    pub fn get_grid_rows_cols(&self) -> (u32, u32) {
+        if let Ok(guard) = self.session.lock()
+            && let Some(session_arc) = guard.as_ref()
+            && let Ok(session) = session_arc.lock()
+        {
+            let terminal = session.terminal();
+            return (terminal.rows(), terminal.cols());
+        }
+        (DEFAULT_GRID_ROWS, DEFAULT_GRID_COLS)
+    }
+
     pub fn get_cell_width(&self) -> f32 {
         f32::from_bits(self.cell_width.load(std::sync::atomic::Ordering::Relaxed))
     }
@@ -1591,41 +1795,37 @@ impl TorvoxBridge {
         unicode_char: u32,
         unshifted_char: u32,
     ) -> Result<(), TerminalError> {
-        // Encode the key under the session lock (terminal state is mutated),
-        // then enqueue the bytes on the lock-free channel so the actual PTY
-        // write happens on the render thread. This keeps the UI thread off the
-        // session mutex's write path and avoids stalls while the render thread
-        // holds that lock during process_output.
-        let encoded = {
-            let session_arc = {
-                let guard = self
-                    .session
-                    .lock()
-                    .map_err(|_| TerminalError::SessionUnavailable {
-                        detail: "session mutex poisoned".to_string(),
-                    })?;
-                match guard.as_ref() {
-                    Some(session_arc) => session_arc.clone(),
-                    None => {
-                        return Err(TerminalError::SessionUnavailable {
-                            detail: "no active session".to_string(),
-                        });
-                    }
-                }
-            };
-            let session = session_arc
+        // Step 1: Submit key encode via pre-cloned ghostty cmd_tx.
+        // NO session lock is acquired — the render thread may hold the session
+        // mutex for 50ms during process_output, and we must not block UI input.
+        let rx = {
+            let guard = self
+                .key_cmd_tx
                 .lock()
                 .map_err(|_| TerminalError::SessionUnavailable {
-                    detail: "session inner mutex poisoned".to_string(),
+                    detail: "key-cmd channel mutex poisoned".to_string(),
                 })?;
-            session.key_encode(
-                key_code,
-                modifiers as u16,
-                action,
-                unicode_char,
-                unshifted_char,
-            )
+            match guard.as_ref() {
+                Some(cmd_tx) => {
+                    torvox_terminal::ghostty_terminal::GhosttyTerminal::key_encode_submit_via(
+                        cmd_tx,
+                        key_code,
+                        modifiers as u16,
+                        action,
+                        unicode_char,
+                        unshifted_char,
+                    )
+                }
+                None => {
+                    return Err(TerminalError::SessionUnavailable {
+                        detail: "no active session — key-cmd channel not initialized".to_string(),
+                    });
+                }
+            }
         };
+        // Step 2: Wait for ghostty response WITHOUT holding the session lock.
+        let encoded = rx.and_then(|r| r.recv().ok());
+        // Step 3: Enqueue the encoded bytes on the lock-free user-write channel.
         if let Some(encoded) = encoded
             && !encoded.is_empty()
         {
@@ -1694,6 +1894,15 @@ impl TorvoxBridge {
             surface.set_background_params(blur, alpha);
         }
         Ok(())
+    }
+
+    pub fn set_render_paused(&self, paused: bool) {
+        if let Ok(mut guard) = self.surface.lock()
+            && let Some(surface) = guard.as_mut()
+            && let Some(gpu) = surface.gpu_mut()
+        {
+            gpu.set_render_paused(paused);
+        }
     }
 
     pub fn set_cursor_blink_enabled(&self, enabled: bool) -> Result<(), TerminalError> {
@@ -2361,6 +2570,33 @@ pub unsafe extern "C" fn torvox_bridge_get_cell_height(handle: i64) -> f32 {
 }
 
 /// # Safety
+/// `handle` must be a valid bridge handle previously returned by `torvox_bridge_new`, or zero.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_get_grid_rows_cols(handle: i64) -> u64 {
+    let bridge = match unsafe { bridge_from_handle(handle) } {
+        Some(b) => b,
+        None => return (DEFAULT_GRID_ROWS as u64) << 32 | DEFAULT_GRID_COLS as u64,
+    };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let (rows, cols) = bridge.get_grid_rows_cols();
+        (rows as u64) << 32 | cols as u64
+    })) {
+        Ok(packed) => packed,
+        Err(panic_info) => {
+            let message = if let Some(s) = panic_info.downcast_ref::<&str>() {
+                s.to_string()
+            } else if let Some(s) = panic_info.downcast_ref::<String>() {
+                s.clone()
+            } else {
+                "panic in FFI call".to_string()
+            };
+            log::error!("FFI panic in torvox_bridge_get_grid_rows_cols: {}", message);
+            (DEFAULT_GRID_ROWS as u64) << 32 | DEFAULT_GRID_COLS as u64
+        }
+    }
+}
+
+/// # Safety
 /// `handle` must be a valid surface handle previously returned by `torvox_bridge_new`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn torvox_bridge_set_font_size(handle: i64, size_tenths: u32) -> i32 {
@@ -2448,6 +2684,41 @@ pub unsafe extern "C" fn torvox_bridge_expand_and_set_selection(
 ) -> i64 {
     with_bridge(handle, |bridge| {
         bridge.expand_and_set_selection(row, col, mode as u8)
+    })
+    .map(|(sr, sc, er, ec)| {
+        (sr as i64 & 0xFFFF)
+            | ((sc as i64 & 0xFFFF) << 16)
+            | ((er as i64 & 0xFFFF) << 32)
+            | ((ec as i64 & 0xFFFF) << 48)
+    })
+    .unwrap_or(-1)
+}
+
+/// # Safety
+/// `handle` must be a valid surface handle previously returned by `torvox_bridge_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_set_selection_endpoint(
+    handle: i64,
+    handle_side: u8,
+    anchor_row: i32,
+    anchor_col: i32,
+    other_row: i32,
+    other_col: i32,
+    mode: i32,
+    origin_row: i32,
+    origin_col: i32,
+) -> i64 {
+    with_bridge(handle, |bridge| {
+        bridge.set_selection_endpoint(
+            handle_side,
+            anchor_row,
+            anchor_col,
+            other_row,
+            other_col,
+            mode as u8,
+            origin_row,
+            origin_col,
+        )
     })
     .map(|(sr, sc, er, ec)| {
         (sr as i64 & 0xFFFF)
@@ -2629,8 +2900,8 @@ pub unsafe extern "C" fn torvox_bridge_ping(handle: i64) -> i32 {
 /// # Safety
 /// `handle` must be a valid surface handle previously returned by `torvox_bridge_new`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn torvox_bridge_render(handle: i64) -> i32 {
-    with_bridge(handle, |bridge| bridge.render())
+pub unsafe extern "C" fn torvox_bridge_render(handle: i64, skip_output: u8) -> i32 {
+    with_bridge(handle, |bridge| bridge.render(skip_output != 0))
         .map(|had_output| if had_output { 1 } else { 0 })
         .unwrap_or(-1)
 }
@@ -3337,6 +3608,17 @@ pub unsafe extern "C" fn torvox_bridge_clear_background_image(handle: i64) {
 /// # Safety
 /// `handle` must be a valid pointer to a `TorvoxBridge` created by `torvox_bridge_new`.
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_set_render_paused(handle: i64, paused: i32) {
+    let bridge = match unsafe { bridge_from_handle(handle) } {
+        Some(b) => b,
+        None => return,
+    };
+    bridge.set_render_paused(paused != 0);
+}
+
+/// # Safety
+/// `handle` must be a valid pointer to a `TorvoxBridge` created by `torvox_bridge_new`.
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn torvox_bridge_set_cursor_blink_enabled(handle: i64, enabled: i32) {
     if let Err(error) = with_bridge(handle, |bridge| {
         bridge.set_cursor_blink_enabled(enabled != 0)
@@ -3391,55 +3673,71 @@ fn to_argb(color: &[f32; 4]) -> u32 {
 }
 
 #[unsafe(no_mangle)]
+/// # Safety
+///
+/// - `handle` must be a valid bridge handle previously returned by
+///   `torvox_bridge_create` and not yet destroyed.
+/// - `buf` must point to a valid, writable memory region of at least `buf_len`
+///   bytes. The caller is responsible for the buffer's lifetime.
+///
+/// The buffer must be suitably aligned for `u32` writes (4-byte aligned). JNA
+/// always provides aligned buffers.
+#[allow(clippy::cast_ptr_alignment)]
 pub unsafe extern "C" fn torvox_bridge_get_snapshot(
     handle: i64,
     scroll_offset: u32,
     buf: *mut u8,
     buf_len: u32,
 ) -> i32 {
-    let bridge = match (handle as *mut TorvoxBridge).as_mut() {
-        Some(b) => b,
-        None => return -1,
-    };
-    let session_guard = match bridge.session.lock() {
-        Ok(g) => g,
-        Err(_) => return -1,
-    };
-    let session = match session_guard.as_ref() {
-        Some(s) => s,
-        None => return 0,
-    };
-    let session_inner = match session.lock() {
-        Ok(g) => g,
-        Err(_) => return -1,
-    };
-    let snapshot = match session_inner
-        .terminal()
-        .try_take_snapshot_with_scroll(scroll_offset)
-    {
-        Some(s) => s,
-        None => return 0,
-    };
-    let rows = snapshot.rows;
-    let cols = snapshot.cols;
-    let total = (rows * cols) as usize;
-    let needed = 20 + total * 12;
-    if (buf_len as usize) < needed {
-        return -1;
+    // SAFETY: This entire function body operates on raw pointers provided
+    // by the caller under the safety contract documented above. The unsafe
+    // block is required despite being inside an unsafe fn because Rust 2024
+    // requires explicit unsafe blocks for every unsafe operation.
+    unsafe {
+        let bridge = match (handle as *mut TorvoxBridge).as_mut() {
+            Some(b) => b,
+            None => return -1,
+        };
+        let session_guard = match bridge.session.lock() {
+            Ok(g) => g,
+            Err(_) => return -1,
+        };
+        let session = match session_guard.as_ref() {
+            Some(s) => s,
+            None => return 0,
+        };
+        let session_inner = match session.lock() {
+            Ok(g) => g,
+            Err(_) => return -1,
+        };
+        let snapshot = match session_inner
+            .terminal()
+            .try_take_snapshot_with_scroll(scroll_offset)
+        {
+            Some(s) => s,
+            None => return 0,
+        };
+        let rows = snapshot.rows;
+        let cols = snapshot.cols;
+        let total = (rows * cols) as usize;
+        let needed = 20 + total * 12;
+        if (buf_len as usize) < needed {
+            return -1;
+        }
+        *(buf as *mut u32) = rows;
+        *(buf.add(4) as *mut u32) = cols;
+        *(buf.add(8) as *mut u32) = snapshot.cursor_row;
+        *(buf.add(12) as *mut u32) = snapshot.cursor_col;
+        *(buf.add(16) as *mut u8) = if snapshot.cursor_visible { 1 } else { 0 };
+        for i in 0..total {
+            let cell = &snapshot.cells[i];
+            let off = buf.add(20 + i * 12);
+            *(off as *mut u32) = cell.codepoint;
+            *(off.add(4) as *mut u32) = to_argb(&cell.foreground);
+            *(off.add(8) as *mut u32) = to_argb(&cell.background);
+        }
+        total as i32
     }
-    *(buf as *mut u32) = rows;
-    *(buf.add(4) as *mut u32) = cols;
-    *(buf.add(8) as *mut u32) = snapshot.cursor_row;
-    *(buf.add(12) as *mut u32) = snapshot.cursor_col;
-    *(buf.add(16) as *mut u8) = if snapshot.cursor_visible { 1 } else { 0 };
-    for i in 0..total {
-        let cell = &snapshot.cells[i];
-        let off = buf.add(20 + i * 12);
-        *(off as *mut u32) = cell.codepoint;
-        *(off.add(4) as *mut u32) = to_argb(&cell.foreground);
-        *(off.add(8) as *mut u32) = to_argb(&cell.background);
-    }
-    total as i32
 }
 
 /// # Safety
@@ -3452,7 +3750,7 @@ pub unsafe extern "C" fn torvox_bridge_load_font_file(
     path_ptr: *const u8,
     path_len: i32,
 ) -> *mut core::ffi::c_char {
-    let bridge = match (handle as *mut TorvoxBridge).as_mut() {
+    let bridge = match unsafe { (handle as *mut TorvoxBridge).as_mut() } {
         Some(b) => b,
         None => return std::ptr::null_mut(),
     };
@@ -3933,7 +4231,7 @@ mod tests {
             },
             rows: 50,
             cols: 160,
-            scrollback_lines: 200000,
+            scrollback_lines: 200_000,
             font_size_tenths: 200,
             theme: torvox_core::config::Theme::dracula_plus().into(),
             home: "/home/test".to_string(),
@@ -3947,7 +4245,7 @@ mod tests {
         assert_eq!(got.shell, config.shell);
         assert_eq!(got.rows, 50);
         assert_eq!(got.cols, 160);
-        assert_eq!(got.scrollback_lines, 200000);
+        assert_eq!(got.scrollback_lines, 200_000);
         assert_eq!(got.font_size_tenths, 200);
         assert_eq!(got.home, "/home/test");
         assert_eq!(got.user, "testuser");
@@ -4006,17 +4304,17 @@ mod tests {
 
     #[test]
     fn read_u32_le_valid() {
-        let bytes = 0x04030201u32.to_le_bytes();
+        let bytes = 0x0403_0201_u32.to_le_bytes();
         let result = super::read_u32_le(&bytes, 0);
-        assert_eq!(result, Some(0x04030201));
+        assert_eq!(result, Some(0x0403_0201));
     }
 
     #[test]
     fn read_u32_le_offset() {
         let mut bytes = vec![0u8; 12];
-        bytes[4..8].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&0xDEAD_BEEF_u32.to_le_bytes());
         let result = super::read_u32_le(&bytes, 4);
-        assert_eq!(result, Some(0xDEADBEEF));
+        assert_eq!(result, Some(0xDEAD_BEEF));
     }
 
     #[test]
@@ -4049,9 +4347,9 @@ mod tests {
 
     #[test]
     fn read_u32_le_max_value() {
-        let bytes = 0xFFFFFFFFu32.to_le_bytes();
+        let bytes = 0xFFFF_FFFF_u32.to_le_bytes();
         let result = super::read_u32_le(&bytes, 0);
-        assert_eq!(result, Some(0xFFFFFFFF));
+        assert_eq!(result, Some(0xFFFF_FFFF));
     }
 
     // ═══════════════════════════════════════════════
@@ -4143,7 +4441,7 @@ mod tests {
         bytes.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
         bytes.extend_from_slice(name_bytes);
         for i in 0u32..20 {
-            bytes.extend_from_slice(&(i * 0x01010101).to_le_bytes());
+            bytes.extend_from_slice(&(i * 0x0101_0101).to_le_bytes());
         }
 
         let mut pos = 0usize;
@@ -4156,26 +4454,26 @@ mod tests {
             color_value
         };
 
-        assert_eq!(read_color(&bytes, &mut pos), 0x00000000);
-        assert_eq!(read_color(&bytes, &mut pos), 0x01010101);
-        assert_eq!(read_color(&bytes, &mut pos), 0x02020202);
-        assert_eq!(read_color(&bytes, &mut pos), 0x03030303);
-        assert_eq!(read_color(&bytes, &mut pos), 0x04040404);
-        assert_eq!(read_color(&bytes, &mut pos), 0x05050505);
-        assert_eq!(read_color(&bytes, &mut pos), 0x06060606);
-        assert_eq!(read_color(&bytes, &mut pos), 0x07070707);
-        assert_eq!(read_color(&bytes, &mut pos), 0x08080808);
-        assert_eq!(read_color(&bytes, &mut pos), 0x09090909);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0A0A0A0A);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0B0B0B0B);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0C0C0C0C);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0D0D0D0D);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0E0E0E0E);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0F0F0F0F);
-        assert_eq!(read_color(&bytes, &mut pos), 0x10101010);
-        assert_eq!(read_color(&bytes, &mut pos), 0x11111111);
-        assert_eq!(read_color(&bytes, &mut pos), 0x12121212);
-        assert_eq!(read_color(&bytes, &mut pos), 0x13131313);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0000_0000);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0101_0101);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0202_0202);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0303_0303);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0404_0404);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0505_0505);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0606_0606);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0707_0707);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0808_0808);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0909_0909);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0A0A_0A0A);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0B0B_0B0B);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0C0C_0C0C);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0D0D_0D0D);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0E0E_0E0E);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0F0F_0F0F);
+        assert_eq!(read_color(&bytes, &mut pos), 0x1010_1010);
+        assert_eq!(read_color(&bytes, &mut pos), 0x1111_1111);
+        assert_eq!(read_color(&bytes, &mut pos), 0x1212_1212);
+        assert_eq!(read_color(&bytes, &mut pos), 0x1313_1313);
         assert_eq!(pos, bytes.len(), "should consume all bytes");
     }
 
@@ -4257,5 +4555,129 @@ mod tests {
         let result = super::safe_cstring("line1\nline2\rline3".to_string());
         assert!(result.is_some());
         assert_eq!(result.unwrap().to_str().unwrap(), "line1\nline2\rline3");
+    }
+
+    #[allow(dead_code)]
+    const VENDOR_TTF: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../vendor/ghostty/src/font/res/TerminusTTF-Regular.ttf"
+    );
+
+    fn create_test_bridge_handle() -> i64 {
+        let config = super::TerminalConfig {
+            shell: super::Shell::Custom {
+                path: "/bin/sh".to_string(),
+            },
+            rows: 24,
+            cols: 80,
+            scrollback_lines: 50_000,
+            font_size_tenths: 140,
+            theme: torvox_core::config::Theme::catppuccin_mocha().into(),
+            home: String::new(),
+            user: String::new(),
+            path: String::new(),
+            working_directory: String::new(),
+            prefix: String::new(),
+        };
+        let bridge = Box::into_raw(Box::new(super::TorvoxBridge::new(config)));
+        bridge as i64
+    }
+
+    unsafe fn call_torvox_bridge_load_font_file(handle: i64, path: &str) -> Option<String> {
+        let path_bytes = path.as_bytes();
+        let ptr = path_bytes.as_ptr();
+        let len = path_bytes.len() as i32;
+        let result_ptr = unsafe { super::torvox_bridge_load_font_file(handle, ptr, len) };
+        if result_ptr.is_null() {
+            return None;
+        }
+        let cstr = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
+        let s = cstr.to_str().unwrap().to_string();
+        let _ = unsafe { std::ffi::CString::from_raw(result_ptr) };
+        Some(s)
+    }
+
+    #[test]
+    fn raw_load_font_file_with_null_handle_returns_null() {
+        unsafe {
+            let path_bytes = b"/some/path.ttf";
+            let result = super::torvox_bridge_load_font_file(
+                0,
+                path_bytes.as_ptr(),
+                path_bytes.len() as i32,
+            );
+            assert!(result.is_null(), "null handle should return null");
+        }
+    }
+
+    #[test]
+    fn raw_load_font_file_with_null_path_returns_null() {
+        let handle = create_test_bridge_handle();
+        unsafe {
+            let result = super::torvox_bridge_load_font_file(handle, std::ptr::null(), 5);
+            assert!(result.is_null(), "null path should return null");
+        }
+    }
+
+    #[test]
+    fn raw_load_font_file_with_negative_len_returns_null() {
+        let handle = create_test_bridge_handle();
+        unsafe {
+            let path_bytes = b"/some/path.ttf";
+            let result = super::torvox_bridge_load_font_file(handle, path_bytes.as_ptr(), -1);
+            assert!(result.is_null(), "negative len should return null");
+        }
+    }
+
+    #[test]
+    fn raw_load_font_file_with_nonexistent_path_returns_null() {
+        let handle = create_test_bridge_handle();
+        let result = unsafe { call_torvox_bridge_load_font_file(handle, "/nonexistent/font.ttf") };
+        assert!(result.is_none(), "nonexistent path should return None");
+    }
+
+    #[test]
+    fn raw_load_font_file_with_zero_length_path_returns_null() {
+        let handle = create_test_bridge_handle();
+        unsafe {
+            let path_bytes = b"";
+            let result = super::torvox_bridge_load_font_file(handle, path_bytes.as_ptr(), 0);
+            assert!(result.is_null(), "zero-length path should return null");
+        }
+    }
+
+    #[test]
+    fn set_render_paused_does_not_panic_without_surface() {
+        let bridge = TorvoxBridge::new(TerminalConfig::default());
+        // Should not panic when called without a surface being initialized
+        bridge.set_render_paused(true);
+        bridge.set_render_paused(false);
+    }
+
+    #[test]
+    fn set_render_paused_idempotent() {
+        let bridge = TorvoxBridge::new(TerminalConfig::default());
+        bridge.set_render_paused(true);
+        bridge.set_render_paused(true);
+        bridge.set_render_paused(false);
+        bridge.set_render_paused(false);
+    }
+
+    #[test]
+    fn set_render_paused_ffi_does_not_crash() {
+        let handle = create_test_bridge_handle();
+        unsafe {
+            super::torvox_bridge_set_render_paused(handle, 1);
+            super::torvox_bridge_set_render_paused(handle, 0);
+            super::torvox_bridge_set_render_paused(handle, 1);
+        }
+    }
+
+    #[test]
+    fn set_render_paused_ffi_null_handle_does_not_crash() {
+        unsafe {
+            super::torvox_bridge_set_render_paused(0, 1);
+            super::torvox_bridge_set_render_paused(0, 0);
+        }
     }
 }

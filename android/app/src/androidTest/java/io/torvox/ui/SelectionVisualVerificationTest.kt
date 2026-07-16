@@ -7,6 +7,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.SystemClock
 import android.util.Log
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -22,10 +23,7 @@ import io.torvox.injectTap
 import io.torvox.injectTripleTap
 import io.torvox.openDrawer
 import io.torvox.waitForSession
-import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
@@ -144,7 +142,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Tap to focus terminal first
         composeTestRule.activity.runOnUiThread {
@@ -191,7 +189,7 @@ class SelectionVisualVerificationTest {
         }
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Long-press on empty/whitespace area (lowest rows should have whitespace after echo commands)
         val longPressX = cellMetrics.cellWidth * 2
@@ -213,7 +211,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Create selection via long press on first line of text
         composeTestRule.activity.runOnUiThread {
@@ -228,19 +226,11 @@ class SelectionVisualVerificationTest {
 
         saveScreenshot("03_selection_handles")
 
-        // Verify selection by checking bridge state
-        val selectionState =
-            try {
-                val stateField =
-                    composeTestRule.activity::class.java
-                        .getDeclaredField("viewModel")
-                        ?.let { field ->
-                            field.isAccessible = true
-                            field.get(composeTestRule.activity)
-                        }
-            } catch (e: Exception) {
-                null
-            }
+        // A successful long-press selection activates the selection-actions bar,
+        // which exposes the "Dismiss selection" button. Assert it is visible.
+        composeTestRule
+            .onNodeWithTag("Action_Dismiss")
+            .assertIsDisplayed()
 
         Log.d(TAG, "Selection handles should be visible in screenshot 03")
     }
@@ -254,7 +244,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Create initial selection via long press
         composeTestRule.activity.runOnUiThread {
@@ -326,7 +316,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Long press on text to trigger context menu
         composeTestRule.activity.runOnUiThread {
@@ -351,7 +341,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Open IME first
         composeTestRule.activity.runOnUiThread {
@@ -398,7 +388,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Create initial selection
         composeTestRule.activity.runOnUiThread {
@@ -434,7 +424,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Create selection with current theme
         composeTestRule.activity.runOnUiThread {
@@ -460,7 +450,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Create selection first to show context menu
         composeTestRule.activity.runOnUiThread {
@@ -484,7 +474,7 @@ class SelectionVisualVerificationTest {
                 val selectAllMethod = viewModel::class.java.getMethod("selectAll")
                 selectAllMethod.invoke(viewModel)
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to invoke selectAll", e)
+                throw AssertionError("Failed to invoke selectAll via ViewModel", e)
             }
         }
         waitForStable()
@@ -500,7 +490,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Long press on specific word to select it
         composeTestRule.activity.runOnUiThread {
@@ -539,9 +529,11 @@ class SelectionVisualVerificationTest {
                         "OCR must detect text content in selection",
                         output.length > 5 && output.contains("SELECTION", ignoreCase = true),
                     )
+                } else {
+                    throw AssertionError("RapidOCR exited with code ${process.exitValue()} and empty output")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "OCR verification skipped: rapidocr not available", e)
+                throw AssertionError("RapidOCR verification failed", e)
             }
         }
     }
@@ -555,7 +547,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Double-tap to select line
         composeTestRule.activity.runOnUiThread {
@@ -579,7 +571,7 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = estimateCellMetrics() ?: return
+        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
         // Triple-tap to attempt select all
         composeTestRule.activity.runOnUiThread {

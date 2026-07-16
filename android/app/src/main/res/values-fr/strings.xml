@@ -29,8 +29,6 @@
     <string name="bootstrap_presets">Préréglages</string>
     <string name="bootstrap_preset_termux">Termux par défaut</string>
     <string name="bootstrap_preset_termux_desc">Bootstrap Termux standard avec bash, coreutils et gestionnaire de paquets</string>
-    <string name="bootstrap_preset_custom">Personnalisé / Vide</string>
-    <string name="bootstrap_preset_custom_desc">Démarrer avec un système de fichiers racine vide</string>
     <string name="bootstrap">Bootstrap</string>
     <string name="bootstrap_install">Installer Bootstrap</string>
     <string name="bootstrap_installing">Installation\u2026</string>
@@ -95,9 +93,6 @@
     <string name="file_manager">Gestionnaire de fichiers</string>
     <string name="cd_file_manager">Ouvrir le gestionnaire de fichiers</string>
 
-    <!-- Volume Key Mapping -->
-    <string name="volume_key_map">Correspondance des touches de volume</string>
-    <string name="volume_key_map_desc">Mapper volume+ sur Ctrl et volume- sur Fn</string>
     <string name="install">Installer</string>
 
     <!-- Cursor Settings -->

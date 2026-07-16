@@ -366,7 +366,7 @@ mod tests {
             dec_mode::BRACKETED_PASTE,
         ];
         let mut sorted = modes.to_vec();
-        sorted.sort();
+        sorted.sort_unstable();
         sorted.dedup();
         assert_eq!(sorted.len(), modes.len());
     }

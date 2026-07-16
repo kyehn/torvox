@@ -2,6 +2,7 @@ package io.torvox.ui
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -480,7 +481,10 @@ class ScreenshotVerificationTest {
             System.setProperty("torvox.test.minSurface", "true")
             try {
                 Runtime.getRuntime().exec(arrayOf("sh", "-c", "wm size reset"))
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // best-effort, non-asserting: resetting the emulator display size is a
+                // pre-test environment normalization and must not mask real failures.
+                Log.e("ScreenshotVerificationTest", "wm size reset failed (best-effort)", e)
             }
         }
     }
