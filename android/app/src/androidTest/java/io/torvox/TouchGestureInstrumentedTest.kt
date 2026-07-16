@@ -12,7 +12,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -51,7 +51,7 @@ class TouchGestureInstrumentedTest {
             content.dispatchTouchEvent(
                 MotionEvent.obtain(downTime + 80, downTime + 120, MotionEvent.ACTION_UP, centerX, centerY, 0),
             )
-            assertNotNull("Activity should survive double tap", activity)
+            assertFalse("Activity must not finish after double tap", activity.isFinishing)
         }
     }
 
@@ -68,7 +68,7 @@ class TouchGestureInstrumentedTest {
             content.dispatchTouchEvent(
                 MotionEvent.obtain(downTime, downTime + 1500, MotionEvent.ACTION_UP, centerX, centerY, 0),
             )
-            assertNotNull("Activity should survive long press", activity)
+            assertFalse("Activity must not finish after long press", activity.isFinishing)
         }
     }
 
@@ -92,7 +92,7 @@ class TouchGestureInstrumentedTest {
             content.dispatchTouchEvent(
                 MotionEvent.obtain(downTime, downTime + 200, MotionEvent.ACTION_UP, centerX, endY, 0),
             )
-            assertNotNull("Activity should survive scroll", activity)
+            assertFalse("Activity must not finish after scroll", activity.isFinishing)
         }
     }
 
@@ -144,7 +144,7 @@ class TouchGestureInstrumentedTest {
             content.dispatchTouchEvent(
                 MotionEvent.obtain(0, 100, MotionEvent.ACTION_UP, 2, props, pinchCoords, 0, 0, 1.5f, 1.5f, 0, 0, 0, 0),
             )
-            assertNotNull("Activity should survive pinch zoom", activity)
+            assertFalse("Activity must not finish after pinch zoom", activity.isFinishing)
         }
     }
 
@@ -152,7 +152,7 @@ class TouchGestureInstrumentedTest {
     fun activity_handles_configuration_change() {
         activityRule.scenario.moveToState(Lifecycle.State.CREATED)
         activityRule.scenario.onActivity { activity ->
-            assertNotNull("Activity should not be null after destroy", activity)
+            assertFalse("Activity must not finish after destroy", activity.isFinishing)
         }
         activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
         activityRule.scenario.onActivity { activity ->
@@ -179,7 +179,7 @@ class TouchGestureInstrumentedTest {
                     MotionEvent.obtain(downTime + i * 20L, downTime + i * 20L + 10, MotionEvent.ACTION_UP, currentX, currentY, 0),
                 )
             }
-            assertNotNull("Activity should survive rapid taps", activity)
+            assertFalse("Activity must not finish after rapid taps", activity.isFinishing)
         }
     }
 
@@ -256,7 +256,7 @@ class TouchGestureInstrumentedTest {
             content.dispatchTouchEvent(
                 MotionEvent.obtain(0, 100, MotionEvent.ACTION_UP, centerX, centerY, 0),
             )
-            assertNotNull("Activity should survive pinch zoom suppressed during selection", activity)
+            assertFalse("Activity must not finish after pinch zoom suppressed during selection", activity.isFinishing)
         }
     }
 
@@ -278,7 +278,7 @@ class TouchGestureInstrumentedTest {
             val clip = clipboard.primaryClip
             // Clipboard may be null or empty if no selectable text under tap
             // The key assertion is that the app did not crash during the gesture
-            assertNotNull("Activity should not be null after selection copy", activity)
+            assertFalse("Activity must not finish after selection copy", activity.isFinishing)
         }
     }
 
@@ -296,7 +296,7 @@ class TouchGestureInstrumentedTest {
             content.dispatchTouchEvent(
                 MotionEvent.obtain(downTime, downTime + 1500, MotionEvent.ACTION_UP, emptyX, emptyY, 0),
             )
-            assertNotNull("Activity should survive long press on empty area", activity)
+            assertFalse("Activity must not finish after long press on empty area", activity.isFinishing)
         }
     }
 
@@ -350,7 +350,7 @@ class TouchGestureInstrumentedTest {
             content.dispatchTouchEvent(
                 MotionEvent.obtain(0, 100, MotionEvent.ACTION_UP, 2, props, zoomedCoords, 0, 0, 3f, 1f, 0, 0, 0, 0),
             )
-            assertNotNull("Activity should survive pinch zoom at threshold", activity)
+            assertFalse("Activity must not finish after pinch zoom at threshold", activity.isFinishing)
         }
     }
 }

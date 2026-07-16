@@ -110,7 +110,7 @@ data class TerminalState(
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
     val pastePopupRequest: PastePopupRequest? = null,
-    val keyboardMode: KeyboardMode = KeyboardMode.Secure,
+    val keyboardMode: KeyboardMode = KeyboardMode.Raw,
     val selectionBg: Int = 0,
     val selectionAccent: Int = 0,
 )
@@ -149,6 +149,15 @@ constructor(
     var currentSurface: Surface? = null
     var surfaceWidth: Int = 0
     var surfaceHeight: Int = 0
+
+    // Kotlin-local selection fields — avoid JNA round-trips during drag
+    @Volatile var selStartRow: Int = -1
+
+    @Volatile var selStartCol: Int = -1
+
+    @Volatile var selEndRow: Int = -1
+
+    @Volatile var selEndCol: Int = -1
 
     fun startRuntime(
         surface: Surface?,
@@ -206,7 +215,7 @@ constructor(
     val keyboardMode: StateFlow<KeyboardMode> =
         settingsRepository.keyboardMode
             .map { it.toKeyboardMode() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), KeyboardMode.Secure)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), KeyboardMode.Raw)
 
     val dayThemeName: StateFlow<String> =
         settingsRepository.dayThemeName
@@ -230,10 +239,6 @@ constructor(
 
     val mcpServerEnabled: StateFlow<Boolean> =
         settingsRepository.mcpServerEnabled
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), false)
-
-    val volumeKeyMap: StateFlow<Boolean> =
-        settingsRepository.volumeKeyMap
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), false)
 
     val backgroundImagePath: StateFlow<String> =
@@ -354,7 +359,7 @@ constructor(
     }
 
     private fun loadFonts() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val bridge = runtime.bridge()
                 val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
@@ -543,25 +548,46 @@ constructor(
     private val _bootstrapResult = MutableStateFlow<String?>(null)
     val bootstrapResult: StateFlow<String?> = _bootstrapResult.asStateFlow()
 
+    private val _bootstrapProgress = MutableStateFlow<io.torvox.installer.BootstrapProgress?>(null)
+    val bootstrapProgress: StateFlow<io.torvox.installer.BootstrapProgress?> =
+        _bootstrapProgress.asStateFlow()
+
     fun runBootstrap() {
         if (_bootstrapRunning.value) return
         viewModelScope.launch(Dispatchers.IO) {
             _bootstrapRunning.value = true
             _bootstrapResult.value = null
+            _bootstrapProgress.value = null
             try {
-                val downloader = io.torvox.installer.BootstrapDownloader(context)
+                val onProgress =
+                    io.torvox.installer.BootstrapProgressCallback { progress ->
+                        _bootstrapProgress.value = progress
+                    }
+                val downloader =
+                    io.torvox.installer.BootstrapDownloader(
+                        context,
+                        onProgress = onProgress,
+                    )
                 val installer =
                     io.torvox.installer.BootstrapInstaller(
                         prefixDir = java.io.File(context.filesDir, "bootstrap/usr"),
                         homeDir = java.io.File(context.filesDir, "home"),
                         stagingDir = java.io.File(context.filesDir, "bootstrap/usr-staging"),
+                        onProgress = onProgress,
                     )
                 val secondStage =
                     io.torvox.installer.SecondStageRunner(
                         prefixDir = java.io.File(context.filesDir, "bootstrap/usr"),
                         homeDir = java.io.File(context.filesDir, "home"),
+                        onProgress = onProgress,
                     )
-                val orchestrator = io.torvox.installer.BootstrapOrchestrator(downloader, installer, secondStage)
+                val orchestrator =
+                    io.torvox.installer.BootstrapOrchestrator(
+                        downloader,
+                        installer,
+                        secondStage,
+                        onProgress = onProgress,
+                    )
                 val url = settingsRepository.bootstrapUrl.first()
                 val result = orchestrator.ensureBootstrap(url)
                 _bootstrapResult.value = result.getOrNull() ?: "Error: ${result.exceptionOrNull()?.message}"
@@ -606,12 +632,6 @@ constructor(
     fun setMcpServerEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setMcpServerEnabled(enabled)
-        }
-    }
-
-    fun setVolumeKeyMap(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setVolumeKeyMap(enabled)
         }
     }
 
@@ -778,7 +798,10 @@ constructor(
                     mode = mode,
                 ),
             )
-        syncSelectionToNative()
+        selStartRow = row
+        selStartCol = col
+        selEndRow = row
+        selEndCol = col
     }
 
     fun updateSelection(
@@ -796,15 +819,8 @@ constructor(
                     end = SelectionAnchor(result.endRow, result.endCol),
                 ),
             )
-        runtime.setSelection(
-            minOf(result.startRow, result.endRow).toUInt(),
-            minOf(result.startCol, result.endCol).toUInt(),
-            maxOf(result.startRow, result.endRow).toUInt(),
-            maxOf(result.startCol, result.endCol).toUInt(),
-            true,
-            _state.value.selection.mode.ordinal
-                .toByte(),
-        )
+        selEndRow = row
+        selEndCol = col
     }
 
     fun updateSelectionStart(
@@ -822,15 +838,8 @@ constructor(
                     end = SelectionAnchor(result.endRow, result.endCol),
                 ),
             )
-        runtime.setSelection(
-            minOf(result.startRow, result.endRow).toUInt(),
-            minOf(result.startCol, result.endCol).toUInt(),
-            maxOf(result.startRow, result.endRow).toUInt(),
-            maxOf(result.startCol, result.endCol).toUInt(),
-            true,
-            _state.value.selection.mode.ordinal
-                .toByte(),
-        )
+        selStartRow = row
+        selStartCol = col
     }
 
     fun endSelection(scrollOffset: Int = 0) {
@@ -841,7 +850,13 @@ constructor(
             _state.value.copy(
                 selection = current.copy(dragging = false, selectedText = text),
             )
-        syncSelectionToNative()
+        val start = current.start
+        val end = current.end
+        val loRow = minOf(start.row, end.row)
+        val hiRow = maxOf(start.row, end.row)
+        val loCol = minOf(start.col, end.col)
+        val hiCol = maxOf(start.col, end.col)
+        runtime.setSelection(loRow.toUInt(), loCol.toUInt(), hiRow.toUInt(), hiCol.toUInt(), true, current.mode.ordinal.toByte())
     }
 
     fun setSelectionMode(mode: SelectionMode) {
@@ -1107,16 +1122,14 @@ constructor(
         if (!clipboard.hasPrimaryClip()) return 0
         val clipboardText = clipboard.primaryClip?.getItemAt(0)?.text ?: return 0
         val text = clipboardText.toString()
-        viewModelScope.launch(Dispatchers.IO) { runtime.writeToPty(text.replace("\n", "\r").toByteArray()) }
+        runtime.writeToPty(text.replace("\n", "\r").toByteArray())
         return text.length
     }
 
     fun writeToPty(data: ByteArray) {
-        viewModelScope.launch(Dispatchers.IO) {
-            val written = runtime.writeToPty(data)
-            if (!written) {
-                LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
-            }
+        val written = runtime.writeToPty(data)
+        if (!written) {
+            LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
         }
     }
 

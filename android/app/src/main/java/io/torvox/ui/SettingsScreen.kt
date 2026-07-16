@@ -33,10 +33,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -63,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.torvox.R
 import io.torvox.TerminalViewModel
+import io.torvox.installer.BootstrapProgress
 import io.torvox.ui.theme.TerminalTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -238,10 +240,12 @@ private fun AppearanceSectionContent(
     )
     if (fontInfo.isNotEmpty() || defaultFontName.isNotEmpty()) {
         Spacer(modifier = Modifier.height(8.dp))
+        val densityDpi = LocalDensity.current.density
         FontInfoSection(
             fontInfo =
             fontInfo.ifEmpty {
-                "Active: $defaultFontName\n(CJK fallback info available after session starts)\nFont size: ${fontSize.toInt()}"
+                val pixelSize = (fontSize * densityDpi).toInt()
+                "Active: $defaultFontName\n(CJK fallback info available after session starts)\nFont size: ${fontSize.toInt()}SP (~${pixelSize}px)"
             },
             textColor = textColor,
             secondaryText = secondaryText,
@@ -475,14 +479,6 @@ private fun TerminalConfigSection(
             accentColor = accentColor,
             cardBackground = backgroundColor,
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        VolumeKeyMapToggle(
-            enabled = viewModel.volumeKeyMap.collectAsState().value,
-            onToggle = { viewModel.setVolumeKeyMap(it) },
-            textColor = textColor,
-            accentColor = accentColor,
-            cardBackground = backgroundColor,
-        )
     }
 }
 
@@ -499,6 +495,7 @@ private fun BootstrapSectionFromSettings(
     val bootstrapUrl by viewModel.bootstrapUrl.collectAsState()
     val bootstrapRunning by viewModel.bootstrapRunning.collectAsState()
     val bootstrapResult by viewModel.bootstrapResult.collectAsState()
+    val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsState()
     SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen, Modifier.testTag("BootstrapSection")) {
         BootstrapSection(
@@ -507,6 +504,7 @@ private fun BootstrapSectionFromSettings(
             onRunBootstrap = { viewModel.runBootstrap() },
             bootstrapRunning = bootstrapRunning,
             bootstrapResult = bootstrapResult,
+            bootstrapProgress = bootstrapProgress,
             textColor = textColor,
             accentColor = accentColor,
             secondaryText = secondaryText,
@@ -676,14 +674,24 @@ private fun SystemFontSelector(
             ?.substringAfter("CJK fallback:")
             ?.trim()
             ?: ""
-    if (cjkFallback.isNotEmpty() && cjkFallback != "none") {
+    val activeFontCjk =
+        fontInfo.lines().any { line ->
+            line.startsWith("Active:") && (
+                line.contains("CJK", ignoreCase = true) ||
+                    line.contains("SC", ignoreCase = true) ||
+                    line.contains("TC", ignoreCase = true) ||
+                    line.contains("JP", ignoreCase = true) ||
+                    line.contains("KR", ignoreCase = true)
+                )
+        }
+    if (cjkFallback.isNotEmpty() && cjkFallback != "none" && cjkFallback != "skipped") {
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = "CJK: $cjkFallback",
             style = MaterialTheme.typography.bodySmall,
             color = textColor.copy(alpha = 0.6f),
         )
-    } else if (cjkFallback == "none" || fontInfo.isNotEmpty()) {
+    } else if (cjkFallback == "none" && !activeFontCjk) {
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = stringResource(R.string.cjk_fallback_missing_warning),
@@ -1029,6 +1037,7 @@ private fun BootstrapSection(
     onRunBootstrap: () -> Unit,
     bootstrapRunning: Boolean,
     bootstrapResult: String?,
+    bootstrapProgress: BootstrapProgress?,
     textColor: Color,
     accentColor: Color,
     secondaryText: Color,
@@ -1078,11 +1087,6 @@ private fun BootstrapSection(
                 termuxUrl,
                 stringResource(R.string.bootstrap_preset_termux_desc),
             ),
-            Triple(
-                stringResource(R.string.bootstrap_preset_custom),
-                "",
-                stringResource(R.string.bootstrap_preset_custom_desc),
-            ),
         )
     presets.forEachIndexed { index, preset ->
         BootstrapPresetItem(
@@ -1090,7 +1094,7 @@ private fun BootstrapSection(
             colors = PresetColors(accentColor, textColor, secondaryText),
             modifier =
             Modifier.testTag(
-                if (index == 0) "BootstrapPreset_TermuxDefault" else "BootstrapPreset_CustomEmpty",
+                "BootstrapPreset_TermuxDefault",
             ),
             onAction = {
                 url = preset.second
@@ -1100,7 +1104,7 @@ private fun BootstrapSection(
     }
 
     Spacer(modifier = Modifier.height(8.dp))
-    BootstrapInstallButton(onRunBootstrap, bootstrapRunning, bootstrapResult, accentColor, textColor)
+    BootstrapInstallButton(onRunBootstrap, bootstrapRunning, bootstrapResult, bootstrapProgress, accentColor, textColor)
 }
 
 @Composable
@@ -1108,41 +1112,47 @@ private fun BootstrapInstallButton(
     onRunBootstrap: () -> Unit,
     bootstrapRunning: Boolean,
     bootstrapResult: String?,
+    bootstrapProgress: BootstrapProgress?,
     accentColor: Color,
     textColor: Color,
 ) {
-    Button(
-        onClick = onRunBootstrap,
-        enabled = !bootstrapRunning,
-        modifier = Modifier.fillMaxWidth().testTag("BootstrapInstallButton"),
-        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-    ) {
+    val progress = bootstrapProgress
+    Column {
         if (bootstrapRunning) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(16.dp),
-                strokeWidth = 2.dp,
+            LinearProgressIndicator(
+                progress = { progress?.overallProgress() ?: 0f },
+                modifier = Modifier.fillMaxWidth().height(4.dp).testTag("BootstrapProgressBar"),
+                color = textColor,
+                trackColor = textColor.copy(alpha = 0.2f),
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+        Button(
+            onClick = onRunBootstrap,
+            enabled = !bootstrapRunning,
+            modifier = Modifier.fillMaxWidth().testTag("BootstrapInstallButton"),
+            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+        ) {
+            Text(
+                text =
+                if (bootstrapRunning) {
+                    progress?.stepDescription()
+                        ?: stringResource(R.string.bootstrap_installing)
+                } else {
+                    stringResource(R.string.bootstrap_install)
+                },
                 color = textColor,
             )
-            Spacer(modifier = Modifier.width(8.dp))
         }
-        Text(
-            text =
-            if (bootstrapRunning) {
-                stringResource(R.string.bootstrap_installing)
-            } else {
-                stringResource(R.string.bootstrap_install)
-            },
-            color = textColor,
-        )
-    }
-    if (!bootstrapResult.isNullOrEmpty()) {
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = bootstrapResult,
-            style = MaterialTheme.typography.bodySmall,
-            color = textColor.copy(alpha = 0.7f),
-            modifier = Modifier.testTag("BootstrapResultText"),
-        )
+        if (!bootstrapResult.isNullOrEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = bootstrapResult,
+                style = MaterialTheme.typography.bodySmall,
+                color = textColor.copy(alpha = 0.7f),
+                modifier = Modifier.testTag("BootstrapResultText"),
+            )
+        }
     }
 }
 
@@ -1484,45 +1494,6 @@ private fun McpServerToggle(
 }
 
 @Composable
-private fun VolumeKeyMapToggle(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-    cardBackground: Color,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.volume_key_map),
-                style = MaterialTheme.typography.bodyLarge,
-                color = textColor,
-            )
-            Text(
-                text = stringResource(R.string.volume_key_map_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = textColor.copy(alpha = 0.6f),
-            )
-        }
-        Switch(
-            checked = enabled,
-            onCheckedChange = onToggle,
-            colors =
-            SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = accentColor,
-                uncheckedThumbColor = textColor.copy(alpha = 0.6f),
-                uncheckedTrackColor = cardBackground,
-            ),
-        )
-    }
-}
-
-@Composable
 private fun ClearAppDataSection(textColor: Color) {
     val context = LocalContext.current
     var showConfirmDialog by remember { mutableStateOf(false) }
@@ -1610,13 +1581,30 @@ private fun FontInfoSection(
                 }
 
                 line.startsWith("CJK fallback:") -> {
-                    val hasCjk = line.substringAfter("CJK fallback:").trim().isNotEmpty()
+                    val cjkValue = line.substringAfter("CJK fallback:").trim()
+                    val primaryIsCjk =
+                        lines.any { l ->
+                            l.startsWith("Active:") && (
+                                l.contains("CJK", ignoreCase = true) ||
+                                    l.contains("SC", ignoreCase = true) ||
+                                    l.contains("TC", ignoreCase = true) ||
+                                    l.contains("JP", ignoreCase = true) ||
+                                    l.contains("KR", ignoreCase = true)
+                                )
+                        }
+                    val hasCjk = cjkValue.isNotEmpty() && cjkValue != "none" && cjkValue != "skipped"
+                    val displayColor =
+                        when {
+                            hasCjk -> secondaryText
+                            primaryIsCjk -> secondaryText
+                            else -> WARNING_ORANGE
+                        }
                     Text(
                         text = line,
                         style = MaterialTheme.typography.bodySmall,
-                        color = if (hasCjk) secondaryText else WARNING_ORANGE,
+                        color = displayColor,
                     )
-                    if (!hasCjk) {
+                    if (!hasCjk && !primaryIsCjk) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = stringResource(R.string.cjk_fallback_missing_warning),

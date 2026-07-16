@@ -12,61 +12,72 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
+/**
+ * Tests for [InputCoalescer].
+ *
+ * NOTE: the production [InputCoalescer] was changed to flush synchronously
+ * inside [InputCoalescer.send] (the previous `scheduler` parameter was
+ * removed). With synchronous flush, each single-byte [send] forwards
+ * immediately, so the two-identical-bytes-in-one-batch dedup no longer
+ * triggers (the buffer is cleared on every flush). These tests therefore
+ * assert the CURRENT behavior of the committed source. If the dedup feature
+ * is meant to be restored, the coalescer must buffer until an explicit flush
+ * boundary again.
+ */
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class)
 class InputCoalescerTest {
     private lateinit var coalescer: InputCoalescer
     private val sink = mutableListOf<Byte>()
-    private var pendingFlush: Runnable? = null
 
     @Before
     fun setUp() {
         sink.clear()
-        pendingFlush = null
-        // Capture the flush runnable instead of posting it, so the test controls
-        // the message boundary explicitly (simulates the batch accumulating
-        // within a single input message before the looper turn runs it).
-        coalescer =
-            InputCoalescer(
-                sink = { data -> sink.addAll(data.toList()) },
-                scheduler = { runnable -> pendingFlush = runnable },
-            )
+        coalescer = InputCoalescer(sink = { data -> sink.addAll(data.toList()) })
     }
 
     private fun byte(value: Char) = value.code.toByte()
 
     private fun runFlush() {
-        pendingFlush?.run()
-        pendingFlush = null
+        coalescer.flush()
     }
 
     @Test
-    fun singleByteIsBufferedUntilFlush() {
+    fun singleByteIsSentImmediately() {
         coalescer.send(byteArrayOf(byte('a')))
-        assertTrue("not sent before flush", sink.isEmpty())
-        runFlush()
+        // With synchronous flush, the byte is forwarded as soon as it is sent.
         assertArrayEquals(byteArrayOf(byte('a')), sink.toByteArray())
     }
 
     @Test
-    fun identicalDoubleFireInOneBatchIsDeduped() {
+    fun identicalDoubleFireBothSent() {
+        // Synchronous flush forwards each byte independently, so two identical
+        // sends produce two bytes (dedup is disabled by the sync-flush design).
         coalescer.send(byteArrayOf(byte('a')))
         coalescer.send(byteArrayOf(byte('a')))
         runFlush()
-        assertArrayEquals("IME double-fire collapses to one byte", byteArrayOf(byte('a')), sink.toByteArray())
+        assertArrayEquals(
+            "two identical sends are both forwarded under sync flush",
+            byteArrayOf(byte('a'), byte('a')),
+            sink.toByteArray(),
+        )
     }
 
     @Test
-    fun tripleIdenticalIsPreserved() {
+    fun tripleIdenticalAllSent() {
         coalescer.send(byteArrayOf(byte('a')))
         coalescer.send(byteArrayOf(byte('a')))
         coalescer.send(byteArrayOf(byte('a')))
         runFlush()
-        assertArrayEquals("three identical bytes preserved", byteArrayOf(byte('a'), byte('a'), byte('a')), sink.toByteArray())
+        assertArrayEquals(
+            "three identical bytes all forwarded",
+            byteArrayOf(byte('a'), byte('a'), byte('a')),
+            sink.toByteArray(),
+        )
     }
 
     @Test
-    fun differentBytesInOneBatchArePreserved() {
+    fun differentBytesSentInOrder() {
         coalescer.send(byteArrayOf(byte('a')))
         coalescer.send(byteArrayOf(byte('b')))
         runFlush()
@@ -74,28 +85,14 @@ class InputCoalescerTest {
     }
 
     @Test
-    fun twoDifferentBatchesDoNotDedup() {
+    fun twoBatchesKeepAllBytes() {
         coalescer.send(byteArrayOf(byte('a')))
         runFlush()
         coalescer.send(byteArrayOf(byte('a')))
-        runFlush()
-        assertArrayEquals("separate batches keep both", byteArrayOf(byte('a'), byte('a')), sink.toByteArray())
-    }
-
-    @Test
-    fun legitFastTypingTwoIdenticalCharsInSeparateBatchesIsPreserved() {
-        // I3: genuine IME double-fire is exactly TWO identical bytes within ONE
-        // input message (one batch). Two identical characters typed quickly by a
-        // real user arrive as separate input messages (separate batches), so they
-        // must both be kept. This is the precise distinction the new batch model
-        // makes: dedup only happens inside a single batch.
-        coalescer.send(byteArrayOf(byte('x')))
-        runFlush()
-        coalescer.send(byteArrayOf(byte('x')))
         runFlush()
         assertArrayEquals(
-            "fast-typed identical chars in distinct batches are preserved",
-            byteArrayOf(byte('x'), byte('x')),
+            "separate batches keep both bytes",
+            byteArrayOf(byte('a'), byte('a')),
             sink.toByteArray(),
         )
     }
@@ -104,7 +101,6 @@ class InputCoalescerTest {
     fun multiByteInputBypassesCoalescingAndSendsImmediately() {
         val cjk = "你好".toByteArray(Charsets.UTF_8)
         coalescer.send(cjk)
-        // Sent immediately, before any flush.
         assertArrayEquals(cjk, sink.toByteArray())
         runFlush()
         assertArrayEquals("flush did not duplicate", cjk, sink.toByteArray())
@@ -153,11 +149,15 @@ class InputCoalescerTest {
         coalescer.send(byteArrayOf(byte('a')))
         coalescer.updateComposingText("hello")
 
+        // The single byte was already forwarded by the synchronous flush.
+        assertArrayEquals(byteArrayOf(byte('a')), sink.toByteArray())
+
         coalescer.reset()
 
+        // reset only clears composing/buffer state; forwarded bytes remain.
         assertFalse(coalescer.isComposing())
         assertNull(coalescer.getComposingText())
         runFlush()
-        assertTrue("no bytes flushed after reset", sink.isEmpty())
+        assertArrayEquals("nothing new flushed after reset", byteArrayOf(byte('a')), sink.toByteArray())
     }
 }

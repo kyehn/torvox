@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Binder
 import android.os.IBinder
 import android.os.PowerManager
 import io.torvox.MainActivity
@@ -131,7 +132,7 @@ class TerminalForegroundService : Service() {
         startForegroundWithSessionCount(count)
     }
 
-    override fun onBind(intent: Intent?): IBinder? = null
+    override fun onBind(intent: Intent?): IBinder = Binder()
 
     override fun onDestroy() {
         releaseWakeLock()

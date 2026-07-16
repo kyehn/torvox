@@ -94,5 +94,5 @@ fun String.toKeyboardMode(): KeyboardMode = when (this) {
     "secure" -> KeyboardMode.Secure
     "standard" -> KeyboardMode.Standard
     "raw" -> KeyboardMode.Raw
-    else -> KeyboardMode.Secure
+    else -> KeyboardMode.Raw
 }

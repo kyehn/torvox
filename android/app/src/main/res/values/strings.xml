@@ -32,8 +32,6 @@
     <string name="bootstrap_presets">Presets</string>
     <string name="bootstrap_preset_termux">Termux Default</string>
     <string name="bootstrap_preset_termux_desc">Standard Termux bootstrap with bash, coreutils, and package manager</string>
-    <string name="bootstrap_preset_custom">Custom / Empty</string>
-    <string name="bootstrap_preset_custom_desc">Start with an empty root filesystem</string>
     <string name="install">Install</string>
     <string name="bootstrap">Bootstrap</string>
     <string name="bootstrap_install">Install Bootstrap</string>
@@ -123,10 +121,6 @@
     <!-- File Manager -->
     <string name="file_manager">File Manager</string>
     <string name="cd_file_manager">Open file manager</string>
-
-    <!-- Volume Key Mapping -->
-    <string name="volume_key_map">Volume Key Mapping</string>
-    <string name="volume_key_map_desc">Map volume up to Ctrl and volume down to Fn</string>
 
     <!-- Clear App Data -->
     <string name="clear_app_data" translatable="false">Clear App Data</string>

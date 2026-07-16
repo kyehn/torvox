@@ -84,9 +84,16 @@ class BootstrapInstrumentedTest {
     }
 
     @Test
-    fun bootstrap_preset_custom_empty_exists() {
+    fun bootstrap_progress_bar_not_displayed_when_not_running() {
         openSettings()
         scrollToBootstrapSection()
-        composeTestRule.onNodeWithTag("BootstrapPreset_CustomEmpty", useUnmergedTree = true).assertExists()
+        composeTestRule.onNodeWithTag("BootstrapProgressBar", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun bootstrap_result_text_not_displayed_when_not_running() {
+        openSettings()
+        scrollToBootstrapSection()
+        composeTestRule.onNodeWithTag("BootstrapResultText", useUnmergedTree = true).assertDoesNotExist()
     }
 }

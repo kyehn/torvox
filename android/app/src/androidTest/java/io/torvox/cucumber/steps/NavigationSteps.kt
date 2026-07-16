@@ -1,12 +1,11 @@
 package io.torvox.cucumber.steps
 
+import android.view.KeyEvent
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import io.cucumber.java.en.Given
 import io.cucumber.java.en.Then
 import io.cucumber.java.en.When
@@ -23,8 +22,10 @@ constructor(
 ) {
     @When("^the back button is pressed$")
     fun backButtonIsPressed() {
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        device.pressBack()
+        composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
+            activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
+            activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK))
+        }
         composeRuleHolder.composeRule.waitForIdle()
     }
 
@@ -35,8 +36,10 @@ constructor(
 
     @When("^the user closes the drawer$")
     fun userClosesDrawer() {
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        device.pressBack()
+        composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
+            activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
+            activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK))
+        }
         composeRuleHolder.composeRule.waitForIdle()
     }
 

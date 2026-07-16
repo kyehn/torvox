@@ -22,11 +22,14 @@ class MemoryMonitor(
     private val memInfo = ActivityManager.MemoryInfo()
     private var pollingJob: Job? = null
     private var lowMemoryReported = false
+    private var pssCounter = 0
+    private var cachedPss = -1L
 
     fun startPolling(intervalMs: Long = POLL_INTERVAL_MS) {
         stopPolling()
         pollingJob =
             scope.launch(Dispatchers.Default) {
+                delay(60_000L) // defer first check past startup
                 while (isActive) {
                     checkMemory()
                     delay(intervalMs)
@@ -45,14 +48,22 @@ class MemoryMonitor(
         val totalMb = memInfo.totalMem / BYTES_PER_MB
         val thresholdMb = memInfo.threshold / BYTES_PER_MB
 
-        val pssKb =
-            try {
-                Debug.getPss()
-            } catch (e: SecurityException) {
-                Log.w(TAG, "Debug.getPss() not available", e)
-                -1L
-            }
-        val pssStr = if (pssKb >= 0) "${pssKb}KB" else "N/A"
+        val pssKb: Long
+        val pssStr: String?
+        if (pssCounter % PSS_CHECK_INTERVAL == 0) {
+            @Suppress("DEPRECATION")
+            pssKb =
+                try {
+                    Debug.getPss().also { cachedPss = it }
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "Debug.getPss() not available", e)
+                    -1L
+                }
+        } else {
+            pssKb = cachedPss
+        }
+        pssCounter++
+        pssStr = if (pssKb >= 0) "${pssKb}KB" else "N/A"
         val nativeHeapMb = Debug.getNativeHeapAllocatedSize() / BYTES_PER_MB
 
         val availPercent = if (memInfo.totalMem > 0) ((memInfo.availMem * 100) / memInfo.totalMem).toInt() else 0
@@ -64,7 +75,6 @@ class MemoryMonitor(
                     TAG,
                     "LOW MEMORY: avail=$availMb MB / $totalMb MB ($availPercent%), PSS=$pssStr, nativeHeap=$nativeHeapMb MB, threshold=$thresholdMb MB",
                 )
-                onCriticalMemory?.invoke()
             }
         } else {
             lowMemoryReported = false
@@ -80,8 +90,7 @@ class MemoryMonitor(
     fun onTrimMemory(level: Int) {
         when (level) {
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
-                Log.e(TAG, "TRIM_MEMORY_RUNNING_CRITICAL — system is killing processes")
-                onCriticalMemory?.invoke()
+                Log.e(TAG, "TRIM_MEMORY_RUNNING_CRITICAL — reducing memory footprint")
             }
 
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> {
@@ -95,6 +104,11 @@ class MemoryMonitor(
             ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
                 LogUtil.d(TAG, "TRIM_MEMORY_UI_HIDDEN")
             }
+
+            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
+                Log.e(TAG, "TRIM_MEMORY_COMPLETE — system will kill processes")
+                onCriticalMemory?.invoke()
+            }
         }
     }
 
@@ -103,5 +117,6 @@ class MemoryMonitor(
         private const val POLL_INTERVAL_MS = 30_000L
         private const val BYTES_PER_MB = 1024L * 1024L
         private const val LOW_MEMORY_FACTOR = 2.0f
+        private const val PSS_CHECK_INTERVAL = 5
     }
 }

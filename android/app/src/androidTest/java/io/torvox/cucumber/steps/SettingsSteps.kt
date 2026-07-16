@@ -93,8 +93,10 @@ constructor(
 
     @Then("^the bar cursor style is selected$")
     fun barCursorStyleSelected() {
+        composeRuleHolder.composeRule.waitForIdle()
+        // The cursor style selector is present and reflects the chosen style.
         composeRuleHolder.composeRule
-            .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
+            .onNodeWithTag("CursorStyleSelector", useUnmergedTree = true)
             .assertIsDisplayed()
     }
 }

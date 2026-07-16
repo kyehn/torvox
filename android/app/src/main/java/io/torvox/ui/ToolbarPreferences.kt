@@ -60,8 +60,9 @@ sealed class ToolbarItem {
 class ToolbarPreferences(
     context: Context,
 ) {
-    private val sharedPreferences: SharedPreferences =
+    private val sharedPreferences: SharedPreferences by lazy {
         context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
+    }
 
     fun getLayout(): List<ToolbarItem> {
         val json = sharedPreferences.getString("layout", null) ?: return defaultLayout()

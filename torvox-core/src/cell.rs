@@ -907,8 +907,10 @@ mod tests {
 
     #[test]
     fn attrs_dim_set_and_read() {
-        let mut a = Attrs::default();
-        a.dim = true;
+        let mut a = Attrs {
+            dim: true,
+            ..Default::default()
+        };
         assert!(a.dim);
         a.dim = false;
         assert!(!a.dim);
@@ -916,64 +918,82 @@ mod tests {
 
     #[test]
     fn attrs_italic_set_and_read() {
-        let mut a = Attrs::default();
-        a.italic = true;
+        let a = Attrs {
+            italic: true,
+            ..Default::default()
+        };
         assert!(a.italic);
     }
 
     #[test]
     fn attrs_underline_set_and_read() {
-        let mut a = Attrs::default();
-        a.underline = true;
+        let a = Attrs {
+            underline: true,
+            ..Default::default()
+        };
         assert!(a.underline);
     }
 
     #[test]
     fn attrs_strikethrough_set_and_read() {
-        let mut a = Attrs::default();
-        a.strikethrough = true;
+        let a = Attrs {
+            strikethrough: true,
+            ..Default::default()
+        };
         assert!(a.strikethrough);
     }
 
     #[test]
     fn attrs_blink_set_and_read() {
-        let mut a = Attrs::default();
-        a.blink = true;
+        let a = Attrs {
+            blink: true,
+            ..Default::default()
+        };
         assert!(a.blink);
     }
 
     #[test]
     fn attrs_hidden_set_and_read() {
-        let mut a = Attrs::default();
-        a.hidden = true;
+        let a = Attrs {
+            hidden: true,
+            ..Default::default()
+        };
         assert!(a.hidden);
     }
 
     #[test]
     fn attrs_reverse_set_and_read() {
-        let mut a = Attrs::default();
-        a.reverse = true;
+        let a = Attrs {
+            reverse: true,
+            ..Default::default()
+        };
         assert!(a.reverse);
     }
 
     #[test]
     fn attrs_overline_set_and_read() {
-        let mut a = Attrs::default();
-        a.overline = true;
+        let a = Attrs {
+            overline: true,
+            ..Default::default()
+        };
         assert!(a.overline);
     }
 
     #[test]
     fn attrs_double_underline_set_and_read() {
-        let mut a = Attrs::default();
-        a.double_underline = true;
+        let a = Attrs {
+            double_underline: true,
+            ..Default::default()
+        };
         assert!(a.double_underline);
     }
 
     #[test]
     fn attrs_protected_set_and_read() {
-        let mut a = Attrs::default();
-        a.protected = true;
+        let a = Attrs {
+            protected: true,
+            ..Default::default()
+        };
         assert!(a.protected);
     }
 
@@ -1084,7 +1104,7 @@ mod tests {
     #[quickcheck]
     fn prop_cell_equality_reflexive(char_code: u32, r: u8, g: u8, b: u8, width: u8) -> bool {
         let cell = Cell {
-            char: char::from_u32(char_code & 0x10FFFF).unwrap_or(' '),
+            char: char::from_u32(char_code & 0x0010_FFFF).unwrap_or(' '),
             foreground: Color { r, g, b, a: 255 },
             background: Color { r, g, b, a: 255 },
             width: if width == 0 { 1 } else { width % 3 + 1 },

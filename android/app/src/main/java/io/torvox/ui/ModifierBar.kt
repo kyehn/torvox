@@ -37,11 +37,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 
 private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 private const val REPEAT_TIMEOUT_MS = 500L
+private const val DWELL_GUARD_MS = 100L
 
 enum class ModifierState { Off, Once, Locked }
 
@@ -562,31 +565,84 @@ private fun RowScope.ExtraKeyButton(
         if (onRepeat != null) {
             Modifier.pointerInput(Unit) {
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    awaitFirstDown()
+                    val downPos = currentEvent.changes.first().position
+                    val slop = viewConfiguration.touchSlop
                     isPressed = true
-                    view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
-                    onClick()
-                    var released = false
-                    while (!released) {
-                        val event = withTimeoutOrNull(REPEAT_TIMEOUT_MS) { waitForUpOrCancellation() }
-                        if (event == null) {
-                            onRepeat()
-                        } else {
-                            released = true
+                    try {
+                        var gestureValid = true
+                        withTimeoutOrNull(DWELL_GUARD_MS) {
+                            while (true) {
+                                val ev = awaitPointerEvent()
+                                val ch = ev.changes.first()
+                                if (!ch.pressed) break
+                                if ((ch.position - downPos).getDistance() > slop) {
+                                    gestureValid = false
+                                    break
+                                }
+                            }
                         }
+                        if (!gestureValid) {
+                            isPressed = false
+                            return@awaitEachGesture
+                        }
+                        view.performHapticFeedback(
+                            android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                        )
+                        onClick()
+                        while (true) {
+                            try {
+                                withTimeout(REPEAT_TIMEOUT_MS) {
+                                    waitForUpOrCancellation()
+                                }
+                                break
+                            } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                                onRepeat()
+                            }
+                        }
+                    } finally {
+                        isPressed = false
                     }
-                    isPressed = false
                 }
             }
         } else {
             Modifier.pointerInput(Unit) {
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    awaitFirstDown()
+                    val downPos = currentEvent.changes.first().position
+                    val slop = viewConfiguration.touchSlop
                     isPressed = true
-                    view.performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
-                    onClick()
-                    waitForUpOrCancellation()
-                    isPressed = false
+                    try {
+                        var gestureValid = true
+                        var upConsumed = false
+                        withTimeoutOrNull(DWELL_GUARD_MS) {
+                            while (true) {
+                                val ev = awaitPointerEvent()
+                                val ch = ev.changes.first()
+                                if (!ch.pressed) {
+                                    upConsumed = true
+                                    break
+                                }
+                                if ((ch.position - downPos).getDistance() > slop) {
+                                    gestureValid = false
+                                    break
+                                }
+                            }
+                        }
+                        if (!gestureValid) {
+                            isPressed = false
+                            return@awaitEachGesture
+                        }
+                        view.performHapticFeedback(
+                            android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                        )
+                        onClick()
+                        if (!upConsumed) {
+                            waitForUpOrCancellation()
+                        }
+                    } finally {
+                        isPressed = false
+                    }
                 }
             }
         }

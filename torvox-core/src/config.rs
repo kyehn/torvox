@@ -1111,7 +1111,7 @@ mod tests {
     fn all_built_in_entries_have_unique_names() {
         let themes = Theme::all_built_in();
         let mut names: Vec<&str> = themes.iter().map(|t| t.name.as_str()).collect();
-        names.sort();
+        names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), themes.len());
     }

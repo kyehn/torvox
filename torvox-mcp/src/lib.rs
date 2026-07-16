@@ -28,7 +28,7 @@
 #![forbid(unsafe_code)]
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, Write};
+use std::io::BufRead;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -300,7 +300,7 @@ use std::time::{Duration, Instant};
 /// JSON-RPC 2.0 request envelope.
 #[derive(Clone, Debug, Deserialize)]
 pub struct JsonRpcRequest {
-    /// JSON-RPC protocol version string.
+    /// JSON-RPC protocol version string. Must be "2.0".
     pub jsonrpc: String,
     /// Name of the method to invoke on the server.
     pub method: String,
@@ -308,6 +308,10 @@ pub struct JsonRpcRequest {
     #[serde(default)]
     pub params: Value,
     /// Request identifier used to correlate responses.
+    ///
+    /// Absent (deserializes to `Value::Null`) for notifications, which must
+    /// not elicit a response per JSON-RPC 2.0.
+    #[serde(default)]
     pub id: Value,
 }
 
@@ -326,7 +330,8 @@ pub struct JsonRpcResponse {
 ///
 /// Watches scrollback for a configurable prompt pattern and injects
 /// queued text when the pattern appears. Useful for driving interactive
-/// REPLs, scripts with prompts, or automated testing.
+/// REPLs, scripts with prompts, or automated testing. The pattern is matched
+/// as a substring of the recent scrollback tail.
 #[derive(Clone)]
 pub struct InputQueue {
     entries: Arc<Mutex<HashMap<String, QueuedEntry>>>,
@@ -342,7 +347,7 @@ struct QueuedEntry {
     text: String,
     /// Key sequence to send after the text (e.g., Enter).
     submit_key: String,
-    /// Regex pattern to watch for in scrollback output.
+    /// Substring pattern to watch for in scrollback output.
     prompt_pattern: String,
     /// Instant after which this entry expires.
     deadline: Instant,
@@ -484,6 +489,12 @@ impl McpServer {
 
     /// Handle a single JSON-RPC request and produce a response.
     pub fn handle(&self, req: &JsonRpcRequest) -> Result<Value, McpError> {
+        if req.jsonrpc != "2.0" {
+            return Err(McpError::InvalidRequest(format!(
+                "jsonrpc must be \"2.0\", got {:?}",
+                req.jsonrpc
+            )));
+        }
         match req.method.as_str() {
             "initialize" => Ok(Self::handle_initialize()),
             "tools/list" => Ok(Self::list_tools()),
@@ -635,6 +646,13 @@ impl McpServer {
             .ok_or_else(|| McpError::InvalidParams("missing 'name'".into()))?;
         let args = params.get("arguments").cloned().unwrap_or(json!({}));
 
+        let result = self.dispatch_tool_call(name, &args);
+        self.input_queue
+            .check_and_deliver(&self.store, self.write_consent);
+        result
+    }
+
+    fn dispatch_tool_call(&self, name: &str, args: &Value) -> Result<Value, McpError> {
         match name {
             "list_sessions" => {
                 let resp = self
@@ -876,7 +894,7 @@ impl McpServer {
             }
             "read_clipboard" => {
                 let content = self.store.read_clipboard().map_err(McpError::Internal)?;
-                Ok(json!({ "content": [{ "type": "text", "text": content }] }))
+                Ok(json!({ "content": [{ "type": "json", "data": { "Clipboard": content } }] }))
             }
             "write_clipboard" => {
                 if !self.write_consent {
@@ -1121,6 +1139,114 @@ fn schema_required(required: &[&str]) -> Value {
 
 /// Run a JSON-RPC server over a Unix socket at `socket_path`.
 #[cfg(unix)]
+/// Build an `McpServer` from a store, applying write-consent when requested.
+fn build_server(store: Arc<dyn SessionStore>, write_consent: bool) -> Arc<McpServer> {
+    let mut server = McpServer::new(store);
+    if write_consent {
+        server = server.with_write_consent();
+    }
+    Arc::new(server)
+}
+
+/// Socket types that can be split into an independent reader handle.
+trait CloneStream: std::io::Read + std::io::Write {
+    fn try_clone_stream(&self) -> std::io::Result<Self>
+    where
+        Self: Sized;
+}
+
+impl CloneStream for std::net::TcpStream {
+    fn try_clone_stream(&self) -> std::io::Result<Self> {
+        self.try_clone()
+    }
+}
+
+impl CloneStream for std::os::unix::net::UnixStream {
+    fn try_clone_stream(&self) -> std::io::Result<Self> {
+        self.try_clone()
+    }
+}
+
+/// Serve a single JSON-RPC connection: read newline-delimited requests, answer
+/// them, and silently drop parse errors / notifications that carry no id.
+fn handle_connection<S>(server: &Arc<McpServer>, mut socket: S)
+where
+    S: CloneStream,
+{
+    let reader = match socket.try_clone_stream() {
+        Ok(cloned) => std::io::BufReader::new(cloned),
+        Err(_) => return,
+    };
+    for line in reader.lines().map_while(Result::ok) {
+        let line = line.trim().to_string();
+        if line.is_empty() {
+            continue;
+        }
+        let req = match serde_json::from_str::<JsonRpcRequest>(&line) {
+            Ok(req) => req,
+            Err(e) => {
+                let env = json!({
+                    "jsonrpc": "2.0",
+                    "id": Value::Null,
+                    "error": {
+                        "code": -32700,
+                        "message": format!("parse error: {e}"),
+                    },
+                });
+                if writeln!(socket, "{env}").is_err() {
+                    return;
+                }
+                let _ = socket.flush();
+                continue;
+            }
+        };
+        // JSON-RPC notifications carry no id and must not be answered.
+        if req.id.is_null() {
+            let _ = server.handle(&req);
+            continue;
+        }
+        let response = match server.handle(&req) {
+            Ok(result) => json!({
+                "jsonrpc": "2.0",
+                "id": req.id,
+                "result": result,
+            }),
+            Err(e) => e.to_json_rpc_error(&req.id),
+        };
+        if writeln!(socket, "{response}").is_err() {
+            return;
+        }
+        let _ = socket.flush();
+    }
+}
+
+/// Serve the MCP protocol over a TCP listener (e.g. for `adb forward`).
+///
+/// This is the rootless alternative to `serve_unix` on Android, where the
+/// `shell` domain cannot bind Unix-domain sockets but can listen on TCP.
+pub fn serve_tcp(
+    addr: &str,
+    store: Arc<dyn SessionStore>,
+    write_consent: bool,
+) -> std::io::Result<()> {
+    use std::net::TcpListener;
+
+    let listener = TcpListener::bind(addr)?;
+    let server = build_server(store, write_consent);
+    for stream in listener.incoming() {
+        match stream {
+            Ok(initial_stream) => {
+                let server = Arc::clone(&server);
+                std::thread::spawn(move || handle_connection(&server, initial_stream));
+            }
+            Err(e) => {
+                log::error!("mcp: accept failed: {e}");
+            }
+        }
+    }
+    Ok(())
+}
+
 pub fn serve_unix(
     socket_path: &Path,
     store: Arc<dyn SessionStore>,
@@ -1136,53 +1262,13 @@ pub fn serve_unix(
     }
     let listener = UnixListener::bind(socket_path)?;
 
-    let mut server = McpServer::new(store as Arc<dyn SessionStore>);
-    if write_consent {
-        server = server.with_write_consent();
-    }
-    let server = Arc::new(server);
+    let server = build_server(store, write_consent);
 
     for stream in listener.incoming() {
         match stream {
             Ok(initial_stream) => {
                 let server = Arc::clone(&server);
-                std::thread::spawn(move || {
-                    let mut socket = initial_stream;
-                    let reader = match socket.try_clone() {
-                        Ok(cloned) => std::io::BufReader::new(cloned),
-                        Err(_) => return,
-                    };
-                    for line in reader.lines().map_while(Result::ok) {
-                        let line = line.trim().to_string();
-                        if line.is_empty() {
-                            continue;
-                        }
-                        let response = match serde_json::from_str::<JsonRpcRequest>(&line) {
-                            Ok(req) => match server.handle(&req) {
-                                Ok(result) => json!({
-                                    "jsonrpc": "2.0",
-                                    "id": req.id,
-                                    "result": result,
-                                }),
-                                Err(e) => e.to_json_rpc_error(&req.id),
-                            },
-                            Err(e) => json!({
-                                "jsonrpc": "2.0",
-                                "id": Value::Null,
-                                "error": {
-                                    "code": -32700,
-                                    "message": format!("parse error: {e}"),
-                                },
-                            }),
-                        };
-                        if let Err(e) = writeln!(socket, "{response}") {
-                            log::error!("mcp: failed to write JSON-RPC response: {e}");
-                        }
-                        if let Err(e) = socket.flush() {
-                            log::error!("mcp: failed to flush socket: {e}");
-                        }
-                    }
-                });
+                std::thread::spawn(move || handle_connection(&server, initial_stream));
             }
             Err(e) => {
                 log::error!("mcp: accept failed: {e}");
@@ -1191,6 +1277,14 @@ pub fn serve_unix(
     }
     Ok(())
 }
+
+/// Real `SessionStore` backend built on `torvox-terminal` (feature `live`).
+#[cfg(feature = "live")]
+pub mod live;
+
+/// Functional in-memory `SessionStore` backend for testing / demos (feature `mock`).
+#[cfg(feature = "mock")]
+pub mod mock;
 
 #[cfg(test)]
 mod tests {
@@ -2137,7 +2231,7 @@ mod tests {
             id: json!(1),
         };
         let result = server.handle(&req).unwrap();
-        assert_eq!(result["content"][0]["text"], "mock clipboard");
+        assert_eq!(result["content"][0]["data"]["Clipboard"], "mock clipboard");
     }
 
     #[test]
