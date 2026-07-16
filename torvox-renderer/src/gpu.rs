@@ -18,7 +18,7 @@ use wgpu::util::DeviceExt;
 
 const MIN_ATLAS_BUFFER_SIZE: u64 = 64;
 const DESIRED_FRAME_LATENCY: u32 = 2;
-const DESIRED_FRAME_LATENCY_ANDROID: u32 = 1;
+const DESIRED_FRAME_LATENCY_ANDROID: u32 = 2;
 const GPU_POLL_TIMEOUT: Duration = Duration::from_secs(2);
 /// Internal render resolution scale. 1.0 = native resolution for crisp text
 /// on real devices. Sub-1.0 values cause compositor upscale artifacts (blurry
@@ -1668,8 +1668,30 @@ impl GpuContext {
             cached_surface.configure(&self.device, &new_config);
             self.surface = Some(cached_surface);
             self.surface_config = Some(new_config.clone());
+            self.projection_width = new_config.width;
+            self.projection_height = new_config.height;
+            if let Some(buf) = &self.cell_uniform_buffer {
+                let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
+                let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
+                let proj =
+                    orthographic_projection(new_config.width as f32, new_config.height as f32);
+                let uniforms = GpuUniforms {
+                    projection: proj,
+                    atlas_size: [aw as f32, ah as f32],
+                    raster_scale: self.raster_scale,
+                    image_active: image_active_value(self.bg_bind_group.is_some()),
+                    default_bg: [
+                        self.bg_color.r as f32,
+                        self.bg_color.g as f32,
+                        self.bg_color.b as f32,
+                        1.0,
+                    ],
+                };
+                self.queue
+                    .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
+            }
             log::info!(
-                "configure_android_surface: {}x{} (reused cached surface)",
+                "configure_android_surface: {}x{} (reused cached surface, projection updated)",
                 new_config.width,
                 new_config.height,
             );
@@ -1738,8 +1760,31 @@ impl GpuContext {
         surface.configure(&self.device, &config);
         self.surface = Some(surface);
 
+        self.projection_width = config.width;
+        self.projection_height = config.height;
+
+        if let Some(buf) = &self.cell_uniform_buffer {
+            let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
+            let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
+            let proj = orthographic_projection(config.width as f32, config.height as f32);
+            let uniforms = GpuUniforms {
+                projection: proj,
+                atlas_size: [aw as f32, ah as f32],
+                raster_scale: self.raster_scale,
+                image_active: image_active_value(self.bg_bind_group.is_some()),
+                default_bg: [
+                    self.bg_color.r as f32,
+                    self.bg_color.g as f32,
+                    self.bg_color.b as f32,
+                    1.0,
+                ],
+            };
+            self.queue
+                .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
+        }
+
         log::info!(
-            "configure_android_surface: {}x{} format={:?} alpha={:?} present={:?}",
+            "configure_android_surface: {}x{} format={:?} alpha={:?} present={:?} (projection updated)",
             config.width,
             config.height,
             format,
@@ -1769,7 +1814,34 @@ impl GpuContext {
         config.height = scaled_height;
         surface.configure(&self.device, config);
 
-        log::info!("RECONFIGURE_SWAPCHAIN: {}x{}", width, height);
+        self.projection_width = scaled_width;
+        self.projection_height = scaled_height;
+
+        if let Some(buf) = &self.cell_uniform_buffer {
+            let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
+            let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
+            let proj = orthographic_projection(scaled_width as f32, scaled_height as f32);
+            let uniforms = GpuUniforms {
+                projection: proj,
+                atlas_size: [aw as f32, ah as f32],
+                raster_scale: self.raster_scale,
+                image_active: image_active_value(self.bg_bind_group.is_some()),
+                default_bg: [
+                    self.bg_color.r as f32,
+                    self.bg_color.g as f32,
+                    self.bg_color.b as f32,
+                    1.0,
+                ],
+            };
+            self.queue
+                .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
+        }
+
+        log::info!(
+            "RECONFIGURE_SWAPCHAIN: {}x{} (projection updated)",
+            width,
+            height
+        );
     }
 
     pub fn warmup(&self) {
@@ -3310,6 +3382,14 @@ pub fn build_cell_instances_into(
 mod tests {
     use super::*;
 
+    fn f32_eq(a: f32, b: f32) -> bool {
+        (a - b).abs() < f32::EPSILON
+    }
+
+    fn f32_arrays_equal(a: &[f32], b: &[f32]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| f32_eq(*x, *y))
+    }
+
     #[test]
     fn cell_instance_size() {
         assert_eq!(std::mem::size_of::<CellInstance>(), 80);
@@ -3399,8 +3479,8 @@ mod tests {
 
         let (character, foreground_out, background_out) = grid.cell(2, 3).unwrap();
         assert_eq!(character, 'A');
-        assert_eq!(foreground_out, foreground);
-        assert_eq!(background_out, background);
+        assert!(f32_arrays_equal(&foreground_out, &foreground));
+        assert!(f32_arrays_equal(&background_out, &background));
     }
 
     #[test]
@@ -3426,12 +3506,12 @@ mod tests {
         assert_eq!(instances.len(), 4);
 
         let cell0 = &instances[0];
-        assert_eq!(cell0.quad_origin, [0.0, 0.0]);
-        assert_eq!(cell0.bg_color, [0.0, 0.0, 0.0, 1.0]);
+        assert!(f32_arrays_equal(&cell0.quad_origin, &[0.0, 0.0]));
+        assert!(f32_arrays_equal(&cell0.bg_color, &[0.0, 0.0, 0.0, 1.0]));
 
         let cell1 = &instances[1];
-        assert_eq!(cell1.quad_origin, [cell_w, 0.0]);
-        assert_eq!(cell1.bg_color, [0.5, 0.5, 0.5, 1.0]);
+        assert!(f32_arrays_equal(&cell1.quad_origin, &[cell_w, 0.0]));
+        assert!(f32_arrays_equal(&cell1.bg_color, &[0.5, 0.5, 0.5, 1.0]));
     }
 
     #[test]
@@ -3449,18 +3529,18 @@ mod tests {
         };
         let bytes = bytemuck::bytes_of(&c);
         let back: &CellInstance = bytemuck::from_bytes(bytes);
-        assert_eq!(back.quad_origin, [1.0, 2.0]);
-        assert_eq!(back.flags, 5.0);
-        assert_eq!(back.glyph_advance_width, 8.0);
+        assert!(f32_arrays_equal(&back.quad_origin, &[1.0, 2.0]));
+        assert!(f32_eq(back.flags, 5.0));
+        assert!(f32_eq(back.glyph_advance_width, 8.0));
     }
 
     #[test]
     fn cell_instance_zeroable() {
         let c: CellInstance = bytemuck::Zeroable::zeroed();
-        assert_eq!(c.quad_origin, [0.0, 0.0]);
-        assert_eq!(c.fg_color, [0.0, 0.0, 0.0, 0.0]);
-        assert_eq!(c.flags, 0.0);
-        assert_eq!(c.bearing, [0.0, 0.0]);
+        assert!(f32_arrays_equal(&c.quad_origin, &[0.0, 0.0]));
+        assert!(f32_arrays_equal(&c.fg_color, &[0.0, 0.0, 0.0, 0.0]));
+        assert!(f32_eq(c.flags, 0.0));
+        assert!(f32_arrays_equal(&c.bearing, &[0.0, 0.0]));
     }
 
     #[test]
@@ -3496,7 +3576,7 @@ mod tests {
         };
         let bytes = bytemuck::bytes_of(&c);
         let back: &CursorInstance = bytemuck::from_bytes(bytes);
-        assert_eq!(back.cursor_size, [10.0, 20.0]);
+        assert!(f32_arrays_equal(&back.cursor_size, &[10.0, 20.0]));
     }
 
     #[test]
@@ -3562,7 +3642,7 @@ mod tests {
     fn flat_grid_default_fg_is_white() {
         let grid = FlatGrid::new(2, 2);
         for f in &grid.foreground {
-            assert_eq!(*f, [1.0, 1.0, 1.0, 1.0]);
+            assert!(f32_arrays_equal(f, &[1.0, 1.0, 1.0, 1.0]));
         }
     }
 
@@ -3570,7 +3650,7 @@ mod tests {
     fn flat_grid_default_bg_is_black() {
         let grid = FlatGrid::new(2, 2);
         for b in &grid.background {
-            assert_eq!(*b, [0.0, 0.0, 0.0, 1.0]);
+            assert!(f32_arrays_equal(b, &[0.0, 0.0, 0.0, 1.0]));
         }
     }
 
@@ -3582,8 +3662,8 @@ mod tests {
         grid.set_cell(0, 0, 'H', foreground, background);
         let (character, foreground_loaded, background_loaded) = grid.cell(0, 0).unwrap();
         assert_eq!(character, 'H');
-        assert_eq!(foreground_loaded, foreground);
-        assert_eq!(background_loaded, background);
+        assert!(f32_arrays_equal(&foreground_loaded, &foreground));
+        assert!(f32_arrays_equal(&background_loaded, &background));
     }
 
     #[test]
@@ -3604,7 +3684,7 @@ mod tests {
         assert_eq!(instances.len(), 5);
         // All spaces, atlas_size should be 0
         for inst in &instances {
-            assert_eq!(inst.atlas_size, [0.0, 0.0]);
+            assert!(f32_arrays_equal(&inst.atlas_size, &[0.0, 0.0]));
         }
     }
 
@@ -3930,7 +4010,7 @@ mod tests {
         // Write/readback via bytemuck
         let bytes = bytemuck::bytes_of(&uniforms_400);
         let back: &GpuUniforms = bytemuck::from_bytes(bytes);
-        assert_eq!(back.projection[1][1], uniforms_400.projection[1][1]);
+        assert!(f32_eq(back.projection[1][1], uniforms_400.projection[1][1]));
     }
 
     #[test]
@@ -3980,15 +4060,13 @@ mod tests {
         assert_eq!(instances.len(), 2);
         let cursor_cell = &instances[0];
         // Block cursor alpha = cursor_color[3] * 0.7 (CURSOR_BLOCK_ALPHA constant)
-        assert_eq!(
-            cursor_cell.bg_color,
-            [1.0, 1.0, 1.0, 0.7],
+        assert!(
+            f32_arrays_equal(&cursor_cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
             "cursor cell bg should be white with block alpha when cursor_visible=true"
         );
         let non_cursor_cell = &instances[1];
-        assert_ne!(
-            non_cursor_cell.bg_color,
-            [1.0, 1.0, 1.0, 1.0],
+        assert!(
+            !f32_arrays_equal(&non_cursor_cell.bg_color, &[1.0, 1.0, 1.0, 1.0]),
             "non-cursor cell bg should NOT be white"
         );
     }
@@ -4029,9 +4107,8 @@ mod tests {
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_ne!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 1.0],
+        assert!(
+            !f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 1.0]),
             "cursor cell should not have white bg when cursor_visible=false"
         );
     }
@@ -4082,12 +4159,12 @@ mod tests {
         let cell = &instances[0];
         // Reverse video swaps fg/bg: blank cell bg must become the foreground,
         // fg must become the background.
-        assert_eq!(
-            cell.bg_color, foreground,
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &foreground),
             "reversed blank cell bg must equal foreground"
         );
-        assert_eq!(
-            cell.fg_color, background,
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &background),
             "reversed blank cell fg must equal background"
         );
     }
@@ -4143,14 +4220,12 @@ mod tests {
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_eq!(
-            cell.fg_color,
-            [0.0, 0.0, 0.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &[0.0, 0.0, 0.0, 1.0]),
             "selected cell fg should be original bg (swap)"
         );
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 0.0, 0.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 0.0, 0.0, 1.0]),
             "selected cell bg should be original fg (swap)"
         );
     }
@@ -4277,7 +4352,7 @@ mod tests {
         adapter: wgpu::Adapter,
         device: wgpu::Device,
         queue: wgpu::Queue,
-    ) -> Option<GpuContext> {
+    ) -> GpuContext {
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Vertex Buffer"),
             contents: bytemuck::cast_slice(QUAD_CORNERS),
@@ -4338,7 +4413,7 @@ mod tests {
             render_paused: false,
         };
         ctx.initialize_pipeline_and_bind_group(256, 256, 50, 50);
-        Some(ctx)
+        ctx
     }
 
     fn setup_test_gpu_context_custom(
@@ -4348,7 +4423,7 @@ mod tests {
         queue: wgpu::Queue,
         width: u32,
         height: u32,
-    ) -> Option<GpuContext> {
+    ) -> GpuContext {
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Vertex Buffer"),
             contents: bytemuck::cast_slice(QUAD_CORNERS),
@@ -4414,7 +4489,7 @@ mod tests {
             render_paused: false,
         };
         ctx.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
-        Some(ctx)
+        ctx
     }
 
     #[test]
@@ -4425,11 +4500,8 @@ mod tests {
         let width = 480u32;
         let height = 60u32;
         let atlas_dim = width.max(256);
-        let Some(mut ctx) =
-            setup_test_gpu_context_custom(instance, adapter, device, queue, width, height)
-        else {
-            return;
-        };
+        let mut ctx =
+            setup_test_gpu_context_custom(instance, adapter, device, queue, width, height);
         // Ensure GPU atlas dimensions match the font pipeline atlas (both must be square)
         ctx.initialize_pipeline_and_bind_group(atlas_dim, atlas_dim, width, height);
 
@@ -4518,9 +4590,7 @@ mod tests {
         let Some((instance, adapter, device, queue)) = create_test_device() else {
             return;
         };
-        let Some(mut ctx) = setup_test_gpu_context(instance, adapter, device, queue) else {
-            return;
-        };
+        let mut ctx = setup_test_gpu_context(instance, adapter, device, queue);
 
         let pixel = [255u8, 0, 0, 255];
         let pixels: Vec<u8> = pixel.repeat(50 * 50);
@@ -4563,9 +4633,7 @@ mod tests {
         let Some((instance, adapter, device, queue)) = create_test_device() else {
             return;
         };
-        let Some(mut ctx) = setup_test_gpu_context(instance, adapter, device, queue) else {
-            return;
-        };
+        let mut ctx = setup_test_gpu_context(instance, adapter, device, queue);
 
         let pixel = [255u8, 0, 0, 255];
         let pixels: Vec<u8> = pixel.repeat(50 * 50);
@@ -4609,9 +4677,7 @@ mod tests {
         let Some((instance, adapter, device, queue)) = create_test_device() else {
             return;
         };
-        let Some(mut ctx) = setup_test_gpu_context(instance, adapter, device, queue) else {
-            return;
-        };
+        let mut ctx = setup_test_gpu_context(instance, adapter, device, queue);
 
         let result = ctx
             .render_to_buffer(&[], &[])
@@ -4648,7 +4714,7 @@ mod tests {
         let base = [0.0, 0.0, 0.0, 1.0];
         let red_hl = [255, 0, 0, 255];
         let blended = blend_highlight(base, red_hl);
-        assert_eq!(blended, [1.0, 0.0, 0.0, 1.0]);
+        assert!(f32_arrays_equal(&blended, &[1.0, 0.0, 0.0, 1.0]));
     }
 
     #[test]
@@ -4656,7 +4722,7 @@ mod tests {
         let base = [0.2, 0.3, 0.4, 1.0];
         let transparent = [255, 0, 0, 0];
         let blended = blend_highlight(base, transparent);
-        assert_eq!(blended, base);
+        assert!(f32_arrays_equal(&blended, &base));
     }
 
     #[test]
@@ -4771,9 +4837,8 @@ mod tests {
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_eq!(
-            cell.bg_color,
-            [0.5, 0.5, 1.0, 0.7],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[0.5, 0.5, 1.0, 0.7]),
             "cursor cell bg should be cursor color (with block alpha), not highlight color"
         );
     }
@@ -4990,12 +5055,12 @@ mod tests {
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_eq!(
-            cell.quad_size[0], cell_w,
+        assert!(
+            f32_eq(cell.quad_size[0], cell_w),
             "Block cursor width should equal cell width"
         );
-        assert_eq!(
-            cell.quad_size[1], cell_h,
+        assert!(
+            f32_eq(cell.quad_size[1], cell_h),
             "Block cursor height should equal cell height"
         );
     }
@@ -5046,8 +5111,8 @@ mod tests {
             "Bar cursor width should be {expected_w}, got {}",
             cell.quad_size[0]
         );
-        assert_eq!(
-            cell.quad_size[1], cell_h,
+        assert!(
+            f32_eq(cell.quad_size[1], cell_h),
             "Bar cursor height should equal cell height"
         );
     }
@@ -5098,8 +5163,8 @@ mod tests {
             "Underline cursor height should be {expected_h}, got {}",
             cell.quad_size[1]
         );
-        assert_eq!(
-            cell.quad_size[0], cell_w,
+        assert!(
+            f32_eq(cell.quad_size[0], cell_w),
             "Underline cursor width should equal cell width"
         );
     }
@@ -5144,9 +5209,8 @@ mod tests {
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
         // Non-cursor blank cell uses default background, not cursor color
-        assert_ne!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.7],
+        assert!(
+            !f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
             "cursor cell should not have block alpha bg when cursor_visible=false"
         );
     }
@@ -5196,9 +5260,8 @@ mod tests {
             "cursor at (0,0) must produce an instance"
         );
         let cell = &instances[0];
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.7],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
             "cursor at origin must render with block alpha"
         );
     }
@@ -5246,14 +5309,12 @@ mod tests {
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
         // Block cursor swaps fg/bg: fg becomes original bg, bg becomes cursor color×alpha
-        assert_eq!(
-            cell.fg_color,
-            [0.0, 0.0, 1.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &[0.0, 0.0, 1.0, 1.0]),
             "block cursor on text: fg should be original bg"
         );
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.7],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
             "block cursor on text: bg should be cursor color with block alpha"
         );
     }
@@ -5301,14 +5362,12 @@ mod tests {
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
         // Bar cursor does NOT swap fg/bg — it just sets bg to cursor color
-        assert_eq!(
-            cell.fg_color,
-            [0.0, 1.0, 0.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &[0.0, 1.0, 0.0, 1.0]),
             "bar cursor on text: fg should be original foreground"
         );
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.9],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.9]),
             "bar cursor on text: bg should be cursor color with line alpha"
         );
     }
@@ -5356,14 +5415,12 @@ mod tests {
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
         // Underline cursor does NOT swap fg/bg — it just sets bg to cursor color
-        assert_eq!(
-            cell.fg_color,
-            [0.0, 1.0, 0.0, 1.0],
+        assert!(
+            f32_arrays_equal(&cell.fg_color, &[0.0, 1.0, 0.0, 1.0]),
             "underline cursor on text: fg should be original foreground"
         );
-        assert_eq!(
-            cell.bg_color,
-            [1.0, 1.0, 1.0, 0.9],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.9]),
             "underline cursor on text: bg should be cursor color with line alpha"
         );
     }
@@ -5408,9 +5465,8 @@ mod tests {
         );
         assert_eq!(instances.len(), 1);
         let cell = &instances[0];
-        assert_eq!(
-            cell.bg_color,
-            [0.5, 0.3, 0.8, 0.7],
+        assert!(
+            f32_arrays_equal(&cell.bg_color, &[0.5, 0.3, 0.8, 0.7]),
             "custom cursor color should be reflected with block alpha multiplier"
         );
     }
@@ -5478,8 +5534,8 @@ mod tests {
     fn image_active_value_flag_matches_bg_bind_group() {
         // Fix F branch logic: a background image being active is exactly the
         // uniform flag that makes default-background cells transparent.
-        assert_eq!(image_active_value(true), 1.0);
-        assert_eq!(image_active_value(false), 0.0);
+        assert!(f32_eq(image_active_value(true), 1.0));
+        assert!(f32_eq(image_active_value(false), 0.0));
     }
 
     include!("screenshot_tests.rs");

@@ -125,7 +125,6 @@ fn ported_alacritty_sgr_bold_and_color() {
     t.vt_write(b"\x1b[1;31mRED BOLD\x1b[0m");
     t.flush();
     let snap = t.take_snapshot();
-    let _idx = 0;
     if let Some(cell) = snap.cells.first() {
         assert!(cell.bold, "bold attribute should be set");
         assert!(
@@ -204,7 +203,7 @@ fn ported_alacritty_scroll_region() {
     let text = get_text(&t);
     // With scroll region rows 2-4, content outside should stay
     assert!(
-        text.iter().any(|l| l.contains("1")),
+        text.iter().any(|l| l.contains('1')),
         "row 1 outside scroll region"
     );
 }
@@ -366,7 +365,7 @@ fn ar_cursor_cud() {
     t.vt_write(b"Top\n\x1b[BA");
     t.flush();
     let text = get_text(&t);
-    assert!(text.iter().any(|l| l.contains("A")), "CUD: A should appear");
+    assert!(text.iter().any(|l| l.contains('A')), "CUD: A should appear");
 }
 
 #[test]
@@ -438,7 +437,7 @@ fn ar_cursor_cpl() {
     assert_eq!(get_char(&t, 0, 0), 'X' as u32, "CPL: X overwrites at row 0");
     let text = get_text(&t);
     assert!(
-        text.iter().any(|l| l.contains("X")),
+        text.iter().any(|l| l.contains('X')),
         "CPL: X visible after CPL"
     );
 }
@@ -847,7 +846,7 @@ fn ar_save_restore_decs_multi() {
     t.flush();
     let text = get_text(&t);
     assert!(
-        text.iter().any(|l| l.contains("Y")),
+        text.iter().any(|l| l.contains('Y')),
         "DECSC multi: Y visible after restore"
     );
 }
@@ -888,7 +887,7 @@ fn ar_save_restore_decs_after_delete_lines() {
     t.flush();
     let text = get_text(&t);
     assert!(
-        text.iter().any(|l| l.contains("X")),
+        text.iter().any(|l| l.contains('X')),
         "DECSC after DL: X visible"
     );
 }
@@ -901,7 +900,7 @@ fn ar_ich_insert_chars() {
     t.vt_write(b"ABCDE\x1b[3D\x1b[3@XXX");
     t.flush();
     let all: String = get_text(&t).join("");
-    assert!(all.contains("X"), "ICH: X inserted");
+    assert!(all.contains('X'), "ICH: X inserted");
 }
 
 #[test]
@@ -1076,7 +1075,7 @@ fn ar_ind_multiple() {
     t.flush();
     let text = get_text(&t);
     assert!(
-        text.iter().any(|l| l.contains("B")),
+        text.iter().any(|l| l.contains('B')),
         "IND multiple: B visible after moves"
     );
 }

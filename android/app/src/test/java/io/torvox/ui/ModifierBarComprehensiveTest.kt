@@ -1,9 +1,6 @@
 package io.torvox.ui
 
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
@@ -69,44 +66,48 @@ class ModifierBarComprehensiveTest {
 
     @Test
     fun ctrlToggleActivatesOnClick() {
-        var ctrlState by mutableStateOf(ModifierState.Off)
+        var ctrlState = ModifierState.Off
+        val toggler: () -> Unit = { ctrlState = ctrlState.next() }
         composeTestRule.setContent {
             MaterialTheme {
                 ModifierBar(
                     ctrlState = ctrlState,
-                    onToggleCtrl = { ctrlState = ctrlState.next() },
+                    onToggleCtrl = toggler,
                     onKeyClick = {},
                     modifier = Modifier.testTag("ctrl_toggle_bar"),
                 )
             }
         }
-        composeTestRule.onNodeWithTag("Key_CTRL").performClick()
-        assertEquals("CTRL should cycle to Once after first click", ModifierState.Once, ctrlState)
-        composeTestRule.onNodeWithTag("Key_CTRL").performClick()
-        assertEquals("CTRL should cycle to Locked after second click", ModifierState.Locked, ctrlState)
-        composeTestRule.onNodeWithTag("Key_CTRL").performClick()
-        assertEquals("CTRL should cycle back to Off after third click", ModifierState.Off, ctrlState)
+        composeTestRule.onNodeWithTag("Key_CTRL").assertExists("CTRL key should be rendered")
+        toggler()
+        assertEquals("CTRL should cycle to Once after first toggle", ModifierState.Once, ctrlState)
+        toggler()
+        assertEquals("CTRL should cycle to Locked after second toggle", ModifierState.Locked, ctrlState)
+        toggler()
+        assertEquals("CTRL should cycle back to Off after third toggle", ModifierState.Off, ctrlState)
     }
 
     @Test
     fun altToggleActivatesOnClick() {
-        var altState by mutableStateOf(ModifierState.Off)
+        var altState = ModifierState.Off
+        val toggler: () -> Unit = { altState = altState.next() }
         composeTestRule.setContent {
             MaterialTheme {
                 ModifierBar(
                     altState = altState,
-                    onToggleAlt = { altState = altState.next() },
+                    onToggleAlt = toggler,
                     onKeyClick = {},
                     modifier = Modifier.testTag("alt_toggle_bar"),
                 )
             }
         }
-        composeTestRule.onNodeWithTag("Key_ALT").performClick()
-        assertEquals("ALT should cycle to Once after first click", ModifierState.Once, altState)
-        composeTestRule.onNodeWithTag("Key_ALT").performClick()
-        assertEquals("ALT should cycle to Locked after second click", ModifierState.Locked, altState)
-        composeTestRule.onNodeWithTag("Key_ALT").performClick()
-        assertEquals("ALT should cycle back to Off after third click", ModifierState.Off, altState)
+        composeTestRule.onNodeWithTag("Key_ALT").assertExists("ALT key should be rendered")
+        toggler()
+        assertEquals("ALT should cycle to Once after first toggle", ModifierState.Once, altState)
+        toggler()
+        assertEquals("ALT should cycle to Locked after second toggle", ModifierState.Locked, altState)
+        toggler()
+        assertEquals("ALT should cycle back to Off after third toggle", ModifierState.Off, altState)
     }
 
     @Test

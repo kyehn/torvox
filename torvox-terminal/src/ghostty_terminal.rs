@@ -37,6 +37,7 @@ pub struct GridSnapshot {
     pub kgp_placements: Vec<KgpPlacement>,
     pub title: String,
     pub scrollback_length: u32,
+    pub sync_active: bool,
 }
 
 /// A Kitty Graphics Protocol (KGP) placement for rendering.
@@ -73,6 +74,7 @@ impl GridSnapshot {
             kgp_placements: Vec::new(),
             title: String::new(),
             scrollback_length: 0,
+            sync_active: false,
         }
     }
     pub fn cell_at(&self, row: u32, col: u32) -> &CellSnapshot {
@@ -162,7 +164,7 @@ const MAX_GRAPHEME_CLUSTERS: usize = 8;
 const DEFAULT_CELL_WIDTH: u32 = 8;
 const DEFAULT_CELL_HEIGHT: u32 = 16;
 
-enum Command {
+pub enum Command {
     Write(Vec<u8>),
     FlushAck(Sender<()>),
     SetTheme {
@@ -259,8 +261,6 @@ pub struct GhosttyTerminal {
     query_tx: Sender<Command>,
     handle: Option<thread::JoinHandle<()>>,
     pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
-    key_encode_rx: Receiver<Vec<u8>>,
-    key_encode_tx_base: Sender<Vec<u8>>,
     snapshot_cache: Mutex<SnapshotCache>,
     snapshot_rebuild_count: Arc<AtomicU64>,
 }
@@ -342,16 +342,12 @@ impl GhosttyTerminal {
             })
             .map_err(|e| format!("failed to spawn terminal thread: {e}"))?;
 
-        let (key_encode_tx_base, key_encode_rx) = bounded(1);
-
         Ok(Self {
             cmd_tx,
             query_tx,
             handle: Some(handle),
             pty_write_responses,
-            key_encode_rx,
             snapshot_rebuild_count,
-            key_encode_tx_base,
             snapshot_cache: Mutex::new(SnapshotCache {
                 cached: GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS),
                 pending_rx: None,
@@ -933,8 +929,17 @@ impl GhosttyTerminal {
     /// into one buffer and pass it here in a single call. Plain text and
     /// complete sequences may be concatenated freely.
     pub fn vt_write(&mut self, data: &[u8]) {
+        // Sanitize bytes that the underlying C library cannot handle.
+        // 0xF8–0xFF are not valid UTF-8 lead bytes and are not standard
+        // VT100 C1 control codes. The C parser may crash on long runs of
+        // these bytes, so we replace them with spaces to preserve input
+        // length while avoiding the crash.
+        let sanitized: Vec<u8> = data
+            .iter()
+            .map(|&b| if b > 0xF7 { b' ' } else { b })
+            .collect();
         let mut buf = Vec::with_capacity(data.len() + 4);
-        buf.extend_from_slice(data);
+        buf.extend_from_slice(&sanitized);
         // Append ST + SGR reset to close any incomplete escape sequence
         // (OSC, DCS, SOS, PM, APC) that may have been truncated at the end
         // of this chunk. vt_write is only used for programmatic VT data
@@ -1184,17 +1189,26 @@ impl GhosttyTerminal {
         }
     }
 
-    pub fn key_encode(
-        &self,
+    /// Returns a clone of the lock-free command sender for direct ghostty thread access.
+    /// The caller uses this with Self::key_encode_submit_via to bypass the session mutex,
+    /// eliminating UI-thread stalls when the render thread holds the session lock.
+    pub fn clone_cmd_tx(&self) -> Sender<Command> {
+        self.cmd_tx.clone()
+    }
+
+    /// Send a key event for encoding using a pre-cloned sender.
+    /// Returns a receiver for the encoded result. This function does NOT need
+    /// `&self` — the caller can submit directly to ghostty without any session lock.
+    pub fn key_encode_submit_via(
+        cmd_tx: &Sender<Command>,
         key_code: u32,
         modifiers: u16,
         action: u8,
         unicode_char: u32,
         unshifted_char: u32,
-    ) -> Option<Vec<u8>> {
-        let tx = self.key_encode_tx_base.clone();
-        if self
-            .cmd_tx
+    ) -> Option<Receiver<Vec<u8>>> {
+        let (tx, rx) = flume::bounded(1);
+        cmd_tx
             .send(Command::KeyEncode {
                 key_code,
                 modifiers,
@@ -1203,11 +1217,45 @@ impl GhosttyTerminal {
                 unshifted_char,
                 tx,
             })
-            .is_err()
-        {
-            return None;
-        }
-        self.key_encode_rx.recv().ok()
+            .ok()?;
+        Some(rx)
+    }
+
+    pub fn key_encode(
+        &self,
+        key_code: u32,
+        modifiers: u16,
+        action: u8,
+        unicode_char: u32,
+        unshifted_char: u32,
+    ) -> Option<Vec<u8>> {
+        self.key_encode_submit(key_code, modifiers, action, unicode_char, unshifted_char)?
+            .recv()
+            .ok()
+    }
+
+    /// Submit a key for encoding and return a receiver for the result.
+    /// The caller should NOT hold any session lock while waiting on the returned receiver.
+    pub fn key_encode_submit(
+        &self,
+        key_code: u32,
+        modifiers: u16,
+        action: u8,
+        unicode_char: u32,
+        unshifted_char: u32,
+    ) -> Option<flume::Receiver<Vec<u8>>> {
+        let (tx, rx) = flume::bounded(1);
+        self.cmd_tx
+            .send(Command::KeyEncode {
+                key_code,
+                modifiers,
+                action,
+                unicode_char,
+                unshifted_char,
+                tx,
+            })
+            .ok()?;
+        Some(rx)
     }
 
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
@@ -1698,6 +1746,7 @@ impl GhosttyTerminal {
         let dirty = vec![true; rows as usize];
 
         let kgp_placements = Self::collect_kgp_placements(terminal);
+        let sync_active = terminal.mode(Mode::SYNC_OUTPUT).unwrap_or(false);
 
         GridSnapshot {
             rows,
@@ -1711,6 +1760,7 @@ impl GhosttyTerminal {
             kgp_placements,
             title: terminal.title().unwrap_or_default().to_string(),
             scrollback_length: terminal.scrollback_rows().unwrap_or(0) as u32,
+            sync_active,
         }
     }
 
@@ -2691,6 +2741,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn cell_snapshot_default() {
         let c = CellSnapshot::default();
         assert_eq!(c.codepoint, 0);
@@ -2702,6 +2753,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::float_cmp)]
     fn cell_snapshot_clone() {
         let c = CellSnapshot {
             codepoint: 65,
@@ -2837,7 +2889,7 @@ mod tests {
             .collect();
         let s: String = text_chars.iter().collect();
         assert!(
-            s.contains("0") || s.contains("A"),
+            s.contains('0') || s.contains('A'),
             "autowrap should show wrapped text, got: {s:?}"
         );
         assert_invariants(&snap);
@@ -4580,7 +4632,7 @@ mod tests {
     #[test]
     fn osc_52_clipboard_large_payload() {
         let mut t = GhosttyTerminal::new(3, 10, 100).expect("term");
-        let base64_payload = "A".repeat(100000);
+        let base64_payload = "A".repeat(100_000);
         let seq = format!("\x1b]52;c;{}\x07", base64_payload);
         t.vt_write(seq.as_bytes());
         t.flush();
@@ -10019,7 +10071,7 @@ mod tests {
         // The first 8 cells ("prompt> ") should be Prompt
         let mut found_prompt = false;
         let mut found_input = false;
-        for cell in snap.cells.iter() {
+        for cell in &snap.cells {
             match cell.codepoint as u8 as char {
                 'p' | 'r' | 'o' | 'm' | 't' | '>' | ' '
                     if cell.semantic == SemanticContent::Prompt =>
@@ -10123,8 +10175,8 @@ mod tests_s2_fixes {
         // the already-present CR was not doubled into an extra line break.
         let lf_snap = lf.take_snapshot();
         let crlf_snap = crlf.take_snapshot();
-        let lf_b = lf_snap.cells.get((1 * lf_snap.cols + 0) as usize);
-        let crlf_b = crlf_snap.cells.get((1 * crlf_snap.cols + 0) as usize);
+        let lf_b = lf_snap.cells.get(lf_snap.cols as usize);
+        let crlf_b = crlf_snap.cells.get(crlf_snap.cols as usize);
         assert_eq!(
             lf_b.map(|c| c.codepoint),
             Some('b' as u32),
@@ -10136,12 +10188,12 @@ mod tests_s2_fixes {
             "a\\r\\nb: 'b' must be at row1 col0 (no double CR)"
         );
         assert_eq!(
-            lf_snap.cells[(1 * lf_snap.cols + 1) as usize].codepoint,
+            lf_snap.cells[(lf_snap.cols + 1) as usize].codepoint,
             0,
             "a\\nb: row1 col1 must stay empty (cursor advanced past 'b')"
         );
         assert_eq!(
-            crlf_snap.cells[(1 * crlf_snap.cols + 1) as usize].codepoint,
+            crlf_snap.cells[(crlf_snap.cols + 1) as usize].codepoint,
             0,
             "a\\r\\nb: row1 col1 must stay empty (no spurious CR)"
         );
@@ -10159,8 +10211,7 @@ mod tests_s2_fixes {
         t.flush();
         let snap = t.take_snapshot();
         assert_eq!(
-            snap.cells[(1 * snap.cols + 0) as usize].codepoint,
-            'b' as u32,
+            snap.cells[snap.cols as usize].codepoint, 'b' as u32,
             "LF must advance to next row (CRLF); 'b' at row1 col0"
         );
         assert_invariants(&snap);
@@ -10259,7 +10310,7 @@ mod tests_s2_fixes {
     /// codepoint (the malformed `1;5u` form).
     #[test]
     fn key_encode_ctrl_a_passes_null_utf8() {
-        let mut t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+        let t = GhosttyTerminal::new(24, 80, 1000).expect("term");
         let ctrl = key::Mods::CTRL.bits();
         let out = t.key_encode(29, ctrl, 0, 0x01, 0).expect("encode");
         assert!(
@@ -10365,6 +10416,63 @@ mod tests_s2_fixes {
             positions.len() >= 3,
             "fuzzy search should return at least 3 distinct match positions, got {}",
             positions.len()
+        );
+    }
+
+    /// key_encode_submit returns a Some(receiver) for a valid key and the
+    /// receiver produces the expected encoded bytes (same semantic as key_encode).
+    #[test]
+    fn key_encode_submit_returns_receiver() {
+        let mut t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+        enable_kitty(&mut t);
+        let shift = key::Mods::SHIFT.bits();
+        let rx = t.key_encode_submit(29, shift, 0, 0x41, 0x61);
+        assert!(rx.is_some(), "key_encode_submit must return Some receiver");
+        let result = rx.unwrap().recv().expect("receiver must produce result");
+        assert!(
+            result.contains(&0x41),
+            "output must contain 'A' (utf8): {result:?}"
+        );
+        assert!(
+            !result.contains(&0x61),
+            "output must NOT contain 'a' (unshifted): {result:?}"
+        );
+    }
+
+    /// key_encode_submit + waiting on receiver produces the same result as
+    /// the synchronous key_encode for the same input.
+    #[test]
+    fn key_encode_submit_and_key_encode_produce_same_result() {
+        let mut t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+        enable_kitty(&mut t);
+        let shift = key::Mods::SHIFT.bits();
+        let rx = t
+            .key_encode_submit(29, shift, 0, 0x41, 0x61)
+            .expect("key_encode_submit must return receiver");
+        let submit_result = rx.recv().expect("receiver must produce result");
+        let direct_result = t
+            .key_encode(29, shift, 0, 0x41, 0x61)
+            .expect("key_encode must produce result");
+        assert_eq!(
+            submit_result, direct_result,
+            "key_encode_submit and key_encode must produce identical output"
+        );
+    }
+
+    /// Dropping the receiver before the ghostty thread responds does not
+    /// cause a panic — ghostty handles the send error gracefully and the
+    /// terminal remains usable for subsequent requests.
+    #[test]
+    fn key_encode_submit_dropped_receiver_does_not_panic() {
+        let t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+        let rx = t.key_encode_submit(29, 0, 0, 0x61, 0x61);
+        drop(rx);
+        let result = t
+            .key_encode(29, 0, 0, 0x62, 0x62)
+            .expect("terminal must remain functional after dropped receiver");
+        assert!(
+            !result.is_empty(),
+            "key_encode after dropped receiver must produce output: {result:?}"
         );
     }
 }

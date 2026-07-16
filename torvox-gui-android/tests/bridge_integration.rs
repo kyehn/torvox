@@ -48,26 +48,26 @@ fn theme_set_via_rust_api_succeeds() {
 
     let theme = BridgeTheme {
         name: "TestTheme".to_string(),
-        bg: 0x10101010,
-        fg: 0x20202020,
-        cursor: 0x30303030,
-        selection_bg: 0x40404040,
-        ansi0: 0x01010101,
-        ansi1: 0x02020202,
-        ansi2: 0x03030303,
-        ansi3: 0x04040404,
-        ansi4: 0x05050505,
-        ansi5: 0x06060606,
-        ansi6: 0x07070707,
-        ansi7: 0x08080808,
-        ansi8: 0x09090909,
-        ansi9: 0x0A0A0A0A,
-        ansi10: 0x0B0B0B0B,
-        ansi11: 0x0C0C0C0C,
-        ansi12: 0x0D0D0D0D,
-        ansi13: 0x0E0E0E0E,
-        ansi14: 0x0F0F0F0F,
-        ansi15: 0x10101010,
+        bg: 0x1010_1010,
+        fg: 0x2020_2020,
+        cursor: 0x3030_3030,
+        selection_bg: 0x4040_4040,
+        ansi0: 0x0101_0101,
+        ansi1: 0x0202_0202,
+        ansi2: 0x0303_0303,
+        ansi3: 0x0404_0404,
+        ansi4: 0x0505_0505,
+        ansi5: 0x0606_0606,
+        ansi6: 0x0707_0707,
+        ansi7: 0x0808_0808,
+        ansi8: 0x0909_0909,
+        ansi9: 0x0A0A_0A0A,
+        ansi10: 0x0B0B_0B0B,
+        ansi11: 0x0C0C_0C0C,
+        ansi12: 0x0D0D_0D0D,
+        ansi13: 0x0E0E_0E0E,
+        ansi14: 0x0F0F_0F0F,
+        ansi15: 0x1010_1010,
     };
 
     let result = bridge.set_theme(theme.clone());
@@ -267,8 +267,8 @@ fn bridge_cell_from_cell_encodes_u32_colors() {
 
     let bridge: BridgeCell = core_cell.into();
     assert_eq!(bridge.char_code, 0x41);
-    assert_eq!(bridge.fg, 0x0A141EFF, "fg should encode as RGBA u32");
-    assert_eq!(bridge.bg, 0x28323CFF, "bg should encode as RGBA u32");
+    assert_eq!(bridge.fg, 0x0A14_1EFF, "fg should encode as RGBA u32");
+    assert_eq!(bridge.bg, 0x2832_3CFF, "bg should encode as RGBA u32");
 }
 
 // ═══════════════════════════════════════════════

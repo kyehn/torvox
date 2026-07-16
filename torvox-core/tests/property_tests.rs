@@ -231,7 +231,7 @@ mod cell_serde_invariants {
     #[quickcheck]
     fn cell_serde_roundtrip_char(char_code: u32, width: u8) -> bool {
         let cell = Cell {
-            char: char::from_u32(char_code & 0x10FFFF).unwrap_or(' '),
+            char: char::from_u32(char_code & 0x0010_FFFF).unwrap_or(' '),
             width: if width == 0 { 1 } else { (width % 3) + 1 },
             ..Default::default()
         };
@@ -472,7 +472,7 @@ mod grid_scroll_invariants {
 
     #[quickcheck]
     fn grid_scroll_up_preserves_total_rows(rows: u32, scroll_count: u32) -> TestResult {
-        if rows < 2 || rows > 50 || scroll_count == 0 {
+        if !(2..=50).contains(&rows) || scroll_count == 0 {
             return TestResult::discard();
         }
         let mut g = Grid::new(rows, 10);
@@ -486,7 +486,7 @@ mod grid_scroll_invariants {
 
     #[quickcheck]
     fn grid_scroll_down_preserves_total_rows(rows: u32, scroll_count: u32) -> TestResult {
-        if rows < 2 || rows > 50 || scroll_count == 0 {
+        if !(2..=50).contains(&rows) || scroll_count == 0 {
             return TestResult::discard();
         }
         let mut g = Grid::new(rows, 10);
@@ -582,6 +582,7 @@ mod color_ops_invariants {
         assert_eq!(a.saturating_mul(1), a);
     }
 
+    #[allow(clippy::many_single_char_names)]
     #[quickcheck]
     fn color_saturating_mul_zero(r: u8, g: u8, b: u8) {
         let a = Color { r, g, b, a: 255 };
@@ -696,7 +697,7 @@ mod insert_delete_lines_invariants {
 
     #[quickcheck]
     fn insert_lines_preserves_total_rows(at: u32, count: u32, rows: u32) -> TestResult {
-        if rows < 3 || rows > 50 {
+        if !(3..=50).contains(&rows) {
             return TestResult::discard();
         }
         let at = at % rows;
@@ -709,7 +710,7 @@ mod insert_delete_lines_invariants {
 
     #[quickcheck]
     fn delete_lines_preserves_total_rows(at: u32, count: u32, rows: u32) -> TestResult {
-        if rows < 3 || rows > 50 {
+        if !(3..=50).contains(&rows) {
             return TestResult::discard();
         }
         let at = at % rows;
@@ -722,7 +723,7 @@ mod insert_delete_lines_invariants {
 
     #[quickcheck]
     fn insert_lines_at_bottom_is_no_op(rows: u32) -> TestResult {
-        if rows < 2 || rows > 50 {
+        if !(2..=50).contains(&rows) {
             return TestResult::discard();
         }
         let mut g = Grid::new(rows, 10);
@@ -733,7 +734,7 @@ mod insert_delete_lines_invariants {
 
     #[quickcheck]
     fn delete_lines_at_bottom_is_no_op(rows: u32) -> TestResult {
-        if rows < 2 || rows > 50 {
+        if !(2..=50).contains(&rows) {
             return TestResult::discard();
         }
         let mut g = Grid::new(rows, 10);
@@ -750,7 +751,7 @@ mod scrollback_invariants {
 
     #[quickcheck]
     fn push_scrollback_bounded(max: u8, pushes: u8) -> bool {
-        let max = (max.max(1).min(50)) as usize;
+        let max = max.clamp(1, 50) as usize;
         let pushes = pushes.min(100);
         let mut g = Grid::with_scrollback(2, 5, max);
         for _ in 0..pushes {

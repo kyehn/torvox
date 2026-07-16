@@ -106,17 +106,16 @@ fn termtests_all_batch_files() {
                     );
                     continue;
                 }
-                if !output.contains(&expected) && !expected.contains(&output) {
-                    panic!(
-                        "termtest {} case {} '{}':\n  input:    {:?}\n  expected: {:?}\n  actual:   {:?}",
-                        path.display(),
-                        i,
-                        tc.description,
-                        tc.input,
-                        expected,
-                        output
-                    );
-                }
+                assert!(
+                    output.contains(&expected) || expected.contains(&output),
+                    "termtest {} case {} '{}':\n  input:    {:?}\n  expected: {:?}\n  actual:   {:?}",
+                    path.display(),
+                    i,
+                    tc.description,
+                    tc.input,
+                    expected,
+                    output
+                );
                 total += 1;
             }
         }

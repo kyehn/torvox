@@ -177,13 +177,13 @@ fn l3_sgr_bg_8color() {
         let snap = t.take_snapshot();
         let rgb_sum =
             snap.cells[0].background[0] + snap.cells[0].background[1] + snap.cells[0].background[2];
-        if rgb_sum < 0.01 && code != 40 {
-            // Only black (40) may have zero bg
-            panic!(
-                "bg color {} should have non-zero bg sum {:.3}",
-                code, rgb_sum
-            );
-        }
+        // Only black (40) may have zero bg
+        assert!(
+            !(rgb_sum < 0.01 && code != 40),
+            "bg color {} should have non-zero bg sum {:.3}",
+            code,
+            rgb_sum
+        );
     }
 }
 

@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.concurrent.TimeUnit
 
 class SecondStageRunner(
     private val prefixDir: File,
@@ -75,13 +76,22 @@ class SecondStageRunner(
                             environment.map { "${it.key}=${it.value}" }.toTypedArray(),
                             File("/"),
                         )
+                    proc.outputStream.close()
                     val stdoutThread = Thread { proc.inputStream.bufferedReader().readText() }
                     val stderrThread = Thread { proc.errorStream.bufferedReader().readText() }
                     stdoutThread.start()
                     stderrThread.start()
-                    val exitCode = proc.waitFor()
+                    val exited = proc.waitFor(30, TimeUnit.SECONDS)
+                    if (!exited) {
+                        proc.destroyForcibly()
+                        proc.waitFor(5, TimeUnit.SECONDS)
+                        stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
+                        stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
+                        throw RuntimeException("$packageName postinst timed out after 30s")
+                    }
                     stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
                     stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
+                    val exitCode = proc.exitValue()
                     if (exitCode != 0) {
                         errors.add("$packageName postinst exited with code $exitCode")
                     }

@@ -531,6 +531,7 @@ fn sgr_italic_sets_attribute() {
 
 /// SGR 1;31 combined sets bold+red foreground
 #[test]
+#[allow(clippy::many_single_char_names)]
 fn sgr_combined_bold_red_sets_color() {
     let mut t = term(3, 40);
     t.vt_write(b"\x1b[1;31mX\x1b[0m");

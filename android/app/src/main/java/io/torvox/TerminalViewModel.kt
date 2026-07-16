@@ -110,7 +110,7 @@ data class TerminalState(
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
     val pastePopupRequest: PastePopupRequest? = null,
-    val keyboardMode: KeyboardMode = KeyboardMode.Secure,
+    val keyboardMode: KeyboardMode = KeyboardMode.Raw,
     val selectionBg: Int = 0,
     val selectionAccent: Int = 0,
 )
@@ -215,7 +215,7 @@ constructor(
     val keyboardMode: StateFlow<KeyboardMode> =
         settingsRepository.keyboardMode
             .map { it.toKeyboardMode() }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), KeyboardMode.Secure)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), KeyboardMode.Raw)
 
     val dayThemeName: StateFlow<String> =
         settingsRepository.dayThemeName
@@ -239,10 +239,6 @@ constructor(
 
     val mcpServerEnabled: StateFlow<Boolean> =
         settingsRepository.mcpServerEnabled
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), false)
-
-    val volumeKeyMap: StateFlow<Boolean> =
-        settingsRepository.volumeKeyMap
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), false)
 
     val backgroundImagePath: StateFlow<String> =
@@ -363,7 +359,7 @@ constructor(
     }
 
     private fun loadFonts() {
-        viewModelScope.launch {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val bridge = runtime.bridge()
                 val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
@@ -636,12 +632,6 @@ constructor(
     fun setMcpServerEnabled(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setMcpServerEnabled(enabled)
-        }
-    }
-
-    fun setVolumeKeyMap(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setVolumeKeyMap(enabled)
         }
     }
 

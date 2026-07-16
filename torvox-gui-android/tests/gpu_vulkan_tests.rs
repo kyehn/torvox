@@ -14,13 +14,13 @@ use core::future::Future as _;
 use core::pin::pin;
 use core::task;
 
-const COMPUTE_SHADER: &str = r#"
+const COMPUTE_SHADER: &str = r"
 @group(0) @binding(0) var<storage, read_write> data: array<u32>;
 @compute @workgroup_size(4)
 fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
     data[id.x] = data[id.x] * 2u;
 }
-"#;
+";
 
 /// Request a real Vulkan adapter+device. Panics if Lavapipe/Mesa Vulkan is not
 /// available (i.e. `VK_ICD_FILENAMES` is not pointing at the Lavapipe ICD).
@@ -146,7 +146,7 @@ fn gpu_vulkan_compute_readback_real() {
 
     let slice = staging.slice(..);
     slice.map_async(wgpu::MapMode::Read, |_| {});
-    device.poll(wgpu::PollType::Wait {
+    let _ = device.poll(wgpu::PollType::Wait {
         submission_index: None,
         timeout: None,
     });

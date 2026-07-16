@@ -28,9 +28,10 @@ fn text_render_ocr_verify() {
     let glyphs = render.glyphs;
     let total_width_f32 = render.total_width;
 
-    if glyphs.is_empty() {
-        panic!("No glyphs rendered from '{text}' — font may not contain ASCII");
-    }
+    assert!(
+        !glyphs.is_empty(),
+        "No glyphs rendered from '{text}' — font may not contain ASCII"
+    );
 
     let total_width = total_width_f32.ceil() as u32 + 10;
     let total_height = (font_size * 2.0).ceil() as u32;
@@ -108,12 +109,10 @@ fn render_text_with_swash(text: &str, font_size: f32) -> Option<RenderResult> {
     ];
     for path in &candidates {
         let p = std::path::Path::new(path);
-        if p.exists() {
-            if let Ok(data) = std::fs::read(p) {
-                if let Some(font_ref) = swash::FontRef::from_index(&data, 0) {
-                    return Some(render_from_font_ref(font_ref, text, font_size));
-                }
-            }
+        if let Ok(data) = std::fs::read(p)
+            && let Some(font_ref) = swash::FontRef::from_index(&data, 0)
+        {
+            return Some(render_from_font_ref(font_ref, text, font_size));
         }
     }
 

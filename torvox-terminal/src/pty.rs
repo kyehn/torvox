@@ -808,10 +808,13 @@ mod tests {
         // SAFETY: `tcgetattr` is a simple syscall wrapper; `fd` is a
         // valid, owned PTY master descriptor, so reading its termios is safe.
         let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
-        let mut termios = unsafe {
-            if libc::tcgetattr(fd, termios.as_mut_ptr()) != 0 {
-                panic!("tcgetattr failed: {}", std::io::Error::last_os_error());
-            }
+        let termios = unsafe {
+            assert_eq!(
+                libc::tcgetattr(fd, termios.as_mut_ptr()),
+                0,
+                "tcgetattr failed: {}",
+                std::io::Error::last_os_error()
+            );
             termios.assume_init()
         };
 

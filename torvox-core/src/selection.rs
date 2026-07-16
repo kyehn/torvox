@@ -1435,7 +1435,7 @@ mod tests {
         assert!(char_is_cjk('中')); // CJK Unified Ideographs
         assert!(char_is_cjk('本'));
         assert!(char_is_cjk('㐀')); // Extension A
-        assert!(char_is_cjk('豈')); // Compatibility ideograph
+        assert!(char_is_cjk('\u{F900}')); // Compatibility ideograph
         assert!(char_is_cjk('あ')); // Hiragana
         assert!(char_is_cjk('ア')); // Katakana
         assert!(char_is_cjk('가')); // Hangul

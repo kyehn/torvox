@@ -122,7 +122,7 @@ fn char_selection_narrow_multi_line() {
     );
     let result = sel.text(&grid);
     assert!(result.starts_with("ABC"), "should include 'ABC' from row 0");
-    assert!(result.contains("D"), "should include 'D' from row 1");
+    assert!(result.contains('D'), "should include 'D' from row 1");
 }
 
 #[test]

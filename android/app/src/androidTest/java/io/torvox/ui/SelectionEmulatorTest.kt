@@ -94,7 +94,7 @@ class SelectionEmulatorTest {
         x: Float,
         y: Float,
     ) {
-        val tv = textureView ?: return
+        val tv = checkNotNull(textureView) { "terminal TextureView must be present" }
         val downTime = SystemClock.uptimeMillis()
         tv.dispatchTouchEvent(
             MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0).apply {
@@ -115,7 +115,7 @@ class SelectionEmulatorTest {
         x: Float,
         y: Float,
     ) {
-        val tv = textureView ?: return
+        val tv = checkNotNull(textureView) { "terminal TextureView must be present" }
         val downTime = SystemClock.uptimeMillis()
         tv.dispatchTouchEvent(
             MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, x, y, 0).apply {
@@ -147,7 +147,7 @@ class SelectionEmulatorTest {
         endY: Float,
         steps: Int = 10,
     ) {
-        val tv = textureView ?: return
+        val tv = checkNotNull(textureView) { "terminal TextureView must be present" }
         val downTime = SystemClock.uptimeMillis()
         tv.dispatchTouchEvent(
             MotionEvent.obtain(downTime, downTime, MotionEvent.ACTION_DOWN, startX, startY, 0).apply {
@@ -265,47 +265,46 @@ class SelectionEmulatorTest {
             recognizer.close()
             return text
         } catch (e: Exception) {
-            android.util.Log.w("SelectionEmulatorTest", "ML Kit unavailable: ${e.message}")
-            return ""
+            throw AssertionError("ML Kit OCR failed (requires Google Play Services)", e)
         } finally {
             region.recycle()
         }
     }
 
     private fun cellX(col: Int): Int {
-        val tv = textureView ?: return 0
+        val tv = checkNotNull(textureView) { "terminal TextureView must be present" }
         return (col * tv.width) / 80
     }
 
     private fun cellY(row: Int): Int {
-        val tv = textureView ?: return 0
+        val tv = checkNotNull(textureView) { "terminal TextureView must be present" }
         return (row * tv.height) / 24
     }
 
     private fun cellWidth(): Int {
-        val tv = textureView ?: return 1
+        val tv = checkNotNull(textureView) { "terminal TextureView must be present" }
         return tv.width / 80
     }
 
     private fun cellHeight(): Int {
-        val tv = textureView ?: return 1
+        val tv = checkNotNull(textureView) { "terminal TextureView must be present" }
         return tv.height / 24
     }
 
     private fun scrollToTop() {
-        val bridge = composeTestRule.getBridge() ?: return
+        val bridge = checkNotNull(composeTestRule.getBridge()) { "Bridge must be available" }
         bridge.setScrollOffset(0u)
         Thread.sleep(500)
     }
 
     private fun scrollToBottom() {
-        val bridge = composeTestRule.getBridge() ?: return
+        val bridge = checkNotNull(composeTestRule.getBridge()) { "Bridge must be available" }
         bridge.setScrollOffset(bridge.scrollbackLength())
         Thread.sleep(500)
     }
 
     private fun scrollBy(lines: Int) {
-        val bridge = composeTestRule.getBridge() ?: return
+        val bridge = checkNotNull(composeTestRule.getBridge()) { "Bridge must be available" }
         // scrollBy from top: setScrollOffset with a positive value
         bridge.setScrollOffset(lines.toUInt().coerceAtMost(bridge.scrollbackLength()))
         Thread.sleep(500)
@@ -971,6 +970,10 @@ class SelectionEmulatorTest {
         try {
             val ocrText = extractTextFromRegion(bitmap, 0, 0, bitmap.width / 2, bitmap.height / 2)
             File(screenshotDir, "ocr-output.txt").writeText(ocrText)
+            assertTrue(
+                "OCR must detect OCR_CONTENT_MARKER in:\n$ocrText",
+                ocrText.contains("OCR_CONTENT_MARKER"),
+            )
         } finally {
             bitmap.recycle()
         }

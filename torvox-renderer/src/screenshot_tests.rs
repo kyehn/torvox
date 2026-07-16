@@ -105,11 +105,7 @@ fn render_grid(
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let width = (grid.cols as f32 * cell_w).round() as u32 + TEST_PADDING_X;
     let height = (grid.rows as f32 * cell_h).round() as u32 + TEST_PADDING_Y;
-    let Some(mut ctx) =
-        setup_test_gpu_context_custom(instance, adapter, device, queue, width, height)
-    else {
-        panic!("no ctx for {test_name}");
-    };
+    let mut ctx = setup_test_gpu_context_custom(instance, adapter, device, queue, width, height);
     if let Some(c) = clear_color {
         ctx.bg_color = c;
     }
@@ -148,7 +144,7 @@ fn render_grid(
     (pixels, width, height)
 }
 
-/// Assert a pixel region has both color A and color B present (fg/bg swap proof).
+// Assert a pixel region has both color A and color B present (fg/bg swap proof).
 // ─── Absolute Verification Infrastructure ──────────────────────
 
 /// Sum R+G+B over all pixels in a rectangular region.
@@ -168,6 +164,7 @@ fn region_total_brightness(pixels: &[u8], width: u32, rx: u32, ry: u32, rw: u32,
 
 /// Assert selected region total brightness exceeds unselected region by margin.
 /// Two-region comparison cancels padding when both regions have equal padding.
+#[allow(clippy::too_many_arguments)]
 fn assert_swap_proof_by_total_brightness(
     pixels: &[u8],
     width: u32,
@@ -204,6 +201,7 @@ fn assert_swap_proof_by_total_brightness(
 
 /// Extract a rectangular region from RGBA pixels, save as PNG, run
 /// rapidocr, and assert the OCR output contains `expected` text.
+#[allow(clippy::too_many_arguments)]
 fn extract_and_ocr_region(
     pixels: &[u8],
     full_w: u32,
@@ -421,6 +419,7 @@ fn find_reverse_color_regions_by_channel(
 // ─── Search test helpers ─────────────────────────────────────────
 
 /// Verify that a selected cell range is brighter than an unselected range in the same row.
+#[allow(clippy::too_many_arguments)]
 fn assert_search_row_swap_proof(
     pixels: &[u8],
     w: u32,
@@ -469,7 +468,7 @@ fn ocr_search_highlight_reverses_colors() {
     let (pixels, w, h) = render_grid(
         "SEARCH_HIGHLIGHT",
         &grid,
-        Some("TEXT"),
+        Some("OTHER"),
         Some(theme_clear_color()),
     );
 
@@ -754,16 +753,13 @@ fn visual_long_press_blank() {
     // 1. OCR metadata check — no text detected
     let ocr_out = run_ocr(&test_out_dir().join("LONG_PRESS_BLANK.png"));
     let trimmed = ocr_out.trim();
-    let paren_start = trimmed.find(|c| c == '(').unwrap_or(trimmed.len());
+    let paren_start = trimmed.find('(').unwrap_or(trimmed.len());
     let intro = &trimmed[..paren_start];
     assert!(
         intro.contains("RapidOCROutput"),
         "blank screen should produce RapidOCR metadata, got: '{ocr_out}'"
     );
-    let metadata = &trimmed[..trimmed
-        .find(|c| c == ')')
-        .map(|i| i + 1)
-        .unwrap_or(trimmed.len())];
+    let metadata = &trimmed[..trimmed.find(')').map(|i| i + 1).unwrap_or(trimmed.len())];
     assert!(
         metadata.contains("txts=None") || metadata.contains("txts=()"),
         "blank screen 'txts' should be empty: '{ocr_out}'"
@@ -826,7 +822,7 @@ fn visual_long_press_text() {
     let cell_w = (w - TEST_PADDING_X) / cols;
     let word_region = regions.iter().copied().find(|(rx, _, rw, _)| {
         let cell_x = rx / cell_w;
-        cell_x <= 6 && cell_x + (rw + cell_w - 1) / cell_w >= 10
+        cell_x <= 6 && cell_x + rw.div_ceil(cell_w) >= 10
     });
     assert!(
         word_region.is_some(),

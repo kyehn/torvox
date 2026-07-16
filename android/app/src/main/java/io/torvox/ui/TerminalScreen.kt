@@ -16,10 +16,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -44,6 +42,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
@@ -320,16 +319,9 @@ fun TerminalScreen(
                 Modifier
                     .fillMaxSize()
                     .testTag("TerminalContent")
-                    .imePadding()
-                    .then(
-                        if (WindowInsets.ime.getBottom(LocalDensity.current) <= 0) {
-                            Modifier.navigationBarsPadding()
-                        } else {
-                            Modifier
-                        },
-                    ),
+                    .navigationBarsPadding(),
             ) {
-                // Terminal content area — fills remaining space above the bar
+                // Terminal content area — stays full height behind IME
                 Box(
                     modifier =
                     Modifier
@@ -542,6 +534,20 @@ fun TerminalScreen(
                     }
                 }
 
+                // END OF COLUMN — no bottom bar inside Column
+            } // close Column
+
+            // Floating overlay for bottom bar — sits above IME
+            Box(
+                modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .background(resolvedTerminalTheme.background)
+                    .testTag("ModifierBarOverlay"),
+            ) {
                 // Bottom bar — below terminal, above IME
                 if (showTextSearch) {
                     TextSearchBar(

@@ -326,20 +326,16 @@ fn doc_module_has_requirements() {
 
             let rel_path = format!("{crate_dir}/{basename}");
 
-            if !has_doc_block {
-                panic!(
-                    "{} is missing a module-level `//!` doc comment. \
-                     Every public module must have `//!` docs with `# Requirements`.",
-                    rel_path
-                );
-            }
-            if !has_id {
-                panic!(
-                    "{} module doc is missing a FR-xxx or NFR-xxx requirement reference. \
-                     Add `//! # Requirements\\n//! - FR-XXX — description` to the module doc.",
-                    rel_path
-                );
-            }
+            assert!(
+                has_doc_block,
+                "{rel_path} is missing a module-level `//!` doc comment. \
+                 Every public module must have `//!` docs with `# Requirements`.",
+            );
+            assert!(
+                has_id,
+                "{rel_path} module doc is missing a FR-xxx or NFR-xxx requirement reference. \
+                 Add `//! # Requirements\\n//! - FR-XXX — description` to the module doc.",
+            );
 
             // Collect all referenced requirement IDs
             let ids: Vec<String> = req_re
@@ -645,7 +641,7 @@ fn cargo_geiger_finds_no_unsafe_in_torvox_core() {
     if !String::from_utf8_lossy(&output.stdout).contains(":) torvox-core") {
         let dump = std::env::temp_dir().join("torvox-geiger-output.txt");
         std::fs::write(&dump, &output.stdout).ok();
-        std::fs::write(&dump.with_extension("stderr"), &output.stderr).ok();
+        std::fs::write(dump.with_extension("stderr"), &output.stderr).ok();
         panic!(
             "torvox-core has unsafe code or cargo geiger failed. Full output: {}",
             dump.display()

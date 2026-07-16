@@ -158,7 +158,7 @@ fn bash_echo() {
 fn bash_pwd_returns_path() {
     let output = run_command("pwd");
     assert!(
-        output.contains("/"),
+        output.contains('/'),
         "pwd should contain /, got: {}",
         output
     );
@@ -248,7 +248,7 @@ fn bash_command_substitution() {
 fn bash_arithmetic_expansion() {
     let output = run_command("echo $((2 + 3))");
     assert!(
-        output.contains("5"),
+        output.contains('5'),
         "arithmetic should produce 5, got: {}",
         output
     );
@@ -293,7 +293,7 @@ fn bash_here_string() {
 fn bash_string_length() {
     let output = run_command("echo -n HELLO | wc -c");
     assert!(
-        output.contains("5"),
+        output.contains('5'),
         "string length of HELLO should be 5, got: {}",
         output
     );
@@ -316,7 +316,7 @@ fn bash_pid_of_current_shell() {
 fn bash_wc_l_lines() {
     let output = run_command("printf 'a\nb\nc\n' | wc -l");
     assert!(
-        output.contains("3"),
+        output.contains('3'),
         "wc -l should count 3 lines, got: {}",
         output
     );
@@ -326,17 +326,17 @@ fn bash_wc_l_lines() {
 fn bash_sort_unique() {
     let output = run_command("echo -e 'c\na\nb\na\nb' | sort -u");
     assert!(
-        output.contains("a"),
+        output.contains('a'),
         "sorted unique should contain a, got: {}",
         output
     );
     assert!(
-        output.contains("b"),
+        output.contains('b'),
         "sorted unique should contain b, got: {}",
         output
     );
     assert!(
-        output.contains("c"),
+        output.contains('c'),
         "sorted unique should contain c, got: {}",
         output
     );
@@ -358,14 +358,14 @@ fn bash_touch_and_stat() {
 fn bash_true_false_exit_codes() {
     let output_true = run_command("true; echo $?");
     assert!(
-        output_true.contains("0"),
+        output_true.contains('0'),
         "true should return 0, got: {}",
         output_true
     );
 
     let output_false = run_command("false; echo $?");
     assert!(
-        output_false.contains("1"),
+        output_false.contains('1'),
         "false should return 1, got: {}",
         output_false
     );

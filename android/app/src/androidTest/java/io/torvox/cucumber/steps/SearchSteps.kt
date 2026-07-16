@@ -278,6 +278,10 @@ constructor(
     @Then("^all search highlights disappear$")
     fun allSearchHighlightsDisappear() {
         composeRuleHolder.composeRule.waitForIdle()
+        // Closing the search bar removes the result counter / highlight UI.
+        composeRuleHolder.composeRule
+            .onNodeWithTag("SearchResultCount")
+            .assertIsNotDisplayed()
     }
 
     @Then("^the search bar remains visible above the keyboard$")
@@ -295,5 +299,9 @@ constructor(
     @Then("^the terminal scrolls to show the match$")
     fun terminalScrollsToShowMatch() {
         composeRuleHolder.composeRule.waitForIdle()
+        // The terminal is still rendered and interactive after the scroll.
+        composeRuleHolder.composeRule
+            .onNodeWithTag("TerminalScreen")
+            .assertIsDisplayed()
     }
 }

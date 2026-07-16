@@ -20,9 +20,7 @@ import io.torvox.getBridge
 import io.torvox.openDrawer
 import io.torvox.waitForSession
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
@@ -150,14 +148,10 @@ class TextSearchEndToEndTest {
 
         // Verify search bar is NOT visible initially
         val initialBarCount =
-            try {
-                composeTestRule
-                    .onAllNodes(hasTestTag("TextSearchBar"), useUnmergedTree = true)
-                    .fetchSemanticsNodes()
-                    .size
-            } catch (e: Exception) {
-                0
-            }
+            composeTestRule
+                .onAllNodes(hasTestTag("TextSearchBar"), useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .size
         assertEquals("Search bar must not be visible before opening", 0, initialBarCount)
 
         // Also verify ctrl+f does NOT open search bar
@@ -182,16 +176,12 @@ class TextSearchEndToEndTest {
             )
         }
         composeTestRule.waitForIdle()
-        val afterCtrlFCount =
-            try {
-                composeTestRule
-                    .onAllNodes(hasTestTag("TextSearchBar"), useUnmergedTree = true)
-                    .fetchSemanticsNodes()
-                    .size
-            } catch (e: Exception) {
-                0
-            }
-        assertEquals("Ctrl+F must NOT open search bar", 0, afterCtrlFCount)
+        val ctrlFCount =
+            composeTestRule
+                .onAllNodes(hasTestTag("TextSearchBar"), useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .size
+        assertEquals("Ctrl+F must NOT open search bar", 0, ctrlFCount)
 
         // Open drawer and click search button
         composeTestRule.openDrawer()
@@ -317,16 +307,12 @@ class TextSearchEndToEndTest {
         composeTestRule.waitForIdle()
 
         // Verify search bar is gone
-        val barCountAfterClose =
-            try {
-                composeTestRule
-                    .onAllNodes(hasTestTag("TextSearchBar"), useUnmergedTree = true)
-                    .fetchSemanticsNodes()
-                    .size
-            } catch (e: Exception) {
-                0
-            }
-        assertEquals("Search bar must be hidden after close", 0, barCountAfterClose)
+        val afterCloseCount =
+            composeTestRule
+                .onAllNodes(hasTestTag("TextSearchBar"), useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .size
+        assertEquals("Search bar must be hidden after close", 0, afterCloseCount)
 
         // Verify modifier bar is back
         composeTestRule.onNodeWithTag("ModifierBar").assertExists("Modifier bar must be visible after search close")
@@ -366,16 +352,12 @@ class TextSearchEndToEndTest {
         composeTestRule.waitForIdle()
 
         // Result count should not be shown for empty query
-        val resultCount =
-            try {
-                composeTestRule
-                    .onAllNodes(hasTestTag("SearchResultCount"), useUnmergedTree = true)
-                    .fetchSemanticsNodes()
-                    .size
-            } catch (e: Exception) {
-                0
-            }
-        assertEquals("No result count for empty query", 0, resultCount)
+        val emptyQueryCount =
+            composeTestRule
+                .onAllNodes(hasTestTag("SearchResultCount"), useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .size
+        assertEquals("No result count for empty query", 0, emptyQueryCount)
     }
 
     // ── Test 8: No results shows proper indicator ──

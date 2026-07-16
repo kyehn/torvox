@@ -16,7 +16,6 @@ import io.torvox.bridge.TorvoxBridge
 import io.torvox.getBridge
 import io.torvox.waitForSession
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
@@ -92,7 +91,7 @@ class TextSearchOcrTest {
         bridge.writeToPty("echo '${uniqueMarker}_UPPER'\n".toByteArray())
         waitForTerminalStable()
         val initialText = bridge.getTerminalText() ?: ""
-        assumeTrue("Terminal must contain upper marker", initialText.contains("${uniqueMarker}_UPPER"))
+        assertTrue("Terminal must contain upper marker", initialText.contains("${uniqueMarker}_UPPER"))
         openSearchAndType("${uniqueMarker}_UPPER")
         waitForSearchStable()
         composeTestRule.onNodeWithTag("SearchCaseSensitive").performClick()

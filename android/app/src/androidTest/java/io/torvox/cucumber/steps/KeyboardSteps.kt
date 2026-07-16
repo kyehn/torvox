@@ -67,7 +67,9 @@ constructor(
             composeRuleHolder.composeRule.getBridge()
                 ?: throw AssertionError("Bridge is null")
         val dataText = bridge.getTerminalText()
-        assert(dataText != null) { "Terminal text should not be null after input" }
+        assert(dataText != null && dataText.isNotBlank()) {
+            "Terminal should have received non-empty input, got: $dataText"
+        }
     }
 
     @Then("^both modifiers are recognized by the terminal$")

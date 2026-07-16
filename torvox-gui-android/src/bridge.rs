@@ -451,10 +451,14 @@ pub struct TorvoxBridge {
     cell_height: std::sync::atomic::AtomicU32,
     scrollback_length: std::sync::atomic::AtomicU32,
     /// Lock-free sender for user-initiated PTY writes (keyboard/IME/paste).
-    /// Captured once at session spawn so `write_to_pty`/`process_key_event`
-    /// never block on the session mutex — avoiding UI-thread stalls while the
-    /// render thread holds that lock during `process_output`.
+    /// Captured once at session spawn so `write_to_pty` never blocks on the
+    /// session mutex — avoiding UI-thread stalls while the render thread holds
+    /// that lock during `process_output`.
+    /// Clone of ghostty terminal's command sender for lock-free key encoding.
+    /// Captured once during spawn_terminal so process_key_event never needs
+    /// the session mutex, eliminating UI-thread stalls from lock contention.
     user_write_tx: std::sync::Mutex<Option<flume::Sender<Vec<u8>>>>,
+    key_cmd_tx: std::sync::Mutex<Option<flume::Sender<torvox_terminal::ghostty_terminal::Command>>>,
 }
 
 impl TorvoxBridge {
@@ -558,6 +562,7 @@ impl TorvoxBridge {
             surface_ready: std::sync::atomic::AtomicBool::new(false),
             scrollback_length: std::sync::atomic::AtomicU32::new(0),
             user_write_tx: std::sync::Mutex::new(None),
+            key_cmd_tx: std::sync::Mutex::new(None),
         }
     }
 
@@ -598,12 +603,15 @@ impl TorvoxBridge {
                 log::warn!("spawn_terminal: session mutex was poisoned, recovered");
             }
         }
-        // Capture the lock-free user-write sender once so subsequent
-        // write_to_pty / process_key_event calls never touch the session mutex.
+        // Capture lock-free senders once so subsequent calls never touch the session mutex.
         if let Ok(session_guard) = session_arc.lock() {
-            let sender = session_guard.user_write_sender();
-            if let Ok(mut tx_guard) = self.user_write_tx.lock() {
-                *tx_guard = Some(sender);
+            let user_tx = session_guard.user_write_sender();
+            if let Ok(mut guard) = self.user_write_tx.lock() {
+                *guard = Some(user_tx);
+            }
+            let key_tx = session_guard.clone_cmd_tx();
+            if let Ok(mut guard) = self.key_cmd_tx.lock() {
+                *guard = Some(key_tx);
             }
         }
         Ok(0)
@@ -736,12 +744,45 @@ impl TorvoxBridge {
         Ok((had_output, snapshot))
     }
 
-    pub fn render(&self) -> Result<bool, TerminalError> {
-        // Step 1 – process ghostty output / take snapshot OUTSIDE the surface
-        // lock so that ghostty C code (potentially 100+ ms) never stalls the
-        // surface mutex.  The main thread can still apply settings / resize /
-        // IME input while ghostty is working.
-        let session_out = self.process_session_for_render()?;
+    /// Like `process_session_for_render` but skips the ghostty `process_output`
+    /// call entirely. Used for blink/force-rendered frames where no new PTY
+    /// data has arrived, avoiding a ~50ms stall per frame from ghostty C code.
+    fn process_session_for_render_skip_output(
+        &self,
+    ) -> Result<(bool, torvox_terminal::ghostty_terminal::GridSnapshot), TerminalError> {
+        let session_arc = self
+            .session
+            .lock()
+            .map_err(|e| TerminalError::PtyError {
+                detail: format!("session lock poisoned: {e}"),
+            })?
+            .as_ref()
+            .cloned()
+            .ok_or(TerminalError::PtyError {
+                detail: "no active session for render".to_string(),
+            })?;
+        let session_guard = session_arc.lock().map_err(|e| TerminalError::PtyError {
+            detail: format!("session inner lock poisoned: {e}"),
+        })?;
+        let scroll_offset = self
+            .scroll_offset
+            .load(std::sync::atomic::Ordering::Relaxed);
+        // Intentionally skip process_output() — no new ghostty data to process.
+        let snapshot = session_guard
+            .terminal()
+            .try_take_snapshot_with_scroll(scroll_offset)
+            .ok_or(TerminalError::PtyError {
+                detail: "snapshot unavailable — VT thread busy".to_string(),
+            })?;
+        Ok((false, snapshot))
+    }
+
+    pub fn render(&self, skip_output: bool) -> Result<bool, TerminalError> {
+        let session_out = if skip_output {
+            self.process_session_for_render_skip_output()?
+        } else {
+            self.process_session_for_render()?
+        };
 
         // Step 2 – lock surface only for the fast GPU path
         let mut surface_guard = self.surface.lock().map_err(|e| TerminalError::PtyError {
@@ -1754,41 +1795,37 @@ impl TorvoxBridge {
         unicode_char: u32,
         unshifted_char: u32,
     ) -> Result<(), TerminalError> {
-        // Encode the key under the session lock (terminal state is mutated),
-        // then enqueue the bytes on the lock-free channel so the actual PTY
-        // write happens on the render thread. This keeps the UI thread off the
-        // session mutex's write path and avoids stalls while the render thread
-        // holds that lock during process_output.
-        let encoded = {
-            let session_arc = {
-                let guard = self
-                    .session
-                    .lock()
-                    .map_err(|_| TerminalError::SessionUnavailable {
-                        detail: "session mutex poisoned".to_string(),
-                    })?;
-                match guard.as_ref() {
-                    Some(session_arc) => session_arc.clone(),
-                    None => {
-                        return Err(TerminalError::SessionUnavailable {
-                            detail: "no active session".to_string(),
-                        });
-                    }
-                }
-            };
-            let session = session_arc
+        // Step 1: Submit key encode via pre-cloned ghostty cmd_tx.
+        // NO session lock is acquired — the render thread may hold the session
+        // mutex for 50ms during process_output, and we must not block UI input.
+        let rx = {
+            let guard = self
+                .key_cmd_tx
                 .lock()
                 .map_err(|_| TerminalError::SessionUnavailable {
-                    detail: "session inner mutex poisoned".to_string(),
+                    detail: "key-cmd channel mutex poisoned".to_string(),
                 })?;
-            session.key_encode(
-                key_code,
-                modifiers as u16,
-                action,
-                unicode_char,
-                unshifted_char,
-            )
+            match guard.as_ref() {
+                Some(cmd_tx) => {
+                    torvox_terminal::ghostty_terminal::GhosttyTerminal::key_encode_submit_via(
+                        cmd_tx,
+                        key_code,
+                        modifiers as u16,
+                        action,
+                        unicode_char,
+                        unshifted_char,
+                    )
+                }
+                None => {
+                    return Err(TerminalError::SessionUnavailable {
+                        detail: "no active session — key-cmd channel not initialized".to_string(),
+                    });
+                }
+            }
         };
+        // Step 2: Wait for ghostty response WITHOUT holding the session lock.
+        let encoded = rx.and_then(|r| r.recv().ok());
+        // Step 3: Enqueue the encoded bytes on the lock-free user-write channel.
         if let Some(encoded) = encoded
             && !encoded.is_empty()
         {
@@ -2863,8 +2900,8 @@ pub unsafe extern "C" fn torvox_bridge_ping(handle: i64) -> i32 {
 /// # Safety
 /// `handle` must be a valid surface handle previously returned by `torvox_bridge_new`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn torvox_bridge_render(handle: i64) -> i32 {
-    with_bridge(handle, |bridge| bridge.render())
+pub unsafe extern "C" fn torvox_bridge_render(handle: i64, skip_output: u8) -> i32 {
+    with_bridge(handle, |bridge| bridge.render(skip_output != 0))
         .map(|had_output| if had_output { 1 } else { 0 })
         .unwrap_or(-1)
 }
@@ -4194,7 +4231,7 @@ mod tests {
             },
             rows: 50,
             cols: 160,
-            scrollback_lines: 200000,
+            scrollback_lines: 200_000,
             font_size_tenths: 200,
             theme: torvox_core::config::Theme::dracula_plus().into(),
             home: "/home/test".to_string(),
@@ -4208,7 +4245,7 @@ mod tests {
         assert_eq!(got.shell, config.shell);
         assert_eq!(got.rows, 50);
         assert_eq!(got.cols, 160);
-        assert_eq!(got.scrollback_lines, 200000);
+        assert_eq!(got.scrollback_lines, 200_000);
         assert_eq!(got.font_size_tenths, 200);
         assert_eq!(got.home, "/home/test");
         assert_eq!(got.user, "testuser");
@@ -4267,17 +4304,17 @@ mod tests {
 
     #[test]
     fn read_u32_le_valid() {
-        let bytes = 0x04030201u32.to_le_bytes();
+        let bytes = 0x0403_0201_u32.to_le_bytes();
         let result = super::read_u32_le(&bytes, 0);
-        assert_eq!(result, Some(0x04030201));
+        assert_eq!(result, Some(0x0403_0201));
     }
 
     #[test]
     fn read_u32_le_offset() {
         let mut bytes = vec![0u8; 12];
-        bytes[4..8].copy_from_slice(&0xDEADBEEFu32.to_le_bytes());
+        bytes[4..8].copy_from_slice(&0xDEAD_BEEF_u32.to_le_bytes());
         let result = super::read_u32_le(&bytes, 4);
-        assert_eq!(result, Some(0xDEADBEEF));
+        assert_eq!(result, Some(0xDEAD_BEEF));
     }
 
     #[test]
@@ -4310,9 +4347,9 @@ mod tests {
 
     #[test]
     fn read_u32_le_max_value() {
-        let bytes = 0xFFFFFFFFu32.to_le_bytes();
+        let bytes = 0xFFFF_FFFF_u32.to_le_bytes();
         let result = super::read_u32_le(&bytes, 0);
-        assert_eq!(result, Some(0xFFFFFFFF));
+        assert_eq!(result, Some(0xFFFF_FFFF));
     }
 
     // ═══════════════════════════════════════════════
@@ -4404,7 +4441,7 @@ mod tests {
         bytes.extend_from_slice(&(name_bytes.len() as u32).to_le_bytes());
         bytes.extend_from_slice(name_bytes);
         for i in 0u32..20 {
-            bytes.extend_from_slice(&(i * 0x01010101).to_le_bytes());
+            bytes.extend_from_slice(&(i * 0x0101_0101).to_le_bytes());
         }
 
         let mut pos = 0usize;
@@ -4417,26 +4454,26 @@ mod tests {
             color_value
         };
 
-        assert_eq!(read_color(&bytes, &mut pos), 0x00000000);
-        assert_eq!(read_color(&bytes, &mut pos), 0x01010101);
-        assert_eq!(read_color(&bytes, &mut pos), 0x02020202);
-        assert_eq!(read_color(&bytes, &mut pos), 0x03030303);
-        assert_eq!(read_color(&bytes, &mut pos), 0x04040404);
-        assert_eq!(read_color(&bytes, &mut pos), 0x05050505);
-        assert_eq!(read_color(&bytes, &mut pos), 0x06060606);
-        assert_eq!(read_color(&bytes, &mut pos), 0x07070707);
-        assert_eq!(read_color(&bytes, &mut pos), 0x08080808);
-        assert_eq!(read_color(&bytes, &mut pos), 0x09090909);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0A0A0A0A);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0B0B0B0B);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0C0C0C0C);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0D0D0D0D);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0E0E0E0E);
-        assert_eq!(read_color(&bytes, &mut pos), 0x0F0F0F0F);
-        assert_eq!(read_color(&bytes, &mut pos), 0x10101010);
-        assert_eq!(read_color(&bytes, &mut pos), 0x11111111);
-        assert_eq!(read_color(&bytes, &mut pos), 0x12121212);
-        assert_eq!(read_color(&bytes, &mut pos), 0x13131313);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0000_0000);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0101_0101);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0202_0202);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0303_0303);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0404_0404);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0505_0505);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0606_0606);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0707_0707);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0808_0808);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0909_0909);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0A0A_0A0A);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0B0B_0B0B);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0C0C_0C0C);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0D0D_0D0D);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0E0E_0E0E);
+        assert_eq!(read_color(&bytes, &mut pos), 0x0F0F_0F0F);
+        assert_eq!(read_color(&bytes, &mut pos), 0x1010_1010);
+        assert_eq!(read_color(&bytes, &mut pos), 0x1111_1111);
+        assert_eq!(read_color(&bytes, &mut pos), 0x1212_1212);
+        assert_eq!(read_color(&bytes, &mut pos), 0x1313_1313);
         assert_eq!(pos, bytes.len(), "should consume all bytes");
     }
 
@@ -4520,6 +4557,7 @@ mod tests {
         assert_eq!(result.unwrap().to_str().unwrap(), "line1\nline2\rline3");
     }
 
+    #[allow(dead_code)]
     const VENDOR_TTF: &str = concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../vendor/ghostty/src/font/res/TerminusTTF-Regular.ttf"
@@ -4549,13 +4587,13 @@ mod tests {
         let path_bytes = path.as_bytes();
         let ptr = path_bytes.as_ptr();
         let len = path_bytes.len() as i32;
-        let result_ptr = super::torvox_bridge_load_font_file(handle, ptr, len);
+        let result_ptr = unsafe { super::torvox_bridge_load_font_file(handle, ptr, len) };
         if result_ptr.is_null() {
             return None;
         }
-        let cstr = std::ffi::CStr::from_ptr(result_ptr);
+        let cstr = unsafe { std::ffi::CStr::from_ptr(result_ptr) };
         let s = cstr.to_str().unwrap().to_string();
-        let _ = std::ffi::CString::from_raw(result_ptr);
+        let _ = unsafe { std::ffi::CString::from_raw(result_ptr) };
         Some(s)
     }
 

@@ -29,8 +29,6 @@
     <string name="bootstrap_presets">Voreinstellungen</string>
     <string name="bootstrap_preset_termux">Termux Standard</string>
     <string name="bootstrap_preset_termux_desc">Standard-Termux-Bootstrap mit bash, coreutils und Paketmanager</string>
-    <string name="bootstrap_preset_custom">Benutzerdefiniert / Leer</string>
-    <string name="bootstrap_preset_custom_desc">Mit leerem Root-Dateisystem starten</string>
     <string name="bootstrap">Bootstrap</string>
     <string name="bootstrap_install">Bootstrap installieren</string>
     <string name="bootstrap_installing">Installation\u2026</string>
@@ -95,9 +93,6 @@
     <string name="file_manager">Dateimanager</string>
     <string name="cd_file_manager">Dateimanager öffnen</string>
 
-    <!-- Volume Key Mapping -->
-    <string name="volume_key_map">Lautstärketasten-Zuordnung</string>
-    <string name="volume_key_map_desc">Lauter auf Ctrl und Leiser auf Fn zuordnen</string>
     <string name="install">Installieren</string>
 
     <!-- Cursor Settings -->

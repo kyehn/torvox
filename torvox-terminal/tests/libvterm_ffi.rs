@@ -13,7 +13,12 @@ fn libvterm_ref_path() -> PathBuf {
 }
 
 fn hex_encode(seq: &[u8]) -> String {
-    seq.iter().map(|b| format!("{:02x}", b)).collect()
+    let mut s = String::with_capacity(seq.len() * 2);
+    for b in seq {
+        use std::fmt::Write;
+        write!(s, "{b:02x}").unwrap();
+    }
+    s
 }
 
 fn torvox_first_row(seq: &[u8]) -> String {
@@ -63,11 +68,10 @@ fn cross_check_exact(input: &[u8]) {
     let hex = hex_encode(input);
     let t_text = torvox_first_row(input);
     let l_text = libvterm_text(&hex);
-    if t_text != l_text {
-        panic!(
-            "exact libvterm mismatch:\n  input:   {hex}\n  torvox:  {t_text:?}\n  libvterm: {l_text:?}"
-        );
-    }
+    assert!(
+        t_text == l_text,
+        "exact libvterm mismatch:\n  input:   {hex}\n  torvox:  {t_text:?}\n  libvterm: {l_text:?}"
+    );
 }
 
 #[test]

@@ -245,7 +245,7 @@ mod config_file_validation {
             .as_array()
             .unwrap();
 
-        for (crate_name, _) in crates_section.as_table().unwrap().iter() {
+        for (crate_name, _) in crates_section.as_table().unwrap() {
             let found = workspace_members.iter().any(|m| {
                 m.as_str()
                     .map(|s| s.trim_end_matches('/').ends_with(crate_name))
@@ -390,10 +390,11 @@ mod config_file_validation {
                     if line.contains("concurrency:") {
                         concurrency_seen = true;
                     }
-                    if concurrency_seen && line.contains("cancel-in-progress:") {
-                        if line.contains("cancel-in-progress: true") {
-                            cancel_in_progress_true = true;
-                        }
+                    if concurrency_seen
+                        && line.contains("cancel-in-progress:")
+                        && line.contains("cancel-in-progress: true")
+                    {
+                        cancel_in_progress_true = true;
                     }
                     if line.contains("reactivecircus/android-emulator-runner") {
                         assert!(
@@ -771,7 +772,7 @@ mod linux_pty_shell_interaction {
         s.write(b"pwd\n").expect("write");
         let result = drain_to_string(&mut s, Duration::from_secs(3));
         assert!(
-            result.contains("/"),
+            result.contains('/'),
             "pwd should output a path with /, got: {result}"
         );
     }
@@ -1450,8 +1451,7 @@ mod build_config_validation {
             .unwrap();
         let version = line
             .split('/')
-            .filter(|s| s.starts_with("gradle-"))
-            .next()
+            .find(|s| s.starts_with("gradle-"))
             .and_then(|s| s.strip_prefix("gradle-"))
             .and_then(|s| s.strip_suffix("-bin.zip"))
             .unwrap();

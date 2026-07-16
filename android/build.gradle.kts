@@ -40,8 +40,8 @@ if (nixShell != "1" && nixShell != "impure") {
 val nixBuildTop = System.getenv("NIX_BUILD_TOP")
 if (nixBuildTop.isNullOrEmpty()) {
     verrors.add("NIX_BUILD_TOP is not set (nix develop creates a temp dir)")
-} else if (!nixBuildTop.startsWith("/tmp/nix-shell.")) {
-    verrors.add("NIX_BUILD_TOP = '$nixBuildTop' - not a nix-shell temp dir")
+} else if (!nixBuildTop.contains("/nix-shell.")) {
+    verrors.add("NIX_BUILD_TOP = '$nixBuildTop' - expected /(mnt/)?tmp/nix-shell.* (nix develop creates a temp dir)")
 }
 
 // Check 3 - PATH / nativeBuildInputs cross-reference.

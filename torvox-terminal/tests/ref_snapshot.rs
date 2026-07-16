@@ -60,7 +60,7 @@ fn ref_scrollback_0() {
 
 #[test]
 fn ref_scrollback_100k() {
-    run_ref_test_dir("scrollback-100k", ROWS, COLS, 100000);
+    run_ref_test_dir("scrollback-100k", ROWS, COLS, 100_000);
 }
 
 #[test]

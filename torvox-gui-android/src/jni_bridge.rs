@@ -23,8 +23,12 @@ unsafe extern "C" {
 /// JNI export: io.torvox.bridge.NativeWindow.getNativeWindowPtr(Surface) -> Long
 /// Returns ANativeWindow pointer as jlong (i64).
 /// This is the NDK-recommended way to obtain ANativeWindow from a Surface.
+///
+/// # Safety
+/// `env` must be a valid JNI environment pointer and `surface` must be a valid
+/// JNI `Surface` object reference. Both are checked for null before use.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_torvox_bridge_NativeWindow_getNativeWindowPtr(
+pub unsafe extern "system" fn Java_io_torvox_bridge_NativeWindow_getNativeWindowPtr(
     env: JNIEnvPtr,
     _class: JClassPtr,
     surface: JObjectPtr,

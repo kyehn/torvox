@@ -14,8 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import com.github.takahirom.roborazzi.RoborazziRule
+import com.github.takahirom.roborazzi.captureRoboImage
 import io.torvox.RobolectricActivityRule
 import io.torvox.TestActivity
 import io.torvox.ui.theme.BuiltInThemes
@@ -54,6 +56,7 @@ class ScreenshotGoldenTest {
                 ModifierBar(onKeyClick = {})
             }
         }
+        composeTestRule.onNodeWithTag("ModifierBar").captureRoboImage()
     }
 
     @Test
@@ -64,6 +67,7 @@ class ScreenshotGoldenTest {
             }
         }
         composeTestRule.onNodeWithTag("Key_CTRL").performClick()
+        composeTestRule.onNodeWithTag("ModifierBar").captureRoboImage()
     }
 
     @Test
@@ -74,6 +78,7 @@ class ScreenshotGoldenTest {
             }
         }
         composeTestRule.onNodeWithTag("Key_ALT").performClick()
+        composeTestRule.onNodeWithTag("ModifierBar").captureRoboImage()
     }
 
     @OptIn(ExperimentalMaterial3Api::class)
@@ -103,6 +108,7 @@ class ScreenshotGoldenTest {
                 }
             }
         }
+        composeTestRule.onNodeWithTag("TerminalTitle").captureRoboImage()
     }
 
     @Test
@@ -129,6 +135,7 @@ class ScreenshotGoldenTest {
         }
         for (theme in BuiltInThemes.all) {
             currentTheme = theme
+            composeTestRule.onRoot().captureRoboImage("theme_${theme.name}")
         }
     }
 }

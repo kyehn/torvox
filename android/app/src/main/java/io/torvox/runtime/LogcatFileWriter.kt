@@ -30,17 +30,12 @@ object LogcatFileWriter {
             synchronized(lock) {
                 try {
                     initialized = true
-                    val baseDir =
-                        context.getExternalFilesDir(null)
-                            ?: context.getDir("logs_root", Context.MODE_PRIVATE)
-                    val logsDirectory =
-                        File(baseDir, "logs").also { dir ->
-                            if (!dir.mkdirs()) {
-                                Log.w("LogcatFileWriter", "Failed to create logs directory: $dir")
-                            }
-                        }
-                    if (!logsDirectory.isDirectory || !logsDirectory.canWrite()) {
-                        Log.e("LogcatFileWriter", "Cannot write to logs directory at ${logsDirectory.absolutePath}")
+                    var logsDirectory = tryCreateLogsDir(context.getExternalFilesDir(null))
+                    if (logsDirectory == null) {
+                        logsDirectory = tryCreateLogsDir(context.getDir("logs_root", Context.MODE_PRIVATE))
+                    }
+                    if (logsDirectory == null) {
+                        Log.e("LogcatFileWriter", "Cannot write to logs directory (both external and internal failed)")
                         return
                     }
                     purgeOldFiles(logsDirectory)
@@ -62,6 +57,15 @@ object LogcatFileWriter {
                 timedFlush()
             }
         }
+    }
+
+    private fun tryCreateLogsDir(parent: File?): File? {
+        if (parent == null) return null
+        val dir = File(parent, "logs")
+        if (!dir.exists() && !dir.mkdirs()) {
+            Log.w("LogcatFileWriter", "Failed to create logs directory: $dir")
+        }
+        return if (dir.isDirectory && dir.canWrite()) dir else null
     }
 
     fun getLogFilePath(): String? = synchronized(lock) { logFile?.absolutePath }

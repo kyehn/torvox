@@ -242,9 +242,8 @@ mod cell_metrics_consistency {
     fn cell_height_is_integer() {
         let pipeline = create_pipeline(14.0);
         let (_, height) = pipeline.cell_metrics();
-        assert_eq!(
-            height,
-            height.floor(),
+        assert!(
+            (height - height.floor()).abs() < f32::EPSILON,
             "cell_height should be integer (ceil'd), got {height}"
         );
     }
@@ -470,8 +469,10 @@ mod font_family_switching {
                 let height_changed = (new_height - original_height).abs() > 0.1;
 
                 // At least one metric should change OR the fonts are identical
+                #[allow(clippy::float_cmp)]
+                let same_width = new_width == original_width;
                 assert!(
-                    width_changed || height_changed || new_width == original_width,
+                    width_changed || height_changed || same_width,
                     "Font switch should update metrics: before={}x{}, after={}x{}",
                     original_width,
                     original_height,

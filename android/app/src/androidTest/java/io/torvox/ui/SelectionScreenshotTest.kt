@@ -63,17 +63,9 @@ class SelectionScreenshotTest {
         Log.i("ScreenshotTest", "==== Starting screenshot capture ====")
 
         composeRule.waitForSession()
-        val bridge = composeRule.getBridge()
-        if (bridge == null) {
-            Log.e("ScreenshotTest", "FAIL: no bridge after waitForSession")
-            return
-        }
+        val bridge = checkNotNull(composeRule.getBridge()) { "Bridge must be available" }
 
-        val tv = findTextureView(composeRule.activity.window.decorView)
-        if (tv == null) {
-            Log.e("ScreenshotTest", "FAIL: no TextureView found")
-            return
-        }
+        val tv = checkNotNull(findTextureView(composeRule.activity.window.decorView)) { "Terminal TextureView must be present" }
 
         Log.i("ScreenshotTest", "Bridge + surface ready")
 
@@ -116,7 +108,9 @@ class SelectionScreenshotTest {
         try {
             val bitmap = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
             if (bitmap == null) {
-                Log.e("ScreenshotTest", "Capture $name: bitmap is null")
+                // best-effort, non-asserting: debug screenshot capture may fail on a
+                // transient uiAutomation hiccup and must not mask the test's real assertions.
+                Log.e("ScreenshotTest", "Capture $name: bitmap is null (best-effort)")
                 return
             }
             val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -135,14 +129,19 @@ class SelectionScreenshotTest {
                         bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                     }
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                // best-effort, non-asserting: optional copy of the debug screenshot to
+                // external storage; a failure here must not mask real test failures.
+                Log.e("ScreenshotTest", "Capture $name: external copy failed (best-effort)", e)
             }
             Log.i(
                 "ScreenshotTest",
                 "Capture $name: ${file.length()}B saved to ${file.absolutePath}",
             )
         } catch (e: Exception) {
-            Log.e("ScreenshotTest", "Capture $name FAILED: ${e.message}")
+            // best-effort, non-asserting: the debug capture helper must not swallow a real
+            // assertion from the surrounding test; it only guards the screenshot side effect.
+            Log.e("ScreenshotTest", "Capture $name FAILED (best-effort): ${e.message}", e)
         }
     }
 }

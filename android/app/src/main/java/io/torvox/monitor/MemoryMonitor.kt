@@ -75,7 +75,6 @@ class MemoryMonitor(
                     TAG,
                     "LOW MEMORY: avail=$availMb MB / $totalMb MB ($availPercent%), PSS=$pssStr, nativeHeap=$nativeHeapMb MB, threshold=$thresholdMb MB",
                 )
-                onCriticalMemory?.invoke()
             }
         } else {
             lowMemoryReported = false
@@ -91,8 +90,7 @@ class MemoryMonitor(
     fun onTrimMemory(level: Int) {
         when (level) {
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL -> {
-                Log.e(TAG, "TRIM_MEMORY_RUNNING_CRITICAL — system is killing processes")
-                onCriticalMemory?.invoke()
+                Log.e(TAG, "TRIM_MEMORY_RUNNING_CRITICAL — reducing memory footprint")
             }
 
             ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW -> {
@@ -105,6 +103,11 @@ class MemoryMonitor(
 
             ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN -> {
                 LogUtil.d(TAG, "TRIM_MEMORY_UI_HIDDEN")
+            }
+
+            ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
+                Log.e(TAG, "TRIM_MEMORY_COMPLETE — system will kill processes")
+                onCriticalMemory?.invoke()
             }
         }
     }

@@ -13,7 +13,6 @@ import androidx.test.uiautomator.Until
 import io.torvox.MainActivity
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeNotNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -51,25 +50,30 @@ class TextSearchUiAutomatorTest {
     @Test
     fun openSearchBar_opensSearchUI() {
         openSearchBar()
-        if (!waitForSearchBar()) return
+        assertTrue("Search bar must open after clicking search button", waitForSearchBar())
     }
 
     @Test
     fun searchNavigatesResults() {
         openSearchBar()
-        if (!waitForSearchBar()) return
+        assertTrue("Search bar must open", waitForSearchBar())
 
         val searchField = device.findObject(By.res("com.termux:id/SearchTextField"))
+        assertNotNull("Search field should exist", searchField)
         searchField!!.text = "e"
         device.waitForIdle(1000)
 
         val nextButton = device.findObject(By.res("com.termux:id/SearchNext"))
-        assumeNotNull("Next button should exist", nextButton)
+        assertNotNull("Next button should exist", nextButton)
         nextButton!!.click()
         device.waitForIdle(500)
 
+        val resultCount = device.findObject(By.res("com.termux:id/SearchResultCount"))
+        assertNotNull("Result count should be visible after navigating", resultCount)
+        assertTrue("Result count text should be non-empty", resultCount!!.text.isNotEmpty())
+
         val prevButton = device.findObject(By.res("com.termux:id/SearchPrevious"))
-        assumeNotNull("Previous button should exist", prevButton)
+        assertNotNull("Previous button should exist", prevButton)
         prevButton!!.click()
         device.waitForIdle(500)
     }
@@ -77,41 +81,48 @@ class TextSearchUiAutomatorTest {
     @Test
     fun searchClose_closesSearchBar() {
         openSearchBar()
-        if (!waitForSearchBar()) return
+        assertTrue("Search bar must open", waitForSearchBar())
 
         val closeButton = device.findObject(By.res("com.termux:id/SearchClose"))
-        assumeNotNull("Close button should exist", closeButton)
+        assertNotNull("Close button should exist", closeButton)
         closeButton!!.click()
         device.waitForIdle(1000)
 
         val drawerAfterClose = device.findObject(By.res("com.termux:id/Key_DRAWER"))
         assertNotNull("Modifier bar drawer button should be visible after search close", drawerAfterClose)
+        assertTrue(
+            "Search bar must be gone after close",
+            !device.wait(Until.hasObject(By.res("com.termux:id/SearchTextField")), 1000),
+        )
     }
 
     @Test
     fun searchCaseToggle_cycles() {
         openSearchBar()
-        if (!waitForSearchBar()) return
+        assertTrue("Search bar must open", waitForSearchBar())
 
         val caseToggle = device.findObject(By.res("com.termux:id/SearchCaseSensitive"))
-        assumeNotNull("Case toggle should exist", caseToggle)
+        assertNotNull("Case toggle should exist", caseToggle)
         caseToggle!!.click()
         device.waitForIdle(500)
         caseToggle!!.click()
         device.waitForIdle(500)
+        val caseToggleAfter = device.findObject(By.res("com.termux:id/SearchCaseSensitive"))
+        assertNotNull("Case toggle must remain present after cycling", caseToggleAfter)
     }
 
     @Test
     fun searchResultCountVisible() {
         openSearchBar()
-        if (!waitForSearchBar()) return
+        assertTrue("Search bar must open", waitForSearchBar())
 
         val searchField = device.findObject(By.res("com.termux:id/SearchTextField"))
+        assertNotNull("Search field should exist", searchField)
         searchField!!.text = "e"
         device.waitForIdle(1000)
 
         val resultCount = device.findObject(By.res("com.termux:id/SearchResultCount"))
-        assumeNotNull("Result count should be visible after typing", resultCount)
+        assertNotNull("Result count should be visible after typing", resultCount)
         assertTrue("Result count text should be non-empty", resultCount!!.text.isNotEmpty())
     }
 }

@@ -94,8 +94,8 @@ fn fast_rand() -> u64 {
     STATE.with(|s| {
         let x = s.get();
         let next = x
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
         s.set(next);
         next
     })

@@ -2,7 +2,7 @@ use core::future::Future as _;
 use core::pin::pin;
 use core::task;
 
-const RENDER_SHADER: &str = r#"
+const RENDER_SHADER: &str = r"
 @vertex
 fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
     return vec4<f32>(0.0, 0.0, 0.0, 1.0);
@@ -11,15 +11,15 @@ fn vs_main(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4<f32> {
 fn fs_main() -> @location(0) vec4<f32> {
     return vec4<f32>(1.0, 0.0, 0.0, 1.0);
 }
-"#;
+";
 
-const COMPUTE_SHADER: &str = r#"
+const COMPUTE_SHADER: &str = r"
 @group(0) @binding(0) var<storage, read_write> data: array<u32>;
 @compute @workgroup_size(1)
 fn cs_main(@builtin(global_invocation_id) id: vec3<u32>) {
     data[id.x] = data[id.x] + 1;
 }
-"#;
+";
 
 fn noop_poll_device() -> (wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue) {
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {

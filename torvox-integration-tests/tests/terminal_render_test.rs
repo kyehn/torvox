@@ -1,4 +1,3 @@
-#![allow(clippy::chunks_exact_to_as_chunks)]
 // Grid-level terminal tests (always run, no GPU needed)
 use torvox_terminal::ghostty_terminal::GhosttyTerminal;
 

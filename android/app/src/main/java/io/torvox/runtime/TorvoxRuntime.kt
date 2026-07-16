@@ -388,7 +388,7 @@ constructor(
                 java.io
                     .File(context.filesDir, "home")
                     .apply {
-                        if (!mkdirs()) {
+                        if (!exists() && !mkdirs()) {
                             Log.w("TorvoxRuntime", "Failed to create home directory: $this")
                         }
                     }.absolutePath
@@ -638,7 +638,7 @@ constructor(
 
             val fontsDir = context.filesDir.resolve("fonts")
             fontsDir.apply {
-                if (!mkdirs()) {
+                if (!exists() && !mkdirs()) {
                     Log.w("TorvoxRuntime", "Failed to create fonts directory: $this")
                 }
             }
@@ -1271,6 +1271,10 @@ constructor(
             if (entry.renderThreadRef?.isAlive != true) {
                 LogUtil.d("TorvoxRuntime", "updateNativeWindow: render thread dead, restarting for session ${entry.id}")
                 startRenderThread(entry)
+            } else {
+                entry.forceRenderRequested = true
+                java.util.concurrent.locks.LockSupport
+                    .unpark(entry.renderThreadRef)
             }
         } catch (exception: Exception) {
             LogUtil.e("TorvoxRuntime", "updateNativeWindow failed", exception)
@@ -1326,6 +1330,10 @@ constructor(
                 var lastScrollOffset = UInt.MAX_VALUE
                 var lastSelection = SelectionStateSnapshot(0u, 0u, 0u, 0u, false, 0)
                 LogUtil.d("TorvoxRuntime", "render thread started for session ${entry.id} generation=$generation")
+                // First iteration always processes ghostty output. Subsequent
+                // iterations skip output on blink/force-rendered frames to avoid
+                // the ~50ms per-frame ghostty tick when there's no new PTY data.
+                var shouldSkipOutput = false
                 while (entry.running && renderGeneration.get() == generation) {
                     try {
                         val bridge = entry.bridge ?: break
@@ -1347,7 +1355,7 @@ constructor(
                             lastScrollOffset = currentScrollOffset
                         }
                         entry.lastRenderStart = System.nanoTime()
-                        val count = bridge.render()
+                        val count = bridge.render(shouldSkipOutput)
                         if (count < 0) {
                             consecutiveErrors++
                             if (consecutiveErrors == 1) {
@@ -1440,9 +1448,15 @@ constructor(
                                         .parkNanos(timeoutNanos)
                                     if (Thread.interrupted()) throw InterruptedException()
                                 }
+                                // Determine whether NEXT iteration needs ghostty output:
+                                // - Signal (renderSignaled == true) → new PTY data → process
+                                // - Timeout (both false) → blink → skip
+                                // - forceRenderRequested → force → skip (handled in else branch)
+                                shouldSkipOutput = !entry.renderSignaled.get()
                                 entry.renderSignaled.set(false)
                             } else {
                                 entry.forceRenderRequested = false
+                                shouldSkipOutput = true
                             }
                         }
                     } catch (exception: InterruptedException) {

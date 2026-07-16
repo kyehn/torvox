@@ -224,12 +224,12 @@ mod tests {
     #[test]
     fn ansi_216_cube_red_values() {
         // First column (red=0): indices 16..=51
-        for i in 16..52 {
-            assert_eq!(ANSI_256[i][0], 0, "index {i} should have red=0");
+        for (i, entry) in ANSI_256.iter().enumerate().take(52).skip(16) {
+            assert_eq!(entry[0], 0, "index {i} should have red=0");
         }
         // Column 1 (red=51): indices 52..=87
-        for i in 52..88 {
-            assert_eq!(ANSI_256[i][0], 51, "index {i} should have red=51");
+        for (i, entry) in ANSI_256.iter().enumerate().take(88).skip(52) {
+            assert_eq!(entry[0], 51, "index {i} should have red=51");
         }
     }
 

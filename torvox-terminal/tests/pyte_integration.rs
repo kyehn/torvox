@@ -109,7 +109,7 @@ fn i1_pyte_basic_a() {
         return;
     }
     let out = pyte_text("41");
-    assert!(out.contains("A"), "pyte: A");
+    assert!(out.contains('A'), "pyte: A");
 }
 
 #[test]
@@ -118,7 +118,7 @@ fn i1_pyte_basic_b() {
         return;
     }
     let out = pyte_text("42");
-    assert!(out.contains("B"), "pyte: B");
+    assert!(out.contains('B'), "pyte: B");
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn i1_pyte_cuf_10_then_a() {
         return;
     }
     let out = pyte_text("1b5b31304341");
-    assert!(out.contains("A"), "pyte: CUF then A");
+    assert!(out.contains('A'), "pyte: CUF then A");
 }
 
 #[test]
@@ -190,7 +190,7 @@ fn i1_pyte_cup_5x10_then_x() {
         return;
     }
     let out = pyte_text("1b5b353b31304858");
-    assert!(out.contains("X"), "pyte: CUP then X");
+    assert!(out.contains('X'), "pyte: CUP then X");
 }
 
 #[test]
@@ -281,8 +281,8 @@ fn i2_torvox_newline() {
     let mut t = T::new(3, 10);
     t.write(b"A\nB\nC");
     let lines = t.lines();
-    assert!(lines[0].contains("A"));
-    assert!(lines[1].contains("B"));
+    assert!(lines[0].contains('A'));
+    assert!(lines[1].contains('B'));
 }
 
 #[test]
@@ -477,7 +477,7 @@ fn i7_regression_ed1() {
     let lines = t.lines();
     assert!(lines[0].trim().is_empty(), "ED1 row0 empty");
     assert!(
-        lines[2].contains("C") || lines[2].trim().is_empty(),
+        lines[2].contains('C') || lines[2].trim().is_empty(),
         "ED1 row2"
     );
 }

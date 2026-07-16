@@ -1066,7 +1066,7 @@ fn kitty_keyboard_push_pop() {
     let r = t.drain_pty_write_responses();
     if !r.is_empty() {
         let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
-        assert!(resp.contains("?"), "Kitty query: '?' in response");
+        assert!(resp.contains('?'), "Kitty query: '?' in response");
     }
 }
 
@@ -1349,7 +1349,6 @@ fn sgr_23_italic_off_after_italic() {
     let snap = t.take_snapshot();
     // Ghostty may store italic as underline style
     let cell0_italic = snap.cells[0].italic;
-    let _cell1_italic = snap.cells[1].italic;
     assert!(cell0_italic, "SGR 23 after 3: cell 0 italic");
 }
 
@@ -1902,7 +1901,7 @@ fn sgr_all_color_channels_in_range() {
 fn property_test_seq(_name: &str, seqs: &[&[u8]], iterations: u32) {
     let mut rng = 42u32;
     for _ in 0..iterations {
-        rng = rng.wrapping_mul(1664525).wrapping_add(1013904223);
+        rng = rng.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
         let idx = (rng as usize) % seqs.len();
         let mut t = term();
         t.vt_write(seqs[idx]);

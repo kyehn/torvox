@@ -4,6 +4,8 @@ import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.UiScrollable
+import androidx.test.uiautomator.UiSelector
 import androidx.test.uiautomator.Until
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -58,8 +60,13 @@ class BehaviorInstrumentedTest {
         for (i in 0 until maxSwipes) {
             Thread.sleep(500)
             if (device.findObject(By.textContains(text)) != null) return
-            val cx = device.displayWidth / 2
-            device.swipe(cx, device.displayHeight * 6 / 10, cx, device.displayHeight / 4, 25)
+            try {
+                val scrollable = UiScrollable(UiSelector().scrollable(true))
+                scrollable.scrollForward()
+            } catch (_: Exception) {
+                val cx = device.displayWidth / 2
+                device.swipe(cx, device.displayHeight * 6 / 10, cx, device.displayHeight / 4, 10)
+            }
             Thread.sleep(800)
         }
     }
@@ -165,15 +172,12 @@ class BehaviorInstrumentedTest {
         val installBtn = device.findObject(By.text("Install"))
         assertTrue("Termux Default should be visible", termuxDefault != null)
         assertTrue("Install button should be visible", installBtn != null)
-        val custom = device.findObject(By.text("Custom / Empty"))
-        assertTrue("Custom/Empty preset should be visible alongside Termux Default", custom != null)
         goBack()
     }
 
     @Test
     fun behavior_settings_no_nerd_osc133_toggles() {
         openSettings()
-        scrollTo("Volume Key Mapping")
         assertFalse(
             "Nerd toggle should NOT exist",
             device.findObject(By.textContains("Nerd")) != null,

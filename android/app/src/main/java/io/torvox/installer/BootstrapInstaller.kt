@@ -47,15 +47,14 @@ class BootstrapInstaller(
     }
 
     private fun cleanupOld() {
+        // Only clear the staging area. The existing prefix must survive until the
+        // new bootstrap is fully extracted and atomically swapped in (see atomicRename),
+        // otherwise a failed install would leave the user with no working bootstrap.
         delete(stagingDir)
-        if (prefixDir.exists()) {
-            delete(prefixDir)
-        }
     }
 
     private fun createDirectories() {
         stagingDir.mkdirs()
-        prefixDir.mkdirs()
     }
 
     private fun extractZip(zipFile: File): List<Pair<String, String>> {
@@ -105,8 +104,10 @@ class BootstrapInstaller(
     private fun isExecutable(name: String): Boolean = EXEC_PREFIXES.any { name.startsWith(it) } ||
         name.startsWith("lib/apt/methods/")
 
-    private fun parseSymlinks(content: String): List<Pair<String, String>> = content.lines().filter { it.isNotBlank() }.mapNotNull { line ->
-        val parts = line.split(" -> ")
+    internal val symlinkSeparator = Regex("""\s*(?:->|←|→|↔)\s*""")
+
+    internal fun parseSymlinks(content: String): List<Pair<String, String>> = content.lines().filter { it.isNotBlank() }.mapNotNull { line ->
+        val parts = line.split(symlinkSeparator)
         if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
     }
 

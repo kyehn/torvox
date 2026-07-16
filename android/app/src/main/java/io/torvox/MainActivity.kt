@@ -333,51 +333,7 @@ class MainActivity : ComponentActivity() {
     override fun onKeyDown(
         keyCode: Int,
         event: KeyEvent?,
-    ): Boolean {
-        if (event != null && isVolumeKeyMappingEnabled()) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_VOLUME_UP -> {
-                    val ctrlLocked = terminalViewModel.state.value.ctrlState == io.torvox.ui.ModifierState.Locked
-                    val altLocked = terminalViewModel.state.value.altState == io.torvox.ui.ModifierState.Locked
-                    if (!ctrlLocked && !altLocked) {
-                        terminalViewModel.setModifierKeys(listOf(io.torvox.ui.ModifierKey("ctrl", "CTRL", ctrl = true)))
-                    }
-                    return true
-                }
-
-                KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                    val ctrlLocked = terminalViewModel.state.value.ctrlState == io.torvox.ui.ModifierState.Locked
-                    if (!ctrlLocked) {
-                        terminalViewModel.setModifierKeys(listOf(io.torvox.ui.ModifierKey("alt", "ALT", alt = true)))
-                    }
-                    return true
-                }
-            }
-        }
-        return super.onKeyDown(keyCode, event)
-    }
-
-    @Deprecated("Use View.OnKeyListener pattern")
-    override fun onKeyUp(
-        keyCode: Int,
-        event: KeyEvent?,
-    ): Boolean {
-        if (event != null && isVolumeKeyMappingEnabled()) {
-            when (keyCode) {
-                KeyEvent.KEYCODE_VOLUME_UP, KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                    val ctrlOnce = terminalViewModel.state.value.ctrlState == io.torvox.ui.ModifierState.Once
-                    val altOnce = terminalViewModel.state.value.altState == io.torvox.ui.ModifierState.Once
-                    if (ctrlOnce || altOnce) {
-                        terminalViewModel.consumeOneShotModifiers()
-                    }
-                    return true
-                }
-            }
-        }
-        return super.onKeyUp(keyCode, event)
-    }
-
-    private fun isVolumeKeyMappingEnabled(): Boolean = terminalViewModel.volumeKeyMap.value == true
+    ): Boolean = super.onKeyDown(keyCode, event)
 }
 
 @Composable
