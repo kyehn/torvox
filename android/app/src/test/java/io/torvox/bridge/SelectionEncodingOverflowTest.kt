@@ -62,8 +62,13 @@ class SelectionEncodingOverflowTest {
             bridge.expandAndSetSelection(row = 0xFFFFu, col = 0xFFFFu)
         } catch (overflow: IllegalArgumentException) {
             throw AssertionError("valid 16-bit values must not be rejected by the guard", overflow)
-        } catch (_: Throwable) {
-            // Expected: native library not available in unit tests.
+        } catch (_: UnsatisfiedLinkError) {
+            // Expected: native library not available in unit tests — proves the
+            // guard allowed the value through to the native call.
+        } catch (_: IllegalStateException) {
+            // Expected: JNA init may throw IllegalStateException when native
+            // library cannot be loaded in a unit-test environment. Same proof
+            // value as UnsatisfiedLinkError — the guard was passed.
         }
     }
 
@@ -74,8 +79,13 @@ class SelectionEncodingOverflowTest {
             bridge.expandAndSetSelection(row = 10u, col = 5u)
         } catch (overflow: IllegalArgumentException) {
             throw AssertionError("small values must not be rejected by the guard", overflow)
-        } catch (_: Throwable) {
-            // Expected: native library not available in unit tests.
+        } catch (_: UnsatisfiedLinkError) {
+            // Expected: native library not available in unit tests — proves the
+            // guard allowed the value through to the native call.
+        } catch (_: IllegalStateException) {
+            // Expected: JNA init may throw IllegalStateException when native
+            // library cannot be loaded in a unit-test environment. Same proof
+            // value as UnsatisfiedLinkError — the guard was passed.
         }
     }
 }

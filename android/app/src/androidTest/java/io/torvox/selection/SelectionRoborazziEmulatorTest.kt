@@ -171,7 +171,7 @@ class SelectionRoborazziEmulatorTest {
         composeTestRule.waitForIdle()
         Thread.sleep(800)
 
-        val terminalView = findTerminalSurfaceView() ?: return
+        val terminalView = checkNotNull(findTerminalSurfaceView()) { "terminal surface view must be present for toolbar capture" }
         val bitmap = captureViewBitmap(terminalView)
         val screenshotDir =
             File(

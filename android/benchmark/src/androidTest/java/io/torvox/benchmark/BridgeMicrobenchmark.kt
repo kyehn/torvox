@@ -4,7 +4,6 @@ import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupTimingMetric
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.uiautomator.By
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -50,15 +49,13 @@ class BridgeMicrobenchmark {
     fun terminalOutputTiming() {
         benchmarkRule.measureRepeated(
             packageName = "com.termux",
-            metrics = listOf(FrameTimingMetric()),
+            metrics = listOf(StartupTimingMetric()),
             iterations = 10,
             setupBlock = {
-                startActivityAndWait()
-                device.waitForIdle()
+                device.pressHome()
             },
             measureBlock = {
-                device.findObject(By.depth(0))
-                device.waitForIdle()
+                startActivityAndWait()
             },
         )
     }

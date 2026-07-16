@@ -989,6 +989,19 @@ requirements:
       - "torvox-terminal/tests/concurrent_session.rs"
     verification: "cargo test --package torvox-terminal"
 
+  # 4.6 Infrastructure (NFR-025)
+  # ==========================================================================
+
+  NFR-025:
+    description: "The system SHALL provide unified logging infrastructure that writes to both logcat and a rotating file, with log levels configurable independently for each output."
+    design:
+      - "torvox-gui-android/src/logging.rs"
+    api:
+      - "torvox_bridge_init_logger"
+      - "torvox_bridge_set_log_file_path"
+    tests: []
+    verification: "ls torvox-gui-android/src/logging.rs"
+
 # ============================================================================
 # Verification Methods
 # ============================================================================

@@ -41,28 +41,38 @@ class MlkOcrTest {
 
         val bitmap = decodeRgbaToBitmap(frameFile)
 
-        try {
-            val image = InputImage.fromBitmap(bitmap, 0)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            val result =
-                com.google.android.gms.tasks.Tasks
-                    .await(recognizer.process(image))
-            val ocrText = result.text
-            bitmap.recycle()
-            recognizer.close()
+        requireMlKitAvailable(context)
 
-            val screenshotDir = File(context.filesDir, "screenshots")
-            screenshotDir.mkdirs()
-            File(screenshotDir, "mlk-ocr-output.txt").writeText(ocrText)
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val result =
+            com.google.android.gms.tasks.Tasks
+                .await(recognizer.process(image))
+        val ocrText = result.text
+        bitmap.recycle()
+        recognizer.close()
 
-            assertTrue(
-                "ML Kit OCR must detect shell prompt characters in:\n$ocrText",
-                ocrText.contains(":") || ocrText.contains("/") || ocrText.contains("home"),
-            )
-        } catch (e: Exception) {
-            bitmap.recycle()
-            android.util.Log.w("MlkOcrTest", "ML Kit unavailable, skipping: ${e.message}")
-        }
+        val screenshotDir = File(context.filesDir, "screenshots")
+        screenshotDir.mkdirs()
+        File(screenshotDir, "mlk-ocr-output.txt").writeText(ocrText)
+
+        assertTrue(
+            "ML Kit OCR must detect shell prompt characters in:\n$ocrText",
+            ocrText.contains(":") || ocrText.contains("/") || ocrText.contains("home"),
+        )
+    }
+
+    private fun requireMlKitAvailable(context: android.content.Context) {
+        val availability =
+            com.google.android.gms.common.GoogleApiAvailability
+                .getInstance()
+                .isGooglePlayServicesAvailable(context)
+        org.junit.Assert.assertEquals(
+            "ML Kit OCR requires Google Play Services; the CI emulator image must provide GMS " +
+                "(use a google_apis_playstore system image), not an AOSP image without GMS",
+            com.google.android.gms.common.ConnectionResult.SUCCESS,
+            availability,
+        )
     }
 
     @Test
@@ -84,28 +94,25 @@ class MlkOcrTest {
         val frameFile = File(dataDir, "test_frame.rgba")
         val bitmap = decodeRgbaToBitmap(frameFile)
 
-        try {
-            val image = InputImage.fromBitmap(bitmap, 0)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            val result =
-                com.google.android.gms.tasks.Tasks
-                    .await(recognizer.process(image))
-            val ocrText = result.text
-            bitmap.recycle()
-            recognizer.close()
+        requireMlKitAvailable(context)
 
-            val screenshotDir = File(context.filesDir, "screenshots")
-            screenshotDir.mkdirs()
-            File(screenshotDir, "mlk-ocr-echo-output.txt").writeText(ocrText)
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val result =
+            com.google.android.gms.tasks.Tasks
+                .await(recognizer.process(image))
+        val ocrText = result.text
+        bitmap.recycle()
+        recognizer.close()
 
-            assertTrue(
-                "ML Kit must detect TORVOX_OCR_CHECK_123 in:\n$ocrText",
-                ocrText.contains("TORVOX_OCR_CHECK_123"),
-            )
-        } catch (e: Exception) {
-            bitmap.recycle()
-            android.util.Log.w("MlkOcrTest", "ML Kit unavailable, skipping: ${e.message}")
-        }
+        val screenshotDir = File(context.filesDir, "screenshots")
+        screenshotDir.mkdirs()
+        File(screenshotDir, "mlk-ocr-echo-output.txt").writeText(ocrText)
+
+        assertTrue(
+            "ML Kit must detect TORVOX_OCR_CHECK_123 in:\n$ocrText",
+            ocrText.contains("TORVOX_OCR_CHECK_123"),
+        )
     }
 
     @Test

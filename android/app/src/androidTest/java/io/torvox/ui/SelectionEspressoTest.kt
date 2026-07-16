@@ -12,7 +12,7 @@ import androidx.test.filters.LargeTest
 import io.torvox.MainActivity
 import org.hamcrest.CoreMatchers.`is`
 import org.junit.Assert.assertNotNull
-import org.junit.Assume.assumeTrue
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -37,7 +37,7 @@ class SelectionEspressoTest {
             val root = activity.findViewById<ViewGroup>(android.R.id.content)
             val terminal = findViewByTag(root, "TerminalSurfaceView")
             assertNotNull("TerminalSurfaceView should exist", terminal)
-            assumeTrue(terminal is ViewGroup)
+            assertTrue(terminal is ViewGroup)
         }
     }
 

@@ -7,36 +7,42 @@ class BootGuard(
     private val logDir: File,
 ) {
     fun check() {
-        val counter = readCounter()
-        val now = System.currentTimeMillis()
+        synchronized(LOCK) {
+            val counter = readCounter()
+            val now = System.currentTimeMillis()
 
-        if (counter.count >= MAX_EXITS && (now - counter.lastResetTime) < RESET_WINDOW_MS) {
-            autoKillEnabled = false
-            Log.w(
-                TAG,
-                "Boot loop detected: ${counter.count} exits in ${(now - counter.lastResetTime) / 1000}s — disabling auto-kill",
-            )
-        } else {
-            autoKillEnabled = true
+            if (counter.count >= MAX_EXITS && (now - counter.lastResetTime) < RESET_WINDOW_MS) {
+                autoKillEnabled = false
+                Log.w(
+                    TAG,
+                    "Boot loop detected: ${counter.count} exits in ${(now - counter.lastResetTime) / 1000}s — disabling auto-kill",
+                )
+            } else {
+                autoKillEnabled = true
+            }
         }
     }
 
     fun recordExit() {
-        val counter = readCounter()
-        val now = System.currentTimeMillis()
-        val updated =
-            if (now - counter.lastResetTime > RESET_WINDOW_MS) {
-                ExitCounter(1, now)
-            } else {
-                ExitCounter(counter.count + 1, counter.lastResetTime)
-            }
-        writeCounter(updated)
+        synchronized(LOCK) {
+            val counter = readCounter()
+            val now = System.currentTimeMillis()
+            val updated =
+                if (now - counter.lastResetTime > RESET_WINDOW_MS) {
+                    ExitCounter(1, now)
+                } else {
+                    ExitCounter(counter.count + 1, counter.lastResetTime)
+                }
+            writeCounter(updated)
+        }
     }
 
     fun markHealthy() {
-        writeCounter(ExitCounter(0, System.currentTimeMillis()))
-        autoKillEnabled = true
-        Log.i(TAG, "Marked healthy — auto-kill re-enabled")
+        synchronized(LOCK) {
+            writeCounter(ExitCounter(0, System.currentTimeMillis()))
+            autoKillEnabled = true
+            Log.i(TAG, "Marked healthy — auto-kill re-enabled")
+        }
     }
 
     fun rotateLogs(maxFilesPerType: Int = 10) {
@@ -65,6 +71,7 @@ class BootGuard(
         const val MAX_EXITS = 3
         const val RESET_WINDOW_MS = 10 * 60 * 1000L
         private const val COUNTER_FILENAME = "boot_counter.txt"
+        private val LOCK = Any()
     }
 
     private data class ExitCounter(

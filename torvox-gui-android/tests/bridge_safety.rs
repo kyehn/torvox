@@ -3,7 +3,7 @@ use torvox_android::bridge;
 /// Safety: render with handle=0 returns -1 without crashing
 #[test]
 fn null_bridge_render() {
-    let result = unsafe { bridge::torvox_bridge_render(0) };
+    let result = unsafe { bridge::torvox_bridge_render(0, 0) };
     assert_eq!(result, -1, "render with null handle should return -1");
 }
 

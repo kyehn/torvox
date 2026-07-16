@@ -21,24 +21,32 @@ class ThermalMonitor(
     private var thermalExecutor: java.util.concurrent.ExecutorService? = null
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
 
+    @Suppress("TooGenericExceptionCaught")
     fun register() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         thermalListener =
             PowerManager.OnThermalStatusChangedListener { status ->
                 onThermalStatusChanged(status)
             }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val executor =
-                Executors.newSingleThreadExecutor { r ->
-                    Thread(r, "ThermalMonitor").apply { isDaemon = true }
-                }
-            thermalExecutor = executor
-            pm.addThermalStatusListener(executor, thermalListener!!)
-        } else {
-            @Suppress("DEPRECATION")
-            pm.addThermalStatusListener(thermalListener!!)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val executor =
+                    Executors.newSingleThreadExecutor { r ->
+                        Thread(r, "ThermalMonitor").apply { isDaemon = true }
+                    }
+                thermalExecutor = executor
+                pm.addThermalStatusListener(executor, thermalListener!!)
+            } else {
+                @Suppress("DEPRECATION")
+                pm.addThermalStatusListener(thermalListener!!)
+            }
+            Log.i(TAG, "ThermalStatusListener registered")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register thermal status listener — not supported on this device/environment", e)
+            thermalListener = null
+            thermalExecutor?.shutdownNow()
+            thermalExecutor = null
         }
-        Log.i(TAG, "ThermalStatusListener registered")
     }
 
     fun unregister() {
@@ -73,39 +81,37 @@ class ThermalMonitor(
     private fun writeThermalLog(
         status: Int,
         label: String,
-    ): File? =
-        try {
-            logDir.mkdirs()
-            val timestamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
-            val logFile = File(logDir, "thermal_$timestamp.log")
-            val content =
-                buildString {
-                    appendLine("== Thermal Event ==")
-                    appendLine("Status: $label ($status)")
-                    appendLine("Timestamp: $timestamp")
-                    appendLine("AP（日志行已移除）
-                }
-            FileOutputStream(logFile).use { fos ->
-                fos.write(content.toByteArray(Charsets.UTF_8))
-                fos.fd.sync()
+    ): File? = try {
+        logDir.mkdirs()
+        val timestamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+        val logFile = File(logDir, "thermal_$timestamp.log")
+        val content =
+            buildString {
+                appendLine("== Thermal Event ==")
+                appendLine("Status: $label ($status)")
+                appendLine("Timestamp: $timestamp")
+                appendLine("AP（日志行已移除）
             }
-            logFile
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to write thermal log", e)
-            null
+        FileOutputStream(logFile).use { fos ->
+            fos.write(content.toByteArray(Charsets.UTF_8))
+            fos.fd.sync()
         }
+        logFile
+    } catch (e: Exception) {
+        Log.e(TAG, "Failed to write thermal log", e)
+        null
+    }
 
-    private fun thermalStatusLabel(status: Int): String =
-        when (status) {
-            PowerManager.THERMAL_STATUS_NONE -> "THERMAL_STATUS_NONE"
-            PowerManager.THERMAL_STATUS_LIGHT -> "THERMAL_STATUS_LIGHT"
-            PowerManager.THERMAL_STATUS_MODERATE -> "THERMAL_STATUS_MODERATE"
-            PowerManager.THERMAL_STATUS_SEVERE -> "THERMAL_STATUS_SEVERE"
-            PowerManager.THERMAL_STATUS_CRITICAL -> "THERMAL_STATUS_CRITICAL"
-            PowerManager.THERMAL_STATUS_EMERGENCY -> "THERMAL_STATUS_EMERGENCY"
-            PowerManager.THERMAL_STATUS_SHUTDOWN -> "THERMAL_STATUS_SHUTDOWN"
-            else -> "UNKNOWN($status)"
-        }
+    private fun thermalStatusLabel(status: Int): String = when (status) {
+        PowerManager.THERMAL_STATUS_NONE -> "THERMAL_STATUS_NONE"
+        PowerManager.THERMAL_STATUS_LIGHT -> "THERMAL_STATUS_LIGHT"
+        PowerManager.THERMAL_STATUS_MODERATE -> "THERMAL_STATUS_MODERATE"
+        PowerManager.THERMAL_STATUS_SEVERE -> "THERMAL_STATUS_SEVERE"
+        PowerManager.THERMAL_STATUS_CRITICAL -> "THERMAL_STATUS_CRITICAL"
+        PowerManager.THERMAL_STATUS_EMERGENCY -> "THERMAL_STATUS_EMERGENCY"
+        PowerManager.THERMAL_STATUS_SHUTDOWN -> "THERMAL_STATUS_SHUTDOWN"
+        else -> "UNKNOWN($status)"
+    }
 
     companion object {
         private const val TAG = "ThermalMonitor"

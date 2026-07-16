@@ -12,12 +12,19 @@ import java.net.URL
 
 class BootstrapDownloader(
     private val context: Context,
+    private val onProgress: BootstrapProgressCallback? = null,
 ) {
+    internal var internalConnectionFactory: ((String) -> HttpURLConnection)? = null
+
+    private fun openConnection(url: String): HttpURLConnection = internalConnectionFactory?.invoke(url)
+        ?: (URL(url).openConnection() as HttpURLConnection)
+
     companion object {
         private const val NETWORK_CONNECT_TIMEOUT_MS = 30_000
         private const val NETWORK_READ_TIMEOUT_MS = 300_000
         private const val MIN_BOOTSTRAP_SIZE_BYTES = 1_048_576L
         private const val DOWNLOAD_BUFFER_SIZE = 8192
+        private const val PROGRESS_PERCENT_STEP = 2
     }
 
     suspend fun download(
@@ -27,7 +34,7 @@ class BootstrapDownloader(
         try {
             val cachedDir = File(context.cacheDir, "bootstrap-$arch.zip")
             cachedDir.delete()
-            val connection = URL(url).openConnection() as HttpURLConnection
+            val connection = openConnection(url)
             connection.connectTimeout = NETWORK_CONNECT_TIMEOUT_MS
             connection.readTimeout = NETWORK_READ_TIMEOUT_MS
             connection.instanceFollowRedirects = true
@@ -42,10 +49,12 @@ class BootstrapDownloader(
                     return@withContext Result.failure(Exception("File too small: $length bytes"))
                 }
             }
+            val contentLength = connection.contentLength.toLong().coerceAtLeast(0L)
             connection.inputStream.use { input ->
                 FileOutputStream(cachedDir).use { output ->
                     val buffer = ByteArray(DOWNLOAD_BUFFER_SIZE)
                     var total = 0L
+                    var lastReportedPct = -100
                     while (true) {
                         if (!isActive) {
                             cachedDir.delete()
@@ -55,6 +64,20 @@ class BootstrapDownloader(
                         if (bytesRead == -1) break
                         output.write(buffer, 0, bytesRead)
                         total += bytesRead
+                        val pct =
+                            if (contentLength > 0L) {
+                                (total * 100L / contentLength).toInt()
+                            } else {
+                                -1
+                            }
+                        if (pct != lastReportedPct) {
+                            lastReportedPct = pct
+                            if (lastReportedPct % PROGRESS_PERCENT_STEP == 0 || lastReportedPct >= 99) {
+                                onProgress?.onProgress(
+                                    BootstrapProgress.Downloading(total, contentLength),
+                                )
+                            }
+                        }
                     }
                     if (total < MIN_BOOTSTRAP_SIZE_BYTES) {
                         cachedDir.delete()

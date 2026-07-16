@@ -142,12 +142,12 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun defaultKeyboardModeIsSecure() = runTest {
-        // Verify the repository default matches the documented default ("secure").
+    fun defaultKeyboardModeIsRaw() = runTest {
+        // Verify the repository default matches the documented default ("raw").
         // Due to Robolectric DataStore caching, we set then read the default to
-        // confirm the property is functional. The source default is "secure".
-        repository.setKeyboardMode("secure")
-        assertEquals("secure", repository.keyboardMode.first())
+        // confirm the property is functional. The source default is "raw".
+        repository.setKeyboardMode("raw")
+        assertEquals("raw", repository.keyboardMode.first())
         repository.setKeyboardMode("standard")
         assertEquals("standard", repository.keyboardMode.first())
     }

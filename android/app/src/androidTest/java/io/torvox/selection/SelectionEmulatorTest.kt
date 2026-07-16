@@ -449,28 +449,36 @@ class SelectionEmulatorTest {
 
         val bitmap = decodeRgbaToBitmap(frameFile)
 
-        try {
-            val image = InputImage.fromBitmap(bitmap, 0)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            val result =
-                com.google.android.gms.tasks.Tasks
-                    .await(recognizer.process(image))
-            val ocrText = result.text
-            bitmap.recycle()
-            recognizer.close()
+        assumeMlKitAvailable(composeTestRule.activity)
 
-            val screenshotDir = File(dataDir, "screenshots")
-            screenshotDir.mkdirs()
-            File(screenshotDir, "sel-ocr-output.txt").writeText(ocrText)
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val result =
+            com.google.android.gms.tasks.Tasks
+                .await(recognizer.process(image))
+        val ocrText = result.text
+        bitmap.recycle()
+        recognizer.close()
 
-            assertTrue(
-                "OCR must detect shell prompt: $ocrText",
-                ocrText.contains("$") || ocrText.contains("/") || ocrText.contains("home"),
-            )
-        } catch (e: Exception) {
-            bitmap.recycle()
-            android.util.Log.w("SelectionEmulatorTest", "ML Kit unavailable: ${e.message}")
-        }
+        val screenshotDir = File(dataDir, "screenshots")
+        screenshotDir.mkdirs()
+        File(screenshotDir, "sel-ocr-output.txt").writeText(ocrText)
+
+        assertTrue(
+            "OCR must detect shell prompt: $ocrText",
+            ocrText.contains("$") || ocrText.contains("/") || ocrText.contains("home"),
+        )
+    }
+
+    private fun assumeMlKitAvailable(context: android.content.Context) {
+        val availability =
+            com.google.android.gms.common.GoogleApiAvailability
+                .getInstance()
+                .isGooglePlayServicesAvailable(context)
+        org.junit.Assume.assumeTrue(
+            "ML Kit OCR requires Google Play Services; skipping on AOSP emulator without GMS",
+            availability == com.google.android.gms.common.ConnectionResult.SUCCESS,
+        )
     }
 
     @Test
@@ -490,28 +498,25 @@ class SelectionEmulatorTest {
         val frameFile = File(dataDir, "test_frame.rgba")
         val bitmap = decodeRgbaToBitmap(frameFile)
 
-        try {
-            val image = InputImage.fromBitmap(bitmap, 0)
-            val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-            val result =
-                com.google.android.gms.tasks.Tasks
-                    .await(recognizer.process(image))
-            val ocrText = result.text
-            bitmap.recycle()
-            recognizer.close()
+        assumeMlKitAvailable(composeTestRule.activity)
 
-            val screenshotDir = File(dataDir, "screenshots")
-            screenshotDir.mkdirs()
-            File(screenshotDir, "sel-ocr-echo-output.txt").writeText(ocrText)
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        val result =
+            com.google.android.gms.tasks.Tasks
+                .await(recognizer.process(image))
+        val ocrText = result.text
+        bitmap.recycle()
+        recognizer.close()
 
-            assertTrue(
-                "OCR must detect TORVOX_SEL_OCR_456: $ocrText",
-                ocrText.contains("TORVOX_SEL_OCR_456"),
-            )
-        } catch (e: Exception) {
-            bitmap.recycle()
-            android.util.Log.w("SelectionEmulatorTest", "ML Kit unavailable: ${e.message}")
-        }
+        val screenshotDir = File(dataDir, "screenshots")
+        screenshotDir.mkdirs()
+        File(screenshotDir, "sel-ocr-echo-output.txt").writeText(ocrText)
+
+        assertTrue(
+            "OCR must detect TORVOX_SEL_OCR_456: $ocrText",
+            ocrText.contains("TORVOX_SEL_OCR_456"),
+        )
     }
 
     @Test
