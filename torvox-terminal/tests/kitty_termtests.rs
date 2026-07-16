@@ -1887,6 +1887,7 @@ mod kitty_termtests {
         check(&mut t, b"");
     }
     #[test]
+    #[allow(clippy::float_cmp)]
     fn kt_sgr_0_resets_fg() {
         let mut t = sized_term(5, 20, 100);
         t.vt_write(b"\x1b[31mX\x1b[0mY");

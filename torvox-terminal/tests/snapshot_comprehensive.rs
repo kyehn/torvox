@@ -259,6 +259,7 @@ fn snapshot_roundtrip_256_color_fg() {
 }
 
 #[test]
+#[allow(clippy::many_single_char_names)]
 fn snapshot_roundtrip_truecolor_fg() {
     let mut t = make_terminal(1, 10);
     t.vt_write(b"\x1b[38;2;100;200;50mG");

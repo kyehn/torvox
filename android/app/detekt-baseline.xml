@@ -17,6 +17,7 @@
     <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
     <ID>LateinitUsage:MainActivity.kt$MainActivity$@Inject lateinit var torvoxRuntime: TorvoxRuntime // Dagger injection — lateinit required</ID>
+    <ID>LongMethod:SecondStageRunner.kt$SecondStageRunner$suspend fun run(): Result</ID>
     <ID>LongMethod:SessionDrawer.kt$@Composable fun SessionDrawer( viewModel: TerminalViewModel, onSettings: () -> Unit, onSearch: () -> Unit, onClose: () -> Unit, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable private fun SystemFontSelector( selectedFamily: String, onFamilySelected: (String) -> Unit, textColor: Color, cardBackground: Color, accentColor: Color, fonts: List&lt;String> = emptyList(), defaultFontName: String = "", fontInfo: String = "", onPickFontFile: (() -> Unit)? = null, )</ID>
     <ID>LongMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>

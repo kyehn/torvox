@@ -186,7 +186,10 @@ class ImeLayoutStabilityTest {
         try {
             val tmp = File("/data/local/tmp", name)
             tmp.outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            // best-effort, non-asserting: the /data/local/tmp copy is an optional debug aid
+            // and its failure must not mask a real test assertion.
+            Log.e("ImeLayoutStabilityTest", "debug copy to /data/local/tmp failed (best-effort)", e)
         }
         Log.d("ImeLayoutStabilityTest", "dumped $name -> ${f.absolutePath} ${bmp.width}x${bmp.height}")
     }

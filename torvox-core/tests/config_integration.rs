@@ -31,7 +31,7 @@ fn theme_colors_convert_to_f32_array() {
     let theme = Theme::catppuccin_mocha();
     let fg = theme_color_to_f32(theme.foreground);
     let bg = theme_color_to_f32(theme.background);
-    assert_eq!(fg[3], 1.0, "alpha should be 1.0");
+    assert!((fg[3] - 1.0).abs() < f32::EPSILON, "alpha should be 1.0");
     assert!((fg[0] - 0.804).abs() < 0.01, "fg red should be ~0.804");
     assert!((bg[0] - 0.118).abs() < 0.01, "bg red should be ~0.118");
     assert!((fg[1] - 0.839).abs() < 0.01, "fg green should be ~0.839");
@@ -92,7 +92,13 @@ fn theme_foreground_f32_conversion_differs_from_background() {
     let theme = Theme::catppuccin_mocha();
     let fg_f32 = theme_color_to_f32(theme.foreground);
     let bg_f32 = theme_color_to_f32(theme.background);
-    assert_ne!(fg_f32, bg_f32, "foreground and background should differ");
+    assert!(
+        fg_f32
+            .iter()
+            .zip(bg_f32.iter())
+            .any(|(f, b)| (f - b).abs() > f32::EPSILON),
+        "foreground and background should differ"
+    );
 }
 
 #[test]
@@ -177,7 +183,10 @@ fn theme_to_f32_rendering_format() {
     let theme = Theme::catppuccin_mocha();
     let fg = theme_color_to_f32(theme.foreground);
     assert_eq!(fg.len(), 4, "f32 color should have 4 components");
-    assert_eq!(fg[3], 1.0, "alpha should always be 1.0");
+    assert!(
+        (fg[3] - 1.0).abs() < f32::EPSILON,
+        "alpha should always be 1.0"
+    );
     assert!(
         fg[0] >= 0.0 && fg[0] <= 1.0,
         "red channel should be normalized"

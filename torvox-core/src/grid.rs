@@ -1389,7 +1389,7 @@ mod tests {
             cell.char = 'X';
         }
         grid.resize(er, ec);
-        grid.cell(0, 0).map_or(false, |cell| cell.char == 'X')
+        grid.cell(0, 0).is_some_and(|cell| cell.char == 'X')
     }
 
     #[quickcheck]

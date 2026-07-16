@@ -14,6 +14,11 @@ class BootstrapDownloader(
     private val context: Context,
     private val onProgress: BootstrapProgressCallback? = null,
 ) {
+    internal var internalConnectionFactory: ((String) -> HttpURLConnection)? = null
+
+    private fun openConnection(url: String): HttpURLConnection = internalConnectionFactory?.invoke(url)
+        ?: (URL(url).openConnection() as HttpURLConnection)
+
     companion object {
         private const val NETWORK_CONNECT_TIMEOUT_MS = 30_000
         private const val NETWORK_READ_TIMEOUT_MS = 300_000
@@ -29,7 +34,7 @@ class BootstrapDownloader(
         try {
             val cachedDir = File(context.cacheDir, "bootstrap-$arch.zip")
             cachedDir.delete()
-            val connection = URL(url).openConnection() as HttpURLConnection
+            val connection = openConnection(url)
             connection.connectTimeout = NETWORK_CONNECT_TIMEOUT_MS
             connection.readTimeout = NETWORK_READ_TIMEOUT_MS
             connection.instanceFollowRedirects = true

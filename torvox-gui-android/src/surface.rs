@@ -57,7 +57,40 @@ unsafe extern "C" {
     ) -> i32;
     fn ATrace_beginSection(section_name: *const std::os::raw::c_char);
     fn ATrace_endSection();
+    fn ATrace_isEnabled() -> bool;
 }
+
+/// Call ATrace_beginSection only when systrace is actively recording.
+/// On some vendor kernels (e.g. ZTE Mali), unconditional trace_marker
+/// writes add significant per-frame overhead even when no trace session
+/// is active, causing jank and RENDER_SLOW warnings.
+#[cfg(target_os = "android")]
+fn trace_begin(name: &core::ffi::CStr) {
+    // SAFETY: C string is a static literal; ATrace_isEnabled/beginSection
+    // are thread-safe NDK functions.
+    unsafe {
+        if ATrace_isEnabled() {
+            ATrace_beginSection(name.as_ptr());
+        }
+    }
+}
+
+/// Call ATrace_endSection only when systrace was active (paired with
+/// a preceding trace_begin that actually wrote to the marker).
+#[cfg(target_os = "android")]
+fn trace_end() {
+    // SAFETY: ATrace_isEnabled/endSection are thread-safe NDK functions.
+    unsafe {
+        if ATrace_isEnabled() {
+            ATrace_endSection();
+        }
+    }
+}
+
+#[cfg(not(target_os = "android"))]
+fn trace_begin(_name: &core::ffi::CStr) {}
+#[cfg(not(target_os = "android"))]
+fn trace_end() {}
 
 #[derive(Debug, Error)]
 pub enum SurfaceError {
@@ -526,9 +559,8 @@ impl AndroidSurface {
                     .ok_or_else(|| SurfaceError::GpuInit("GPU not initialized".into()))?;
                 gpu.set_surface_from_native_window(window_ptr, width, height, true)
                     .map_err(|e| SurfaceError::GpuInit(e.to_string()))?;
-                let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
                 gpu.create_atlas_texture(aw, ah);
-                gpu.upload_atlas(&atlas_data, aw, ah);
+                gpu.upload_atlas(self.font_pipeline.atlas_bitmap(), aw, ah);
                 gpu.update_bind_group(
                     aw as f32,
                     ah as f32,
@@ -546,14 +578,13 @@ impl AndroidSurface {
                     .gpu
                     .as_mut()
                     .ok_or_else(|| SurfaceError::GpuInit("GPU not initialized".into()))?;
-                let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
                 if !window_ptr.is_null() {
                     // Create swapchain surface for GPU presentation
                     gpu.configure_android_surface(window_ptr, width, height)
                         .map_err(|e| SurfaceError::GpuInit(e.to_string()))?;
                 }
                 gpu.initialize_pipeline_and_bind_group(aw, ah, width, height);
-                gpu.upload_atlas(&atlas_data, aw, ah);
+                gpu.upload_atlas(self.font_pipeline.atlas_bitmap(), aw, ah);
                 // The clear color defaults to the deep mocha blue; re-apply the
                 // per-session theme background so a freshly created surface (or a
                 // surface re-bound to a different session) never shows the wrong
@@ -619,12 +650,7 @@ impl AndroidSurface {
         mut snapshot: torvox_terminal::ghostty_terminal::GridSnapshot,
     ) -> Result<bool, SurfaceError> {
         let frame_start = Instant::now();
-        #[cfg(target_os = "android")]
-        // SAFETY: ATrace_beginSection/endSection are thread-safe NDK functions.
-        // The C string is a static string literal, valid for the lifetime of the call.
-        unsafe {
-            ATrace_beginSection(c"AndroidSurface::render".as_ptr());
-        }
+        trace_begin(c"AndroidSurface::render");
         log::trace!(
             "RENDER_ENTER: session={} sw={} sh={} native={}",
             self.session.is_some(),
@@ -649,12 +675,7 @@ impl AndroidSurface {
             && !self.render_requested
             && !self.blink_timer_elapsed()
         {
-            #[cfg(target_os = "android")]
-            // SAFETY: Paired with the ATrace_beginSection at the top of render_inner().
-            // These NDK functions are thread-safe and the call is correctly nested.
-            unsafe {
-                ATrace_endSection();
-            } // AndroidSurface::render
+            trace_end(); // AndroidSurface::render
             return Ok(false);
         }
         log::debug!(
@@ -669,22 +690,17 @@ impl AndroidSurface {
         // No app-level override — cursor_override was removed (FR-057).
         // Cursor blink is handled below as a phase toggle on snapshot visibility.
 
-        #[cfg(target_os = "android")]
-        // SAFETY: ATrace_beginSection is thread-safe. The C string is a static
-        // string literal valid for the lifetime of the call. Every beginSection
-        // is paired with a matching endSection below.
-        unsafe {
-            ATrace_beginSection(c"snapshot+instances".as_ptr());
-        }
+        trace_begin(c"snapshot+instances");
 
         if let (Some(row), Some(col)) = (self.mouse_row, self.mouse_col) {
             self.last_hovered_url = snapshot.uri_at(row, col).map(String::from);
         }
 
         // Always rasterize glyphs so the atlas is populated for GPU rendering.
-        // Poll sync mode before the instance_buffer borrow starts.
+        // Sync mode is read from the snapshot (set by ghostty thread during
+        // snapshot build) to avoid a blocking mode_get query on the render path.
         #[cfg(target_os = "android")]
-        let sync_active = self.poll_sync_active();
+        let sync_active = snapshot.sync_active;
         let gen_before = self.font_pipeline.atlas_generation();
         let tc = self.theme.cursor;
         let cursor_color = Some([
@@ -856,25 +872,27 @@ impl AndroidSurface {
                 || i.fg_color[2].abs() > 0.001
         });
         if let Some(diag) = diag_first {
-            log::warn!(
-                "RENDER_DIAG: instances={} fg=[{:.3},{:.3},{:.3}] bg=[{:.3},{:.3},{:.3}] has_glyph={} quad_size=[{:.1},{:.1}]",
-                instances.len(),
-                diag.fg_color[0],
-                diag.fg_color[1],
-                diag.fg_color[2],
-                diag.bg_color[0],
-                diag.bg_color[1],
-                diag.bg_color[2],
-                diag_has_glyph(diag),
-                diag.quad_size[0],
-                diag.quad_size[1],
-            );
-        } else if !instances.is_empty() {
-            log::warn!(
+            if self.frame_count.is_multiple_of(60) {
+                log::info!(
+                    "RENDER_DIAG: instances={} fg=[{:.3},{:.3},{:.3}] bg=[{:.3},{:.3},{:.3}] has_glyph={} quad_size=[{:.1},{:.1}]",
+                    instances.len(),
+                    diag.fg_color[0],
+                    diag.fg_color[1],
+                    diag.fg_color[2],
+                    diag.bg_color[0],
+                    diag.bg_color[1],
+                    diag.bg_color[2],
+                    diag_has_glyph(diag),
+                    diag.quad_size[0],
+                    diag.quad_size[1],
+                );
+            }
+        } else if !instances.is_empty() && self.frame_count.is_multiple_of(60) {
+            log::info!(
                 "RENDER_DIAG: {} instances all have black fg",
                 instances.len()
             );
-            log::warn!(
+            log::info!(
                 "RENDER_DIAG: first instance fg=[{:.3},{:.3},{:.3}] bg=[{:.3},{:.3},{:.3}] has_glyph={} quad_size=[{:.1},{:.1}]",
                 instances[0].fg_color[0],
                 instances[0].fg_color[1],
@@ -886,32 +904,30 @@ impl AndroidSurface {
                 instances[0].quad_size[0],
                 instances[0].quad_size[1],
             );
-        } else {
-            log::warn!("RENDER_DIAG: zero instances");
+        } else if instances.is_empty() && self.frame_count.is_multiple_of(60) {
+            log::info!("RENDER_DIAG: zero instances");
         }
 
         let gen_after = self.font_pipeline.atlas_generation();
-        log::warn!(
-            "RENDER_DIAG: atlas gen {}->{}, {} instances",
-            gen_before,
-            gen_after,
-            instances.len(),
-        );
-        if gen_after != gen_before {
-            let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
-            let non_zero = atlas_data.iter().filter(|&&b| b != 0).count();
+        if self.frame_count.is_multiple_of(60) {
             log::info!(
-                "RENDER_DIAG: atlas re-upload gen={}->{} non_zero_pixels={}",
+                "RENDER_DIAG: atlas gen {}->{}, {} instances",
                 gen_before,
                 gen_after,
-                non_zero,
+                instances.len(),
             );
+        }
+        if gen_after != gen_before {
             self.gpu
                 .as_mut()
                 .ok_or_else(|| {
                     SurfaceError::GpuInit("GPU not initialized during atlas upload".into())
                 })?
-                .upload_atlas(&atlas_data, self.atlas_width, self.atlas_height);
+                .upload_atlas(
+                    self.font_pipeline.atlas_bitmap(),
+                    self.atlas_width,
+                    self.atlas_height,
+                );
         }
 
         // KGP image rendering: gather images referenced by placements into a shared RGBA atlas
@@ -976,15 +992,8 @@ impl AndroidSurface {
             }
         }
 
-        #[cfg(target_os = "android")]
-        // SAFETY: ATrace_endSection closes the "snapshot+instances" section opened
-        // above. ATrace_beginSection opens the "swapchain_present" section. Both are
-        // thread-safe NDK functions with static string literals. The begin/end pairs
-        // are correctly nested — no section is left open.
-        unsafe {
-            ATrace_endSection(); // snapshot+instances
-            ATrace_beginSection(c"swapchain_present".as_ptr());
-        }
+        trace_end(); // snapshot+instances
+        trace_begin(c"swapchain_present");
 
         if !instances.is_empty() {
             let first = &instances[0];
@@ -1047,16 +1056,8 @@ impl AndroidSurface {
         let swapchain_ok = {
             if sync_active {
                 log::trace!("sync active — skipping GPU frame");
-                // SAFETY: Paired ATrace_endSection calls closing the
-                // "swapchain_present" and "AndroidSurface::render" sections
-                // opened above. Both are thread-safe NDK functions and the
-                // begin/end pairs are correctly nested.
-                unsafe {
-                    ATrace_endSection();
-                } // swapchain_present
-                unsafe {
-                    ATrace_endSection();
-                } // AndroidSurface::render
+                trace_end(); // swapchain_present
+                trace_end(); // AndroidSurface::render
                 return Ok(false);
             }
             let gpu = self.gpu.as_mut().ok_or_else(|| {
@@ -1104,12 +1105,7 @@ impl AndroidSurface {
         #[cfg(not(target_os = "android"))]
         let swapchain_ok = true;
 
-        #[cfg(target_os = "android")]
-        // SAFETY: Paired ATrace_endSection closing the "swapchain_present" section
-        // opened in the third ATrace_beginSection above. Thread-safe NDK function.
-        unsafe {
-            ATrace_endSection(); // swapchain_present
-        }
+        trace_end(); // swapchain_present
 
         let elapsed = frame_start.elapsed();
         let present_ms = elapsed.as_secs_f64() * 1000.0 - cpu_ms;
@@ -1200,12 +1196,15 @@ impl AndroidSurface {
             &mut Vec::new(),
         );
         let instances = &self.instance_buffer[..];
-        let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
         let gpu = self
             .gpu
             .as_mut()
             .ok_or_else(|| SurfaceError::GpuInit("GPU not initialized for test frame".into()))?;
-        gpu.upload_atlas(&atlas_data, self.atlas_width, self.atlas_height);
+        gpu.upload_atlas(
+            self.font_pipeline.atlas_bitmap(),
+            self.atlas_width,
+            self.atlas_height,
+        );
         let pixels = gpu
             .render_to_buffer(instances, &[])
             .map_err(|e| SurfaceError::Render(e.to_string()))?;
@@ -1437,8 +1436,7 @@ impl AndroidSurface {
                         self.render_width as f32,
                         self.render_height as f32,
                     );
-                    let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
-                    gpu.upload_atlas(&atlas_data, aw, ah);
+                    gpu.upload_atlas(self.font_pipeline.atlas_bitmap(), aw, ah);
                 }
             }
             return false;
@@ -1453,8 +1451,7 @@ impl AndroidSurface {
                 self.render_width as f32,
                 self.render_height as f32,
             );
-            let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
-            gpu.upload_atlas(&atlas_data, aw, ah);
+            gpu.upload_atlas(self.font_pipeline.atlas_bitmap(), aw, ah);
         }
         if self.surface_width.load(Ordering::Relaxed) > 0
             && self.surface_height.load(Ordering::Relaxed) > 0
@@ -1510,8 +1507,7 @@ impl AndroidSurface {
                 self.render_width as f32,
                 self.render_height as f32,
             );
-            let atlas_data = self.font_pipeline.atlas_bitmap().to_vec();
-            gpu.upload_atlas(&atlas_data, aw, ah);
+            gpu.upload_atlas(self.font_pipeline.atlas_bitmap(), aw, ah);
         }
 
         if self.surface_width.load(Ordering::Relaxed) > 0
@@ -2263,12 +2259,12 @@ mod tests {
     #[test]
     fn compute_raster_scale_clamps_extremes() {
         // Surface much larger than config is clamped to 4.0.
-        assert_eq!(compute_raster_scale(10000, 100), 4.0);
+        assert!((compute_raster_scale(10000, 100) - 4.0).abs() < f32::EPSILON);
         // Surface much smaller than config is clamped to 0.5.
-        assert_eq!(compute_raster_scale(100, 10000), 0.5);
+        assert!((compute_raster_scale(100, 10000) - 0.5).abs() < f32::EPSILON);
         // A zero config width must not divide-by-zero (normalized to 1, then
         // clamped to 4.0).
-        assert_eq!(compute_raster_scale(800, 0), 4.0);
+        assert!((compute_raster_scale(800, 0) - 4.0).abs() < f32::EPSILON);
     }
 
     #[test]

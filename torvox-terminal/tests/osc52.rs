@@ -35,7 +35,7 @@ fn osc_52_empty_content() {
 /// OSC 52 large payload: extracts full content
 #[test]
 fn osc_52_large_payload() {
-    let plain = "A".repeat(100000);
+    let plain = "A".repeat(100_000);
     let encoded = base64_plain(&plain);
     let seq = format!("\x1b]52;c;{encoded}\x07");
     let mut handler = OscHandler::new();

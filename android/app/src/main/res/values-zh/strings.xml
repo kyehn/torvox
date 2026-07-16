@@ -33,8 +33,6 @@
     <string name="bootstrap_presets">预设</string>
     <string name="bootstrap_preset_termux">Termux 默认</string>
     <string name="bootstrap_preset_termux_desc">标准 Termux 引导程序，包含 bash、coreutils 和包管理器</string>
-    <string name="bootstrap_preset_custom">自定义 / 空</string>
-    <string name="bootstrap_preset_custom_desc">以空根文件系统启动</string>
     <string name="install">安装</string>
     <string name="bootstrap">引导程序</string>
     <string name="bootstrap_install">安装引导程序</string>
@@ -120,10 +118,6 @@
     <!-- File Manager -->
     <string name="file_manager">文件管理器</string>
     <string name="cd_file_manager">打开文件管理器</string>
-
-    <!-- Volume Key Mapping -->
-    <string name="volume_key_map">音量键映射</string>
-    <string name="volume_key_map_desc">音量加映射为 Ctrl，音量减映射为 Fn</string>
 
     <!-- Cursor Settings -->
     <string name="session_restore_off_desc">应用启动时不会恢复之前的会话</string>

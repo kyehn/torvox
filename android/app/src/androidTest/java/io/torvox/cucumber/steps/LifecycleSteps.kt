@@ -1,10 +1,9 @@
 package io.torvox.cucumber.steps
 
+import android.content.pm.ActivityInfo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.uiautomator.UiDevice
 import io.cucumber.java.en.Given
 import io.cucumber.java.en.Then
 import io.cucumber.java.en.When
@@ -38,8 +37,13 @@ constructor(
 
     @When("^the device configuration changes \\(orientation\\)$")
     fun deviceConfigurationChangesOrientation() {
-        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        device.setOrientationLeft()
+        composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
+        }
+        Thread.sleep(2000)
+        composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
+            activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_PORTRAIT
+        }
         Thread.sleep(2000)
     }
 
@@ -59,6 +63,9 @@ constructor(
     @Then("^the session is still functional$")
     fun sessionIsStillFunctional() {
         composeRuleHolder.composeRule.waitForSession()
+        composeRuleHolder.composeRule
+            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
+            .assertIsDisplayed()
     }
 
     @Then("^the session is restored$")

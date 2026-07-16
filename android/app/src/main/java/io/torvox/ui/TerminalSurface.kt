@@ -100,9 +100,9 @@ constructor(
         private const val ZOOM_THRESHOLD_LOW = 0.9f
         private const val ZOOM_THRESHOLD_HIGH = 1.1f
         private const val DRAWER_WIDTH_DP = 280
-        private const val RESIZE_SETTLE_MS = 50L
+
         private const val FLING_VELOCITY_DIVISOR = 100f
-        private const val SUPPRESS_GRACE_PERIOD_NS = 200_000_000L
+        private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
         private const val FLING_MAX_LINES = 50
         private const val SCROLL_END_DELAY_MS = 300L
         private const val FALLBACK_CELL_WIDTH = 8f
@@ -124,6 +124,7 @@ constructor(
     private var surfaceHeightPixels: Int = 0
     private var isScrolling: Boolean = false
     private var scrollOffset: Int = 0
+    private var lastImeBottom: Int = 0
 
     var touchEnabled: Boolean = true
         set(value) {
@@ -155,14 +156,6 @@ constructor(
     private var magnifier: Magnifier? = null
     private var lastConfiguredWidth = 0
     private var lastConfiguredHeight = 0
-
-    // Predictive grid pre-computation for IME animation
-    private var predictiveRows: Int = 0
-    private var predictiveCols: Int = 0
-    private var predictiveCellWidth: Float = 0f
-    private var predictiveCellHeight: Float = 0f
-    private var imeAnimationInProgress: Boolean = false
-    private var imeAnimationEndRunnable: Runnable? = null
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
     var onScrollingStateChanged: ((isScrolling: Boolean) -> Unit)? = null
@@ -603,7 +596,7 @@ constructor(
                             selection.end.row,
                             selection.end.col,
                             hasSelection = true,
-                            hasClipboard = clipboard?.hasPrimaryClip() ?: false,
+                            hasClipboard = safeHasPrimaryClip(clipboard),
                             selectionStartRow = selection.start.row,
                             selectionEndRow = selection.end.row,
                             selectionStartCol = selection.start.col,
@@ -698,6 +691,15 @@ constructor(
             Log.w(TAG, "Clipboard service not available")
         }
         return clipboardManager
+    }
+
+    private fun safeHasPrimaryClip(clipboard: ClipboardManager? = getClipboardManager()): Boolean {
+        if (clipboard == null) return false
+        return try {
+            clipboard.hasPrimaryClip()
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private val edgeScrollHandler = android.os.Handler(android.os.Looper.getMainLooper())
@@ -951,7 +953,7 @@ constructor(
                     col = col.toUInt(),
                     mode = 1,
                 )
-            val hasClipboard = getClipboardManager()?.hasPrimaryClip() ?: false
+            val hasClipboard = safeHasPrimaryClip()
 
             val startRow: Int
             val startCol: Int
@@ -1086,51 +1088,52 @@ constructor(
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         viewModel?.runtime?.focusChange(hasFocus)
-        coalescer.reset()
         if (!hasFocus) {
             isPaused = true
+            coalescer.reset()
             currentInputConnection?.let { ic ->
                 ic.finishComposingText()
             }
             suppressUntilNanos = System.nanoTime() + SUPPRESS_GRACE_PERIOD_NS
         }
         if (hasFocus) {
+            // Reset pause state but do NOT call finishComposingText — the IME may be
+            // mid-composition; aborting it here causes the IME to lose sync and
+            // produce duplicate text, extra spaces, or silently drop input.
             isPaused = false
             suppressUntilNanos = System.nanoTime() + SUPPRESS_GRACE_PERIOD_NS
-            currentInputConnection?.finishComposingText()
         }
     }
 
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
         val result = super.onApplyWindowInsets(insets)
         val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
-        val totalHeight = height
-        if (imeBottom > 0) {
-            // IME is visible — compute what the grid will look like after the animation ends
-            val availableHeight = totalHeight - imeBottom
-            val cellWidth = viewModel?.runtime?.cellWidth ?: 0f
-            val cellHeight = viewModel?.runtime?.cellHeight ?: 0f
-            if (cellWidth > 0f && cellHeight > 0f && availableHeight > 0) {
-                predictiveCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
-                predictiveRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
-                predictiveCellWidth = cellWidth
-                predictiveCellHeight = cellHeight
+        if (imeBottom != lastImeBottom) {
+            lastImeBottom = imeBottom
+            val cellWidth = viewModel?.runtime?.cellWidth ?: return result
+            val cellHeight = viewModel?.runtime?.cellHeight ?: return result
+            if (cellWidth <= 0f || cellHeight <= 0f) return result
+            if (imeBottom > 0) {
+                // ModifierBar is now a Compose overlay; terminal grid must not render rows behind it.
+                val availableHeight = height - imeBottom - modifierBarHeightPx
+                if (availableHeight <= 0) return result
+                val newCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
+                val newRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
+                if (newRows != this.rows || newCols != this.cols) {
+                    viewModel?.runtime?.resize(newRows, newCols)
+                    this.rows = newRows
+                    this.cols = newCols
+                }
+            } else if (imeBottom == 0) {
+                val fullRows = ((height - modifierBarHeightPx).toFloat() / cellHeight).toInt().coerceAtLeast(1)
+                val fullCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
+                if (fullRows != this.rows || fullCols != this.cols) {
+                    viewModel?.runtime?.resize(fullRows, fullCols)
+                    this.rows = fullRows
+                    this.cols = fullCols
+                }
             }
-            imeAnimationInProgress = true
-        } else if (imeAnimationInProgress) {
-            // IME was visible and is now hidden — animation will follow.
-            // Don't set imeAnimationInProgress=false yet; let the settle
-            // runnable handle it after the final size change.
-        } else {
-            // No IME involved — nothing to predict.
-            predictiveRows = 0
-            predictiveCols = 0
-            imeAnimationInProgress = false
-            return result
         }
-        // Cancel any pending settle runnable
-        imeAnimationEndRunnable?.let { removeCallbacks(it) }
-        imeAnimationEndRunnable = null
         return result
     }
 
@@ -1224,7 +1227,7 @@ constructor(
     private var currentInputConnection: InputConnection? = null
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
-        val mode = viewModel?.state?.value?.keyboardMode ?: KeyboardMode.Secure
+        val mode = viewModel?.state?.value?.keyboardMode ?: KeyboardMode.Raw
         mode.toEditorInfo(outAttrs)
         val connection =
             object : BaseInputConnection(this, true) {
@@ -1507,30 +1510,8 @@ constructor(
             return false
         }
 
-        // Reduced modifier bar touch exclusion: only exclude touches that
-        // would land on the actual ModifierBar child views. We check the
-        // x-coordinate against the last known mod bar button positions so
-        // that taps on the terminal cells behind the mod bar overlay still
-        // reach the gesture detector and can trigger IME focus, while taps
-        // on the buttons themselves are intercepted by the Compose layer.
-        // When searchActive= true, the modifier bar is hidden entirely so we
-        // skip the exclusion altogether.
-        val isInModBarZone =
-            !searchActive && modifierBarHeightPx > 0 &&
-                event.y >= height - modifierBarHeightPx
-        if (isInModBarZone && viewModel
-                ?.state
-                ?.value
-                ?.selection
-                ?.active == false
-        ) {
-            // Allow the touch to propagate through to the gesture detector,
-            // which will handle IME focus on single tap. The ModifierBar in
-            // the Compose overlay layer will consume touches that hit its
-            // buttons via normal Compose pointer input dispatch.
-            // Do NOT block with return false — that prevents IME activation
-            // when tapping near the bottom of the terminal content area.
-        }
+        // No longer needed — ModifierBar is now a Compose overlay at higher
+        // z-index which naturally intercepts touches in the mod bar zone.
 
         val fromMouse = event.isFromSource(InputDevice.SOURCE_MOUSE)
 
@@ -1717,53 +1698,9 @@ constructor(
         val terminalViewModel = viewModel ?: return
         terminalViewModel.surfaceWidth = width
         terminalViewModel.surfaceHeight = height
+
         terminalViewModel.runtime.bridge()?.setSurfaceSize(width, height)
-
-        if (imeAnimationInProgress) {
-            applyResizeDuringIme(width, height, terminalViewModel)
-            return
-        }
         applyResizeNormal(width, height, terminalViewModel)
-    }
-
-    private fun applyResizeDuringIme(
-        width: Int,
-        height: Int,
-        terminalViewModel: TerminalViewModel,
-    ) {
-        if (predictiveRows > 0 && predictiveCols > 0) {
-            rows = predictiveRows
-            cols = predictiveCols
-            terminalViewModel.runtime.cellWidth = predictiveCellWidth
-            terminalViewModel.runtime.cellHeight = predictiveCellHeight
-        }
-        terminalViewModel.runtime.recomputeGrid(width, height)
-        val surface = cachedSurface
-        if (surface != null) {
-            val windowPointer = terminalViewModel.runtime.getNativeWindowPtr(surface)
-            if (windowPointer != 0L) {
-                terminalViewModel.runtime.updateNativeWindow(
-                    windowPointer,
-                    width,
-                    height,
-                )
-            }
-        }
-        imeAnimationEndRunnable?.let { removeCallbacks(it) }
-        imeAnimationEndRunnable =
-            Runnable {
-                imeAnimationInProgress = false
-                imeAnimationEndRunnable = null
-                val runtimeState = terminalViewModel.runtime.state.value
-                if (runtimeState.rows > 0 && runtimeState.cols > 0) {
-                    rows = runtimeState.rows
-                    cols = runtimeState.cols
-                }
-                lastConfiguredWidth = terminalViewModel.surfaceWidth
-                lastConfiguredHeight = terminalViewModel.surfaceHeight
-            }.also { postDelayed(it, RESIZE_SETTLE_MS) }
-        lastConfiguredWidth = width
-        lastConfiguredHeight = height
     }
 
     private fun applyResizeNormal(

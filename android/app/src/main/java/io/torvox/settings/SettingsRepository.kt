@@ -34,7 +34,6 @@ constructor(
         val KEYBOARD_MODE = stringPreferencesKey("keyboard_mode")
         val USB_SERIAL_ENABLED = booleanPreferencesKey("usb_serial_enabled")
         val MCP_SERVER_ENABLED = booleanPreferencesKey("mcp_server_enabled")
-        val VOLUME_KEY_MAP = booleanPreferencesKey("volume_key_map")
         val BACKGROUND_IMAGE_PATH = stringPreferencesKey("bg_image_path")
         val BACKGROUND_BLUR_RADIUS = intPreferencesKey("bg_blur_radius")
         val BACKGROUND_ALPHA = floatPreferencesKey("bg_alpha")
@@ -51,7 +50,7 @@ constructor(
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
         const val DEFAULT_THEME_MODE = "fixed"
         const val DEFAULT_TOUCH_BEHAVIOR = "right_click"
-        const val DEFAULT_KEYBOARD_MODE = "secure"
+        const val DEFAULT_KEYBOARD_MODE = "raw"
         const val DEFAULT_SHELL = "/system/bin/sh"
         const val DEFAULT_BACKGROUND_BLUR_RADIUS = 0
         const val DEFAULT_BACKGROUND_ALPHA = 0.8f
@@ -75,7 +74,6 @@ constructor(
     val keyboardMode: Flow<String> = provider.dataStore.data.map { it[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE }
     val usbSerialEnabled: Flow<Boolean> = provider.dataStore.data.map { it[Keys.USB_SERIAL_ENABLED] ?: false }
     val mcpServerEnabled: Flow<Boolean> = provider.dataStore.data.map { it[Keys.MCP_SERVER_ENABLED] ?: false }
-    val volumeKeyMap: Flow<Boolean> = provider.dataStore.data.map { it[Keys.VOLUME_KEY_MAP] ?: false }
     val backgroundImagePath: Flow<String> = provider.dataStore.data.map { it[Keys.BACKGROUND_IMAGE_PATH] ?: "" }
     val backgroundBlurRadius: Flow<Int> =
         provider.dataStore.data.map {
@@ -153,10 +151,6 @@ constructor(
 
     suspend fun setMcpServerEnabled(enabled: Boolean) {
         provider.dataStore.edit { it[Keys.MCP_SERVER_ENABLED] = enabled }
-    }
-
-    suspend fun setVolumeKeyMap(enabled: Boolean) {
-        provider.dataStore.edit { it[Keys.VOLUME_KEY_MAP] = enabled }
     }
 
     suspend fun setBackgroundImagePath(path: String) {

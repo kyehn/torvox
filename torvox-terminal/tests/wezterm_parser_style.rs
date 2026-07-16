@@ -654,7 +654,7 @@ fn wez_osc_4_query_color_0() {
     let resp = t.drain_pty_write_responses();
     if !resp.is_empty() {
         let text = String::from_utf8_lossy(resp.last().unwrap());
-        assert!(text.contains("0"), "OSC 4 query: response mentions color 0");
+        assert!(text.contains('0'), "OSC 4 query: response mentions color 0");
     }
     check_invariants(&t);
 }
@@ -733,7 +733,7 @@ fn wez_decrpm_mode_1_set_then_query() {
         // Response format: ESC [ ? mode ; status $ y
         // status 1 = SET, 2 = RESET, 3 = PSS, 4 = RTS, 0 = unknown
         assert!(
-            text.contains("1") || text.contains("\x1b[?"),
+            text.contains('1') || text.contains("\x1b[?"),
             "DECRPM 1 set: response mentions mode 1"
         );
     }
@@ -750,7 +750,7 @@ fn wez_decrpm_mode_1_reset_then_query() {
     if !resp.is_empty() {
         let text = String::from_utf8_lossy(resp.last().unwrap());
         assert!(
-            text.contains("1"),
+            text.contains('1'),
             "DECRPM 1 reset: response mentions mode 1"
         );
     }
@@ -766,7 +766,7 @@ fn wez_decrpm_mode_6_with_origin() {
     let resp = t.drain_pty_write_responses();
     if !resp.is_empty() {
         let text = String::from_utf8_lossy(resp.last().unwrap());
-        assert!(text.contains("6"), "DECRPM 6: mentions mode 6");
+        assert!(text.contains('6'), "DECRPM 6: mentions mode 6");
     }
     check_invariants(&t);
 }
@@ -807,7 +807,7 @@ fn wez_decrpm_mode_9_detection() {
     let resp = t.drain_pty_write_responses();
     if !resp.is_empty() {
         let text = String::from_utf8_lossy(resp.last().unwrap());
-        assert!(text.contains("9"), "DECRPM 9: mentions mode");
+        assert!(text.contains('9'), "DECRPM 9: mentions mode");
     }
     check_invariants(&t);
 }
@@ -1279,7 +1279,7 @@ fn wez_decrpm_origin_mode_cycle() {
     let resp = t.drain_pty_write_responses();
     if !resp.is_empty() {
         let text = String::from_utf8_lossy(resp.last().unwrap());
-        assert!(text.contains("6"), "DECRPM origin: mentions 6");
+        assert!(text.contains('6'), "DECRPM origin: mentions 6");
     }
     check_invariants(&t);
 }
@@ -1293,7 +1293,7 @@ fn wez_decrpm_auto_wrap_cycle() {
     let resp = t.drain_pty_write_responses();
     if !resp.is_empty() {
         let text = String::from_utf8_lossy(resp.last().unwrap());
-        assert!(text.contains("7"), "DECRPM wrap: mentions 7");
+        assert!(text.contains('7'), "DECRPM wrap: mentions 7");
     }
     check_invariants(&t);
 }
@@ -1307,7 +1307,7 @@ fn wez_decrpm_cursor_keys_cycle() {
     let resp = t.drain_pty_write_responses();
     if !resp.is_empty() {
         let text = String::from_utf8_lossy(resp.last().unwrap());
-        assert!(text.contains("1"), "DECRPM keys: mentions 1");
+        assert!(text.contains('1'), "DECRPM keys: mentions 1");
     }
     check_invariants(&t);
 }
@@ -1321,7 +1321,7 @@ fn wez_decrpm_insert_mode_cycle() {
     let resp = t.drain_pty_write_responses();
     if !resp.is_empty() {
         let text = String::from_utf8_lossy(resp.last().unwrap());
-        assert!(text.contains("4"), "DECRPM IRM: mentions 4");
+        assert!(text.contains('4'), "DECRPM IRM: mentions 4");
     }
     check_invariants(&t);
 }
@@ -1361,7 +1361,7 @@ fn wez_decrpm_mouse_x10() {
     let resp = t.drain_pty_write_responses();
     if !resp.is_empty() {
         let text = String::from_utf8_lossy(resp.last().unwrap());
-        assert!(text.contains("9"), "DECRPM x10: mentions 9");
+        assert!(text.contains('9'), "DECRPM x10: mentions 9");
     }
     check_invariants(&t);
 }

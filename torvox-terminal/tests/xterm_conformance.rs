@@ -127,6 +127,7 @@ fn sgr_256_color_grayscale() {
 }
 
 #[test]
+#[allow(clippy::many_single_char_names)]
 fn sgr_24bit_color() {
     let mut t = term(3, 40);
     t.vt_write(b"\x1b[38;2;255;128;0mX\x1b[0m");

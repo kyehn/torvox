@@ -385,7 +385,10 @@ private interface TorvoxNative : Library {
     // Raw C-ABI wrappers
     fun boltffi_torvox_bridge_render(handle: Long): Int
 
-    fun torvox_bridge_render(handle: Long): Int
+    fun torvox_bridge_render(
+        handle: Long,
+        skipOutput: Byte,
+    ): Int
 
     fun torvox_bridge_get_snapshot(
         handle: Long,
@@ -975,9 +978,9 @@ class TorvoxBridge(
         if (result != 0) throw RuntimeException("setNativeWindow failed with code $result")
     }
 
-    fun render(): Int {
+    fun render(skipOutput: Boolean = false): Int {
         ensureOpen()
-        return ensureLib().torvox_bridge_render(handle)
+        return ensureLib().torvox_bridge_render(handle, if (skipOutput) 1 else 0)
     }
 
     fun getSnapshot(
@@ -1286,7 +1289,7 @@ class TorvoxBridge(
     fun writeToPty(data: ByteArray): Boolean {
         val result = ensureLib().torvox_bridge_write_to_pty(handle, data, data.size)
         if (result == 0) {
-            ensureLib().torvox_bridge_render(handle)
+            ensureLib().torvox_bridge_render(handle, 0)
         }
         return result == 0
     }

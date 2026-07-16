@@ -157,7 +157,7 @@ fn bash_echo() {
 #[test]
 fn bash_pwd() {
     let output = run_command("pwd");
-    assert!(output.contains("/"), "got: {}", output);
+    assert!(output.contains('/'), "got: {}", output);
 }
 
 #[test]

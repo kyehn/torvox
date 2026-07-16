@@ -341,6 +341,18 @@ impl Session {
         Ok(())
     }
 
+    /// Send a POSIX signal (by number) to the child process backing this session.
+    /// Used by the MCP server's `send_signal` tool so an external controller can
+    /// interrupt / terminate a live shell.
+    pub fn send_signal(&self, signum: i32) -> Result<(), SessionError> {
+        let pid = self.pty.child_pid();
+        let signal = nix::sys::signal::Signal::try_from(signum)
+            .map_err(|error| SessionError::Ghostty(format!("invalid signal {signum}: {error}")))?;
+        nix::sys::signal::kill(pid, signal).map_err(|error| {
+            SessionError::Ghostty(format!("kill({pid}, {signal:?}) failed: {error}"))
+        })
+    }
+
     pub fn set_pixel_size(&mut self, width: u16, height: u16) {
         self.pty.set_pixel_size(width, height);
     }
@@ -360,6 +372,8 @@ impl Session {
     pub fn user_write_sender(&self) -> flume::Sender<Vec<u8>> {
         self.user_write_tx.clone()
     }
+
+    const MAX_CHUNKS_PER_FRAME: u32 = 10;
 
     pub fn process_output(&mut self) -> bool {
         let mut changed = false;
@@ -406,6 +420,19 @@ impl Session {
             self.terminal.pty_write(filtered);
             changed = true;
             count += 1;
+            // Cap per-frame processing to avoid one render call blocking
+            // the session lock for too long. Remaining chunks are processed
+            // on the next render frame at no correctness cost — the VT thread
+            // processes commands in FIFO order.
+            if count >= Self::MAX_CHUNKS_PER_FRAME {
+                log::trace!(
+                    "process_output: hit cap of {} chunks, {} remain",
+                    Self::MAX_CHUNKS_PER_FRAME,
+                    self.output_rx.len(),
+                );
+                self.terminal.flush();
+                break;
+            }
         }
         if count > 0 {
             log::trace!("process_output: processed {count} chunks");
@@ -524,6 +551,24 @@ impl Session {
     ) -> Option<Vec<u8>> {
         self.terminal
             .key_encode(key_code, modifiers, action, unicode_char, unshifted_char)
+    }
+
+    /// Submit a key for encoding and return a receiver for the result.
+    /// The caller should NOT hold any session lock while waiting on the returned receiver.
+    pub fn clone_cmd_tx(&self) -> flume::Sender<crate::ghostty_terminal::Command> {
+        self.terminal.clone_cmd_tx()
+    }
+
+    pub fn key_encode_submit(
+        &self,
+        key_code: u32,
+        modifiers: u16,
+        action: u8,
+        unicode_char: u32,
+        unshifted_char: u32,
+    ) -> Option<flume::Receiver<Vec<u8>>> {
+        self.terminal
+            .key_encode_submit(key_code, modifiers, action, unicode_char, unshifted_char)
     }
 
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {

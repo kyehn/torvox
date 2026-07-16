@@ -479,14 +479,6 @@ private fun TerminalConfigSection(
             accentColor = accentColor,
             cardBackground = backgroundColor,
         )
-        Spacer(modifier = Modifier.height(8.dp))
-        VolumeKeyMapToggle(
-            enabled = viewModel.volumeKeyMap.collectAsState().value,
-            onToggle = { viewModel.setVolumeKeyMap(it) },
-            textColor = textColor,
-            accentColor = accentColor,
-            cardBackground = backgroundColor,
-        )
     }
 }
 
@@ -1095,11 +1087,6 @@ private fun BootstrapSection(
                 termuxUrl,
                 stringResource(R.string.bootstrap_preset_termux_desc),
             ),
-            Triple(
-                stringResource(R.string.bootstrap_preset_custom),
-                "",
-                stringResource(R.string.bootstrap_preset_custom_desc),
-            ),
         )
     presets.forEachIndexed { index, preset ->
         BootstrapPresetItem(
@@ -1107,7 +1094,7 @@ private fun BootstrapSection(
             colors = PresetColors(accentColor, textColor, secondaryText),
             modifier =
             Modifier.testTag(
-                if (index == 0) "BootstrapPreset_TermuxDefault" else "BootstrapPreset_CustomEmpty",
+                "BootstrapPreset_TermuxDefault",
             ),
             onAction = {
                 url = preset.second
@@ -1130,40 +1117,42 @@ private fun BootstrapInstallButton(
     textColor: Color,
 ) {
     val progress = bootstrapProgress
-    Button(
-        onClick = onRunBootstrap,
-        enabled = !bootstrapRunning,
-        modifier = Modifier.fillMaxWidth().testTag("BootstrapInstallButton"),
-        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-    ) {
+    Column {
         if (bootstrapRunning) {
             LinearProgressIndicator(
                 progress = { progress?.overallProgress() ?: 0f },
-                modifier = Modifier.width(16.dp).height(16.dp),
+                modifier = Modifier.fillMaxWidth().height(4.dp).testTag("BootstrapProgressBar"),
                 color = textColor,
                 trackColor = textColor.copy(alpha = 0.2f),
             )
-            Spacer(modifier = Modifier.width(8.dp))
+            Spacer(modifier = Modifier.height(8.dp))
         }
-        Text(
-            text =
-            if (bootstrapRunning) {
-                progress?.stepDescription()
-                    ?: stringResource(R.string.bootstrap_installing)
-            } else {
-                stringResource(R.string.bootstrap_install)
-            },
-            color = textColor,
-        )
-    }
-    if (!bootstrapResult.isNullOrEmpty()) {
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = bootstrapResult,
-            style = MaterialTheme.typography.bodySmall,
-            color = textColor.copy(alpha = 0.7f),
-            modifier = Modifier.testTag("BootstrapResultText"),
-        )
+        Button(
+            onClick = onRunBootstrap,
+            enabled = !bootstrapRunning,
+            modifier = Modifier.fillMaxWidth().testTag("BootstrapInstallButton"),
+            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+        ) {
+            Text(
+                text =
+                if (bootstrapRunning) {
+                    progress?.stepDescription()
+                        ?: stringResource(R.string.bootstrap_installing)
+                } else {
+                    stringResource(R.string.bootstrap_install)
+                },
+                color = textColor,
+            )
+        }
+        if (!bootstrapResult.isNullOrEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = bootstrapResult,
+                style = MaterialTheme.typography.bodySmall,
+                color = textColor.copy(alpha = 0.7f),
+                modifier = Modifier.testTag("BootstrapResultText"),
+            )
+        }
     }
 }
 
@@ -1486,45 +1475,6 @@ private fun McpServerToggle(
             )
             Text(
                 text = stringResource(R.string.mcp_server_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = textColor.copy(alpha = 0.6f),
-            )
-        }
-        Switch(
-            checked = enabled,
-            onCheckedChange = onToggle,
-            colors =
-            SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = accentColor,
-                uncheckedThumbColor = textColor.copy(alpha = 0.6f),
-                uncheckedTrackColor = cardBackground,
-            ),
-        )
-    }
-}
-
-@Composable
-private fun VolumeKeyMapToggle(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-    cardBackground: Color,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.volume_key_map),
-                style = MaterialTheme.typography.bodyLarge,
-                color = textColor,
-            )
-            Text(
-                text = stringResource(R.string.volume_key_map_desc),
                 style = MaterialTheme.typography.bodySmall,
                 color = textColor.copy(alpha = 0.6f),
             )

@@ -3159,6 +3159,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "torvox-core",
+ "torvox-terminal",
 ]
 
 [[package]]

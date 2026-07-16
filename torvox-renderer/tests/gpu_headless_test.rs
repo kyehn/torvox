@@ -85,7 +85,7 @@ fn gpu_headless_render_red_quad() {
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("red quad shader"),
         source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(
-            r#"
+            r"
 @vertex
 fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
     let pos = array(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0));
@@ -96,7 +96,7 @@ fn vs(@builtin(vertex_index) vi: u32) -> @builtin(position) vec4f {
 fn fs() -> @location(0) vec4f {
     return vec4f(1.0, 0.0, 0.0, 1.0);
 }
-"#,
+",
         )),
     });
 

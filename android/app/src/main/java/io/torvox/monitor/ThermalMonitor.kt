@@ -21,24 +21,32 @@ class ThermalMonitor(
     private var thermalExecutor: java.util.concurrent.ExecutorService? = null
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
 
+    @Suppress("TooGenericExceptionCaught")
     fun register() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         thermalListener =
             PowerManager.OnThermalStatusChangedListener { status ->
                 onThermalStatusChanged(status)
             }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val executor =
-                Executors.newSingleThreadExecutor { r ->
-                    Thread(r, "ThermalMonitor").apply { isDaemon = true }
-                }
-            thermalExecutor = executor
-            pm.addThermalStatusListener(executor, thermalListener!!)
-        } else {
-            @Suppress("DEPRECATION")
-            pm.addThermalStatusListener(thermalListener!!)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                val executor =
+                    Executors.newSingleThreadExecutor { r ->
+                        Thread(r, "ThermalMonitor").apply { isDaemon = true }
+                    }
+                thermalExecutor = executor
+                pm.addThermalStatusListener(executor, thermalListener!!)
+            } else {
+                @Suppress("DEPRECATION")
+                pm.addThermalStatusListener(thermalListener!!)
+            }
+            Log.i(TAG, "ThermalStatusListener registered")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to register thermal status listener — not supported on this device/environment", e)
+            thermalListener = null
+            thermalExecutor?.shutdownNow()
+            thermalExecutor = null
         }
-        Log.i(TAG, "ThermalStatusListener registered")
     }
 
     fun unregister() {

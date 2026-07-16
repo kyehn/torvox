@@ -33,8 +33,6 @@
     <string name="bootstrap_presets">プリセット</string>
     <string name="bootstrap_preset_termux">Termux デフォルト</string>
     <string name="bootstrap_preset_termux_desc">bash、coreutils、パッケージマネージャーを含む標準Termuxブートストラップ</string>
-    <string name="bootstrap_preset_custom">カスタム / 空</string>
-    <string name="bootstrap_preset_custom_desc">空のrootファイルシステムで開始</string>
     <string name="bootstrap">ブートストラップ</string>
     <string name="bootstrap_install">ブートストラップをインストール</string>
     <string name="bootstrap_installing">インストール中\u2026</string>
@@ -121,9 +119,6 @@
     <string name="file_manager">ファイルマネージャー</string>
     <string name="cd_file_manager">ファイルマネージャーを開く</string>
 
-    <!-- Volume Key Mapping -->
-    <string name="volume_key_map">音量キーマッピング</string>
-    <string name="volume_key_map_desc">音量上げを Ctrl、音量下げを Fn に割り当て</string>
     <string name="install">インストール</string>
 
     <!-- Cursor Settings -->

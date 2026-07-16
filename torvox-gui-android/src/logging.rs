@@ -68,25 +68,25 @@ impl Log for TorvoxLogger {
         }
 
         // Write to file if a log file was configured
-        if let Ok(mut guard) = self.log_file.lock() {
-            if let Some(ref mut file) = *guard {
-                let _ = writeln!(
-                    file,
-                    "D {} {}:{}: {}",
-                    record.level(),
-                    tag,
-                    record.line().unwrap_or(0),
-                    msg,
-                );
-            }
+        if let Ok(mut guard) = self.log_file.lock()
+            && let Some(ref mut file) = *guard
+        {
+            let _ = writeln!(
+                file,
+                "D {} {}:{}: {}",
+                record.level(),
+                tag,
+                record.line().unwrap_or(0),
+                msg,
+            );
         }
     }
 
     fn flush(&self) {
-        if let Ok(mut guard) = self.log_file.lock() {
-            if let Some(ref mut file) = *guard {
-                let _ = file.flush();
-            }
+        if let Ok(mut guard) = self.log_file.lock()
+            && let Some(ref mut file) = *guard
+        {
+            let _ = file.flush();
         }
     }
 }
@@ -136,6 +136,11 @@ pub fn set_log_file_path(path: &str) {
 
 /// JNA export: initialise the logger once. Safe to call multiple times
 /// (idempotent via Once). Must be called before any log macro.
+///
+/// # Safety
+/// Must only be called from a context where JNA exports are valid (i.e., from
+/// the library's exported function table). The function itself delegates to the
+/// safe `init()` and has no direct unsafe operations.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn torvox_init_logger() {
     init();

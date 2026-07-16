@@ -138,6 +138,9 @@ dependencies {
 
     implementation("net.java.dev.jna:jna:5.19.1@aar")
 
+    // LeakCanary 3.x auto-installs. No Application code change needed.
+    debugImplementation("com.squareup.leakcanary:leakcanary-android:3.0-alpha-9")
+
     testImplementation("junit:junit:4.13.2")
     testImplementation("io.mockk:mockk:1.14.11")
     testImplementation("app.cash.turbine:turbine:1.2.1")

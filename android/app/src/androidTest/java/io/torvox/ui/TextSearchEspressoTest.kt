@@ -12,7 +12,7 @@ import androidx.test.filters.LargeTest
 import io.torvox.MainActivity
 import org.hamcrest.CoreMatchers.`is`
 import org.junit.Assert.assertNotNull
-import org.junit.Assume.assumeTrue
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -42,7 +42,7 @@ class TextSearchEspressoTest {
             val root = activity.findViewById<ViewGroup>(android.R.id.content)
             val found = findViewByTag(root, "TerminalSurfaceView")
             assertNotNull("TerminalSurfaceView should exist in hierarchy", found)
-            assumeTrue(found is ViewGroup)
+            assertTrue(found is ViewGroup)
         }
     }
 
@@ -51,7 +51,7 @@ class TextSearchEspressoTest {
         activityRule.scenario.onActivity { activity ->
             val content = activity.findViewById<ViewGroup>(android.R.id.content)
             assertNotNull("Content view should exist", content)
-            assumeTrue(content.childCount > 0)
+            assertTrue(content.childCount > 0)
         }
     }
 

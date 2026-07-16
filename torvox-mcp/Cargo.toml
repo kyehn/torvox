@@ -18,10 +18,18 @@ flume = { workspace = true }
 clap = { version = "4", features = ["derive"] }
 log = { workspace = true }
 env_logger = "0.11"
+torvox-terminal = { workspace = true, optional = true }
+
+[features]
+default = []
+live = ["dep:torvox-terminal"]
+mock = []
+emulator = ["mock"]
 
 [dev-dependencies]
 quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
+torvox-terminal = { workspace = true }
 
 [lints]
 workspace = true

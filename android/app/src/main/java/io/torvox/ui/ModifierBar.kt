@@ -565,7 +565,7 @@ private fun RowScope.ExtraKeyButton(
         if (onRepeat != null) {
             Modifier.pointerInput(Unit) {
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    awaitFirstDown()
                     val downPos = currentEvent.changes.first().position
                     val slop = viewConfiguration.touchSlop
                     isPressed = true
@@ -608,15 +608,37 @@ private fun RowScope.ExtraKeyButton(
         } else {
             Modifier.pointerInput(Unit) {
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    awaitFirstDown()
+                    val downPos = currentEvent.changes.first().position
+                    val slop = viewConfiguration.touchSlop
                     isPressed = true
                     try {
-                        val up = waitForUpOrCancellation()
-                        if (up != null) {
-                            view.performHapticFeedback(
-                                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
-                            )
-                            onClick()
+                        var gestureValid = true
+                        var upConsumed = false
+                        withTimeoutOrNull(DWELL_GUARD_MS) {
+                            while (true) {
+                                val ev = awaitPointerEvent()
+                                val ch = ev.changes.first()
+                                if (!ch.pressed) {
+                                    upConsumed = true
+                                    break
+                                }
+                                if ((ch.position - downPos).getDistance() > slop) {
+                                    gestureValid = false
+                                    break
+                                }
+                            }
+                        }
+                        if (!gestureValid) {
+                            isPressed = false
+                            return@awaitEachGesture
+                        }
+                        view.performHapticFeedback(
+                            android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                        )
+                        onClick()
+                        if (!upConsumed) {
+                            waitForUpOrCancellation()
                         }
                     } finally {
                         isPressed = false

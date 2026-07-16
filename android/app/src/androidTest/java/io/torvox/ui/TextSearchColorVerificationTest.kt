@@ -16,8 +16,8 @@ import io.torvox.MainActivity
 import io.torvox.getBridge
 import io.torvox.openDrawer
 import io.torvox.waitForSession
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
@@ -45,13 +45,13 @@ class TextSearchColorVerificationTest {
     fun a_searchFindsMarkerWithHighlight_colorsFromTheme() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge()
-        assumeTrue("Bridge must be available", bridge != null)
+        assertNotNull("Bridge must be available", bridge)
 
         generateContent(bridge!!, uniqueMarker, linesPerPage = 10, pages = 2)
         waitForTerminalStable()
 
         val textBefore = bridge.getTerminalText() ?: ""
-        assumeTrue("Terminal must contain marker", textBefore.contains(uniqueMarker))
+        assertTrue("Terminal must contain marker", textBefore.contains(uniqueMarker))
 
         openSearchAndType(uniqueMarker)
         waitForSearchStable()
@@ -76,13 +76,13 @@ class TextSearchColorVerificationTest {
     fun b_currentMatchDiffersFromOtherMatches() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge()
-        assumeTrue("Bridge must be available", bridge != null)
+        assertNotNull("Bridge must be available", bridge)
 
         generateContent(bridge!!, uniqueMarker, linesPerPage = 10, pages = 2)
         waitForTerminalStable()
 
         val textBefore = bridge.getTerminalText() ?: ""
-        assumeTrue("Terminal must contain marker", textBefore.contains(uniqueMarker))
+        assertTrue("Terminal must contain marker", textBefore.contains(uniqueMarker))
 
         openSearchAndType(uniqueMarker)
         waitForSearchStable()
@@ -104,10 +104,10 @@ class TextSearchColorVerificationTest {
     fun c_noHighlightWhenNoMatch() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge()
-        assumeTrue("Bridge must be available", bridge != null)
+        assertNotNull("Bridge must be available", bridge)
 
         val textBefore = bridge!!.getTerminalText() ?: ""
-        assumeTrue("Terminal should have content", textBefore.isNotEmpty())
+        assertTrue("Terminal should have content", textBefore.isNotEmpty())
 
         openSearchAndType("ZZZ_XYZZZZ_99999")
         waitForSearchStable()
@@ -125,14 +125,14 @@ class TextSearchColorVerificationTest {
     fun d_searchCaseSensitive_affectsHighlights() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge()
-        assumeTrue("Bridge must be available", bridge != null)
+        assertNotNull("Bridge must be available", bridge)
 
         bridge!!.writeToPty("echo '${uniqueMarker}_mixed'\n".toByteArray())
         bridge.writeToPty("echo '${uniqueMarker.uppercase()}_MIXED'\n".toByteArray())
         waitForTerminalStable()
 
         val text = bridge.getTerminalText() ?: ""
-        assumeTrue("Terminal must contain markers", text.contains("${uniqueMarker}_mixed"))
+        assertTrue("Terminal must contain markers", text.contains("${uniqueMarker}_mixed"))
 
         openSearchAndType("${uniqueMarker}_mixed")
         waitForSearchStable()
