@@ -34,6 +34,7 @@ impl CsiSequence {
         }
     }
 
+    /// Create a CSI sequence with the given parameters and final byte.
     pub fn with_params(params: Vec<u16>, final_byte: u8) -> Self {
         Self {
             params,
@@ -67,6 +68,7 @@ impl CsiSequence {
         }
     }
 
+    /// Return the second parameter, or the default if absent or zero.
     pub fn second_param_or(&self, default: u16) -> u16 {
         match self.params.get(1) {
             Some(&0) | None => default,
@@ -82,6 +84,7 @@ pub struct OscSequence {
 }
 
 impl OscSequence {
+    /// Create an empty OSC sequence with no parameters.
     pub fn new() -> Self {
         Self { params: Vec::new() }
     }
@@ -101,6 +104,7 @@ pub struct EscSequence {
 }
 
 impl EscSequence {
+    /// Create an ESC sequence with the given final byte and no intermediate byte.
     pub fn new(final_byte: u8) -> Self {
         Self {
             intermediate: None,
@@ -108,6 +112,7 @@ impl EscSequence {
         }
     }
 
+    /// Create an ESC sequence with both an intermediate and final byte.
     pub fn with_intermediate(intermediate: u8, final_byte: u8) -> Self {
         Self {
             intermediate: Some(intermediate),
@@ -128,64 +133,118 @@ pub enum VtSequence {
 
 /// CSI sequence final byte identifiers
 pub mod csi_final {
-    pub const CUU: u8 = b'A'; // Cursor Up
-    pub const CUD: u8 = b'B'; // Cursor Down
-    pub const CUF: u8 = b'C'; // Cursor Forward
-    pub const CUB: u8 = b'D'; // Cursor Back
-    pub const CNL: u8 = b'E'; // Cursor Next Line
-    pub const CPL: u8 = b'F'; // Cursor Previous Line
-    pub const CHA: u8 = b'G'; // Cursor Horizontal Absolute
-    pub const CUP: u8 = b'H'; // Cursor Position
-    pub const CHT: u8 = b'I'; // Cursor Horizontal Tab
-    pub const ED: u8 = b'J'; // Erase in Display
-    pub const EL: u8 = b'K'; // Erase in Line
-    pub const IL: u8 = b'L'; // Insert Lines
-    pub const DL: u8 = b'M'; // Delete Lines
-    pub const DCH: u8 = b'P'; // Delete Characters
-    pub const SU: u8 = b'S'; // Scroll Up
-    pub const SD: u8 = b'T'; // Scroll Down
-    pub const ECH: u8 = b'X'; // Erase Characters
-    pub const CBT: u8 = b'Z'; // Cursor Backward Tab
-    pub const HPA: u8 = b'`'; // Horizontal Position Absolute
-    pub const REP: u8 = b'b'; // Repeat
-    pub const DA: u8 = b'c'; // Device Attributes
-    pub const VPA: u8 = b'd'; // Vertical Position Absolute
-    pub const HVP: u8 = b'f'; // Horizontal and Vertical Position
-    pub const SM: u8 = b'h'; // Set Mode
-    pub const RM: u8 = b'l'; // Reset Mode
-    pub const SGR: u8 = b'm'; // Select Graphic Rendition
-    pub const DSR: u8 = b'n'; // Device Status Report
-    pub const DECSTBM: u8 = b'r'; // Set Scrolling Region
-    pub const SCP: u8 = b's'; // Save Cursor Position
-    pub const RCP: u8 = b'u'; // Restore Cursor Position
+    /// CSI final byte for Cursor Up (CUU).
+    pub const CUU: u8 = b'A';
+    /// CSI final byte for Cursor Down (CUD).
+    pub const CUD: u8 = b'B';
+    /// CSI final byte for Cursor Forward (CUF).
+    pub const CUF: u8 = b'C';
+    /// CSI final byte for Cursor Back (CUB).
+    pub const CUB: u8 = b'D';
+    /// CSI final byte for Cursor Next Line (CNL).
+    pub const CNL: u8 = b'E';
+    /// CSI final byte for Cursor Previous Line (CPL).
+    pub const CPL: u8 = b'F';
+    /// CSI final byte for Cursor Horizontal Absolute (CHA).
+    pub const CHA: u8 = b'G';
+    /// CSI final byte for Cursor Position (CUP).
+    pub const CUP: u8 = b'H';
+    /// CSI final byte for Cursor Horizontal Tab (CHT).
+    pub const CHT: u8 = b'I';
+    /// CSI final byte for Erase in Display (ED).
+    pub const ED: u8 = b'J';
+    /// CSI final byte for Erase in Line (EL).
+    pub const EL: u8 = b'K';
+    /// CSI final byte for Insert Lines (IL).
+    pub const IL: u8 = b'L';
+    /// CSI final byte for Delete Lines (DL).
+    pub const DL: u8 = b'M';
+    /// CSI final byte for Delete Characters (DCH).
+    pub const DCH: u8 = b'P';
+    /// CSI final byte for Scroll Up (SU).
+    pub const SU: u8 = b'S';
+    /// CSI final byte for Scroll Down (SD).
+    pub const SD: u8 = b'T';
+    /// CSI final byte for Erase Characters (ECH).
+    pub const ECH: u8 = b'X';
+    /// CSI final byte for Cursor Backward Tab (CBT).
+    pub const CBT: u8 = b'Z';
+    /// CSI final byte for Horizontal Position Absolute (HPA).
+    pub const HPA: u8 = b'`';
+    /// CSI final byte for Repeat (REP).
+    pub const REP: u8 = b'b';
+    /// CSI final byte for Device Attributes (DA).
+    pub const DA: u8 = b'c';
+    /// CSI final byte for Vertical Position Absolute (VPA).
+    pub const VPA: u8 = b'd';
+    /// CSI final byte for Horizontal and Vertical Position (HVP).
+    pub const HVP: u8 = b'f';
+    /// CSI final byte for Set Mode (SM).
+    pub const SM: u8 = b'h';
+    /// CSI final byte for Reset Mode (RM).
+    pub const RM: u8 = b'l';
+    /// CSI final byte for Select Graphic Rendition (SGR).
+    pub const SGR: u8 = b'm';
+    /// CSI final byte for Device Status Report (DSR).
+    pub const DSR: u8 = b'n';
+    /// CSI final byte for Set Scrolling Region (DECSTBM).
+    pub const DECSTBM: u8 = b'r';
+    /// CSI final byte for Save Cursor Position (SCP).
+    pub const SCP: u8 = b's';
+    /// CSI final byte for Restore Cursor Position (RCP).
+    pub const RCP: u8 = b'u';
 }
 
 /// DEC private mode identifiers
 pub mod dec_mode {
-    pub const DECCKM: u16 = 1; // Cursor keys mode
-    pub const DECANM: u16 = 2; // ANSI/VT52 mode
-    pub const DECCOLM: u16 = 3; // 132 column mode
-    pub const DECSCLM: u16 = 4; // Smooth scroll
-    pub const DECSCNM: u16 = 5; // Reverse video
-    pub const DECOM: u16 = 6; // Origin mode
-    pub const DECAWM: u16 = 7; // Auto-wrap mode
-    pub const DECARM: u16 = 8; // Auto-repeat keys
-    pub const DECINLM: u16 = 9; // Interlace scrolling
-    pub const LNM: u16 = 20; // Line feed / newline mode
-    pub const DECTCEM: u16 = 25; // Text cursor enable
-    pub const DECCOLM_ALLOW: u16 = 40; // Allow 132 columns
-    pub const DECCOLM_SET: u16 = 40; // Allow 80→132 column switching
-    pub const DEC_ALT_47: u16 = 47; // Use alternate screen buffer
-    pub const DEC_ALT_1047: u16 = 1047; // Use alternate screen buffer (no saved cursor)
-    pub const DECSCOSC: u16 = 1048; // Save/restore cursor
-    pub const DEC_ALT_1049: u16 = 1049; // Use alternate screen + save cursor
-    pub const BRACKETED_PASTE: u16 = 2004; // Bracketed paste mode
-    pub const MOUSE_X10: u16 = 9; // X10 mouse
-    pub const MOUSE_BTN: u16 = 1000; // Button-event mouse tracking
-    pub const MOUSE_DRAG: u16 = 1002; // Drag-event mouse tracking
-    pub const MOUSE_ANY: u16 = 1003; // Any-event mouse tracking
-    pub const MOUSE_FOCUS: u16 = 1004; // Focus event mouse
-    pub const MOUSE_SGR: u16 = 1006; // SGR mouse encoding
+    /// Cursor keys mode — application vs. normal cursor key mode.
+    pub const DECCKM: u16 = 1;
+    /// ANSI/VT52 mode selection.
+    pub const DECANM: u16 = 2;
+    /// 132 column mode (DECCOLM).
+    pub const DECCOLM: u16 = 3;
+    /// Smooth scroll mode.
+    pub const DECSCLM: u16 = 4;
+    /// Reverse video mode.
+    pub const DECSCNM: u16 = 5;
+    /// Origin mode — cursor relative to scrolling region.
+    pub const DECOM: u16 = 6;
+    /// Auto-wrap mode — wrap at right margin.
+    pub const DECAWM: u16 = 7;
+    /// Auto-repeat keys mode.
+    pub const DECARM: u16 = 8;
+    /// Interlace scrolling mode.
+    pub const DECINLM: u16 = 9;
+    /// Line feed / newline mode — LF also performs carriage return.
+    pub const LNM: u16 = 20;
+    /// Text cursor enable (DECTCEM) — show/hide the cursor.
+    pub const DECTCEM: u16 = 25;
+    /// Allow 132 column mode switching.
+    pub const DECCOLM_ALLOW: u16 = 40;
+    /// Allow 80-to-132 column switching.
+    pub const DECCOLM_SET: u16 = 40;
+    /// Alternate screen buffer (legacy, no saved cursor).
+    pub const DEC_ALT_47: u16 = 47;
+    /// Alternate screen buffer (no saved cursor, newer variant).
+    pub const DEC_ALT_1047: u16 = 1047;
+    /// Save and restore cursor position.
+    pub const DECSCOSC: u16 = 1048;
+    /// Alternate screen buffer with save/restore cursor.
+    pub const DEC_ALT_1049: u16 = 1049;
+    /// Bracketed paste mode — wraps pasted text in escape sequences.
+    pub const BRACKETED_PASTE: u16 = 2004;
+    /// X10 mouse reporting mode.
+    pub const MOUSE_X10: u16 = 9;
+    /// Button-event mouse tracking — report button press/release.
+    pub const MOUSE_BTN: u16 = 1000;
+    /// Drag-event mouse tracking — report button press and motion.
+    pub const MOUSE_DRAG: u16 = 1002;
+    /// Any-event mouse tracking — report all mouse motion.
+    pub const MOUSE_ANY: u16 = 1003;
+    /// Focus event mouse reporting — send focus in/out events.
+    pub const MOUSE_FOCUS: u16 = 1004;
+    /// SGR mouse encoding — extended coordinates with button modifiers.
+    pub const MOUSE_SGR: u16 = 1006;
 }
 
 #[cfg(test)]

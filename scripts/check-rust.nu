@@ -23,7 +23,12 @@ def main [] {
         do { RUSTC=$RUSTC cargo fuzz run --fuzz-dir fuzz $target -- -max_total_time=5 }
         let exit_code = $env.LAST_EXIT_CODE
         if $exit_code != 0 {
-            print $"fuzz_($target) exited ($exit_code). Artifacts in fuzz/artifacts/($target)/."
+            print $"⚠  fuzz_($target) exited ($exit_code). This is NOT a CI failure."
+            print $"   Artifacts in fuzz/artifacts/($target)/ — investigate before merging."
         }
     }
+
+    print "=== fuzz summary ==="
+    print "Fuzz failures are informational — they do not fail CI."
+    print "Check fuzz/artifacts/ for crash reproduction files."
 }
