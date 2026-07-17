@@ -10,6 +10,7 @@
 pub mod bridge;
 #[cfg(target_os = "android")]
 pub mod jni_bridge;
+mod lock_util;
 #[cfg(target_os = "android")]
 pub mod logging;
 pub mod surface;
