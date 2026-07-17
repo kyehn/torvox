@@ -24,6 +24,19 @@ use torvox_terminal::session::Session;
 /// Maximum rows we walk when collecting scrollback text from the VT thread.
 const SCROLLBACK_READ_LIMIT: u32 = 5000;
 
+fn lock_or_recover<'a, T>(
+    mutex: &'a std::sync::Mutex<T>,
+    context: &str,
+) -> std::sync::MutexGuard<'a, T> {
+    match mutex.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::warn!("{context}: mutex poisoned, recovered");
+            poisoned.into_inner()
+        }
+    }
+}
+
 fn color_to_u8(value: f32) -> u8 {
     (value.clamp(0.0, 1.0) * 255.0).round() as u8
 }
@@ -54,7 +67,7 @@ impl LiveShellStore {
         let session = Session::spawn(shell, rows, cols, &ShellEnv::default())
             .expect("failed to spawn live shell session");
         let id = {
-            let mut next = self.next_id.lock().unwrap();
+            let mut next = lock_or_recover(&self.next_id, "spawn_session::next_id");
             let id = *next;
             *next += 1;
             id
@@ -78,14 +91,12 @@ impl LiveShellStore {
                 std::thread::sleep(Duration::from_millis(10));
             }
         });
-        self.sessions.lock().unwrap().insert(id, arc);
+        lock_or_recover(&self.sessions, "spawn_session::sessions").insert(id, arc);
         id
     }
 
     fn lock_session(&self, session_id: u32) -> Result<Arc<Mutex<Session>>, String> {
-        self.sessions
-            .lock()
-            .unwrap()
+        lock_or_recover(&self.sessions, "lock_session::sessions")
             .get(&session_id)
             .cloned()
             .ok_or_else(|| format!("session {session_id} not found"))
@@ -121,11 +132,11 @@ impl SessionStore for LiveShellStore {
     fn read(&self, req: ReadRequest) -> Result<ReadResponse, String> {
         match req {
             ReadRequest::Sessions => {
-                let sessions = self.sessions.lock().unwrap();
+                let sessions = lock_or_recover(&self.sessions, "read::sessions");
                 let infos: Vec<SessionInfo> = sessions
                     .iter()
                     .map(|(id, arc)| {
-                        let s = arc.lock().unwrap();
+                        let s = lock_or_recover(arc, "read::sessions::item");
                         SessionInfo {
                             id: *id,
                             title: s.title(),
@@ -141,7 +152,7 @@ impl SessionStore for LiveShellStore {
             }
             ReadRequest::Grid { session_id } => {
                 let arc = self.lock_session(session_id)?;
-                let mut s = arc.lock().unwrap();
+                let mut s = lock_or_recover(&arc, "read::grid");
                 s.process_output();
                 let snap = s.terminal().take_snapshot();
                 let cols = snap.cols.max(1);
@@ -187,13 +198,13 @@ impl SessionStore for LiveShellStore {
                 max_lines,
             } => {
                 let arc = self.lock_session(session_id)?;
-                let mut s = arc.lock().unwrap();
+                let mut s = lock_or_recover(&arc, "read::scrollback");
                 let lines = self.collect_lines(&mut s, max_lines as usize);
                 Ok(ReadResponse::Scrollback(lines))
             }
             ReadRequest::Cursor { session_id } => {
                 let arc = self.lock_session(session_id)?;
-                let mut s = arc.lock().unwrap();
+                let mut s = lock_or_recover(&arc, "read::cursor");
                 s.process_output();
                 let term = s.terminal();
                 Ok(ReadResponse::Cursor {
@@ -208,7 +219,7 @@ impl SessionStore for LiveShellStore {
             }
             ReadRequest::Title { session_id } => {
                 let arc = self.lock_session(session_id)?;
-                let s = arc.lock().unwrap();
+                let s = lock_or_recover(&arc, "read::title");
                 Ok(ReadResponse::Title(s.title()))
             }
             ReadRequest::ScrollbackSearch {
@@ -217,7 +228,7 @@ impl SessionStore for LiveShellStore {
                 max_matches,
             } => {
                 let arc = self.lock_session(session_id)?;
-                let mut s = arc.lock().unwrap();
+                let mut s = lock_or_recover(&arc, "read::scrollback_search");
                 let lines = self.collect_lines(&mut s, SCROLLBACK_READ_LIMIT as usize);
                 let mut matches = Vec::new();
                 for (line_number, line) in lines.iter().enumerate() {
@@ -238,7 +249,7 @@ impl SessionStore for LiveShellStore {
             }
             ReadRequest::TerminalSize { session_id } => {
                 let arc = self.lock_session(session_id)?;
-                let s = arc.lock().unwrap();
+                let s = lock_or_recover(&arc, "read::terminal_size");
                 let term = s.terminal();
                 Ok(ReadResponse::TerminalSize {
                     rows: term.rows(),
@@ -284,14 +295,14 @@ impl SessionStore for LiveShellStore {
                 })
             }
             ReadRequest::ReadClipboard => Ok(ReadResponse::ClipboardContent(
-                self.clipboard.lock().unwrap().clone(),
+                lock_or_recover(&self.clipboard, "read::clipboard").clone(),
             )),
         }
     }
 
     fn write(&self, session_id: u32, data: Vec<u8>) -> Result<(), String> {
         let arc = self.lock_session(session_id)?;
-        let mut s = arc.lock().unwrap();
+        let mut s = lock_or_recover(&arc, "write");
         s.write(&data).map_err(|e| e.to_string())
     }
 
@@ -303,32 +314,33 @@ impl SessionStore for LiveShellStore {
             SignalKind::Terminate => 15,
         };
         let arc = self.lock_session(session_id)?;
-        let s = arc.lock().unwrap();
+        let s = lock_or_recover(&arc, "signal");
         s.send_signal(signum).map_err(|e| e.to_string())
     }
 
     fn set_terminal_size(&self, session_id: u32, rows: u32, cols: u32) -> Result<(), String> {
         let arc = self.lock_session(session_id)?;
-        let mut s = arc.lock().unwrap();
+        let mut s = lock_or_recover(&arc, "set_terminal_size");
         s.resize(rows, cols).map_err(|e| e.to_string())
     }
 
     fn write_clipboard(&self, text: &str) -> Result<(), String> {
-        *self.clipboard.lock().unwrap() = text.to_string();
+        *lock_or_recover(&self.clipboard, "write_clipboard") = text.to_string();
         Ok(())
     }
 
     fn read_clipboard(&self) -> Result<String, String> {
-        Ok(self.clipboard.lock().unwrap().clone())
+        Ok(lock_or_recover(&self.clipboard, "read_clipboard").clone())
     }
 
     fn raise_notification(&self, title: &str, body: &str) -> Result<(), String> {
-        *self.notification.lock().unwrap() = Some((title.to_string(), body.to_string()));
+        *lock_or_recover(&self.notification, "raise_notification") =
+            Some((title.to_string(), body.to_string()));
         Ok(())
     }
 
     fn scroll_terminal(&self, _session_id: u32, lines: i32) -> Result<i32, String> {
-        let mut offset = self.scroll_offset.lock().unwrap();
+        let mut offset = lock_or_recover(&self.scroll_offset, "scroll_terminal");
         *offset += lines;
         Ok(*offset)
     }
@@ -343,7 +355,7 @@ impl SessionStore for LiveShellStore {
         max_lines: usize,
     ) -> Result<Vec<String>, String> {
         let arc = self.lock_session(session_id)?;
-        let mut s = arc.lock().unwrap();
+        let mut s = lock_or_recover(&arc, "read_scrollback_tail");
         let lines = self.collect_lines(&mut s, max_lines);
         Ok(lines)
     }

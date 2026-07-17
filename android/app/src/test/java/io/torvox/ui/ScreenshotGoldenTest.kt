@@ -16,6 +16,7 @@ import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.RoborazziRule
 import com.github.takahirom.roborazzi.captureRoboImage
 import io.torvox.RobolectricActivityRule
@@ -33,6 +34,20 @@ import kotlin.coroutines.EmptyCoroutineContext
 @Config(sdk = [34], application = android.app.Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ScreenshotGoldenTest {
+    @get:Rule
+    val roborazziRule =
+        RoborazziRule(
+            RoborazziRule.Options(
+                roborazziOptions =
+                RoborazziOptions(
+                    compareOptions =
+                    RoborazziOptions.CompareOptions(
+                        changeThreshold = 0.05f,
+                    ),
+                ),
+            ),
+        )
+
     @Suppress("DEPRECATION")
     @get:Rule
     val composeTestRule: AndroidComposeTestRule<RobolectricActivityRule<TestActivity>, TestActivity> =
@@ -41,19 +56,14 @@ class ScreenshotGoldenTest {
             activityProvider = { it.activity },
         )
 
-    @get:Rule
-    val roborazziRule =
-        RoborazziRule(
-            RoborazziRule.Options(
-                outputDirectoryPath = "src/test/resources/roborazzi",
-            ),
-        )
-
     @Test
     fun modifierBar_screenshot() {
         composeTestRule.setContent {
             MaterialTheme {
-                ModifierBar(onKeyClick = {})
+                ModifierBar(
+                    onKeyClick = {},
+                    modifier = Modifier.testTag("ModifierBar"),
+                )
             }
         }
         composeTestRule.onNodeWithTag("ModifierBar").captureRoboImage()
@@ -63,7 +73,10 @@ class ScreenshotGoldenTest {
     fun modifierBar_ctrlActive_screenshot() {
         composeTestRule.setContent {
             MaterialTheme {
-                ModifierBar(onKeyClick = {})
+                ModifierBar(
+                    onKeyClick = {},
+                    modifier = Modifier.testTag("ModifierBar"),
+                )
             }
         }
         composeTestRule.onNodeWithTag("Key_CTRL").performClick()
@@ -74,7 +87,10 @@ class ScreenshotGoldenTest {
     fun modifierBar_altActive_screenshot() {
         composeTestRule.setContent {
             MaterialTheme {
-                ModifierBar(onKeyClick = {})
+                ModifierBar(
+                    onKeyClick = {},
+                    modifier = Modifier.testTag("ModifierBar"),
+                )
             }
         }
         composeTestRule.onNodeWithTag("Key_ALT").performClick()

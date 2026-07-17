@@ -11,6 +11,7 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
+import android.view.ActionMode
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -247,6 +248,13 @@ class MainActivity : ComponentActivity() {
                 Log.d("Torvox", "showPaste: row=$row col=$col")
             }
         }
+
+    override fun onWindowStartingActionMode(
+        callback: ActionMode.Callback,
+        type: Int,
+    ): ActionMode? = null
+
+    override fun onWindowStartingActionMode(callback: ActionMode.Callback): ActionMode? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

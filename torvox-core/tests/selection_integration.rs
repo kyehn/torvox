@@ -357,3 +357,61 @@ fn block_selection_all_null_row() {
     );
     assert_eq!(sel.text(&grid), "   \n   ");
 }
+
+#[test]
+fn semantic_selection_single_line_url() {
+    let grid = make_grid(&["visit https://example.com/path for info"]);
+    let s = Selection::new(
+        SelectionAnchor { row: 0, col: 15 },
+        SelectionAnchor { row: 0, col: 15 },
+        SelectionMode::Semantic,
+    );
+    let expanded = s.expand(|r, c| grid.cell(r, c).map(|c| c.char));
+    assert_eq!(expanded.start.col, 6, "url prefix start");
+    assert_eq!(expanded.end.col, 29, "url path end");
+    assert_eq!(expanded.text(&grid), "https://example.com/path");
+}
+
+#[test]
+fn semantic_selection_cross_row_url() {
+    let mut grid = Grid::new(2, 50);
+    let line0 = "prefix https://example.com/long-";
+    let line1 = "url-continuation-more more suffix";
+    for (col, ch) in line0.chars().enumerate() {
+        grid.cell_mut(0, col as u32).unwrap().char = ch;
+    }
+    for (col, ch) in line1.chars().enumerate() {
+        grid.cell_mut(1, col as u32).unwrap().char = ch;
+    }
+    let s = Selection::new(
+        SelectionAnchor { row: 0, col: 10 },
+        SelectionAnchor { row: 0, col: 10 },
+        SelectionMode::Semantic,
+    );
+    let expanded = s.expand(|r, c| grid.cell(r, c).map(|c| c.char));
+    assert_eq!(expanded.start.row, 0);
+    assert_eq!(expanded.start.col, 7);
+    assert_eq!(expanded.end.row, 1);
+    assert_eq!(expanded.end.col, 20);
+    let text = expanded.text(&grid);
+    assert!(
+        text.contains("https://example.com/long-"),
+        "url should start on row 0, got '{text}'"
+    );
+    assert!(
+        text.contains("url-continuation-more"),
+        "url should continue on row 1, got '{text}'"
+    );
+}
+
+#[test]
+fn semantic_selection_single_row_text() {
+    let grid = make_grid(&["select just this word"]);
+    let s = Selection::new(
+        SelectionAnchor { row: 0, col: 7 },
+        SelectionAnchor { row: 0, col: 7 },
+        SelectionMode::Semantic,
+    );
+    let expanded = s.expand(|r, c| grid.cell(r, c).map(|c| c.char));
+    assert_eq!(expanded.text(&grid), "just");
+}

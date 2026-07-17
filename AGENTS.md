@@ -6,6 +6,12 @@ Torvox is a GPU-accelerated Android terminal emulator using wgpu (Vulkan) for re
 
 ## Setup and Commands
 
+One-time setup:
+```bash
+git config core.hooksPath .githooks
+```
+
+Commands:
 ```bash
 cargo test --workspace # All Rust tests
 cargo clippy --all -- --deny warnings # Lint
@@ -22,7 +28,9 @@ cargo test run --package torvox-core --test property_tests
 
 ## Before Commit
 
-Checklist:
+Checklist (run `git config core.hooksPath .githooks` once before first commit):
+
+
 
 1. `cargo test --workspace` exits 0
 2. `cargo clippy --all -- --deny warnings` exits 0
@@ -30,6 +38,20 @@ Checklist:
 4. `cd android && ./gradlew spotlessCheck detekt` exits 0
 5. `cargo geiger --package torvox-core` shows no new `unsafe`
 6. Bridge type sync: if `torvox-core` types changed, `bridge.rs` + `TorvoxBridge.kt` updated
+
+---
+
+## Hooks
+
+Install once:
+```bash
+git config core.hooksPath .githooks
+```
+
+- `.githooks/commit-msg` — Advisory conventional commit check. Warns on bad format, blocks "changes"/"wip" messages.
+- `.githooks/pre-push` — Runs `cargo fmt --check`, `cargo clippy --all -- --deny warnings`, `./gradlew spotlessCheck` before push (30s timeout per command).
+
+Use `git push --no-verify` to bypass hooks in emergencies (e.g., broken toolchain).
 
 ---
 

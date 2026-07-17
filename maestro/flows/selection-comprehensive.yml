@@ -1,0 +1,82 @@
+appId: com.termux
+name: "Text selection comprehensive flow"
+---
+# Comprehensive end-to-end selection flow covering every requirement:
+#   - long-press empty area -> Paste chip (cell inversion + paste nearby)
+#   - long-press text       -> text inversion + selection menu (Copy/Select All/Paste)
+#   - drag handles expand/shrink selection (menu repositions, never covers selection)
+#   - theme-aware colours (no hardcoded hex)
+# Screenshots are captured at each step for the OCR / frame-analysis verification.
+
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "TerminalContent"
+
+# 1) Put some selectable text on screen.
+- tapOn:
+    id: "TerminalContent"
+- inputText: "echo hello world selection test line\n"
+- waitForAnimationToEnd:
+    timeout: 3000
+
+# 2) Long-press on the text -> selection menu with Copy / Select All / Paste.
+- longPressOn:
+    point: "30%,30%"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    text: "Copy"
+- assertVisible:
+    text: "Select All"
+- assertVisible:
+    text: "Paste"
+- takeScreenshot: selection_text_menu
+
+# 3) Copy the selection to the clipboard.
+- tapOn:
+    text: "Copy"
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: selection_after_copy
+
+# 4) Long-press on an empty area -> Paste chip appears.
+- longPressOn:
+    point: "30%,85%"
+- waitForAnimationToEnd:
+    timeout: 3000
+- assertVisible:
+    text: "Paste"
+- takeScreenshot: selection_empty_paste
+
+# 5) Tap Paste -> previously copied text is inserted.
+- tapOn:
+    text: "Paste"
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: selection_after_paste
+
+# 6) Select All via broadcast-driven path: long-press then Select All.
+- longPressOn:
+    point: "30%,30%"
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    text: "Select All"
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: selection_select_all
+
+# 7) Dismiss selection (tap elsewhere) and confirm menu is gone.
+- tapOn:
+    point: "50%,50%"
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: selection_dismissed

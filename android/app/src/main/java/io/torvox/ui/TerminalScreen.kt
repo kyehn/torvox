@@ -5,6 +5,7 @@ package io.torvox.ui
 import android.graphics.RectF
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -58,6 +59,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.torvox.R
+import io.torvox.SelectionAnchor
 import io.torvox.SelectionState
 import io.torvox.TerminalViewModel
 import io.torvox.ui.theme.BuiltInThemes
@@ -221,11 +223,11 @@ fun TerminalScreen(
 
         Box(
             modifier =
-            Modifier
-                .fillMaxSize()
-                .testTag("TerminalScreen")
-                .background(terminalBg)
-                .statusBarsPadding(),
+                Modifier
+                    .fillMaxSize()
+                    .testTag("TerminalScreen")
+                    .background(terminalBg)
+                    .statusBarsPadding(),
         ) {
             LaunchedEffect(drawerState.isOpen) {
                 surfaceRef.value?.drawerOpen = drawerState.isOpen
@@ -316,17 +318,17 @@ fun TerminalScreen(
 
             Column(
                 modifier =
-                Modifier
-                    .fillMaxSize()
-                    .testTag("TerminalContent")
-                    .navigationBarsPadding(),
+                    Modifier
+                        .fillMaxSize()
+                        .testTag("TerminalContent")
+                        .navigationBarsPadding(),
             ) {
                 // Terminal content area — stays full height behind IME
                 Box(
                     modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
+                        Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
                 ) {
                     AndroidView(
                         factory = { context ->
@@ -394,7 +396,7 @@ fun TerminalScreen(
                                 (
                                     surface.getRows() != runtimeState.rows ||
                                         surface.getCols() != runtimeState.cols
-                                    )
+                                )
                             ) {
                                 surface.setDimensions(runtimeState.rows, runtimeState.cols)
                                 surface.requestLayout()
@@ -419,12 +421,13 @@ fun TerminalScreen(
                         }
                         val themeAccent = if (state.selectionAccent != 0) Color(state.selectionAccent) else resolvedTerminalTheme.foreground
 
-                        fun colorToArgb(color: androidx.compose.ui.graphics.Color): Int = android.graphics.Color.argb(
-                            (color.alpha * 255).toInt(),
-                            (color.red * 255).toInt(),
-                            (color.green * 255).toInt(),
-                            (color.blue * 255).toInt(),
-                        )
+                        fun colorToArgb(color: androidx.compose.ui.graphics.Color): Int =
+                            android.graphics.Color.argb(
+                                (color.alpha * 255).toInt(),
+                                (color.red * 255).toInt(),
+                                (color.green * 255).toInt(),
+                                (color.blue * 255).toInt(),
+                            )
                         val themeAccentArgb = colorToArgb(themeAccent)
 
                         if (selection.dragging) {
@@ -540,13 +543,13 @@ fun TerminalScreen(
             // Floating overlay for bottom bar — sits above IME
             Box(
                 modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .imePadding()
-                    .background(resolvedTerminalTheme.background)
-                    .testTag("ModifierBarOverlay"),
+                    Modifier
+                        .fillMaxWidth()
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .imePadding()
+                        .background(resolvedTerminalTheme.background)
+                        .testTag("ModifierBarOverlay"),
             ) {
                 // Bottom bar — below terminal, above IME
                 if (showTextSearch) {
@@ -628,9 +631,9 @@ fun TerminalScreen(
 
                     ModifierBar(
                         modifier =
-                        Modifier
-                            .testTag("ModifierBar")
-                            .navigationBarsPadding(),
+                            Modifier
+                                .testTag("ModifierBar")
+                                .navigationBarsPadding(),
                         onKeyClick = { data ->
                             viewModel.writeToPty(data.toByteArray())
                         },
@@ -654,38 +657,38 @@ fun TerminalScreen(
                         toolbarLayout = rememberToolbarLayout(),
                         barMode = barMode,
                         onCopy =
-                        if (selectionActive) {
-                            {
-                                viewModel.copySelectionToClipboard()
-                                viewModel.clearSelection()
-                            }
-                        } else {
-                            null
-                        },
+                            if (selectionActive) {
+                                {
+                                    viewModel.copySelectionToClipboard()
+                                    viewModel.clearSelection()
+                                }
+                            } else {
+                                null
+                            },
                         onSelectAll =
-                        if (selectionActive) {
-                            { viewModel.selectAll() }
-                        } else {
-                            null
-                        },
+                            if (selectionActive) {
+                                { viewModel.selectAll() }
+                            } else {
+                                null
+                            },
                         onPaste =
-                        if (selectionActive && hasClipboard) {
-                            { viewModel.pasteFromClipboard() }
-                        } else {
-                            null
-                        },
+                            if (selectionActive && hasClipboard) {
+                                { viewModel.pasteFromClipboard() }
+                            } else {
+                                null
+                            },
                         onShare =
-                        if (selectionActive) {
-                            { viewModel.shareSelection() }
-                        } else {
-                            null
-                        },
+                            if (selectionActive) {
+                                { viewModel.shareSelection() }
+                            } else {
+                                null
+                            },
                         onDismiss =
-                        if (selectionActive) {
-                            { viewModel.clearSelection() }
-                        } else {
-                            null
-                        },
+                            if (selectionActive) {
+                                { viewModel.clearSelection() }
+                            } else {
+                                null
+                            },
                     )
                 }
             }
@@ -723,47 +726,29 @@ fun SelectionMenuOverlay(
     val start = selection.start ?: return
     val end = selection.end ?: return
 
-    // Empty / whitespace long-press produced no text → PASTE_ONLY menu.
     val pasteOnly = selection.selectedText.isEmpty()
+    val pos =
+        remember(selection, cellWidth, cellHeight, scrollOffset, screenWidthPx, screenHeightPx) {
+            computeMenuPosition(
+                start,
+                end,
+                cellWidth,
+                cellHeight,
+                scrollOffset,
+                screenWidthPx,
+                screenHeightPx,
+            )
+        }
 
-    val loRow = min(start.row, end.row)
-    val hiRow = max(start.row, end.row)
-    val loCol = if (start.row <= end.row) start.col else end.col
-    val hiCol = if (start.row <= end.row) end.col else start.col
-
-    val visibleLoRow = (loRow - scrollOffset).coerceAtLeast(0)
-    val visibleHiRow = (hiRow - scrollOffset).coerceAtLeast(0)
-
-    val selLeft = loCol * cellWidth
-    val selRight = (hiCol + 1) * cellWidth
-    val selTop = visibleLoRow * cellHeight
-    val selBottom = (visibleHiRow + 1) * cellHeight
-    val selRect = RectF(selLeft, selTop, selRight, selBottom)
-
-    var menuSize by remember { mutableStateOf(IntSize(0, 0)) }
-    val menuW = if (menuSize.width > 0) menuSize.width.toFloat() else 260f
-    val menuH = if (menuSize.height > 0) menuSize.height.toFloat() else 48f
-
-    // Place below the selection, with an 8px gap.
-    var menuX = selLeft.coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
-    var menuY = selBottom + 8f
-    val flipAbove = menuY + menuH > screenHeightPx && (selTop - menuH - 8f) >= 0f
-    if (flipAbove) {
-        menuY = selTop - menuH - 8f
-    }
-    // Edge-pin: never let the menu leave the screen vertically.
-    menuY = menuY.coerceIn(0f, (screenHeightPx - menuH).coerceAtLeast(0f))
-
-    val menuRect = RectF(menuX, menuY, menuX + menuW, menuY + menuH)
-    val coversSelection = RectF.intersects(selRect, menuRect)
     Log.d(
         "TorvoxSelection",
-        "MENU placement selRect=(${selLeft.toInt()},${selTop.toInt()},${selRight.toInt()}," +
-            "${selBottom.toInt()}) menuPos=(${menuX.toInt()},${menuY.toInt()}) " +
-            "menuW=${menuW.toInt()} menuH=${menuH.toInt()} flipAbove=$flipAbove " +
-            "coversSelection=$coversSelection pasteOnly=$pasteOnly",
+        "MENU placement selRect=(${pos.selLeft.toInt()},${pos.selTop.toInt()}," +
+            "${pos.selRight.toInt()},${pos.selBottom.toInt()}) menuPos=(${pos.menuX.toInt()}," +
+            "${pos.menuY.toInt()}) menuW=${pos.menuW.toInt()} menuH=${pos.menuH.toInt()} " +
+            "flipAbove=${pos.flipAbove} coversSelection=${pos.coversSelection} pasteOnly=$pasteOnly",
     )
 
+    var menuSize by remember { mutableStateOf(IntSize(0, 0)) }
     AnimatedVisibility(
         visible = !selection.dragging,
         enter = fadeIn() + slideInVertically { it / 2 },
@@ -771,17 +756,12 @@ fun SelectionMenuOverlay(
     ) {
         Box(
             modifier =
-            Modifier
-                .offset { IntOffset(menuX.roundToInt(), menuY.roundToInt()) }
-                .onSizeChanged { menuSize = it }
-                .background(
-                    MaterialTheme.colorScheme.surfaceVariant,
-                    RoundedCornerShape(8.dp),
-                ).border(
-                    1.dp,
-                    MaterialTheme.colorScheme.outline,
-                    RoundedCornerShape(8.dp),
-                ),
+                Modifier
+                    .testTag("SelectionMenuOverlay")
+                    .offset { IntOffset(pos.menuX.roundToInt(), pos.menuY.roundToInt()) }
+                    .onSizeChanged { menuSize = it }
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                    .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
         ) {
             Row(modifier = Modifier.padding(4.dp)) {
                 if (!pasteOnly) {
@@ -794,6 +774,85 @@ fun SelectionMenuOverlay(
     }
 }
 
+@VisibleForTesting
+internal data class MenuPosition(
+    val menuX: Float,
+    val menuY: Float,
+    val menuW: Float,
+    val menuH: Float,
+    val selLeft: Float,
+    val selTop: Float,
+    val selRight: Float,
+    val selBottom: Float,
+    val flipAbove: Boolean,
+    val coversSelection: Boolean,
+)
+
+@VisibleForTesting
+internal fun computeMenuPosition(
+    start: SelectionAnchor,
+    end: SelectionAnchor,
+    cellWidth: Float,
+    cellHeight: Float,
+    scrollOffset: Int,
+    screenWidthPx: Float,
+    screenHeightPx: Float,
+): MenuPosition {
+    val loCol = min(start.col, end.col)
+    val hiCol = max(start.col, end.col)
+    val visibleLoRow = (min(start.row, end.row) - scrollOffset).coerceAtLeast(0)
+    val visibleHiRow = (max(start.row, end.row) - scrollOffset).coerceAtLeast(0)
+
+    val selLeft = loCol * cellWidth
+    val selRight = (hiCol + 1) * cellWidth
+    val selTop = visibleLoRow * cellHeight
+    val selBottom = (visibleHiRow + 1) * cellHeight
+    val selRect = RectF(selLeft, selTop, selRight, selBottom)
+
+    val menuW = 260f
+    val menuH = 48f
+    val selMidX = (selLeft + selRight) / 2f
+    var menuX = (selMidX - menuW / 2f).coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
+    var menuY = selBottom + 8f
+    val flipAbove = menuY + menuH > screenHeightPx && (selTop - menuH - 8f) >= 0f
+    if (flipAbove) menuY = selTop - menuH - 8f
+    menuY = menuY.coerceIn(0f, (screenHeightPx - menuH).coerceAtLeast(0f))
+
+    var menuRect = RectF(menuX, menuY, menuX + menuW, menuY + menuH)
+    var coversSelection = RectF.intersects(selRect, menuRect)
+    if (coversSelection) {
+        val rightX = (selRight + 8f).coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
+        val rightRect = RectF(rightX, menuY, rightX + menuW, menuY + menuH)
+        if (!RectF.intersects(selRect, rightRect)) {
+            menuX = rightX
+            menuRect = rightRect
+            coversSelection = false
+        } else {
+            val leftX = (selLeft - menuW - 8f).coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
+            val leftRect = RectF(leftX, menuY, leftX + menuW, menuY + menuH)
+            if (!RectF.intersects(selRect, leftRect)) {
+                menuX = leftX
+                menuRect = leftRect
+                coversSelection = false
+            } else {
+                coversSelection = RectF.intersects(selRect, menuRect)
+            }
+        }
+    }
+    return MenuPosition(
+        menuX,
+        menuY,
+        menuW,
+        menuH,
+        selLeft,
+        selTop,
+        selRight,
+        selBottom,
+        flipAbove,
+        coversSelection,
+    )
+}
+
 @Composable
 private fun SelectionMenuItem(
     text: String,
@@ -801,9 +860,9 @@ private fun SelectionMenuItem(
 ) {
     Box(
         modifier =
-        Modifier
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            Modifier
+                .clickable { onClick() }
+                .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Text(
             text = text,
