@@ -4,15 +4,19 @@
 //! - [FR-006](crate) — Cursor: DECTCEM visible/hidden, style
 use serde::{Deserialize, Serialize};
 
+/// Visual style of the text cursor in the terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(
     feature = "rkyv",
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
 pub enum CursorStyle {
+    /// Full-cell block cursor that highlights the current character.
     #[default]
     Block,
+    /// Underline cursor drawn below the current character.
     Underline,
+    /// Vertical bar cursor drawn at the left edge of the current character.
     Bar,
 }
 
@@ -75,6 +79,7 @@ impl Default for CursorState {
 /// assert_eq!(c.col, 79);
 /// ```
 impl CursorState {
+    /// Create a new cursor at the given row and column with default style and visibility.
     pub fn new(row: u32, col: u32) -> Self {
         Self {
             row,
@@ -83,31 +88,38 @@ impl CursorState {
         }
     }
 
+    /// Move the cursor to the specified row and column.
     pub fn move_to(&mut self, row: u32, col: u32) {
         self.row = row;
         self.col = col;
     }
 
+    /// Move the cursor up by `n` rows, clamping at row 0.
     pub fn move_up(&mut self, n: u32) {
         self.row = self.row.saturating_sub(n);
     }
 
+    /// Move the cursor down by `n` rows, clamping at `max_rows - 1`.
     pub fn move_down(&mut self, n: u32, max_rows: u32) {
         self.row = self.row.saturating_add(n).min(max_rows.saturating_sub(1));
     }
 
+    /// Move the cursor left by `n` columns, clamping at column 0.
     pub fn move_left(&mut self, n: u32) {
         self.col = self.col.saturating_sub(n);
     }
 
+    /// Move the cursor right by `n` columns, clamping at `max_cols - 1`.
     pub fn move_right(&mut self, n: u32, max_cols: u32) {
         self.col = self.col.saturating_add(n).min(max_cols.saturating_sub(1));
     }
 
+    /// Reset the cursor column to 0 (carriage return).
     pub fn carriage_return(&mut self) {
         self.col = 0;
     }
 
+    /// Clamp the cursor position so it does not exceed the grid bounds.
     pub fn clamp(&mut self, max_rows: u32, max_cols: u32) {
         self.row = self.row.min(max_rows.saturating_sub(1));
         self.col = self.col.min(max_cols.saturating_sub(1));

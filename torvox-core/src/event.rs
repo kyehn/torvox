@@ -28,14 +28,23 @@ use crate::selection::Selection;
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
 pub enum TerminalEvent {
+    /// New output is available from the PTY — trigger a read cycle.
     OutputReady,
+    /// The terminal requested an audible bell alert.
     Bell,
+    /// The window or tab title was changed (e.g. via OSC escape sequence).
     TitleChanged(String),
+    /// A clipboard operation was requested (e.g. paste, copy).
     ClipboardRequest(String),
+    /// Hyperlink hover state changed — `Some(url)` on hover, `None` on exit.
     HyperlinkHover(Option<String>),
+    /// The child process exited with the given exit code.
     ProcessExited(i32),
+    /// The cursor position or style changed — UI should redraw the cursor.
     CursorChanged(CursorState),
+    /// The text selection was changed or cleared.
     SelectionChanged(Option<Selection>),
+    /// A range of rows in the viewport was modified and needs re-rendering.
     DirtyRegion(DirtyRegion),
 }
 

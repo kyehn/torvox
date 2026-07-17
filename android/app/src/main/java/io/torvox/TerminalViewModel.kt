@@ -1012,7 +1012,7 @@ constructor(
                 end to start
             }
         return when (selection.mode) {
-            SelectionMode.Char, SelectionMode.Word -> {
+            SelectionMode.Char, SelectionMode.Word, SelectionMode.Semantic -> {
                 if (lo.row == hi.row) {
                     val line = bridge.scrollbackLine((scrollbackLength - scrollOffset + lo.row).toUInt()) ?: ""
                     val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
@@ -1052,16 +1052,6 @@ constructor(
                     if (startCol < visLine.length) {
                         parts.add(visLine.substring(startCol, endCol))
                     }
-                }
-                parts.joinToString("\n")
-            }
-
-            SelectionMode.Semantic -> {
-                val parts = mutableListOf<String>()
-                for (r in lo.row..hi.row) {
-                    val line = bridge.scrollbackLine((scrollbackLength - scrollOffset + r).toUInt()) ?: ""
-                    val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                    parts.add(visLine)
                 }
                 parts.joinToString("\n")
             }
