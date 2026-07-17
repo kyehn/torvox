@@ -65,6 +65,9 @@ libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs.git", packa
 [profile.dev]
 incremental = true
 
+[workspace.lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)'] }
+
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 missing_panics_doc = "allow"

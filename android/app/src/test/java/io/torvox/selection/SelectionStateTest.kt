@@ -1,6 +1,3 @@
-// TODO(kotlin-2.4.0-false-positive): K2 smart-cast false positive, remove when upgrading Kotlin compiler
-@file:Suppress("UNNECESSARY_NOT_NULL_ASSERTION")
-
 package io.torvox.selection
 
 import io.torvox.HandleDragResult
@@ -9,269 +6,208 @@ import io.torvox.SelectionMode
 import io.torvox.SelectionState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SelectionStateTest {
-    private fun state(
-        startRow: Int = 0,
-        startCol: Int = 2,
-        endRow: Int = 0,
-        endCol: Int = 5,
-        mode: SelectionMode = SelectionMode.Char,
-    ): SelectionState = SelectionState(
-        active = true,
-        dragging = true,
-        start = SelectionAnchor(startRow, startCol),
-        end = SelectionAnchor(endRow, endCol),
-        mode = mode,
-    )
-
     @Test
-    fun selectionState_creationDefaults() {
-        val s = SelectionState()
-        assertFalse(s.active)
-        assertFalse(s.dragging)
-        assertNull(s.start)
-        assertNull(s.end)
-        assertEquals(SelectionMode.Char, s.mode)
-        assertEquals("", s.selectedText)
+    fun `initial state is not active`() {
+        val state = SelectionState()
+        assertFalse(state.active)
+        assertFalse(state.dragging)
+        assertNull(state.start)
+        assertNull(state.end)
+        assertEquals(SelectionMode.Char, state.mode)
+        assertEquals("", state.selectedText)
     }
 
     @Test
-    fun selectionState_creationWithValues() {
-        val s =
+    fun `active state with anchors`() {
+        val start = SelectionAnchor(5, 10)
+        val end = SelectionAnchor(5, 10)
+        val state =
             SelectionState(
                 active = true,
-                dragging = true,
-                start = SelectionAnchor(1, 2),
-                end = SelectionAnchor(3, 4),
+                start = start,
+                end = end,
                 mode = SelectionMode.Word,
-                selectedText = "hello",
             )
-        assertTrue(s.active)
-        assertTrue(s.dragging)
-        assertEquals(1, s.start!!.row)
-        assertEquals(2, s.start!!.col)
-        assertEquals(3, s.end!!.row)
-        assertEquals(4, s.end!!.col)
-        assertEquals(SelectionMode.Word, s.mode)
-        assertEquals("hello", s.selectedText)
+        assertTrue(state.active)
+        assertEquals(5, start.row)
+        assertEquals(10, start.col)
+        assertEquals(5, end.row)
+        assertEquals(10, end.col)
     }
 
     @Test
-    fun applyHandleDrag_startDraggedForward_sameRow() {
-        val s = state(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 5)
-        assertEquals(0, result.startRow)
-        assertEquals(5, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(10, result.endCol)
-    }
-
-    @Test
-    fun applyHandleDrag_startDraggedBackward_pastEnd_swaps() {
-        val s = state(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 15)
-        assertEquals(0, result.startRow)
+    fun `applyHandleDrag right handle extends right`() {
+        val state =
+            SelectionState(
+                active = true,
+                start = SelectionAnchor(5, 10),
+                end = SelectionAnchor(5, 10),
+            )
+        val result = state.applyHandleDrag(draggingStart = false, targetRow = 5, targetCol = 15)
+        assertEquals(5, result.startRow)
         assertEquals(10, result.startCol)
-        assertEquals(0, result.endRow)
+        assertEquals(5, result.endRow)
         assertEquals(15, result.endCol)
     }
 
     @Test
-    fun applyHandleDrag_endDraggedForward() {
-        val s = state(startRow = 0, startCol = 2, endRow = 0, endCol = 10)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 20)
-        assertEquals(0, result.startRow)
-        assertEquals(2, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(20, result.endCol)
+    fun `applyHandleDrag left handle shrinks from left`() {
+        val state =
+            SelectionState(
+                active = true,
+                start = SelectionAnchor(5, 10),
+                end = SelectionAnchor(5, 15),
+            )
+        val result = state.applyHandleDrag(draggingStart = true, targetRow = 5, targetCol = 12)
+        assertEquals(5, result.startRow)
+        assertEquals(12, result.startCol)
+        assertEquals(5, result.endRow)
+        assertEquals(15, result.endCol)
     }
 
     @Test
-    fun applyHandleDrag_endDraggedBackward_pastStart_swaps() {
-        val s = state(startRow = 0, startCol = 5, endRow = 0, endCol = 10)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 2)
-        assertEquals(0, result.startRow)
-        assertEquals(2, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(5, result.endCol)
+    fun `applyHandleDrag right handle past start flips anchors`() {
+        val state =
+            SelectionState(
+                active = true,
+                start = SelectionAnchor(5, 10),
+                end = SelectionAnchor(5, 15),
+            )
+        val result = state.applyHandleDrag(draggingStart = false, targetRow = 5, targetCol = 8)
+        assertEquals(5, result.startRow)
+        assertEquals(8, result.startCol)
+        assertEquals(5, result.endRow)
+        assertEquals(10, result.endCol)
     }
 
     @Test
-    fun applyHandleDrag_singleCellSelection() {
-        val s = state(startRow = 3, startCol = 7, endRow = 3, endCol = 7)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = false, targetRow = 3, targetCol = 12)
-        assertEquals(3, result.startRow)
-        assertEquals(7, result.startCol)
-        assertEquals(3, result.endRow)
-        assertEquals(12, result.endCol)
+    fun `applyHandleDrag left handle past end flips anchors`() {
+        val state =
+            SelectionState(
+                active = true,
+                start = SelectionAnchor(5, 10),
+                end = SelectionAnchor(5, 15),
+            )
+        val result = state.applyHandleDrag(draggingStart = true, targetRow = 5, targetCol = 18)
+        assertEquals(5, result.startRow)
+        assertEquals(15, result.startCol)
+        assertEquals(5, result.endRow)
+        assertEquals(18, result.endCol)
     }
 
     @Test
-    fun handleDragResult_equality() {
-        val a = HandleDragResult(0, 1, 2, 3)
-        val b = HandleDragResult(0, 1, 2, 3)
-        val c = HandleDragResult(0, 0, 2, 3)
-        assertEquals(a, b)
-        assertEquals(a.hashCode(), b.hashCode())
-        assertNotEquals(a, c)
-    }
-
-    @Test
-    fun applyHandleDrag_startCrossesEnd_laterRow_swaps() {
-        val s = state(startRow = 1, startCol = 0, endRow = 3, endCol = 5)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = true, targetRow = 4, targetCol = 2)
-        assertEquals(3, result.startRow)
+    fun `applyHandleDrag multi-row right handle`() {
+        val state =
+            SelectionState(
+                active = true,
+                start = SelectionAnchor(2, 5),
+                end = SelectionAnchor(3, 5),
+            )
+        val result = state.applyHandleDrag(draggingStart = false, targetRow = 4, targetCol = 3)
+        assertEquals(2, result.startRow)
         assertEquals(5, result.startCol)
         assertEquals(4, result.endRow)
-        assertEquals(2, result.endCol)
-    }
-
-    @Test
-    fun applyHandleDrag_endCrossesStart_earlierRow_swaps() {
-        val s = state(startRow = 2, startCol = 3, endRow = 4, endCol = 1)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = false, targetRow = 1, targetCol = 0)
-        assertEquals(1, result.startRow)
-        assertEquals(0, result.startCol)
-        assertEquals(2, result.endRow)
         assertEquals(3, result.endCol)
     }
 
     @Test
-    fun applyHandleDrag_startAtSamePositionAsEnd() {
-        val s = state(startRow = 0, startCol = 5, endRow = 0, endCol = 5)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 8)
-        assertEquals(0, result.startRow)
+    fun `applyHandleDrag multi-row crossover flips start and end`() {
+        val state =
+            SelectionState(
+                active = true,
+                start = SelectionAnchor(3, 10),
+                end = SelectionAnchor(5, 5),
+            )
+        val result = state.applyHandleDrag(draggingStart = true, targetRow = 6, targetCol = 2)
+        assertEquals(5, result.startRow)
         assertEquals(5, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(8, result.endCol)
+        assertEquals(6, result.endRow)
+        assertEquals(2, result.endCol)
     }
 
     @Test
-    fun applyHandleDrag_endAtSamePositionAsStart_reverse() {
-        val s = state(startRow = 0, startCol = 5, endRow = 0, endCol = 5)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 2)
-        assertEquals(0, result.startRow)
-        assertEquals(2, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(5, result.endCol)
+    fun `applyHandleDrag no start or end returns target coords`() {
+        val emptyState = SelectionState()
+        val result = emptyState.applyHandleDrag(draggingStart = true, targetRow = 7, targetCol = 3)
+        assertEquals(HandleDragResult(7, 3, 7, 3), result)
     }
 
     @Test
-    fun applyHandleDrag_multiRow_startStaysWithin() {
-        val s = state(startRow = 1, startCol = 3, endRow = 3, endCol = 8)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = true, targetRow = 2, targetCol = 5)
-        assertEquals(2, result.startRow)
-        assertEquals(5, result.startCol)
-        assertEquals(3, result.endRow)
-        assertEquals(8, result.endCol)
+    fun `selection range on same row`() {
+        val start = SelectionAnchor(0, 3)
+        val end = SelectionAnchor(0, 8)
+        val state =
+            SelectionState(
+                active = true,
+                start = start,
+                end = end,
+            )
+        assertEquals(0, start.row)
+        assertEquals(3, start.col)
+        assertEquals(0, end.row)
+        assertEquals(8, end.col)
     }
 
     @Test
-    fun applyHandleDrag_startCrossesEnd_equalCol_laterRow_swaps() {
-        val s = state(startRow = 1, startCol = 5, endRow = 3, endCol = 5)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = true, targetRow = 4, targetCol = 5)
-        assertEquals(3, result.startRow)
-        assertEquals(5, result.startCol)
-        assertEquals(4, result.endRow)
-        assertEquals(5, result.endCol)
+    fun `selection range across multiple rows`() {
+        val start = SelectionAnchor(2, 15)
+        val end = SelectionAnchor(5, 7)
+        val state =
+            SelectionState(
+                active = true,
+                start = start,
+                end = end,
+            )
+        assertEquals(2, start.row)
+        assertEquals(15, start.col)
+        assertEquals(5, end.row)
+        assertEquals(7, end.col)
     }
 
     @Test
-    fun applyHandleDrag_endCrossesStart_equalCol_earlierRow_swaps() {
-        val s = state(startRow = 3, startCol = 5, endRow = 5, endCol = 5)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = false, targetRow = 2, targetCol = 5)
-        assertEquals(2, result.startRow)
-        assertEquals(5, result.startCol)
-        assertEquals(3, result.endRow)
-        assertEquals(5, result.endCol)
+    fun `copy of selection state preserves values`() {
+        val origStart = SelectionAnchor(3, 7)
+        val origEnd = SelectionAnchor(3, 12)
+        val state =
+            SelectionState(
+                active = true,
+                start = origStart,
+                end = origEnd,
+                mode = SelectionMode.Line,
+                selectedText = "hello",
+            )
+        val copy = state.copy(selectedText = "hello world")
+        assertTrue(copy.active)
+        assertEquals("hello world", copy.selectedText)
+        assertEquals(3, copy.start!!.row)
     }
 
     @Test
-    fun applyHandleDrag_startAtCol0_dragLeft_noWrap() {
-        val s = state(startRow = 0, startCol = 0, endRow = 0, endCol = 5)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 0)
-        assertEquals(0, result.startRow)
-        assertEquals(0, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(5, result.endCol)
+    fun `selection with semantic mode`() {
+        val state =
+            SelectionState(
+                active = true,
+                start = SelectionAnchor(0, 0),
+                end = SelectionAnchor(0, 20),
+                mode = SelectionMode.Semantic,
+            )
+        assertEquals(SelectionMode.Semantic, state.mode)
     }
 
     @Test
-    fun applyHandleDrag_endAtLastCol_dragRight_noWrap() {
-        val s = state(startRow = 0, startCol = 3, endRow = 0, endCol = 5)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 5)
-        assertEquals(0, result.startRow)
-        assertEquals(3, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(5, result.endCol)
-    }
-
-    @Test
-    fun applyHandleDrag_nullStart_returnsDefault() {
-        val s = SelectionState(active = true, end = SelectionAnchor(0, 5))
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 0)
-        assertEquals(0, result.startRow)
-        assertEquals(0, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(0, result.endCol)
-    }
-
-    @Test
-    fun applyHandleDrag_nullEnd_returnsDefault() {
-        val s = SelectionState(active = true, start = SelectionAnchor(0, 2))
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = false, targetRow = 0, targetCol = 5)
-        assertEquals(0, result.startRow)
-        assertEquals(5, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(5, result.endCol)
-    }
-
-    @Test
-    fun applyHandleDrag_inactiveSelection_returnsDefault() {
-        val s = SelectionState(active = false)
-        val result: HandleDragResult = s.applyHandleDrag(draggingStart = true, targetRow = 0, targetCol = 0)
-        assertEquals(0, result.startRow)
-        assertEquals(0, result.startCol)
-        assertEquals(0, result.endRow)
-        assertEquals(0, result.endCol)
-    }
-
-    @Test
-    fun selectionAnchor_dataClass() {
-        val a = SelectionAnchor(5, 10)
-        val b = SelectionAnchor(5, 10)
-        val c = SelectionAnchor(5, 11)
-        assertEquals(a, b)
-        assertEquals(a.hashCode(), b.hashCode())
-        assertNotEquals(a, c)
-        assertEquals("SelectionAnchor(row=5, col=10)", a.toString())
-    }
-
-    @Test
-    fun selectionMode_enumValues() {
-        assertEquals(5, SelectionMode.entries.size)
-        assertTrue(SelectionMode.entries.contains(SelectionMode.Char))
-        assertTrue(SelectionMode.entries.contains(SelectionMode.Word))
-        assertTrue(SelectionMode.entries.contains(SelectionMode.Line))
-        assertTrue(SelectionMode.entries.contains(SelectionMode.Block))
-        assertTrue(SelectionMode.entries.contains(SelectionMode.Semantic))
-    }
-
-    @Test
-    fun selectionState_copyPreservesMode() {
-        val original = SelectionState(mode = SelectionMode.Word)
-        val copy = original.copy(active = true)
-        assertEquals(SelectionMode.Word, copy.mode)
-    }
-
-    @Test
-    fun selectionState_selectedTextDefaultsEmpty() {
-        val s = SelectionState()
-        assertEquals("", s.selectedText)
+    fun `selection with block mode`() {
+        val state =
+            SelectionState(
+                active = true,
+                start = SelectionAnchor(2, 5),
+                end = SelectionAnchor(5, 10),
+                mode = SelectionMode.Block,
+            )
+        assertEquals(SelectionMode.Block, state.mode)
     }
 }

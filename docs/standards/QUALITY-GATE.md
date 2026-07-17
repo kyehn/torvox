@@ -2,6 +2,8 @@
 
 ## Pre-commit
 
+Ensure hooks are installed (`git config core.hooksPath .githooks`).
+
 ```bash
 cargo nextest run --workspace --profile ci            # all tests pass
 cargo clippy --all -- --deny warnings                # zero lint warnings
@@ -98,6 +100,18 @@ Add the following to the pre-commit checklist:
 - [ ] `docs/traceability.yml` updated if requirement/design/API/test mapping changed
 - [ ] New ADR created if a design decision was made
 - [ ] All documentation lint checks pass (`cargo test -p torvox-integration-tests --test tool_lint`)
+
+## Toolchain Constraints
+
+This project uses git hooks for local quality enforcement and CI for verification:
+
+1. **Pre-push hook** (`.githooks/pre-push`): Runs `cargo fmt --check`, `cargo clippy --all -- --deny warnings`, and `./gradlew spotlessCheck` before allowing push. Timeout: 30s per command. Bypass with `--no-verify` in emergencies.
+
+2. **Commit-msg hook** (`.githooks/commit-msg`): Advisory conventional commit check. Blocks "changes"/"wip" messages. Warns on non-conventional format but allows the commit.
+
+3. **CI enforcement**: CI runs the same checks independently of hooks. Even if hooks are bypassed, CI will catch violations.
+
+---
 
 ## Golden Image Ban Policy (FR-057)
 

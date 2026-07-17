@@ -12,18 +12,26 @@ use alloc::vec;
 use alloc::vec::Vec;
 use serde::{Deserialize, Serialize};
 
+/// Terminal emulator configuration — grid dimensions, scrollback, shell, and input behavior.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "rkyv",
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
 pub struct TerminalConfig {
+    /// Number of visible rows in the terminal grid.
     pub rows: u32,
+    /// Number of visible columns in the terminal grid.
     pub cols: u32,
+    /// Maximum lines of scrollback history retained in memory.
     pub scrollback_lines: u32,
+    /// Shell to launch when the terminal session starts.
     pub shell: Shell,
+    /// Font size in tenths of a point (e.g. 140 = 14pt).
     pub font_size_tenths: u32,
+    /// Byte sent when the backspace key is pressed.
     pub backspace_mode: BackspaceMode,
+    /// How the right Alt key is interpreted by the terminal.
     pub right_alt_mode: RightAltMode,
 }
 
@@ -33,8 +41,10 @@ pub struct TerminalConfig {
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
 pub enum BackspaceMode {
+    /// Send DEL (0x7F) on backspace — standard for most shells.
     #[default]
     DEL,
+    /// Send BS (0x08) on backspace — some legacy applications expect this.
     BS,
 }
 
@@ -61,8 +71,10 @@ impl BackspaceMode {
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
 pub enum RightAltMode {
+    /// Right Alt acts as a character modifier (e.g. for composing accented characters).
     #[default]
     CharacterModifier,
+    /// Right Alt acts as Meta — sends escape prefix for key sequences.
     Meta,
 }
 
@@ -86,8 +98,10 @@ impl Default for TerminalConfig {
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
 pub enum Shell {
+    /// Use the system default shell (e.g. /system/bin/sh on Android).
     #[default]
     SystemDefault,
+    /// Use a custom shell specified by its absolute path.
     Custom(String),
 }
 
@@ -98,8 +112,11 @@ pub enum Shell {
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
 pub struct RenderConfig {
+    /// Font configuration (family, size, line spacing).
     pub font: FontConfig,
+    /// Color theme with ANSI palette.
     pub theme: Theme,
+    /// Visual style of the text cursor.
     pub cursor_style: crate::cursor::CursorStyle,
 }
 
@@ -120,8 +137,11 @@ impl Default for RenderConfig {
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
 pub struct FontConfig {
+    /// Font family name (empty string uses the platform default).
     pub family: String,
+    /// Font size in points (e.g. 14 for a 14pt font).
     pub size: u32,
+    /// Additional line spacing in pixels (positive = more, negative = less).
     pub line_spacing: i32,
 }
 
@@ -142,11 +162,17 @@ impl Default for FontConfig {
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
 pub struct Theme {
+    /// Display name of the theme.
     pub name: String,
+    /// Background color as [R, G, B].
     pub background: [u8; 3],
+    /// Default text foreground color as [R, G, B].
     pub foreground: [u8; 3],
+    /// Cursor color as [R, G, B].
     pub cursor: [u8; 3],
+    /// Selection highlight background color as [R, G, B].
     pub selection_bg: [u8; 3],
+    /// 16-color ANSI palette: indices 0-7 are normal, 8-15 are bright.
     pub ansi: [[u8; 3]; 16],
 }
 

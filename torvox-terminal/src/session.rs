@@ -21,6 +21,7 @@ use flume::{Receiver, bounded};
 use thiserror::Error;
 
 use crate::ghostty_terminal::GhosttyTerminal;
+use crate::lock_util::lock_or_recover;
 use crate::osc_handler::{OscEvent, OscHandler};
 use crate::pty::{Pty, PtyError, PtyPair};
 use crate::shell_env::ShellEnv;
@@ -475,35 +476,17 @@ impl Session {
     }
 
     pub fn poll_clipboard(&self) -> Option<String> {
-        let mut guard = match self.clipboard_text.lock() {
-            Ok(g) => g,
-            Err(poisoned) => {
-                log::error!("clipboard mutex poisoned (thread panicked), recovering");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = lock_or_recover(&self.clipboard_text, "poll_clipboard");
         guard.take()
     }
 
     pub fn poll_notification(&self) -> Option<(String, String)> {
-        let mut guard = match self.notification.lock() {
-            Ok(g) => g,
-            Err(poisoned) => {
-                log::error!("notification mutex poisoned (thread panicked), recovering");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = lock_or_recover(&self.notification, "poll_notification");
         guard.take()
     }
 
     pub fn poll_hyperlink(&self) -> Option<String> {
-        let mut guard = match self.hyperlink.lock() {
-            Ok(g) => g,
-            Err(poisoned) => {
-                log::error!("hyperlink mutex poisoned (thread panicked), recovering");
-                poisoned.into_inner()
-            }
-        };
+        let mut guard = lock_or_recover(&self.hyperlink, "poll_hyperlink");
         guard.take()
     }
 

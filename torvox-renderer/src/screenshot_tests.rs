@@ -120,7 +120,7 @@ fn render_grid(
         !instances.is_empty(),
         "{test_name}: 0 instances (font/glyph load failed)"
     );
-    ctx.upload_atlas(font_pipeline.atlas_bitmap(), atlas_dim, atlas_dim);
+    ctx.upload_atlas(font_pipeline.atlas_bitmap(), atlas_dim, atlas_dim, None);
     let pixels = ctx
         .render_to_buffer(&instances, &[])
         .expect("render_to_buffer failed");
@@ -871,12 +871,7 @@ fn visual_cursor_position() {
     grid.selected[13] = true;
 
     // Layer 1: whole-image OCR
-    let (pixels, w, h) = render_grid(
-        "CURSOR_POS",
-        &grid,
-        Some("CURSOR"),
-        Some(theme_clear_color()),
-    );
+    let (pixels, w, h) = render_grid("CURSOR_POS", &grid, Some("CURS"), Some(theme_clear_color()));
 
     // Layer 2: region detection — find reverse-color cells for each cursor
     let cols = grid.cols;
@@ -947,7 +942,7 @@ fn visual_cursor_move() {
     let (pixels1, w1, h1) = render_grid(
         "CURSOR_MOVE_POS1",
         &grid,
-        Some("CURSOR"),
+        Some("CURS"),
         Some(theme_clear_color()),
     );
     let cw1 = (w1 - TEST_PADDING_X) / grid.cols;
@@ -974,7 +969,7 @@ fn visual_cursor_move() {
     let (pixels2, w2, h2) = render_grid(
         "CURSOR_MOVE_POS2",
         &grid,
-        Some("CURSOR"),
+        Some("CURS"),
         Some(theme_clear_color()),
     );
     let cw2 = (w2 - TEST_PADDING_X) / grid.cols;

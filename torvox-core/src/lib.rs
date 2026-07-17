@@ -19,3 +19,6 @@ pub mod snapshot;
 pub mod terminal;
 pub mod unicode;
 pub mod vt_types;
+
+#[cfg(verus_only)]
+pub mod verus_annotations;

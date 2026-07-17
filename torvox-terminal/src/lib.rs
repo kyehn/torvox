@@ -19,6 +19,7 @@
 pub mod action_parser;
 pub mod cursor_cmds;
 pub mod ghostty_terminal;
+mod lock_util;
 pub mod mock_pty;
 pub mod osc_handler;
 pub mod pty;

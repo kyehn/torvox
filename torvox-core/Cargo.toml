@@ -28,3 +28,7 @@ serde_json = { version = "1", default-features = false, features = ["alloc"] }
 
 [lints]
 workspace = true
+
+[package.metadata.verus]
+verify = true
+no_vstd = true

@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,14 +36,15 @@ fun PasteChipOverlay(
 
     Box(
         modifier =
-        Modifier
-            .offset {
-                IntOffset(chipX.roundToInt(), chipY.roundToInt())
-            }.clip(RoundedCornerShape(6.dp))
-            .background(backgroundColor)
-            .border(1.dp, accentColor, RoundedCornerShape(6.dp))
-            .clickable { onPaste() }
-            .padding(horizontal = 12.dp, vertical = 6.dp),
+            Modifier
+                .testTag("PasteChipOverlay")
+                .offset {
+                    IntOffset(chipX.roundToInt(), chipY.roundToInt())
+                }.clip(RoundedCornerShape(6.dp))
+                .background(backgroundColor)
+                .border(1.dp, accentColor, RoundedCornerShape(6.dp))
+                .clickable { onPaste() }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(
             text = "Paste",
