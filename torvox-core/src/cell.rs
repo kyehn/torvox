@@ -37,6 +37,10 @@ impl Default for Cell {
     feature = "rkyv",
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
+/// RGBA color value for terminal foreground/background rendering.
+///
+/// Default is opaque white (255, 255, 255, 255). The alpha channel is used
+/// for transparency effects in the GPU renderer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Color {
     pub r: u8,
@@ -61,6 +65,11 @@ impl Default for Color {
     feature = "rkyv",
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
+/// Text attributes (bold, italic, underline, etc.) applied to a terminal cell.
+///
+/// These correspond to SGR (Select Graphic Rendition) escape sequence parameters.
+/// The `protected` flag is used by DECSCA (Select Character Protection Attribute)
+/// to prevent selective erase operations from clearing protected characters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct Attrs {
     pub bold: bool,
@@ -86,6 +95,10 @@ const BITS_PER_PARTITION: u32 = 64;
     feature = "rkyv",
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
+/// Bitmask tracking which rows need re-rendering.
+///
+/// Uses a partitioned u64 array for O(1) dirty checks and efficient bulk operations.
+/// Each bit represents one row; setting a bit marks that row as needing redraw.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DirtyMask {
     partitions: alloc::vec::Vec<u64>,
@@ -124,6 +137,7 @@ impl DirtyMask {
             .is_some_and(|p| *p & (1 << bit) != 0)
     }
 
+    /// Mark a single row as dirty (needing re-render).
     pub fn mark(&mut self, row: u32) {
         let (part, bit) = Self::partition_index(row);
         if let Some(p) = self.partitions.get_mut(part) {
@@ -131,6 +145,7 @@ impl DirtyMask {
         }
     }
 
+    /// Mark all rows as dirty (full redraw needed).
     pub fn mark_all(&mut self, rows: u32) {
         let num_partitions = (rows as usize).div_ceil(BITS_PER_PARTITION as usize);
         self.partitions.clear();
@@ -143,14 +158,17 @@ impl DirtyMask {
         }
     }
 
+    /// Clear all dirty flags (called after rendering).
     pub fn clear(&mut self) {
         self.partitions.fill(0);
     }
 
+    /// Check if any row is dirty (needs re-rendering).
     pub fn any_dirty(&self) -> bool {
         self.partitions.iter().any(|&p| p != 0)
     }
 
+    /// Resize the dirty mask to accommodate a new number of rows.
     pub fn resize(&mut self, total_rows: u32) {
         let num_partitions = (total_rows as usize).div_ceil(BITS_PER_PARTITION as usize);
         self.partitions.resize(num_partitions.max(1), 0);

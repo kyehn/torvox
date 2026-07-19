@@ -1,4 +1,5 @@
 // @REQ_TERM_007
+//! Shell environment setup — pre-exec environment configuration for child processes.
 #[derive(Debug, Clone)]
 pub struct ShellEnv {
     pub home: String,

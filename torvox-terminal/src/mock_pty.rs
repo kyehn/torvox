@@ -14,10 +14,12 @@ struct MockPtyInner {
     cols: u16,
 }
 
+/// Mock PTY for testing — simulates a pseudo-terminal without forking a real process.
 pub struct MockPty {
     inner: Arc<Mutex<MockPtyInner>>,
 }
 
+/// Handle to a mock PTY — allows reading output and checking state.
 pub struct MockPtyHandle {
     inner: Arc<Mutex<MockPtyInner>>,
 }

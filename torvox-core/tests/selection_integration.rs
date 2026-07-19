@@ -1,6 +1,6 @@
 use torvox_core::cell::Color;
 use torvox_core::grid::Grid;
-use torvox_core::selection::{Selection, SelectionAnchor, SelectionMode};
+use torvox_core::selection::{ExpansionOptions, Selection, SelectionAnchor, SelectionMode};
 
 fn make_grid(lines: &[&str]) -> Grid {
     let rows = lines.len() as u32;
@@ -366,7 +366,10 @@ fn semantic_selection_single_line_url() {
         SelectionAnchor { row: 0, col: 15 },
         SelectionMode::Semantic,
     );
-    let expanded = s.expand(|r, c| grid.cell(r, c).map(|c| c.char));
+    let expanded = s.expand(
+        |r, c| grid.cell(r, c).map(|c| c.char),
+        ExpansionOptions::default(),
+    );
     assert_eq!(expanded.start.col, 6, "url prefix start");
     assert_eq!(expanded.end.col, 29, "url path end");
     assert_eq!(expanded.text(&grid), "https://example.com/path");
@@ -388,7 +391,10 @@ fn semantic_selection_cross_row_url() {
         SelectionAnchor { row: 0, col: 10 },
         SelectionMode::Semantic,
     );
-    let expanded = s.expand(|r, c| grid.cell(r, c).map(|c| c.char));
+    let expanded = s.expand(
+        |r, c| grid.cell(r, c).map(|c| c.char),
+        ExpansionOptions::default(),
+    );
     assert_eq!(expanded.start.row, 0);
     assert_eq!(expanded.start.col, 7);
     assert_eq!(expanded.end.row, 1);
@@ -412,6 +418,9 @@ fn semantic_selection_single_row_text() {
         SelectionAnchor { row: 0, col: 7 },
         SelectionMode::Semantic,
     );
-    let expanded = s.expand(|r, c| grid.cell(r, c).map(|c| c.char));
+    let expanded = s.expand(
+        |r, c| grid.cell(r, c).map(|c| c.char),
+        ExpansionOptions::default(),
+    );
     assert_eq!(expanded.text(&grid), "just");
 }

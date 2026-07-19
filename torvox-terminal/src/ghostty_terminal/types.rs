@@ -78,6 +78,7 @@ impl GridSnapshot {
     }
 }
 
+/// A snapshot of the entire terminal grid for serialization across FFI boundaries.
 pub struct DumpedGrid {
     pub rows: u32,
     pub cols: u32,
@@ -85,14 +86,19 @@ pub struct DumpedGrid {
     pub scrollback: Vec<Vec<CellSnapshot>>,
 }
 
+/// Semantic classification of terminal content for clipboard copy behavior.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum SemanticContent {
+    /// Normal terminal output.
     #[default]
     Output,
+    /// User-typed input.
     Input,
+    /// Command prompt text.
     Prompt,
 }
 
+/// A snapshot of a single terminal cell for serialization across FFI.
 #[derive(Clone, Debug, Default)]
 pub struct CellSnapshot {
     pub codepoint: u32,

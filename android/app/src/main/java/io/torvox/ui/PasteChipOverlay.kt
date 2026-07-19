@@ -36,15 +36,15 @@ fun PasteChipOverlay(
 
     Box(
         modifier =
-            Modifier
-                .testTag("PasteChipOverlay")
-                .offset {
-                    IntOffset(chipX.roundToInt(), chipY.roundToInt())
-                }.clip(RoundedCornerShape(6.dp))
-                .background(backgroundColor)
-                .border(1.dp, accentColor, RoundedCornerShape(6.dp))
-                .clickable { onPaste() }
-                .padding(horizontal = 12.dp, vertical = 6.dp),
+        Modifier
+            .testTag("PasteChipOverlay")
+            .offset {
+                IntOffset(chipX.roundToInt(), chipY.roundToInt())
+            }.clip(RoundedCornerShape(6.dp))
+            .background(backgroundColor)
+            .border(1.dp, accentColor, RoundedCornerShape(6.dp))
+            .clickable { onPaste() }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(
             text = "Paste",

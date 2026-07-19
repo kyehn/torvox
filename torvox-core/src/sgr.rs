@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cell::Color;
 
-/// Underline styles for SGR
+/// Underline styles for SGR (Select Graphic Rendition) escape sequences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(
     feature = "rkyv",
@@ -23,7 +23,7 @@ pub enum UnderlineStyle {
     Dashed,
 }
 
-/// Blink styles for SGR
+/// Blink styles for SGR (Select Graphic Rendition) escape sequences.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(
     feature = "rkyv",
@@ -36,7 +36,7 @@ pub enum BlinkStyle {
     Rapid,
 }
 
-/// Color specification for SGR sequences
+/// Color specification for SGR sequences — named (0-15), indexed (0-255), or 24-bit RGB.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "rkyv",
@@ -51,7 +51,7 @@ pub enum ColorSpec {
     Rgb { r: u8, g: u8, b: u8 },
 }
 
-/// SGR attribute (Select Graphic Rendition)
+/// SGR (Select Graphic Rendition) attribute — one of the parameters in a CSI m sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "rkyv",

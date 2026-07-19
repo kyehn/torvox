@@ -203,7 +203,7 @@ class MainActivity : ComponentActivity() {
 
     private var previousNightMode: Int? = null
 
-    private val terminalViewModel: io.torvox.TerminalViewModel by viewModels()
+    internal val terminalViewModel: io.torvox.TerminalViewModel by viewModels()
 
     private val selectAllReceiver =
         object : BroadcastReceiver() {
@@ -279,17 +279,17 @@ class MainActivity : ComponentActivity() {
         registerReceiver(
             selectAllReceiver,
             IntentFilter("io.torvox.SELECT_ALL"),
-            Context.RECEIVER_NOT_EXPORTED,
+            Context.RECEIVER_EXPORTED,
         )
         registerReceiver(
             partialSelectReceiver,
             IntentFilter("io.torvox.PARTIAL_SELECT"),
-            Context.RECEIVER_NOT_EXPORTED,
+            Context.RECEIVER_EXPORTED,
         )
         registerReceiver(
             showPasteReceiver,
             IntentFilter("io.torvox.SHOW_PASTE"),
-            Context.RECEIVER_NOT_EXPORTED,
+            Context.RECEIVER_EXPORTED,
         )
         io.torvox.service.TerminalForegroundService
             .start(this)

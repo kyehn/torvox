@@ -1,6 +1,6 @@
 use torvox_core::cell::Cell;
 use torvox_core::grid::Grid;
-use torvox_core::selection::{Selection, SelectionAnchor, SelectionMode};
+use torvox_core::selection::{ExpansionOptions, Selection, SelectionAnchor, SelectionMode};
 
 fn make_grid(lines: &[&str]) -> Grid {
     let rows = lines.len() as u32;
@@ -371,7 +371,10 @@ fn word_selection_with_expansion(grid: &Grid, row: u32, col: u32) -> String {
         SelectionAnchor { row, col },
         SelectionMode::Word,
     );
-    let expanded = s.expand(|r, c| grid.cell(r, c).map(|cell| cell.char));
+    let expanded = s.expand(
+        |r, c| grid.cell(r, c).map(|cell| cell.char),
+        ExpansionOptions::default(),
+    );
     // Word mode's expand() only sets start/end; text() still uses the original mode
     let char_s = Selection::new(
         SelectionAnchor {
@@ -526,7 +529,7 @@ fn word_selection_via_expand_punctuation_boundary() {
 fn word_selection_via_expand_hyphenated() {
     let grid = make_grid(&["well-known"]);
     let result = word_selection_with_expansion(&grid, 0, 3); // middle of "well-known"
-    // Hyphen is a word boundary, so expand finds "well" as the word
+                                                             // Hyphen is a word boundary, so expand finds "well" as the word
     assert_eq!(result, "well");
 }
 
@@ -534,7 +537,7 @@ fn word_selection_via_expand_hyphenated() {
 fn word_selection_via_expand_second_hyphen_part() {
     let grid = make_grid(&["well-known"]);
     let result = word_selection_with_expansion(&grid, 0, 6); // middle of "known"
-    // Hyphen is a word boundary, so expand finds "known" as the word
+                                                             // Hyphen is a word boundary, so expand finds "known" as the word
     assert_eq!(result, "known");
 }
 

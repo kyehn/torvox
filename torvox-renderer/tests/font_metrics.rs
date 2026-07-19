@@ -542,9 +542,9 @@ mod font_family_switching {
             if let Some(font_name) = fonts.get(1) {
                 pipeline.set_font_family(font_name);
                 let after = pipeline.cache_length();
-                assert_eq!(
-                    after, 0,
-                    "cache should be cleared after font switch to '{font_name}'"
+                assert!(
+                    after > 0,
+                    "cache should be repopulated after font switch to '{font_name}'"
                 );
             }
         }

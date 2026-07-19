@@ -1,3 +1,4 @@
+//! Glyph atlas — packing rasterized glyphs into GPU texture.
 use swash::scale::{Render, Source};
 use swash::zeno::Placement;
 

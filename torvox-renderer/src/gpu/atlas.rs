@@ -1,3 +1,4 @@
+//! Texture atlas management — glyph packing and GPU texture allocation.
 use super::GpuContext;
 
 pub const MIN_ATLAS_BUFFER_SIZE: u64 = 64;

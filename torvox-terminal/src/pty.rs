@@ -70,6 +70,10 @@ pub trait Pty: Send {
     }
 }
 
+/// A PTY pair consisting of a master file descriptor and child process.
+///
+/// The master side is used by the terminal emulator to read output and write input.
+/// The child process runs the shell and communicates via the slave side.
 pub struct PtyPair {
     master: OwnedFd,
     child_pid: nix::unistd::Pid,
@@ -474,6 +478,10 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
     result
 }
 
+/// Build the environment variables for the child process.
+///
+/// Combines the base system environment with user-specified overrides from
+/// `ShellEnv`, including HOME, USER, TERM, and terminal size variables.
 pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<(String, String)> {
     let prefix_str = env.prefix.as_deref();
     let mut result = base_env(prefix_str);

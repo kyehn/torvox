@@ -6,6 +6,7 @@
 use serde::{Deserialize, Serialize};
 use unicode_width::UnicodeWidthChar;
 
+/// Unicode character width classification for terminal column allocation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnicodeWidth {
     Zero,

@@ -164,29 +164,30 @@ data class BridgeTheme(
 
     companion object {
         @Suppress("FunctionNaming")
-        fun wireDecode(reader: WireReader): BridgeTheme = BridgeTheme(
-            name = reader.readString(),
-            bg = reader.readI32(),
-            fg = reader.readI32(),
-            cursor = reader.readI32(),
-            selectionBg = reader.readI32(),
-            ansi0 = reader.readI32(),
-            ansi1 = reader.readI32(),
-            ansi2 = reader.readI32(),
-            ansi3 = reader.readI32(),
-            ansi4 = reader.readI32(),
-            ansi5 = reader.readI32(),
-            ansi6 = reader.readI32(),
-            ansi7 = reader.readI32(),
-            ansi8 = reader.readI32(),
-            ansi9 = reader.readI32(),
-            ansi10 = reader.readI32(),
-            ansi11 = reader.readI32(),
-            ansi12 = reader.readI32(),
-            ansi13 = reader.readI32(),
-            ansi14 = reader.readI32(),
-            ansi15 = reader.readI32(),
-        )
+        fun wireDecode(reader: WireReader): BridgeTheme =
+            BridgeTheme(
+                name = reader.readString(),
+                bg = reader.readI32(),
+                fg = reader.readI32(),
+                cursor = reader.readI32(),
+                selectionBg = reader.readI32(),
+                ansi0 = reader.readI32(),
+                ansi1 = reader.readI32(),
+                ansi2 = reader.readI32(),
+                ansi3 = reader.readI32(),
+                ansi4 = reader.readI32(),
+                ansi5 = reader.readI32(),
+                ansi6 = reader.readI32(),
+                ansi7 = reader.readI32(),
+                ansi8 = reader.readI32(),
+                ansi9 = reader.readI32(),
+                ansi10 = reader.readI32(),
+                ansi11 = reader.readI32(),
+                ansi12 = reader.readI32(),
+                ansi13 = reader.readI32(),
+                ansi14 = reader.readI32(),
+                ansi15 = reader.readI32(),
+            )
     }
 }
 
@@ -226,24 +227,25 @@ data class TerminalConfig(
         private const val DEFAULT_FONT_SIZE_TENTHS = 140u
 
         @Suppress("FunctionNaming")
-        fun wireDecode(reader: WireReader): TerminalConfig = TerminalConfig(
-            shell =
-            when (reader.readI32()) {
-                0 -> Shell.SystemDefault
-                1 -> Shell.Custom(reader.readString())
-                else -> Shell.SystemDefault
-            },
-            rows = reader.readU32(),
-            cols = reader.readU32(),
-            scrollbackLines = reader.readU32(),
-            font_size_tenths = reader.readU32(),
-            theme = BridgeTheme.wireDecode(reader),
-            home = reader.readString(),
-            user = reader.readString(),
-            path = reader.readString(),
-            workingDirectory = reader.readString(),
-            prefix = reader.readString(),
-        )
+        fun wireDecode(reader: WireReader): TerminalConfig =
+            TerminalConfig(
+                shell =
+                    when (reader.readI32()) {
+                        0 -> Shell.SystemDefault
+                        1 -> Shell.Custom(reader.readString())
+                        else -> Shell.SystemDefault
+                    },
+                rows = reader.readU32(),
+                cols = reader.readU32(),
+                scrollbackLines = reader.readU32(),
+                font_size_tenths = reader.readU32(),
+                theme = BridgeTheme.wireDecode(reader),
+                home = reader.readString(),
+                user = reader.readString(),
+                path = reader.readString(),
+                workingDirectory = reader.readString(),
+                prefix = reader.readString(),
+            )
     }
 }
 
@@ -611,6 +613,20 @@ private interface TorvoxNative : Library {
         mode: Int,
     ): Long
 
+    fun torvox_bridge_is_cell_empty(
+        handle: Long,
+        row: Int,
+        col: Int,
+    ): Int
+
+    fun torvox_bridge_has_text_in_range(
+        handle: Long,
+        startRow: Int,
+        startCol: Int,
+        endRow: Int,
+        endCol: Int,
+    ): Int
+
     fun torvox_bridge_set_selection_endpoint(
         handle: Long,
         handleSide: Byte,
@@ -733,6 +749,11 @@ private interface TorvoxNative : Library {
     fun boltffi_torvox_bridge_free_poll_all(ptr: Long)
 
     fun torvox_bridge_free_poll_all(ptr: Long)
+
+    fun torvox_bridge_wait_output(
+        handle: Long,
+        timeoutMs: Long,
+    ): Int
 
     fun boltffi_torvox_bridge_search_in_scrollback(
         handle: Long,
@@ -876,12 +897,13 @@ fun initNativeProxy() {
 }
 
 /** Detect whether we are running in a Robolectric unit test environment. */
-private fun isRunningRobolectric(): Boolean = try {
-    Class.forName("org.robolectric.RobolectricTestRunner")
-    true
-} catch (_: ClassNotFoundException) {
-    false
-}
+private fun isRunningRobolectric(): Boolean =
+    try {
+        Class.forName("org.robolectric.RobolectricTestRunner")
+        true
+    } catch (_: ClassNotFoundException) {
+        false
+    }
 
 private fun ensureLib(): TorvoxNative {
     if (isRunningRobolectric()) {
@@ -1116,6 +1138,12 @@ class TorvoxBridge(
         return str
     }
 
+    /**
+     * Wait for PTY output or timeout via the Rust Condvar.
+     * Returns true if output arrived, false on timeout.
+     */
+    fun waitOutput(timeoutMs: Long): Boolean = ensureLib().torvox_bridge_wait_output(handle, timeoutMs) == 1
+
     fun focusEvent(focused: Boolean) {
         ensureLib().torvox_bridge_focus_event(handle, if (focused) 1 else 0)
     }
@@ -1225,6 +1253,19 @@ class TorvoxBridge(
         val endCol = ((result shr 48) and LOW_16_MASK).toUInt()
         return Pair(Pair(startRow, startCol), Pair(endRow, endCol))
     }
+
+    fun isCellEmpty(
+        row: UInt,
+        col: UInt,
+    ): Boolean = ensureLib().torvox_bridge_is_cell_empty(handle, row.toInt(), col.toInt()) != 0
+
+    fun hasTextInRange(
+        startRow: UInt,
+        startCol: UInt,
+        endRow: UInt,
+        endCol: UInt,
+    ): Boolean =
+        ensureLib().torvox_bridge_has_text_in_range(handle, startRow.toInt(), startCol.toInt(), endRow.toInt(), endCol.toInt()) != 0
 
     /**
      * Move one endpoint of the active selection (set [handleSide]=0 to move the start, 1 to move

@@ -1,3 +1,4 @@
+//! Text shaping — cosmic-text integration for Unicode ligature and complex script support.
 use super::{FontPipeline, ShapedGlyphInfo};
 
 pub(super) const SHAPE_CACHE_CAPACITY: usize = 4_096;
@@ -17,7 +18,8 @@ impl FontPipeline {
             return cached.clone();
         }
 
-        let metrics = cosmic_text::Metrics::new(self.font_size, self.font_size * DEFAULT_LINE_HEIGHT_RATIO);
+        let metrics =
+            cosmic_text::Metrics::new(self.font_size, self.font_size * DEFAULT_LINE_HEIGHT_RATIO);
         let mut buffer = self.shaping_buffer.take().unwrap_or_else(|| {
             let mut b = cosmic_text::Buffer::new_empty(metrics);
             b.set_size(Some(INFINITE_BUFFER_WIDTH), None);
@@ -34,7 +36,9 @@ impl FontPipeline {
         };
         let attrs = cosmic_text::Attrs::new().family(family);
 
-        let has_cjk = text.chars().any(|c| (c as u32) >= super::CJK_IDEOGRAPHIC_START);
+        let has_cjk = text
+            .chars()
+            .any(|c| (c as u32) >= super::CJK_IDEOGRAPHIC_START);
         buffer.set_text(text, &attrs, cosmic_text::Shaping::Advanced, None);
         if has_cjk && !self.cjk_fallback_ids.is_empty() {
             let db = self.font_system.db();

@@ -63,9 +63,9 @@ impl LiveShellStore {
     }
 
     /// Spawn a real shell session and register it, returning its session id.
-    pub fn spawn_session(&self, shell: &str, rows: u32, cols: u32) -> u32 {
+    pub fn spawn_session(&self, shell: &str, rows: u32, cols: u32) -> Result<u32, String> {
         let session = Session::spawn(shell, rows, cols, &ShellEnv::default())
-            .expect("failed to spawn live shell session");
+            .map_err(|e| format!("failed to spawn live shell session: {e}"))?;
         let id = {
             let mut next = lock_or_recover(&self.next_id, "spawn_session::next_id");
             let id = *next;
@@ -92,7 +92,7 @@ impl LiveShellStore {
             }
         });
         lock_or_recover(&self.sessions, "spawn_session::sessions").insert(id, arc);
-        id
+        Ok(id)
     }
 
     fn lock_session(&self, session_id: u32) -> Result<Arc<Mutex<Session>>, String> {

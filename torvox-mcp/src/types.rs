@@ -1,8 +1,11 @@
 //! MCP protocol types — error, request/response, session info, commands.
+//!
+//! # Requirements
+//! - FR-044 — MCP server protocol types
 
 use flume::Sender;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use thiserror::Error;
 use torvox_core::cell::Cell;
 
@@ -74,6 +77,7 @@ pub struct GridCellData {
     pub hidden: bool,
 }
 
+/// A serialized snapshot of the terminal grid for MCP client consumption.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GridSnapshotData {
     pub rows: u32,
@@ -173,6 +177,7 @@ pub enum ReadResponse {
     ClipboardContent(String),
 }
 
+/// A single search result from terminal scrollback.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SearchMatch {
     pub line_number: u32,
@@ -181,6 +186,7 @@ pub struct SearchMatch {
     pub end_col: u32,
 }
 
+/// A file or directory entry from the filesystem.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DirEntry {
     pub name: String,
@@ -220,11 +226,16 @@ pub enum McpCommand {
     },
 }
 
+/// Unix signal types that can be sent to a session's child process.
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SignalKind {
+    /// SIGINT — interrupt (Ctrl-C).
     Interrupt,
+    /// SIGTERM — terminate (graceful shutdown).
     Terminate,
+    /// SIGHUP — hangup (terminal closed).
     Hangup,
+    /// SIGQUIT — quit (core dump).
     Quit,
 }
 

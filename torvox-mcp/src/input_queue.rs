@@ -2,12 +2,15 @@
 //!
 //! Watches scrollback for a configurable prompt pattern and injects
 //! queued text when the pattern appears.
+//!
+//! # Requirements
+//! - FR-048 — Input queue mechanism
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::types::SessionStore;
 

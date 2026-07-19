@@ -1,4 +1,10 @@
+use std::collections::HashMap;
+
+use torvox_core::selection::SelectionMode;
+
 use super::*;
+
+const GPU_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 fn f32_eq(a: f32, b: f32) -> bool {
     (a - b).abs() < f32::EPSILON
@@ -35,7 +41,8 @@ fn select_present_mode_prefers_vsync() {
         }
     }
 
-    // Mailbox available -> Mailbox (vsync + drop oldest). Never Immediate.
+    // Mailbox preferred over Fifo when both available (lower latency, vsync).
+    // Mali-G57 does not expose Mailbox → falls back to Fifo on affected devices.
     let mut caps = base_caps();
     caps.present_modes = vec![
         wgpu::PresentMode::Immediate,
@@ -45,7 +52,7 @@ fn select_present_mode_prefers_vsync() {
     assert_eq!(
         GpuContext::select_present_mode(&caps),
         wgpu::PresentMode::Mailbox,
-        "Mailbox (vsync) must win over Immediate"
+        "Mailbox preferred over Fifo (Fifo fallback on Mali-G57 which omits Mailbox)"
     );
 
     // No Mailbox -> Fifo (vsync).
@@ -116,11 +123,11 @@ fn build_cell_instances_from_flat_basic() {
     grid.set_cell(0, 2, 'B', [0.0, 1.0, 0.0, 1.0], [0.2, 0.2, 0.2, 1.0]);
     grid.set_cell(0, 3, 'C', [1.0, 0.0, 1.0, 1.0], [0.3, 0.3, 0.3, 1.0]);
 
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let (cell_w, _cell_h) = font_pipeline.cell_metrics();
 
-    let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 2048.0, 2048.0);
+    let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
     assert_eq!(instances.len(), 4);
 
     let cell0 = &instances[0];
@@ -244,8 +251,8 @@ fn flat_grid_zero_size() {
 #[test]
 fn flat_grid_set_out_of_bounds_no_panic() {
     let mut grid = FlatGrid::new(2, 2);
-    grid.set_cell(100, 100, 'X', [1.0; 4], [0.0; 4]); // out of bounds
-    // Should not panic, value not stored
+    // out of bounds — should not panic, value not stored
+    grid.set_cell(100, 100, 'X', [1.0; 4], [0.0; 4]);
     assert_eq!(grid.chars.len(), 4);
 }
 
@@ -286,18 +293,18 @@ fn flat_grid_cell_after_set() {
 #[test]
 fn build_cell_instances_from_flat_empty() {
     let grid = FlatGrid::new(0, 0);
-    let mut font = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font.rasterize_ascii();
-    let instances = build_cell_instances_from_flat(&grid, &mut font, 2048.0, 2048.0);
+    let instances = build_cell_instances_from_flat(&grid, &mut font, 1024.0, 1024.0);
     assert!(instances.is_empty());
 }
 
 #[test]
 fn build_cell_instances_from_flat_space_only() {
     let grid = FlatGrid::new(1, 5);
-    let mut font = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font.rasterize_ascii();
-    let instances = build_cell_instances_from_flat(&grid, &mut font, 2048.0, 2048.0);
+    let instances = build_cell_instances_from_flat(&grid, &mut font, 1024.0, 1024.0);
     assert_eq!(instances.len(), 5);
     // All spaces, atlas_size should be 0
     for inst in &instances {
@@ -310,9 +317,9 @@ fn build_cell_instances_from_flat_unicode_cjk() {
     let mut grid = FlatGrid::new(1, 3);
     grid.set_cell(0, 0, '中', [1.0; 4], [0.0; 4]);
     grid.set_cell(0, 1, '文', [1.0; 4], [0.0; 4]);
-    let mut font = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font.rasterize_ascii();
-    let instances = build_cell_instances_from_flat(&grid, &mut font, 2048.0, 2048.0);
+    let instances = build_cell_instances_from_flat(&grid, &mut font, 1024.0, 1024.0);
     // 3 cells (CJK may or may not be rasterized, may or may not produce instances)
     // Verify no panic
     assert_eq!(instances.len(), 3);
@@ -633,7 +640,7 @@ fn orthographic_projection_resize_gpu_uniforms() {
 #[test]
 fn cursor_rendering_on_visible_cursor() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![
         CellSnapshot {
@@ -659,8 +666,8 @@ fn cursor_rendering_on_visible_cursor() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 0.0,
             selection: None,
             selection_bg: None,
@@ -691,7 +698,7 @@ fn cursor_rendering_on_visible_cursor() {
 #[test]
 fn cursor_not_rendered_when_invisible() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 'A' as u32,
@@ -707,8 +714,8 @@ fn cursor_not_rendered_when_invisible() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 0.0,
             selection: None,
             selection_bg: None,
@@ -733,7 +740,7 @@ fn cursor_not_rendered_when_invisible() {
 #[test]
 fn reverse_video_applied_to_blank_cell() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let foreground = [1.0, 0.0, 0.0, 1.0];
     let background = [0.0, 0.0, 1.0, 1.0];
@@ -757,8 +764,8 @@ fn reverse_video_applied_to_blank_cell() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
             selection_bg: None,
@@ -790,7 +797,7 @@ fn reverse_video_applied_to_blank_cell() {
 fn selection_swaps_fg_bg() {
     use super::SelectionRange;
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
@@ -820,8 +827,8 @@ fn selection_swaps_fg_bg() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 768.0,
             selection,
             selection_bg: None,
@@ -854,7 +861,7 @@ fn selection_swaps_fg_bg() {
 /// (no centering, no clamping — the raw font baseline offset).
 #[test]
 fn bearing_y_uses_font_baseline_not_centering() {
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let ascent_pixels = font_pipeline.ascent_pixels();
 
@@ -865,7 +872,7 @@ fn bearing_y_uses_font_baseline_not_centering() {
 
         let mut grid = FlatGrid::new(1, 1);
         grid.set_cell(0, 0, ch, [1.0; 4], [0.0; 4]);
-        let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 2048.0, 2048.0);
+        let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
         let cell = &instances[0];
 
         assert!(
@@ -880,7 +887,7 @@ fn bearing_y_uses_font_baseline_not_centering() {
 /// Verify bearing_x uses font's natural left side bearing, not centering.
 #[test]
 fn bearing_x_uses_font_natural_bearing() {
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
 
     let chars = ['A', 'i', 'l', 'W', 'M'];
@@ -890,7 +897,7 @@ fn bearing_x_uses_font_natural_bearing() {
 
         let mut grid = FlatGrid::new(1, 1);
         grid.set_cell(0, 0, ch, [1.0; 4], [0.0; 4]);
-        let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 2048.0, 2048.0);
+        let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
         let cell = &instances[0];
 
         assert!(
@@ -906,7 +913,7 @@ fn bearing_x_uses_font_natural_bearing() {
 /// This ensures no vertical misalignment between characters.
 #[test]
 fn all_chars_share_same_baseline_y() {
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
 
@@ -915,7 +922,7 @@ fn all_chars_share_same_baseline_y() {
     for (i, &ch) in chars.iter().enumerate() {
         grid.set_cell(0, i as u32, ch, [1.0; 4], [0.0; 4]);
     }
-    let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 2048.0, 2048.0);
+    let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
     assert_eq!(instances.len(), chars.len());
 
     // All cells should have the same quad_size (cell dimensions)
@@ -937,7 +944,7 @@ fn all_chars_share_same_baseline_y() {
 /// build_cell_instances_from_flat uses raw bearing_y = ascent_pixels - placement.top.
 #[test]
 fn cjk_bearing_y_not_centered() {
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     let ascent_pixels = font_pipeline.ascent_pixels();
 
     let cjk_chars = ['中', '文', '好'];
@@ -948,7 +955,7 @@ fn cjk_bearing_y_not_centered() {
             let mut grid = FlatGrid::new(1, 2);
             grid.set_cell(0, 0, ch, [1.0; 4], [0.0; 4]);
             let instances =
-                build_cell_instances_from_flat(&grid, &mut font_pipeline, 2048.0, 2048.0);
+                build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
             let cell = &instances[0];
 
             assert!(
@@ -1026,6 +1033,7 @@ fn setup_test_gpu_context(
         blur_h_pipeline: None,
         blur_v_pipeline: None,
         render_paused: false,
+        pending_gpu_drain: false,
     };
     ctx.initialize_pipeline_and_bind_group(256, 256, 50, 50);
     ctx
@@ -1102,6 +1110,7 @@ fn setup_test_gpu_context_custom(
         blur_h_pipeline: None,
         blur_v_pipeline: None,
         render_paused: false,
+        pending_gpu_drain: false,
     };
     ctx.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
     ctx
@@ -1349,7 +1358,7 @@ fn blend_highlight_semi_transparent() {
 #[test]
 fn search_highlight_blends_on_non_cursor_cell() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
@@ -1376,8 +1385,8 @@ fn search_highlight_blends_on_non_cursor_cell() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
             selection_bg: None,
@@ -1403,7 +1412,7 @@ fn search_highlight_blends_on_non_cursor_cell() {
 #[test]
 fn cursor_cell_not_affected_by_search_highlight() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 'A' as u32,
@@ -1430,8 +1439,8 @@ fn cursor_cell_not_affected_by_search_highlight() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 0.0,
             selection: None,
             selection_bg: None,
@@ -1626,7 +1635,7 @@ fn search_highlight_multiple_matches_same_row() {
 #[test]
 fn cursor_block_full_cell_size() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let cells = vec![CellSnapshot {
@@ -1646,8 +1655,8 @@ fn cursor_block_full_cell_size() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
             selection_bg: None,
@@ -1676,7 +1685,7 @@ fn cursor_block_full_cell_size() {
 #[test]
 fn cursor_bar_width_ratio() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let cells = vec![CellSnapshot {
@@ -1696,8 +1705,8 @@ fn cursor_bar_width_ratio() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
             selection_bg: None,
@@ -1728,7 +1737,7 @@ fn cursor_bar_width_ratio() {
 #[test]
 fn cursor_underline_height_ratio() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let cells = vec![CellSnapshot {
@@ -1748,8 +1757,8 @@ fn cursor_underline_height_ratio() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
             selection_bg: None,
@@ -1780,7 +1789,7 @@ fn cursor_underline_height_ratio() {
 #[test]
 fn cursor_not_rendered_when_visible_false() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 0x20,
@@ -1799,8 +1808,8 @@ fn cursor_not_rendered_when_visible_false() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
             selection_bg: None,
@@ -1826,7 +1835,7 @@ fn cursor_not_rendered_when_visible_false() {
 #[test]
 fn cursor_at_origin() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 'A' as u32,
@@ -1847,8 +1856,8 @@ fn cursor_at_origin() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
             selection_bg: None,
@@ -1877,7 +1886,7 @@ fn cursor_at_origin() {
 #[test]
 fn cursor_with_text_and_block_style() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
@@ -1899,8 +1908,8 @@ fn cursor_with_text_and_block_style() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
             selection_bg: None,
@@ -1930,7 +1939,7 @@ fn cursor_with_text_and_block_style() {
 #[test]
 fn cursor_with_text_and_bar_style() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
@@ -1952,8 +1961,8 @@ fn cursor_with_text_and_bar_style() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
             selection_bg: None,
@@ -1983,7 +1992,7 @@ fn cursor_with_text_and_bar_style() {
 #[test]
 fn cursor_with_text_and_underline_style() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
@@ -2005,8 +2014,8 @@ fn cursor_with_text_and_underline_style() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
             selection_bg: None,
@@ -2036,7 +2045,7 @@ fn cursor_with_text_and_underline_style() {
 #[test]
 fn cursor_color_custom_values() {
     use torvox_terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::font::FontPipeline::new(2048, 2048, 14.0);
+    let mut font_pipeline = crate::font::FontPipeline::new(1024, 1024, 14.0);
     font_pipeline.rasterize_ascii();
     let cells = vec![CellSnapshot {
         codepoint: 0x20,
@@ -2056,8 +2065,8 @@ fn cursor_color_custom_values() {
         &snapshot,
         &mut font_pipeline,
         CellInstanceConfig {
-            atlas_width: 2048.0,
-            atlas_height: 2048.0,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
             selection_bg: None,

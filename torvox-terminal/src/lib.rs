@@ -22,6 +22,7 @@ pub mod ghostty_terminal;
 mod lock_util;
 pub mod mock_pty;
 pub mod osc_handler;
+pub mod output_processor;
 pub mod pty;
 pub mod session;
 pub mod sgr_parser;

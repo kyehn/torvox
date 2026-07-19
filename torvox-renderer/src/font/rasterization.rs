@@ -1,3 +1,4 @@
+//! Glyph rasterization — converting font outlines to coverage bitmaps.
 use super::FontPipeline;
 
 pub(super) const ASCII_START: u32 = 32;

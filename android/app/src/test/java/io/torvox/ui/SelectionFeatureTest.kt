@@ -3,7 +3,6 @@
 
 package io.torvox.ui
 
-import android.graphics.RectF
 import io.torvox.SelectionAnchor
 import io.torvox.SelectionMode
 import io.torvox.SelectionState

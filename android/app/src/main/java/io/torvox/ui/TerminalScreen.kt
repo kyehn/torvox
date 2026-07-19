@@ -605,12 +605,7 @@ fun TerminalScreen(
                         modifier = Modifier.testTag("TextSearchBar"),
                     )
                 } else {
-                    val barMode =
-                        if (selectionActive) {
-                            io.torvox.ui.ModifierBarMode.SelectionActions
-                        } else {
-                            io.torvox.ui.ModifierBarMode.Normal
-                        }
+                    val barMode = if (selectionActive) io.torvox.ui.ModifierBarMode.SelectionActions else io.torvox.ui.ModifierBarMode.Normal
                     val clipboardManager =
                         context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
                             as android.content.ClipboardManager
@@ -726,7 +721,6 @@ fun SelectionMenuOverlay(
     val start = selection.start ?: return
     val end = selection.end ?: return
 
-    val pasteOnly = selection.selectedText.isEmpty()
     val pos =
         remember(selection, cellWidth, cellHeight, scrollOffset, screenWidthPx, screenHeightPx) {
             computeMenuPosition(
@@ -760,15 +754,18 @@ fun SelectionMenuOverlay(
                     .testTag("SelectionMenuOverlay")
                     .offset { IntOffset(pos.menuX.roundToInt(), pos.menuY.roundToInt()) }
                     .onSizeChanged { menuSize = it }
-                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
+                    .shadow(4.dp, RoundedCornerShape(8.dp))
+                    .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
                     .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
         ) {
-            Row(modifier = Modifier.padding(4.dp)) {
-                if (!pasteOnly) {
+            Row(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
+                if (selection.pasteOnly) {
+                    SelectionMenuItem(text = "Paste", onClick = onPaste)
+                } else {
                     SelectionMenuItem(text = "Copy", onClick = onCopy)
                     SelectionMenuItem(text = "Select All", onClick = onSelectAll)
+                    SelectionMenuItem(text = "Paste", onClick = onPaste)
                 }
-                SelectionMenuItem(text = "Paste", onClick = onPaste)
             }
         }
     }

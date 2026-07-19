@@ -1,9 +1,70 @@
-use super::atlas::MIN_ATLAS_BUFFER_SIZE;
-use super::pipeline::QUAD_VERTEX_COUNT;
+//! Render loop — frame submission, synchronization, and error recovery.
 use super::GpuContext;
 use super::GpuError;
+use super::atlas::MIN_ATLAS_BUFFER_SIZE;
+use super::pipeline::QUAD_VERTEX_COUNT;
+use std::sync::OnceLock;
+use std::sync::mpsc::SyncSender;
 
 const GPU_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn acquire_worker_is_singleton() {
+        let tx1 = acquire_worker_tx();
+        let tx2 = acquire_worker_tx();
+        assert!(
+            std::ptr::eq(tx1, tx2),
+            "acquire_worker must return the same sender each call"
+        );
+    }
+
+    #[test]
+    fn gpu_poll_timeout_is_2_seconds() {
+        assert_eq!(GPU_POLL_TIMEOUT.as_secs(), 2);
+    }
+
+    #[test]
+    fn acquire_timeout_is_2_seconds() {
+        assert_eq!(ACQUIRE_TIMEOUT.as_secs(), 2);
+    }
+
+    #[test]
+    fn pending_drain_uses_16ms_single_frame_timeout() {
+        let drain = std::time::Duration::from_millis(16);
+        assert!(drain.as_millis() <= 16, "drain must not exceed one frame");
+    }
+}
+
+type AcquireResult = Result<wgpu::CurrentSurfaceTexture, Box<dyn std::any::Any + Send>>;
+
+struct AcquireRequest {
+    surface: std::sync::Arc<wgpu::Surface<'static>>,
+    response: std::sync::mpsc::SyncSender<AcquireResult>,
+}
+
+fn acquire_worker_tx() -> &'static SyncSender<AcquireRequest> {
+    static WORKER_TX: OnceLock<SyncSender<AcquireRequest>> = OnceLock::new();
+    WORKER_TX.get_or_init(|| {
+        let (tx, rx) = std::sync::mpsc::sync_channel::<AcquireRequest>(1);
+        std::thread::Builder::new()
+            .name("gpu-acquire".into())
+            .spawn(move || {
+                for request in rx {
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        request.surface.get_current_texture()
+                    }));
+                    let _ = request.response.send(result);
+                }
+            })
+            .expect("failed to spawn gpu-acquire worker thread");
+        tx
+    })
+}
 
 impl GpuContext {
     pub fn warmup(&self) {
@@ -60,40 +121,47 @@ impl GpuContext {
 
     fn acquire_texture(
         &self,
-        surface: &wgpu::Surface<'static>,
+        surface: &std::sync::Arc<wgpu::Surface<'static>>,
         _cfg_width: u32,
         _cfg_height: u32,
     ) -> Option<wgpu::SurfaceTexture> {
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            surface.get_current_texture()
-        })) {
-            Ok(
+        // Mali-G57 (Unisoc SoCs) can hang vkAcquireNextImageKHR indefinitely when
+        // SURFACE_VIEW_FORMATS is missing. Use a persistent worker thread with a
+        // timeout to prevent blocking the render thread forever. The worker thread
+        // is created once (via OnceLock) and reused across all frames, avoiding the
+        // ~1ms per-frame overhead of std::thread::spawn on Android.
+        let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel::<AcquireResult>(1);
+        let request = AcquireRequest {
+            surface: std::sync::Arc::clone(surface),
+            response: resp_tx,
+        };
+        if acquire_worker_tx().try_send(request).is_err() {
+            log::warn!("acquire_texture: worker channel full or disconnected");
+            return None;
+        }
+
+        match resp_rx.recv_timeout(ACQUIRE_TIMEOUT) {
+            Ok(Ok(result)) => match result {
                 wgpu::CurrentSurfaceTexture::Success(tex)
-                | wgpu::CurrentSurfaceTexture::Suboptimal(tex),
-            ) => Some(tex),
-            Ok(wgpu::CurrentSurfaceTexture::Lost) => {
-                if let Some(config) = &self.surface_config {
-                    surface.configure(&self.device, config);
+                | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
+                wgpu::CurrentSurfaceTexture::Lost => {
+                    if let Some(config) = &self.surface_config {
+                        surface.configure(&self.device, config);
+                    }
+                    None
                 }
+                _ => None,
+            },
+            Ok(Err(_)) => {
+                log::warn!("acquire_texture: get_current_texture panicked");
                 None
             }
-            Ok(_) => None,
             Err(_) => {
-                log::warn!(
-                    "render_frame: get_current_texture panicked (unconfigured surface), reconfiguring"
+                log::error!(
+                    "acquire_texture: get_current_texture hung for {}ms (Mali-G57 driver issue)",
+                    ACQUIRE_TIMEOUT.as_millis()
                 );
-                if let Some(config) = &self.surface_config {
-                    surface.configure(&self.device, config);
-                }
-                match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    surface.get_current_texture()
-                })) {
-                    Ok(
-                        wgpu::CurrentSurfaceTexture::Success(tex)
-                        | wgpu::CurrentSurfaceTexture::Suboptimal(tex),
-                    ) => Some(tex),
-                    _ => None,
-                }
+                None
             }
         }
     }
@@ -105,6 +173,16 @@ impl GpuContext {
     ) -> Result<(), GpuError> {
         if self.render_paused {
             return Ok(());
+        }
+        // Drain deferred GPU work from release_gpu_surface before acquiring new texture.
+        // Use a single-frame timeout (16ms) — if the GPU is still busy after one frame
+        // boundary, proceeding anyway avoids blocking the UI thread for 200ms+.
+        if self.pending_gpu_drain {
+            let _ = self.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_millis(16)),
+            });
+            self.pending_gpu_drain = false;
         }
         let mut cfg_width = self
             .surface_config

@@ -294,6 +294,8 @@ fn doc_module_has_requirements() {
         "shell_env.rs",
         // Thin CLI shim — module docs belong in lib.rs
         "main.rs",
+        // Verus formal verification — compiled only under cfg(verus_only)
+        "verus_annotations.rs",
     ]
     .into();
 
@@ -403,7 +405,7 @@ fn mcp_schema_matches_code() {
     );
 
     // Parse code tools from the list_tools() function
-    let lib_path = std::path::Path::new(WORKSPACE).join("torvox-mcp/src/lib.rs");
+    let lib_path = std::path::Path::new(WORKSPACE).join("torvox-mcp/src/server.rs");
     let lib_content = std::fs::read_to_string(&lib_path)
         .unwrap_or_else(|e| panic!("failed to read {}: {e}", lib_path.display()));
 
@@ -432,7 +434,7 @@ fn mcp_schema_matches_code() {
 
     assert!(
         !code_tools.is_empty(),
-        "no tools found in list_tools() in torvox-mcp/src/lib.rs"
+        "no tools found in list_tools() in torvox-mcp/src/server.rs"
     );
 
     // Forward: tools in code that are missing from schema
@@ -524,6 +526,7 @@ fn torvox_core_forbids_unsafe_code() {
 fn nu_scripts_are_valid() {
     let scripts_dir = std::path::Path::new(WORKSPACE).join("scripts");
     let allowed: std::collections::HashSet<&str> = [
+        "auto-commit.nu",
         "bootstrap-libghostty.nu",
         "build-android-libs.nu",
         "build-apk.nu",

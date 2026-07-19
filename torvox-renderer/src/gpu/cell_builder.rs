@@ -1,3 +1,4 @@
+//! Cell instance builder — converts terminal grid state into GPU instance data.
 use std::collections::HashMap;
 
 use super::CellInstance;
@@ -28,6 +29,7 @@ pub struct SelectionRange {
     pub active: bool,
     pub mode: SelectionMode,
     pub origin: Option<(i32, i32)>,
+    pub is_empty: bool,
 }
 
 impl SelectionRange {
@@ -149,7 +151,7 @@ pub fn build_cell_instances_into(
     let atlas_width = config.atlas_width;
     let atlas_height = config.atlas_height;
     let projection_height = config.projection_height * config.render_scale;
-    let selection = config.selection;
+    let selection = config.selection.filter(|s| !s.is_empty);
     let selection_bg = config.selection_bg;
     let search_highlights = config.search_highlights;
     let cursor_color = config.cursor_color;
