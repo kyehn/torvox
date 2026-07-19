@@ -33,6 +33,7 @@ import android.widget.PopupWindow
 import io.torvox.R
 import io.torvox.SelectionMode
 import io.torvox.TerminalViewModel
+import io.torvox.TouchClass
 import io.torvox.runtime.InputBatchBuffer
 import io.torvox.runtime.LogUtil
 
@@ -914,36 +915,45 @@ class TerminalSurface
 
             hideSelectionHandles()
 
-            val col = (x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-            val row = (y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
             val bridge = viewModel?.runtime?.bridge()
             val scrollbackLength = bridge?.scrollbackLength()?.toInt() ?: 0
-            val line = bridge?.scrollbackLine((scrollbackLength - scrollOffset + row).toUInt()) ?: ""
-            val isOnEmptyArea = col >= line.length || line.isEmpty()
-            val isOnWhitespace = !isOnEmptyArea && col < line.length && line[col].isWhitespace()
+            val col = (x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
+            val row = (y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+            val gridRow = (scrollbackLength - scrollOffset + row).toUInt()
 
-            if (isOnEmptyArea || isOnWhitespace) {
-                val endCol = (col + 1).coerceAtMost(cols - 1)
-                viewModel?.setSelectionMode(SelectionMode.Char)
-                viewModel?.startSelection(row, col)
-                viewModel?.updateSelection(row, endCol)
+            val isCellEmpty = bridge?.isCellEmpty(gridRow, col.toUInt()) ?: false
+            val isOnWhitespace =
+                if (!isCellEmpty && bridge != null) {
+                    val line = bridge.scrollbackLine(gridRow) ?: ""
+                    col < line.length && line[col].isWhitespace()
+                } else {
+                    false
+                }
+
+            if (isCellEmpty) {
+                viewModel?.showPastePopup(row, col)
+                Log.d(
+                    "TorvoxSelection",
+                    "LONG_PRESS empty cell: row=$row col=$col " +
+                        "isCellEmpty=true menu=PASTE_POPUP",
+                )
+            } else if (isOnWhitespace) {
+                viewModel?.setSelectionMode(SelectionMode.Word)
+                viewModel?.startSelection(row, col, TouchClass.Whitespace)
                 viewModel?.endSelection(scrollOffset)
-                showSelectionHandles(row, col, row, endCol, getAccentColor())
 
                 Log.d(
                     "TorvoxSelection",
-                    "LONG_PRESS empty/whitespace: row=$row col=$col endCol=$endCol " +
-                        "isOnEmptyArea=$isOnEmptyArea isOnWhitespace=$isOnWhitespace " +
-                        "mode=Char menu=PASTE_ONLY",
+                    "LONG_PRESS whitespace: row=$row col=$col " +
+                        "mode=Word menu=PASTE_ONLY",
                 )
             } else {
                 val bounds =
                     viewModel?.runtime?.expandAndSetSelection(
-                        row = (scrollbackLength - scrollOffset + row).toUInt(),
+                        row = gridRow,
                         col = col.toUInt(),
                         mode = 4,
                     )
-                val hasClipboard = safeHasPrimaryClip()
 
                 val startRow: Int
                 val startCol: Int
@@ -968,16 +978,13 @@ class TerminalSurface
                     "TorvoxSelection",
                     "LONG_PRESS text: tapRow=$row tapCol=$col " +
                         "expanded start=($startRow,$startCol) end=($endRow,$endCol) " +
-                        "mode=Word menu=FULL hasClipboard=$hasClipboard",
+                        "mode=Semantic menu=FULL",
                 )
 
-                viewModel?.startSelection(startRow, startCol)
+                viewModel?.startSelection(startRow, startCol, TouchClass.Text)
                 viewModel?.updateSelection(endRow, endCol)
                 viewModel?.endSelection(scrollOffset)
                 showSelectionHandles(startRow, startCol, endRow, endCol, getAccentColor())
-                // The selection menu is rendered by the Compose SelectionMenuOverlay,
-                // driven by the view-model selection state. We intentionally do NOT
-                // invoke the legacy ActionMode showContextMenu path here.
             }
         }
 

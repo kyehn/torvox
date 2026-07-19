@@ -35,6 +35,7 @@ pub struct TerminalConfig {
     pub right_alt_mode: RightAltMode,
 }
 
+/// Byte sent when the backspace key is pressed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(
     feature = "rkyv",
@@ -65,6 +66,7 @@ impl BackspaceMode {
     }
 }
 
+/// How the right Alt key is interpreted by the terminal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(
     feature = "rkyv",
@@ -92,6 +94,7 @@ impl Default for TerminalConfig {
     }
 }
 
+/// Shell to launch when the terminal session starts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(
     feature = "rkyv",

@@ -1,70 +1,6 @@
 use super::core::{with_bridge, TorvoxBridge};
 use super::types::*;
-
-pub fn read_string(ptr: *const u8, len: i32) -> String {
-    if ptr.is_null() || len <= 0 {
-        String::new()
-    } else {
-        // SAFETY: The caller guarantees ptr is valid for reads of len bytes
-        // and is properly aligned for u8 access. The returned slice is
-        // immediately converted to an owned String, so no aliasing issues.
-        let slice = unsafe { std::slice::from_raw_parts(ptr, len as usize) };
-        String::from_utf8_lossy(slice).to_string()
-    }
-}
-
-pub fn safe_cstring(string: String) -> Option<std::ffi::CString> {
-    if string.contains('\0') {
-        log::warn!(
-            "bridge: safe_cstring encountered interior NUL(s) — data truncated. Original length: {}",
-            string.len()
-        );
-    }
-    let stripped: String = string
-        .chars()
-        .filter(|&character| character != '\0')
-        .collect();
-    if stripped.is_empty() {
-        None
-    } else {
-        std::ffi::CString::new(stripped).ok()
-    }
-}
-
-pub fn read_u32_le(bytes: &[u8], pos: usize) -> Option<u32> {
-    if pos + 4 > bytes.len() {
-        log::error!(
-            "wire deserialization: buffer too short at pos={pos}, len={}",
-            bytes.len()
-        );
-        return None;
-    }
-    Some(u32::from_le_bytes(bytes[pos..pos + 4].try_into().ok()?))
-}
-
-pub fn read_wire_string(bytes: &[u8], pos: &mut usize) -> Option<String> {
-    let len = read_u32_le(bytes, *pos)? as usize;
-    *pos += 4;
-    if *pos + len > bytes.len() {
-        log::error!(
-            "wire deserialization: string length {len} exceeds buffer at pos={}",
-            *pos
-        );
-        return None;
-    }
-    let string_value = String::from_utf8_lossy(&bytes[*pos..*pos + len]).to_string();
-    *pos += len;
-    Some(string_value)
-}
-
-#[inline]
-fn to_argb(color: &[f32; 4]) -> u32 {
-    let r = (color[0].clamp(0.0, 1.0) * 255.0) as u32;
-    let g = (color[1].clamp(0.0, 1.0) * 255.0) as u32;
-    let b = (color[2].clamp(0.0, 1.0) * 255.0) as u32;
-    let a = (color[3].clamp(0.0, 1.0) * 255.0) as u32;
-    (a << 24) | (r << 16) | (g << 8) | b
-}
+use super::wire_format::*;
 
 /// # Safety
 /// `handle` must be a valid surface handle previously returned by `torvox_bridge_new`.
@@ -183,7 +119,7 @@ pub unsafe extern "C" fn torvox_bridge_set_save_path(
     path_ptr: *const u8,
     path_len: i32,
 ) -> i32 {
-    let path = read_string(path_ptr, path_len);
+    let path = unsafe { read_string(path_ptr, path_len) };
     with_bridge(handle, |bridge| bridge.set_save_path(path))
         .map(|_| 0)
         .unwrap_or(-1)
@@ -198,7 +134,7 @@ pub unsafe extern "C" fn torvox_bridge_has_saved_session(
     path_ptr: *const u8,
     path_len: i32,
 ) -> bool {
-    let path = read_string(path_ptr, path_len);
+    let path = unsafe { read_string(path_ptr, path_len) };
     with_bridge(handle, |bridge| Ok(bridge.has_saved_session(path))).unwrap_or(false)
 }
 
@@ -211,7 +147,7 @@ pub unsafe extern "C" fn torvox_bridge_save_session(
     path_ptr: *const u8,
     path_len: i32,
 ) -> i32 {
-    let path = read_string(path_ptr, path_len);
+    let path = unsafe { read_string(path_ptr, path_len) };
     with_bridge(handle, |bridge| bridge.save_session(path))
         .map(|_| 0)
         .unwrap_or(-1)
@@ -226,7 +162,7 @@ pub unsafe extern "C" fn torvox_bridge_restore_session(
     path_ptr: *const u8,
     path_len: i32,
 ) -> i32 {
-    let path = read_string(path_ptr, path_len);
+    let path = unsafe { read_string(path_ptr, path_len) };
     with_bridge(handle, |bridge| bridge.restore_session(path))
         .map(|_| 0)
         .unwrap_or(-1)
@@ -460,7 +396,7 @@ pub unsafe extern "C" fn torvox_bridge_set_extra_font_paths(
         // elements. Each element pointer is checked by read_string.
         let path_ptr = unsafe { *paths_ptr.add(i) };
         let path_len = unsafe { *lens_ptr.add(i) };
-        paths.push(read_string(path_ptr, path_len));
+        paths.push(unsafe { read_string(path_ptr, path_len) });
     }
     with_bridge(handle, |bridge| {
         bridge.set_extra_font_paths(paths);
@@ -515,6 +451,32 @@ pub unsafe extern "C" fn torvox_bridge_expand_and_set_selection(
             | ((ec as i64 & 0xFFFF) << 48)
     })
     .unwrap_or(-1)
+}
+
+/// # Safety
+/// `handle` must be a valid surface handle previously returned by `torvox_bridge_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_is_cell_empty(handle: i64, row: u32, col: u32) -> i32 {
+    with_bridge(handle, |bridge| Ok(bridge.is_cell_empty(row, col)))
+        .map(|empty| if empty { 1 } else { 0 })
+        .unwrap_or(1)
+}
+
+/// # Safety
+/// `handle` must be a valid surface handle previously returned by `torvox_bridge_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_has_text_in_range(
+    handle: i64,
+    start_row: u32,
+    start_col: u32,
+    end_row: u32,
+    end_col: u32,
+) -> i32 {
+    with_bridge(handle, |bridge| {
+        Ok(bridge.has_text_in_range(start_row, start_col, end_row, end_col))
+    })
+    .map(|has| if has { 1 } else { 0 })
+    .unwrap_or(0)
 }
 
 /// # Safety
@@ -585,7 +547,7 @@ pub unsafe extern "C" fn torvox_bridge_set_font_family(
     family_ptr: *const u8,
     family_len: i32,
 ) -> i32 {
-    let family = read_string(family_ptr, family_len);
+    let family = unsafe { read_string(family_ptr, family_len) };
     with_bridge(handle, |bridge| bridge.set_font_family(family))
         .map(|_| 0)
         .unwrap_or(-1)
@@ -919,6 +881,23 @@ pub unsafe extern "C" fn torvox_bridge_poll_all(handle: i64) -> i64 {
 }
 
 /// # Safety
+/// `handle` must be a valid bridge handle previously returned by `torvox_bridge_new`.
+/// Waits for PTY output or timeout. Returns 1 if output arrived, 0 if timeout.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn torvox_bridge_wait_output(handle: i64, timeout_ms: u64) -> i32 {
+    match with_bridge(handle, |bridge| {
+        Ok(bridge.wait_for_output_timeout(timeout_ms))
+    }) {
+        Ok(true) => 1,
+        Ok(false) => 0,
+        Err(e) => {
+            log::debug!("torvox_bridge_wait_output: {e}");
+            0
+        }
+    }
+}
+
+/// # Safety
 /// `ptr` must be a valid pointer previously returned by `torvox_bridge_poll_all`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn torvox_bridge_free_poll_all(ptr: i64) {
@@ -1000,7 +979,7 @@ pub unsafe extern "C" fn torvox_bridge_search_in_scrollback(
     query_ptr: *const u8,
     query_len: i32,
 ) -> i64 {
-    let query = read_string(query_ptr, query_len);
+    let query = unsafe { read_string(query_ptr, query_len) };
     let result = match with_bridge(handle, |bridge| Ok(bridge.search_in_scrollback(query))) {
         Ok(r) => r,
         Err(e) => {
@@ -1028,7 +1007,7 @@ pub unsafe extern "C" fn torvox_bridge_search_all_in_scrollback(
     case_sensitive: u8,
     fuzzy: u8,
 ) -> i64 {
-    let query = read_string(query_ptr, query_len);
+    let query = unsafe { read_string(query_ptr, query_len) };
     let case_sensitive = case_sensitive != 0;
     let fuzzy = fuzzy != 0;
     let result = with_bridge(handle, |bridge| {
@@ -1171,7 +1150,7 @@ pub unsafe extern "C" fn torvox_bridge_set_cursor_style(
     style_ptr: *const u8,
     style_len: i32,
 ) {
-    let style = read_string(style_ptr, style_len);
+    let style = unsafe { read_string(style_ptr, style_len) };
     if let Err(error) = with_bridge(handle, |bridge| bridge.set_cursor_style(style)) {
         log::error!("bridge: torvox_bridge_set_cursor_style failed: {error}");
     }

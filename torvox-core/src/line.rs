@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cell::Cell;
 
+/// Line-level attributes for double-width and double-height rendering.
 #[cfg_attr(
     feature = "rkyv",
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
@@ -63,22 +64,27 @@ impl Line {
         }
     }
 
+    /// Returns the number of columns in this line.
     pub fn len(&self) -> u32 {
         self.cells.len() as u32
     }
 
+    /// Returns true if this line has zero columns.
     pub fn is_empty(&self) -> bool {
         self.cells.is_empty()
     }
 
+    /// Get a reference to the cell at the given column, or None if out of bounds.
     pub fn get(&self, col: u32) -> Option<&Cell> {
         self.cells.get(col as usize)
     }
 
+    /// Get a mutable reference to the cell at the given column, or None if out of bounds.
     pub fn get_mut(&mut self, col: u32) -> Option<&mut Cell> {
         self.cells.get_mut(col as usize)
     }
 
+    /// Resize this line to the given number of columns, preserving existing cells.
     pub fn resize(&mut self, new_cols: u32) {
         let new_len = new_cols as usize;
         if new_len == self.cells.len() {
@@ -91,10 +97,12 @@ impl Line {
         self.cells = new_cells.into_boxed_slice();
     }
 
+    /// Get a slice of all cells in this line.
     pub fn cells(&self) -> &[Cell] {
         &self.cells
     }
 
+    /// Get a mutable slice of all cells in this line.
     pub fn cells_mut(&mut self) -> &mut [Cell] {
         &mut self.cells
     }

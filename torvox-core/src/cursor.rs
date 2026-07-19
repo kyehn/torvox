@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Visual style of the text cursor in the terminal.
+/// Visual style of the text cursor in the terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[cfg_attr(
     feature = "rkyv",
@@ -20,6 +21,7 @@ pub enum CursorStyle {
     Bar,
 }
 
+/// Complete cursor state including position, style, and visibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "rkyv",
