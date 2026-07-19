@@ -386,7 +386,6 @@ impl From<torvox_core::event::TerminalEvent> for TerminalEvent {
     }
 }
 
-#[boltffi::data]
 #[derive(Debug, Default)]
 pub struct PollAllResult {
     pub bel: bool,
@@ -397,8 +396,8 @@ pub struct PollAllResult {
     pub shell_integration: u8,
 }
 
-#[boltffi::data]
 #[derive(Debug, Clone, Copy)]
+#[boltffi::data]
 pub struct SelectionEndpointParams {
     pub handle_side: u8,
     pub anchor_row: i32,
@@ -455,26 +454,4 @@ impl From<BridgeError> for TerminalError {
             BridgeError::Unsupported(d) => TerminalError::PtyError { detail: d },
         }
     }
-}
-
-macro_rules! lock_surface {
-    ($bridge:expr) => {
-        $bridge
-            .surface
-            .lock()
-            .map_err(|_| $crate::bridge::BridgeError::Lock {
-                context: "surface".into(),
-            })?
-    };
-}
-
-macro_rules! lock_session {
-    ($bridge:expr) => {
-        $bridge
-            .session
-            .lock()
-            .map_err(|_| $crate::bridge::BridgeError::Lock {
-                context: "session".into(),
-            })?
-    };
 }

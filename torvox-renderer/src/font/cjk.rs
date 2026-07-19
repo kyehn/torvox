@@ -1,3 +1,4 @@
+//! CJK fallback font resolution — finds and loads CJK fonts for ideograph rendering.
 use super::{FontPipeline, GlyphInfo};
 
 pub(super) const CJK_BITMAP_PENALTY: u8 = 20;
@@ -245,11 +246,7 @@ impl FontPipeline {
                         let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
                         let charmap = font_ref.charmap();
                         let gid = charmap.map(ch);
-                        if gid != 0 {
-                            Some(gid)
-                        } else {
-                            None
-                        }
+                        if gid != 0 { Some(gid) } else { None }
                     })??;
                     Some((fallback_id, gid))
                 })

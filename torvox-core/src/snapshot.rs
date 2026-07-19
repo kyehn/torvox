@@ -12,6 +12,7 @@ use crate::line::Line;
     feature = "rkyv",
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)
 )]
+/// Complete terminal snapshot for rendering — visible grid plus scrollback history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionSnapshot {
     pub visible_lines: Vec<Line>,
@@ -22,6 +23,7 @@ pub struct SessionSnapshot {
 }
 
 impl SessionSnapshot {
+    /// Create a snapshot from the current grid state.
     pub fn from_grid(grid: &Grid) -> Self {
         let mut visible_lines = Vec::with_capacity(grid.rows() as usize);
         for r in 0..grid.rows() {
@@ -49,6 +51,7 @@ impl SessionSnapshot {
         }
     }
 
+    /// Apply this snapshot to a grid, restoring the scrollback state.
     pub fn apply_to_scrollback(&self, grid: &mut Grid, max_lines: usize) {
         let total = self.scrollback_lines.len() + self.visible_lines.len();
         let keep = total.min(max_lines);

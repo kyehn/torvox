@@ -17,7 +17,6 @@ import io.torvox.bridge.TerminalConfig
 import io.torvox.bridge.TorvoxBridge
 import io.torvox.bridge.createBridge
 import io.torvox.monitor.RenderWatchDog
-import io.torvox.monitor.SelfExit
 import io.torvox.settings.SettingsRepository
 import io.torvox.ui.theme.BuiltInThemes
 import kotlinx.coroutines.CoroutineScope
@@ -39,6 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.concurrent.thread
 
 data class RuntimeState(
     val isRunning: Boolean = false,
@@ -246,11 +246,8 @@ constructor(
         }
         entry.renderThreadRef = null
         entry.renderSignaled.set(false)
-        try {
-            entry.bridge?.releaseGpuSurface()
-        } catch (e: Exception) {
-            LogUtil.e("TorvoxRuntime", "session ${entry.id} releaseGpuSurface during cleanup failed", e)
-        }
+        // Skip releaseGpuSurface here — the new render thread will
+        // reconfigure the surface via setNativeWindow/updateNativeWindow.
     }
 
     private fun closeDeadSession(entry: SessionEntry) {
@@ -424,12 +421,14 @@ constructor(
         private const val FONT_SIZE_HEIGHT_MAX_PX = 500
         private const val RENDER_ERROR_LOG_FREQUENCY = 60
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
+        private const val RENDER_MAX_TRANSIENT_ERRORS = 50 // ~2.5s of transient errors before thread exit
         private const val RENDER_ERROR_SLEEP_MS = 50L
+        private const val RENDER_ERROR_BACKOFF_MS = 200L // Longer sleep after 10 consecutive transient errors
         private const val RENDER_LATCH_TIMEOUT_NANOS = 16_000_000L // 16ms for active (~60 FPS)
         private const val RENDER_LATCH_IDLE_TIMEOUT_NANOS = 500_000_000L // 500ms for idle (~2 FPS)
         private const val RENDER_IDLE_THRESHOLD_NANOS = 5_000_000_000L // 5s idle → switch to low-freq
         private const val RENDER_DIAGNOSTIC_FREQUENCY = 60
-        private const val THREAD_JOIN_TIMEOUT_MS = 3000L
+        private const val THREAD_JOIN_TIMEOUT_MS = 1000L
         private const val BEL_TONE_STREAM_TYPE = AudioManager.STREAM_NOTIFICATION
         private const val BEL_TONE_VOLUME = 50
         private const val BEL_TONE_TYPE = ToneGenerator.TONE_PROP_ACK
@@ -441,9 +440,9 @@ constructor(
         // Render monitor — proactive death detection
         private const val RENDER_MONITOR_INTERVAL_MS = 500L
         private const val RENDER_MAX_RESTART_ATTEMPTS = 5
-        private const val INITIAL_RESTART_DELAY_MS = 200L
-        private const val MAX_RESTART_DELAY_MS = 2000L
-        private const val GRACE_PERIOD_AFTER_RESTART_MS = 500L
+        private const val INITIAL_RESTART_DELAY_MS = 100L
+        private const val MAX_RESTART_DELAY_MS = 1000L
+        private const val GRACE_PERIOD_AFTER_RESTART_MS = 300L
         private val nextSessionId = AtomicLong(1L)
     }
 
@@ -705,7 +704,14 @@ constructor(
             if (blitCallback != null) {
                 entry.blitCallback = blitCallback
             }
-            bridge.render()
+            // First render: problematic GPUs (Mali-G57 w/ missing SURFACE_VIEW_FORMATS)
+            // can hang get_current_texture() indefinitely. The previous approach of
+            // spawning a daemon thread to call bridge.render() caused mutex starvation —
+            // the daemon would acquire the surface Mutex and hang, permanently blocking
+            // the real render thread. Instead, signal the render loop to produce the
+            // first frame via forceRenderRequested, which will be picked up by the
+            // real render thread once it starts.
+            entry.forceRenderRequested = true
             startRenderThread(entry)
 
             _state.value =
@@ -919,7 +925,7 @@ constructor(
                     // ANativeWindow). Retry the first synchronous render a few times
                     // with a short delay so we present real content instead of
                     // starting a render thread on a not-yet-ready surface (which would
-                    // block and trip the hang watchdog -> SelfExit).
+                    // block and trip the hang watchdog).
                     var initialRender = target.bridge?.render() ?: 0
                     var attempts = 1
                     while (initialRender < 0 && attempts < RENDER_INITIAL_RETRY_MAX) {
@@ -1357,25 +1363,22 @@ constructor(
                         entry.lastRenderStart = System.nanoTime()
                         val count = bridge.render(shouldSkipOutput)
                         if (count < 0) {
-                            consecutiveErrors++
-                            if (consecutiveErrors == 1) {
-                                LogUtil.e("TorvoxRuntime", "session ${entry.id} render error code=$count")
-                                LogcatFileWriter.write(
-                                    "TorvoxRuntime",
-                                    "session ${entry.id} render error code=$count",
-                                )
-                            } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
-                                LogUtil.e("TorvoxRuntime", "session ${entry.id} render error $count (x$consecutiveErrors)")
+                            // Transient render error (surface not ready, snapshot unavailable, etc.)
+                            // These resolve on their own; don't count them toward the fatal limit.
+                            if (consecutiveErrors == 0) {
+                                LogUtil.w("TorvoxRuntime", "session ${entry.id} transient render error code=$count")
                             }
-                            if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
-                                LogUtil.e("TorvoxRuntime", "session ${entry.id} too many render errors, stopping render thread")
-                                LogcatFileWriter.write(
+                            consecutiveErrors++
+                            if (consecutiveErrors > RENDER_MAX_TRANSIENT_ERRORS) {
+                                LogUtil.e(
                                     "TorvoxRuntime",
-                                    "session ${entry.id} render thread exiting after $consecutiveErrors consecutive errors",
+                                    "session ${entry.id} too many transient render errors ($consecutiveErrors), stopping render thread",
                                 )
                                 break
                             }
-                            Thread.sleep(RENDER_ERROR_SLEEP_MS)
+                            // Adaptive backoff: 50ms for first 10, then 200ms
+                            val sleepMs = if (consecutiveErrors > 10) RENDER_ERROR_BACKOFF_MS else RENDER_ERROR_SLEEP_MS
+                            Thread.sleep(sleepMs)
                         } else {
                             if (consecutiveErrors > 0) {
                                 LogUtil.i(
@@ -1443,16 +1446,12 @@ constructor(
                                     } else {
                                         RENDER_LATCH_TIMEOUT_NANOS
                                     }
-                                while (!entry.renderSignaled.get() && !entry.forceRenderRequested) {
-                                    java.util.concurrent.locks.LockSupport
-                                        .parkNanos(timeoutNanos)
+                                if (!entry.renderSignaled.get() && !entry.forceRenderRequested) {
+                                    val timeoutMs = timeoutNanos / 1_000_000L
+                                    bridge.waitOutput(timeoutMs)
                                     if (Thread.interrupted()) throw InterruptedException()
                                 }
-                                // Determine whether NEXT iteration needs ghostty output:
-                                // - Signal (renderSignaled == true) → new PTY data → process
-                                // - Timeout (both false) → blink → skip
-                                // - forceRenderRequested → force → skip (handled in else branch)
-                                shouldSkipOutput = !entry.renderSignaled.get()
+                                shouldSkipOutput = false
                                 entry.renderSignaled.set(false)
                             } else {
                                 entry.forceRenderRequested = false
@@ -1470,17 +1469,13 @@ constructor(
                         if (consecutiveErrors == 1) {
                             LogUtil.e("TorvoxRuntime", "session ${entry.id} first render exception", exception)
                         } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
-                            LogUtil.e("TorvoxRuntime", "session ${entry.id} render exception", exception)
+                            LogUtil.e("TorvoxRuntime", "session ${entry.id} render exception (x$consecutiveErrors)", exception)
                         }
                         if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
                             LogUtil.e(
                                 "TorvoxRuntime",
-                                "session ${entry.id} too many render exceptions, stopping render thread",
+                                "session ${entry.id} too many render exceptions ($consecutiveErrors), stopping render thread",
                                 exception,
-                            )
-                            LogcatFileWriter.write(
-                                "TorvoxRuntime",
-                                "session ${entry.id} render thread exiting after $consecutiveErrors consecutive exceptions",
                             )
                             break
                         }
@@ -1500,9 +1495,15 @@ constructor(
                 getDone = { entry.lastRenderDone },
                 isRunning = { entry.running && !entry.renderThreadExited && activeSessionId == entry.id },
                 onHangDetected = {
-                    LogUtil.e("TorvoxRuntime", "session ${entry.id} render thread hung")
-                    LogcatFileWriter.write("TorvoxRuntime", "session ${entry.id} render thread hung")
-                    SelfExit.exit(context.getDir("logs", Context.MODE_PRIVATE), "RenderHang")
+                    LogUtil.e("TorvoxRuntime", "session ${entry.id} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s)")
+                    LogcatFileWriter.write(
+                        "TorvoxRuntime",
+                        "session ${entry.id} render hang detected — marking thread for restart",
+                    )
+                    // Mark the thread as dead. The render monitor (checkSessions)
+                    // will detect this and restart the thread with exponential backoff.
+                    // This avoids killing the entire process for a GPU hang.
+                    entry.renderThreadExited = true
                 },
                 hangTimeoutNanos = RENDER_HANG_TIMEOUT_NANOS,
             ).also { it.start() }
