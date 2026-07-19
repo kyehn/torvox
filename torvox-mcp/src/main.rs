@@ -128,7 +128,12 @@ fn main() {
         {
             if cli.live {
                 let live = LiveShellStore::new();
-                let id = live.spawn_session(&cli.shell, cli.rows, cli.cols);
+                let id = live
+                    .spawn_session(&cli.shell, cli.rows, cli.cols)
+                    .unwrap_or_else(|e| {
+                        eprintln!("error: {e}");
+                        std::process::exit(1)
+                    });
                 log::info!("torvox-mcp: live session {id} spawned via {}", cli.shell);
                 Arc::new(live)
             } else {

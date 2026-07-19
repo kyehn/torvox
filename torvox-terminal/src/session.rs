@@ -1,5 +1,36 @@
 //! Session orchestrator — wires PTY reader, VT parser, and process waiter together.
 //!
+//! # Session Lifecycle
+//!
+//! ```text
+//!                     ┌─────────────┐
+//!                     │   Spawned   │
+//!                     └──────┬──────┘
+//!                            │ PTY created, threads started
+//!                            ▼
+//!                     ┌─────────────┐
+//!                     │   Running   │◄──────┐
+//!                     └──────┬──────┘       │ process_output()
+//!                            │              │
+//!              ┌─────────────┼─────────────┐│
+//!              │             │             ││
+//!              ▼             ▼             ││
+//!       ┌──────────┐  ┌──────────┐        ││
+//!       │  Paused  │  │   Idle   │────────┘│
+//!       └──────────┘  └──────────┘  output  │
+//!                            │             │
+//!                            │ EOF / exit  │
+//!                            ▼             │
+//!                     ┌─────────────┐      │
+//!                     │   Exited    │      │
+//!                     └──────┬──────┘      │
+//!                            │             │
+//!                            ▼             │
+//!                     ┌─────────────┐      │
+//!                     │   Cleaned   │──────┘
+//!                     └─────────────┘  cleanup_resources()
+//! ```
+//!
 //! # Requirements
 //! - [FR-009](crate) — Input: Ctrl-C, Ctrl-D, Ctrl-Z signal passthrough
 //! - [FR-027](crate) — Session: double-fork child with PID tracking
@@ -22,7 +53,7 @@ use thiserror::Error;
 
 use crate::ghostty_terminal::GhosttyTerminal;
 use crate::lock_util::lock_or_recover;
-use crate::osc_handler::{OscEvent, OscHandler};
+use crate::output_processor::{OutputProcessor, ShellIntegration};
 use crate::pty::{Pty, PtyError, PtyPair};
 use crate::shell_env::ShellEnv;
 
@@ -34,30 +65,7 @@ const READ_POLL_TIMEOUT_MS: i32 = 100;
 
 const DEFAULT_SCROLLBACK_LINES: u32 = 50000;
 
-/// OSC 133 Shell Integration markers.
-/// See <https://gitlab.freedesktop.org/terminal-wg/specifications/-/issues/31>
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum ShellIntegration {
-    None = 0,
-    PromptStart = 1,
-    PromptEnd = 2,
-    CommandStart = 3,
-    CommandExecuted = 4,
-}
-
-impl From<u8> for ShellIntegration {
-    fn from(v: u8) -> Self {
-        match v {
-            1 => Self::PromptStart,
-            2 => Self::PromptEnd,
-            3 => Self::CommandStart,
-            4 => Self::CommandExecuted,
-            _ => Self::None,
-        }
-    }
-}
-
+/// Errors that can occur during session operations.
 #[derive(Debug, Error)]
 pub enum SessionError {
     #[error("pty error: {0}")]
@@ -70,10 +78,42 @@ pub enum SessionError {
     Closed,
 }
 
+/// A terminal session — wires PTY reader, VT parser, and process waiter together.
+///
+/// # Lifecycle
+///
+/// ```text
+///                     ┌─────────────┐
+///                     │   Spawned   │
+///                     └──────┬──────┘
+///                            │ PTY created, threads started
+///                            ▼
+///                     ┌─────────────┐
+///                     │   Running   │◄──────┐
+///                     └──────┬──────┘       │ process_output()
+///                            │              │
+///              ┌─────────────┼─────────────┐│
+///              │             │             ││
+///              ▼             ▼             ││
+///       ┌──────────┐  ┌──────────┐        ││
+///       │  Paused  │  │   Idle   │────────┘│
+///       └──────────┘  └──────────┘  output  │
+///                            │             │
+///                            │ EOF / exit  │
+///                            ▼             │
+///                     ┌─────────────┐      │
+///                     │   Exited    │      │
+///                     └──────┬──────┘      │
+///                            │             │
+///                            ▼             │
+///                     ┌─────────────┐      │
+///                     │   Cleaned   │──────┘
+///                     └─────────────┘  cleanup_resources()
+/// ```
 pub struct Session {
     pty: Box<dyn Pty>,
     terminal: GhosttyTerminal,
-    osc_handler: OscHandler,
+    output_processor: OutputProcessor,
     output_tx: flume::Sender<Vec<u8>>,
     output_rx: Receiver<Vec<u8>>,
     /// Lock-free channel for user-initiated PTY writes (keyboard/IME input,
@@ -112,6 +152,7 @@ impl Session {
         )
     }
 
+    /// Spawn a new session with the default Catppuccin Mocha theme.
     pub fn spawn(shell: &str, rows: u32, cols: u32, env: &ShellEnv) -> Result<Self, SessionError> {
         let (palette_ansi, palette_background, palette_foreground) =
             GhosttyTerminal::catppuccin_mocha_palette();
@@ -127,6 +168,7 @@ impl Session {
         )
     }
 
+    /// Spawn a new session with a custom theme and scrollback buffer size.
     pub fn spawn_with_theme(
         shell: &str,
         rows: u32,
@@ -310,7 +352,7 @@ impl Session {
         Ok(Self {
             pty,
             terminal,
-            osc_handler: OscHandler::new(),
+            output_processor: OutputProcessor::new(),
             output_tx,
             output_rx,
             user_write_tx,
@@ -328,6 +370,7 @@ impl Session {
         })
     }
 
+    /// Write raw bytes to the PTY (keyboard input, paste).
     pub fn write(&mut self, data: &[u8]) -> Result<(), SessionError> {
         if self.is_exited() {
             return Err(SessionError::Closed);
@@ -336,6 +379,7 @@ impl Session {
         Ok(())
     }
 
+    /// Resize the terminal to the given number of rows and columns.
     pub fn resize(&mut self, rows: u32, cols: u32) -> Result<(), SessionError> {
         self.pty.resize(rows as u16, cols as u16)?;
         self.terminal.resize(rows, cols);
@@ -354,10 +398,12 @@ impl Session {
         })
     }
 
+    /// Set the pixel dimensions of the terminal for graphics protocol support.
     pub fn set_pixel_size(&mut self, width: u16, height: u16) {
         self.pty.set_pixel_size(width, height);
     }
 
+    /// Block until new output is available from the PTY.
     pub fn wait_for_output(&self) {
         let (lock, cvar) = &*self.output_notify;
         let mut pending = lock.lock().unwrap_or_else(|e| e.into_inner());
@@ -365,6 +411,23 @@ impl Session {
             pending = cvar.wait(pending).unwrap_or_else(|e| e.into_inner());
         }
         *pending = false;
+    }
+
+    /// Wait for PTY output or timeout. Returns `true` if output arrived,
+    /// `false` if the timeout elapsed.
+    pub fn wait_for_output_timeout(&self, timeout: std::time::Duration) -> bool {
+        let (lock, cvar) = &*self.output_notify;
+        let mut pending = lock.lock().unwrap_or_else(|e| e.into_inner());
+        if *pending {
+            *pending = false;
+            return true;
+        }
+        let (mut pending_inner, _result) = cvar
+            .wait_timeout(pending, timeout)
+            .unwrap_or_else(|e| e.into_inner());
+        let woke = *pending_inner;
+        *pending_inner = false;
+        woke
     }
 
     /// Returns a clone of the lock-free sender for user-initiated PTY writes.
@@ -380,45 +443,37 @@ impl Session {
         let mut changed = false;
         let mut count = 0u32;
         while let Ok(data) = self.output_rx.try_recv() {
-            self.osc_handler.process(&data);
+            let snap = self.output_processor.process(&data);
 
-            for event in self.osc_handler.events() {
-                match event {
-                    OscEvent::Clipboard(clipboard_event) => {
-                        if let Ok(mut guard) = self.clipboard_text.lock() {
-                            *guard = Some(clipboard_event.text.clone());
-                        }
-                    }
-                    OscEvent::Cwd(cwd_event) => {
-                        if let Ok(mut guard) = self.cwd.lock() {
-                            *guard = Some(cwd_event.path.clone());
-                        }
-                    }
-                    OscEvent::Hyperlink(hyperlink_event) => {
-                        if let Ok(mut guard) = self.hyperlink.lock() {
-                            *guard = hyperlink_event.url.clone();
-                        }
-                    }
-                    OscEvent::Notification(notification_event) => {
-                        if let Ok(mut guard) = self.notification.lock() {
-                            *guard = Some((
-                                notification_event.title.clone(),
-                                notification_event.body.clone(),
-                            ));
-                        }
-                    }
-                }
+            if let Some(text) = snap.clipboard
+                && let Ok(mut guard) = self.clipboard_text.lock()
+            {
+                *guard = Some(text);
+            }
+            if let Some(path) = snap.cwd
+                && let Ok(mut guard) = self.cwd.lock()
+            {
+                *guard = Some(path);
+            }
+            if let Some(url) = snap.hyperlink
+                && let Ok(mut guard) = self.hyperlink.lock()
+            {
+                *guard = Some(url);
+            }
+            if let Some((title, body)) = snap.notification
+                && let Ok(mut guard) = self.notification.lock()
+            {
+                *guard = Some((title, body));
             }
 
-            let filtered = self.osc_handler.output();
-            if filtered.contains(&0x07) {
+            if snap.bel {
                 self.bel_triggered.store(true, Ordering::Release);
             }
-            if let Some(marker) = extract_osc133(filtered) {
+            if snap.shell_integration != ShellIntegration::None {
                 self.shell_integration
-                    .store(marker as u8, Ordering::Release);
+                    .store(snap.shell_integration as u8, Ordering::Release);
             }
-            self.terminal.pty_write(filtered);
+            self.terminal.pty_write(&snap.filtered);
             changed = true;
             count += 1;
             // Cap per-frame processing to avoid one render call blocking
@@ -471,50 +526,61 @@ impl Session {
         changed
     }
 
+    /// Poll for a BEL (bell character) event. Returns true if a BEL was received since last poll.
     pub fn poll_bel(&self) -> bool {
         self.bel_triggered.swap(false, Ordering::AcqRel)
     }
 
+    /// Poll for clipboard text set by an OSC 52 escape sequence.
     pub fn poll_clipboard(&self) -> Option<String> {
         let mut guard = lock_or_recover(&self.clipboard_text, "poll_clipboard");
         guard.take()
     }
 
+    /// Poll for a desktop notification set by an OSC 9 escape sequence.
     pub fn poll_notification(&self) -> Option<(String, String)> {
         let mut guard = lock_or_recover(&self.notification, "poll_notification");
         guard.take()
     }
 
+    /// Poll for a hyperlink URL set by an OSC 8 escape sequence.
     pub fn poll_hyperlink(&self) -> Option<String> {
         let mut guard = lock_or_recover(&self.hyperlink, "poll_hyperlink");
         guard.take()
     }
 
+    /// Poll for a shell integration marker (OSC 133).
     pub fn poll_shell_integration(&self) -> ShellIntegration {
         let raw_value = self.shell_integration.swap(0, Ordering::AcqRel);
         ShellIntegration::from(raw_value)
     }
 
+    /// Returns true if the child process has exited.
     pub fn is_exited(&self) -> bool {
         self.exited.load(Ordering::Acquire)
     }
 
+    /// Get a clone of the exit flag for external monitoring.
     pub fn exited_flag(&self) -> Arc<AtomicBool> {
         self.exited.clone()
     }
 
+    /// Get a reference to the terminal engine.
     pub fn terminal(&self) -> &GhosttyTerminal {
         &self.terminal
     }
 
+    /// Get a mutable reference to the terminal engine.
     pub fn terminal_mut(&mut self) -> &mut GhosttyTerminal {
         &mut self.terminal
     }
 
+    /// Get the current window title set by the shell.
     pub fn title(&self) -> String {
         self.terminal.title()
     }
 
+    /// Get the current working directory of the child process.
     pub fn cwd(&self) -> String {
         if let Ok(guard) = self.cwd.lock()
             && let Some(tracked) = guard.as_ref()
@@ -524,6 +590,7 @@ impl Session {
         self.terminal.cwd()
     }
 
+    /// Encode a key event into terminal escape sequences.
     pub fn key_encode(
         &self,
         key_code: u32,
@@ -542,6 +609,7 @@ impl Session {
         self.terminal.clone_cmd_tx()
     }
 
+    /// Submit a key for encoding and return a receiver for the result.
     pub fn key_encode_submit(
         &self,
         key_code: u32,
@@ -562,64 +630,6 @@ impl Session {
         let data = if focused { b"[I" } else { b"[O" };
         self.terminal.vt_write(data);
     }
-}
-
-fn extract_osc133(data: &[u8]) -> Option<ShellIntegration> {
-    let mut result = None;
-    let mut i = 0;
-    while i + 6 < data.len() {
-        if data[i] == 0x1B
-            && data[i + 1] == b']'
-            && data[i + 2] == b'1'
-            && data[i + 3] == b'3'
-            && data[i + 4] == b'3'
-            && data[i + 5] == b';'
-        {
-            let marker_position = i + 6;
-            if marker_position < data.len() {
-                let marker = data[marker_position];
-                let si = match marker {
-                    b'A' => ShellIntegration::PromptStart,
-                    b'B' => ShellIntegration::PromptEnd,
-                    b'C' => ShellIntegration::CommandStart,
-                    b'D' => ShellIntegration::CommandExecuted,
-                    _ => ShellIntegration::None,
-                };
-                if si != ShellIntegration::None {
-                    // Found a valid marker — scan for the terminator
-                    // (BEL \x07 or ST \x1b\\) to advance past the full sequence.
-                    if let Some(end) = find_osc_terminator(data, marker_position + 1) {
-                        result = Some(si);
-                        i = end;
-                        continue;
-                    }
-                }
-            }
-            // Invalid marker or unterminated sequence — advance past prefix
-            i += 6;
-        } else {
-            i += 1;
-        }
-    }
-    result
-}
-
-/// Find the end of an OSC sequence (BEL or ST terminator) starting from `position`.
-/// Returns the index one past the terminator, or None if unterminated.
-fn find_osc_terminator(data: &[u8], position: usize) -> Option<usize> {
-    let mut j = position;
-    while j < data.len() {
-        if data[j] == 0x07 {
-            // BEL terminator (1 byte)
-            return Some(j + 1);
-        }
-        if data[j] == 0x1B && j + 1 < data.len() && data[j + 1] == b'\\' {
-            // ST terminator (2 bytes)
-            return Some(j + 2);
-        }
-        j += 1;
-    }
-    None
 }
 
 impl Drop for Session {
@@ -724,37 +734,51 @@ mod tests {
 
     #[test]
     fn extract_osc133_all_markers() {
-        // Each marker tested independently to avoid slice-index confusion.
+        use crate::output_processor::{OutputProcessor, ShellIntegration};
+        let mut proc = OutputProcessor::new();
         assert_eq!(
-            extract_osc133(b"\x1b]133;A\x07"),
-            Some(ShellIntegration::PromptStart)
+            proc.process(b"\x1b]133;A\x07").shell_integration,
+            ShellIntegration::PromptStart
         );
         assert_eq!(
-            extract_osc133(b"\x1b]133;B\x1b\\"),
-            Some(ShellIntegration::PromptEnd)
+            proc.process(b"\x1b]133;B\x1b\\").shell_integration,
+            ShellIntegration::PromptEnd
         );
         assert_eq!(
-            extract_osc133(b"\x1b]133;C\x07"),
-            Some(ShellIntegration::CommandStart)
+            proc.process(b"\x1b]133;C\x07").shell_integration,
+            ShellIntegration::CommandStart
         );
         assert_eq!(
-            extract_osc133(b"\x1b]133;D\x1b\\"),
-            Some(ShellIntegration::CommandExecuted)
+            proc.process(b"\x1b]133;D\x1b\\").shell_integration,
+            ShellIntegration::CommandExecuted
         );
     }
 
     #[test]
     fn extract_osc133_returns_none_without_markers() {
-        assert_eq!(extract_osc133(b"hello world"), None);
-        assert_eq!(extract_osc133(b"\x1b]133;\x07"), None);
-        assert_eq!(extract_osc133(b"\x1b]133;X\x07"), None);
+        use crate::output_processor::{OutputProcessor, ShellIntegration};
+        let mut proc = OutputProcessor::new();
+        assert_eq!(
+            proc.process(b"hello world").shell_integration,
+            ShellIntegration::None
+        );
+        assert_eq!(
+            proc.process(b"\x1b]133;\x07").shell_integration,
+            ShellIntegration::None
+        );
+        assert_eq!(
+            proc.process(b"\x1b]133;X\x07").shell_integration,
+            ShellIntegration::None
+        );
     }
 
     #[test]
     fn extract_osc133_command_executed() {
+        use crate::output_processor::{OutputProcessor, ShellIntegration};
+        let mut proc = OutputProcessor::new();
         assert_eq!(
-            extract_osc133(b"\x1b]133;D\x1b\\"),
-            Some(ShellIntegration::CommandExecuted)
+            proc.process(b"\x1b]133;D\x1b\\").shell_integration,
+            ShellIntegration::CommandExecuted
         );
     }
 
@@ -873,49 +897,68 @@ mod tests {
 
     #[test]
     fn extract_osc133_handles_concurrent_content() {
-        // Real-world scenario: output may contain OSC 133 mixed with other text
+        use crate::output_processor::{OutputProcessor, ShellIntegration};
+        let mut proc = OutputProcessor::new();
         assert_eq!(
-            extract_osc133(b"$ \x1b]133;C\x07 echo hello"),
-            Some(ShellIntegration::CommandStart)
+            proc.process(b"$ \x1b]133;C\x07 echo hello")
+                .shell_integration,
+            ShellIntegration::CommandStart
         );
     }
 
     #[test]
     fn extract_osc133_empty_osc() {
-        // OSC without parameters should not match
-        assert_eq!(extract_osc133(b"\x1b]133;\x07"), None);
-        assert_eq!(extract_osc133(b"\x1b]133;\x1b\\"), None);
+        use crate::output_processor::{OutputProcessor, ShellIntegration};
+        let mut proc = OutputProcessor::new();
+        assert_eq!(
+            proc.process(b"\x1b]133;\x07").shell_integration,
+            ShellIntegration::None
+        );
+        assert_eq!(
+            proc.process(b"\x1b]133;\x1b\\").shell_integration,
+            ShellIntegration::None
+        );
     }
 
     #[test]
     fn extract_osc133_incomplete_sequence() {
-        // Truncated OSC should not match (no terminator)
-        assert_eq!(extract_osc133(b"\x1b]133;C"), None);
-        assert_eq!(extract_osc133(b"\x1b]133;"), None);
+        use crate::output_processor::{OutputProcessor, ShellIntegration};
+        let mut proc = OutputProcessor::new();
+        assert_eq!(
+            proc.process(b"\x1b]133;C").shell_integration,
+            ShellIntegration::None
+        );
+        assert_eq!(
+            proc.process(b"\x1b]133;").shell_integration,
+            ShellIntegration::None
+        );
     }
 
     #[test]
     fn extract_osc133_st_terminator() {
+        use crate::output_processor::{OutputProcessor, ShellIntegration};
+        let mut proc = OutputProcessor::new();
         assert_eq!(
-            extract_osc133(b"\x1b]133;C\x1b\\"),
-            Some(ShellIntegration::CommandStart)
+            proc.process(b"\x1b]133;C\x1b\\").shell_integration,
+            ShellIntegration::CommandStart
         );
         assert_eq!(
-            extract_osc133(b"\x1b]133;D\x1b\\"),
-            Some(ShellIntegration::CommandExecuted)
+            proc.process(b"\x1b]133;D\x1b\\").shell_integration,
+            ShellIntegration::CommandExecuted
         );
     }
 
     #[test]
     fn extract_osc133_mixed_terminators() {
-        // BEL and ST should both work
+        use crate::output_processor::{OutputProcessor, ShellIntegration};
+        let mut proc = OutputProcessor::new();
         assert_eq!(
-            extract_osc133(b"\x1b]133;A\x07"),
-            Some(ShellIntegration::PromptStart)
+            proc.process(b"\x1b]133;A\x07").shell_integration,
+            ShellIntegration::PromptStart
         );
         assert_eq!(
-            extract_osc133(b"\x1b]133;A\x1b\\"),
-            Some(ShellIntegration::PromptStart)
+            proc.process(b"\x1b]133;A\x1b\\").shell_integration,
+            ShellIntegration::PromptStart
         );
     }
 

@@ -118,10 +118,12 @@ class SelectionEspressoTest {
         composeTestRule.activityRule.scenario.onActivity { activity ->
             val sel = activity.terminalViewModel.state.value.selection
             assertTrue("Selection should be active", sel.active)
-            assertEquals(1, sel.start!!.row)
-            assertEquals(2, sel.start!!.col)
-            assertEquals(3, sel.end!!.row)
-            assertEquals(8, sel.end!!.col)
+            val start = requireNotNull(sel.start)
+            val end = requireNotNull(sel.end)
+            assertEquals(1, start.row)
+            assertEquals(2, start.col)
+            assertEquals(3, end.row)
+            assertEquals(8, end.col)
         }
     }
 }

@@ -48,6 +48,7 @@ pub mod mock;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use std::sync::Mutex;
 
     struct MockStore {
@@ -824,10 +825,12 @@ mod tests {
             id: json!(1),
         };
         let result = server.handle(&req).unwrap();
-        assert!(result["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("50x120"));
+        assert!(
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("50x120")
+        );
     }
 
     #[test]
@@ -919,10 +922,12 @@ mod tests {
             id: json!(2),
         };
         let result = server.handle(&req_cancel).unwrap();
-        assert!(result["content"][0]["text"]
-            .as_str()
-            .unwrap()
-            .contains("Cancelled"));
+        assert!(
+            result["content"][0]["text"]
+                .as_str()
+                .unwrap()
+                .contains("Cancelled")
+        );
     }
 
     #[test]

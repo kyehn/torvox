@@ -1,3 +1,4 @@
+//! Action parser — converts CSI sequences into terminal actions.
 use std::fmt;
 
 use crate::ghostty_terminal::GhosttyTerminal;
@@ -186,6 +187,7 @@ pub fn verify_mode_query(t: &mut GhosttyTerminal, mode: u16, _expected: bool) {
 
 // ── Mode validation ─────────────────────────────────────────────────
 
+/// Assert that a DEC mode can be enabled and disabled via the given escape sequences.
 pub fn assert_mode_transition(t: &mut GhosttyTerminal, mode: u16, opener: &[u8], closer: &[u8]) {
     t.vt_write(opener);
     t.flush();

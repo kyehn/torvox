@@ -57,6 +57,7 @@ pub enum TerminalEvent {
 /// Row indices are 0-based and reference the visible viewport rows,
 /// not scrollback history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Dirty region notification for targeted re-rendering.
 #[cfg_attr(
     feature = "rkyv",
     derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize)

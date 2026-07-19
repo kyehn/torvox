@@ -1,3 +1,8 @@
+//! RwLock utilities with poison recovery for GPU resources.
+//!
+//! # Requirements
+//! - FR-010 — GPU renderer resource management
+
 #[cfg(target_os = "android")]
 use std::sync::{RwLock, RwLockWriteGuard};
 

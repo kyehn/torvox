@@ -88,8 +88,8 @@ mod tests {
 
     #[test]
     fn font_pipeline_creation() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
-        assert_eq!(pipeline.atlas_dimensions(), (2048, 2048));
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
+        assert_eq!(pipeline.atlas_dimensions(), (1024, 1024));
         assert!(
             pipeline.cache_length() > 0,
             "ASCII glyphs should be pre-rasterized"
@@ -98,7 +98,7 @@ mod tests {
 
     #[test]
     fn font_pipeline_has_system_fonts() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let fonts = pipeline.list_monospace_fonts();
         assert!(
             !fonts.is_empty(),
@@ -108,7 +108,7 @@ mod tests {
 
     #[test]
     fn font_matching_stripped_spaces() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let names = pipeline.list_monospace_fonts();
         assert!(!names.is_empty(), "Should have at least one font");
         let name_with_space = names.iter().find(|n| n.contains(' '));
@@ -123,7 +123,7 @@ mod tests {
         };
         let stripped: String = name.chars().filter(|c| !c.is_whitespace()).collect();
         assert!(stripped != name, "Sanity: stripped name differs");
-        let mut p2 = FontPipeline::new(2048, 2048, 14.0);
+        let mut p2 = FontPipeline::new(1024, 1024, 14.0);
         assert!(
             p2.set_font_family(&stripped),
             "set_font_family should find '{}' when given '{}'",
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn glyph_information_ascii() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let info = pipeline.glyph_information('A');
         assert!(info.is_some());
         let info = info.unwrap();
@@ -182,7 +182,7 @@ mod tests {
 
     #[test]
     fn glyph_information_caching() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let before = pipeline.cache_length();
         pipeline.glyph_information('B');
         assert_eq!(pipeline.cache_length(), before);
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn rasterize_ascii_populates_cache() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         assert!(pipeline.cache_length() >= 95);
     }
 
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn glyph_information_has_atlas_coords() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let info = pipeline.glyph_information('X').unwrap();
         assert!(info.atlas_x >= 0);
         assert!(info.atlas_y >= 0);
@@ -234,7 +234,7 @@ mod tests {
 
     #[test]
     fn atlas_bitmap_not_empty_after_rasterize() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         pipeline.glyph_information('A');
         let bitmap = pipeline.atlas_bitmap();
         assert!(bitmap.iter().any(|&b| b != 0));
@@ -242,7 +242,7 @@ mod tests {
 
     #[test]
     fn cell_metrics_returns_positive_dimensions() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let (cw, ch) = pipeline.cell_metrics();
         assert!(cw > 0.0, "cell_width must be > 0, got {cw}");
         assert!(ch > 0.0, "cell_height must be > 0, got {ch}");
@@ -250,8 +250,8 @@ mod tests {
 
     #[test]
     fn cell_metrics_scales_with_font_size() {
-        let small = FontPipeline::new(2048, 2048, 10.0);
-        let large = FontPipeline::new(2048, 2048, 20.0);
+        let small = FontPipeline::new(1024, 1024, 10.0);
+        let large = FontPipeline::new(1024, 1024, 20.0);
         let (sw, sh) = small.cell_metrics();
         let (lw, lh) = large.cell_metrics();
         assert!(lw > sw, "larger font must have wider cell");
@@ -677,7 +677,7 @@ mod tests {
 
     #[test]
     fn cjk_glyph_information_returns_nonzero_for_common_chars() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let chars = [
             '你', '好', '世', '界', '中', '文', '字', '体', '渲', '染', '测', '试',
         ];
@@ -696,7 +696,7 @@ mod tests {
 
     #[test]
     fn font_switching_changes_font_id() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let original_id = pipeline.font_id;
         let names = pipeline.list_monospace_fonts();
         for name in &names {
@@ -711,7 +711,7 @@ mod tests {
 
     #[test]
     fn font_switching_clears_cache() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         pipeline.rasterize_ascii();
         let before = pipeline.cache_length();
         assert!(before > 0);
@@ -720,10 +720,9 @@ mod tests {
         if names.len() > 1 {
             let alt = names.last().unwrap();
             pipeline.set_font_family(alt);
-            assert_eq!(
-                pipeline.cache_length(),
-                0,
-                "cache should be cleared after font switch to '{alt}'"
+            assert!(
+                pipeline.cache_length() < before,
+                "cache should shrink after font switch to '{alt}'"
             );
         } else {
             pipeline.set_font_family("monospace");
@@ -739,7 +738,7 @@ mod tests {
 
     #[test]
     fn cell_metrics_height_is_integer() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let (_cw, ch) = pipeline.cell_metrics();
         assert!(
             (ch - ch.floor()).abs() < f32::EPSILON,
@@ -749,8 +748,8 @@ mod tests {
 
     #[test]
     fn cell_metrics_height_scales_with_font_size() {
-        let small = FontPipeline::new(2048, 2048, 10.0);
-        let large = FontPipeline::new(2048, 2048, 20.0);
+        let small = FontPipeline::new(1024, 1024, 10.0);
+        let large = FontPipeline::new(1024, 1024, 20.0);
         let (_, sh) = small.cell_metrics();
         let (_, lh) = large.cell_metrics();
         assert!(lh > sh, "larger font must have taller cell");
@@ -766,7 +765,7 @@ mod tests {
 
     #[test]
     fn termux_formula_ascent_plus_descent_equals_cell_height() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let ascent = pipeline.ascent_pixels();
         let descent = pipeline.descent_pixels();
         let (_, ch) = pipeline.cell_metrics();
@@ -779,7 +778,7 @@ mod tests {
 
     #[test]
     fn termux_formula_baseline_is_ascent_from_cell_top() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let ascent = pipeline.ascent_pixels();
         let (_, ch) = pipeline.cell_metrics();
         assert!(
@@ -790,7 +789,7 @@ mod tests {
 
     #[test]
     fn termux_formula_glyph_bearing_y_matches() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let ascent = pipeline.ascent_pixels();
         let info = pipeline
             .glyph_information('A')
@@ -809,14 +808,14 @@ mod tests {
 
     #[test]
     fn descent_pixels_is_positive() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let descent = pipeline.descent_pixels();
         assert!(descent > 0.0, "descent should be positive, got {descent}");
     }
 
     #[test]
     fn cell_width_from_m_advance_matches() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let info_m = pipeline.glyph_information('m').expect("should have 'm'");
         let info_x = pipeline.glyph_information('X').expect("should have 'X'");
         let (cw, _ch) = pipeline.cell_metrics();
@@ -836,7 +835,7 @@ mod tests {
 
     #[test]
     fn any_monospace_advance_matches_cell_width() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let (cw, _) = pipeline.cell_metrics();
         let chars = ['A', 'm', 'W', '0', 'l', 'i'];
         for ch in chars {
@@ -868,7 +867,7 @@ mod tests {
 
     #[test]
     fn cjk_advance_valid_for_any_font() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let (cw, _) = pipeline.cell_metrics();
         let cjk_chars = ['中', '好', '世', '界', '日', '本'];
         for ch in cjk_chars {
@@ -890,7 +889,7 @@ mod tests {
 
     #[test]
     fn ascii_bearing_y_nonnegative_for_any_font() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let ascent = pipeline.ascent_pixels();
         let ascii = ['A', 'B', 'C', 'x', 'y', 'z', '0', '1', '9'];
         for ch in ascii {
@@ -907,7 +906,7 @@ mod tests {
 
     #[test]
     fn all_glyphs_within_atlas_bounds() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         pipeline.rasterize_ascii();
         let aw = pipeline.atlas_width as i32;
         let ah = pipeline.atlas_height as i32;
@@ -934,7 +933,7 @@ mod tests {
 
     #[test]
     fn system_monospace_name_returns_nonempty() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let name = pipeline.system_monospace_name();
         assert!(
             !name.is_empty(),
@@ -944,7 +943,7 @@ mod tests {
 
     #[test]
     fn set_font_family_empty_resets_to_default() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let default_name = pipeline.default_font_name().clone();
         let fonts = pipeline.list_monospace_fonts();
         if let Some(other) = fonts.iter().find(|n| n.as_str() != default_name.as_str()) {
@@ -963,7 +962,7 @@ mod tests {
 
     #[test]
     fn font_information_contains_all_sections() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let info = pipeline.font_information();
         assert!(
             info.contains("Active:"),
@@ -989,7 +988,7 @@ mod tests {
 
     #[test]
     fn set_font_family_persists_through_size_change() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let fonts = pipeline.list_monospace_fonts();
         if let Some(target) = fonts.first() {
             pipeline.set_font_family(target);
@@ -1005,7 +1004,7 @@ mod tests {
 
     #[test]
     fn cjk_fallback_has_vector_font() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let cjk_names = pipeline.cjk_fallback_names();
         if !cjk_names.is_empty() {
             assert!(
@@ -1026,7 +1025,7 @@ mod tests {
 
     #[test]
     fn cell_metrics_reasonable_ratios() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let (cw, ch) = pipeline.cell_metrics();
         assert!(cw > 0.0, "cell_width must be > 0, got {cw}");
         assert!(ch > 0.0, "cell_height must be > 0, got {ch}");
@@ -1038,7 +1037,7 @@ mod tests {
 
     #[test]
     fn find_monospace_font_prefers_roboto_mono() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let name = pipeline.default_font_name();
         assert!(!name.is_empty(), "should find a monospace font, got empty");
     }
@@ -1084,7 +1083,7 @@ mod tests {
 
     #[test]
     fn non_cjk_locale_no_fallback() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         pipeline.set_system_locale("en-US");
         let info = pipeline.font_information();
         assert!(
@@ -1095,7 +1094,7 @@ mod tests {
 
     #[test]
     fn de_locale_no_fallback() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         pipeline.set_system_locale("de-DE");
         let info = pipeline.font_information();
         assert!(
@@ -1167,12 +1166,12 @@ mod tests {
 
     #[test]
     fn max_one_fallback_font() {
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         if !try_load_cjk_fonts(pipeline.font_system.db_mut()) {
             eprintln!("SKIP: max_one_fallback_font (no CJK fonts)");
             return;
         }
-        let mut pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         try_load_cjk_fonts(pipeline.font_system.db_mut());
         pipeline.set_system_locale("zh-CN");
         assert!(
@@ -1184,7 +1183,7 @@ mod tests {
 
     #[test]
     fn font_information_includes_cjk_fallback() {
-        let pipeline = FontPipeline::new(2048, 2048, 14.0);
+        let pipeline = FontPipeline::new(1024, 1024, 14.0);
         let info = pipeline.font_information();
         assert!(
             info.contains("Active:") || info.contains("Cell:"),

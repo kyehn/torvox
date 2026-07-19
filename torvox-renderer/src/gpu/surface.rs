@@ -1,21 +1,23 @@
+//! Surface management — Android ANativeWindow integration and wgpu surface lifecycle.
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use wgpu::util::DeviceExt;
 
-use super::pipeline::QUAD_CORNERS;
 use super::GpuContext;
 use super::GpuError;
+use super::pipeline::QUAD_CORNERS;
 
 const DESIRED_FRAME_LATENCY: u32 = 2;
 const DESIRED_FRAME_LATENCY_ANDROID: u32 = 2;
 const GPU_POLL_TIMEOUT: Duration = Duration::from_secs(2);
 
-#[cfg(target_os = "android")]
-const SURFACE_RELEASE_POLL_MS: u64 = 500;
+type CachedSurface = (
+    std::sync::Arc<wgpu::Surface<'static>>,
+    wgpu::SurfaceConfiguration,
+);
 
-pub(crate) static GLOBAL_SURFACE: OnceLock<Mutex<Option<(wgpu::Surface, wgpu::SurfaceConfiguration)>>> =
-    OnceLock::new();
+pub(crate) static GLOBAL_SURFACE: OnceLock<Mutex<Option<CachedSurface>>> = OnceLock::new();
 
 impl GpuContext {
     pub(crate) fn select_alpha_mode(caps: &wgpu::SurfaceCapabilities) -> wgpu::CompositeAlphaMode {
@@ -160,7 +162,7 @@ impl GpuContext {
 
         self.cell_pipeline = Some(Self::create_cell_pipeline(&self.device, format));
         self.pipeline_format = format;
-        self.surface = Some(surface);
+        self.surface = Some(std::sync::Arc::new(surface));
 
         if configure_surface {
             let config = wgpu::SurfaceConfiguration {
@@ -170,10 +172,9 @@ impl GpuContext {
                 height: initial_height,
                 present_mode,
                 alpha_mode,
-                view_formats: vec![],
+                view_formats: Vec::new(),
                 desired_maximum_frame_latency: DESIRED_FRAME_LATENCY,
             };
-
             if let Some(ref configured_surface) = self.surface {
                 configured_surface.configure(&self.device, &config);
             }
@@ -213,14 +214,9 @@ impl GpuContext {
             }
         }
         self.surface_config = None;
-        if let Err(error) = self.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(GPU_POLL_TIMEOUT),
-        }) {
-            log::warn!("release_gpu_surface: device poll error: {error}");
-        }
-        #[cfg(target_os = "android")]
-        std::thread::sleep(std::time::Duration::from_millis(SURFACE_RELEASE_POLL_MS));
+        // Mark that we need to drain GPU work before the next frame.
+        // The poll is deferred to avoid blocking session switches.
+        self.pending_gpu_drain = true;
     }
 
     pub fn clear_global_surface() {
@@ -245,23 +241,18 @@ impl GpuContext {
     ) -> Result<(), GpuError> {
         if self.surface.is_none()
             && let Ok(mut guard) = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock()
-            && let Some((cached_surface, cached_config)) = guard.take()
+            && let Some((_cached_surface, mut cached_config)) = guard.take()
         {
-            let new_config = wgpu::SurfaceConfiguration {
-                width: ((width as f32 * super::RENDER_SCALE) as u32).max(1),
-                height: ((height as f32 * super::RENDER_SCALE) as u32).max(1),
-                ..cached_config
-            };
-            cached_surface.configure(&self.device, &new_config);
-            self.surface = Some(cached_surface);
-            self.surface_config = Some(new_config.clone());
-            self.projection_width = new_config.width;
-            self.projection_height = new_config.height;
+            cached_config.width = ((width as f32 * super::RENDER_SCALE) as u32).max(1);
+            cached_config.height = ((height as f32 * super::RENDER_SCALE) as u32).max(1);
+            cached_config.view_formats = Vec::new();
             if let Some(buf) = &self.cell_uniform_buffer {
                 let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
                 let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
-                let proj =
-                    super::orthographic_projection(new_config.width as f32, new_config.height as f32);
+                let proj = super::orthographic_projection(
+                    cached_config.width as f32,
+                    cached_config.height as f32,
+                );
                 let uniforms = super::pipeline::GpuUniforms {
                     projection: proj,
                     atlas_size: [aw as f32, ah as f32],
@@ -279,8 +270,8 @@ impl GpuContext {
             }
             log::info!(
                 "configure_android_surface: {}x{} (reused cached surface, projection updated)",
-                new_config.width,
-                new_config.height,
+                cached_config.width,
+                cached_config.height,
             );
             return Ok(());
         }
@@ -340,11 +331,11 @@ impl GpuContext {
             height: ((height as f32 * super::RENDER_SCALE) as u32).max(1),
             present_mode: Self::select_present_mode(&caps),
             alpha_mode,
-            view_formats: vec![],
+            view_formats: Vec::new(),
             desired_maximum_frame_latency: DESIRED_FRAME_LATENCY_ANDROID,
         };
         surface.configure(&self.device, &config);
-        self.surface = Some(surface);
+        self.surface = Some(std::sync::Arc::new(surface));
 
         self.projection_width = config.width;
         self.projection_height = config.height;

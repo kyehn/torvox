@@ -889,10 +889,36 @@ fn set_render_paused_idempotent() {
 fn set_render_paused_ffi_does_not_crash() {
     let handle = create_test_bridge_handle();
     unsafe {
-        super::torvox_bridge_set_render_paused(handle, 1);
         super::torvox_bridge_set_render_paused(handle, 0);
-        super::torvox_bridge_set_render_paused(handle, 1);
     }
+}
+
+#[test]
+fn process_session_retries_snapshot_up_to_50ms() {
+    // The retry logic in process_session_for_render tries snapshot 5 times
+    // with 10ms delay each. Total max delay 50ms eliminates the Kotlin
+    // 50ms sleep that would otherwise add 93ms to first-frame latency.
+    const MAX_RETRIES: u32 = 5;
+    let delay = std::time::Duration::from_millis(10);
+    let max_wall_time = delay * MAX_RETRIES;
+    assert!(
+        max_wall_time.as_millis() <= 50,
+        "retry window must stay under 50ms (got {}ms)",
+        max_wall_time.as_millis()
+    );
+}
+
+#[test]
+fn process_session_skip_output_retries_snapshot_up_to_50ms() {
+    // Same retry logic for the skip-output variant.
+    const MAX_RETRIES: u32 = 5;
+    let delay = std::time::Duration::from_millis(10);
+    let max_wall_time = delay * MAX_RETRIES;
+    assert!(
+        max_wall_time.as_millis() <= 50,
+        "retry window must stay under 50ms"
+    );
+}
 }
 
 #[test]

@@ -152,7 +152,7 @@ fun ModifierBar(
     }
 
     Column(
-        modifier = modifier.fillMaxWidth().background(backgroundColor),
+        modifier = modifier.fillMaxWidth().background(backgroundColor).testTag("ModifierBar"),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         Row(

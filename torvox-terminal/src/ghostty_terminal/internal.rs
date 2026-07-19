@@ -5,6 +5,7 @@ use libghostty_vt::screen::GridRef;
 use libghostty_vt::style::{PaletteIndex, StyleColor};
 use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate};
 use libghostty_vt::{Terminal, TerminalOptions};
+use torvox_core::cursor::CursorStyle;
 
 use super::commands::{Command, RunConfig};
 use super::keymap::map_android_key_code;
@@ -640,7 +641,7 @@ impl super::GhosttyTerminal {
         data.reverse = style.inverse;
     }
 
-    pub(crate) fn read_semantic_content(point: &libghostty_vt::screen::GridRef) -> SemanticContent {
+    pub(crate) fn read_semantic_content(point: &GridRef) -> SemanticContent {
         match point.cell().and_then(|c| c.semantic_content()) {
             Ok(libghostty_vt::screen::CellSemanticContent::Input) => SemanticContent::Input,
             Ok(libghostty_vt::screen::CellSemanticContent::Prompt) => SemanticContent::Prompt,
@@ -840,7 +841,7 @@ impl super::GhosttyTerminal {
             cursor_row,
             cursor_col,
             cursor_visible,
-            cursor_style: Default::default(),
+            cursor_style: CursorStyle::default(),
             cells,
             dirty,
             kgp_placements,
@@ -875,7 +876,7 @@ impl super::GhosttyTerminal {
         data.semantic = Self::read_semantic_content(grid_ref);
     }
 
-    pub(crate) fn collect_kgp_placements(terminal: &libghostty_vt::Terminal) -> Vec<KgpPlacement> {
+    pub(crate) fn collect_kgp_placements(terminal: &Terminal) -> Vec<KgpPlacement> {
         use libghostty_vt::kitty::graphics::PlacementIterator;
 
         let Ok(graphics) = terminal.kitty_graphics() else {
@@ -1053,11 +1054,7 @@ impl super::GhosttyTerminal {
         for i in 1..=m {
             let mut current = i;
             for j in 1..=n {
-                let cost = if a_chars[i - 1] == b_chars[j - 1] {
-                    0
-                } else {
-                    1
-                };
+                let cost = (a_chars[i - 1] != b_chars[j - 1]) as usize;
                 let next =
                     std::cmp::min(std::cmp::min(current + 1, prev[j] + 1), prev[j - 1] + cost);
                 prev[j - 1] = current;

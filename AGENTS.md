@@ -7,11 +7,13 @@ Torvox is a GPU-accelerated Android terminal emulator using wgpu (Vulkan) for re
 ## Setup and Commands
 
 One-time setup:
+
 ```bash
 git config core.hooksPath .githooks
 ```
 
 Commands:
+
 ```bash
 cargo test --workspace # All Rust tests
 cargo clippy --all -- --deny warnings # Lint
@@ -30,8 +32,6 @@ cargo test run --package torvox-core --test property_tests
 
 Checklist (run `git config core.hooksPath .githooks` once before first commit):
 
-
-
 1. `cargo test --workspace` exits 0
 2. `cargo clippy --all -- --deny warnings` exits 0
 3. `cargo fmt --check` exits 0
@@ -44,6 +44,7 @@ Checklist (run `git config core.hooksPath .githooks` once before first commit):
 ## Hooks
 
 Install once:
+
 ```bash
 git config core.hooksPath .githooks
 ```
@@ -210,17 +211,19 @@ These files and directories are set read-only. Wait for the user to ask before m
 
 ## scripts/ Directory
 
-Only these 9 files allowed. No new files — merge into existing.
+Only these 11 files allowed. No new files — merge into existing.
 
-1. `bootstrap-libghostty.nu`
-2. `build-android-libs.nu`
-3. `build-apk.nu`
-4. `check-rust.nu`
-5. `download-rapidocr-models.nu`
-6. `fetch-aosp-testkey.nu`
-7. `setup-emulator.nu`
-8. `test-android-gradle.nu`
-9. `test-emulator.nu`
+1. `auto-commit.nu`
+2. `bootstrap-libghostty.nu`
+3. `build-android-libs.nu`
+4. `build-apk.nu`
+5. `check-rust.nu`
+6. `download-rapidocr-models.nu`
+7. `download-test-fonts.nu`
+8. `fetch-aosp-testkey.nu`
+9. `setup-emulator.nu`
+10. `test-android-gradle.nu`
+11. `test-emulator.nu`
 
 ## .github/workflows
 

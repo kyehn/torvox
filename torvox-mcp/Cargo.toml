@@ -5,6 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 description = "Model Context Protocol (MCP) server for AI agent inspection of Torvox terminal sessions"
 
+[lib]
+name = "torvox_mcp"
+path = "src/lib.rs"
+
 [[bin]]
 name = "torvox-mcp"
 path = "src/main.rs"

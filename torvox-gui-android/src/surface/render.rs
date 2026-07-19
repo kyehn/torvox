@@ -19,6 +19,63 @@ fn color_changed(a: [f32; 4], b: [f32; 4]) -> bool {
         || a[3].to_bits() != b[3].to_bits()
 }
 
+/// Computes which rows changed between `prev_cells` and `snapshot`, writing
+/// the result into `dirty_rows` (reused to avoid reallocation each frame).
+///
+/// A row is dirty when any of its cells differs, when it holds the cursor
+/// (current or previous position), or when a global redraw is forced by a
+/// scroll-offset change, render-height change, or active search highlights.
+///
+/// This is pure logic extracted from the render hot path so it can be unit
+/// tested without a GPU — the call site only supplies the inputs and reuses
+/// the buffer; all frame submission state stays in `AndroidSurface`.
+#[allow(clippy::too_many_arguments)]
+fn compute_dirty_rows_into(
+    dirty_rows: &mut Vec<bool>,
+    prev_cells: &[CellSnapshot],
+    snapshot: &torvox_terminal::ghostty_terminal::GridSnapshot,
+    last_cursor_row: u32,
+    scroll_offset: u32,
+    prev_scroll_offset: u32,
+    render_height: u32,
+    prev_render_height: u32,
+    has_highlights: bool,
+) {
+    let total_cells = (snapshot.rows * snapshot.cols) as usize;
+    dirty_rows.clear();
+    if prev_cells.len() == total_cells {
+        dirty_rows.reserve(snapshot.rows as usize);
+        for row in 0..snapshot.rows as usize {
+            let row_off = row * snapshot.cols as usize;
+            let mut row_dirty = false;
+            for col in 0..snapshot.cols as usize {
+                if cell_ne(&prev_cells[row_off + col], &snapshot.cells[row_off + col]) {
+                    row_dirty = true;
+                    break;
+                }
+            }
+            dirty_rows.push(row_dirty);
+        }
+    } else {
+        dirty_rows.resize(snapshot.rows as usize, true);
+    }
+
+    let cr = snapshot.cursor_row as usize;
+    if cr < dirty_rows.len() {
+        dirty_rows[cr] = true;
+    }
+    let pcr = last_cursor_row as usize;
+    if pcr < dirty_rows.len() && pcr != cr {
+        dirty_rows[pcr] = true;
+    }
+
+    let scroll_changed = prev_scroll_offset != scroll_offset;
+    let render_height_changed = prev_render_height != render_height;
+    if has_highlights || scroll_changed || render_height_changed {
+        dirty_rows.fill(true);
+    }
+}
+
 /// Compare two CellSnapshots for equality of fields that affect rendering.
 /// Returns `true` if they differ (row should be marked dirty).
 fn cell_ne(a: &CellSnapshot, b: &CellSnapshot) -> bool {
@@ -154,49 +211,23 @@ impl AndroidSurface {
             1.0,
         ]);
         // ── COMPUTE DIRTY ROWS ──
-        let total_cells = (snapshot.rows * snapshot.cols) as usize;
-        let mut dirty_rows = std::mem::take(&mut self.dirty_rows_buf);
-        dirty_rows.clear();
-        if self.prev_cells.len() == total_cells {
-            let cap = snapshot.rows as usize;
-            dirty_rows.reserve(cap);
-            for row in 0..snapshot.rows as usize {
-                let row_off = row * snapshot.cols as usize;
-                let mut row_dirty = false;
-                for col in 0..snapshot.cols as usize {
-                    if cell_ne(
-                        &self.prev_cells[row_off + col],
-                        &snapshot.cells[row_off + col],
-                    ) {
-                        row_dirty = true;
-                        break;
-                    }
-                }
-                dirty_rows.push(row_dirty);
-            }
-        } else {
-            dirty_rows.resize(snapshot.rows as usize, true);
-        }
-
-        let cr = snapshot.cursor_row as usize;
-        if cr < dirty_rows.len() {
-            dirty_rows[cr] = true;
-        }
-        let pcr = self.last_cursor_row as usize;
-        if pcr < dirty_rows.len() && pcr != cr {
-            dirty_rows[pcr] = true;
-        }
+        let mut dirty_rows = std::mem::take(&mut self.frame_buffers.dirty_rows_buf);
         if snapshot.cursor_col != self.last_cursor_col {
             self.blink_phase = true;
             self.last_blink_toggle = std::time::Instant::now();
         }
-
-        let scroll_changed = self.prev_scroll_offset != scroll_offset;
-        let render_height_changed = self.render_height != self.prev_render_height;
         let highlights_present = !self.search_highlights.is_empty();
-        if highlights_present || scroll_changed || render_height_changed {
-            dirty_rows.fill(true);
-        }
+        compute_dirty_rows_into(
+            &mut dirty_rows,
+            &self.prev_cells,
+            &snapshot,
+            self.last_cursor_row,
+            scroll_offset,
+            self.prev_scroll_offset,
+            self.render_height,
+            self.prev_render_height,
+            highlights_present,
+        );
 
         let now = std::time::Instant::now();
         if self.blink_timer_elapsed() {
@@ -208,7 +239,9 @@ impl AndroidSurface {
             snapshot.cursor_visible = false;
         }
 
-        if self.prev_cells.len() == total_cells && dirty_rows.iter().any(|&d| !d) {
+        if self.prev_cells.len() == (snapshot.rows * snapshot.cols) as usize
+            && dirty_rows.iter().any(|&d| !d)
+        {
             let cols = snapshot.cols as usize;
             for (row, is_dirty) in dirty_rows.iter().enumerate() {
                 if *is_dirty {
@@ -221,7 +254,7 @@ impl AndroidSurface {
             self.prev_cells.clone_from(&snapshot.cells);
         }
 
-        let mut row_ends = std::mem::take(&mut self.row_ends_buf);
+        let mut row_ends = std::mem::take(&mut self.frame_buffers.row_ends_buf);
         row_ends.clear();
         let surf_w = self.surface_width.load(Ordering::Relaxed).max(1);
         let cfg_w = self
@@ -264,15 +297,15 @@ impl AndroidSurface {
                 ],
                 render_scale: torvox_renderer::gpu::RENDER_SCALE,
                 dirty_rows: &dirty_rows,
-                cached_instances: &self.cached_instances,
-                cached_row_ends: &self.cached_row_ends,
+                cached_instances: &self.frame_buffers.cached_instances,
+                cached_row_ends: &self.frame_buffers.cached_row_ends,
             },
-            &mut self.instance_buffer,
+            &mut self.frame_buffers.instance_buffer,
             &mut row_ends,
         );
-        self.dirty_rows_buf = dirty_rows;
+        self.frame_buffers.dirty_rows_buf = dirty_rows;
 
-        let instances = &self.instance_buffer[..];
+        let instances = &self.frame_buffers.instance_buffer[..];
 
         let diag_has_glyph = |i: &CellInstance| i.atlas_size[0] > 0.0 && i.atlas_size[1] > 0.0;
         let diag_first = instances.iter().find(|i| {
@@ -518,8 +551,11 @@ impl AndroidSurface {
             log::debug!("RENDER_OK: cpu={:.1}ms present={:.1}ms", cpu_ms, present_ms);
         }
 
-        std::mem::swap(&mut self.cached_instances, &mut self.instance_buffer);
-        self.cached_row_ends = row_ends;
+        std::mem::swap(
+            &mut self.frame_buffers.cached_instances,
+            &mut self.frame_buffers.instance_buffer,
+        );
+        self.frame_buffers.cached_row_ends = row_ends;
         self.prev_scroll_offset = scroll_offset;
         self.prev_render_height = self.render_height;
 
@@ -586,10 +622,10 @@ impl AndroidSurface {
                 cached_instances: &[],
                 cached_row_ends: &[],
             },
-            &mut self.instance_buffer,
+            &mut self.frame_buffers.instance_buffer,
             &mut Vec::new(),
         );
-        let instances = &self.instance_buffer[..];
+        let instances = &self.frame_buffers.instance_buffer[..];
         let gpu = self
             .gpu
             .as_mut()
@@ -681,5 +717,66 @@ impl AndroidSurface {
     #[cfg(test)]
     pub fn render_requested(&self) -> bool {
         self.render_requested
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use torvox_terminal::ghostty_terminal::GridSnapshot;
+
+    fn snapshot(rows: u32, cols: u32) -> GridSnapshot {
+        GridSnapshot::fallback(rows, cols)
+    }
+
+    #[test]
+    fn identical_frames_no_dirty_rows() {
+        let a = snapshot(3, 3);
+        let mut b = snapshot(3, 3);
+        b.cursor_row = 99;
+        let mut buf = Vec::new();
+        compute_dirty_rows_into(&mut buf, &a.cells, &b, 99, 0, 0, 0, 0, false);
+        assert_eq!(buf, vec![false, false, false]);
+    }
+
+    #[test]
+    fn changed_cell_marks_row_dirty() {
+        let a = snapshot(3, 3);
+        let mut b = snapshot(3, 3);
+        b.cursor_row = 99;
+        b.cells[1 * 3 + 1].codepoint = 'X' as u32;
+        let mut buf = Vec::new();
+        compute_dirty_rows_into(&mut buf, &a.cells, &b, 99, 0, 0, 0, 0, false);
+        assert_eq!(buf, vec![false, true, false]);
+    }
+
+    #[test]
+    fn cursor_row_always_dirty() {
+        let a = snapshot(3, 3);
+        let mut b = snapshot(3, 3);
+        b.cursor_row = 1;
+        let mut buf = Vec::new();
+        compute_dirty_rows_into(&mut buf, &a.cells, &b, 0, 0, 0, 0, 0, false);
+        assert!(buf[1]);
+        assert!(buf[0]);
+        assert!(!buf[2]);
+    }
+
+    #[test]
+    fn scroll_change_forces_all_dirty() {
+        let a = snapshot(3, 3);
+        let b = snapshot(3, 3);
+        let mut buf = Vec::new();
+        compute_dirty_rows_into(&mut buf, &a.cells, &b, 0, 5, 0, 0, 0, false);
+        assert_eq!(buf, vec![true, true, true]);
+    }
+
+    #[test]
+    fn size_mismatch_forces_all_dirty() {
+        let a = snapshot(3, 3);
+        let b = snapshot(2, 2);
+        let mut buf = Vec::new();
+        compute_dirty_rows_into(&mut buf, &a.cells, &b, 0, 0, 0, 0, 0, false);
+        assert_eq!(buf, vec![true, true]);
     }
 }

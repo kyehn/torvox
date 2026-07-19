@@ -5,9 +5,13 @@ use flume::{Receiver, Sender};
 
 use super::types::*;
 
+/// Commands sent from the VT parser thread to the render thread.
 pub enum Command {
+    /// Write raw bytes to the PTY (keyboard input, paste).
     Write(Vec<u8>),
+    /// Request a flush acknowledgment from the render thread.
     FlushAck(Sender<()>),
+    /// Update the terminal color theme.
     SetTheme {
         background: [u8; 3],
         foreground: [u8; 3],

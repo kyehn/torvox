@@ -1,3 +1,4 @@
+//! GPU render pipeline — shader compilation, bind groups, and draw calls.
 use super::GpuContext;
 
 pub(crate) const QUAD_VERTEX_COUNT: u32 = 6;
@@ -46,11 +47,7 @@ pub(crate) struct BgUniforms {
 }
 
 pub fn image_active_value(bg_bind_group_present: bool) -> f32 {
-    if bg_bind_group_present {
-        1.0
-    } else {
-        0.0
-    }
+    if bg_bind_group_present { 1.0 } else { 0.0 }
 }
 
 impl GpuContext {
