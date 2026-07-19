@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 /// C0 control codes (0x00-0x1F)
+/// C0 control codes (0x00-0x1F) — basic ASCII control characters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "rkyv",
@@ -52,6 +53,7 @@ impl C0 {
 }
 
 /// C1 control codes (0x80-0x9F) - represented as ESC + byte
+/// C1 control codes (0x80-0x9F) — 8-bit control characters sent as ESC + 2-byte sequence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(
     feature = "rkyv",
