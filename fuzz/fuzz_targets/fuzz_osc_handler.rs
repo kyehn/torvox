@@ -13,13 +13,13 @@ use libfuzzer_sys::fuzz_target;
 // harness set is not disturbed. Run with:
 //     cargo +nightly fuzz run fuzz_osc_handler
 //
-// This harness calls `torvox_terminal::osc_handler::OscHandler::process`
-// directly, exercising Torvox's own OSC parser (not Ghostty's VT engine).
+// This harness calls `osc_handler::OscHandler::process`
+// directly, exercising the OSC parser (not Ghostty's VT engine).
 
 fuzz_target!(|data: &[u8]| {
-    use torvox_terminal::osc_handler::OscHandler;
+    use terminal_engine::osc_handler::OscHandler;
 
-    // Directly exercise Torvox's own OSC parser/handler (the component that
+    // Directly exercise the OSC parser/handler (the component that
     // strips OSC sequences and emits `OscEvent`s, including the OSC 7
     // cwd-splitting path), rather than Ghostty's VT engine. This harness feeds
     // arbitrary bytes, including bytes that chunk an OSC sequence across the
@@ -43,7 +43,7 @@ fuzz_target!(|data: &[u8]| {
 // and assert `OscHandler::process` never panics and yields sane output/events.
 #[cfg(test)]
 mod tests {
-    use torvox_terminal::osc_handler::OscHandler;
+    use terminal_engine::osc_handler::OscHandler;
 
     #[test]
     fn smoke_osc_handler_process_does_not_panic() {
@@ -73,7 +73,7 @@ mod tests {
             cwd_handler
                 .events()
                 .iter()
-                .any(|e| matches!(e, torvox_terminal::osc_handler::OscEvent::Cwd(_))),
+                .any(|e| matches!(e, terminal_engine::osc_handler::OscEvent::Cwd(_))),
             "OSC 7 must produce a Cwd event"
         );
     }

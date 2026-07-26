@@ -16,7 +16,7 @@ detekt {
 }
 
 android {
-    namespace = "io.torvox"
+    namespace = "io.term"
     compileSdk = 37
 
     signingConfigs {
@@ -130,10 +130,10 @@ dependencies {
 
     implementation("com.google.dagger:hilt-android:2.60.1")
     ksp("com.google.dagger:hilt-android-compiler:2.60.1")
-    implementation("com.google.errorprone:error_prone_annotations:2.36.0")
-    implementation("androidx.hilt:hilt-navigation-compose:1.3.0")
+    implementation("com.google.errorprone:error_prone_annotations:2.50.0")
+    implementation("androidx.hilt:hilt-navigation-compose:1.4.0")
 
-    implementation("androidx.datastore:datastore-preferences:1.1.3")
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.navigation:navigation-compose:2.9.8")
 
     implementation("net.java.dev.jna:jna:5.19.1@aar")
@@ -149,11 +149,11 @@ dependencies {
     testImplementation(composeBom)
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("androidx.compose.ui:ui-test-manifest")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.68.0")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.68.0")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.68.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.70.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.70.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.70.0")
     testImplementation("androidx.test:core:1.7.0")
-    testImplementation("com.tngtech.archunit:archunit-junit4:1.4.0")
+    testImplementation("com.tngtech.archunit:archunit-junit4:1.4.2")
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
@@ -171,9 +171,9 @@ dependencies {
 
     androidTestImplementation("io.cucumber:cucumber-android:7.18.1")
 
-    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi:1.68.0")
-    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.68.0")
-    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.68.0")
+    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi:1.70.0")
+    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.70.0")
+    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.70.0")
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
@@ -182,7 +182,8 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     }
 }
 
-val workingDirForCargo = rootProject.projectDir.parentFile!!
+val workingDirForCargo = rootProject.projectDir.parentFile
+    ?: error("rootProject.projectDir.parentFile must exist")
 check(File(workingDirForCargo, "Cargo.toml").exists()) {
     "Cargo.toml not found at $workingDirForCargo"
 }
@@ -205,4 +206,88 @@ tasks.withType<Test>().matching { it.name == "testDebugUnitTest" }.configureEach
         excludeTestsMatching("*WordSelectionTest*")
     }
     jvmArgs("-Djava.library.path=")
+}
+
+// ── PIT mutation testing (AGP 9.x compatible, no plugin dependency) ──
+
+val pitestClasspath = configurations.create("pitestClasspath")
+
+dependencies {
+    pitestClasspath("org.pitest:pitest:1.25.8")
+    pitestClasspath("org.pitest:pitest-command-line:1.25.8")
+}
+
+val excludedUnitTests =
+    listOf(
+        "*CrashHandlerTest*",
+        "*TorvoxDocumentsProviderTest*",
+        "*LogUtilTest*",
+        "*BackHandlerTest*",
+        "*ComposingTextTest*",
+        "*GestureInteractionTest*",
+        "*SelectionMenuComposeTest*",
+        "*TerminalLifecycleTest*",
+        "*TouchGestureTest*",
+        "*WordSelectionTest*",
+    )
+
+// Register pitest tasks for debug-only Android build variants
+androidComponents {
+    onVariants { variant ->
+        if (!variant.name.contains("debug", ignoreCase = true)) {
+            return@onVariants
+        }
+        val taskName = "pitest${variant.name.replaceFirstChar { it.uppercase() }}"
+        tasks.register<JavaExec>(taskName) {
+            dependsOn("test${variant.name.replaceFirstChar { it.uppercase() }}UnitTest")
+            group = "verification"
+            description = "Run PIT mutation testing on ${variant.name} unit tests"
+
+            val runtime = configurations.named("${variant.name}UnitTestRuntimeClasspath")
+            val compileOutput = tasks.named("compile${variant.name.replaceFirstChar { it.uppercase() }}Kotlin")
+            classpath = pitestClasspath + runtime.get() +
+                files(
+                    compileOutput.map { (it as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory },
+                )
+
+            mainClass.set("org.pitest.mutationtest.commandline.MutationCoverageReport")
+
+            val reportDir =
+                layout.buildDirectory
+                    .dir("reports/pitest/${variant.name}")
+                    .get()
+                    .asFile.absolutePath
+            val srcDirs =
+                listOf(
+                    project.projectDir.resolve("src/main/kotlin").absolutePath,
+                    project.projectDir.resolve("src/${variant.name}/kotlin").absolutePath,
+                ).filter { File(it).exists() }.joinToString(",")
+
+            args(
+                "--reportDir",
+                reportDir,
+                "--targetClasses",
+                "io.term.*",
+                "--sourceDirs",
+                srcDirs,
+                "--threads",
+                "4",
+                "--timeoutConst",
+                "10000",
+                "--outputFormats",
+                "XML,HTML",
+                "--verbose",
+                "--excludedTestClasses",
+                excludedUnitTests.joinToString(","),
+            )
+
+            jvmArgs("-Djava.library.path=")
+        }
+    }
+}
+
+// Convenience task that runs pitest for all variants
+tasks.register("pitest") {
+    group = "verification"
+    description = "Run PIT mutation testing on all variant unit tests"
 }

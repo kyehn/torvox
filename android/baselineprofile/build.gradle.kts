@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "io.torvox.baselineprofile"
+    namespace = "io.term.baselineprofile"
     compileSdk = 37
 
     defaultConfig {

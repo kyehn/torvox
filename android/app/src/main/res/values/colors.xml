@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Torvox brand colors — used as adaptive icon background -->
+    <!-- Adaptive icon background -->
     <color name="ic_launcher_background">#1E1B4B</color>
-    <color name="torvox_background">#060D18</color>
-    <color name="torvox_titlebar">#1A3355</color>
-    <color name="torvox_window">#0D1B2A</color>
-    <color name="torvox_accent">#22D3EE</color>
+    <color name="background">#060D18</color>
+    <color name="titlebar">#1A3355</color>
+    <color name="window">#0D1B2A</color>
+    <color name="accent">#22D3EE</color>
 </resources>

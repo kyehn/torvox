@@ -2,7 +2,7 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    use torvox_core::selection::{Selection, SelectionAnchor, SelectionMode};
+    use terminal_core::selection::{Selection, SelectionAnchor, SelectionMode};
 
     if data.len() < 9 {
         return;

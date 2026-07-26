@@ -81,7 +81,7 @@ contract for new work; violating them regresses a fixed bug.
 
 ### Keyboard encoder
 
-- `torvox-terminal` encodes keys with libghostty-vt's `key::Encoder` +
+- `terminal-engine` encodes keys with libghostty-vt's `key::Encoder` +
   `key::Event`. These are allocated **once per `GhosttyTerminal` worker** and
   **reused** across keystrokes (`ghostty_terminal.rs`). Per-keypress allocation
   is a regression (loses per-encoder state).
@@ -130,14 +130,14 @@ contract for new work; violating them regresses a fixed bug.
   then `SIGKILL`s and `waitpid`s (reaping the child, no zombie). Do not
   reintroduce `into_raw_fd` / `mem::forget(self)` — that leaks the child.
 - `unsafe` is confined to `pty.rs` fork/exec and the gui-android FFI, each with
-  a `// SAFETY:` comment. `torvox-core` and `torvox-renderer` remain
+  a `// SAFETY:` comment. `terminal-core` and `gpu-renderer` remain
   `#![forbid(unsafe_code)]`.
 
 ## FFI Conventions
 
 ### Bridge Type Sync
 
-- When modifying `torvox-core` types, update `torvox-gui-android/src/bridge.rs` types (single FFI export location)
+- When modifying `terminal-core` types, update `android-gui/src/bridge.rs` types (single FFI export location)
 - Update `TorvoxBridge.kt` JNA bindings when bridge types change
 - The `SessionSnapshot` type (rkyv-serialized) is the primary Android bridge serialization type
 
@@ -152,11 +152,11 @@ contract for new work; violating them regresses a fixed bug.
 
 - `unsafe` confined to `pty.rs` fork/exec and `gui-android` FFI
 - Every `unsafe` block must have a `// SAFETY:` comment
-- `torvox-core` and `torvox-renderer` use `#![forbid(unsafe_code)]`
+- `terminal-core` and `gpu-renderer` use `#![forbid(unsafe_code)]`
 
 ### Boltffi Rules
 
-- Only one export location: `torvox-gui-android/src/bridge.rs`
+- Only one export location: `android-gui/src/bridge.rs`
 - No `message` field in boltffi Error types (conflicts with Kotlin `Throwable.message`)
 - Boltffi CLI does not generate bridge code — use JNA manual binding (TorvoxBridge.kt)
 

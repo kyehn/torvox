@@ -11,13 +11,13 @@
   ```
   libghostty-vt / libghostty-vt-sys
       ↑
-  torvox-core (no_std)
+  terminal-core (no_std)
       ↑
-  torvox-terminal
+  terminal-engine
       ↑
-  torvox-renderer
+  gpu-renderer
       ↑
-  torvox-gui-android
+  android-gui
       ↑
   android/app (Kotlin + Compose)
   ```
@@ -45,7 +45,7 @@
 ## 2. Vulnerability Scanning
 
 - [`cargo-audit`] scans Rust crate dependencies for known security vulnerabilities
-- Runs in CI via `torvox-integration-tests/tests/tool_lint.rs` (`cargo_audit_finds_no_vulnerabilities` test)
+- Runs in CI via `integration-tests/tests/tool_lint.rs` (`cargo_audit_finds_no_vulnerabilities` test)
 - Also invoked in `scripts/check-rust.nu` as part of the full CI pipeline
 - `cargo-deny` is intentionally **not** configured for this project:
   - The `deny_toml_must_not_exist` test in `tool_lint.rs` asserts that no `deny.toml` file exists in the repository
@@ -63,7 +63,7 @@
 ## 4. Unused Dependency Detection
 
 - [`cargo-machete`] scans Rust workspaces for declared but unused dependencies
-- Runs in CI via `torvox-integration-tests/tests/tool_lint.rs` (`cargo_machete_finds_no_unused_deps` test)
+- Runs in CI via `integration-tests/tests/tool_lint.rs` (`cargo_machete_finds_no_unused_deps` test)
 - Uses `--skip-target-dir` flag per project convention (avoids false positives from cached build artifacts)
 - Do NOT use `--with-metadata` flag — it causes false positives with proc-macro dependencies like `quickcheck` (see AGENTS.md pitfalls)
 

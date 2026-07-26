@@ -1,0 +1,15 @@
+[package]
+name = "exec-bin"
+version.workspace = true
+edition.workspace = true
+description = "Multi-call binary for W^X workaround on Android (Termux-proven pattern)"
+
+[[bin]]
+name = "exec-bin"
+path = "src/main.rs"
+
+[dependencies]
+nix = { workspace = true }
+
+[lints]
+workspace = true

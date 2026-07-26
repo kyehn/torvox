@@ -1,5 +1,5 @@
 suite:
-  name: Torvox Smoke Tests
+  name: Terminal Smoke Tests
   tags:
     - smoke
 flows:
