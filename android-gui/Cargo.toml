@@ -1,0 +1,26 @@
+[package]
+name = "android-gui"
+version.workspace = true
+edition.workspace = true
+description = "Android BoltFFI bridge terminal UI"
+
+[lib]
+name = "android_gui_lib"
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+flume = { workspace = true }
+terminal-core = { workspace = true, features = ["rkyv"] }
+rkyv = { workspace = true, features = ["std", "bytecheck"] }
+terminal-engine = { workspace = true }
+gpu-renderer = { workspace = true, default-features = false }
+boltffi = { workspace = true }
+thiserror = { workspace = true }
+
+log = { workspace = true }
+
+[dev-dependencies]
+wgpu = { workspace = true, features = ["noop", "vulkan"] }
+
+[lints]
+workspace = true

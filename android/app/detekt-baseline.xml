@@ -10,18 +10,18 @@
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$@Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth") // Acceptable — dispatches ~15 distinct gesture/intent types override fun onTouchEvent(event: MotionEvent): Boolean</ID>
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection</ID>
     <ID>CognitiveComplexMethod:TerminalViewModel.kt$TerminalViewModel$@Suppress("CyclomaticComplexMethod") private fun extractSelectedText( selection: SelectionState, scrollOffset: Int = 0, ): String</ID>
-    <ID>CognitiveComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
-    <ID>CognitiveComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
     <ID>CyclomaticComplexMethod:SettingsScreen.kt$@Composable private fun FontInfoSection( fontInfo: String, textColor: Color, secondaryText: Color, )</ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun controlByteForKeyCode(keyCode: Int): Byte?</ID>
-    <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
-    <ID>CyclomaticComplexMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
-    <ID>LateinitUsage:MainActivity.kt$MainActivity$@Inject lateinit var torvoxRuntime: TorvoxRuntime // Dagger injection — lateinit required</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
+    <ID>LateinitUsage:MainActivity.kt$MainActivity$@Inject lateinit var torvoxRuntime: TerminalRuntime // Dagger injection — lateinit required</ID>
     <ID>LongMethod:SecondStageRunner.kt$SecondStageRunner$suspend fun run(): Result</ID>
     <ID>LongMethod:SessionDrawer.kt$@Composable fun SessionDrawer( viewModel: TerminalViewModel, onSettings: () -> Unit, onSearch: () -> Unit, onClose: () -> Unit, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable private fun SystemFontSelector( selectedFamily: String, onFamilySelected: (String) -> Unit, textColor: Color, cardBackground: Color, accentColor: Color, fonts: List&lt;String> = emptyList(), defaultFontName: String = "", fontInfo: String = "", onPickFontFile: (() -> Unit)? = null, )</ID>
-    <ID>LongMethod:TorvoxRuntime.kt$TorvoxRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
-    <ID>LongMethod:TorvoxRuntime.kt$TorvoxRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
     <ID>TooGenericExceptionCaught:BootstrapDownloader.kt$BootstrapDownloader$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:BootstrapInstaller.kt$BootstrapInstaller$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:BootstrapOrchestrator.kt$BootstrapOrchestrator$exception: Exception</ID>
@@ -37,17 +37,17 @@
     <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$e: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:ToolbarPreferences.kt$ToolbarPreferences$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:TorvoxApp.kt$TorvoxApp$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:TorvoxRuntime.kt$TorvoxRuntime$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:TorvoxRuntime.kt$TorvoxRuntime$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:TorvoxRuntime.kt$TorvoxRuntime$exception: Throwable</ID>
+    <ID>TooGenericExceptionCaught:TerminalApp.kt$TerminalApp$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$exception: Throwable</ID>
     <ID>TooGenericExceptionCaught:UsbSerialManager.kt$UsbSerialManager$exception: Exception</ID>
     <ID>TooManyFunctions:SettingsRepository.kt$SettingsRepository</ID>
     <ID>TooManyFunctions:TerminalSurface.kt$TerminalSurface : TextureViewSurfaceTextureListener</ID>
     <ID>TooManyFunctions:TerminalViewModel.kt$TerminalViewModel : ViewModel</ID>
-    <ID>TooManyFunctions:TorvoxBridge.kt$TorvoxBridge : AutoCloseable</ID>
-    <ID>TooManyFunctions:TorvoxBridge.kt$TorvoxNative : Library</ID>
-    <ID>TooManyFunctions:TorvoxRuntime.kt$TorvoxRuntime</ID>
+    <ID>TooManyFunctions:NativeBridge.kt$NativeBridge : AutoCloseable</ID>
+    <ID>TooManyFunctions:NativeBridge.kt$TorvoxNative : Library</ID>
+    <ID>TooManyFunctions:TerminalRuntime.kt$TerminalRuntime</ID>
     <ID>TooManyFunctions:UsbSerialManager.kt$UsbSerialManager : Closeable</ID>
     <ID>UnusedImports:ModifierBarComprehensiveTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
     <ID>UnusedImports:ModifierBarScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>

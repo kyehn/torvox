@@ -11,20 +11,20 @@
 
 ```bash
 cargo nextest run --workspace --profile ci            # Rust tests
-cargo nextest --package torvox-core                 # core only
-cargo nextest --package torvox-terminal             # terminal only
-cargo nextest run --package torvox-core --test property_tests
+cargo nextest --package terminal-core                 # core only
+cargo nextest --package terminal-engine             # terminal only
+cargo nextest run --package terminal-core --test property_tests
 ```
 
 ## Test File Locations
 
 | Crate | Integration Tests |
 |-------|------------------|
-| torvox-core | `tests/property_tests.rs` (quickcheck), `tests/grid_ops.rs`, `tests/terminal_colors.rs`, `tests/config_drift.rs`, `tests/grapheme.rs`, `tests/unicode_icu_conformance.rs` |
-| torvox-terminal | `tests/fuzz_vt_structured.rs`, `tests/grid_state_machine.rs`, `tests/session_state_machine.rs`, `tests/concurrent_session.rs`, `tests/dst_simulation.rs`, `tests/memory_bounds.rs`, `tests/shuttle_concurrent.rs`, `tests/ecma48_correctness.rs`, `tests/vttest_sequences.rs`, `tests/osc52.rs`, `tests/layout.rs`, `tests/ref_snapshot.rs`, `tests/fuzz_replay.rs`, `tests/cross_backend.rs`, `tests/ported_alacritty_ref.rs`, `tests/vttest_ref_files.rs`, `tests/proptest_csi.rs` (CSI cursor/scroll/erase), `tests/sgr_proptest.rs` (SGR attribute params) |
-| torvox-gui-android | `tests/fuzz_wire.rs`, `tests/bridge_integration.rs`, `tests/bridge_safety.rs`, `tests/gpu_noop_tests.rs` |
-| torvox-bench | `benches/terminal_bench.rs` (criterion) |
-| torvox-exec | `tests/basic.rs` |
+| terminal-core | `tests/property_tests.rs` (quickcheck), `tests/grid_ops.rs`, `tests/terminal_colors.rs`, `tests/config_drift.rs`, `tests/grapheme.rs`, `tests/unicode_icu_conformance.rs` |
+| terminal-engine | `tests/fuzz_vt_structured.rs`, `tests/grid_state_machine.rs`, `tests/session_state_machine.rs`, `tests/concurrent_session.rs`, `tests/dst_simulation.rs`, `tests/memory_bounds.rs`, `tests/shuttle_concurrent.rs`, `tests/ecma48_correctness.rs`, `tests/vttest_sequences.rs`, `tests/osc52.rs`, `tests/layout.rs`, `tests/ref_snapshot.rs`, `tests/fuzz_replay.rs`, `tests/cross_backend.rs`, `tests/ported_alacritty_ref.rs`, `tests/vttest_ref_files.rs`, `tests/proptest_csi.rs` (CSI cursor/scroll/erase), `tests/sgr_proptest.rs` (SGR attribute params) |
+| android-gui | `tests/fuzz_wire.rs`, `tests/bridge_integration.rs`, `tests/bridge_safety.rs`, `tests/gpu_noop_tests.rs` |
+| benchmarks | `benches/terminal_bench.rs` (criterion) |
+| exec-bin | `tests/basic.rs` |
 
 ## Property and Fuzz Testing
 
@@ -33,7 +33,7 @@ cargo nextest run --package torvox-core --test property_tests
 - VtSegment: Text, Csi, Esc, Osc, Control, PrivateCsi, DecPrivate, Sgr, Dcs
 - Grid state machine: WriteChar, Newline, Backspace, CursorUp/Down/Left/Right, CarriageReturn, Tab, ClearLine, ClearScreen, InsertLines, DeleteLines, ScrollUp, Resize, AlternateBuffer, SetOriginMode, ScrollRegion, OriginMode, InsertMode, ReverseIndex — ModelGrid vs real Grid
 - DST simulation: PtyOutput, UserInput, Resize, Render, SurfaceCreated, SurfaceDestroyed, Flush, WriteText — 100K ops, 10 seeds
-- Shuttle concurrency: nightly-only, enable via `RUSTFLAGS="--cfg shuttle_tests" cargo +nightly test -p torvox-terminal`
+- Shuttle concurrency: nightly-only, enable via `RUSTFLAGS="--cfg shuttle_tests" cargo +nightly test -p terminal-engine`
 - Structured VT fuzz: `cargo fuzz run fuzz_vt_structured` (6 target types, 20s each)
 - Wire format fuzz: `cargo fuzz run fuzz_wire`
 
@@ -52,7 +52,7 @@ right type for the behavior under test — do not collapse them into one.
 
 | # | Type | Location | What it covers |
 |---|------|----------|----------------|
-| 1 | **Unit** (Rust) | `torvox-core/tests/`, `torvox-terminal/tests/`, `torvox-gui-android/tests/`, `torvox-bench/benches/` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, bridge round-trip. Runs on host via `cargo nextest`. |
+| 1 | **Unit** (Rust) | `terminal-core/tests/`, `terminal-engine/tests/`, `android-gui/tests/`, `benchmarks/benches/` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, bridge round-trip. Runs on host via `cargo nextest`. |
 | 2 | **Roborazzi** (screenshot) | `android/app/src/test/java/io/torvox/screenshot/*ScreenshotTest.kt`; goldens in `android/app/src/test/resources/roborazzi/` | Pixel-exact Compose/UI rendering under Robolectric. |
 | 3 | **Compose UI** | `android/app/src/test/java/io/torvox/ui/*ComposeTest.kt` (Robolectric) and `android/app/src/androidTest/java/io/torvox/ui/*ComposeTest.kt` (instrumented) | Compose widget state/interaction (theme switch, selection handles). |
 | 4 | **Maestro** | `android/app/src/androidTest/java/io/torvox/ui/*.yaml` flow files (e.g. `SelectionMaestroTest.yaml`) | End-to-end on-device flows driven by Maestro YAML. |
@@ -71,7 +71,7 @@ CI fails on golden mismatch. Download `gradle-reports` artifact from the failed 
 
 RapidOCR (via `rapidocr-onnxruntime`) is available in the dev shell for OCR-verifying screenshots on Linux.
 
-Used by `torvox-renderer/tests/text_ocr_test.rs` to verify font rendering end-to-end: renders text with swash, saves PNG, OCR-verifies the output.
+Used by `gpu-renderer/tests/text_ocr_test.rs` to verify font rendering end-to-end: renders text with swash, saves PNG, OCR-verifies the output.
 
 ## Emulator Tests
 
@@ -95,7 +95,7 @@ maintained in `docs/traceability.yml`.
 |--------|-------------|------------|
 | **unit** | Rust unit/integration test | `cargo nextest run --workspace --profile ci` |
 | **doctest** | Rust doc-test (executable examples in `///` comments) | `cargo test --doc` |
-| **property** | Property-based test (proptest/quickcheck) | `cargo nextest run --package torvox-core --test property_tests` |
+| **property** | Property-based test (proptest/quickcheck) | `cargo nextest run --package terminal-core --test property_tests` |
 | **fuzz** | Fuzz target | `cargo fuzz run <target> -- -max_total_time=5` |
 | **lint** | Lint/static analysis check | `cargo clippy --all -- --deny warnings` |
 | **android-unit** | Android unit test (Robolectric) | `./gradlew testDebugUnitTest` |
@@ -105,8 +105,8 @@ maintained in `docs/traceability.yml`.
 | **ui-automator** | UiAutomator cross-app test | Via instrumented test suite |
 | **espresso** | Espresso in-app interaction test | Via instrumented test suite |
 | **emulator** | Full emulator E2E test | `nu scripts/test-emulator.nu` |
-| **tool-lint** | External tool quality check | `cargo test -p torvox-integration-tests --test tool_lint` |
-| **docs-validate** | Documentation structural validation | `cargo test -p torvox-integration-tests --test tool_lint -- docs_*` |
+| **tool-lint** | External tool quality check | `cargo test -p integration-tests --test tool_lint` |
+| **docs-validate** | Documentation structural validation | `cargo test -p integration-tests --test tool_lint -- docs_*` |
 
 ### Adding Tests for New Requirements
 
@@ -126,4 +126,4 @@ The following structural checks ensure traceability integrity:
 - Every acceptance criterion in `docs/acceptance.md` references a valid requirement ID
 - Every ADR in `docs/adr/` references at least one requirement ID
 
-These checks run as part of `tool_lint.rs` (see `cargo test -p torvox-integration-tests --test tool_lint`).
+These checks run as part of `tool_lint.rs` (see `cargo test -p integration-tests --test tool_lint`).

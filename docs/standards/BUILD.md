@@ -89,4 +89,4 @@ and any CI workflow that invokes them.
 | `let zig15_path = ...` | Hardcoded version coupling |
 | Abbreviated flags | Style violation per STYLE.md |
 | NDK path fallback search | Environment must be deterministic |
-| `^cargo zigbuild --package torvox-exec` | Must use `cargo ndk` |
+| `^cargo zigbuild --package exec-bin` | Must use `cargo ndk` |

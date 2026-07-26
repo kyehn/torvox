@@ -1,5 +1,5 @@
 [package]
-name = "torvox-fuzz"
+name = "fuzz-targets"
 version = "0.1.0"
 edition = "2024"
 
@@ -44,10 +44,17 @@ path = "fuzz_targets/fuzz_attrs.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "fuzz_shader_wgsl"
+path = "fuzz_targets/fuzz_shader_wgsl.rs"
+test = false
+bench = false
+
 [dependencies]
-torvox-core = { path = "../torvox-core" }
-torvox-terminal = { path = "../torvox-terminal" }
+terminal-core = { path = "../terminal-core" }
+terminal-engine = { path = "../terminal-engine" }
 libfuzzer-sys = "0.4"
+naga = { version = "23", default-features = false, features = ["wgsl-in", "spv-out"] }
 serde_json = "1"
 
 [lints]

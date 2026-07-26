@@ -59,7 +59,7 @@ New ADRs are numbered sequentially: `0001-my-decision.md`,
 ## Cross-Linking
 
 All ADRs are registered in `docs/traceability.yml` alongside the requirements,
-tests, and checks they relate to. Run `cargo test -p torvox-integration-tests --test tool_lint -- doc_` to
+tests, and checks they relate to. Run `cargo test -p integration-tests --test tool_lint -- doc_` to
 verify that every ADR, requirement, and test is properly linked.
 
 ## Writing Guidelines
