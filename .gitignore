@@ -54,3 +54,6 @@ android/app/src/main/java/io/torvox/bridge/kotlin/
 .constraints.toml
 ultracode/
 .workflow/
+.reasonix/
+mutants.out/
+mutants.out.old/

@@ -5,6 +5,7 @@ extend-exclude = [
   "fuzz/seeds/",
   "target/",
   ".github/",
+  "docs/models/alloy/",
   "**/res/values*/strings.xml",
 ]
 

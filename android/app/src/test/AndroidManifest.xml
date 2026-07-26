@@ -3,7 +3,7 @@
 
     <application>
         <activity
-            android:name="io.torvox.TestActivity"
+            android:name="io.term.TestActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

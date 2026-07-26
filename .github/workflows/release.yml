@@ -35,14 +35,14 @@ jobs:
           scripts/build-apk.nu --release
       - uses: actions/upload-artifact@main
         with:
-          name: torvox-release-apk
+          name: release-apk
           path: android/app/build/outputs/apk/release/*.apk
       - run: |
           scripts/build-apk.nu --debug
       - uses: actions/upload-artifact@main
         continue-on-error: true
         with:
-          name: torvox-debug-apk
+          name: debug-apk
           path: android/app/build/outputs/apk/debug/*.apk
       - run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules

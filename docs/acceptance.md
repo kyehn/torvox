@@ -20,9 +20,9 @@ Ghostty parser (`libghostty-vt`).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | ECMA-48 CSI, DCS, and OSC sequences produce correct terminal state transitions | `cargo test --package torvox-terminal -- ecma48_correctness` ([`ecma48_correctness.rs`](torvox-terminal/tests/ecma48_correctness.rs)) |
-| 2 | Vttest screen and cursor test sequences produce expected output | `cargo test --package torvox-terminal -- vttest_sequences` ([`vttest_sequences.rs`](torvox-terminal/tests/vttest_sequences.rs)) |
-| 3 | Structured fuzz-generated VT input does not cause crashes or state corruption | `cargo test --package torvox-terminal -- fuzz_vt_structured` ([`fuzz_vt_structured.rs`](torvox-terminal/tests/fuzz_vt_structured.rs)) |
+| 1 | ECMA-48 CSI, DCS, and OSC sequences produce correct terminal state transitions | `cargo test --package terminal-engine -- ecma48_correctness` ([`ecma48_correctness.rs`](terminal-engine/tests/ecma48_correctness.rs)) |
+| 2 | Vttest screen and cursor test sequences produce expected output | `cargo test --package terminal-engine -- vttest_sequences` ([`vttest_sequences.rs`](terminal-engine/tests/vttest_sequences.rs)) |
+| 3 | Structured fuzz-generated VT input does not cause crashes or state corruption | `cargo test --package terminal-engine -- fuzz_vt_structured` ([`fuzz_vt_structured.rs`](terminal-engine/tests/fuzz_vt_structured.rs)) |
 
 ### FR-002: Terminal Grid Data Model
 
@@ -32,9 +32,9 @@ color, and text attributes (`Attrs`).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Grid operations (insert, delete, clear rows/cols) produce correct cell layout | `cargo test --package torvox-core -- grid_ops` ([`torvox-core/tests/grid_ops.rs`](torvox-core/tests/grid_ops.rs)) |
-| 2 | Grid state machine matches reference model under random operations | `cargo test --package torvox-core -- property_tests` ([`torvox-core/tests/property_tests.rs`](torvox-core/tests/property_tests.rs)) |
-| 3 | Grid serialization round-trips through rkyv without data loss | `cargo test --package torvox-core -- grid_snapshot_integration` ([`torvox-core/tests/grid_snapshot_integration.rs`](torvox-core/tests/grid_snapshot_integration.rs)) |
+| 1 | Grid operations (insert, delete, clear rows/cols) produce correct cell layout | `cargo test --package terminal-core -- grid_ops` ([`terminal-core/tests/grid_ops.rs`](terminal-core/tests/grid_ops.rs)) |
+| 2 | Grid state machine matches reference model under random operations | `cargo test --package terminal-core -- property_tests` ([`terminal-core/tests/property_tests.rs`](terminal-core/tests/property_tests.rs)) |
+| 3 | Grid serialization round-trips through rkyv without data loss | `cargo test --package terminal-core -- grid_snapshot_integration` ([`terminal-core/tests/grid_snapshot_integration.rs`](terminal-core/tests/grid_snapshot_integration.rs)) |
 
 ### FR-003: SGR (Select Graphic Rendition) Attributes
 
@@ -44,9 +44,9 @@ and protected.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | All 11 SGR attribute codes are parsed and produce the correct `Attrs` bitfield | `cargo test --package torvox-terminal -- sgr_parser_tests` ([`sgr_parser_tests.rs`](torvox-terminal/tests/sgr_parser_tests.rs)) |
-| 2 | Property tests over random SGR sequences produce consistent attribute combinations | `cargo test --package torvox-terminal -- sgr_proptest` ([`sgr_proptest.rs`](torvox-terminal/tests/sgr_proptest.rs)) |
-| 3 | Full SGR compatibility suite passes against a reference terminal implementation | `cargo test --package torvox-terminal -- sgr_full_compat` ([`sgr_full_compat.rs`](torvox-terminal/tests/sgr_full_compat.rs)) |
+| 1 | All 11 SGR attribute codes are parsed and produce the correct `Attrs` bitfield | `cargo test --package terminal-engine -- sgr_parser_tests` ([`sgr_parser_tests.rs`](terminal-engine/tests/sgr_parser_tests.rs)) |
+| 2 | Property tests over random SGR sequences produce consistent attribute combinations | `cargo test --package terminal-engine -- sgr_proptest` ([`sgr_proptest.rs`](terminal-engine/tests/sgr_proptest.rs)) |
+| 3 | Full SGR compatibility suite passes against a reference terminal implementation | `cargo test --package terminal-engine -- sgr_full_compat` ([`sgr_full_compat.rs`](terminal-engine/tests/sgr_full_compat.rs)) |
 
 ### FR-004: Color Support (ANSI, 256-Color, Truecolor)
 
@@ -55,9 +55,9 @@ and protected.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | All 16 ANSI color palette indices (0–15) are mapped to correct RGB values | `cargo test --package torvox-core -- terminal_colors` ([`torvox-core/tests/terminal_colors.rs`](torvox-core/tests/terminal_colors.rs)) |
-| 2 | 256-color (38;5;n / 48;5;n) and truecolor (38;2;r;g;b / 48;2;r;g;b) sequences produce correct `Color` values | `cargo test --package torvox-terminal -- colors` ([`torvox-terminal/tests/ported_kitty_full/colors.rs`](torvox-terminal/tests/ported_kitty_full/colors.rs)) |
-| 3 | Color palette indices resolve to theme-defined values when a custom theme is active | Code review: `torvox-core/src/color.rs` maps index → `RgbColor` through active theme |
+| 1 | All 16 ANSI color palette indices (0–15) are mapped to correct RGB values | `cargo test --package terminal-core -- terminal_colors` ([`terminal-core/tests/terminal_colors.rs`](terminal-core/tests/terminal_colors.rs)) |
+| 2 | 256-color (38;5;n / 48;5;n) and truecolor (38;2;r;g;b / 48;2;r;g;b) sequences produce correct `Color` values | `cargo test --package terminal-engine -- colors` ([`terminal-engine/tests/ported_kitty_full/colors.rs`](terminal-engine/tests/ported_kitty_full/colors.rs)) |
+| 3 | Color palette indices resolve to theme-defined values when a custom theme is active | Code review: `terminal-core/src/color.rs` maps index → `RgbColor` through active theme |
 
 ### FR-005: Alternate Screen Buffer
 
@@ -66,9 +66,9 @@ and protected.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Entering alternate screen (CSI ? 1049 h) switches to a fresh buffer and hides scrollback | `cargo test --package torvox-terminal -- alt_screen` ([`alt_screen.rs`](torvox-terminal/tests/alt_screen.rs)) |
-| 2 | Exiting alternate screen (CSI ? 1049 l) restores the primary buffer and scrollback content | `cargo test --package torvox-terminal -- alt_screen` ([`alt_screen.rs`](torvox-terminal/tests/alt_screen.rs)) |
-| 3 | Alternate screen buffer has independent dimensions and cursor state | Integration test coverage in `torvox-terminal/tests/alt_screen.rs` |
+| 1 | Entering alternate screen (CSI ? 1049 h) switches to a fresh buffer and hides scrollback | `cargo test --package terminal-engine -- alt_screen` ([`alt_screen.rs`](terminal-engine/tests/alt_screen.rs)) |
+| 2 | Exiting alternate screen (CSI ? 1049 l) restores the primary buffer and scrollback content | `cargo test --package terminal-engine -- alt_screen` ([`alt_screen.rs`](terminal-engine/tests/alt_screen.rs)) |
+| 3 | Alternate screen buffer has independent dimensions and cursor state | Integration test coverage in `terminal-engine/tests/alt_screen.rs` |
 
 ### FR-006: Cursor Positioning and Style
 
@@ -78,9 +78,9 @@ with visible/hidden state.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | All cursor movement CSI sequences move the cursor to the expected position | `cargo test --package torvox-terminal -- cursor_cmds_tests` ([`cursor_cmds_tests.rs`](torvox-terminal/tests/cursor_cmds_tests.rs)) |
-| 2 | Cursor style (DECSUSR, CSI SP q) selection switches between block, bar, underline, and beam | `cargo test --package torvox-terminal -- dec_modes_dedicated` ([`dec_modes_dedicated.rs`](torvox-terminal/tests/dec_modes_dedicated.rs)) |
-| 3 | Cursor visibility (DECTCEM) toggles on/off correctly | `cargo test --package torvox-terminal -- dec_modes_dedicated` ([`dec_modes_dedicated.rs`](torvox-terminal/tests/dec_modes_dedicated.rs)) |
+| 1 | All cursor movement CSI sequences move the cursor to the expected position | `cargo test --package terminal-engine -- cursor_cmds_tests` ([`cursor_cmds_tests.rs`](terminal-engine/tests/cursor_cmds_tests.rs)) |
+| 2 | Cursor style (DECSUSR, CSI SP q) selection switches between block, bar, underline, and beam | `cargo test --package terminal-engine -- dec_modes_dedicated` ([`dec_modes_dedicated.rs`](terminal-engine/tests/dec_modes_dedicated.rs)) |
+| 3 | Cursor visibility (DECTCEM) toggles on/off correctly | `cargo test --package terminal-engine -- dec_modes_dedicated` ([`dec_modes_dedicated.rs`](terminal-engine/tests/dec_modes_dedicated.rs)) |
 
 ### FR-007: Scrolling Regions
 
@@ -90,8 +90,8 @@ boundaries.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Scroll up/down within a DECSTBM region scrolls only the specified lines | `cargo test --package torvox-core -- grid_ops` ([`torvox-core/tests/grid_ops.rs`](torvox-core/tests/grid_ops.rs)) |
-| 2 | Insert/delete lines shift content as expected with configurable boundaries | `cargo test --package torvox-terminal -- grid_state_machine` ([`grid_state_machine.rs`](torvox-terminal/tests/grid_state_machine.rs)) |
+| 1 | Scroll up/down within a DECSTBM region scrolls only the specified lines | `cargo test --package terminal-core -- grid_ops` ([`terminal-core/tests/grid_ops.rs`](terminal-core/tests/grid_ops.rs)) |
+| 2 | Insert/delete lines shift content as expected with configurable boundaries | `cargo test --package terminal-engine -- grid_state_machine` ([`grid_state_machine.rs`](terminal-engine/tests/grid_state_machine.rs)) |
 | 3 | Fuzz-generated grid operations do not panic or corrupt cell data | `cargo run --package fuzz -- fuzz_grid_ops` ([`fuzz/fuzz_targets/fuzz_grid_ops.rs`](fuzz/fuzz_targets/fuzz_grid_ops.rs)) |
 
 ### FR-008: Tab Stops
@@ -100,8 +100,8 @@ boundaries.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Tab stop set (HTS), clear (TBC), and forward/backward tab (HT, CBT) move the cursor to the correct column | `cargo test --package torvox-terminal -- tabs` ([`torvox-terminal/tests/ported_kitty_full/tabs.rs`](torvox-terminal/tests/ported_kitty_full/tabs.rs)) |
-| 2 | Default tab stops are set every 8 columns on terminal reset | Code review: `torvox-core/src/control.rs` initial tab width |
+| 1 | Tab stop set (HTS), clear (TBC), and forward/backward tab (HT, CBT) move the cursor to the correct column | `cargo test --package terminal-engine -- tabs` ([`terminal-engine/tests/ported_kitty_full/tabs.rs`](terminal-engine/tests/ported_kitty_full/tabs.rs)) |
+| 2 | Default tab stops are set every 8 columns on terminal reset | Code review: `terminal-core/src/control.rs` initial tab width |
 
 ### FR-009: SIGWINCH on Terminal Resize
 
@@ -110,8 +110,8 @@ the child process.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Resizing the session triggers `SIGWINCH` to the child process group | `cargo test --package torvox-terminal -- lifecycle_test` ([`lifecycle_test.rs`](torvox-terminal/tests/lifecycle_test.rs)) |
-| 2 | The child process receives updated terminal dimensions after resize | `cargo test --package torvox-terminal -- session_state_machine` ([`session_state_machine.rs`](torvox-terminal/tests/session_state_machine.rs)) |
+| 1 | Resizing the session triggers `SIGWINCH` to the child process group | `cargo test --package terminal-engine -- lifecycle_test` ([`lifecycle_test.rs`](terminal-engine/tests/lifecycle_test.rs)) |
+| 2 | The child process receives updated terminal dimensions after resize | `cargo test --package terminal-engine -- session_state_machine` ([`session_state_machine.rs`](terminal-engine/tests/session_state_machine.rs)) |
 
 ---
 
@@ -124,8 +124,8 @@ as the sole graphics backend. OpenGL and CPU software paths are not supported.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | wgpu instance and surface create successfully on a Vulkan-capable device | `cargo test --package torvox-gui-android -- gpu_noop_tests` ([`gpu_noop_tests.rs`](torvox-gui-android/tests/gpu_noop_tests.rs)) |
-| 2 | Headless wgpu rendering produces correct pixel output (OCR-confirmed) | `cargo test --package torvox-renderer -- text_ocr_test` ([`text_ocr_test.rs`](torvox-renderer/tests/text_ocr_test.rs)) |
+| 1 | wgpu instance and surface create successfully on a Vulkan-capable device | `cargo test --package android-gui -- gpu_noop_tests` ([`gpu_noop_tests.rs`](android-gui/tests/gpu_noop_tests.rs)) |
+| 2 | Headless wgpu rendering produces correct pixel output (OCR-confirmed) | `cargo test --package gpu-renderer -- text_ocr_test` ([`text_ocr_test.rs`](gpu-renderer/tests/text_ocr_test.rs)) |
 | 3 | No OpenGL or CPU rendering dependencies present in `Cargo.toml` | Code review: no `opengl`, `glutin`, or `Canvas.drawText` references in production code |
 
 ### FR-011: Text Shaping and Glyph Rasterization
@@ -135,9 +135,9 @@ rasterize glyphs using `swash`, caching results in a GPU atlas.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A text run shaped with `cosmic-text` produces correct glyph positions and clusters | `cargo test --package torvox-renderer -- font_metrics` ([`font_metrics.rs`](torvox-renderer/tests/font_metrics.rs)) |
-| 2 | Rasterized glyphs render at the correct pixel dimensions | `cargo test --package torvox-renderer -- text_ocr_test` ([`text_ocr_test.rs`](torvox-renderer/tests/text_ocr_test.rs)) |
-| 3 | Shaped results are cached and cache hits return identical glyph data | Code review: `torvox-renderer/src/font.rs` — shaped text cache with 4,096 entry cap |
+| 1 | A text run shaped with `cosmic-text` produces correct glyph positions and clusters | `cargo test --package gpu-renderer -- font_metrics` ([`font_metrics.rs`](gpu-renderer/tests/font_metrics.rs)) |
+| 2 | Rasterized glyphs render at the correct pixel dimensions | `cargo test --package gpu-renderer -- text_ocr_test` ([`text_ocr_test.rs`](gpu-renderer/tests/text_ocr_test.rs)) |
+| 3 | Shaped results are cached and cache hits return identical glyph data | Code review: `gpu-renderer/src/font.rs` — shaped text cache with 4,096 entry cap |
 
 ### FR-012: GPU Texture Atlas Management
 
@@ -146,9 +146,9 @@ using `guillotiere` for dynamic rectangle allocation and eviction.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `guillotiere` allocates rectangles in the atlas texture for each glyph | `cargo test --package torvox-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](torvox-renderer/tests/gpu_headless_test.rs)) |
-| 2 | Atlas evicts least-recently-used glyphs when capacity is reached | Code review: `torvox-renderer/src/gpu.rs` — atlas eviction path |
-| 3 | Atlas allocation tracks at least 10,000 glyph entries | Code review: `torvox-renderer/src/font.rs` — atlas capacity constant |
+| 1 | `guillotiere` allocates rectangles in the atlas texture for each glyph | `cargo test --package gpu-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](gpu-renderer/tests/gpu_headless_test.rs)) |
+| 2 | Atlas evicts least-recently-used glyphs when capacity is reached | Code review: `gpu-renderer/src/gpu.rs` — atlas eviction path |
+| 3 | Atlas allocation tracks at least 10,000 glyph entries | Code review: `gpu-renderer/src/font.rs` — atlas capacity constant |
 
 ### FR-013: Dirty Mask for Incremental Rendering
 
@@ -157,9 +157,9 @@ which rows of the grid have changed and limit rendering to those rows.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Writing a character marks only the affected row as dirty | `cargo test --package torvox-core -- grid_ops` ([`torvox-core/tests/grid_ops.rs`](torvox-core/tests/grid_ops.rs)) |
-| 2 | Property tests verify that dirty bits are set and cleared consistently | `cargo test --package torvox-core -- property_tests` ([`torvox-core/tests/property_tests.rs`](torvox-core/tests/property_tests.rs)) |
-| 3 | A full-grid operation (e.g., clear screen) marks all visible rows dirty | Code review: `torvox-core/src/cell.rs` — `DirtyMask` API and `torvox-core/src/grid.rs` — row invalidation logic |
+| 1 | Writing a character marks only the affected row as dirty | `cargo test --package terminal-core -- grid_ops` ([`terminal-core/tests/grid_ops.rs`](terminal-core/tests/grid_ops.rs)) |
+| 2 | Property tests verify that dirty bits are set and cleared consistently | `cargo test --package terminal-core -- property_tests` ([`terminal-core/tests/property_tests.rs`](terminal-core/tests/property_tests.rs)) |
+| 3 | A full-grid operation (e.g., clear screen) marks all visible rows dirty | Code review: `terminal-core/src/cell.rs` — `DirtyMask` API and `terminal-core/src/grid.rs` — row invalidation logic |
 
 ### FR-014: Cursor Rendering
 
@@ -168,9 +168,9 @@ beam) with configurable color and blink behavior.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Each cursor style (block, bar, underline, beam) is rendered as a distinct visual shape in the wgpu pipeline | `cargo test --package torvox-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](torvox-renderer/tests/gpu_headless_test.rs)) |
-| 2 | Cursor color respects the configured theme cursor color | Code review: `torvox-core/src/config.rs` (`Theme.cursor`) and shader uniform path |
-| 3 | Blink cursor toggles visibility at the configured rate | Code review: `torvox-renderer/src/gpu.rs` — blink timer integration |
+| 1 | Each cursor style (block, bar, underline, beam) is rendered as a distinct visual shape in the wgpu pipeline | `cargo test --package gpu-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](gpu-renderer/tests/gpu_headless_test.rs)) |
+| 2 | Cursor color respects the configured theme cursor color | Code review: `terminal-core/src/config.rs` (`Theme.cursor`) and shader uniform path |
+| 3 | Blink cursor toggles visibility at the configured rate | Code review: `gpu-renderer/src/gpu.rs` — blink timer integration |
 
 ### FR-015: Selection Rendering
 
@@ -179,9 +179,9 @@ word, line, block modes) as colored overlays on the affected cells.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Selection in character, word, line, and block mode produces highlights on the correct cells | `cargo test --package torvox-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](torvox-renderer/tests/gpu_headless_test.rs)) |
-| 2 | Selection background color is configurable and defaults to the theme selection color | Code review: `torvox-core/src/config.rs` (`Theme.selection_foreground`, `Theme.selection_background`) |
-| 3 | Empty selection renders no highlight overlay | Code review: `torvox-renderer/src/gpu.rs` — instance count is zero when selection is empty |
+| 1 | Selection in character, word, line, and block mode produces highlights on the correct cells | `cargo test --package gpu-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](gpu-renderer/tests/gpu_headless_test.rs)) |
+| 2 | Selection background color is configurable and defaults to the theme selection color | Code review: `terminal-core/src/config.rs` (`Theme.selection_foreground`, `Theme.selection_background`) |
+| 3 | Empty selection renders no highlight overlay | Code review: `gpu-renderer/src/gpu.rs` — instance count is zero when selection is empty |
 
 ### FR-016: Font Configuration
 
@@ -191,9 +191,9 @@ etc.).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Changing `FontConfig.family` switches the rendered glyph set | `cargo test --package torvox-renderer -- font_metrics` ([`font_metrics.rs`](torvox-renderer/tests/font_metrics.rs)) |
-| 2 | Font size changes produce proportionally scaled glyphs in the atlas | `cargo test --package torvox-terminal -- font_test` ([`font_test.rs`](torvox-terminal/tests/font_test.rs)) |
-| 3 | Fallback chain loads a monospace font when the primary family is unavailable | Code review: `torvox-renderer/src/font.rs` — font fallback loading logic |
+| 1 | Changing `FontConfig.family` switches the rendered glyph set | `cargo test --package gpu-renderer -- font_metrics` ([`font_metrics.rs`](gpu-renderer/tests/font_metrics.rs)) |
+| 2 | Font size changes produce proportionally scaled glyphs in the atlas | `cargo test --package terminal-engine -- font_test` ([`font_test.rs`](terminal-engine/tests/font_test.rs)) |
+| 3 | Fallback chain loads a monospace font when the primary family is unavailable | Code review: `gpu-renderer/src/font.rs` — font fallback loading logic |
 
 ### FR-017: Theme-Based Color Rendering
 
@@ -202,9 +202,9 @@ and 16-color ANSI palette from the active theme configuration.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Applying a theme sets the background and foreground rendered by wgpu | `cargo test --package torvox-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](torvox-renderer/tests/gpu_headless_test.rs)) |
-| 2 | All 16 ANSI palette colors from the theme are used when rendering foreground/background | `cargo test --package torvox-core -- terminal_colors` ([`torvox-core/tests/terminal_colors.rs`](torvox-core/tests/terminal_colors.rs)) |
-| 3 | Theme colors are applied uniformly across the entire terminal grid | Code review: `torvox-renderer/src/gpu.rs` — uniform buffer upload of theme colors |
+| 1 | Applying a theme sets the background and foreground rendered by wgpu | `cargo test --package gpu-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](gpu-renderer/tests/gpu_headless_test.rs)) |
+| 2 | All 16 ANSI palette colors from the theme are used when rendering foreground/background | `cargo test --package terminal-core -- terminal_colors` ([`terminal-core/tests/terminal_colors.rs`](terminal-core/tests/terminal_colors.rs)) |
+| 3 | Theme colors are applied uniformly across the entire terminal grid | Code review: `gpu-renderer/src/gpu.rs` — uniform buffer upload of theme colors |
 
 ### FR-018: GPU Surface Recovery
 
@@ -214,9 +214,9 @@ without data loss.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | After surface destruction, the wgpu pipeline and swap chain are recreated without crashing | `cargo test --package torvox-gui-android -- gpu_noop_tests` ([`gpu_noop_tests.rs`](torvox-gui-android/tests/gpu_noop_tests.rs)) |
-| 2 | Terminal grid content is preserved across surface recreation (no data loss) | `cargo test --package torvox-gui-android -- gpu_noop_tests` ([`gpu_noop_tests.rs`](torvox-gui-android/tests/gpu_noop_tests.rs)) |
-| 3 | After 100 consecutive render errors, the render thread exits permanently | Code review: `torvox-renderer/src/gpu.rs` — error counter threshold check |
+| 1 | After surface destruction, the wgpu pipeline and swap chain are recreated without crashing | `cargo test --package android-gui -- gpu_noop_tests` ([`gpu_noop_tests.rs`](android-gui/tests/gpu_noop_tests.rs)) |
+| 2 | Terminal grid content is preserved across surface recreation (no data loss) | `cargo test --package android-gui -- gpu_noop_tests` ([`gpu_noop_tests.rs`](android-gui/tests/gpu_noop_tests.rs)) |
+| 3 | After 100 consecutive render errors, the render thread exits permanently | Code review: `gpu-renderer/src/gpu.rs` — error counter threshold check |
 
 ### FR-019: Kitty Graphics Protocol (KGP)
 
@@ -225,9 +225,9 @@ rendering inline images as textured quads.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | KGP sequences (`_Gi`) produce textured quads in the instance buffer | `cargo test --package torvox-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](torvox-renderer/tests/gpu_headless_test.rs)) |
-| 2 | KGP images are rendered at the correct cell-aligned position and size | Code review: `torvox-renderer/src/gpu.rs` (`KgpInstance`) — instance positioning logic |
-| 3 | KGP placeholder cells (SPACE with `KGP_IMAGE` attribute) are rendered as image areas | Code review: `torvox-core/src/cell.rs` — `CellFlags::KGP_IMAGE` bit |
+| 1 | KGP sequences (`_Gi`) produce textured quads in the instance buffer | `cargo test --package gpu-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](gpu-renderer/tests/gpu_headless_test.rs)) |
+| 2 | KGP images are rendered at the correct cell-aligned position and size | Code review: `gpu-renderer/src/gpu.rs` (`KgpInstance`) — instance positioning logic |
+| 3 | KGP placeholder cells (SPACE with `KGP_IMAGE` attribute) are rendered as image areas | Code review: `terminal-core/src/cell.rs` — `CellFlags::KGP_IMAGE` bit |
 
 ---
 
@@ -240,8 +240,8 @@ Keyboard Protocol (KBP) for extended modifier and key reporting.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Key presses with modifiers (Ctrl, Shift, Alt, Super) produce correct KBP escape sequences | `cargo test --package torvox-terminal -- session_roundtrip` ([`session_roundtrip.rs`](torvox-terminal/tests/session_roundtrip.rs)) |
-| 2 | KBP disambiguation codes distinguish between modified and unmodified keys | Code review: `torvox-terminal/src/keyboard.rs` — event encoding logic |
+| 1 | Key presses with modifiers (Ctrl, Shift, Alt, Super) produce correct KBP escape sequences | `cargo test --package terminal-engine -- session_roundtrip` ([`session_roundtrip.rs`](terminal-engine/tests/session_roundtrip.rs)) |
+| 2 | KBP disambiguation codes distinguish between modified and unmodified keys | Code review: `terminal-engine/src/keyboard.rs` — event encoding logic |
 
 ### FR-021: IME Text Input (CJK)
 
@@ -251,9 +251,9 @@ management.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Composing state transitions are tracked correctly in the terminal state | `cargo test --package torvox-core -- grapheme` ([`torvox-core/tests/grapheme.rs`](torvox-core/tests/grapheme.rs)) |
-| 2 | CJK composed characters render at double-width cell positions | `cargo test --package torvox-core -- unicode_icu_conformance` ([`torvox-core/tests/unicode_icu_conformance.rs`](torvox-core/tests/unicode_icu_conformance.rs)) |
-| 3 | Unicode grapheme clusters are segmented correctly for cursor movement | `cargo test --package torvox-core -- unicode_icu_conformance` ([`torvox-core/tests/unicode_icu_conformance.rs`](torvox-core/tests/unicode_icu_conformance.rs)) |
+| 1 | Composing state transitions are tracked correctly in the terminal state | `cargo test --package terminal-core -- grapheme` ([`terminal-core/tests/grapheme.rs`](terminal-core/tests/grapheme.rs)) |
+| 2 | CJK composed characters render at double-width cell positions | `cargo test --package terminal-core -- unicode_icu_conformance` ([`terminal-core/tests/unicode_icu_conformance.rs`](terminal-core/tests/unicode_icu_conformance.rs)) |
+| 3 | Unicode grapheme clusters are segmented correctly for cursor movement | `cargo test --package terminal-core -- unicode_icu_conformance` ([`terminal-core/tests/unicode_icu_conformance.rs`](terminal-core/tests/unicode_icu_conformance.rs)) |
 
 ### FR-022: Selection Modes (Character, Word, Line, Block)
 
@@ -262,8 +262,8 @@ character (`Char`), word (`Word`), line (`Line`), and block (`Block`).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Each selection mode returns the correct text span from the grid | `cargo test --package torvox-core -- selection_text` ([`torvox-core/tests/selection_text.rs`](torvox-core/tests/selection_text.rs)) |
-| 2 | Selection round-trips through serialize/deserialize without data loss | `cargo test --package torvox-terminal -- selection_roundtrip` ([`selection_roundtrip.rs`](torvox-terminal/tests/selection_roundtrip.rs)) |
+| 1 | Each selection mode returns the correct text span from the grid | `cargo test --package terminal-core -- selection_text` ([`terminal-core/tests/selection_text.rs`](terminal-core/tests/selection_text.rs)) |
+| 2 | Selection round-trips through serialize/deserialize without data loss | `cargo test --package terminal-engine -- selection_roundtrip` ([`selection_roundtrip.rs`](terminal-engine/tests/selection_roundtrip.rs)) |
 | 3 | Fuzz-generated selection operations do not panic | `cargo run --package fuzz -- fuzz_selection` ([`fuzz/fuzz_targets/fuzz_selection.rs`](fuzz/fuzz_targets/fuzz_selection.rs)) |
 
 ### FR-023: Word Boundary and URL Detection
@@ -274,8 +274,8 @@ URL-aware selection expansion.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Word-mode selection expands to word boundaries (alphanumeric contiguous spans) | `cargo test --package torvox-core -- selection_text` ([`torvox-core/tests/selection_text.rs`](torvox-core/tests/selection_text.rs)) |
-| 2 | URL-like patterns (`http://`, `https://`, `ftp://`, `www.`) are detected and selection expands to the full URL | `cargo test --package torvox-core -- selection_integration` ([`torvox-core/tests/selection_integration.rs`](torvox-core/tests/selection_integration.rs)) |
+| 1 | Word-mode selection expands to word boundaries (alphanumeric contiguous spans) | `cargo test --package terminal-core -- selection_text` ([`terminal-core/tests/selection_text.rs`](terminal-core/tests/selection_text.rs)) |
+| 2 | URL-like patterns (`http://`, `https://`, `ftp://`, `www.`) are detected and selection expands to the full URL | `cargo test --package terminal-core -- selection_integration` ([`terminal-core/tests/selection_integration.rs`](terminal-core/tests/selection_integration.rs)) |
 
 ### FR-024: Touch Input Gestures
 
@@ -295,9 +295,9 @@ cursor, long-press for selection handles, and swipe for scrollback navigation.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `BackspaceMode::Del` sends `0x7f` on backspace key; `BackspaceMode::Bs` sends `0x08` | `cargo test --package torvox-core -- config_drift` ([`torvox-core/tests/config_drift.rs`](torvox-core/tests/config_drift.rs)) |
-| 2 | `RightAltMode::Esc` sends `ESC + char`; `RightAltMode::Modifier` sends an 8-bit-modified character | `cargo test --package torvox-core -- config_integration` ([`torvox-core/tests/config_integration.rs`](torvox-core/tests/config_integration.rs)) |
-| 3 | Configuration values default to `BackspaceMode::Del` and `RightAltMode::Esc` if unspecified | Code review: `torvox-core/src/config.rs` — `Default` impl for `TerminalConfig` |
+| 1 | `BackspaceMode::Del` sends `0x7f` on backspace key; `BackspaceMode::Bs` sends `0x08` | `cargo test --package terminal-core -- config_drift` ([`terminal-core/tests/config_drift.rs`](terminal-core/tests/config_drift.rs)) |
+| 2 | `RightAltMode::Esc` sends `ESC + char`; `RightAltMode::Modifier` sends an 8-bit-modified character | `cargo test --package terminal-core -- config_integration` ([`terminal-core/tests/config_integration.rs`](terminal-core/tests/config_integration.rs)) |
+| 3 | Configuration values default to `BackspaceMode::Del` and `RightAltMode::Esc` if unspecified | Code review: `terminal-core/src/config.rs` — `Default` impl for `TerminalConfig` |
 
 ---
 
@@ -310,8 +310,8 @@ executable) connected to a pseudo-terminal (PTY) via `fork/exec`.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A PTY pair is created and a child process is spawned with the PTY slave as its controlling terminal | `cargo test --package torvox-terminal -- lifecycle_test` ([`lifecycle_test.rs`](torvox-terminal/tests/lifecycle_test.rs)) |
-| 2 | The child process receives input written to the PTY master and its output is readable from the master | `cargo test --package torvox-terminal -- bash_integration` ([`bash_integration.rs`](torvox-terminal/tests/bash_integration.rs)) |
+| 1 | A PTY pair is created and a child process is spawned with the PTY slave as its controlling terminal | `cargo test --package terminal-engine -- lifecycle_test` ([`lifecycle_test.rs`](terminal-engine/tests/lifecycle_test.rs)) |
+| 2 | The child process receives input written to the PTY master and its output is readable from the master | `cargo test --package terminal-engine -- bash_integration` ([`bash_integration.rs`](terminal-engine/tests/bash_integration.rs)) |
 
 ### FR-027: Dedicated PTY Reader Thread
 
@@ -320,9 +320,9 @@ and forward parsed output to the grid update pipeline via a `flume` channel.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A reader thread is spawned on session start and reads PTY master fd until EOF | `cargo test --package torvox-terminal -- concurrent_session` ([`concurrent_session.rs`](torvox-terminal/tests/concurrent_session.rs)) |
-| 2 | Parsed terminal events are delivered via `flume` channel to the grid update handler | `cargo test --package torvox-terminal -- session_state_machine` ([`session_state_machine.rs`](torvox-terminal/tests/session_state_machine.rs)) |
-| 3 | Concurrent session tests verify no data races or lost events on the channel | `cargo test --package torvox-terminal -- shuttle_concurrent` ([`shuttle_concurrent.rs`](torvox-terminal/tests/shuttle_concurrent.rs)) |
+| 1 | A reader thread is spawned on session start and reads PTY master fd until EOF | `cargo test --package terminal-engine -- concurrent_session` ([`concurrent_session.rs`](terminal-engine/tests/concurrent_session.rs)) |
+| 2 | Parsed terminal events are delivered via `flume` channel to the grid update handler | `cargo test --package terminal-engine -- session_state_machine` ([`session_state_machine.rs`](terminal-engine/tests/session_state_machine.rs)) |
+| 3 | Concurrent session tests verify no data races or lost events on the channel | `cargo test --package terminal-engine -- shuttle_concurrent` ([`shuttle_concurrent.rs`](terminal-engine/tests/shuttle_concurrent.rs)) |
 
 ### FR-028: Process Waiter Thread
 
@@ -331,8 +331,8 @@ waiter thread and emit a `ProcessExited` event on termination.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A waiter thread blocks on `waitpid` and detects child exit status | `cargo test --package torvox-terminal -- lifecycle_test` ([`lifecycle_test.rs`](torvox-terminal/tests/lifecycle_test.rs)) |
-| 2 | A `ProcessExited` event with the correct exit code is emitted when the child terminates | `cargo test --package torvox-terminal -- dst_simulation` ([`dst_simulation.rs`](torvox-terminal/tests/dst_simulation.rs)) |
+| 1 | A waiter thread blocks on `waitpid` and detects child exit status | `cargo test --package terminal-engine -- lifecycle_test` ([`lifecycle_test.rs`](terminal-engine/tests/lifecycle_test.rs)) |
+| 2 | A `ProcessExited` event with the correct exit code is emitted when the child terminates | `cargo test --package terminal-engine -- dst_simulation` ([`dst_simulation.rs`](terminal-engine/tests/dst_simulation.rs)) |
 
 ### FR-029: Session Resize
 
@@ -342,9 +342,9 @@ SIGWINCH.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Resizing the grid updates row and column counts and reflows content | `cargo test --package torvox-core -- grid_ops` ([`torvox-core/tests/grid_ops.rs`](torvox-core/tests/grid_ops.rs)) |
+| 1 | Resizing the grid updates row and column counts and reflows content | `cargo test --package terminal-core -- grid_ops` ([`terminal-core/tests/grid_ops.rs`](terminal-core/tests/grid_ops.rs)) |
 | 2 | Fuzz-generated resize operations do not panic or produce invalid grid states | `cargo run --package fuzz -- fuzz_grid_resize` ([`fuzz/fuzz_targets/fuzz_grid_resize.rs`](fuzz/fuzz_targets/fuzz_grid_resize.rs)) |
-| 3 | After resize, SIGWINCH is delivered and the child sees updated `TIOCGWINSZ` | `cargo test --package torvox-terminal -- lifecycle_test` ([`lifecycle_test.rs`](torvox-terminal/tests/lifecycle_test.rs)) |
+| 3 | After resize, SIGWINCH is delivered and the child sees updated `TIOCGWINSZ` | `cargo test --package terminal-engine -- lifecycle_test` ([`lifecycle_test.rs`](terminal-engine/tests/lifecycle_test.rs)) |
 
 ### FR-030: Bounded Scrollback Buffer
 
@@ -354,9 +354,9 @@ limit is exceeded.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Scrollback buffer evicts the oldest line when `max_scrollback` is exceeded | `cargo test --package torvox-terminal -- memory_bounds` ([`memory_bounds.rs`](torvox-terminal/tests/memory_bounds.rs)) |
-| 2 | Scrollback buffer count never exceeds the configured `max_scrollback` value | `cargo test --package torvox-terminal -- memory_bounds` ([`memory_bounds.rs`](torvox-terminal/tests/memory_bounds.rs)) |
-| 3 | Scrollback survives grid resize operations without data loss | `cargo test --package torvox-core -- grid_snapshot_integration` ([`torvox-core/tests/grid_snapshot_integration.rs`](torvox-core/tests/grid_snapshot_integration.rs)) |
+| 1 | Scrollback buffer evicts the oldest line when `max_scrollback` is exceeded | `cargo test --package terminal-engine -- memory_bounds` ([`memory_bounds.rs`](terminal-engine/tests/memory_bounds.rs)) |
+| 2 | Scrollback buffer count never exceeds the configured `max_scrollback` value | `cargo test --package terminal-engine -- memory_bounds` ([`memory_bounds.rs`](terminal-engine/tests/memory_bounds.rs)) |
+| 3 | Scrollback survives grid resize operations without data loss | `cargo test --package terminal-core -- grid_snapshot_integration` ([`terminal-core/tests/grid_snapshot_integration.rs`](terminal-core/tests/grid_snapshot_integration.rs)) |
 
 ### FR-031: Scrollback Search
 
@@ -365,9 +365,9 @@ text matching a pattern (regex or literal) within the scrollback history.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Scrollback search returns matching lines with correct line numbers and column ranges | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 2 | Regex patterns match correctly across line boundaries (no false negatives or panics) | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 3 | Search with no matches returns an empty result set | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
+| 1 | Scrollback search returns matching lines with correct line numbers and column ranges | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 2 | Regex patterns match correctly across line boundaries (no false negatives or panics) | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 3 | Search with no matches returns an empty result set | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
 
 ### FR-032: Alternate Screen Scrollback Management
 
@@ -376,8 +376,8 @@ alternate screen and restore it on exit.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Scrollback is empty immediately after entering alternate screen | `cargo test --package torvox-terminal -- alt_screen` ([`alt_screen.rs`](torvox-terminal/tests/alt_screen.rs)) |
-| 2 | Scrollback content is restored to its pre-alternate-screen state on exit | `cargo test --package torvox-terminal -- alt_screen` ([`alt_screen.rs`](torvox-terminal/tests/alt_screen.rs)) |
+| 1 | Scrollback is empty immediately after entering alternate screen | `cargo test --package terminal-engine -- alt_screen` ([`alt_screen.rs`](terminal-engine/tests/alt_screen.rs)) |
+| 2 | Scrollback content is restored to its pre-alternate-screen state on exit | `cargo test --package terminal-engine -- alt_screen` ([`alt_screen.rs`](terminal-engine/tests/alt_screen.rs)) |
 
 ---
 
@@ -391,7 +391,7 @@ alternate screen and restore it on exit.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Parsing `ESC ] 7 ; file://host/path ST` produces a `CwdEvent` with the correct path | `cargo test --package torvox-terminal -- osc52` ([`osc52.rs`](torvox-terminal/tests/osc52.rs)) |
+| 1 | Parsing `ESC ] 7 ; file://host/path ST` produces a `CwdEvent` with the correct path | `cargo test --package terminal-engine -- osc52` ([`osc52.rs`](terminal-engine/tests/osc52.rs)) |
 | 2 | Fuzz-generated OSC 7 sequences produce valid `CwdEvent` values without panicking | `cargo run --package fuzz -- fuzz_osc_handler` ([`fuzz/fuzz_targets/fuzz_osc_handler.rs`](fuzz/fuzz_targets/fuzz_osc_handler.rs)) |
 
 ### FR-034: OSC 8 — Hyperlinks
@@ -402,8 +402,8 @@ alternate screen and restore it on exit.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Parsing OSC 8 with a URL produces a `HyperlinkEvent::Open` with the correct URI | `cargo test --package torvox-terminal -- osc52` ([`osc52.rs`](torvox-terminal/tests/osc52.rs)) |
-| 2 | Parsing OSC 8 without a URL produces a `HyperlinkEvent::Close` | `cargo test --package torvox-terminal -- osc52` ([`osc52.rs`](torvox-terminal/tests/osc52.rs)) |
+| 1 | Parsing OSC 8 with a URL produces a `HyperlinkEvent::Open` with the correct URI | `cargo test --package terminal-engine -- osc52` ([`osc52.rs`](terminal-engine/tests/osc52.rs)) |
+| 2 | Parsing OSC 8 without a URL produces a `HyperlinkEvent::Close` | `cargo test --package terminal-engine -- osc52` ([`osc52.rs`](terminal-engine/tests/osc52.rs)) |
 | 3 | Fuzz-generated OSC 8 sequences parse without panicking | `cargo run --package fuzz -- fuzz_osc_handler` ([`fuzz/fuzz_targets/fuzz_osc_handler.rs`](fuzz/fuzz_targets/fuzz_osc_handler.rs)) |
 
 ### FR-035: OSC 52 — Clipboard Access
@@ -414,9 +414,9 @@ alternate screen and restore it on exit.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | OSC 52 with base64-encoded text decodes to a `ClipboardEvent` with the correct plaintext | `cargo test --package torvox-terminal -- osc52` ([`osc52.rs`](torvox-terminal/tests/osc52.rs)) |
-| 2 | OSC 52 with an empty payload produces a request event (clipboard read) | `cargo test --package torvox-terminal -- osc52` ([`osc52.rs`](torvox-terminal/tests/osc52.rs)) |
-| 3 | Malformed base64 in OSC 52 is rejected without panicking | Code review: `torvox-terminal/src/osc_handler.rs` — base64 decode error handling |
+| 1 | OSC 52 with base64-encoded text decodes to a `ClipboardEvent` with the correct plaintext | `cargo test --package terminal-engine -- osc52` ([`osc52.rs`](terminal-engine/tests/osc52.rs)) |
+| 2 | OSC 52 with an empty payload produces a request event (clipboard read) | `cargo test --package terminal-engine -- osc52` ([`osc52.rs`](terminal-engine/tests/osc52.rs)) |
+| 3 | Malformed base64 in OSC 52 is rejected without panicking | Code review: `terminal-engine/src/osc_handler.rs` — base64 decode error handling |
 
 ### FR-036: OSC 9 / OSC 777 — Notifications
 
@@ -435,8 +435,8 @@ OSC 0 for title, OSC 4 for palette change) to the VT parser unchanged.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Unrecognised OSC sequences (OSC 0, OSC 4) are forwarded to the VT parser without interception | `cargo test --package torvox-terminal` — `fuzz_osc_parse` test ([`fuzz/fuzz_targets/fuzz_osc_parse.rs`](fuzz/fuzz_targets/fuzz_osc_parse.rs)) |
-| 2 | No data is dropped or corrupted when passthrough sequences contain printable ASCII | Code review: `torvox-terminal/src/osc_handler.rs` — passthrough branch |
+| 1 | Unrecognised OSC sequences (OSC 0, OSC 4) are forwarded to the VT parser without interception | `cargo test --package terminal-engine` — `fuzz_osc_parse` test ([`fuzz/fuzz_targets/fuzz_osc_parse.rs`](fuzz/fuzz_targets/fuzz_osc_parse.rs)) |
+| 2 | No data is dropped or corrupted when passthrough sequences contain printable ASCII | Code review: `terminal-engine/src/osc_handler.rs` — passthrough branch |
 
 ### FR-038: Partial OSC Sequence Handling
 
@@ -459,8 +459,8 @@ user request (e.g., copy action from selection).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A user-initiated copy action forwards the selected text to the clipboard bridge | `cargo test --package torvox-gui-android -- bridge_integration` ([`bridge_integration.rs`](torvox-gui-android/tests/bridge_integration.rs)) |
-| 2 | Bridge round-trip tests verify that clipboard data survives Kotlin↔Rust serialization | `cargo test --package torvox-terminal -- bridge_roundtrip` ([`bridge_roundtrip.rs`](torvox-terminal/tests/bridge_roundtrip.rs)) |
+| 1 | A user-initiated copy action forwards the selected text to the clipboard bridge | `cargo test --package android-gui -- bridge_integration` ([`bridge_integration.rs`](android-gui/tests/bridge_integration.rs)) |
+| 2 | Bridge round-trip tests verify that clipboard data survives Kotlin↔Rust serialization | `cargo test --package terminal-engine -- bridge_roundtrip` ([`bridge_roundtrip.rs`](terminal-engine/tests/bridge_roundtrip.rs)) |
 
 ### FR-040: OSC 52 Paste (Clipboard Read)
 
@@ -469,8 +469,8 @@ terminal applications via OSC 52 (paste).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | An OSC 52 query (empty payload) triggers a clipboard read and the result is forwarded to the PTY | `cargo test --package torvox-terminal -- osc52` ([`osc52.rs`](torvox-terminal/tests/osc52.rs)) |
-| 2 | The clipboard content is base64-encoded before writing to the PTY as OSC 52 response | Code review: `torvox-terminal/src/osc_handler.rs` — clipboard response encoding |
+| 1 | An OSC 52 query (empty payload) triggers a clipboard read and the result is forwarded to the PTY | `cargo test --package terminal-engine -- osc52` ([`osc52.rs`](terminal-engine/tests/osc52.rs)) |
+| 2 | The clipboard content is base64-encoded before writing to the PTY as OSC 52 response | Code review: `terminal-engine/src/osc_handler.rs` — clipboard response encoding |
 
 ### FR-041: Android Notifications via OSC
 
@@ -479,8 +479,8 @@ terminal-emitted OSC 9/777 notification sequences.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | OSC 9 / OSC 777 sequences produce a `NotificationEvent` with extracted title and body | `cargo test --package torvox-terminal` (covered by [`fuzz/fuzz_targets/fuzz_osc_handler.rs`](fuzz/fuzz_targets/fuzz_osc_handler.rs)) |
-| 2 | Notification events are forwarded to the Android notification manager via the bridge | Code review: `torvox-gui-android/src/bridge.rs` — notification event handling path |
+| 1 | OSC 9 / OSC 777 sequences produce a `NotificationEvent` with extracted title and body | `cargo test --package terminal-engine` (covered by [`fuzz/fuzz_targets/fuzz_osc_handler.rs`](fuzz/fuzz_targets/fuzz_osc_handler.rs)) |
+| 2 | Notification events are forwarded to the Android notification manager via the bridge | Code review: `android-gui/src/bridge.rs` — notification event handling path |
 
 ---
 
@@ -488,13 +488,13 @@ terminal-emitted OSC 9/777 notification sequences.
 
 ### FR-042: SSH/Mosh Executable
 
-**Requirement**: The system SHALL provide an executable (`torvox-exec`) capable
+**Requirement**: The system SHALL provide an executable (`exec-bin`) capable
 of establishing SSH and Mosh connections.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `torvox-exec` parses SSH and Mosh connection arguments and invokes the correct binary | `cargo test --package torvox-exec -- basic` ([`torvox-exec/tests/basic.rs`](torvox-exec/tests/basic.rs)) |
-| 2 | `torvox-exec --help` exits with code 0 and prints usage information | `cargo test --package torvox-exec -- basic` ([`torvox-exec/tests/basic.rs`](torvox-exec/tests/basic.rs)) |
+| 1 | `exec-bin` parses SSH and Mosh connection arguments and invokes the correct binary | `cargo test --package exec-bin -- basic` ([`exec-bin/tests/basic.rs`](exec-bin/tests/basic.rs)) |
+| 2 | `exec-bin --help` exits with code 0 and prints usage information | `cargo test --package exec-bin -- basic` ([`exec-bin/tests/basic.rs`](exec-bin/tests/basic.rs)) |
 
 ### FR-043: SSH/Mosh Session Integration
 
@@ -503,8 +503,8 @@ session lifecycle (PTY management, resize forwarding).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `torvox-exec` connects its child process to the PTY master fd | `cargo test --package torvox-exec -- basic` ([`torvox-exec/tests/basic.rs`](torvox-exec/tests/basic.rs)) |
-| 2 | Terminal resize signals propagate through the PTY to the SSH/Mosh child process | Code review: `torvox-terminal/src/session.rs` — resize forwarding to session process |
+| 1 | `exec-bin` connects its child process to the PTY master fd | `cargo test --package exec-bin -- basic` ([`exec-bin/tests/basic.rs`](exec-bin/tests/basic.rs)) |
+| 2 | Terminal resize signals propagate through the PTY to the SSH/Mosh child process | Code review: `terminal-engine/src/session.rs` — resize forwarding to session process |
 
 ---
 
@@ -518,8 +518,8 @@ JSON.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | MCP server binds to a Unix domain socket and accepts JSON-RPC 2.0 connections | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 2 | Invalid JSON or non-JSON-RPC requests return standard JSON-RPC error responses | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
+| 1 | MCP server binds to a Unix domain socket and accepts JSON-RPC 2.0 connections | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 2 | Invalid JSON or non-JSON-RPC requests return standard JSON-RPC error responses | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
 
 ### FR-045: Read-Only MCP Tools
 
@@ -529,9 +529,9 @@ text.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `list_sessions` tool returns a list of active terminal session IDs | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 2 | `read_grid` tool returns the current terminal grid content for a session | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 3 | `read_scrollback`, `read_cursor`, and `read_selection` tools return correct state | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
+| 1 | `list_sessions` tool returns a list of active terminal session IDs | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 2 | `read_grid` tool returns the current terminal grid content for a session | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 3 | `read_scrollback`, `read_cursor`, and `read_selection` tools return correct state | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
 
 ### FR-046: Write MCP Tools (Gated)
 
@@ -541,8 +541,8 @@ behind `--mcp-allow-write`).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Without `--mcp-allow-write`, write tools return a permission-denied error | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 2 | With `--mcp-allow-write`, `send_input` writes data to the PTY and `set_terminal_size` resizes the session | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
+| 1 | Without `--mcp-allow-write`, write tools return a permission-denied error | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 2 | With `--mcp-allow-write`, `send_input` writes data to the PTY and `set_terminal_size` resizes the session | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
 
 ### FR-047: Scrollback Search MCP Tool
 
@@ -552,9 +552,9 @@ ranges.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `scrollback_search` with a valid regex returns matching lines with line numbers and column ranges | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 2 | `scrollback_search` with an invalid regex returns an error, not a panic | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 3 | `SearchMatch` structure contains `line_number`, `text`, and `columns` fields | Code review: `torvox-mcp/src/lib.rs` — `SearchMatch` struct definition |
+| 1 | `scrollback_search` with a valid regex returns matching lines with line numbers and column ranges | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 2 | `scrollback_search` with an invalid regex returns an error, not a panic | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 3 | `SearchMatch` structure contains `line_number`, `text`, and `columns` fields | Code review: `mcp-server/src/lib.rs` — `SearchMatch` struct definition |
 
 ### FR-048: Input Queue Automation
 
@@ -564,9 +564,9 @@ text (AI agent automation).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `watch_prompt` registers a prompt pattern and triggers when matched in scrollback | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 2 | Queued input is written to the PTY after the prompt pattern is detected | `cargo test --package torvox-mcp` (inline tests in [`torvox-mcp/src/lib.rs`](torvox-mcp/src/lib.rs)) |
-| 3 | Input queue is cleared after injection and stops watching | Code review: `torvox-mcp/src/lib.rs` — `InputQueue` lifecycle |
+| 1 | `watch_prompt` registers a prompt pattern and triggers when matched in scrollback | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 2 | Queued input is written to the PTY after the prompt pattern is detected | `cargo test --package mcp-server` (inline tests in [`mcp-server/src/lib.rs`](mcp-server/src/lib.rs)) |
+| 3 | Input queue is cleared after injection and stops watching | Code review: `mcp-server/src/lib.rs` — `InputQueue` lifecycle |
 
 ---
 
@@ -579,9 +579,9 @@ boltffi data types (`BridgeCell`, `BridgeAttrs`, `BridgeGrid`) mapped over JNA.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `BridgeCell`, `BridgeAttrs`, and `BridgeGrid` are exported from `torvox-gui-android/src/bridge.rs` | Code review: `torvox-gui-android/src/bridge.rs` — type definitions |
-| 2 | JNA mappings in `TorvoxBridge.kt` match the Rust boltffi structures bit-for-bit | `cargo test --package torvox-gui-android -- ffi_contract_tests` ([`ffi_contract_tests.rs`](torvox-gui-android/tests/ffi_contract_tests.rs)) |
-| 3 | Bridge round-trip tests verify data integrity across the Rust/Kotlin boundary | `cargo test --package torvox-gui-android -- bridge_integration` ([`bridge_integration.rs`](torvox-gui-android/tests/bridge_integration.rs)) |
+| 1 | `BridgeCell`, `BridgeAttrs`, and `BridgeGrid` are exported from `android-gui/src/bridge.rs` | Code review: `android-gui/src/bridge.rs` — type definitions |
+| 2 | JNA mappings in `TorvoxBridge.kt` match the Rust boltffi structures bit-for-bit | `cargo test --package android-gui -- ffi_contract_tests` ([`ffi_contract_tests.rs`](android-gui/tests/ffi_contract_tests.rs)) |
+| 3 | Bridge round-trip tests verify data integrity across the Rust/Kotlin boundary | `cargo test --package android-gui -- bridge_integration` ([`bridge_integration.rs`](android-gui/tests/bridge_integration.rs)) |
 
 ### FR-050: rkyv Snapshot Synchronization
 
@@ -591,9 +591,9 @@ selection, and scrollback to the Kotlin UI layer via serialized snapshots
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Grid, cursor, selection, and scrollback are serialized to rkyv format without data loss | `cargo test --package torvox-core -- grid_snapshot_integration` ([`torvox-core/tests/grid_snapshot_integration.rs`](torvox-core/tests/grid_snapshot_integration.rs)) |
-| 2 | A comprehensive snapshot (all grid states) round-trips through rkyv serialization | `cargo test --package torvox-terminal -- snapshot_comprehensive` ([`snapshot_comprehensive.rs`](torvox-terminal/tests/snapshot_comprehensive.rs)) |
-| 3 | Fuzz-generated wire data deserializes without panicking | `cargo test --package torvox-gui-android -- fuzz_wire` ([`fuzz_wire.rs`](torvox-gui-android/tests/fuzz_wire.rs)) |
+| 1 | Grid, cursor, selection, and scrollback are serialized to rkyv format without data loss | `cargo test --package terminal-core -- grid_snapshot_integration` ([`terminal-core/tests/grid_snapshot_integration.rs`](terminal-core/tests/grid_snapshot_integration.rs)) |
+| 2 | A comprehensive snapshot (all grid states) round-trips through rkyv serialization | `cargo test --package terminal-engine -- snapshot_comprehensive` ([`snapshot_comprehensive.rs`](terminal-engine/tests/snapshot_comprehensive.rs)) |
+| 3 | Fuzz-generated wire data deserializes without panicking | `cargo test --package android-gui -- fuzz_wire` ([`fuzz_wire.rs`](android-gui/tests/fuzz_wire.rs)) |
 
 ### FR-051: JNI for NDK Functions
 
@@ -602,8 +602,8 @@ lifecycle, surface creation/destruction) via `jni_bridge.rs`.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | JNI functions registered in `jni_bridge.rs` match the expected native method signatures in Kotlin | `cargo test --package torvox-gui-android -- ffi_contract_tests` ([`ffi_contract_tests.rs`](torvox-gui-android/tests/ffi_contract_tests.rs)) |
-| 2 | `ANativeWindow_fromSurface` and `ANativeWindow_release` are called in the correct lifecycle order | Code review: `torvox-gui-android/src/jni_bridge.rs` — surface lifecycle pairing |
+| 1 | JNI functions registered in `jni_bridge.rs` match the expected native method signatures in Kotlin | `cargo test --package android-gui -- ffi_contract_tests` ([`ffi_contract_tests.rs`](android-gui/tests/ffi_contract_tests.rs)) |
+| 2 | `ANativeWindow_fromSurface` and `ANativeWindow_release` are called in the correct lifecycle order | Code review: `android-gui/src/jni_bridge.rs` — surface lifecycle pairing |
 
 ### FR-052: Surface Lifecycle Management
 
@@ -612,8 +612,8 @@ destruction events, recreating the wgpu surface and render pipeline as needed.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Surface creation triggers wgpu surface and render pipeline initialization | `cargo test --package torvox-gui-android -- gpu_noop_tests` ([`gpu_noop_tests.rs`](torvox-gui-android/tests/gpu_noop_tests.rs)) |
-| 2 | Surface destruction triggers wgpu surface teardown without leaving dangling GPU resources | `cargo test --package torvox-gui-android -- gpu_noop_tests` ([`gpu_noop_tests.rs`](torvox-gui-android/tests/gpu_noop_tests.rs)) |
+| 1 | Surface creation triggers wgpu surface and render pipeline initialization | `cargo test --package android-gui -- gpu_noop_tests` ([`gpu_noop_tests.rs`](android-gui/tests/gpu_noop_tests.rs)) |
+| 2 | Surface destruction triggers wgpu surface teardown without leaving dangling GPU resources | `cargo test --package android-gui -- gpu_noop_tests` ([`gpu_noop_tests.rs`](android-gui/tests/gpu_noop_tests.rs)) |
 
 ### FR-053: ProGuard/R8 Compatibility
 
@@ -638,8 +638,8 @@ Light, Kanagawa Wave, and Night Owl.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `Theme::all_built_in()` returns exactly 16 themes with the expected names | `cargo test --package torvox-core -- config_integration` ([`torvox-core/tests/config_integration.rs`](torvox-core/tests/config_integration.rs)) |
-| 2 | Each built-in theme has non-default values for all 16 ANSI color slots | `cargo test --package torvox-core -- config_drift` ([`torvox-core/tests/config_drift.rs`](torvox-core/tests/config_drift.rs)) |
+| 1 | `Theme::all_built_in()` returns exactly 16 themes with the expected names | `cargo test --package terminal-core -- config_integration` ([`terminal-core/tests/config_integration.rs`](terminal-core/tests/config_integration.rs)) |
+| 2 | Each built-in theme has non-default values for all 16 ANSI color slots | `cargo test --package terminal-core -- config_drift` ([`terminal-core/tests/config_drift.rs`](terminal-core/tests/config_drift.rs)) |
 | 3 | Built-in themes are accessible from the Kotlin UI via the bridge | `cd android && ./gradlew testDebugUnitTest` — `BuiltInThemeTest` ([`android/app/src/test/java/io/torvox/ui/theme/BuiltInThemeTest.kt`](android/app/src/test/java/io/torvox/ui/theme/BuiltInThemeTest.kt)) |
 
 ### FR-055: Custom Theme via TOML
@@ -650,9 +650,9 @@ ANSI color slots.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A TOML file with valid theme fields parses into a `Theme` struct with correct values | `cargo test --package torvox-core -- config_integration` ([`torvox-core/tests/config_integration.rs`](torvox-core/tests/config_integration.rs)) |
-| 2 | A TOML file with missing required fields produces a parse error | `cargo test --package torvox-core -- config_drift` ([`torvox-core/tests/config_drift.rs`](torvox-core/tests/config_drift.rs)) |
-| 3 | Custom themes are applied to rendering and produce correct color output | Code review: `torvox-core/src/config.rs` — `Theme::parse_custom()` and theme application path |
+| 1 | A TOML file with valid theme fields parses into a `Theme` struct with correct values | `cargo test --package terminal-core -- config_integration` ([`terminal-core/tests/config_integration.rs`](terminal-core/tests/config_integration.rs)) |
+| 2 | A TOML file with missing required fields produces a parse error | `cargo test --package terminal-core -- config_drift` ([`terminal-core/tests/config_drift.rs`](terminal-core/tests/config_drift.rs)) |
+| 3 | Custom themes are applied to rendering and produce correct color output | Code review: `terminal-core/src/config.rs` — `Theme::parse_custom()` and theme application path |
 
 ### FR-056: Terminal Configuration
 
@@ -662,9 +662,9 @@ right-Alt mode via `TerminalConfig`.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | All `TerminalConfig` fields have sensible defaults and can be overridden | `cargo test --package torvox-core -- config_integration` ([`torvox-core/tests/config_integration.rs`](torvox-core/tests/config_integration.rs)) |
-| 2 | Changing `rows`/`cols` changes the initial terminal grid dimensions | `cargo test --package torvox-core -- config_drift` ([`torvox-core/tests/config_drift.rs`](torvox-core/tests/config_drift.rs)) |
-| 3 | `shell_path` overrides the default shell binary spawned in the PTY | Code review: `torvox-terminal/src/session.rs` — shell path resolution from config |
+| 1 | All `TerminalConfig` fields have sensible defaults and can be overridden | `cargo test --package terminal-core -- config_integration` ([`terminal-core/tests/config_integration.rs`](terminal-core/tests/config_integration.rs)) |
+| 2 | Changing `rows`/`cols` changes the initial terminal grid dimensions | `cargo test --package terminal-core -- config_drift` ([`terminal-core/tests/config_drift.rs`](terminal-core/tests/config_drift.rs)) |
+| 3 | `shell_path` overrides the default shell binary spawned in the PTY | Code review: `terminal-engine/src/session.rs` — shell path resolution from config |
 
 ---
 
@@ -678,8 +678,8 @@ paths) instead of image comparison or bundled binaries.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | No `.png` files exist in `torvox-renderer/screenshots/` or `torvox-renderer/test-screenshots/` | `git ls-files 'torvox-renderer/screenshots/*.png' 'torvox-renderer/test-screenshots/*.png'` |
-| 2 | No `*_golden.png` files in test data | `git ls-files 'torvox-renderer/test_data/*_golden.png'` |
+| 1 | No `.png` files exist in `gpu-renderer/screenshots/` or `gpu-renderer/test-screenshots/` | `git ls-files 'gpu-renderer/screenshots/*.png' 'gpu-renderer/test-screenshots/*.png'` |
+| 2 | No `*_golden.png` files in test data | `git ls-files 'gpu-renderer/test_data/*_golden.png'` |
 | 3 | No golden images in roborazzi resources | `git ls-files 'android/app/src/test/resources/roborazzi/*.png'` |
 | 4 | No font files (`.ttf`, `.otf`, `.woff`, `.woff2`, `.eot`) in any directory | `git ls-files '*.ttf' '*.otf' '*.woff' '*.woff2' '*.eot'` |
 | 5 | All rendering tests use pixel-coordinate assertions or OCR text detection, not image comparison | Code review |
@@ -690,26 +690,26 @@ paths) instead of image comparison or bundled binaries.
 
 ## 11. Non-Functional: Safety
 
-### NFR-001: Zero Unsafe in torvox-core
+### NFR-001: Zero Unsafe in terminal-core
 
-**Requirement**: `torvox-core` SHALL contain zero `unsafe` blocks. The build MUST
-fail if `cargo geiger --package torvox-core` reports any `unsafe` usage.
+**Requirement**: `terminal-core` SHALL contain zero `unsafe` blocks. The build MUST
+fail if `cargo geiger --package terminal-core` reports any `unsafe` usage.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `cargo geiger --package torvox-core` reports zero unsafe blocks | `cargo geiger --package torvox-core` (enforced in CI by `torvox-integration-tests/tests/tool_lint.rs`) |
-| 2 | CI pipeline rejects any PR that introduces `unsafe` in `torvox-core` | Code review: `scripts/check-rust.nu` — gate on geiger output |
+| 1 | `cargo geiger --package terminal-core` reports zero unsafe blocks | `cargo geiger --package terminal-core` (enforced in CI by `integration-tests/tests/tool_lint.rs`) |
+| 2 | CI pipeline rejects any PR that introduces `unsafe` in `terminal-core` | Code review: `scripts/check-rust.nu` — gate on geiger output |
 
 ### NFR-002: SAFETY Comments on Unsafe
 
 **Requirement**: All `unsafe` blocks in the codebase (confined to
-`torvox-terminal/src/pty.rs` for `fork/exec` and FFI boundary code) SHALL be
+`terminal-engine/src/pty.rs` for `fork/exec` and FFI boundary code) SHALL be
 preceded by a `// SAFETY:` comment explaining the invariants.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Every `unsafe` block in the workspace has a preceding `// SAFETY:` comment | `cargo geiger --all` + code review (enforced in CI by `torvox-integration-tests/tests/tool_lint.rs`) |
-| 2 | Unsafe blocks exist only in `torvox-terminal/src/pty.rs` and FFI boundary code | `cargo geiger --all` — non-zero unsafe count only in permitted crates |
+| 1 | Every `unsafe` block in the workspace has a preceding `// SAFETY:` comment | `cargo geiger --all` + code review (enforced in CI by `integration-tests/tests/tool_lint.rs`) |
+| 2 | Unsafe blocks exist only in `terminal-engine/src/pty.rs` and FFI boundary code | `cargo geiger --all` — non-zero unsafe count only in permitted crates |
 
 ### NFR-003: No Panic in Error Paths
 
@@ -728,7 +728,7 @@ types in library crates.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | No library crate depends on `anyhow` | `cargo tree --no-default-features` or `cargo machete` with verify; CI enforces via `torvox-integration-tests/tests/tool_lint.rs` |
+| 1 | No library crate depends on `anyhow` | `cargo tree --no-default-features` or `cargo machete` with verify; CI enforces via `integration-tests/tests/tool_lint.rs` |
 | 2 | Error types in library crates derive `thiserror::Error` | Code review: per-crate `error.rs` or inline error enum definitions |
 
 ### NFR-005: Thread Panic Containment
@@ -739,8 +739,8 @@ the entire process on panic.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A panic in the reader thread is caught and logged without crashing the process | `cargo test --package torvox-terminal -- dst_simulation` ([`dst_simulation.rs`](torvox-terminal/tests/dst_simulation.rs)) |
-| 2 | Concurrent session tests verify that thread isolation works under stress | `cargo test --package torvox-terminal -- shuttle_concurrent` ([`shuttle_concurrent.rs`](torvox-terminal/tests/shuttle_concurrent.rs)) |
+| 1 | A panic in the reader thread is caught and logged without crashing the process | `cargo test --package terminal-engine -- dst_simulation` ([`dst_simulation.rs`](terminal-engine/tests/dst_simulation.rs)) |
+| 2 | Concurrent session tests verify that thread isolation works under stress | `cargo test --package terminal-engine -- shuttle_concurrent` ([`shuttle_concurrent.rs`](terminal-engine/tests/shuttle_concurrent.rs)) |
 
 ---
 
@@ -754,9 +754,9 @@ forbidden.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Headless wgpu render tests pass without a display server | `cargo test --package torvox-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](torvox-renderer/tests/gpu_headless_test.rs)) |
-| 2 | No `android.graphics.Canvas.drawText` call exists in production rendering code | Code review: no `Canvas` reference in `torvox-renderer/src/` |
-| 3 | Atomic OCR test confirms GPU-rendered output matches expected text | `cargo test --package torvox-renderer -- text_ocr_test` ([`text_ocr_test.rs`](torvox-renderer/tests/text_ocr_test.rs)) |
+| 1 | Headless wgpu render tests pass without a display server | `cargo test --package gpu-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](gpu-renderer/tests/gpu_headless_test.rs)) |
+| 2 | No `android.graphics.Canvas.drawText` call exists in production rendering code | Code review: no `Canvas` reference in `gpu-renderer/src/` |
+| 3 | Atomic OCR test confirms GPU-rendered output matches expected text | `cargo test --package gpu-renderer -- text_ocr_test` ([`text_ocr_test.rs`](gpu-renderer/tests/text_ocr_test.rs)) |
 
 ### NFR-007: Glyph Atlas Capacity
 
@@ -765,8 +765,8 @@ capacity of at least 10,000 glyph entries and eviction when full.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Atlas capacity constant is ≥ 10,000 | Code review: `torvox-renderer/src/font.rs` — atlas capacity constant |
-| 2 | Glyph eviction does not cause visible rendering artifacts | `cargo test --package torvox-renderer -- font_metrics` ([`font_metrics.rs`](torvox-renderer/tests/font_metrics.rs)) |
+| 1 | Atlas capacity constant is ≥ 10,000 | Code review: `gpu-renderer/src/font.rs` — atlas capacity constant |
+| 2 | Glyph eviction does not cause visible rendering artifacts | `cargo test --package gpu-renderer -- font_metrics` ([`font_metrics.rs`](gpu-renderer/tests/font_metrics.rs)) |
 
 ### NFR-008: Bounded Scrollback Memory
 
@@ -776,8 +776,8 @@ SHALL NOT exhibit unbounded memory growth.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Scrollback memory usage stabilises after reaching `max_scrollback` lines | `cargo test --package torvox-terminal -- memory_bounds` ([`memory_bounds.rs`](torvox-terminal/tests/memory_bounds.rs)) |
-| 2 | Eviction fires when the buffer exceeds `max_scrollback` | `cargo test --package torvox-terminal -- memory_bounds` ([`memory_bounds.rs`](torvox-terminal/tests/memory_bounds.rs)) |
+| 1 | Scrollback memory usage stabilises after reaching `max_scrollback` lines | `cargo test --package terminal-engine -- memory_bounds` ([`memory_bounds.rs`](terminal-engine/tests/memory_bounds.rs)) |
+| 2 | Eviction fires when the buffer exceeds `max_scrollback` | `cargo test --package terminal-engine -- memory_bounds` ([`memory_bounds.rs`](terminal-engine/tests/memory_bounds.rs)) |
 
 ### NFR-009: Bounded Thread Count
 
@@ -786,8 +786,8 @@ SHALL NOT exhibit unbounded memory growth.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A single session spawns exactly 3 session-specific threads (reader, waiter, render) | `cargo test --package torvox-terminal -- session_state_machine` ([`session_state_machine.rs`](torvox-terminal/tests/session_state_machine.rs)) |
-| 2 | Concurrent session tests verify thread counts do not leak across sessions | `cargo test --package torvox-terminal -- concurrent_session` ([`concurrent_session.rs`](torvox-terminal/tests/concurrent_session.rs)) |
+| 1 | A single session spawns exactly 3 session-specific threads (reader, waiter, render) | `cargo test --package terminal-engine -- session_state_machine` ([`session_state_machine.rs`](terminal-engine/tests/session_state_machine.rs)) |
+| 2 | Concurrent session tests verify thread counts do not leak across sessions | `cargo test --package terminal-engine -- concurrent_session` ([`concurrent_session.rs`](terminal-engine/tests/concurrent_session.rs)) |
 
 ### NFR-010: Dirty Row-Only Repaint
 
@@ -796,8 +796,8 @@ the `DirtyMask` bitfield, avoiding full-grid redraws on every frame.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Property tests verify that clean rows produce zero dirty bits | `cargo test --package torvox-core -- property_tests` ([`torvox-core/tests/property_tests.rs`](torvox-core/tests/property_tests.rs)) |
-| 2 | After rendering a frame, the dirty mask is cleared for all processed rows | Code review: `torvox-renderer/src/gpu.rs` — dirty mask handshake |
+| 1 | Property tests verify that clean rows produce zero dirty bits | `cargo test --package terminal-core -- property_tests` ([`terminal-core/tests/property_tests.rs`](terminal-core/tests/property_tests.rs)) |
+| 2 | After rendering a frame, the dirty mask is cleared for all processed rows | Code review: `gpu-renderer/src/gpu.rs` — dirty mask handshake |
 
 ### NFR-011: Shaped Text Cache Cap
 
@@ -806,8 +806,8 @@ unbounded memory growth from repeated shaping of different text runs.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Shaped text cache capacity is set to 4,096 | Code review: `torvox-renderer/src/font.rs` — cache capacity constant |
-| 2 | Cache eviction does not cause incorrect glyph rendering | `cargo test --package torvox-renderer -- font_metrics` ([`font_metrics.rs`](torvox-renderer/tests/font_metrics.rs)) |
+| 1 | Shaped text cache capacity is set to 4,096 | Code review: `gpu-renderer/src/font.rs` — cache capacity constant |
+| 2 | Cache eviction does not cause incorrect glyph rendering | `cargo test --package gpu-renderer -- font_metrics` ([`font_metrics.rs`](gpu-renderer/tests/font_metrics.rs)) |
 
 ---
 
@@ -820,7 +820,7 @@ circular dependencies. The build SHALL fail on cycle detection.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `cargo metadata --no-deps --format-version 1` confirms the directional crate graph | `cargo test --workspace` (enforced in CI by `torvox-integration-tests/tests/tool_lint.rs`) |
+| 1 | `cargo metadata --no-deps --format-version 1` confirms the directional crate graph | `cargo test --workspace` (enforced in CI by `integration-tests/tests/tool_lint.rs`) |
 | 2 | Kotlin layer dependency test verifies Android module depends only on the bridge | `cd android && ./gradlew testDebugUnitTest` — `LayerDependencyTest` ([`android/app/src/test/java/io/torvox/architecture/LayerDependencyTest.kt`](android/app/src/test/java/io/torvox/architecture/LayerDependencyTest.kt)) |
 
 ### NFR-013: Clippy Clean
@@ -830,7 +830,7 @@ with zero warnings. No `#[allow]` attributes in production source code.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `cargo clippy --all -- --deny warnings` exits with code 0 | `cargo clippy --all -- --deny warnings` (enforced in CI by `torvox-integration-tests/tests/tool_lint.rs`) |
+| 1 | `cargo clippy --all -- --deny warnings` exits with code 0 | `cargo clippy --all -- --deny warnings` (enforced in CI by `integration-tests/tests/tool_lint.rs`) |
 | 2 | No `#[allow]` attribute exists in any `src/` file (test helpers excepted) | Code review: `grep -r '#\[allow' --include='*.rs'` on `src/` directories |
 
 ### NFR-014: Formatting Consistency
@@ -840,7 +840,7 @@ formatting.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `cargo fmt --check` exits with code 0 (no unformatted files) | `cargo fmt --check` (enforced in CI by `torvox-integration-tests/tests/tool_lint.rs`) |
+| 1 | `cargo fmt --check` exits with code 0 (no unformatted files) | `cargo fmt --check` (enforced in CI by `integration-tests/tests/tool_lint.rs`) |
 
 ### NFR-015: Kotlin Lint and Format
 
@@ -854,14 +854,14 @@ with zero violations.
 
 ### NFR-016: Bridge Type Synchronization
 
-**Requirement**: When `torvox-core` types change, the bridge types in
-`torvox-gui-android/src/bridge.rs` and `TorvoxBridge.kt` SHALL be updated
+**Requirement**: When `terminal-core` types change, the bridge types in
+`android-gui/src/bridge.rs` and `TorvoxBridge.kt` SHALL be updated
 correspondingly.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | FFI contract tests verify Rust bridge types match Kotlin JNA mappings | `cargo test --package torvox-gui-android -- ffi_contract_tests` ([`ffi_contract_tests.rs`](torvox-gui-android/tests/ffi_contract_tests.rs)) |
-| 2 | Bridge round-trip tests verify no data corruption across the FFI boundary | `cargo test --package torvox-gui-android -- bridge_integration` ([`bridge_integration.rs`](torvox-gui-android/tests/bridge_integration.rs)) |
+| 1 | FFI contract tests verify Rust bridge types match Kotlin JNA mappings | `cargo test --package android-gui -- ffi_contract_tests` ([`ffi_contract_tests.rs`](android-gui/tests/ffi_contract_tests.rs)) |
+| 2 | Bridge round-trip tests verify no data corruption across the FFI boundary | `cargo test --package android-gui -- bridge_integration` ([`bridge_integration.rs`](android-gui/tests/bridge_integration.rs)) |
 
 ---
 
@@ -885,7 +885,7 @@ SwiftShader SHALL be used.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Headless wgpu tests pass with `VK_ICD_FILENAMES` pointing to Lavapipe | `cargo test --package torvox-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](torvox-renderer/tests/gpu_headless_test.rs)) |
+| 1 | Headless wgpu tests pass with `VK_ICD_FILENAMES` pointing to Lavapipe | `cargo test --package gpu-renderer -- gpu_headless_test` ([`gpu_headless_test.rs`](gpu-renderer/tests/gpu_headless_test.rs)) |
 | 2 | Emulator test boot verifies SwiftShader Vulkan ICD is loaded | Code review: `scripts/setup-emulator.nu` — SwiftShader configuration |
 
 ### NFR-019: Deterministic Nix Build
@@ -933,8 +933,8 @@ thread SHALL exit permanently and require a new surface to restart.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Surface recreation is triggered on `wgpu::SurfaceError::Lost` and completes without crash | `cargo test --package torvox-gui-android -- gpu_noop_tests` ([`gpu_noop_tests.rs`](torvox-gui-android/tests/gpu_noop_tests.rs)) |
-| 2 | After 100 consecutive render errors, the render thread exits with a terminal error | Code review: `torvox-renderer/src/gpu.rs` — error counter and thread exit logic |
+| 1 | Surface recreation is triggered on `wgpu::SurfaceError::Lost` and completes without crash | `cargo test --package android-gui -- gpu_noop_tests` ([`gpu_noop_tests.rs`](android-gui/tests/gpu_noop_tests.rs)) |
+| 2 | After 100 consecutive render errors, the render thread exits with a terminal error | Code review: `gpu-renderer/src/gpu.rs` — error counter and thread exit logic |
 
 ### NFR-023: OSC Payload Size Limit
 
@@ -943,8 +943,8 @@ thread SHALL exit permanently and require a new surface to restart.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | OSC sequences with payload > 1 MB are truncated or rejected | `cargo test --package torvox-terminal` (via fuzz in [`fuzz/fuzz_targets/fuzz_osc_handler.rs`](fuzz/fuzz_targets/fuzz_osc_handler.rs)) |
-| 2 | `MAX_PAYLOAD_BYTES` constant is defined and equals 1,048,576 (1 MB) | Code review: `torvox-terminal/src/osc_handler.rs` — `MAX_PAYLOAD_BYTES` constant |
+| 1 | OSC sequences with payload > 1 MB are truncated or rejected | `cargo test --package terminal-engine` (via fuzz in [`fuzz/fuzz_targets/fuzz_osc_handler.rs`](fuzz/fuzz_targets/fuzz_osc_handler.rs)) |
+| 2 | `MAX_PAYLOAD_BYTES` constant is defined and equals 1,048,576 (1 MB) | Code review: `terminal-engine/src/osc_handler.rs` — `MAX_PAYLOAD_BYTES` constant |
 
 ### NFR-024: PTY Read Error Recovery
 
@@ -953,8 +953,8 @@ the session. The reader thread SHALL log errors and continue reading.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Simulated PTY read errors do not terminate the session or crash the process | `cargo test --package torvox-terminal -- dst_simulation` ([`dst_simulation.rs`](torvox-terminal/tests/dst_simulation.rs)) |
-| 2 | Concurrent session stress tests verify robustness against I/O errors | `cargo test --package torvox-terminal -- concurrent_session` ([`concurrent_session.rs`](torvox-terminal/tests/concurrent_session.rs)) |
+| 1 | Simulated PTY read errors do not terminate the session or crash the process | `cargo test --package terminal-engine -- dst_simulation` ([`dst_simulation.rs`](terminal-engine/tests/dst_simulation.rs)) |
+| 2 | Concurrent session stress tests verify robustness against I/O errors | `cargo test --package terminal-engine -- concurrent_session` ([`concurrent_session.rs`](terminal-engine/tests/concurrent_session.rs)) |
 
 ### NFR-025: Unified Logging
 
@@ -962,7 +962,7 @@ the session. The reader thread SHALL log errors and continue reading.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `logging.rs` exists with `TorvoxLogger` struct that implements `log::Log` | `ls torvox-gui-android/src/logging.rs` |
+| 1 | `logging.rs` exists with `TorvoxLogger` struct that implements `log::Log` | `ls android-gui/src/logging.rs` |
 | 2 | Dual-write capability (logcat + file) verified by `torvox_bridge_init_logger` and `torvox_bridge_set_log_file_path` exports | `nm target/*/libtorvox_gui_android.so \| grep torvox_bridge_init_logger` |
 
 ---
@@ -972,20 +972,20 @@ the session. The reader thread SHALL log errors and continue reading.
 | Environment | Command | Used For |
 |-------------|---------|----------|
 | Rust workspace | `cargo test --workspace` | Full Rust test suite |
-| Core crate | `cargo test --package torvox-core` | Data model, grid, selection, config, IME |
-| Terminal crate | `cargo test --package torvox-terminal` | VT parsing, PTY, sessions, OSC, clipboard, alt screen |
-| Renderer crate | `cargo test --package torvox-renderer` | wgpu pipeline, font atlas, GPU rendering |
-| GUI crate | `cargo test --package torvox-gui-android` | Bridge, JNI, surface lifecycle, fuzz wire |
-| MCP crate | `cargo test --package torvox-mcp` | MCP server tools, scrollback search, input queue |
-| Exec crate | `cargo test --package torvox-exec` | SSH/Mosh executable |
-| Integration | `cargo test --package torvox-integration-tests` | Tool lint, render smoke tests |
+| Core crate | `cargo test --package terminal-core` | Data model, grid, selection, config, IME |
+| Terminal crate | `cargo test --package terminal-engine` | VT parsing, PTY, sessions, OSC, clipboard, alt screen |
+| Renderer crate | `cargo test --package gpu-renderer` | wgpu pipeline, font atlas, GPU rendering |
+| GUI crate | `cargo test --package android-gui` | Bridge, JNI, surface lifecycle, fuzz wire |
+| MCP crate | `cargo test --package mcp-server` | MCP server tools, scrollback search, input queue |
+| Exec crate | `cargo test --package exec-bin` | SSH/Mosh executable |
+| Integration | `cargo test --package integration-tests` | Tool lint, render smoke tests |
 | Kotlin unit | `cd android && ./gradlew testDebugUnitTest` | Gesture tests, theme tests, layer tests |
 | Kotlin lint | `cd android && ./gradlew spotlessCheck detekt` | Formatting and static analysis |
 | Android build | `cd android && ./gradlew assembleDebug` | APK compilation |
 | Instrumented | `cd android && ./gradlew connectedDebugAndroidTest` | Device/emulator UI tests |
 | Lint | `cargo clippy --all -- --deny warnings` | Static analysis |
 | Format | `cargo fmt --check` | Code formatting |
-| Safety | `cargo geiger --package torvox-core` | Unsafe block audit |
+| Safety | `cargo geiger --package terminal-core` | Unsafe block audit |
 | Nix | `nix flake check` | Flake validation |
 | Rust CI | `nu scripts/check-rust.nu` | Combined Rust checks (clippy, fmt, test, audit, machete) |
 | Android CI | `cd android && ./gradlew spotlessCheck detekt` | Kotlin quality gate |

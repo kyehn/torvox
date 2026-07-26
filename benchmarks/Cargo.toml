@@ -1,0 +1,22 @@
+[package]
+name = "benchmarks"
+version.workspace = true
+edition.workspace = true
+description = "Criterion benchmarks terminal operations"
+
+[dependencies]
+terminal-core = { workspace = true }
+terminal-engine = { workspace = true }
+gpu-renderer = { workspace = true }
+wgpu = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.8", features = ["html_reports"] }
+guillotiere = "0.7"
+
+[[bench]]
+name = "terminal_bench"
+harness = false
+
+[lints]
+workspace = true

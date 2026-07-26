@@ -14,7 +14,7 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "torvox"
+rootProject.name = "terminal"
 include(":app")
 include(":benchmark")
 include(":baselineprofile")
