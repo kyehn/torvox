@@ -1,16 +1,16 @@
 [workspace]
 resolver = "2"
-exclude = ["torvox-core/kani"]
+exclude = ["terminal-core/kani"]
 members = [
-  "torvox-core",
-  "torvox-terminal",
-  "torvox-renderer",
-  "torvox-gui-android",
-  "torvox-exec",
-  "torvox-mcp",
+  "terminal-core",
+  "terminal-engine",
+  "gpu-renderer",
+  "android-gui",
+  "exec-bin",
+  "mcp-server",
   "fuzz",
-  "torvox-integration-tests",
-  "torvox-bench",
+  "integration-tests",
+  "benchmarks",
 ]
 
 [workspace.package]
@@ -20,10 +20,10 @@ rust-version = "1.97"
 
 
 [workspace.dependencies]
-torvox-core = { path = "torvox-core" }
-torvox-terminal = { path = "torvox-terminal" }
-torvox-renderer = { path = "torvox-renderer", default-features = false }
-torvox-gui-android = { path = "torvox-gui-android" }
+terminal-core = { path = "terminal-core" }
+terminal-engine = { path = "terminal-engine" }
+gpu-renderer = { path = "gpu-renderer", default-features = false }
+android-gui = { path = "android-gui" }
 
 libc = "0.2"
 nix = { version = "0.31", features = ["term", "process", "signal", "fs"] }
@@ -117,3 +117,8 @@ cast_lossless = "allow"
 cast_sign_loss = "allow"
 cast_possible_wrap = "allow"
 uninlined_format_args = "allow"
+
+[workspace.metadata.dylint]
+libraries = [
+    { path = "/tmp/dylint-repo/examples/general" },
+]

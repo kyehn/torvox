@@ -8,14 +8,14 @@ Ensure hooks are installed (`git config core.hooksPath .githooks`).
 cargo nextest run --workspace --profile ci            # all tests pass
 cargo clippy --all -- --deny warnings                # zero lint warnings
 cargo fmt --check                                   # formatting clean
-cargo geiger --package torvox-core                   # no new unsafe in core
+cargo geiger --package terminal-core                   # no new unsafe in core
 nu scripts/check-rust.nu
 ```
 
 ### Property Tests
 
 ```bash
-cargo nextest run --package torvox-core --test property_tests
+cargo nextest run --package terminal-core --test property_tests
 cargo mutants --timeout 30                          # mutation score (config in .cargo/mutants.toml)
 ```
 
@@ -29,12 +29,12 @@ cd android && ./gradlew lint                                       # Android lin
 
 ## Bridge Changes
 
-When modifying `torvox-core` types:
+When modifying `terminal-core` types:
 
 1. Ensure JNA bindings in `TorvoxBridge.kt` cover all changed types
-2. Verify `bridge.rs` types are synced with `torvox-core` (`bridge.rs` is the
+2. Verify `bridge.rs` types are synced with `terminal-core` (`bridge.rs` is the
    single FFI export location — do not add a second one)
-3. Run `cargo test --package torvox-gui-android`
+3. Run `cargo test --package android-gui`
 
 > The six Android test types (unit, Roborazzi, Compose UI, Maestro,
 > Android UI testing framework, Espresso) are described in TESTING.md. A change touching
@@ -69,7 +69,7 @@ After any change to requirements, design, API, or tests:
 
 1. Update `docs/traceability.yml` to reflect new or changed mappings
 2. Verify all referenced IDs (FR-xxx, NFR-xxx, file paths) still resolve
-3. Run `cargo test -p torvox-integration-tests --test tool_lint` to validate
+3. Run `cargo test -p integration-tests --test tool_lint` to validate
    structural consistency
 
 ### ADR Lifecycle
@@ -99,7 +99,7 @@ Add the following to the pre-commit checklist:
 - [ ] `docs/srs.md` updated if requirements changed
 - [ ] `docs/traceability.yml` updated if requirement/design/API/test mapping changed
 - [ ] New ADR created if a design decision was made
-- [ ] All documentation lint checks pass (`cargo test -p torvox-integration-tests --test tool_lint`)
+- [ ] All documentation lint checks pass (`cargo test -p integration-tests --test tool_lint`)
 
 ## Toolchain Constraints
 
@@ -137,8 +137,8 @@ and cannot be audited for correctness during code review.
 
 ### Enforcement
 
-- `torvox-renderer/screenshots/`, `torvox-renderer/test-screenshots/`,
-  `torvox-renderer/test_data/*_golden.png`, and
+- `gpu-renderer/screenshots/`, `gpu-renderer/test-screenshots/`,
+  `gpu-renderer/test_data/*_golden.png`, and
   `android/app/src/test/resources/roborazzi/` are in `.gitignore`.
 - CI has no golden-image-comparison step.
 - All rendering tests must use either OCR verification (`rapidocr`) or

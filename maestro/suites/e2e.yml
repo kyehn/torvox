@@ -1,5 +1,5 @@
 suite:
-  name: Torvox E2E Tests
+  name: Terminal E2E Tests
   tags:
     - e2e
 appId: com.termux

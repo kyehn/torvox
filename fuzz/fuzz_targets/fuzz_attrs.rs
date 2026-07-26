@@ -2,7 +2,7 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    use torvox_core::cell::{Attrs, Cell, Color};
+    use terminal_core::cell::{Attrs, Cell, Color};
 
     if data.is_empty() {
         return;

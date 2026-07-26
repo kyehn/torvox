@@ -43,7 +43,7 @@
               "serverInfo": {
                 "type": "object",
                 "properties": {
-                  "name": { "const": "torvox-mcp" },
+                  "name": { "const": "mcp-server" },
                   "version": { "type": "string", "description": "Server version from Cargo.toml" }
                 }
               },

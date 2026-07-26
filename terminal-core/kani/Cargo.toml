@@ -1,0 +1,18 @@
+[package]
+name = "model-check"
+version.workspace = true
+edition.workspace = true
+description = "Kani formal verification proofs for terminal-core"
+
+
+# This is a meta-crate for Kani proofs.
+# Run with: cargo kani --manifest-path terminal-core/kani/Cargo.toml
+
+[lib]
+path = "lib.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(kani)'] }
+
+[dependencies]
+terminal-core = { workspace = true }

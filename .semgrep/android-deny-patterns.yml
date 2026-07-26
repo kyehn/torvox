@@ -1,0 +1,80 @@
+rules:
+  - id: no-toast-hardcoded-text
+    patterns:
+      - pattern: |
+          Toast.$METHOD($CONTEXT, $TEXT, $DURATION).show()
+      - metavariable-pattern:
+          metavariable: $TEXT
+          pattern-regex: '"[^"]+"'
+    message: "Toast with hardcoded text. Use a string resource (`R.string.*`) instead for localization."
+    severity: WARNING
+    languages: [kotlin, java]
+    fix: |
+      Toast.$METHOD($CONTEXT, R.string.$RESOURCE, $DURATION).show()
+
+  - id: no-activity-static-leak
+    patterns:
+      - pattern-either:
+          - pattern: |
+              companion object {
+                ...
+                var $FIELD: $ACTIVITY = ...
+                ...
+              }
+          - pattern: |
+              object $OBJECT {
+                ...
+                var $FIELD: $ACTIVITY = ...
+                ...
+              }
+      - metavariable-regex:
+          metavariable: $ACTIVITY
+          regex: 'Activity'
+    message: "Storing an Activity reference in a companion/object leaks the Activity. Use `WeakReference<Activity>` or a lifecycle-aware pattern."
+    severity: ERROR
+    languages: [kotlin]
+
+  - id: no-basecontext-stored
+    patterns:
+      - pattern-either:
+          - pattern: |
+              companion object {
+                ...
+                var $FIELD = $CTX.getBaseContext()
+                ...
+              }
+          - pattern: |
+              object $OBJECT {
+                ...
+                var $FIELD = $CTX.getBaseContext()
+                ...
+              }
+          - pattern: |
+              companion object {
+                ...
+                var $FIELD = $CTX.baseContext
+                ...
+              }
+          - pattern: |
+              object $OBJECT {
+                ...
+                var $FIELD = $CTX.baseContext
+                ...
+              }
+    message: "Storing `BaseContext` in a companion/object leaks the context. Use `ApplicationContext` with `WeakReference` or pass context explicitly."
+    severity: ERROR
+    languages: [kotlin]
+
+  - id: no-thread-sleep-main
+    patterns:
+      - pattern: Thread.sleep($MILLIS)
+    message: "`Thread.sleep()` blocks the current thread, potentially causing ANRs. Prefer coroutines `delay()` on the main thread or structured threading."
+    severity: WARNING
+    languages: [kotlin, java]
+    fix: |
+      delay($MILLIS)
+    paths:
+      exclude:
+        - "**/*/test/*"
+        - "**/*/tests/*"
+        - "**/*/androidTest/*"

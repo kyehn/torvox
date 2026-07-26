@@ -1,6 +1,6 @@
-# Architecture — Torvox
+# Architecture
 
-Torvox is a GPU-accelerated Android terminal emulator. It uses wgpu (Vulkan) for
+GPU-accelerated Android terminal emulator using wgpu (Vulkan) for
 rendering, Ghostty's vendored VT parser for terminal emulation, and a
 Kotlin + Compose UI. Crate dependencies flow strictly one-way bottom-to-top;
 violations break the build.
@@ -19,7 +19,7 @@ Data flows through four layers:
 4. **Android Bridge** — transmits terminal snapshots to Kotlin via boltffi,
    receives UI commands via JNA
 
-A sixth crate (`torvox-mcp`) exposes terminal state to external AI agents over a
+A sixth crate (`mcp-server`) exposes terminal state to external AI agents over a
 JSON-RPC Unix socket (Model Context Protocol).
 
 ---
@@ -31,13 +31,13 @@ JSON-RPC Unix socket (Model Context Protocol).
 ```
 libghostty-vt / libghostty-vt-sys         ← Ghostty VT parser (vendored Zig)
     ↑
-torvox-core (no_std, serde + unicode-width)  ← Data model, Grid, Cell, Event
+terminal-core (no_std, serde + unicode-width)  ← Data model, Grid, Cell, Event
     ↑
-torvox-terminal (libghostty-vt + nix + flume) ← PTY, VT parse, Session
+terminal-engine (libghostty-vt + nix + flume) ← PTY, VT parse, Session
     ↑
-torvox-renderer (wgpu + cosmic-text + swash + guillotiere) ← GPU render
+gpu-renderer (wgpu + cosmic-text + swash + guillotiere) ← GPU render
     ↑
-torvox-gui-android (boltffi + JNA)           ← Kotlin↔Rust bridge
+android-gui (boltffi + JNA)           ← Kotlin↔Rust bridge
     ↑
 android/app (Kotlin + Compose)               ← Android UI
 ```
@@ -50,11 +50,11 @@ higher crates. Each crate uses only types from crates below it in the chain.
 |-------|----------|-------------|-------------------|
 | `libghostty-vt-sys` | Vendored Zig | None | Raw FFI bindings to Ghostty VT |
 | `libghostty-vt` | Vendored Zig | `libghostty-vt-sys` | `Terminal`, `TerminalOptions`, `key::Encoder` |
-| `torvox-core` | `torvox-core/` | None (no_std) | `Cell`, `Grid`, `TerminalConfig`, `TerminalEvent`, `Selection`, `SessionSnapshot` |
-| `torvox-terminal` | `torvox-terminal/` | `torvox-core`, `libghostty-vt` | `Session`, `GhosttyTerminal`, `PtyPair`, `ShellEnv` |
-| `torvox-renderer` | `torvox-renderer/` | `torvox-core`, `torvox-terminal` | `GpuContext`, `FontPipeline`, `GlyphKey` |
-| `torvox-gui-android` | `torvox-gui-android/` | `torvox-core`, `torvox-terminal`, `torvox-renderer` | `BridgeCell`, `TorvoxBridge`, `AndroidSurface` |
-| `torvox-mcp` | `torvox-mcp/` | `torvox-core` | `SessionStore`, `McpCommand`, `McpServer` |
+| `terminal-core` | `terminal-core/` | None (no_std) | `Cell`, `Grid`, `TerminalConfig`, `TerminalEvent`, `Selection`, `SessionSnapshot` |
+| `terminal-engine` | `terminal-engine/` | `terminal-core`, `libghostty-vt` | `Session`, `GhosttyTerminal`, `PtyPair`, `ShellEnv` |
+| `gpu-renderer` | `gpu-renderer/` | `terminal-core`, `terminal-engine` | `GpuContext`, `FontPipeline`, `GlyphKey` |
+| `android-gui` | `android-gui/` | `terminal-core`, `terminal-engine`, `gpu-renderer` | `BridgeCell`, `TorvoxBridge`, `AndroidSurface` |
+| `mcp-server` | `mcp-server/` | `terminal-core` | `SessionStore`, `McpCommand`, `McpServer` |
 
 *Rationale (NFR-012): The chain prevents dependency cycles that would
 otherwise appear between session management and rendering. The renderer reads
@@ -63,11 +63,11 @@ grid snapshots; the session manager never imports renderer types. See
 
 ---
 
-### 2.2 torvox-core (Data Model)
+### 2.2 terminal-core (Data Model)
 
-**Location:** `torvox-core/src/`
+**Location:** `terminal-core/src/`
 
-**Attribute:** `#![no_std]`, `#![forbid(unsafe_code)]` (`torvox-core/src/lib.rs`)
+**Attribute:** `#![no_std]`, `#![forbid(unsafe_code)]` (`terminal-core/src/lib.rs`)
 
 The data model crate defines all terminal state types. It has zero runtime
 dependencies — only `serde` (optional), `unicode-width`, and `rkyv` (optional)
@@ -90,15 +90,15 @@ for serialization.
 | `ansi` | `ansi.rs` | ANSI constants | Escape code constants |
 | `unicode` | `unicode.rs` | Unicode width helpers | CJK width detection |
 
-**Design decision — no_std** (NFR-001): `torvox-core` uses `#![no_std]` with
+**Design decision — no_std** (NFR-001): `terminal-core` uses `#![no_std]` with
 `extern crate alloc` to remain embeddable in resource-constrained environments
 and to enforce discipline about heap allocation. The `std` feature gate enables
 `std::error::Error` impls via `thiserror 2` for non-embedded builds. The no_std
 attribute reinforces `#![forbid(unsafe_code)]` by limiting the available standard
 library surface.
 
-**Design decision — zero unsafe** (NFR-001): `torvox-core` is `#![forbid(unsafe_code)]`.
-Every `cargo geiger --package torvox-core` run must report zero unsafe blocks.
+**Design decision — zero unsafe** (NFR-001): `terminal-core` is `#![forbid(unsafe_code)]`.
+Every `cargo geiger --package terminal-core` run must report zero unsafe blocks.
 This ensures the data model cannot introduce memory corruption.
 
 **Requirement trace:**
@@ -113,9 +113,9 @@ This ensures the data model cannot introduce memory corruption.
 
 ---
 
-### 2.3 torvox-terminal (PTY + VT)
+### 2.3 terminal-engine (PTY + VT)
 
-**Location:** `torvox-terminal/src/`
+**Location:** `terminal-engine/src/`
 
 This crate owns PTY lifecycle, VT parsing, and session orchestration.
 
@@ -154,9 +154,9 @@ SONAME stripping in `build.rs` per pitfall #9 in AGENTS.md.
 
 ---
 
-### 2.4 torvox-renderer (GPU Pipeline)
+### 2.4 gpu-renderer (GPU Pipeline)
 
-**Location:** `torvox-renderer/src/`
+**Location:** `gpu-renderer/src/`
 
 **Attribute:** The only rendering path — no CPU/Canvas fallback (`lib.rs`).
 
@@ -185,7 +185,7 @@ PTY → flume → GhosttyTerminal → DirtyMask → RenderThread
 
 3. **Glyph rasterization** — `swash` rasterizes each shaped glyph into coverage
    data. Atlas texture uses `R8Unorm` (linear format, no sRGB gamma) because
-   glyph coverage data is already in linear space (`torvox-renderer/src/lib.rs`).
+   glyph coverage data is already in linear space (`gpu-renderer/src/lib.rs`).
 
 4. **Atlas packing** — `guillotiere` packs glyph bitmaps into a 2048×2048 atlas
    texture. Allocation IDs are tracked per `GlyphKey` for eviction and
@@ -224,9 +224,9 @@ consistent behavior across targets.
 
 ---
 
-### 2.5 torvox-gui-android (Android Bridge)
+### 2.5 android-gui (Android Bridge)
 
-**Location:** `torvox-gui-android/src/`
+**Location:** `android-gui/src/`
 
 This crate is the **single FFI export location** for the Rust↔Kotlin boundary
 (per AGENTS.md — only one `setup_scaffolding!()` call allowed).
@@ -276,7 +276,7 @@ The `message` field on boltffi errors is avoided because it conflicts with
 Kotlin's `Throwable.message` (pitfall #5).
 
 **Bridge sync discipline** (per AGENTS.md pre-commit checklist):
-When `torvox-core` types change, both `torvox-gui-android/src/bridge.rs` and
+When `terminal-core` types change, both `android-gui/src/bridge.rs` and
 `android/app/src/main/java/io/torvox/bridge/TorvoxBridge.kt` must be updated.
 boltffi wire format is position-sensitive with no length prefix or checksum,
 so field order and count must match exactly (lesson from memory-bank #01).
@@ -287,9 +287,9 @@ so field order and count must match exactly (lesson from memory-bank #01).
 
 ---
 
-### 2.6 torvox-mcp (MCP Server)
+### 2.6 mcp-server (MCP Server)
 
-**Location:** `torvox-mcp/src/`
+**Location:** `mcp-server/src/`
 
 **Attribute:** `#![forbid(unsafe_code)]`
 
@@ -299,7 +299,7 @@ JSON-RPC 2.0 over a Unix domain socket.
 **Architecture:**
 
 ```
-AI Agent  <--stdio/JSON-RPC-->  torvox-mcp  <--Unix socket-->  torvox-gui-android
+AI Agent  <--stdio/JSON-RPC-->  mcp-server  <--Unix socket-->  android-gui
 ```
 
 | Type | Location | Purpose |
@@ -319,7 +319,7 @@ AI Agent  <--stdio/JSON-RPC-->  torvox-mcp  <--Unix socket-->  torvox-gui-androi
 **Design** (FR-044, FR-045): The MCP server enables AI coding agents to inspect
 terminal state during development sessions. The `SessionStore` trait allows a `NoOpStore`
 implementation (returns empty data) when no GUI is connected, or a real
-implementation backed by `torvox-gui-android`'s session registry.
+implementation backed by `android-gui`'s session registry.
 
 ---
 
@@ -327,7 +327,7 @@ implementation backed by `torvox-gui-android`'s session registry.
 
 **Location:** `android/app/`
 
-**Package:** `io.torvox` (`applicationId = "com.termux"` — intentional, pitfall #16)
+**Package:** `io.term` (`applicationId = "com.termux"` — intentional, pitfall #16)
 
 Kotlin + Jetpack Compose UI. Key files:
 
@@ -380,7 +380,7 @@ The `TorvoxBridge.kt` file is the Kotlin side of the bridge, containing:
 ```
 
 *Reference: AGENTS.md "Render Pipeline" section, `ghostty_terminal.rs`,
-`torvox-renderer/src/lib.rs`.*
+`gpu-renderer/src/lib.rs`.*
 
 ### 3.2 Input Path
 
@@ -417,7 +417,7 @@ Key events flow:
 └──────────────────────────────────────────────────────────────────┘
 ```
 
-*Reference: `torvox-gui-android/src/bridge.rs`, `jni_bridge.rs`,
+*Reference: `android-gui/src/bridge.rs`, `jni_bridge.rs`,
 `android/app/src/main/java/io/torvox/bridge/TorvoxBridge.kt`.*
 
 ---
@@ -433,8 +433,8 @@ Each terminal session creates 6–7 threads:
 | **Process Waiter** | `session.rs` | Until child exits | `waitpid()` on child process; exits after child terminates |
 | **RenderThread** | `surface.rs` | While surface alive | CountDownLatch-woken loop: reads grid snapshot, shapes, rasterizes, submits GPU frame |
 | **VT Parser** | `ghostty_terminal.rs` | Entire session | Same thread as PTY Reader — Ghostty parser runs inline |
-| **MCP Listener** | `torvox-mcp` | Server lifetime | Accepts Unix socket connections, dispatches JSON-RPC requests |
-| **MCP Worker** | `torvox-mcp` | Per connection | Handles an individual MCP client session |
+| **MCP Listener** | `mcp-server` | Server lifetime | Accepts Unix socket connections, dispatches JSON-RPC requests |
+| **MCP Worker** | `mcp-server` | Per connection | Handles an individual MCP client session |
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -490,7 +490,7 @@ Each terminal session creates 6–7 threads:
 - Mesa Lavapipe provides Vulkan on headless/dev Linux environments.
 - Android emulators use SwiftShader for Vulkan GPU emulation.
 - Avoids the complexity of maintaining multiple rendering paths (GL vs Vulkan).
-**Implementation:** `torvox-renderer/src/gpu.rs` — wgpu `Instance`, `Surface`,
+**Implementation:** `gpu-renderer/src/gpu.rs` — wgpu `Instance`, `Surface`,
 `Device`, `Queue`, `RenderPipeline`.
 
 ### 5.2 Ghostty VT Parser
@@ -506,10 +506,10 @@ instead of a custom VT parser.
 - Android linking uses dynamic (`dylib`) with SONAME stripping in `build.rs`;
   static linking fails because the Zig install archive contains only `lib_vt.o`
   (pitfall #9).
-**Implementation:** `torvox-terminal/src/ghostty_terminal.rs` wraps
+**Implementation:** `terminal-engine/src/ghostty_terminal.rs` wraps
 `libghostty_vt::Terminal` with Rust-safe access.
 
-### 5.3 no_std for torvox-core
+### 5.3 no_std for terminal-core
 
 **Decision:** `#![no_std]` with `extern crate alloc`.
 **Rationale** (NFR-001):
@@ -521,7 +521,7 @@ instead of a custom VT parser.
   needed.
 - Zero `unsafe` (`#![forbid(unsafe_code)]`) is reinforced by the limited no_std
   surface, which excludes potentially unsafe std APIs.
-**Implementation:** `torvox-core/src/lib.rs` line 1: `#![no_std]`
+**Implementation:** `terminal-core/src/lib.rs` line 1: `#![no_std]`
 
 ### 5.4 One-way Crate Dependency
 
@@ -529,8 +529,8 @@ instead of a custom VT parser.
 ones). Violations break the build.
 **Rationale** (NFR-012):
 - Prevents circular dependencies between session management and rendering.
-- Forces clean layering: `torvox-core` (data model) → `torvox-terminal` (PTY) →
-  `torvox-renderer` (GPU) → `torvox-gui-android` (bridge).
+- Forces clean layering: `terminal-core` (data model) → `terminal-engine` (PTY) →
+  `gpu-renderer` (GPU) → `android-gui` (bridge).
 - Each crate has a single responsibility with clear boundaries.
 - Verified via `cargo metadata --no-deps --format-version 1`.
 **Implementation:** Cargo.toml dependency declarations; `AGENTS.md` documents
@@ -551,7 +551,7 @@ Kotlin→Rust (commands).
   builds (pitfall #14).
 - The `message` field on boltffi Error types is avoided — it conflicts with
   Kotlin `Throwable.message` (pitfall #5).
-**Implementation:** `torvox-gui-android/src/bridge.rs` (single export location),
+**Implementation:** `android-gui/src/bridge.rs` (single export location),
 `TorvoxBridge.kt` (JNA bindings + wire format reader/writer).
 
 ### 5.6 6–7 Thread Model Per Session
@@ -598,12 +598,12 @@ rendering surface target.
 
 ### 6.1 Error Type Convention
 
-- **Library crates** (`torvox-core`, `torvox-terminal`, `torvox-renderer`): use
+- **Library crates** (`terminal-core`, `terminal-engine`, `gpu-renderer`): use
   `thiserror 2` for `Error`/`Display` derives. `anyhow` is forbidden in library
   crates (AGENTS.md "Never" section).
-- **Binary crates** (`torvox-mcp`): may use `anyhow` in `main.rs` but library
+- **Binary crates** (`mcp-server`): may use `anyhow` in `main.rs` but library
   modules use `thiserror`.
-- **torvox-core**: errors use no_std-compatible patterns. The `std` feature
+- **terminal-core**: errors use no_std-compatible patterns. The `std` feature
   enables `std::error::Error` impls.
 
 ### 6.2 Error Propagation
@@ -612,20 +612,20 @@ rendering surface target.
 ┌─────────────────────────────────────────────────────────────┐
 │ Layer           │ Error Type        │ Handling              │
 ├─────────────────┼───────────────────┼───────────────────────┤
-│ torvox-core     │ No custom error   │ Returns Option/Result │
+│ terminal-core     │ No custom error   │ Returns Option/Result │
 │                 │ (no_std)          │ from public API       │
 ├─────────────────┼───────────────────┼───────────────────────┤
-│ torvox-terminal │ SessionError      │ Propagated to session │
+│ terminal-engine │ SessionError      │ Propagated to session │
 │                 │ PtyError          │ orchestrator          │
 ├─────────────────┼───────────────────┼───────────────────────┤
-│ torvox-renderer │ GpuError          │ Logged; render thread │
+│ gpu-renderer │ GpuError          │ Logged; render thread │
 │                 │ FontError         │ retries (up to 100    │
 │                 │                   │ consecutive failures) │
 ├─────────────────┼───────────────────┼───────────────────────┤
 │ torvox-gui-and  │ SurfaceError      │ Maps to Kotlin string │
 │ roid            │ TerminalError     │ via boltffi           │
 ├─────────────────┼───────────────────┼───────────────────────┤
-│ torvox-mcp      │ McpError          │ Returns JSON-RPC      │
+│ mcp-server      │ McpError          │ Returns JSON-RPC      │
 │                 │                   │ error response        │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -642,8 +642,8 @@ rendering surface target.
 
 ### 6.4 Safety
 
-- **torvox-core**: zero `unsafe` (`#![forbid(unsafe_code)]`)
-- **torvox-mcp**: zero `unsafe` (`#![forbid(unsafe_code)]`)
+- **terminal-core**: zero `unsafe` (`#![forbid(unsafe_code)]`)
+- **mcp-server**: zero `unsafe` (`#![forbid(unsafe_code)]`)
 - All other crates: `unsafe` blocks annotated with `// SAFETY:` comments
   explaining invariants (AGENTS.md requirement)
 - `PtyPair` in `pty.rs` is the only location where `fork()` is called with
@@ -657,13 +657,13 @@ rendering surface target.
 
 ### Unit Tests
 - Crate-level tests in each source file (`#[cfg(test)] mod tests { ... }`)
-- Property tests: `torvox-core` property tests in `tests/property_tests.rs`
+- Property tests: `terminal-core` property tests in `tests/property_tests.rs`
 
 ### Integration Tests
-- `torvox-terminal/tests/xterm_conformance.rs` — xterm conformance spec
-- `torvox-terminal/src/vt_conformance.rs` — VT protocol conformance
-- `torvox-terminal/src/snapshot_test.rs` — snapshot-based integration tests
-- `torvox-gui-android` tests via `cargo test --package torvox-gui-android`
+- `terminal-engine/tests/xterm_conformance.rs` — xterm conformance spec
+- `terminal-engine/src/vt_conformance.rs` — VT protocol conformance
+- `terminal-engine/src/snapshot_test.rs` — snapshot-based integration tests
+- `android-gui` tests via `cargo test --package android-gui`
 
 ### Fuzzing
 - 7 cargo-fuzz targets in `fuzz/fuzz_targets/`:
@@ -675,11 +675,11 @@ rendering surface target.
 cargo nextest run --workspace --profile ci
 cargo clippy --all -- --deny warnings
 cargo fmt --check
-cargo geiger --package torvox-core  # zero unsafe
+cargo geiger --package terminal-core  # zero unsafe
 nu scripts/check-rust.nu
 ```
 
 Bridge changes additionally require `TorvoxBridge.kt` sync verification
-and `cargo test --package torvox-gui-android`.
+and `cargo test --package android-gui`.
 
 *Reference: `docs/standards/QUALITY-GATE.md`.*

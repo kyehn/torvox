@@ -22,120 +22,120 @@ requirements:
   FR-001:
     description: "The system SHALL process VT/xterm escape sequences using the Ghostty parser (libghostty-vt)."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
+      - "docs/architecture.md#2.3-terminal-engine"
       - "docs/architecture.md#5.2-ghostty-vt-parser"
     api: []
     tests:
-      - "torvox-terminal/tests/xterm_conformance.rs"
-      - "torvox-terminal/tests/vttest_sequences.rs"
-      - "torvox-terminal/tests/ecma48_correctness.rs"
-      - "torvox-terminal/tests/esctest_suite.rs"
-      - "torvox-terminal/tests/esctest_full.rs"
-      - "torvox-terminal/tests/vt_coverage_check.rs"
-      - "torvox-terminal/tests/fuzz_vt_structured.rs"
-      - "torvox-terminal/tests/vttest_ref_files.rs"
+      - "terminal-engine/tests/xterm_conformance.rs"
+      - "terminal-engine/tests/vttest_sequences.rs"
+      - "terminal-engine/tests/ecma48_correctness.rs"
+      - "terminal-engine/tests/esctest_suite.rs"
+      - "terminal-engine/tests/esctest_full.rs"
+      - "terminal-engine/tests/vt_coverage_check.rs"
+      - "terminal-engine/tests/fuzz_vt_structured.rs"
+      - "terminal-engine/tests/vttest_ref_files.rs"
       - "fuzz/fuzz_targets/fuzz_vt_parser.rs"
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   FR-002:
     description: "The system SHALL maintain a terminal grid data model (Grid) consisting of rows of cells, each with a character code, foreground/background color, and text attributes (Attrs)."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
+      - "docs/architecture.md#2.2-terminal-core"
     api: []
     tests:
-      - "torvox-core/tests/grid_ops.rs"
-      - "torvox-core/tests/grid_snapshot_integration.rs"
-      - "torvox-core/tests/property_tests.rs"
-      - "torvox-terminal/tests/grid_ops.rs"
-      - "torvox-terminal/tests/grid_state_machine.rs"
-      - "torvox-terminal/tests/ported_alacritty_ref/grid_ops.rs"
-      - "torvox-terminal/tests/ported_alacritty_ref.rs"
-    verification: "cargo test --package torvox-core && cargo test --package torvox-terminal"
+      - "terminal-core/tests/grid_ops.rs"
+      - "terminal-core/tests/grid_snapshot_integration.rs"
+      - "terminal-core/tests/property_tests.rs"
+      - "terminal-engine/tests/grid_ops.rs"
+      - "terminal-engine/tests/grid_state_machine.rs"
+      - "terminal-engine/tests/ported_alacritty_ref/grid_ops.rs"
+      - "terminal-engine/tests/ported_alacritty_ref.rs"
+    verification: "cargo test --package terminal-core && cargo test --package terminal-engine"
 
   FR-003:
     description: "The system SHALL support SGR (Select Graphic Rendition) parameters: bold, dim, italic, underline, double underline, blink, reverse, hidden, strikethrough, overline, and protected."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/sgr.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/sgr.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/sgr_parser_tests.rs"
-      - "torvox-terminal/tests/sgr_proptest.rs"
-      - "torvox-terminal/tests/sgr_full_compat.rs"
-      - "torvox-terminal/tests/ported_kitty_full/sgr_attributes.rs"
+      - "terminal-engine/tests/sgr_parser_tests.rs"
+      - "terminal-engine/tests/sgr_proptest.rs"
+      - "terminal-engine/tests/sgr_full_compat.rs"
+      - "terminal-engine/tests/ported_kitty_full/sgr_attributes.rs"
       - "fuzz/fuzz_targets/fuzz_attrs.rs"
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   FR-004:
     description: "The system SHALL support 16 ANSI color palette indices plus 256-color and truecolor (24-bit RGB) foreground/background specifications."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/cell.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/cell.rs"
     api: []
     tests:
-      - "torvox-core/tests/terminal_colors.rs"
-      - "torvox-terminal/tests/ported_kitty_full/colors.rs"
-    verification: "cargo test --package torvox-core && cargo test --package torvox-terminal"
+      - "terminal-core/tests/terminal_colors.rs"
+      - "terminal-engine/tests/ported_kitty_full/colors.rs"
+    verification: "cargo test --package terminal-core && cargo test --package terminal-engine"
 
   FR-005:
     description: "The system SHALL support alternate screen buffer mode (SM/RM 1049) for full-screen applications (e.g., vim, less)."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/grid.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/grid.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/alt_screen.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/alt_screen.rs"
+    verification: "cargo test --package terminal-engine"
 
   FR-006:
     description: "The system SHALL support cursor positioning and movement (CUU, CUD, CUF, CUB, CUP, HVP, etc.) and cursor style (block, bar, underline, beam) with visible/hidden state."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/cursor.rs"
-      - "torvox-core/src/csi.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/cursor.rs"
+      - "terminal-core/src/csi.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/cursor_cmds_tests.rs"
-      - "torvox-terminal/tests/proptest_csi.rs"
-      - "torvox-terminal/tests/ported_kitty_full/cursor_movement.rs"
-      - "torvox-terminal/tests/dec_modes_dedicated.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/cursor_cmds_tests.rs"
+      - "terminal-engine/tests/proptest_csi.rs"
+      - "terminal-engine/tests/ported_kitty_full/cursor_movement.rs"
+      - "terminal-engine/tests/dec_modes_dedicated.rs"
+    verification: "cargo test --package terminal-engine"
 
   FR-007:
     description: "The system SHALL support scrolling regions (scroll_up, scroll_down, insert_lines, delete_lines) with configurable top/bottom boundaries."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/grid.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/grid.rs"
     api: []
     tests:
-      - "torvox-core/tests/grid_ops.rs"
-      - "torvox-terminal/tests/grid_state_machine.rs"
-      - "torvox-terminal/tests/ported_kitty_full/erase_operations.rs"
+      - "terminal-core/tests/grid_ops.rs"
+      - "terminal-engine/tests/grid_state_machine.rs"
+      - "terminal-engine/tests/ported_kitty_full/erase_operations.rs"
       - "fuzz/fuzz_targets/fuzz_grid_ops.rs"
       - "fuzz/fuzz_targets/fuzz_grid_resize.rs"
-    verification: "cargo test --package torvox-core && cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-core && cargo test --package terminal-engine"
 
   FR-008:
     description: "The system SHALL support tab stops (set, clear, move)."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/control.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/control.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/ported_kitty_full/tabs.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/ported_kitty_full/tabs.rs"
+    verification: "cargo test --package terminal-engine"
 
   FR-009:
     description: "The system SHALL report terminal size changes via SIGWINCH to the child process."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
+      - "docs/architecture.md#2.3-terminal-engine"
       - "docs/architecture.md#5.6-6-7-thread-model-per-session"
-      - "torvox-terminal/src/session.rs"
+      - "terminal-engine/src/session.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/lifecycle_test.rs"
-      - "torvox-terminal/tests/session_state_machine.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/lifecycle_test.rs"
+      - "terminal-engine/tests/session_state_machine.rs"
+    verification: "cargo test --package terminal-engine"
 
   # ==========================================================================
   # 3.2 Rendering Pipeline (FR-010 — FR-019)
@@ -144,115 +144,115 @@ requirements:
   FR-010:
     description: "The system SHALL render the terminal grid using wgpu (Vulkan) as the sole graphics backend. OpenGL and CPU software paths are not supported."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
+      - "docs/architecture.md#2.4-gpu-renderer"
       - "docs/architecture.md#5.1-gpu-only-with-wgpu-vulkan"
     api: []
     tests:
-      - "torvox-renderer/tests/gpu_headless_test.rs"
-      - "torvox-renderer/tests/text_ocr_test.rs"
-      - "torvox-gui-android/tests/gpu_noop_tests.rs"
-      - "torvox-gui-android/tests/gpu_benchmark.rs"
-      - "torvox-integration-tests/tests/terminal_render_test.rs"
-    verification: "cargo test --package torvox-renderer"
+      - "gpu-renderer/tests/gpu_headless_test.rs"
+      - "gpu-renderer/tests/text_ocr_test.rs"
+      - "android-gui/tests/gpu_noop_tests.rs"
+      - "android-gui/tests/gpu_benchmark.rs"
+      - "integration-tests/tests/terminal_render_test.rs"
+    verification: "cargo test --package gpu-renderer"
 
   FR-011:
     description: "The system SHALL shape text runs using cosmic-text and rasterize glyphs using swash, caching results in a GPU atlas."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
-      - "torvox-renderer/src/font.rs"
+      - "docs/architecture.md#2.4-gpu-renderer"
+      - "gpu-renderer/src/font.rs"
     api: []
     tests:
-      - "torvox-renderer/tests/font_metrics.rs"
-      - "torvox-renderer/tests/text_ocr_test.rs"
-    verification: "cargo test --package torvox-renderer"
+      - "gpu-renderer/tests/font_metrics.rs"
+      - "gpu-renderer/tests/text_ocr_test.rs"
+    verification: "cargo test --package gpu-renderer"
 
   FR-012:
     description: "The system SHALL pack glyph bitmaps into a GPU texture atlas using guillotiere for dynamic rectangle allocation and eviction."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
-      - "torvox-renderer/src/font.rs"
-      - "torvox-renderer/src/gpu.rs"
+      - "docs/architecture.md#2.4-gpu-renderer"
+      - "gpu-renderer/src/font.rs"
+      - "gpu-renderer/src/gpu.rs"
     api: []
     tests:
-      - "torvox-renderer/tests/gpu_headless_test.rs"
-    verification: "cargo test --package torvox-renderer"
+      - "gpu-renderer/tests/gpu_headless_test.rs"
+    verification: "cargo test --package gpu-renderer"
 
   FR-013:
     description: "The system SHALL maintain a dirty mask (DirtyMask) that tracks which rows of the grid have changed and limit rendering to those rows."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/cell.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/cell.rs"
     api: []
     tests:
-      - "torvox-core/tests/property_tests.rs"
-      - "torvox-core/tests/grid_ops.rs"
-    verification: "cargo test --package torvox-core"
+      - "terminal-core/tests/property_tests.rs"
+      - "terminal-core/tests/grid_ops.rs"
+    verification: "cargo test --package terminal-core"
 
   FR-014:
     description: "The system SHALL render a cell cursor (block, bar, underline, beam) with configurable color and blink behavior."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
-      - "torvox-renderer/src/gpu.rs"
+      - "docs/architecture.md#2.4-gpu-renderer"
+      - "gpu-renderer/src/gpu.rs"
     api: []
     tests:
-      - "torvox-renderer/tests/gpu_headless_test.rs"
-    verification: "cargo test --package torvox-renderer"
+      - "gpu-renderer/tests/gpu_headless_test.rs"
+    verification: "cargo test --package gpu-renderer"
 
   FR-015:
     description: "The system SHALL render text selection highlights (character, word, line, block modes) as colored overlays on the affected cells."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
-      - "torvox-renderer/src/gpu.rs"
-      - "torvox-core/src/selection.rs"
+      - "docs/architecture.md#2.4-gpu-renderer"
+      - "gpu-renderer/src/gpu.rs"
+      - "terminal-core/src/selection.rs"
     api: []
     tests:
-      - "torvox-renderer/tests/gpu_headless_test.rs"
-    verification: "cargo test --package torvox-renderer"
+      - "gpu-renderer/tests/gpu_headless_test.rs"
+    verification: "cargo test --package gpu-renderer"
 
   FR-016:
     description: "The system SHALL support font configuration: family, size, line spacing, and fallback to preferred monospace fonts (Roboto Mono, JetBrains Mono, etc.)."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
-      - "torvox-core/src/config.rs"
-      - "torvox-renderer/src/font.rs"
+      - "docs/architecture.md#2.4-gpu-renderer"
+      - "terminal-core/src/config.rs"
+      - "gpu-renderer/src/font.rs"
     api: []
     tests:
-      - "torvox-renderer/tests/font_metrics.rs"
-      - "torvox-terminal/tests/font_test.rs"
-    verification: "cargo test --package torvox-renderer && cargo test --package torvox-terminal"
+      - "gpu-renderer/tests/font_metrics.rs"
+      - "terminal-engine/tests/font_test.rs"
+    verification: "cargo test --package gpu-renderer && cargo test --package terminal-engine"
 
   FR-017:
     description: "The system SHALL render the terminal background, foreground, and 16-color ANSI palette from the active theme configuration."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
-      - "torvox-renderer/src/gpu.rs"
-      - "torvox-core/src/config.rs"
+      - "docs/architecture.md#2.4-gpu-renderer"
+      - "gpu-renderer/src/gpu.rs"
+      - "terminal-core/src/config.rs"
     api: []
     tests:
-      - "torvox-renderer/tests/gpu_headless_test.rs"
-      - "torvox-core/tests/terminal_colors.rs"
-    verification: "cargo test --package torvox-renderer && cargo test --package torvox-core"
+      - "gpu-renderer/tests/gpu_headless_test.rs"
+      - "terminal-core/tests/terminal_colors.rs"
+    verification: "cargo test --package gpu-renderer && cargo test --package terminal-core"
 
   FR-018:
     description: "The system SHALL recover from GPU surface destruction (e.g., Android activity restart) by recreating the render pipeline and continuing without data loss."
     design:
-      - "docs/architecture.md#2.5-torvox-gui-android"
+      - "docs/architecture.md#2.5-android-gui"
       - "docs/architecture.md#5.8-textureview-over-surfaceview"
-      - "torvox-renderer/src/gpu.rs"
-      - "torvox-gui-android/src/surface.rs"
+      - "gpu-renderer/src/gpu.rs"
+      - "android-gui/src/surface.rs"
     api: []
     tests:
-      - "torvox-gui-android/tests/gpu_noop_tests.rs"
-    verification: "cargo test --package torvox-gui-android"
+      - "android-gui/tests/gpu_noop_tests.rs"
+    verification: "cargo test --package android-gui"
 
   FR-019:
     description: "The system SHALL support the Kitty Graphics Protocol (KGP) for rendering inline images as textured quads."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
-      - "torvox-renderer/src/gpu.rs"
+      - "docs/architecture.md#2.4-gpu-renderer"
+      - "gpu-renderer/src/gpu.rs"
     api: []
     tests: []
-    verification: "cargo test --package torvox-renderer"
+    verification: "cargo test --package gpu-renderer"
 
   # ==========================================================================
   # 3.3 Input Handling (FR-020 — FR-025)
@@ -261,55 +261,55 @@ requirements:
   FR-020:
     description: "The system SHALL encode physical keyboard input using the Kitty Keyboard Protocol (KBP) for extended modifier and key reporting."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/ghostty_terminal.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/ghostty_terminal.rs"
       - "docs/architecture.md#3.2-input-path"
     api: []
     tests:
-      - "torvox-terminal/tests/session_roundtrip.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/session_roundtrip.rs"
+    verification: "cargo test --package terminal-engine"
 
   FR-021:
     description: "The system SHALL support IME (Input Method Editor) text input for composing CJK and other complex characters, with Composing state management."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/terminal.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/terminal.rs"
     api: []
     tests:
-      - "torvox-core/tests/grapheme.rs"
-      - "torvox-core/tests/unicode_icu_conformance.rs"
-    verification: "cargo test --package torvox-core"
+      - "terminal-core/tests/grapheme.rs"
+      - "terminal-core/tests/unicode_icu_conformance.rs"
+    verification: "cargo test --package terminal-core"
 
   FR-022:
     description: "The system SHALL support terminal selection in four modes: character (Char), word (Word), line (Line), and block (Block)."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/selection.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/selection.rs"
     api: []
     tests:
-      - "torvox-core/tests/selection_text.rs"
-      - "torvox-core/tests/selection_integration.rs"
-      - "torvox-terminal/tests/selection_categories.rs"
-      - "torvox-terminal/tests/selection_roundtrip.rs"
+      - "terminal-core/tests/selection_text.rs"
+      - "terminal-core/tests/selection_integration.rs"
+      - "terminal-engine/tests/selection_categories.rs"
+      - "terminal-engine/tests/selection_roundtrip.rs"
       - "fuzz/fuzz_targets/fuzz_selection.rs"
-    verification: "cargo test --package torvox-core && cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-core && cargo test --package terminal-engine"
 
   FR-023:
     description: "The system SHALL automatically expand word-mode selections to word boundaries and detect URLs (http://, https://, ftp://, www.) for URL-aware selection expansion."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/selection.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/selection.rs"
     api: []
     tests:
-      - "torvox-core/tests/selection_text.rs"
-      - "torvox-core/tests/selection_integration.rs"
-    verification: "cargo test --package torvox-core"
+      - "terminal-core/tests/selection_text.rs"
+      - "terminal-core/tests/selection_integration.rs"
+    verification: "cargo test --package terminal-core"
 
   FR-024:
     description: "The system SHALL support touch input gestures: tap to place cursor, long-press for selection handles, and swipe for scrollback navigation."
     design:
-      - "docs/architecture.md#2.5-torvox-gui-android"
-      - "torvox-gui-android/src/surface.rs"
+      - "docs/architecture.md#2.5-android-gui"
+      - "android-gui/src/surface.rs"
     api: []
     tests:
       - "android/app/src/test/java/io/torvox/ui/TouchGestureTest.kt"
@@ -319,13 +319,13 @@ requirements:
   FR-025:
     description: "The system SHALL support configurable backspace mode (DEL 0x7f or BS 0x08) and right-Alt mode (character modifier or meta)."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/config.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/config.rs"
     api: []
     tests:
-      - "torvox-core/tests/config_drift.rs"
-      - "torvox-core/tests/config_integration.rs"
-    verification: "cargo test --package torvox-core"
+      - "terminal-core/tests/config_drift.rs"
+      - "terminal-core/tests/config_integration.rs"
+    verification: "cargo test --package terminal-core"
 
   # ==========================================================================
   # 3.4 Session Management (FR-026 — FR-032)
@@ -334,90 +334,90 @@ requirements:
   FR-026:
     description: "The system SHALL spawn a child process (shell or custom executable) connected to a pseudo-terminal (PTY) via fork/exec."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/pty.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/pty.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/lifecycle_test.rs"
-      - "torvox-terminal/tests/bash_integration.rs"
-      - "torvox-terminal/tests/bash_comprehensive.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/lifecycle_test.rs"
+      - "terminal-engine/tests/bash_integration.rs"
+      - "terminal-engine/tests/bash_comprehensive.rs"
+    verification: "cargo test --package terminal-engine"
 
   FR-027:
     description: "The system SHALL read PTY output on a dedicated reader thread and forward parsed output to the grid update pipeline via a flume channel."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
+      - "docs/architecture.md#2.3-terminal-engine"
       - "docs/architecture.md#4-thread-model"
       - "docs/architecture.md#5.6-6-7-thread-model-per-session"
-      - "torvox-terminal/src/session.rs"
+      - "terminal-engine/src/session.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/concurrent_session.rs"
-      - "torvox-terminal/tests/session_state_machine.rs"
-      - "torvox-terminal/tests/dst_simulation.rs"
-      - "torvox-terminal/tests/shuttle_concurrent.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/concurrent_session.rs"
+      - "terminal-engine/tests/session_state_machine.rs"
+      - "terminal-engine/tests/dst_simulation.rs"
+      - "terminal-engine/tests/shuttle_concurrent.rs"
+    verification: "cargo test --package terminal-engine"
 
   FR-028:
     description: "The system SHALL wait for child process exit on a dedicated waiter thread and emit a ProcessExited event on termination."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
+      - "docs/architecture.md#2.3-terminal-engine"
       - "docs/architecture.md#4-thread-model"
-      - "torvox-terminal/src/session.rs"
+      - "terminal-engine/src/session.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/lifecycle_test.rs"
-      - "torvox-terminal/tests/dst_simulation.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/lifecycle_test.rs"
+      - "terminal-engine/tests/dst_simulation.rs"
+    verification: "cargo test --package terminal-engine"
 
   FR-029:
     description: "The system SHALL support resizing a terminal session (changing rows and columns) and forwarding the new size to the child process via SIGWINCH."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-core/src/grid.rs"
-      - "torvox-terminal/src/session.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-core/src/grid.rs"
+      - "terminal-engine/src/session.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/lifecycle_test.rs"
-      - "torvox-core/tests/grid_ops.rs"
+      - "terminal-engine/tests/lifecycle_test.rs"
+      - "terminal-core/tests/grid_ops.rs"
       - "fuzz/fuzz_targets/fuzz_grid_resize.rs"
-    verification: "cargo test --package torvox-core && cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-core && cargo test --package terminal-engine"
 
   FR-030:
     description: "The system SHALL maintain a bounded scrollback buffer with a configurable maximum (default 50,000 lines), evicting oldest entries when the limit is exceeded."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/grid.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/grid.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/memory_bounds.rs"
-      - "torvox-core/tests/grid_ops.rs"
-      - "torvox-core/tests/grid_snapshot_integration.rs"
-    verification: "cargo test --package torvox-core && cargo test --package torvox-terminal"
+      - "terminal-engine/tests/memory_bounds.rs"
+      - "terminal-core/tests/grid_ops.rs"
+      - "terminal-core/tests/grid_snapshot_integration.rs"
+    verification: "cargo test --package terminal-core && cargo test --package terminal-engine"
 
   FR-031:
     description: "The system SHALL support a scrollback search feature that finds text matching a pattern (regex or literal) within the scrollback history."
     design:
-      - "docs/architecture.md#2.6-torvox-mcp"
-      - "torvox-mcp/src/lib.rs"
+      - "docs/architecture.md#2.6-mcp-server"
+      - "mcp-server/src/lib.rs"
     api:
       - "mcp-tool: read_grid"
       - "mcp-tool: read_scrollback"
       - "mcp-tool: scrollback_search"
     tests:
-      - "torvox-mcp/src/lib.rs"
-    verification: "cargo test --package torvox-mcp"
+      - "mcp-server/src/lib.rs"
+    verification: "cargo test --package mcp-server"
 
   FR-032:
     description: "The system SHALL clear the scrollback buffer when entering the alternate screen and restore it on exit."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/grid.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/grid.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/alt_screen.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/alt_screen.rs"
+    verification: "cargo test --package terminal-engine"
 
   # ==========================================================================
   # 3.5 OSC Sequence Handling (FR-033 — FR-038)
@@ -426,73 +426,73 @@ requirements:
   FR-033:
     description: "The system SHALL intercept OSC 7 sequences and extract the current working directory path as a CwdEvent."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/osc_handler.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/osc_handler.rs"
     api:
       - "mcp-tool: scroll_terminal"
     tests:
-      - "torvox-terminal/tests/osc52.rs"
+      - "terminal-engine/tests/osc52.rs"
       - "fuzz/fuzz_targets/fuzz_osc_handler.rs"
       - "fuzz/fuzz_targets/fuzz_osc_parse.rs"
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   FR-034:
     description: "The system SHALL intercept OSC 8 sequences and extract hyperlink open/close events as HyperlinkEvent."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/osc_handler.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/osc_handler.rs"
     api:
       - "mcp-tool: read_clipboard"
     tests:
-      - "torvox-terminal/tests/osc52.rs"
+      - "terminal-engine/tests/osc52.rs"
       - "fuzz/fuzz_targets/fuzz_osc_handler.rs"
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   FR-035:
     description: "The system SHALL intercept OSC 52 sequences and decode clipboard content as a ClipboardEvent."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/osc_handler.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/osc_handler.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/osc52.rs"
+      - "terminal-engine/tests/osc52.rs"
       - "fuzz/fuzz_targets/fuzz_osc_handler.rs"
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   FR-036:
     description: "The system SHALL intercept OSC 9 (iTerm2) and OSC 777 (rxvt) sequences and extract notification title/body as NotificationEvent."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/osc_handler.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/osc_handler.rs"
     api: []
     tests:
       - "fuzz/fuzz_targets/fuzz_osc_handler.rs"
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   FR-037:
     description: "The system SHALL pass through unrecognised OSC sequences (e.g., OSC 0 for title, OSC 4 for palette change) to the VT parser unchanged."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/osc_handler.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/osc_handler.rs"
     api:
       - "mcp-tool: list_directory"
       - "mcp-tool: read_file"
     tests:
       - "fuzz/fuzz_targets/fuzz_osc_parse.rs"
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   FR-038:
     description: "The system SHALL handle partial OSC sequences that arrive split across multiple input chunks, accumulating state across process() calls."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/osc_handler.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/osc_handler.rs"
     api:
       - "mcp-tool: list_directory"
       - "mcp-tool: read_file"
     tests:
       - "fuzz/fuzz_targets/fuzz_osc_handler.rs"
       - "fuzz/fuzz_targets/fuzz_osc_parse.rs"
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   # ==========================================================================
   # 3.6 Clipboard and Notifications (FR-039 — FR-041)
@@ -501,59 +501,59 @@ requirements:
   FR-039:
     description: "The system SHALL copy selected text to the system clipboard on user request (e.g., copy action from selection)."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "docs/architecture.md#2.5-torvox-gui-android"
-      - "torvox-terminal/src/session.rs"
-      - "torvox-gui-android/src/bridge.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "docs/architecture.md#2.5-android-gui"
+      - "terminal-engine/src/session.rs"
+      - "android-gui/src/bridge.rs"
     api:
       - "mcp-tool: get_app_info"
     tests:
-      - "torvox-terminal/tests/bridge_roundtrip.rs"
-      - "torvox-gui-android/tests/bridge_integration.rs"
-    verification: "cargo test --package torvox-terminal && cargo test --package torvox-gui-android"
+      - "terminal-engine/tests/bridge_roundtrip.rs"
+      - "android-gui/tests/bridge_integration.rs"
+    verification: "cargo test --package terminal-engine && cargo test --package android-gui"
 
   FR-040:
     description: "The system SHALL read clipboard content when requested by terminal applications via OSC 52 (paste)."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/osc_handler.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/osc_handler.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/osc52.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/osc52.rs"
+    verification: "cargo test --package terminal-engine"
 
   FR-041:
     description: "The system SHALL display Android notifications for terminal-emitted OSC 9/777 notification sequences."
     design:
-      - "docs/architecture.md#2.3-torvox-terminal"
-      - "torvox-terminal/src/osc_handler.rs"
+      - "docs/architecture.md#2.3-terminal-engine"
+      - "terminal-engine/src/osc_handler.rs"
     api:
       - "mcp-tool: raise_notification"
     tests: []
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   # ==========================================================================
   # 3.7 SSH/Mosh Connectivity (FR-042 — FR-043)
   # ==========================================================================
 
   FR-042:
-    description: "The system SHALL provide an executable (torvox-exec) capable of establishing SSH and Mosh connections."
+    description: "The system SHALL provide an executable (exec-bin) capable of establishing SSH and Mosh connections."
     design:
-      - "torvox-exec/src/main.rs"
+      - "exec-bin/src/main.rs"
     api: []
     tests:
-      - "torvox-exec/tests/basic.rs"
-    verification: "cargo test --package torvox-exec"
+      - "exec-bin/tests/basic.rs"
+    verification: "cargo test --package exec-bin"
 
   FR-043:
     description: "The system SHALL integrate SSH/Mosh sessions with the terminal session lifecycle (PTY management, resize forwarding)."
     design:
-      - "torvox-exec/src/"
-      - "torvox-terminal/src/session.rs"
+      - "exec-bin/src/"
+      - "terminal-engine/src/session.rs"
     api: []
     tests:
-      - "torvox-exec/tests/basic.rs"
-    verification: "cargo test --package torvox-exec"
+      - "exec-bin/tests/basic.rs"
+    verification: "cargo test --package exec-bin"
 
   # ==========================================================================
   # 3.8 MCP Server Integration (FR-044 — FR-048)
@@ -562,18 +562,18 @@ requirements:
   FR-044:
     description: "The system SHALL run an MCP (Model Context Protocol) server over a Unix domain socket, communicating via JSON-RPC 2.0 with newline-delimited JSON."
     design:
-      - "docs/architecture.md#2.6-torvox-mcp"
+      - "docs/architecture.md#2.6-mcp-server"
     api:
       - "mcp-transport: unix-socket"
       - "mcp-protocol: json-rpc-2.0"
     tests:
-      - "torvox-mcp/src/lib.rs"
-    verification: "cargo test --package torvox-mcp"
+      - "mcp-server/src/lib.rs"
+    verification: "cargo test --package mcp-server"
 
   FR-045:
     description: "The MCP server SHALL expose tools for listing sessions, reading grid state, reading scrollback, reading cursor position, and reading selected text."
     design:
-      - "docs/architecture.md#2.6-torvox-mcp"
+      - "docs/architecture.md#2.6-mcp-server"
     api:
       - "mcp-tool: list_sessions"
       - "mcp-tool: read_grid"
@@ -582,13 +582,13 @@ requirements:
       - "mcp-tool: read_selection"
       - "mcp-tool: read_title"
     tests:
-      - "torvox-mcp/src/lib.rs"
-    verification: "cargo test --package torvox-mcp"
+      - "mcp-server/src/lib.rs"
+    verification: "cargo test --package mcp-server"
 
   FR-046:
     description: "The MCP server SHALL expose tools for writing to the PTY, sending signals, resizing the terminal, and setting clipboard content (gated behind --mcp-allow-write)."
     design:
-      - "docs/architecture.md#2.6-torvox-mcp"
+      - "docs/architecture.md#2.6-mcp-server"
     api:
       - "mcp-tool: send_input"
       - "mcp-tool: send_signal"
@@ -596,31 +596,31 @@ requirements:
       - "mcp-tool: write_clipboard"
       - "mcp-flag: --mcp-allow-write"
     tests:
-      - "torvox-mcp/src/lib.rs"
-    verification: "cargo test --package torvox-mcp"
+      - "mcp-server/src/lib.rs"
+    verification: "cargo test --package mcp-server"
 
   FR-047:
     description: "The MCP server SHALL expose a scrollback search tool that matches a regex pattern and returns matching line numbers, text, and column ranges."
     design:
-      - "docs/architecture.md#2.6-torvox-mcp"
-      - "torvox-mcp/src/lib.rs"
+      - "docs/architecture.md#2.6-mcp-server"
+      - "mcp-server/src/lib.rs"
     api:
       - "mcp-tool: scrollback_search"
       - "mcp-type: SearchMatch"
     tests:
-      - "torvox-mcp/src/lib.rs"
-    verification: "cargo test --package torvox-mcp"
+      - "mcp-server/src/lib.rs"
+    verification: "cargo test --package mcp-server"
 
   FR-048:
     description: "The MCP server SHALL expose an input queue mechanism that watches for a prompt pattern in scrollback and automatically injects queued text (AI agent automation)."
     design:
-      - "docs/architecture.md#2.6-torvox-mcp"
-      - "torvox-mcp/src/lib.rs"
+      - "docs/architecture.md#2.6-mcp-server"
+      - "mcp-server/src/lib.rs"
     api:
       - "mcp-tool: queue_terminal_input"
     tests:
-      - "torvox-mcp/src/lib.rs"
-    verification: "cargo test --package torvox-mcp"
+      - "mcp-server/src/lib.rs"
+    verification: "cargo test --package mcp-server"
 
   # ==========================================================================
   # 3.9 Android Bridge (FR-049 — FR-053)
@@ -629,61 +629,61 @@ requirements:
   FR-049:
     description: "The system SHALL bridge Rust terminal state to Kotlin using boltffi data types (BridgeCell, BridgeAttrs, BridgeGrid) mapped over JNA."
     design:
-      - "docs/architecture.md#2.5-torvox-gui-android"
+      - "docs/architecture.md#2.5-android-gui"
       - "docs/architecture.md#5.5-boltffi-+-jna-bridge"
-      - "torvox-gui-android/src/bridge.rs"
+      - "android-gui/src/bridge.rs"
     api: []
     tests:
-      - "torvox-gui-android/tests/bridge_integration.rs"
-      - "torvox-gui-android/tests/bridge_safety.rs"
-      - "torvox-gui-android/tests/ffi_contract_tests.rs"
-      - "torvox-gui-android/tests/fuzz_wire.rs"
-      - "torvox-terminal/tests/bridge_roundtrip.rs"
-    verification: "cargo test --package torvox-gui-android && cargo test --package torvox-terminal"
+      - "android-gui/tests/bridge_integration.rs"
+      - "android-gui/tests/bridge_safety.rs"
+      - "android-gui/tests/ffi_contract_tests.rs"
+      - "android-gui/tests/fuzz_wire.rs"
+      - "terminal-engine/tests/bridge_roundtrip.rs"
+    verification: "cargo test --package android-gui && cargo test --package terminal-engine"
 
   FR-050:
     description: "The system SHALL synchronize the terminal grid, cursor, selection, and scrollback to the Kotlin UI layer via serialized snapshots (rkyv format)."
     design:
-      - "docs/architecture.md#2.5-torvox-gui-android"
+      - "docs/architecture.md#2.5-android-gui"
       - "docs/architecture.md#5.5-boltffi-+-jna-bridge"
-      - "torvox-core/src/snapshot.rs"
-      - "torvox-gui-android/src/bridge.rs"
+      - "terminal-core/src/snapshot.rs"
+      - "android-gui/src/bridge.rs"
     api: []
     tests:
-      - "torvox-gui-android/tests/bridge_integration.rs"
-      - "torvox-gui-android/tests/fuzz_wire.rs"
-      - "torvox-core/tests/grid_snapshot_integration.rs"
-      - "torvox-terminal/tests/snapshot_comprehensive.rs"
-    verification: "cargo test --package torvox-gui-android && cargo test --package torvox-core"
+      - "android-gui/tests/bridge_integration.rs"
+      - "android-gui/tests/fuzz_wire.rs"
+      - "terminal-core/tests/grid_snapshot_integration.rs"
+      - "terminal-engine/tests/snapshot_comprehensive.rs"
+    verification: "cargo test --package android-gui && cargo test --package terminal-core"
 
   FR-051:
     description: "The system SHALL use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction) via jni_bridge.rs."
     design:
-      - "docs/architecture.md#2.5-torvox-gui-android"
-      - "torvox-gui-android/src/jni_bridge.rs"
+      - "docs/architecture.md#2.5-android-gui"
+      - "android-gui/src/jni_bridge.rs"
     api:
       - "mcp-tool: feed_terminal_output"
       - "mcp-tool: list_queued_inputs"
       - "mcp-tool: cancel_queued_input"
     tests:
-      - "torvox-gui-android/tests/ffi_contract_tests.rs"
-    verification: "cargo test --package torvox-gui-android"
+      - "android-gui/tests/ffi_contract_tests.rs"
+    verification: "cargo test --package android-gui"
 
   FR-052:
     description: "The system SHALL handle Android surface creation and destruction events, recreating the wgpu surface and render pipeline as needed."
     design:
-      - "docs/architecture.md#2.5-torvox-gui-android"
+      - "docs/architecture.md#2.5-android-gui"
       - "docs/architecture.md#5.8-textureview-over-surfaceview"
-      - "torvox-gui-android/src/surface.rs"
+      - "android-gui/src/surface.rs"
     api: []
     tests:
-      - "torvox-gui-android/tests/gpu_noop_tests.rs"
-    verification: "cargo test --package torvox-gui-android"
+      - "android-gui/tests/gpu_noop_tests.rs"
+    verification: "cargo test --package android-gui"
 
   FR-053:
     description: "The system SHALL support ProGuard/R8 obfuscation with -dontoptimize to preserve JNA reflection-based binding."
     design:
-      - "docs/architecture.md#2.5-torvox-gui-android"
+      - "docs/architecture.md#2.5-android-gui"
       - "docs/architecture.md#5.5-boltffi-+-jna-bridge"
     api: []
     tests: []
@@ -696,35 +696,35 @@ requirements:
   FR-054:
     description: "The system SHALL provide 16 built-in color themes: Catppuccin Mocha, Catppuccin Latte, Dracula+, Nord, Tokyo Night, Rose Pine, Gruvbox Dark, Gruvbox Light, Everforest Dark, One Dark, One Light, Monokai, Ayu Dark, Ayu Light, Kanagawa Wave, and Night Owl."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/config.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/config.rs"
     api: []
     tests:
-      - "torvox-core/tests/config_integration.rs"
+      - "terminal-core/tests/config_integration.rs"
       - "android/app/src/test/java/io/torvox/ui/theme/BuiltInThemeTest.kt"
-    verification: "cargo test --package torvox-core && cd android && ./gradlew testDebugUnitTest"
+    verification: "cargo test --package terminal-core && cd android && ./gradlew testDebugUnitTest"
 
   FR-055:
     description: "The system SHALL support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/config.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/config.rs"
     api: []
     tests:
-      - "torvox-core/tests/config_integration.rs"
-      - "torvox-core/tests/config_drift.rs"
-    verification: "cargo test --package torvox-core"
+      - "terminal-core/tests/config_integration.rs"
+      - "terminal-core/tests/config_drift.rs"
+    verification: "cargo test --package terminal-core"
 
   FR-056:
     description: "The system SHALL support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via TerminalConfig."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/config.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/config.rs"
     api: []
     tests:
-      - "torvox-core/tests/config_integration.rs"
-      - "torvox-core/tests/config_drift.rs"
-    verification: "cargo test --package torvox-core"
+      - "terminal-core/tests/config_integration.rs"
+      - "terminal-core/tests/config_drift.rs"
+    verification: "cargo test --package terminal-core"
 
   FR-057:
     description: "The repository SHALL NOT contain golden images or font file blobs. All rendering verification SHALL use logical assertions (pixel-coordinate checks, OCR text detection, Nix font paths) instead of image comparison or bundled binaries."
@@ -734,22 +734,22 @@ requirements:
     api: []
     tests:
       - "tool_lint"  # git ls-files checks in CI
-    verification: "git ls-files 'torvox-renderer/screenshots/*.png' 'torvox-renderer/test-screenshots/*.png' 'torvox-renderer/test_data/*_golden.png' 'android/app/src/test/resources/roborazzi/*.png' '*.ttf' '*.otf' '*.woff' '*.woff2' '*.eot' | wc -l"
+    verification: "git ls-files 'gpu-renderer/screenshots/*.png' 'gpu-renderer/test-screenshots/*.png' 'gpu-renderer/test_data/*_golden.png' 'android/app/src/test/resources/roborazzi/*.png' '*.ttf' '*.otf' '*.woff' '*.woff2' '*.eot' | wc -l"
 
   # ==========================================================================
   # 4.1 Safety (NFR-001 — NFR-005)
   # ==========================================================================
 
   NFR-001:
-    description: "torvox-core SHALL contain zero unsafe blocks. The build MUST fail if cargo geiger --package torvox-core reports any unsafe usage."
+    description: "terminal-core SHALL contain zero unsafe blocks. The build MUST fail if cargo geiger --package terminal-core reports any unsafe usage."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "docs/architecture.md#5.3-no_std-for-torvox-core"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "docs/architecture.md#5.3-no_std-for-terminal-core"
       - "docs/architecture.md#6.4-safety"
     api: []
     tests:
-      - "torvox-integration-tests/tests/tool_lint.rs"
-    verification: "cargo geiger --package torvox-core"
+      - "integration-tests/tests/tool_lint.rs"
+    verification: "cargo geiger --package terminal-core"
 
   NFR-002:
     description: "All unsafe blocks in the codebase SHALL be preceded by a // SAFETY: comment explaining the invariants."
@@ -757,7 +757,7 @@ requirements:
       - "docs/architecture.md#6.4-safety"
     api: []
     tests:
-      - "torvox-integration-tests/tests/tool_lint.rs"
+      - "integration-tests/tests/tool_lint.rs"
     verification: "cargo geiger --all"
 
   NFR-003:
@@ -766,7 +766,7 @@ requirements:
       - "docs/architecture.md#6-error-handling-strategy"
     api: []
     tests:
-      - "torvox-integration-tests/tests/tool_lint.rs"
+      - "integration-tests/tests/tool_lint.rs"
     verification: "cargo test --workspace"
 
   NFR-004:
@@ -775,7 +775,7 @@ requirements:
       - "docs/architecture.md#6.1-error-type-convention"
     api: []
     tests:
-      - "torvox-integration-tests/tests/tool_lint.rs"
+      - "integration-tests/tests/tool_lint.rs"
     verification: "cargo test --workspace"
 
   NFR-005:
@@ -783,12 +783,12 @@ requirements:
     design:
       - "docs/architecture.md#4-thread-model"
       - "docs/architecture.md#6.3-recovery-strategies"
-      - "torvox-terminal/src/session.rs"
+      - "terminal-engine/src/session.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/dst_simulation.rs"
-      - "torvox-terminal/tests/shuttle_concurrent.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/dst_simulation.rs"
+      - "terminal-engine/tests/shuttle_concurrent.rs"
+    verification: "cargo test --package terminal-engine"
 
   # ==========================================================================
   # 4.2 Performance (NFR-006 — NFR-011)
@@ -797,33 +797,33 @@ requirements:
   NFR-006:
     description: "The render thread SHALL use wgpu (Vulkan) for GPU-accelerated rendering. Software rendering via CPU text drawing (Canvas.drawText) is forbidden."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
+      - "docs/architecture.md#2.4-gpu-renderer"
       - "docs/architecture.md#5.1-gpu-only-with-wgpu-vulkan"
     api: []
     tests:
-      - "torvox-renderer/tests/gpu_headless_test.rs"
-      - "torvox-renderer/tests/text_ocr_test.rs"
-    verification: "cargo test --package torvox-renderer"
+      - "gpu-renderer/tests/gpu_headless_test.rs"
+      - "gpu-renderer/tests/text_ocr_test.rs"
+    verification: "cargo test --package gpu-renderer"
 
   NFR-007:
     description: "The glyph atlas SHALL be managed by guillotiere with a cache capacity of at least 10,000 glyph entries and eviction when full."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
-      - "torvox-renderer/src/font.rs"
+      - "docs/architecture.md#2.4-gpu-renderer"
+      - "gpu-renderer/src/font.rs"
     api: []
     tests:
-      - "torvox-renderer/tests/font_metrics.rs"
-    verification: "cargo test --package torvox-renderer"
+      - "gpu-renderer/tests/font_metrics.rs"
+    verification: "cargo test --package gpu-renderer"
 
   NFR-008:
     description: "The scrollback buffer SHALL be bounded to a configurable maximum (default 50,000 lines) with automatic eviction of oldest entries. SHALL NOT exhibit unbounded memory growth."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/grid.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/grid.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/memory_bounds.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/memory_bounds.rs"
+    verification: "cargo test --package terminal-engine"
 
   NFR-009:
     description: "Each terminal session SHALL use a bounded number of threads (6-7): PTY reader, process waiter, render thread, plus shared threads."
@@ -832,29 +832,29 @@ requirements:
       - "docs/architecture.md#5.6-6-7-thread-model-per-session"
     api: []
     tests:
-      - "torvox-terminal/tests/concurrent_session.rs"
-      - "torvox-terminal/tests/session_state_machine.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/concurrent_session.rs"
+      - "terminal-engine/tests/session_state_machine.rs"
+    verification: "cargo test --package terminal-engine"
 
   NFR-010:
     description: "The frame pipeline SHALL only repaint dirty rows as tracked by the DirtyMask bitfield, avoiding full-grid redraws on every frame."
     design:
-      - "docs/architecture.md#2.2-torvox-core"
-      - "torvox-core/src/cell.rs"
+      - "docs/architecture.md#2.2-terminal-core"
+      - "terminal-core/src/cell.rs"
     api: []
     tests:
-      - "torvox-core/tests/property_tests.rs"
-    verification: "cargo test --package torvox-core"
+      - "terminal-core/tests/property_tests.rs"
+    verification: "cargo test --package terminal-core"
 
   NFR-011:
     description: "The shaped text cache SHALL be capped at 4,096 entries to avoid unbounded memory growth from repeated shaping of different text runs."
     design:
-      - "docs/architecture.md#2.4-torvox-renderer"
-      - "torvox-renderer/src/font.rs"
+      - "docs/architecture.md#2.4-gpu-renderer"
+      - "gpu-renderer/src/font.rs"
     api: []
     tests:
-      - "torvox-renderer/tests/font_metrics.rs"
-    verification: "cargo test --package torvox-renderer"
+      - "gpu-renderer/tests/font_metrics.rs"
+    verification: "cargo test --package gpu-renderer"
 
   # ==========================================================================
   # 4.3 Maintainability (NFR-012 — NFR-016)
@@ -867,7 +867,7 @@ requirements:
       - "docs/architecture.md#5.4-one-way-crate-dependency"
     api: []
     tests:
-      - "torvox-integration-tests/tests/tool_lint.rs"
+      - "integration-tests/tests/tool_lint.rs"
       - "android/app/src/test/java/io/torvox/architecture/LayerDependencyTest.kt"
     verification: "cargo test --workspace"
 
@@ -877,7 +877,7 @@ requirements:
       - "docs/architecture.md#7-testing-strategy"
     api: []
     tests:
-      - "torvox-integration-tests/tests/tool_lint.rs"
+      - "integration-tests/tests/tool_lint.rs"
     verification: "cargo clippy --all -- --deny warnings"
 
   NFR-014:
@@ -886,7 +886,7 @@ requirements:
       - "docs/architecture.md#7-testing-strategy"
     api: []
     tests:
-      - "torvox-integration-tests/tests/tool_lint.rs"
+      - "integration-tests/tests/tool_lint.rs"
     verification: "cargo fmt --check"
 
   NFR-015:
@@ -897,16 +897,16 @@ requirements:
     verification: "cd android && ./gradlew spotlessCheck detekt"
 
   NFR-016:
-    description: "When torvox-core types change, the bridge types in torvox-gui-android/src/bridge.rs and TorvoxBridge.kt SHALL be updated correspondingly."
+    description: "When terminal-core types change, the bridge types in android-gui/src/bridge.rs and TorvoxBridge.kt SHALL be updated correspondingly."
     design:
-      - "docs/architecture.md#2.5-torvox-gui-android"
+      - "docs/architecture.md#2.5-android-gui"
       - "docs/architecture.md#5.5-boltffi-+-jna-bridge"
     api: []
     tests:
-      - "torvox-gui-android/tests/bridge_integration.rs"
-      - "torvox-gui-android/tests/ffi_contract_tests.rs"
-      - "torvox-gui-android/tests/fuzz_wire.rs"
-    verification: "cargo test --package torvox-gui-android"
+      - "android-gui/tests/bridge_integration.rs"
+      - "android-gui/tests/ffi_contract_tests.rs"
+      - "android-gui/tests/fuzz_wire.rs"
+    verification: "cargo test --package android-gui"
 
   # ==========================================================================
   # 4.4 Compatibility (NFR-017 — NFR-021)
@@ -928,8 +928,8 @@ requirements:
       - "docs/architecture.md#5.1-gpu-only-with-wgpu-vulkan"
     api: []
     tests:
-      - "torvox-renderer/tests/gpu_headless_test.rs"
-    verification: "cargo test --package torvox-renderer"
+      - "gpu-renderer/tests/gpu_headless_test.rs"
+    verification: "cargo test --package gpu-renderer"
 
   NFR-019:
     description: "The build SHALL be deterministic via Nix flake, pinning all dependencies including the Zig compiler (for Ghostty), Rust toolchain, and Android SDK."
@@ -961,33 +961,33 @@ requirements:
   NFR-022:
     description: "The render thread SHALL detect GPU surface loss and recreate the wgpu pipeline automatically. After 100 consecutive errors (~10 seconds), the thread SHALL exit permanently and require a new surface to restart."
     design:
-      - "docs/architecture.md#2.5-torvox-gui-android"
+      - "docs/architecture.md#2.5-android-gui"
       - "docs/architecture.md#6.3-recovery-strategies"
-      - "torvox-renderer/src/gpu.rs"
+      - "gpu-renderer/src/gpu.rs"
     api: []
     tests:
-      - "torvox-gui-android/tests/gpu_noop_tests.rs"
-    verification: "cargo test --package torvox-gui-android"
+      - "android-gui/tests/gpu_noop_tests.rs"
+    verification: "cargo test --package android-gui"
 
   NFR-023:
     description: "The OSC handler SHALL cap payload size at 1 MB (MAX_PAYLOAD_BYTES) to prevent denial-of-service via oversized OSC sequences."
     design:
-      - "torvox-terminal/src/osc_handler.rs"
+      - "terminal-engine/src/osc_handler.rs"
     api: []
     tests:
       - "fuzz/fuzz_targets/fuzz_osc_handler.rs"
-    verification: "cargo test --package torvox-terminal"
+    verification: "cargo test --package terminal-engine"
 
   NFR-024:
     description: "The system SHALL recover from PTY read errors without crashing the session. The reader thread SHALL log errors and continue reading."
     design:
       - "docs/architecture.md#6.3-recovery-strategies"
-      - "torvox-terminal/src/session.rs"
+      - "terminal-engine/src/session.rs"
     api: []
     tests:
-      - "torvox-terminal/tests/dst_simulation.rs"
-      - "torvox-terminal/tests/concurrent_session.rs"
-    verification: "cargo test --package torvox-terminal"
+      - "terminal-engine/tests/dst_simulation.rs"
+      - "terminal-engine/tests/concurrent_session.rs"
+    verification: "cargo test --package terminal-engine"
 
   # 4.6 Infrastructure (NFR-025)
   # ==========================================================================
@@ -995,12 +995,12 @@ requirements:
   NFR-025:
     description: "The system SHALL provide unified logging infrastructure that writes to both logcat and a rotating file, with log levels configurable independently for each output."
     design:
-      - "torvox-gui-android/src/logging.rs"
+      - "android-gui/src/logging.rs"
     api:
       - "torvox_bridge_init_logger"
       - "torvox_bridge_set_log_file_path"
     tests: []
-    verification: "ls torvox-gui-android/src/logging.rs"
+    verification: "ls android-gui/src/logging.rs"
 
 # ============================================================================
 # Verification Methods
@@ -1009,15 +1009,15 @@ requirements:
 
 verification_methods:
   cargo_test_workspace: "cargo test --workspace — Runs all Rust unit, integration, doc, and property tests across all crates."
-  cargo_test_package_core: "cargo test --package torvox-core — Runs tests for the data model crate."
-  cargo_test_package_terminal: "cargo test --package torvox-terminal — Runs tests for the PTY/VT/session crate."
-  cargo_test_package_renderer: "cargo test --package torvox-renderer — Runs tests for the GPU rendering crate."
-  cargo_test_package_gui: "cargo test --package torvox-gui-android — Runs tests for the Android bridge crate."
-  cargo_test_package_mcp: "cargo test --package torvox-mcp — Runs tests for the MCP server crate."
-  cargo_test_package_exec: "cargo test --package torvox-exec — Runs tests for the SSH/Mosh executable crate."
+  cargo_test_package_core: "cargo test --package terminal-core — Runs tests for the data model crate."
+  cargo_test_package_terminal: "cargo test --package terminal-engine — Runs tests for the PTY/VT/session crate."
+  cargo_test_package_renderer: "cargo test --package gpu-renderer — Runs tests for the GPU rendering crate."
+  cargo_test_package_gui: "cargo test --package android-gui — Runs tests for the Android bridge crate."
+  cargo_test_package_mcp: "cargo test --package mcp-server — Runs tests for the MCP server crate."
+  cargo_test_package_exec: "cargo test --package exec-bin — Runs tests for the SSH/Mosh executable crate."
   cargo_clippy: "cargo clippy --all -- --deny warnings — Static analysis with Clippy, denying all warnings."
   cargo_fmt_check: "cargo fmt --check — Verifies code formatting consistency."
-  cargo_geiger_core: "cargo geiger --package torvox-core — Verifies zero unsafe blocks in torvox-core."
+  cargo_geiger_core: "cargo geiger --package terminal-core — Verifies zero unsafe blocks in terminal-core."
   cargo_geiger_all: "cargo geiger — Verifies safety annotations across all crates."
   gradle_test: "cd android && ./gradlew testDebugUnitTest — Runs Kotlin JVM unit tests via Gradle."
   gradle_spotless: "cd android && ./gradlew spotlessCheck detekt — Kotlin formatting and lint checks."

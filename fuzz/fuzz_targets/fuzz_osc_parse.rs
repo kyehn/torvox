@@ -2,7 +2,7 @@
 use libfuzzer_sys::fuzz_target;
 
 fuzz_target!(|data: &[u8]| {
-    use torvox_terminal::ghostty_terminal::GhosttyTerminal;
+    use terminal_engine::ghostty_terminal::GhosttyTerminal;
 
     let Ok(mut terminal) = GhosttyTerminal::new(24, 80, 1000) else {
         return;

@@ -14,7 +14,7 @@ def wait-for-boot [--boot_timeout: int = 360] {
             return
         }
         if ((date now) - $start) > ($boot_timeout * 1sec) {
-            let log_path = ($env.HOME | path join ".android" "avd" "torvox_test.avd" "emulator.log")
+            let log_path = ($env.HOME | path join ".android" "avd" "test_avd.avd" "emulator.log")
             if ($log_path | path exists) {
                 print "=== EMULATOR LOG (last 30 lines) ==="
                 open $log_path | lines | last 30 | each { print $in }
@@ -36,7 +36,7 @@ def main [--boot_timeout: int = 360] {
     }
 
     let avdmanager_path = ($sdk_root | path join "cmdline-tools" "latest" "bin" "avdmanager")
-    let avd_ini = ($env.ANDROID_AVD_HOME | path join "avd" "torvox_test.ini")
+    let avd_ini = ($env.ANDROID_AVD_HOME | path join "avd" "test_avd.ini")
     let avd_dir = ($env.ANDROID_AVD_HOME | path join "avd")
     mkdir $avd_dir
 
@@ -47,11 +47,11 @@ def main [--boot_timeout: int = 360] {
         if not ($images_dir | path exists) {
             ^($sdkmanager_path) "--install" $system_image
         }
-        ^($avdmanager_path) create avd --name torvox_test --package $system_image --device "pixel_6" --force
+        ^($avdmanager_path) create avd --name test_avd --package $system_image --device "pixel_6" --force
     }
 
     let emulator_path = ($sdk_root | path join "emulator" "emulator")
-    ^setsid --fork ($emulator_path) -avd torvox_test -no-window -gpu swiftshader_indirect -no-audio -no-boot-anim -port 5554 -no-snapshot -no-metrics -wipe-data -memory 2048
+    ^setsid --fork ($emulator_path) -avd test_avd -no-window -gpu swiftshader_indirect -no-audio -no-boot-anim -port 5554 -no-snapshot -no-metrics -wipe-data -memory 2048
     wait-for-boot --boot_timeout $boot_timeout
     let sdk = (^adb shell getprop ro.build.version.sdk | str trim)
     if $sdk != "35" {

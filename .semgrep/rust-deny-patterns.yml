@@ -1,0 +1,90 @@
+rules:
+  - id: no-dbg-macro
+    patterns:
+      - pattern: dbg!($ARG)
+      - pattern-not-inside: |
+          #[cfg(test)]
+          ...
+      - pattern-not-inside: |
+          #[test]
+          ...
+      - pattern-not-inside: |
+          mod tests {
+            ...
+          }
+    message: "`dbg!()` is for debugging only. Remove before committing."
+    severity: ERROR
+    languages: [rust]
+    fix: ""
+    paths:
+      exclude:
+        - "*/test/*"
+        - "*/tests/*"
+
+  - id: no-todo-unimplemented
+    patterns:
+      - pattern-either:
+          - pattern: todo!()
+          - pattern: unimplemented!()
+      - pattern-not-inside: |
+          #[cfg(test)]
+          ...
+      - pattern-not-inside: |
+          #[test]
+          ...
+      - pattern-not-inside: |
+          mod tests {
+            ...
+          }
+    message: "`todo!()` and `unimplemented!()` panic at runtime. Replace with a real implementation or a compile-time marker."
+    severity: ERROR
+    languages: [rust]
+    paths:
+      exclude:
+        - "*/test/*"
+        - "*/tests/*"
+
+  - id: no-process-exit
+    patterns:
+      - pattern: std::process::exit($ARG)
+    message: "`std::process::exit()` kills the process immediately without cleanup. Return an error instead."
+    severity: ERROR
+    languages: [rust]
+    paths:
+      exclude:
+        - "**/*/tests/*"
+        - "**/exec-bin/**"
+        - "**/mcp-server/**"
+
+  - id: no-transmute-without-safety
+    patterns:
+      - pattern: std::mem::transmute<$TYPE>($ARG)
+      - pattern-not: |
+          // SAFETY: ...
+          std::mem::transmute<$TYPE>($ARG)
+    message: "`std::mem::transmute()` is extremely unsafe. Add a `// SAFETY: ...` comment explaining why the types have the same layout."
+    severity: ERROR
+    languages: [rust]
+
+  - id: no-allow-dead-code-without-comment
+    patterns:
+      - pattern: "#[allow(dead_code)]"
+      - pattern-not: |
+          // $COMMENT
+          #[allow(dead_code)]
+    message: "`#[allow(dead_code)]` suppresses compiler warnings. Add a comment explaining why the item is intentionally unused."
+    severity: WARNING
+    languages: [rust]
+
+  - id: no-eprintln-library
+    patterns:
+      - pattern: eprintln!($ARG)
+    message: "`eprintln!` in library code writes to stderr. Use a logging framework instead."
+    severity: WARNING
+    languages: [rust]
+    paths:
+      exclude:
+        - "**/*/examples/*"
+        - "**/*/tests/*"
+        - "**/exec-bin/**"
+        - "**/mcp-server/**"

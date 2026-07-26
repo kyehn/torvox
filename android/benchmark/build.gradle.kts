@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "io.torvox.benchmark"
+    namespace = "io.term.benchmark"
     compileSdk = 37
 
     defaultConfig {

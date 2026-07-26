@@ -1,6 +1,6 @@
 -dontoptimize
 -dontobfuscate
--keep class io.torvox.** { *; }
+-keep class io.term.** { *; }
 -keepclassmembers class * {
     @dagger.hilt.android.lifecycle.HiltViewModel <init>(...);
 }
@@ -18,4 +18,4 @@
 -keep class com.sun.jna.**$* { *; }
 
 -keep class io.cucumber.** { *; }
--keep class io.torvox.cucumber.** { *; }
+-keep class io.term.cucumber.** { *; }

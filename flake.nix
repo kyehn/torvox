@@ -130,7 +130,7 @@
               deadnix
               pkg-config
               openssl
-              zig_0_15
+              zig_0_16
               cargo-ndk
               maestro
               semgrep
@@ -179,7 +179,7 @@
             };
             shellHook = ''
               set -e
-              export PATH="${pkgs.lib.makeBinPath [ pkgs.zig_0_15 ]}:$PATH"
+              export PATH="${pkgs.lib.makeBinPath [ pkgs.zig_0_16 ]}:$PATH"
               export GHOSTTY_SOURCE_DIR="$(nu scripts/bootstrap-libghostty.nu | tail -1)"
               nu scripts/fetch-aosp-testkey.nu
               nu scripts/download-rapidocr-models.nu

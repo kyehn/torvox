@@ -1,0 +1,28 @@
+[package]
+name = "gpu-renderer"
+version.workspace = true
+edition.workspace = true
+description = "GPU-native terminal renderer (wgpu + cosmic-text + swash)"
+
+[dependencies]
+terminal-core = { workspace = true }
+terminal-engine = { workspace = true }
+wgpu = { workspace = true, features = ["spirv", "gles", "vulkan"] }
+bytemuck = { workspace = true }
+cosmic-text = { workspace = true }
+fontdb = { workspace = true }
+swash = { workspace = true }
+guillotiere = { workspace = true }
+thiserror = { workspace = true }
+lru = { workspace = true }
+futures = { workspace = true }
+raw-window-handle = { workspace = true }
+log = { workspace = true }
+renderdoc = "0.12.1"
+
+[dev-dependencies]
+naga = { version = "29", default-features = false, features = ["wgsl-in", "spv-out"] }
+image = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,4 +1,4 @@
-appId: io.torvox
+appId: io.term
 ---
 - launchApp:
     clearState: true

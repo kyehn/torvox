@@ -1,0 +1,19 @@
+[package]
+name = "integration-tests"
+version.workspace = true
+edition.workspace = true
+description = "Integration tests terminal emulator"
+
+[dependencies]
+terminal-core = { workspace = true }
+terminal-engine = { workspace = true }
+gpu-renderer = { workspace = true }
+
+[dev-dependencies]
+toml = { workspace = true }
+wgpu = { workspace = true }
+futures = { workspace = true }
+regex-lite = "0.1"
+
+[lints]
+workspace = true
