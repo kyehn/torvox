@@ -2,7 +2,7 @@
 
 ## Project Context
 
-Torvox is a GPU-accelerated Android terminal emulator using wgpu (Vulkan) for rendering, Ghostty VT parsing, and a Kotlin+Compose UI. Crate dependency order is strictly one-way.
+GPU-accelerated Android terminal emulator using wgpu (Vulkan) for rendering, Ghostty VT parsing, and a Kotlin+Compose UI. Crate dependency order is strictly one-way.
 
 ## Setup and Commands
 
@@ -22,8 +22,8 @@ cd android && ./gradlew assembleDebug # Android debug APK
 cd android && ./gradlew spotlessCheck detekt # Kotlin lint
 nu scripts/check-rust.nu # Rust CI script
 nu scripts/test-android-gradle.nu # Android CI script
-cargo test --package torvox-core
-cargo test run --package torvox-core --test property_tests
+cargo test --package terminal-core
+cargo test run --package terminal-core --test property_tests
 ```
 
 ---
@@ -36,8 +36,8 @@ Checklist (run `git config core.hooksPath .githooks` once before first commit):
 2. `cargo clippy --all -- --deny warnings` exits 0
 3. `cargo fmt --check` exits 0
 4. `cd android && ./gradlew spotlessCheck detekt` exits 0
-5. `cargo geiger --package torvox-core` shows no new `unsafe`
-6. Bridge type sync: if `torvox-core` types changed, `bridge.rs` + `TorvoxBridge.kt` updated
+5. `cargo geiger --package terminal-core` shows no new `unsafe`
+6. Bridge type sync: if `terminal-core` types changed, `bridge.rs` + `TorvoxBridge.kt` updated
 
 ---
 
@@ -66,7 +66,7 @@ Use `git push --no-verify` to bypass hooks in emergencies (e.g., broken toolchai
 ### Never
 
 - Java files, portable-pty, bincode, rust-android-gradle
-- `unsafe` in `torvox-core`
+- `unsafe` in `terminal-core`
 - `setup_scaffolding!()` in multiple crates
 - `Canvas.drawText` per cell, raw bytes across FFI, `/proc/self/exe`
 - `anyhow` in library crates — use `thiserror 2`
@@ -89,8 +89,8 @@ See `docs/architecture.md` for the full architecture document including module b
 ### Crate Direction (strict one-way)
 
 ```text
-libghostty-vt / libghostty-vt-sys ← torvox-core ← torvox-terminal ←
-torvox-renderer ← torvox-gui-android ← android/app
+libghostty-vt / libghostty-vt-sys ← terminal-core ← terminal-engine ←
+gpu-renderer ← android-gui ← android/app
 ```
 
 Each crate depends only on the crate directly below it in the chain. Violations break the build. Verify with `cargo metadata --no-deps --format-version 1`.
@@ -108,9 +108,9 @@ GPU-only via wgpu (Vulkan). No GL, no CPU software fallback. Emulators use Swift
 ## When Writing Code
 
 - Read `docs/standards/STYLE.md` before writing any file
-- `torvox-core` is `#![no_std]`: no `std::`, no `alloc::` unless behind `#[cfg(feature = "std")]`
-- `torvox-core` has zero `unsafe`: verify with `cargo geiger --package torvox-core`
-- Sync `torvox-gui-android/src/bridge.rs` types when changing `torvox-core` types
+- `terminal-core` is `#![no_std]`: no `std::`, no `alloc::` unless behind `#[cfg(feature = "std")]`
+- `terminal-core` has zero `unsafe`: verify with `cargo geiger --package terminal-core`
+- Sync `android-gui/src/bridge.rs` types when changing `terminal-core` types
 - Run `TorvoxBridge.kt` JNA bindings check when modifying bridge types
 - Lint after every file change: `cargo clippy --all -- --deny warnings`
 - No magic numbers: use named constants with descriptive names
@@ -158,7 +158,7 @@ GPU-only via wgpu (Vulkan). No GL, no CPU software fallback. Emulators use Swift
 | 3 | thiserror 2.x + no_std | Set optional, std feature enables |
 | 4 | boltffi multi-crate export | Only one export location allowed |
 | 5 | boltffi `message` field | Conflicts with Kotlin `Throwable.message` |
-| 6 | ghostty uses zig_0_15 | Ensure `zig_0_15` is first in PATH via `shellHook` so ghostty finds the correct version. No `CARGO_TARGET_*_LINKER` needed. |
+| 6 | ghostty uses zig_0_16 | Ensure `zig_0_16` is first in PATH via `shellHook` so ghostty finds the correct version. No `CARGO_TARGET_*_LINKER` needed. |
 | 7 | boltffi CLI no bridge gen | Use JNA manual binding (TorvoxBridge.kt) |
 | 8 | libghostty-vt API | `scrollback_rows()` not `history_size()`; `resize(rows, cols)` two params |
 | 9 | Ghostty Android linking | Dynamic (dylib) + build.rs SONAME strip; static fails (Zig install archive has only lib_vt.o) |
@@ -179,23 +179,23 @@ GPU-only via wgpu (Vulkan). No GL, no CPU software fallback. Emulators use Swift
 
 | File | Purpose |
 |------|---------|
-| `torvox-core/src/cell.rs` | Cell, Attrs, Color, DirtyMask (no_std) |
-| `torvox-core/src/grid.rs` | Grid, Scrollback |
-| `torvox-core/src/config.rs` | ThemeConfig, ShellConfig, TerminalConfig |
-| `torvox-core/src/selection.rs` | Selection modes (char/word/line/block) |
-| `torvox-core/src/event.rs` | TerminalEvent, FocusEvent, CwdEvent |
-| `torvox-core/src/snapshot.rs` | rkyv serialization for Android bridge |
-| `torvox-terminal/src/pty.rs` | PtyPair — only allowed fork unsafe |
-| `torvox-terminal/src/session.rs` | Session orchestrator, clipboard, shell integration |
-| `torvox-terminal/src/ghostty_terminal.rs` | GhosttyTerminal (VT engine wrapper) |
-| `torvox-terminal/src/keyboard.rs` | Input encoding (Kitty keyboard protocol) |
-| `torvox-terminal/src/shell_env.rs` | ShellEnv (pre-exec environment setup) |
-| `torvox-renderer/src/gpu.rs` | wgpu render pipeline, atlas, instance management |
-| `torvox-renderer/src/font.rs` | cosmic-text shaping, swash glyph rasterization |
-| `torvox-gui-android/src/bridge.rs` | boltffi data bridge — only export location |
-| `torvox-gui-android/src/jni_bridge.rs` | JNI bridge for NDK functions (ANativeWindow) |
-| `torvox-gui-android/src/surface.rs` | AndroidSurface, render pipeline |
-| `torvox-mcp/src/main.rs` | MCP server (JSON-RPC over Unix socket) |
+| `terminal-core/src/cell.rs` | Cell, Attrs, Color, DirtyMask (no_std) |
+| `terminal-core/src/grid.rs` | Grid, Scrollback |
+| `terminal-core/src/config.rs` | ThemeConfig, ShellConfig, TerminalConfig |
+| `terminal-core/src/selection.rs` | Selection modes (char/word/line/block) |
+| `terminal-core/src/event.rs` | TerminalEvent, FocusEvent, CwdEvent |
+| `terminal-core/src/snapshot.rs` | rkyv serialization for Android bridge |
+| `terminal-engine/src/pty.rs` | PtyPair — only allowed fork unsafe |
+| `terminal-engine/src/session.rs` | Session orchestrator, clipboard, shell integration |
+| `terminal-engine/src/ghostty_terminal.rs` | GhosttyTerminal (VT engine wrapper) |
+| `terminal-engine/src/keyboard.rs` | Input encoding (Kitty keyboard protocol) |
+| `terminal-engine/src/shell_env.rs` | ShellEnv (pre-exec environment setup) |
+| `gpu-renderer/src/gpu.rs` | wgpu render pipeline, atlas, instance management |
+| `gpu-renderer/src/font.rs` | cosmic-text shaping, swash glyph rasterization |
+| `android-gui/src/bridge.rs` | boltffi data bridge — only export location |
+| `android-gui/src/jni_bridge.rs` | JNI bridge for NDK functions (ANativeWindow) |
+| `android-gui/src/surface.rs` | AndroidSurface, render pipeline |
+| `mcp-server/src/main.rs` | MCP server (JSON-RPC over Unix socket) |
 | `fuzz/fuzz_targets/` | cargo-fuzz targets (VT, OSC, grid, keyboard, selection, attrs, wire) |
 
 ---

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Torvox notification icon: terminal prompt silhouette for status bar -->
+<!-- notification icon: terminal prompt silhouette for status bar -->
 <!-- Must be single-color silhouette (Android tints notification icons) -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp"

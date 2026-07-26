@@ -1,5 +1,5 @@
 #!/usr/bin/env -S nix develop --command nu
-# Build Android native libs: cdylib + torvox-exec
+# Build Android native libs: cdylib + exec-bin
 # Uses cargo ndk (no zigbuild, no zig version checks)
 # Usage: scripts/build-android-libs.nu [--profile dev] [--profile release] [<abi>...]
 #   <abi>: arm64-v8a or x86_64 (positional, defaults to both)
@@ -45,10 +45,10 @@ def main [--profile: string = "", ...abis: string] {
         }
     }
 
-    # Build torvox-gui-android (cdylib) for all profiles and ABIs
+    # Build android-gui (cdylib) for all profiles and ABIs
     for profile in $profiles {
         let ndk_args = ($abis | each { |a| ["--target", $a] } | flatten)
-        cargo ndk ...$ndk_args --platform 21 build --package torvox-gui-android --profile $profile
+        cargo ndk ...$ndk_args --platform 21 build --package android-gui --profile $profile
     }
 
     # Copy release-profile .so to jniLibs (optimized for device)
@@ -58,12 +58,12 @@ def main [--profile: string = "", ...abis: string] {
         let triple = abi-to-target-triple $abi
         let lib_dir = $env.PWD | path join $JNILIBS $abi
         mkdir $lib_dir
-        let so_path = $env.PWD | path join "target" $triple $deploy_outdir "libtorvox_android.so"
+        let so_path = $env.PWD | path join "target" $triple $deploy_outdir "libandroid_gui_lib.so"
         if not ($so_path | path exists) {
-            print $"ERROR: libtorvox_android.so not found at ($so_path)"
+            print $"ERROR: libandroid_gui_lib.so not found at ($so_path)"
             exit 1
         }
-        cp $so_path ($lib_dir | path join "libtorvox_android.so")
+        cp $so_path ($lib_dir | path join "libandroid_gui_lib.so")
 
         let size = (stat --format=%s $so_path | str trim | into int)
         if $size < $MINIMUM_SO_SIZE_BYTES {
@@ -74,7 +74,7 @@ def main [--profile: string = "", ...abis: string] {
 
     # Ghostty linkage check
     for abi in $abis {
-        let so_path = $env.PWD | path join $JNILIBS $abi "libtorvox_android.so"
+        let so_path = $env.PWD | path join $JNILIBS $abi "libandroid_gui_lib.so"
         let readelf_out = (readelf --dynamic $so_path)
         let ghostty_needed = ($readelf_out | lines | where { $in =~ "NEEDED" and $in =~ "ghostty" })
         if not ($ghostty_needed | is-empty) {
@@ -101,15 +101,15 @@ def main [--profile: string = "", ...abis: string] {
         }
     }
 
-    # Build torvox-exec for all ABIs (always release for on-device)
+    # Build exec-bin for all ABIs (always release for on-device)
     let ndk_args = ($abis | each { |a| ["--target", $a] } | flatten)
-    cargo ndk ...$ndk_args --platform 21 build --package torvox-exec --profile release
+    cargo ndk ...$ndk_args --platform 21 build --package exec-bin --profile release
     for abi in $abis {
         let triple = abi-to-target-triple $abi
         let bin_dir = $env.PWD | path join $ASSETS_BIN $abi
         mkdir $bin_dir
-        let exec_path = $env.PWD | path join "target" $triple "release" "torvox-exec"
-        cp $exec_path ($bin_dir | path join "torvox-exec")
-        chmod +x ($bin_dir | path join "torvox-exec")
+        let exec_path = $env.PWD | path join "target" $triple "release" "exec-bin"
+        cp $exec_path ($bin_dir | path join "exec-bin")
+        chmod +x ($bin_dir | path join "exec-bin")
     }
 }

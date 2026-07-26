@@ -1,0 +1,69 @@
+rules:
+  - id: no-globalscope-launch
+    patterns:
+      - pattern: GlobalScope.launch { ... }
+    message: "`GlobalScope.launch` creates a fire-and-forget coroutine with no lifecycle management. Use `viewModelScope`, `lifecycleScope`, or a custom `CoroutineScope` tied to the component lifecycle."
+    severity: ERROR
+    languages: [kotlin]
+    fix: |
+      $SCOPE.launch { ... }
+
+  - id: no-runblocking-production
+    patterns:
+      - pattern: runBlocking { ... }
+      - pattern-not-inside: |
+          @Test
+          ...
+    message: "`runBlocking` blocks the current thread. Use structured concurrency with `suspend` functions and appropriate scopes."
+    severity: ERROR
+    languages: [kotlin]
+    paths:
+      exclude:
+        - "*/test/*"
+        - "*/tests/*"
+
+  - id: no-non-null-assertion
+    patterns:
+      - pattern: $VAR!!
+    message: "Non-null assertion `!!` throws NullPointerException if the value is null. Use safe calls (`?.`), Elvis (`?:`), or proper null handling."
+    severity: WARNING
+    languages: [kotlin]
+    paths:
+      exclude:
+        - "**/*/test/*"
+        - "**/*/tests/*"
+        - "**/*/androidTest/*"
+
+  - id: no-thread-block
+    patterns:
+      - pattern: thread { ... }
+    message: "Raw `thread { }` is discouraged. Use `viewModelScope.launch` or `lifecycleScope.launch` with `Dispatchers.IO` for background work."
+    severity: WARNING
+    languages: [kotlin]
+
+  - id: no-system-exit
+    patterns:
+      - pattern: System.exit($ARG)
+    message: "`System.exit()` terminates the JVM process. Use proper activity/fragment lifecycle management."
+    severity: ERROR
+    languages: [kotlin, java]
+
+  - id: no-map-get-nonnull
+    patterns:
+      - pattern: $MAP.get($KEY)!!
+    message: "`.get()!!` throws NullPointerException if the key is missing. Use `$MAP[$KEY] ?: <default>` or `$MAP.getValue($KEY)`."
+    severity: WARNING
+    languages: [kotlin]
+
+  - id: no-raw-async-callback
+    patterns:
+      - pattern: |
+          object : $CALLBACK {
+            ...
+          }
+      - metavariable-pattern:
+          metavariable: $CALLBACK
+          pattern: AsyncCallback
+    message: "Raw `object : AsyncCallback` blocks the callback style. Use coroutines (`suspend` functions) instead."
+    severity: WARNING
+    languages: [kotlin]
