@@ -22,7 +22,7 @@ pub enum Command {
         cols: u32,
     },
     TakeSnapshot {
-        tx: Sender<GridSnapshot>,
+        tx: Sender<Arc<GridSnapshot>>,
         scroll_offset: u32,
     },
     ScrollbackLength(Sender<u32>),
@@ -55,9 +55,9 @@ pub enum Command {
     Title(Sender<String>),
     Cwd(Sender<String>),
     ModeGet(u16, u8, Sender<bool>),
-    TakeKgpImage {
+    TakeKittyGraphicsImage {
         id: u32,
-        tx: Sender<Option<KgpImageData>>,
+        tx: Sender<Option<KittyGraphicsImageData>>,
     },
     KeyEncode {
         key_code: u32,
@@ -67,12 +67,16 @@ pub enum Command {
         unshifted_char: u32,
         tx: Sender<Vec<u8>>,
     },
+    /// Serialize terminal state using Ghostty Formatter VT API.
+    SaveSession {
+        tx: Sender<Vec<u8>>,
+    },
     Terminate,
 }
 
 pub(crate) struct SnapshotCache {
-    pub(crate) cached: GridSnapshot,
-    pub(crate) pending_rx: Option<Receiver<GridSnapshot>>,
+    pub(crate) cached: Arc<GridSnapshot>,
+    pub(crate) pending_rx: Option<Receiver<Arc<GridSnapshot>>>,
     pub(crate) initialized: bool,
 }
 
@@ -92,5 +96,5 @@ pub(crate) struct RunConfig {
     /// Vec<CellData> (via CellIterator) whenever the grid changes.
     /// This is the data path for the new thread-split architecture:
     ///   Session thread → Vec<CellData> → Render thread
-    pub(crate) cell_data_tx: Option<flume::Sender<Vec<CellData>>>,
+    pub(crate) cell_data_tx: Option<flume::Sender<(Vec<CellData>, CursorInfo)>>,
 }

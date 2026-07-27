@@ -3,9 +3,7 @@
 //! This crate owns the PTY lifecycle, the VT parsing engine
 //! ([`ghostty_terminal`], wrapping `libghostty-vt`), and the [`session`]
 //! coordinator that wires the PTY reader, input writer, process waiter, and
-//! renderer together. It depends on the core crate (data model) and
-//! `libghostty-vt` (vendored VT parser) and is depended on by
-//! the renderer and GUI crates.
+//! renderer together.
 //!
 //! Key realities (post-overhaul):
 //! * The Ghostty key encoder (`key::Encoder` + `key::Event`) is allocated
@@ -16,20 +14,27 @@
 //! * PTY hygiene (setsid + controlling tty, IUTF8, IXON/IXOFF cleared,
 //!   `ws_xpixel`/`ws_ypixel`, stray-fd close) is configured in [`pty`].
 
-pub mod action_parser;
-pub mod cursor_cmds;
 pub mod ghostty_terminal;
 pub mod mock_pty;
 pub mod osc_handler;
 pub mod output_processor;
 pub mod pty;
 pub mod session;
-pub mod sgr_parser;
+pub use session::ThemeConfig;
 pub mod shell_env;
 
-pub mod snapshot_test;
-pub mod test_helpers;
-pub mod vt_conformance;
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) mod action_parser;
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) mod cursor_cmds;
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) mod sgr_parser;
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) mod snapshot_test;
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) mod test_helpers;
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) mod vt_conformance;
 
 pub use mock_pty::{MockPty, MockPtyHandle};
 pub use pty::{Pty, PtyError, PtyPair};

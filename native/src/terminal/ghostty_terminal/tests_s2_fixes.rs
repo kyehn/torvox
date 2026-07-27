@@ -118,6 +118,23 @@ fn take_snapshot_with_scroll_returns_dims_when_alive() {
     assert_invariants(&snap);
 }
 
+/// When scroll_offset > 0, build_snapshot falls back to GridSnapshot::fallback()
+/// because RenderState doesn't expose scrollback. The fallback snapshot must
+/// have the correct rows/cols with one CellSnapshot per cell.
+#[test]
+fn scrollback_fallback_uses_fallback_snapshot() {
+    let t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    t.flush();
+    let snap = t.take_snapshot_with_scroll(1);
+    assert_eq!(snap.rows, 24, "fallback snapshot rows must match terminal");
+    assert_eq!(snap.cols, 80, "fallback snapshot cols must match terminal");
+    assert_eq!(
+        snap.cells.len(),
+        (24 * 80) as usize,
+        "fallback snapshot must have one CellSnapshot per cell"
+    );
+}
+
 // ── RK1–RK4: keyboard encoder correctness ─────────────────────
 
 /// RK1: `utf8` is the produced char ('A'), distinct from the

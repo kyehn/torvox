@@ -17,6 +17,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import io.term.runtime.LogUtil
 import io.term.runtime.TerminalRuntime
+import io.term.bridge.NativeBridge
 import io.term.settings.SettingsRepository
 import io.term.ui.KeyboardMode
 import io.term.ui.ModifierKey
@@ -645,6 +646,7 @@ constructor(
     }
 
     fun setMcpServerEnabled(enabled: Boolean) {
+        NativeBridge.setMcpEnabled(enabled)
         viewModelScope.launch {
             settingsRepository.setMcpServerEnabled(enabled)
         }
