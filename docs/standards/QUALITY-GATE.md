@@ -8,14 +8,13 @@ Ensure hooks are installed (`git config core.hooksPath .githooks`).
 cargo nextest run --workspace --profile ci            # all tests pass
 cargo clippy --all -- --deny warnings                # zero lint warnings
 cargo fmt --check                                   # formatting clean
-cargo geiger --package terminal-core                   # no new unsafe in core
 nu scripts/check-rust.nu
 ```
 
 ### Property Tests
 
 ```bash
-cargo nextest run --package terminal-core --test property_tests
+cargo nextest run --package native --test property_tests
 cargo mutants --timeout 30                          # mutation score (config in .cargo/mutants.toml)
 ```
 
@@ -29,12 +28,11 @@ cd android && ./gradlew lint                                       # Android lin
 
 ## Bridge Changes
 
-When modifying `terminal-core` types:
+When modifying JNI exports or `TorvoxBridge.kt`:
 
-1. Ensure JNA bindings in `TorvoxBridge.kt` cover all changed types
-2. Verify `bridge.rs` types are synced with `terminal-core` (`bridge.rs` is the
-   single FFI export location — do not add a second one)
-3. Run `cargo test --package android-gui`
+1. Ensure `System.loadLibrary("native")` in `TorvoxBridge.kt` matches the cdylib name
+2. Verify `#[no_mangle] extern "system"` function signatures match Kotlin `external fun` declarations
+3. Run `cargo test --package native --lib` to validate native compilation
 
 > The six Android test types (unit, Roborazzi, Compose UI, Maestro,
 > Android UI testing framework, Espresso) are described in TESTING.md. A change touching

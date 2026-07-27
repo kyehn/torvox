@@ -1,16 +1,9 @@
 [workspace]
 resolver = "2"
-exclude = ["terminal-core/kani"]
 members = [
-  "terminal-core",
-  "terminal-engine",
-  "gpu-renderer",
-  "android-gui",
+  "native",
   "exec-bin",
-  "mcp-server",
-  "fuzz",
   "integration-tests",
-  "benchmarks",
 ]
 
 [workspace.package]
@@ -20,10 +13,7 @@ rust-version = "1.97"
 
 
 [workspace.dependencies]
-terminal-core = { path = "terminal-core" }
-terminal-engine = { path = "terminal-engine" }
-gpu-renderer = { path = "gpu-renderer", default-features = false }
-android-gui = { path = "android-gui" }
+native = { path = "native" }
 
 libc = "0.2"
 nix = { version = "0.31", features = ["term", "process", "signal", "fs"] }
@@ -32,14 +22,13 @@ serde = { version = "1", default-features = false, features = [
   "alloc",
 ] }
 thiserror = { version = "2", default-features = false }
-wgpu = "29"
+wgpu = "30"
 bytemuck = { version = "1", features = ["derive"] }
 cosmic-text = "0.19"
 fontdb = "0.23"
 swash = "0.2"
 guillotiere = "0.7"
-
-boltffi = "0.27"
+jni = { version = "0.21", default-features = false }
 
 flume = "0.12"
 
@@ -49,11 +38,10 @@ arbitrary = { version = "1", features = ["derive"] }
 bitflags = "2"
 lru = "0.18"
 quickcheck = "1.1"
-quickcheck_macros = "1.1"
+quickcheck_macros = "1.2"
 futures = "0.3"
 raw-window-handle = "0.6"
 log = "0.4"
-rkyv = { version = "0.8", default-features = false }
 toml = "1"
 image = "0.25"
 

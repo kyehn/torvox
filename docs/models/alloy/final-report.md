@@ -1,5 +1,8 @@
 # Alloy 6 Formal Model: Text Selection Subsystem
 
+> **Status: Completed verification (Jul 2026).** 17 Alloy 6 assertions verified (16 UNSAT, 1 SAT by design).
+> Retained as reference for selection subsystem architecture.
+
 ## Summary
 
 Four Alloy 6 formal models of the torvox text selection subsystem, verified with Alloy Analyzer 6.2.0.

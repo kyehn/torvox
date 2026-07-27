@@ -1,3 +1,0 @@
-# SGR 5 set blink attribute
-# SGR 25 clear blink attribute
-[5mBLINK[25mNOBLINK

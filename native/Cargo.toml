@@ -1,0 +1,61 @@
+[package]
+name = "native"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Merged native crate — terminal engine, GPU renderer, JNI bridge"
+
+[features]
+test-util = []
+
+[lib]
+crate-type = ["cdylib", "lib"]
+
+[dependencies]
+nix = { workspace = true }
+libc = { workspace = true }
+flume = { workspace = true }
+log = { workspace = true }
+lru = { workspace = true }
+futures = { workspace = true }
+bytemuck = { workspace = true }
+thiserror = { workspace = true }
+
+# Ghostty VT
+libghostty-vt = { workspace = true, features = ["png"] }
+
+# Serialization
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+base64 = "0.23"
+
+# GPU rendering
+wgpu = { workspace = true, features = ["spirv", "gles", "vulkan"] }
+cosmic-text = { workspace = true }
+fontdb = { workspace = true }
+swash = { workspace = true }
+guillotiere = { workspace = true }
+raw-window-handle = { workspace = true }
+
+# Android JNI
+jni = { workspace = true }
+
+# MCP (Model Context Protocol) — tower-mcp for stdio + HTTP transport
+tower-mcp = { version = "0.14", default-features = false, features = ["http", "childproc", "unix", "testing"] }
+axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"] }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "sync", "macros", "time"] }
+schemars = { version = "1", features = ["derive"] }
+
+# Debug/profiling
+renderdoc = "0.12.1"
+
+[dev-dependencies]
+naga = { version = "30", default-features = false, features = ["wgsl-in", "spv-out"] }
+image = { workspace = true }
+quickcheck = { workspace = true }
+quickcheck_macros = { workspace = true }
+proptest = { workspace = true }
+shuttle = "0.9"
+
+[lints]
+workspace = true
