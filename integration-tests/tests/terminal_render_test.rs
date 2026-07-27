@@ -1,5 +1,7 @@
+use native::terminal::CursorStyle;
+use native::terminal::SelectionMode;
 // Grid-level terminal tests (always run, no GPU needed)
-use terminal_engine::ghostty_terminal::GhosttyTerminal;
+use native::terminal::ghostty_terminal::GhosttyTerminal;
 
 const ROWS: u32 = 24;
 const COLS: u32 = 80;
@@ -216,10 +218,10 @@ fn vt_cursor_visibility() {
 // ── GPU render tests (require Lavapipe / Vulkan) ──
 
 fn setup_gpu_env() -> (
-    gpu_renderer::gpu::GpuContext,
-    gpu_renderer::font::FontPipeline,
+    native::render::gpu::GpuContext,
+    native::render::font::FontPipeline,
 ) {
-    let mut ctx = gpu_renderer::gpu::GpuContext::new_with_no_surface();
+    let mut ctx = native::render::gpu::GpuContext::new_with_no_surface();
     ctx.surface_config = Some(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
@@ -229,21 +231,22 @@ fn setup_gpu_env() -> (
         alpha_mode: wgpu::CompositeAlphaMode::Auto,
         view_formats: vec![],
         desired_maximum_frame_latency: 2,
+        color_space: wgpu::SurfaceColorSpace::Auto,
     });
     ctx.set_bg_color([0, 0, 0]);
     ctx.initialize_pipeline_and_bind_group(256, 256, 800, 600);
-    (ctx, gpu_renderer::font::FontPipeline::new(256, 256, 14.0))
+    (ctx, native::render::font::FontPipeline::new(256, 256, 14.0))
 }
 
 fn render_or_die(
-    ctx: &mut gpu_renderer::gpu::GpuContext,
-    font_pipeline: &mut gpu_renderer::font::FontPipeline,
-    snapshot: &terminal_engine::ghostty_terminal::GridSnapshot,
+    ctx: &mut native::render::gpu::GpuContext,
+    font_pipeline: &mut native::render::font::FontPipeline,
+    snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
 ) -> Vec<u8> {
-    let instances = gpu_renderer::gpu::build_cell_instances_from_snapshot(
+    let instances = native::render::gpu::build_cell_instances_from_snapshot(
         snapshot,
         font_pipeline,
-        gpu_renderer::gpu::CellInstanceConfig {
+        native::render::gpu::CellInstanceConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
@@ -251,7 +254,7 @@ fn render_or_die(
             selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
-            cursor_style: terminal_core::cursor::CursorStyle::Block,
+            cursor_style: CursorStyle::Block,
             dirty_rows: &[],
             cached_instances: &[],
             cached_row_ends: &[],
@@ -264,15 +267,15 @@ fn render_or_die(
 }
 
 fn render_with_selection(
-    ctx: &mut gpu_renderer::gpu::GpuContext,
-    font_pipeline: &mut gpu_renderer::font::FontPipeline,
-    snapshot: &terminal_engine::ghostty_terminal::GridSnapshot,
-    selection: gpu_renderer::gpu::SelectionRange,
+    ctx: &mut native::render::gpu::GpuContext,
+    font_pipeline: &mut native::render::font::FontPipeline,
+    snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
+    selection: native::render::gpu::SelectionRange,
 ) -> Vec<u8> {
-    let instances = gpu_renderer::gpu::build_cell_instances_from_snapshot(
+    let instances = native::render::gpu::build_cell_instances_from_snapshot(
         snapshot,
         font_pipeline,
-        gpu_renderer::gpu::CellInstanceConfig {
+        native::render::gpu::CellInstanceConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
@@ -280,7 +283,7 @@ fn render_with_selection(
             selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
-            cursor_style: terminal_core::cursor::CursorStyle::Block,
+            cursor_style: CursorStyle::Block,
             dirty_rows: &[],
             cached_instances: &[],
             cached_row_ends: &[],
@@ -303,15 +306,15 @@ fn region_pixels(buf: &[u8], stride: u32, row_start: u32, row_end: u32) -> &[u8]
 }
 
 fn render_dirty_or_die(
-    ctx: &mut gpu_renderer::gpu::GpuContext,
-    font_pipeline: &mut gpu_renderer::font::FontPipeline,
-    snapshot: &terminal_engine::ghostty_terminal::GridSnapshot,
+    ctx: &mut native::render::gpu::GpuContext,
+    font_pipeline: &mut native::render::font::FontPipeline,
+    snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
     _dirty_rows: &[bool],
 ) -> Vec<u8> {
-    let instances = gpu_renderer::gpu::build_cell_instances_from_snapshot(
+    let instances = native::render::gpu::build_cell_instances_from_snapshot(
         snapshot,
         font_pipeline,
-        gpu_renderer::gpu::CellInstanceConfig {
+        native::render::gpu::CellInstanceConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
@@ -319,7 +322,7 @@ fn render_dirty_or_die(
             selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
-            cursor_style: terminal_core::cursor::CursorStyle::Block,
+            cursor_style: CursorStyle::Block,
             dirty_rows: &[],
             cached_instances: &[],
             cached_row_ends: &[],
@@ -393,10 +396,10 @@ fn gpu_render_cursor_visible() {
     assert_eq!(snap.cursor_row, 4);
     assert_eq!(snap.cursor_col, 10);
     assert!(snap.cursor_visible);
-    let instances = gpu_renderer::gpu::build_cell_instances_from_snapshot(
+    let instances = native::render::gpu::build_cell_instances_from_snapshot(
         &snap,
         &mut font_pipeline,
-        gpu_renderer::gpu::CellInstanceConfig {
+        native::render::gpu::CellInstanceConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
@@ -404,7 +407,7 @@ fn gpu_render_cursor_visible() {
             selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
-            cursor_style: terminal_core::cursor::CursorStyle::Block,
+            cursor_style: CursorStyle::Block,
             dirty_rows: &[],
             cached_instances: &[],
             cached_row_ends: &[],
@@ -431,10 +434,10 @@ fn gpu_render_transparent_block_above_threshold() {
     terminal.vt_write(b"\x1b[2J\x1b[5;10HX");
     terminal.flush();
     let snap = terminal.take_snapshot();
-    let instances = gpu_renderer::gpu::build_cell_instances_from_snapshot(
+    let instances = native::render::gpu::build_cell_instances_from_snapshot(
         &snap,
         &mut font_pipeline,
-        gpu_renderer::gpu::CellInstanceConfig {
+        native::render::gpu::CellInstanceConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
@@ -442,7 +445,7 @@ fn gpu_render_transparent_block_above_threshold() {
             selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
-            cursor_style: terminal_core::cursor::CursorStyle::Block,
+            cursor_style: CursorStyle::Block,
             dirty_rows: &[],
             cached_instances: &[],
             cached_row_ends: &[],
@@ -471,13 +474,13 @@ fn gpu_render_selection_swaps_fg_bg() {
     terminal.flush();
     let snap = terminal.take_snapshot();
     let pixels_no_sel = render_or_die(&mut ctx, &mut font_pipeline, &snap);
-    let sel = gpu_renderer::gpu::SelectionRange {
+    let sel = native::render::gpu::SelectionRange {
         start_row: 0,
         start_col: 6,
         end_row: 0,
         end_col: 10,
         active: true,
-        mode: terminal_core::selection::SelectionMode::Char,
+        mode: SelectionMode::Char,
         origin: None,
         is_empty: false,
     };
@@ -1150,7 +1153,7 @@ fn osc133_prompt_sets_semantic_prompt() {
         let cell = snap.cell_at(0, col);
         assert_eq!(
             cell.semantic,
-            terminal_engine::ghostty_terminal::SemanticContent::Prompt,
+            native::terminal::ghostty_terminal::SemanticContent::Prompt,
             "cell(0,{col}) should be Prompt, got {:?}",
             cell.semantic
         );
@@ -1167,7 +1170,7 @@ fn osc133_command_output_sets_semantic_output() {
     let has_output = (0..(ROWS * COLS)).any(|idx| {
         let r = idx / COLS;
         let c = idx % COLS;
-        snap.cell_at(r, c).semantic == terminal_engine::ghostty_terminal::SemanticContent::Output
+        snap.cell_at(r, c).semantic == native::terminal::ghostty_terminal::SemanticContent::Output
     });
     assert!(has_output, "OSC 133 should mark some cells as Output");
 }
@@ -1199,6 +1202,7 @@ fn bootstrap_vulkan_icd_available() {
             power_preference: wgpu::PowerPreference::HighPerformance,
             compatible_surface: None,
             force_fallback_adapter: false,
+            apply_limit_buckets: false,
         }));
     let adapter =
         adapter.expect("No Vulkan adapter — GPU tests need Lavapipe. Check VK_ICD_FILENAMES.");
@@ -1226,7 +1230,7 @@ fn bootstrap_rapidocr_available() {
 
 #[test]
 fn bootstrap_gpu_context_initializes() {
-    let mut ctx = gpu_renderer::gpu::GpuContext::new_with_no_surface();
+    let mut ctx = native::render::gpu::GpuContext::new_with_no_surface();
     ctx.surface_config = Some(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
@@ -1236,6 +1240,7 @@ fn bootstrap_gpu_context_initializes() {
         alpha_mode: wgpu::CompositeAlphaMode::Auto,
         view_formats: vec![],
         desired_maximum_frame_latency: 2,
+        color_space: wgpu::SurfaceColorSpace::Auto,
     });
     ctx.initialize_pipeline_and_bind_group(256, 256, 800, 600);
 }

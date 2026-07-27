@@ -29,6 +29,14 @@ omo/
 ultragoal/
 screenshots/
 
+# Cloned research repos during re-architecture design
+/Ghossh/
+/chuchu/
+/ghostling/
+/ghostty-android-terminal/
+/mightty/
+/termux-app/
+
 # boltffi
 android/app/src/main/java/io/torvox/bridge/kotlin/
 

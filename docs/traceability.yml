@@ -1,4 +1,8 @@
 # docs/traceability.yml
+# ⚠️ STALE: 100% of path references use old crate names (terminal-core, terminal-engine,
+# gpu-renderer, android-gui, mcp-server). All code now lives in native/.
+# Full rewrite required — tracked as separate task.
+#
 # Torvox Requirements Traceability Matrix
 # Links: requirement → design → API → test
 #
