@@ -1,9 +1,9 @@
 //! Texture atlas management — glyph packing and GPU texture allocation.
-use crate::render::GpuContext;
+use crate::render::Renderer;
 
 pub const MIN_ATLAS_BUFFER_SIZE: u64 = 64;
 
-impl GpuContext {
+impl Renderer {
     pub fn create_atlas_texture(&mut self, width: u32, height: u32) {
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture"),

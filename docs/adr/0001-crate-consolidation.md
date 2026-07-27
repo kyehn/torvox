@@ -39,15 +39,14 @@ torvox/
 │   ├── Cargo.toml
 │   └── src/
 │       ├── lib.rs     ← JNI entry points
-│       ├── terminal.rs
-│       ├── pty.rs
-│       ├── renderer.rs
-│       ├── input.rs
-│       └── mcp.rs     ← feature-gated
+│       ├── mcp.rs     ← feature-gated
+│       ├── lock_util.rs
+│       ├── android/
+│       ├── render/
+│       └── terminal/
 ├── android/           ← Kotlin+Compose (unchanged)
-├── fuzz/              ← retained, targets adjusted
-├── integration-tests/
-└── benchmarks/
+├── exec-bin/
+└── integration-tests/
 ```
 
 ## Alternatives Considered
@@ -91,5 +90,5 @@ This decision was fully implemented in Phase 4 of the re-architecture:
 
 - `terminal-engine`, `gpu-renderer`, and `android-gui` merged into `native/`
 - `fuzz/` and `benchmarks/` removed (no longer needed)
-- `mcp/` lives inside `native/` as a module (no feature gate)
+- `mcp/` lives inside `native/` as a module (implemented with mcp feature gate; test-util implies mcp)
 - Remaining workspace members: `native`, `exec-bin`, `integration-tests`

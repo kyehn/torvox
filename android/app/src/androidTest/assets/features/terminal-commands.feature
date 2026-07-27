@@ -4,7 +4,7 @@ Feature: Terminal Command Execution
   @REQ_TERM_002
   Scenario: Simple echo command displays output
     Given the app has launched
-    When the user types "echo HELLO_TORVOX" and presses Enter
+    When the user types "echo HELLO_TERMINAL" and presses Enter
     Then the output appears on the terminal screen
 
   @REQ_TERM_005

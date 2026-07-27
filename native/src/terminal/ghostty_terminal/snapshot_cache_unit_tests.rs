@@ -1,4 +1,4 @@
-use super::snapshot_needs_rebuild;
+use super::snapshot::snapshot_needs_rebuild;
 #[test]
 fn rebuild_required_on_first_call_without_cache() {
     assert!(snapshot_needs_rebuild(false, 0, 0, false));

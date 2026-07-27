@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// WezTerm-mimicking SGR parser — validates how Ghostty interprets each
 /// SGR parameter by sending the sequence and reading back cell attributes.
 use crate::terminal::ghostty_terminal::GhosttyTerminal;

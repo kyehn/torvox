@@ -1,99 +1,6 @@
-# @REQ_SYS_005 — Cross-crate architecture enforcement
+# Cross-crate architecture enforcement (single-crate architecture)
+# All Rust code lives in native/src/ — rules enforce module boundaries within the crate.
 rules:
-  - id: no-terminal-engine-in-core
-    patterns:
-      - pattern: torvox_terminal
-      - pattern-not: torvox_terminal_config
-    paths:
-      include:
-        - "terminal-core/src/**/*.rs"
-    message: "terminal-core must not depend on terminal-engine (violates crate direction)"
-    severity: ERROR
-    languages:
-      - rust
-
-  - id: no-gpu-renderer-in-core
-    pattern: torvox_renderer
-    paths:
-      include:
-        - "terminal-core/src/**/*.rs"
-    message: "terminal-core must not depend on gpu-renderer (violates crate direction)"
-    severity: ERROR
-    languages:
-      - rust
-
-  - id: no-android-gui-in-core
-    pattern: torvox_gui_android
-    paths:
-      include:
-        - "terminal-core/src/**/*.rs"
-    message: "terminal-core must not depend on android-gui (violates crate direction)"
-    severity: ERROR
-    languages:
-      - rust
-
-  - id: no-gpu-renderer-in-terminal
-    pattern: torvox_renderer
-    paths:
-      include:
-        - "terminal-engine/src/**/*.rs"
-    message: "terminal-engine must not depend on gpu-renderer (violates crate direction)"
-    severity: ERROR
-    languages:
-      - rust
-
-  - id: no-android-gui-in-terminal
-    pattern: torvox_gui_android
-    paths:
-      include:
-        - "terminal-engine/src/**/*.rs"
-    message: "terminal-engine must not depend on android-gui (violates crate direction)"
-    severity: ERROR
-    languages:
-      - rust
-
-  - id: no-android-gui-in-renderer
-    pattern: torvox_gui_android
-    paths:
-      include:
-        - "gpu-renderer/src/**/*.rs"
-    message: "gpu-renderer must not depend on android-gui (violates crate direction)"
-    severity: ERROR
-    languages:
-      - rust
-
-  # @REQ_CORE_008 — no_std compatibility
-  - id: no-std-import-in-core
-    patterns:
-      - pattern-regex: 'use std::'
-      - pattern-not-inside: |
-          #[cfg(test)]
-          ...
-      - pattern-not-inside: |
-          mod tests {
-            ...
-          }
-    paths:
-      include:
-        - "terminal-core/src/**/*.rs"
-    message: "terminal-core is #![no_std] — use core:: or alloc:: instead of std::"
-    severity: ERROR
-    languages:
-      - rust
-
-  - id: no-anyhow-in-libraries
-    pattern-regex: 'use anyhow::'
-    paths:
-      include:
-        - "terminal-core/src/**/*.rs"
-        - "terminal-engine/src/**/*.rs"
-        - "gpu-renderer/src/**/*.rs"
-        - "android-gui/src/**/*.rs"
-    message: "anyhow is forbidden in library crates — use thiserror 2"
-    severity: ERROR
-    languages:
-      - rust
-
   # @REQ_ANDR_014 — DocumentsProvider root via filesDir not hardcoded
   - id: no-hardcoded-paths
     pattern-regex: '/data/[a-zA-Z0-9._]+/files'
@@ -105,32 +12,56 @@ rules:
     languages:
       - kotlin
 
-  - id: no-exec-in-libraries
-    pattern-regex: torvox_exec
-    paths:
-      include:
-        - "terminal-core/src/**/*.rs"
-        - "terminal-engine/src/**/*.rs"
-        - "gpu-renderer/src/**/*.rs"
-        - "android-gui/src/**/*.rs"
-    message: "exec-bin must not be a dependency of library crates"
-    severity: ERROR
-    languages:
-      - rust
-
   - id: no-allow-in-prod
     patterns:
       - pattern-regex: '#\[allow\('
       - pattern-not-inside: '#[cfg(test)]'
     paths:
       include:
-        - "terminal-core/src/**/*.rs"
-        - "terminal-engine/src/**/*.rs"
-        - "gpu-renderer/src/**/*.rs"
-        - "android-gui/src/**/*.rs"
+        - "native/src/**/*.rs"
       exclude:
         - "**/test_helpers*"
     message: "No #[allow] in production source code — fix the underlying issue instead"
+    severity: ERROR
+    languages:
+      - rust
+
+  - id: no-android-in-terminal
+    pattern: crate::android::
+    paths:
+      include:
+        - "native/src/terminal/**/*.rs"
+    message: "terminal module must not depend on android module (violates layer direction)"
+    severity: ERROR
+    languages:
+      - rust
+
+  - id: no-android-in-render
+    pattern: crate::android::
+    paths:
+      include:
+        - "native/src/render/**/*.rs"
+    message: "render module must not depend on android module (violates layer direction)"
+    severity: ERROR
+    languages:
+      - rust
+
+  - id: no-render-in-terminal
+    pattern: crate::render::
+    paths:
+      include:
+        - "native/src/terminal/**/*.rs"
+    message: "terminal module must not depend on render module (violates layer direction)"
+    severity: ERROR
+    languages:
+      - rust
+
+  - id: no-anyhow-in-native
+    pattern-regex: '\banyhow\b'
+    paths:
+      include:
+        - "native/src/**/*.rs"
+    message: "anyhow is forbidden in library crate — use thiserror"
     severity: ERROR
     languages:
       - rust

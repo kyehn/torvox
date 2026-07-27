@@ -10,15 +10,15 @@ use std::thread;
 use flume::Sender;
 
 mod commands;
+mod helpers;
 mod internal;
 mod keymap;
 mod public_api;
+mod snapshot;
 mod types;
 
 pub use commands::Command;
 pub(crate) use commands::SnapshotCache;
-#[cfg(test)]
-pub(crate) use internal::snapshot_needs_rebuild;
 pub use types::*;
 
 pub struct GhosttyTerminal {

@@ -16,7 +16,7 @@
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun controlByteForKeyCode(keyCode: Int): Byte?</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
-    <ID>LateinitUsage:MainActivity.kt$MainActivity$@Inject lateinit var torvoxRuntime: TerminalRuntime // Dagger injection — lateinit required</ID>
+    <ID>LateinitUsage:MainActivity.kt$MainActivity$@Inject lateinit var runtime: TerminalRuntime // Dagger injection — lateinit required</ID>
     <ID>LongMethod:SecondStageRunner.kt$SecondStageRunner$suspend fun run(): Result</ID>
     <ID>LongMethod:SessionDrawer.kt$@Composable fun SessionDrawer( viewModel: TerminalViewModel, onSettings: () -> Unit, onSearch: () -> Unit, onClose: () -> Unit, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable private fun SystemFontSelector( selectedFamily: String, onFamilySelected: (String) -> Unit, textColor: Color, cardBackground: Color, accentColor: Color, fonts: List&lt;String> = emptyList(), defaultFontName: String = "", fontInfo: String = "", onPickFontFile: (() -> Unit)? = null, )</ID>
@@ -46,7 +46,7 @@
     <ID>TooManyFunctions:TerminalSurface.kt$TerminalSurface : TextureViewSurfaceTextureListener</ID>
     <ID>TooManyFunctions:TerminalViewModel.kt$TerminalViewModel : ViewModel</ID>
     <ID>TooManyFunctions:NativeBridge.kt$NativeBridge : AutoCloseable</ID>
-    <ID>TooManyFunctions:NativeBridge.kt$TorvoxNative : Library</ID>
+    <ID>TooManyFunctions:NativeBridge.kt$NativeBridge : Library</ID>
     <ID>TooManyFunctions:TerminalRuntime.kt$TerminalRuntime</ID>
     <ID>TooManyFunctions:UsbSerialManager.kt$UsbSerialManager : Closeable</ID>
     <ID>UnusedImports:ModifierBarComprehensiveTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>

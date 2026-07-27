@@ -26,7 +26,7 @@ import org.junit.runner.RunWith
  */
 @RunWith(AndroidJUnit4::class)
 @LargeTest
-class TorvoxUiAutomatorTest {
+class UiAutomatorTest {
     @get:Rule
     val activityRule = ActivityScenarioRule(MainActivity::class.java)
 

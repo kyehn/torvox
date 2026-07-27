@@ -45,7 +45,7 @@ the module hierarchy** and **remove abstraction layers** that add no value:
 | swash | Glyph rasterization | ~250 | Keep — only way to get glyph pixels |
 | guillotiere | Atlas texture packing | ~100 | Keep — risk avoidance per design review |
 | fontdb | Font discovery | ~100 | Fold into `FontSystem` |
-| WGSL shaders | Cell rendering + post-processing | ~200 | 2 shaders (was 5) |
+| WGSL shaders | Cell rendering + post-processing | ~200 | 3 active (was 5) |
 | Glue + types | Structs, traits, JNI wire-up | ~200 | |
 | **Total** | | **~2,450** | |
 
@@ -58,11 +58,11 @@ the module hierarchy** and **remove abstraction layers** that add no value:
 | `font/cjk.rs` | ~266 | Folded into font discovery (cosmic-text handles CJK) |
 | `gpu/cell_builder.rs` | ~762 | Cell data now comes from Ghostty `CellIterator` — not from `GridSnapshot` |
 | `gpu/pipeline.rs` → half | ~723 | Split into focused render functions, not pipeline abstraction |
-| WGSL shaders | 5→2 | Merge text+background+selection into one pass |
+| WGSL shaders | 5→3 active | Merge text+background+selection+kgp into focused shaders |
 
 ### Shader count
 
-Reduce from 5 WGSL shaders to 2:
+Reduce from 5 WGSL shaders to 3 active:
 
 1. **`cell.wgsl`** — Vertex+Fragment for terminal cells: textured quad
    (glyph atlas) with foreground/background color and selection highlight
@@ -92,7 +92,7 @@ Reduce from 5 WGSL shaders to 2:
 ### Positive
 
 - Same GPU capabilities with ~75% less code (~2.5 KLOC vs ~9.6 KLOC)
-- Simplified shader pipeline (2 instead of 5)
+- Simplified shader pipeline (3 active instead of 5)
 - Cell data comes from Ghostty `CellIterator` — no `GridSnapshot` intermediary
 - Easier to debug (flatter structure, fewer abstraction layers)
 
@@ -104,8 +104,23 @@ Reduce from 5 WGSL shaders to 2:
 - Merging the pipeline with the main code means full-rebuild on any shader
   or rendering change (acceptable for single-developer project)
 
-## Compliance
+## Status Note (Aug 2026)
 
-- WGSL shaders validated by `fuzz_shader_wgsl` fuzz target (retained)
+Key decisions implemented:
+
+- ✅ wgpu + cosmic-text + swash + guillotiere **retained** as core render dependencies
+- ✅ `CellData`/`build_instances_from_cell_data` **implemented** as primary render path
+- ✅ GridSnapshot → `CellIterator` transition **done** for render path (GridSnapshot retained for queries)
+- ✅ Module hierarchy **flattened**: `gpu-renderer/` → `native/src/render/`
+
+Decisions **not implemented** (scope evolved or deferred):
+
+- ✅ Shader count: 3 **active** WGSL files (cell, background, kgp) —
+  2 dead files (background_blur_h, background_blur_v) deleted Aug 2026
+- ✅ `GpuContext` → `Renderer` rename completed Aug 2026 (20+ files, type alias for compat)
+- ❌ `pipeline.rs` still a centralized file (~604 lines), not split into per-function modules
+- ❌ Font module files (`font/pipeline.rs`, `font/rasterization.rs`, `font/cjk.rs`) **relocated** to `native/src/render/font/` but not inlined
+- ❌ KLOC estimate (~2,450) under-estimated — actual core render code is ~6,500 lines (features like background blur, KGP added)
+
 - Frame time budget: <16 ms per frame at 60 fps on Adreno 6xx+
 - `ATrace_beginSection`/`_endSection` markers in all render functions

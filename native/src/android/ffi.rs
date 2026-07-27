@@ -2,7 +2,7 @@
 //!
 //! This module exports `extern "system"` JNI functions called from Kotlin.
 //! Each function follows the JNI naming convention:
-//! `Java_io_term_bridge_TorvoxBridge_<methodName>`
+//! `Java_io_term_bridge_NativeBridge_<methodName>`
 //!
 //! Session lifecycle:
 //! - `initSession()` creates a `Session` and registers it globally
@@ -13,8 +13,9 @@
 //! and drained by Kotlin via `pollEvent()`.
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex};
+use std::time::{Duration, Instant};
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
@@ -64,14 +65,14 @@ static SURFACE_COMMANDS: LazyLock<Mutex<Vec<SurfaceCommand>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// Push a surface command for the render thread.
-pub fn push_surface_command(cmd: SurfaceCommand) {
+pub(crate) fn push_surface_command(command: SurfaceCommand) {
     if let Ok(mut queue) = SURFACE_COMMANDS.lock() {
-        queue.push(cmd);
+        queue.push(command);
     }
 }
 
 /// Drain all pending surface commands. Returns them in FIFO order.
-pub fn drain_surface_commands() -> Vec<SurfaceCommand> {
+pub(crate) fn drain_surface_commands() -> Vec<SurfaceCommand> {
     SURFACE_COMMANDS
         .lock()
         .map(|mut q| std::mem::take(&mut *q))
@@ -86,6 +87,8 @@ pub fn drain_surface_commands() -> Vec<SurfaceCommand> {
 struct SessionEntry {
     id: u64,
     session: Arc<Mutex<Session>>,
+    /// Last time the session state was saved (for periodic persistence).
+    last_save: Mutex<Instant>,
 }
 
 /// Global session registry. Thread-safe via Mutex.
@@ -107,20 +110,90 @@ fn next_session_id() -> u64 {
 /// Events emitted by sessions and consumed by Kotlin via `pollEvent()`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Event {
-    Title { session_id: u64, title: String },
-    Bell { session_id: u64 },
-    Clipboard { session_id: u64, text: String },
-    Exit { session_id: u64, code: i32 },
+    Title {
+        session_id: u64,
+        title: String,
+    },
+    Bell {
+        session_id: u64,
+    },
+    Clipboard {
+        session_id: u64,
+        text: String,
+    },
+    Exit {
+        session_id: u64,
+        code: i32,
+    },
+    /// Request Kotlin to show a dialog (input/confirm/select).
+    /// Kotlin responds by calling `dialogResult()` JNI.
+    ShowDialog {
+        session_id: u64,
+        request_id: u64,
+        dialog_type: String,
+        title: String,
+        message: String,
+    },
+    /// Request Kotlin to show a file picker (Android SAF / desktop).
+    /// Kotlin responds by calling `filePicked()` JNI.
+    PickFile {
+        session_id: u64,
+        request_id: u64,
+        starting_path: String,
+        filter: String,
+    },
 }
 
 /// Global event queue. Events are rare (<1 Hz), so Mutex contention is fine.
 static EVENT_QUEUE: LazyLock<Mutex<Vec<Event>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
+/// Monotonic counter for user-input request IDs.
+static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Registry for pending user-input requests (dialog / file picker).
+/// Keyed by (session_id, request_id) to support multiple concurrent dialogs.
+static REQUEST_REGISTRY: LazyLock<
+    Mutex<HashMap<(u64, u64), tokio::sync::oneshot::Sender<String>>>,
+> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
 /// Push an event into the global queue (called from Session polling).
-pub fn push_event(event: Event) {
+pub(crate) fn push_event(event: Event) {
     if let Ok(mut queue) = EVENT_QUEUE.lock() {
         queue.push(event);
     }
+}
+
+/// Save interval for periodic persistence.
+const SAVE_INTERVAL_SECS: u64 = 30;
+
+/// Periodically save session state if enough time has elapsed.
+/// Called after feedPty / process_output.
+pub(crate) fn maybe_save_session(
+    session: &crate::terminal::session::Session,
+    last_save: &Mutex<Instant>,
+) {
+    let elapsed = last_save
+        .lock()
+        .map(|t| t.elapsed())
+        .unwrap_or(Duration::MAX);
+    if elapsed >= Duration::from_secs(SAVE_INTERVAL_SECS) {
+        if session.save_session() {
+            if let Ok(mut t) = last_save.lock() {
+                *t = Instant::now();
+            }
+        }
+    }
+}
+
+/// Register a pending user-input request and return the receiver.
+/// Kotlin will send the response via `dialogResult` JNI.
+pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::Receiver<String>) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+    if let Ok(mut registry) = REQUEST_REGISTRY.lock() {
+        registry.insert((session_id, request_id), tx);
+    }
+    (request_id, rx)
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -130,7 +203,7 @@ pub fn push_event(event: Event) {
 /// Create a new terminal session with the default shell.
 /// Returns the session ID (jlong) on success, or 0 on failure.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_initSession(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_initSession(
     mut env: JNIEnv,
     _class: JClass,
     rows: jint,
@@ -142,9 +215,13 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_initSession(
     match Session::spawn("", rows, cols, &ShellEnv::default()) {
         Ok(session) => {
             let id = next_session_id();
+            let mut session_inner = session;
+            // Restore previous session state if available
+            session_inner.restore_session();
             let entry = SessionEntry {
                 id,
-                session: Arc::new(Mutex::new(session)),
+                session: Arc::new(Mutex::new(session_inner)),
+                last_save: Mutex::new(Instant::now()),
             };
 
             if let Ok(mut registry) = SESSION_REGISTRY.lock() {
@@ -174,7 +251,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_initSession(
 
 /// Destroy a session by ID. Returns true on success.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_destroySession(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_destroySession(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -210,7 +287,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_destroySession(
 
 /// Switch the active session. Returns true if the session exists.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_switchSession(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_switchSession(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -237,7 +314,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_switchSession(
 
 /// Returns the number of active sessions.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_getSessionCount(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_getSessionCount(
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
@@ -251,7 +328,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_getSessionCount(
 
 /// Resize the specified session.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_resize(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_resize(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -274,7 +351,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_resize(
 
 /// Write raw bytes to the PTY of the specified session.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_feedPty(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_feedPty(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -291,6 +368,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_feedPty(
         if let Some(entry) = registry.get(&id) {
             if let Ok(mut session) = entry.session.lock() {
                 let _ = session.write(input.as_bytes());
+                maybe_save_session(&session, &entry.last_save);
             }
         }
     }
@@ -304,8 +382,9 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_feedPty(
 /// `key` is the key name (e.g., "a", "Enter", "Escape").
 /// `mods` is a bitmask of modifiers (1=shift, 2=alt, 4=ctrl, 8=meta, 16=super).
 /// `text` is optional composed text (for IME input).
+/// Throws RuntimeException if the session is not found or write fails.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_writeKey(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -317,25 +396,45 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_writeKey(
 
     let key_str: String = match env.get_string(&key) {
         Ok(s) => s.into(),
-        Err(_) => return,
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/RuntimeException",
+                "writeKey: failed to read key string",
+            );
+            return;
+        }
     };
     let has_text = !text.is_null();
 
     if let Ok(registry) = SESSION_REGISTRY.lock() {
         if let Some(entry) = registry.get(&id) {
             if let Ok(mut session) = entry.session.lock() {
-                if has_text {
+                let result = if has_text {
                     if let Ok(t) = env.get_string(&text) {
-                        let _ = session.write(t.to_bytes());
+                        session.write(t.to_bytes())
+                    } else {
+                        let _ = env.throw_new(
+                            "java/lang/RuntimeException",
+                            "writeKey: failed to read text string",
+                        );
+                        return;
                     }
                 } else {
                     // For now, send raw text via write(). Full key encoding
                     // via key_encode_submit() will be wired in a follow-up.
-                    let _ = session.write(key_str.as_bytes());
+                    session.write(key_str.as_bytes())
+                };
+                if let Err(e) = result {
+                    let _ = env.throw_new(
+                        "java/lang/RuntimeException",
+                        format!("writeKey: write failed: {e}"),
+                    );
                 }
+                return;
             }
         }
     }
+    let _ = env.throw_new("java/lang/RuntimeException", "writeKey: session not found");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -351,7 +450,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_writeKey(
 /// Each call drains one event. Kotlin should call this at frame rate
 /// (every ~16ms) in a LaunchedEffect.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_pollEvent<'local>(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> jstring {
@@ -408,7 +507,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_pollEvent<'local>(
 /// Attach an Android Surface — Android only.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_attachWindow(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_attachWindow(
     env: JNIEnv,
     _class: JClass,
     _session_id: jlong,
@@ -422,7 +521,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_attachWindow(
     }
 
     // Get the raw ANativeWindow pointer from the Surface object.
-    // Uses the same NDK function as jni_bridge.rs.
+    // Uses the ANativeWindow_fromSurface NDK function to get a native window
     let raw_env = env.get_native_interface();
     // SAFETY: `raw_env` comes from `get_native_interface()` which returns a valid
     // JNIEnv pointer; `surface` is a JNI method argument guaranteed valid by the
@@ -451,7 +550,7 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_attachWindow(
 /// Detach the current surface — Android only.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_detachWindow(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_detachWindow(
     _env: JNIEnv,
     _class: JClass,
     _session_id: jlong,
@@ -461,12 +560,79 @@ pub extern "system" fn Java_io_term_bridge_TorvoxBridge_detachWindow(
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// JNI Export: listSessions
+// JNI Export: setMcpEnabled
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Enable or disable the MCP server (starts/stops it as needed).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_NativeBridge_setMcpEnabled(
+    _env: JNIEnv,
+    _class: JClass,
+    enabled: jboolean,
+) {
+    #[cfg(feature = "mcp")]
+    crate::mcp::set_enabled(enabled == JNI_TRUE);
+    #[cfg(not(feature = "mcp"))]
+    let _ = enabled;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: setSessionSavePath
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Set the persistence save path for a session. Pass empty string to disable.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_NativeBridge_setSessionSavePath<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    path: JString<'local>,
+) {
+    let id = session_id as u64;
+    let path_str: String = env.get_string(&path).map(|s| s.into()).unwrap_or_default();
+    if let Ok(registry) = SESSION_REGISTRY.lock() {
+        if let Some(entry) = registry.get(&id) {
+            if let Ok(mut session) = entry.session.lock() {
+                session.set_save_path(&path_str);
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: dialogResult — Kotlin responds to a dialog request
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Called by Kotlin after the user interacts with a dialog or file picker.
+/// `result` is the user's input (text for input, "confirmed"/"cancelled"
+/// for confirm, selected option for select, file path for pick_file).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_NativeBridge_dialogResult<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    request_id: jlong,
+    result: JString<'local>,
+) {
+    let session_id = session_id as u64;
+    let request_id = request_id as u64;
+
+    // Look up the pending request sender and send the result
+    if let Ok(mut registry) = REQUEST_REGISTRY.lock() {
+        if let Some(tx) = registry.remove(&(session_id, request_id)) {
+            let result_str: String = env
+                .get_string(&result)
+                .map(|s| s.into())
+                .unwrap_or_default();
+            let _ = tx.send(result_str);
+        }
+    }
+}
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Returns a JSON array of active session IDs.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_TorvoxBridge_listSessions<'local>(
+pub extern "system" fn Java_io_term_bridge_NativeBridge_listSessions<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> jstring {

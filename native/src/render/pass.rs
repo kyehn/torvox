@@ -1,6 +1,6 @@
 //! Render loop — frame submission, synchronization, and error recovery.
-use crate::render::GpuContext;
 use crate::render::GpuError;
+use crate::render::Renderer;
 use crate::render::atlas::MIN_ATLAS_BUFFER_SIZE;
 use crate::render::pipeline::QUAD_VERTEX_COUNT;
 use std::sync::OnceLock;
@@ -66,7 +66,7 @@ fn acquire_worker_tx() -> &'static SyncSender<AcquireRequest> {
     })
 }
 
-impl GpuContext {
+impl Renderer {
     pub fn warmup(&self) {
         let surface = match self.surface.as_ref() {
             Some(s) => s,
@@ -169,7 +169,7 @@ impl GpuContext {
     pub fn render_frame(
         &mut self,
         instances: &[crate::render::CellInstance],
-        kgp_instances: &[crate::render::KgpInstance],
+        kgp_instances: &[crate::render::KittyGraphicsInstance],
     ) -> Result<(), GpuError> {
         if self.render_paused {
             return Ok(());
@@ -310,6 +310,8 @@ impl GpuContext {
             if let Some(ref buf) = self.instance_buffer {
                 self.queue.write_buffer(buf, 0, instance_data);
             }
+            #[cfg(debug_assertions)]
+            encoder.pop_debug_group(); // Instance Uploads
         }
 
         if !kgp_instances.is_empty() {
@@ -332,9 +334,6 @@ impl GpuContext {
                 self.queue.write_buffer(buf, 0, kgp_instance_data);
             }
         }
-
-        #[cfg(debug_assertions)]
-        encoder.pop_debug_group(); // Instance Uploads
 
         #[cfg(debug_assertions)]
         encoder.push_debug_group("Draw Background");
@@ -547,7 +546,7 @@ impl GpuContext {
     pub fn render_to_buffer(
         &mut self,
         instances: &[crate::render::CellInstance],
-        kgp_instances: &[crate::render::KgpInstance],
+        kgp_instances: &[crate::render::KittyGraphicsInstance],
     ) -> Result<Vec<u8>, GpuError> {
         let (w, h) = self
             .surface_config

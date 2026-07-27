@@ -8,12 +8,6 @@ Single crate (`native/`) with 2 thin workspace members, ~29.5k LOC Rust, JNI dir
 
 ## Setup and Commands
 
-One-time setup:
-
-```bash
-git config core.hooksPath .githooks
-```
-
 Commands:
 
 ```bash
@@ -36,20 +30,13 @@ Checklist:
 2. `cargo clippy --all -- --deny warnings` exits 0
 3. `cargo fmt --check` exits 0
 4. `cd android && ./gradlew spotlessCheck detekt` exits 0
-5. Bridge type sync: if `ffi.rs` JNI signatures changed, update `TorvoxBridge.kt`
+5. Bridge type sync: if `ffi.rs` JNI signatures changed, update `NativeBridge.kt`
 
 ---
 
 ## Hooks
 
-```bash
-git config core.hooksPath .githooks
-```
-
-- `.githooks/commit-msg` — Advisory conventional commit check. Warns on bad format, blocks "changes"/"wip" messages.
-- `.githooks/pre-push` — Runs `cargo fmt --check`, `cargo clippy --all -- --deny warnings`, `./gradlew spotlessCheck` before push (30s timeout per command).
-
-Use `git push --no-verify` to bypass hooks in emergencies.
+No pre-installed hooks. Run checks manually before commit.
 
 ---
 
@@ -62,11 +49,11 @@ Use `git push --no-verify` to bypass hooks in emergencies.
 
 ### Never
 
-- Java files, portable-pty, bincode, rust-android-gradle
+- Java files, portable-pty, rust-android-gradle
 - `Canvas.drawText` per cell, raw bytes across FFI, `/proc/self/exe`
 - `anyhow` in library crates — use `thiserror 2`
 - `unsafe` in the core terminal data path (ghostty_terminal internals)
-- JNA reflection-based binding — use direct JNI (`#[no_mangle]` + `extern "system"`)
+- JNA reflection-based binding — delete any remaining JNA code if found
 - bash/sh scripts — Nushell only
 
 ---
@@ -83,42 +70,12 @@ Use `git push --no-verify` to bypass hooks in emergencies.
 
 See `docs/architecture.md` for the full architecture document.
 
-### Crate Direction (single crate)
-
-```text
-libghostty-vt ← native ← exec-bin / integration-tests ← android/app
-```
-
-| Crate | Role |
-|-------|------|
-| `native` | Single crate: terminal engine, GPU renderer, JNI bridge, MCP server |
-| `exec-bin` | Standalone terminal binary (no JNI) |
-| `integration-tests` | End-to-end GhosttyTerminal integration tests |
-
-All Rust code lives in one `native` crate; internal module structure is
-`terminal/`, `render/`, `android/`, `mcp.rs`. No cross-crate boundary
-violations possible.
-
-### Thread Model
-
-- **Session thread** per terminal: owns `!Send` Ghostty `Terminal`, reads PTY, produces `Vec<CellData>` arrays
-- **Render thread**: shared across sessions, drives wgpu, consumes `CellData` → `CellInstance` → GPU instances
-- **JNI thread**: Kotlin `LaunchedEffect` polls `pollEvent()`, sends surface commands
-- **MCP thread**: optional axum+tokio HTTP-for-Unix-socket JSON-RPC server
-
-### Render Path
-
-GPU-only via wgpu (Vulkan). No GL, no CPU software fallback.
-- Session thread: `CellIterator` (single FFI call) → `Vec<CellData>` → `flume` channel
-- Render thread: `drain_cell_data()` → `build_instances_from_cell_data()` → `render_cell_data()` → wgpu submit
-- Emulators use SwiftShader; Linux uses Lavapipe.
-
 ---
 
 ## When Writing Code
 
 - Read `docs/standards/STYLE.md` before writing any file
-- `native/src/android/ffi.rs` is the single JNI export location — keep `TorvoxBridge.kt` in sync
+- `native/src/android/ffi.rs` is the single JNI export location — keep `NativeBridge.kt` in sync
 - Lint after every file change: `cargo clippy --all -- --deny warnings`
 - No magic numbers: use named constants with descriptive names
 - No abbreviations: `config` not `cfg`, `background` not `bg`, `terminal` not `term`
@@ -168,13 +125,13 @@ GPU-only via wgpu (Vulkan). No GL, no CPU software fallback.
 | 5 | Zig C++ namespace | Zig uses `std::__1`, NDK `libc++_shared.so` uses `std::__ndk1` — must bundle matching libc++ |
 | 6 | TextureView z-order | Use `TextureView`, no `setZOrderOnTop`. Old SurfaceView approach on SwiftShader made overlay invisible. |
 | 7 | Render thread death | After 100 consecutive errors (~10s), thread exits permanently; must restart on new surface |
-| 8 | ProGuard R8 | `-dontoptimize` required for JNI reflection-based binding on release builds |
+| 8 | ProGuard R8 | `-dontoptimize` required for JNI on release builds (prevents native method stripping) |
 | 9 | ADB on emulator | Use emulator device test, not phone/tablet. |
 | 10 | `applicationId = "com.termux"` | Intentional — do NOT change. `test-emulator.nu` runs `pm uninstall --user 0 com.termux` first. |
 | 11 | APK testkey | Must download from AOSP. Self-signing is forbidden. |
 | 12 | rapidocr CLI | All OCR code must use `rapidocr` CLI command, NOT Python module. |
 | 13 | Mesa Lavapipe | GPU renderer uses Mesa Lavapipe for software Vulkan when no physical GPU. Configured via `VK_ICD_FILENAMES`. |
-| 14 | JNI function naming | Java_io_term_bridge_TorvoxBridge_* naming — must match Kotlin `external fun` declarations exactly. |
+| 14 | JNI function naming | Java_io_term_bridge_NativeBridge_* naming — must match Kotlin `external fun` declarations exactly. |
 | 15 | ANativeWindow ptr | Surface handle must be extracted on JNI thread via `ANativeWindow_fromSurface` and sent to render thread via command queue. Do NOT call NDK functions on the render thread. |
 
 ---
@@ -189,24 +146,21 @@ GPU-only via wgpu (Vulkan). No GL, no CPU software fallback.
 | `native/src/terminal/ghostty_terminal/public_api.rs` | spawn(), Session handle |
 | `native/src/terminal/pty.rs` | PtyPair — only allowed fork unsafe |
 | `native/src/render/cell_builder.rs` | CellInstanceConfig, build_instances_from_cell_data() |
-| `native/src/render/context.rs` | GpuContext (device, queue, surface) |
+| `native/src/render/context.rs` | Renderer (wgpu device/queue/surface) |
 | `native/src/render/pipeline.rs` | wgpu shader pipelines (WGSL) |
-| `native/src/render/pass.rs` | per-frame render pass logic |
+| `native/src/render/pass.rs` | render_cell_data(), render_frame() |
 | `native/src/render/surface.rs` | ANativeWindow surface management |
-| `native/src/android/ffi.rs` | JNI FFI exports (12 functions) |
+| `native/src/android/ffi.rs` | JNI FFI exports (14 JNI functions) |
 | `native/src/mcp.rs` | MCP server (tower-mcp, CLI-compatible protocol) |
 | `native/src/lock_util.rs` | poison recovery helpers |
-| `android/app/.../TorvoxBridge.kt` | JNI native method declarations |
-| `native/src/render/pass.rs` | render_cell_data(), render_frame() |
-| `native/src/render/pipeline.rs` | wgpu render pipeline, atlas management |
+| `android/app/.../NativeBridge.kt` | JNI native method declarations |
 | `native/src/render/font/mod.rs` | cosmic-text shaping, swash glyph rasterization |
-| `native/src/android/ffi.rs` | JNI bridge — single export location |
 
 ---
 
 ## Protected Files (Read-Only Unless Explicitly Requested)
 
-- `.config/`, `.cargo/`, `.github/`, `assets/`, `scripts/` (directories, set read-only)
+- `.github/`, `scripts/` (directories, set read-only)
 - `flake.nix`
 
 These files and directories are set read-only. Wait for the user to ask before modifying them.
@@ -215,19 +169,17 @@ These files and directories are set read-only. Wait for the user to ask before m
 
 ## scripts/ Directory
 
-Only these 11 files allowed. No new files — merge into existing.
+Only these 9 files allowed. No new files — merge into existing.
 
-1. `auto-commit.nu`
-2. `bootstrap-libghostty.nu`
-3. `build-android-libs.nu`
-4. `build-apk.nu`
-5. `check-rust.nu`
-6. `download-rapidocr-models.nu`
-7. `download-test-fonts.nu`
-8. `fetch-aosp-testkey.nu`
-9. `setup-emulator.nu`
-10. `test-android-gradle.nu`
-11. `test-emulator.nu`
+1. `bootstrap-libghostty.nu`
+2. `build-android-libs.nu`
+3. `build-apk.nu`
+4. `check-rust.nu`
+5. `download-rapidocr-models.nu`
+6. `fetch-aosp-testkey.nu`
+7. `setup-emulator.nu`
+8. `test-android-gradle.nu`
+9. `test-emulator.nu`
 
 ## .github/workflows
 

@@ -9,7 +9,7 @@
 
 **A. Cached instances ignore projection_height (performance + visual)**
 
-In `gpu-renderer/src/gpu.rs`, `build_cell_instances_into()`:
+In `native/src/render/cell_builder.rs`, `build_cell_instances_into()`:
 - The cached-row path (line 2526) is checked **before** the `projection_height` break (line 2539)
 - When surface height shrinks (IME opens), `render_height` decreases → `projection_height` decreases
 - Clean rows beyond the new `projection_height` **still get copied from cache** and sent to GPU
@@ -62,7 +62,7 @@ This is inherently expensive, even more so with the cache projection_height bug 
 
 ### 1. GPU: fix projection_height check to run BEFORE cached-row path
 
-**File**: `gpu-renderer/src/gpu.rs`  
+**File**: `native/src/render/cell_builder.rs`  
 **Change**: In `build_cell_instances_into()`, move the projection_height check before the cached-row branch:
 
 ```rust
@@ -80,7 +80,7 @@ for row in 0..rows {
 
 ### 2. GPU: dirty all rows when render_height changes vs cached height
 
-**File**: `android-gui/src/surface.rs`  
+**File**: `native/src/android/surface.rs`  
 **Requirement**: When `self.render_height` changes (IME resize), mark all rows dirty so the GPU rebuilds instances at the correct `projection_height`.
 
 **Key**: Compare new `render_height` against `self.frame_count > 0` and a stored `prev_render_height`. If changed, skip cache.
@@ -151,14 +151,14 @@ Actually wait, let me re-read the whole TerminalScreen composable layout to unde
 
 ## Files to Edit
 
-1. `gpu-renderer/src/gpu.rs` — projection_height before cache
-2. `android-gui/src/surface.rs` — prev_render_height tracking
-3. `android/app/src/main/java/io/torvox/terminal/TerminalSurface.kt` — debounce
-4. `android/app/src/main/java/io/torvox/terminal/TerminalScreen.kt` — layout fixes
+1. `native/src/render/cell_builder.rs` — projection_height before cache
+2. `native/src/android/surface.rs` — prev_render_height tracking
+3. `android/app/src/main/java/io/term/terminal/TerminalSurface.kt` — debounce
+4. `android/app/src/main/java/io/term/terminal/TerminalScreen.kt` — layout fixes
 
 ## Verification
 
-1. Build native lib: `cargo build --target x86_64-linux-android --package android-gui`
+1. Build native lib: `cargo build --target x86_64-linux-android --package native`
 2. Build APK: `./gradlew assembleDebug`
 3. Install on emulator, test:
    - Open app

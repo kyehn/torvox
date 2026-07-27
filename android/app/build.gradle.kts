@@ -190,11 +190,11 @@ check(File(workingDirForCargo, "Cargo.toml").exists()) {
 
 tasks.withType<Test>().matching { it.name == "testDebugUnitTest" }.configureEach {
     filter {
-        // These tests require the native .so library (JNA via TorvoxBridge.ensureLib()),
+        // These tests require the native .so library (JNA via NativeBridge.ensureLib()),
         // which is unavailable in the JVM unit test environment. They are covered
         // by integration (E2E) tests.
         excludeTestsMatching("*CrashHandlerTest*")
-        excludeTestsMatching("*TorvoxDocumentsProviderTest*")
+        excludeTestsMatching("*DocumentsProviderTest*")
         excludeTestsMatching("*LogUtilTest*")
         // Compose UI tests that also transitively need the native library
         excludeTestsMatching("*BackHandlerTest*")
@@ -220,7 +220,7 @@ dependencies {
 val excludedUnitTests =
     listOf(
         "*CrashHandlerTest*",
-        "*TorvoxDocumentsProviderTest*",
+        "*DocumentsProviderTest*",
         "*LogUtilTest*",
         "*BackHandlerTest*",
         "*ComposingTextTest*",

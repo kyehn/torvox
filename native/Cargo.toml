@@ -6,7 +6,8 @@ rust-version.workspace = true
 description = "Merged native crate — terminal engine, GPU renderer, JNI bridge"
 
 [features]
-test-util = []
+test-util = ["mcp"]
+mcp = ["tower-mcp", "axum", "tokio", "schemars"]
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -40,13 +41,14 @@ raw-window-handle = { workspace = true }
 # Android JNI
 jni = { workspace = true }
 
-# MCP (Model Context Protocol) — tower-mcp for stdio + HTTP transport
-tower-mcp = { version = "0.14", default-features = false, features = ["http", "childproc", "unix", "testing"] }
-axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"] }
-tokio = { version = "1", default-features = false, features = ["net", "rt", "sync", "macros", "time"] }
-schemars = { version = "1", features = ["derive"] }
+# MCP (Model Context Protocol) — optional (use --features mcp or --features test-util)
+tower-mcp = { version = "0.14", default-features = false, features = ["http", "childproc", "unix", "testing"], optional = true }
+axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"], optional = true }
+tokio = { version = "1", default-features = false, features = ["net", "rt", "sync", "macros", "time"], optional = true }
+schemars = { version = "1", features = ["derive"], optional = true }
 
-# Debug/profiling
+# Debug/profiling (desktop only)
+[target.'cfg(not(target_os = "android"))'.dependencies]
 renderdoc = "0.12.1"
 
 [dev-dependencies]
@@ -59,3 +61,6 @@ shuttle = "0.9"
 
 [lints]
 workspace = true
+
+[package.metadata.cargo-machete]
+ignored = ["axum"]

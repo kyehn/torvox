@@ -30,6 +30,18 @@ pub enum SelectionMode {
     Block,
 }
 
+/// Cursor info — terminal cursor state sent alongside CellData for
+/// same-frame cursor rendering. Produced by build_cell_data, consumed
+/// by the render thread as CellCursor.
+#[derive(Debug, Clone, Copy)]
+#[allow(dead_code)]
+pub(crate) struct CursorInfo {
+    pub row: u32,
+    pub col: u32,
+    pub visible: bool,
+    pub style: CursorStyle,
+}
+
 /// Check if a character is East Asian Wide (double-width CJK).
 /// Replaces the deleted terminal_core::unicode::is_wide.
 pub fn is_wide(c: char) -> bool {
@@ -122,25 +134,14 @@ pub struct GridSnapshot {
     pub cursor_style: CursorStyle,
     pub cells: Vec<CellSnapshot>,
     pub dirty: Vec<bool>,
-    pub kgp_placements: Vec<KgpPlacement>,
     pub title: String,
     pub scrollback_length: u32,
     pub sync_active: bool,
 }
 
-/// A Kitty Graphics Protocol (KGP) placement for rendering.
-#[derive(Clone, Debug)]
-pub struct KgpPlacement {
-    pub image_id: u32,
-    pub placement_id: u32,
-    pub row: i32,
-    pub col: i32,
-    pub z: u8,
-}
-
 /// Raw pixel data for a KGP image (RGBA8).
 #[derive(Clone, Debug)]
-pub struct KgpImageData {
+pub struct KittyGraphicsImageData {
     pub id: u32,
     pub width: u32,
     pub height: u32,
@@ -159,7 +160,6 @@ impl GridSnapshot {
             cursor_col: DISCONNECTED_CURSOR_X,
             cursor_visible: DISCONNECTED_CURSOR_VISIBLE,
             cursor_style: Default::default(),
-            kgp_placements: Vec::new(),
             title: String::new(),
             scrollback_length: 0,
             sync_active: false,

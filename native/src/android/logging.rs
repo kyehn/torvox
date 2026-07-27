@@ -103,7 +103,7 @@ static LOGGER: AndroidLogger = AndroidLogger {
 /// Must be called exactly once (idempotent via [`std::sync::Once`]).
 /// Replaces the `android_logger::init_once()` call that was previously in
 /// [`NativeBridge::new`](crate::bridge::NativeBridge::new).
-pub fn init() {
+pub(crate) fn init() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
         log::set_logger(&LOGGER).expect("Logger already set");
@@ -114,7 +114,7 @@ pub fn init() {
 /// Open (or re-open) the file backing the log-file side of [`LOGGER`].
 /// The file is opened in append mode; it is created if it does not exist.
 /// Kotlin calls this after figuring out the correct log directory.
-pub fn set_log_file_path(path: &str) {
+pub(crate) fn set_log_file_path(path: &str) {
     let file = OpenOptions::new()
         .create(true)
         .append(true)

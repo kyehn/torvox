@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <string name="app_name">Torvox</string>
+    <string name="app_name">Terminal</string>
 
     <!-- Settings screen -->
     <string name="settings">Settings</string>
@@ -76,7 +76,7 @@
     <string name="settings_button">Settings</string>
 
     <!-- Terminal screen -->
-    <string name="terminal_title">Torvox</string>
+    <string name="terminal_title">Terminal</string>
     <string name="close">Close</string>
 
     <!-- Content descriptions -->

@@ -132,6 +132,27 @@ pub struct Session {
     shell_integration: Arc<AtomicU8>,
     reader_handle: Option<std::thread::JoinHandle<()>>,
     wait_handle: Option<std::thread::JoinHandle<()>>,
+    /// Optional path for session persistence via Ghostty Formatter.
+    save_path: Option<String>,
+}
+
+pub struct ThemeConfig {
+    pub background: [u8; 3],
+    pub foreground: [u8; 3],
+    pub ansi: [[u8; 3]; 16],
+    pub scrollback_lines: u32,
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        let (ansi, bg, fg) = GhosttyTerminal::catppuccin_mocha_palette();
+        Self {
+            background: bg,
+            foreground: fg,
+            ansi,
+            scrollback_lines: DEFAULT_SCROLLBACK_LINES,
+        }
+    }
 }
 
 impl Session {
@@ -139,33 +160,12 @@ impl Session {
     /// No reader/wait threads are spawned — the caller is responsible for
     /// driving PTY I/O. Primarily used for testing with `MockPty`.
     pub fn with_pty(pty: Box<dyn Pty>, rows: u32, cols: u32) -> Result<Self, SessionError> {
-        let (palette_ansi, palette_background, palette_foreground) =
-            GhosttyTerminal::catppuccin_mocha_palette();
-        Self::spawn_with_theme_inner(
-            pty,
-            rows,
-            cols,
-            DEFAULT_SCROLLBACK_LINES,
-            palette_background,
-            palette_foreground,
-            palette_ansi,
-        )
+        Self::spawn_with_theme_inner(pty, rows, cols, ThemeConfig::default())
     }
 
     /// Spawn a new session with the default Catppuccin Mocha theme.
     pub fn spawn(shell: &str, rows: u32, cols: u32, env: &ShellEnv) -> Result<Self, SessionError> {
-        let (palette_ansi, palette_background, palette_foreground) =
-            GhosttyTerminal::catppuccin_mocha_palette();
-        Self::spawn_with_theme(
-            shell,
-            rows,
-            cols,
-            env,
-            palette_background,
-            palette_foreground,
-            palette_ansi,
-            DEFAULT_SCROLLBACK_LINES,
-        )
+        Self::spawn_with_theme(shell, rows, cols, env, ThemeConfig::default())
     }
 
     /// Spawn a new session with a custom theme and scrollback buffer size.
@@ -174,10 +174,7 @@ impl Session {
         rows: u32,
         cols: u32,
         env: &ShellEnv,
-        initial_bg: [u8; 3],
-        initial_fg: [u8; 3],
-        initial_ansi: [[u8; 3]; 16],
-        scrollback_lines: u32,
+        theme: ThemeConfig,
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn: shell='{shell}', rows={rows}, cols={cols}");
         let pty = match PtyPair::spawn(shell, rows as u16, cols as u16, env) {
@@ -207,21 +204,14 @@ impl Session {
 
         let child_pid = pty.child_pid();
 
-        let mut session = match Self::spawn_with_theme_inner(
-            Box::new(pty) as Box<dyn Pty>,
-            rows,
-            cols,
-            scrollback_lines,
-            initial_bg,
-            initial_fg,
-            initial_ansi,
-        ) {
-            Ok(session) => session,
-            Err(e) => {
-                // `read_file` is dropped here, closing its fd safely.
-                return Err(e);
-            }
-        };
+        let mut session =
+            match Self::spawn_with_theme_inner(Box::new(pty) as Box<dyn Pty>, rows, cols, theme) {
+                Ok(session) => session,
+                Err(e) => {
+                    // `read_file` is dropped here, closing its fd safely.
+                    return Err(e);
+                }
+            };
 
         let exited = session.exited.clone();
         let output_notify = session.output_notify.clone();
@@ -321,10 +311,7 @@ impl Session {
         pty: Box<dyn Pty>,
         rows: u32,
         cols: u32,
-        scrollback_lines: u32,
-        initial_bg: [u8; 3],
-        initial_fg: [u8; 3],
-        initial_ansi: [[u8; 3]; 16],
+        theme: ThemeConfig,
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn_with_theme_inner: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
@@ -338,10 +325,10 @@ impl Session {
         let terminal = GhosttyTerminal::new_with_theme(
             rows,
             cols,
-            scrollback_lines,
-            initial_bg,
-            initial_fg,
-            initial_ansi,
+            theme.scrollback_lines,
+            theme.background,
+            theme.foreground,
+            theme.ansi,
         )
         .map_err(SessionError::Ghostty)?;
 
@@ -368,6 +355,7 @@ impl Session {
             shell_integration,
             reader_handle: None,
             wait_handle: None,
+            save_path: None,
         })
     }
 
@@ -385,6 +373,47 @@ impl Session {
         self.pty.resize(rows as u16, cols as u16)?;
         self.terminal.resize(rows, cols);
         Ok(())
+    }
+
+    /// Set the session persistence save path.
+    pub fn set_save_path(&mut self, path: &str) {
+        self.save_path = Some(path.to_string());
+    }
+
+    /// Save the current terminal state to the save path using Ghostty Formatter.
+    /// Returns true if the save was successful.
+    pub fn save_session(&self) -> bool {
+        let path = match &self.save_path {
+            Some(p) => p.clone(),
+            None => return false,
+        };
+
+        let (tx, rx) = flume::bounded(1);
+        let command = super::ghostty_terminal::Command::SaveSession { tx };
+        if self.terminal.clone_cmd_tx().send(command).is_err() {
+            return false;
+        }
+
+        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(data) if !data.is_empty() => std::fs::write(&path, &data).is_ok(),
+            _ => false,
+        }
+    }
+
+    /// Restore session state from the save path.
+    /// Returns true if a save file was found and written to the terminal.
+    pub fn restore_session(&mut self) -> bool {
+        let path = match &self.save_path {
+            Some(p) => p.clone(),
+            None => return false,
+        };
+        let data = match std::fs::read(&path) {
+            Ok(d) if !d.is_empty() => d,
+            _ => return false,
+        };
+        // Write saved VT data to the terminal before shell starts
+        self.terminal.pty_write(&data);
+        true
     }
 
     /// Send a POSIX signal (by number) to the child process backing this session.
