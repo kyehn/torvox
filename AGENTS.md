@@ -2,7 +2,9 @@
 
 ## Project Context
 
-GPU-accelerated Android terminal emulator using wgpu (Vulkan) for rendering, Ghostty VT parsing, and a Kotlin+Compose UI. Crate dependency order is strictly one-way.
+GPU-accelerated Android terminal emulator using wgpu (Vulkan) for rendering, Ghostty VT parsing (vendored via `libghostty-vt-sys`), and a Kotlin+Compose UI. Ghostty is the single source of truth for all terminal state — no separate data-model crate.
+
+Single crate (`native/`) with 2 thin workspace members, ~29.5k LOC Rust, JNI direct bridge (no boltffi/JNA).
 
 ## Setup and Commands
 
@@ -15,35 +17,30 @@ git config core.hooksPath .githooks
 Commands:
 
 ```bash
-cargo test --workspace # All Rust tests
-cargo clippy --all -- --deny warnings # Lint
-cargo fmt --check # Format check
-cd android && ./gradlew assembleDebug # Android debug APK
-cd android && ./gradlew spotlessCheck detekt # Kotlin lint
-nu scripts/check-rust.nu # Rust CI script
-nu scripts/test-android-gradle.nu # Android CI script
-cargo test --package terminal-core
-cargo test run --package terminal-core --test property_tests
+cargo test --workspace        # All Rust tests
+cargo clippy --all -- --deny warnings  # Lint
+cargo fmt --check             # Format check
+cd android && ./gradlew assembleDebug  # Android debug APK
+cd android && ./gradlew spotlessCheck detekt  # Kotlin lint
+nu scripts/check-rust.nu     # Rust CI script
+nu scripts/test-android-gradle.nu  # Android CI script
 ```
 
 ---
 
 ## Before Commit
 
-Checklist (run `git config core.hooksPath .githooks` once before first commit):
+Checklist:
 
 1. `cargo test --workspace` exits 0
 2. `cargo clippy --all -- --deny warnings` exits 0
 3. `cargo fmt --check` exits 0
 4. `cd android && ./gradlew spotlessCheck detekt` exits 0
-5. `cargo geiger --package terminal-core` shows no new `unsafe`
-6. Bridge type sync: if `terminal-core` types changed, `bridge.rs` + `TorvoxBridge.kt` updated
+5. Bridge type sync: if `ffi.rs` JNI signatures changed, update `TorvoxBridge.kt`
 
 ---
 
 ## Hooks
-
-Install once:
 
 ```bash
 git config core.hooksPath .githooks
@@ -52,7 +49,7 @@ git config core.hooksPath .githooks
 - `.githooks/commit-msg` — Advisory conventional commit check. Warns on bad format, blocks "changes"/"wip" messages.
 - `.githooks/pre-push` — Runs `cargo fmt --check`, `cargo clippy --all -- --deny warnings`, `./gradlew spotlessCheck` before push (30s timeout per command).
 
-Use `git push --no-verify` to bypass hooks in emergencies (e.g., broken toolchain).
+Use `git push --no-verify` to bypass hooks in emergencies.
 
 ---
 
@@ -66,11 +63,11 @@ Use `git push --no-verify` to bypass hooks in emergencies (e.g., broken toolchai
 ### Never
 
 - Java files, portable-pty, bincode, rust-android-gradle
-- `unsafe` in `terminal-core`
-- `setup_scaffolding!()` in multiple crates
 - `Canvas.drawText` per cell, raw bytes across FFI, `/proc/self/exe`
 - `anyhow` in library crates — use `thiserror 2`
-- boltffi Error `message` field — conflicts with Kotlin `Throwable.message`
+- `unsafe` in the core terminal data path (ghostty_terminal internals)
+- JNA reflection-based binding — use direct JNI (`#[no_mangle]` + `extern "system"`)
+- bash/sh scripts — Nushell only
 
 ---
 
@@ -84,42 +81,51 @@ Use `git push --no-verify` to bypass hooks in emergencies (e.g., broken toolchai
 
 ## Architecture — Summary
 
-See `docs/architecture.md` for the full architecture document including module boundaries, data flow, thread model, design decisions with requirement traceability, and error handling strategy.
+See `docs/architecture.md` for the full architecture document.
 
-### Crate Direction (strict one-way)
+### Crate Direction (single crate)
 
 ```text
-libghostty-vt / libghostty-vt-sys ← terminal-core ← terminal-engine ←
-gpu-renderer ← android-gui ← android/app
+libghostty-vt ← native ← exec-bin / integration-tests ← android/app
 ```
 
-Each crate depends only on the crate directly below it in the chain. Violations break the build. Verify with `cargo metadata --no-deps --format-version 1`.
+| Crate | Role |
+|-------|------|
+| `native` | Single crate: terminal engine, GPU renderer, JNI bridge, MCP server |
+| `exec-bin` | Standalone terminal binary (no JNI) |
+| `integration-tests` | End-to-end GhosttyTerminal integration tests |
 
-### Thread Count
+All Rust code lives in one `native` crate; internal module structure is
+`terminal/`, `render/`, `android/`, `mcp.rs`. No cross-crate boundary
+violations possible.
 
-6-7 threads per session (PTY Reader, Input Writer, Process Waiter, RenderThread, plus shared bridge/MCP threads). See `docs/architecture.md#4-thread-model`.
+### Thread Model
+
+- **Session thread** per terminal: owns `!Send` Ghostty `Terminal`, reads PTY, produces `Vec<CellData>` arrays
+- **Render thread**: shared across sessions, drives wgpu, consumes `CellData` → `CellInstance` → GPU instances
+- **JNI thread**: Kotlin `LaunchedEffect` polls `pollEvent()`, sends surface commands
+- **MCP thread**: optional axum+tokio HTTP-for-Unix-socket JSON-RPC server
 
 ### Render Path
 
-GPU-only via wgpu (Vulkan). No GL, no CPU software fallback. Emulators use SwiftShader; Linux uses Lavapipe. See `docs/architecture.md#3-data-flow` for the full pipeline.
+GPU-only via wgpu (Vulkan). No GL, no CPU software fallback.
+- Session thread: `CellIterator` (single FFI call) → `Vec<CellData>` → `flume` channel
+- Render thread: `drain_cell_data()` → `build_instances_from_cell_data()` → `render_cell_data()` → wgpu submit
+- Emulators use SwiftShader; Linux uses Lavapipe.
 
 ---
 
 ## When Writing Code
 
 - Read `docs/standards/STYLE.md` before writing any file
-- `terminal-core` is `#![no_std]`: no `std::`, no `alloc::` unless behind `#[cfg(feature = "std")]`
-- `terminal-core` has zero `unsafe`: verify with `cargo geiger --package terminal-core`
-- Sync `android-gui/src/bridge.rs` types when changing `terminal-core` types
-- Run `TorvoxBridge.kt` JNA bindings check when modifying bridge types
+- `native/src/android/ffi.rs` is the single JNI export location — keep `TorvoxBridge.kt` in sync
 - Lint after every file change: `cargo clippy --all -- --deny warnings`
 - No magic numbers: use named constants with descriptive names
-- No abbreviations: `config` not `cfg`, `background` not `bg`, `application` not `app`, `terminal` not `term`
+- No abbreviations: `config` not `cfg`, `background` not `bg`, `terminal` not `term`
 - No `#[allow]` in production source code (test helpers excepted)
 - No hardcoded `/data/.*/files` paths for app data — use `filesDir`
 - No icons in Toast messages
 - No `||` in Nushell scripts (invalid syntax)
-- No bash/sh — Nushell only
 - Rust: use `std::hint::black_box` not deprecated `criterion::black_box`
 - Kotlin: use `SharingStarted.WhileSubscribed(TIMEOUT_MILLIS)` with named constant
 
@@ -134,10 +140,10 @@ GPU-only via wgpu (Vulkan). No GL, no CPU software fallback. Emulators use Swift
 
 ## Long Output Handling
 
-- Commands that generate large output (dependency trees, full-stack traces) must save output to a temp file instead of dumping inline in panic messages.
-- Use `std::env::temp_dir()` for the dump path and reference it in the error message.
+- Commands that generate large output must save to temp file instead of dumping inline.
+- Use `std::env::temp_dir()` for the dump path.
 - Retry operations only with a bounded maximum (e.g., emulator boot wait, max 7 min).
-- `cargo-machete` must use `--skip-target-dir` to avoid IO errors on cached build artifacts. Do NOT use `--with-metadata` unless dependency renaming is present — it causes false positives with proc-macro deps like quickcheck.
+- `cargo-machete` must use `--skip-target-dir` to avoid IO errors. Do NOT use `--with-metadata` unless dependency renaming is present.
 
 ---
 
@@ -149,29 +155,27 @@ GPU-only via wgpu (Vulkan). No GL, no CPU software fallback. Emulators use Swift
 - Prefer fixing root causes: avoid deleting files, skipping tests, or adding `#[allow(...)]` to suppress real issues
 - Plan every non-trivial change: exploration, planning, implementation, and acceptance review.
 
+---
+
 ## Known Pitfalls
 
 | # | Pitfall | Lesson |
 |---|---------|--------|
-| 1 | `Shell::Custom(u8)` | u8 too small → `String`, lost Copy |
-| 2 | `DirtyLine` enum | Changed to `DirtyMask { partitions: Vec<u64> }` |
-| 3 | thiserror 2.x + no_std | Set optional, std feature enables |
-| 4 | boltffi multi-crate export | Only one export location allowed |
-| 5 | boltffi `message` field | Conflicts with Kotlin `Throwable.message` |
-| 6 | ghostty uses zig_0_16 | Ensure `zig_0_16` is first in PATH via `shellHook` so ghostty finds the correct version. No `CARGO_TARGET_*_LINKER` needed. |
-| 7 | boltffi CLI no bridge gen | Use JNA manual binding (TorvoxBridge.kt) |
-| 8 | libghostty-vt API | `scrollback_rows()` not `history_size()`; `resize(rows, cols)` two params |
-| 9 | Ghostty Android linking | Dynamic (dylib) + build.rs SONAME strip; static fails (Zig install archive has only lib_vt.o) |
-| 10 | Ghostty SONAME | `libghostty-vt.so.0` NEEDED in ELF; build.rs strips versioned SONAME — if skipped, Gradle filters versioned .so |
-| 11 | Zig C++ namespace | Zig uses `std::__1`, NDK `libc++_shared.so` uses `std::__ndk1` — must bundle matching libc++ |
-| 12 | TextureView/SurfaceView z-order | 当前项目使用 `TextureView`，无需 `setZOrderOnTop`。旧版 SurfaceView 方案在 SwiftShader 模拟器上 `setZOrderOnTop(true)` 导致 overlay alpha=0 画面不可见。|
-| 13 | Render thread death | After 100 consecutive errors (~10s), thread exits permanently; must restart on new surface |
-| 14 | ProGuard R8 | `-dontoptimize` required for JNA reflection-based binding on release builds |
-| 15 | ADB on phone emulator | Use emulator device test. |
-| 16 | `applicationId = "com.termux"` | Intentional design — do NOT change. `test-emulator.nu` runs `pm uninstall --user 0 com.termux` before Gradle to avoid `INSTALL_FAILED_UPDATE_INCOMPATIBLE`. |
-| 17 | APK testkey | Must download from AOSP (`android.googlesource.com/platform/build`). Self-signing (`openssl req -x509`, `keytool -genkey`) is forbidden anywhere in the codebase. |
-| 18 | rapidocr CLI not Python module | All OCR code must use `rapidocr` CLI command, NOT `from rapidocr import RapidOCR`. Model path is patched in `flake.nix`. Use `oldAttrs` not `old`, `postPatch` for patch source code. |
-| 19 | Mesa Lavapipe for Vulkan | GPU renderer uses Vulkan via wgpu. Mesa's Lavapipe (`lvp_icd.x86_64.json`) provides software Vulkan when no physical GPU is available. Do NOT claim "no GPU" — Lavapipe IS the Vulkan implementation. Configured in `flake.nix` via `VK_ICD_FILENAMES`. Emulator provide SwiftShader for the guest GPU. |
+| 1 | Ghostty Zig version | Uses `zig_0_16` — ensure it's first in PATH via `shellHook`. No `CARGO_TARGET_*_LINKER` needed. |
+| 2 | libghostty-vt API | `scrollback_rows()` not `history_size()`; `resize(rows, cols)` two params |
+| 3 | Ghostty Android linking | Dynamic (dylib) + build.rs SONAME strip; static fails (Zig install archive has only lib_vt.o) |
+| 4 | Ghostty SONAME | `libghostty-vt.so.0` NEEDED in ELF; build.rs strips versioned SONAME — if skipped, Gradle filters |
+| 5 | Zig C++ namespace | Zig uses `std::__1`, NDK `libc++_shared.so` uses `std::__ndk1` — must bundle matching libc++ |
+| 6 | TextureView z-order | Use `TextureView`, no `setZOrderOnTop`. Old SurfaceView approach on SwiftShader made overlay invisible. |
+| 7 | Render thread death | After 100 consecutive errors (~10s), thread exits permanently; must restart on new surface |
+| 8 | ProGuard R8 | `-dontoptimize` required for JNI reflection-based binding on release builds |
+| 9 | ADB on emulator | Use emulator device test, not phone/tablet. |
+| 10 | `applicationId = "com.termux"` | Intentional — do NOT change. `test-emulator.nu` runs `pm uninstall --user 0 com.termux` first. |
+| 11 | APK testkey | Must download from AOSP. Self-signing is forbidden. |
+| 12 | rapidocr CLI | All OCR code must use `rapidocr` CLI command, NOT Python module. |
+| 13 | Mesa Lavapipe | GPU renderer uses Mesa Lavapipe for software Vulkan when no physical GPU. Configured via `VK_ICD_FILENAMES`. |
+| 14 | JNI function naming | Java_io_term_bridge_TorvoxBridge_* naming — must match Kotlin `external fun` declarations exactly. |
+| 15 | ANativeWindow ptr | Surface handle must be extracted on JNI thread via `ANativeWindow_fromSurface` and sent to render thread via command queue. Do NOT call NDK functions on the render thread. |
 
 ---
 
@@ -179,24 +183,24 @@ GPU-only via wgpu (Vulkan). No GL, no CPU software fallback. Emulators use Swift
 
 | File | Purpose |
 |------|---------|
-| `terminal-core/src/cell.rs` | Cell, Attrs, Color, DirtyMask (no_std) |
-| `terminal-core/src/grid.rs` | Grid, Scrollback |
-| `terminal-core/src/config.rs` | ThemeConfig, ShellConfig, TerminalConfig |
-| `terminal-core/src/selection.rs` | Selection modes (char/word/line/block) |
-| `terminal-core/src/event.rs` | TerminalEvent, FocusEvent, CwdEvent |
-| `terminal-core/src/snapshot.rs` | rkyv serialization for Android bridge |
-| `terminal-engine/src/pty.rs` | PtyPair — only allowed fork unsafe |
-| `terminal-engine/src/session.rs` | Session orchestrator, clipboard, shell integration |
-| `terminal-engine/src/ghostty_terminal.rs` | GhosttyTerminal (VT engine wrapper) |
-| `terminal-engine/src/keyboard.rs` | Input encoding (Kitty keyboard protocol) |
-| `terminal-engine/src/shell_env.rs` | ShellEnv (pre-exec environment setup) |
-| `gpu-renderer/src/gpu.rs` | wgpu render pipeline, atlas, instance management |
-| `gpu-renderer/src/font.rs` | cosmic-text shaping, swash glyph rasterization |
-| `android-gui/src/bridge.rs` | boltffi data bridge — only export location |
-| `android-gui/src/jni_bridge.rs` | JNI bridge for NDK functions (ANativeWindow) |
-| `android-gui/src/surface.rs` | AndroidSurface, render pipeline |
-| `mcp-server/src/main.rs` | MCP server (JSON-RPC over Unix socket) |
-| `fuzz/fuzz_targets/` | cargo-fuzz targets (VT, OSC, grid, keyboard, selection, attrs, wire) |
+| `native/src/terminal/ghostty_terminal/types.rs` | CellData, CursorStyle, SelectionMode, is_wide |
+| `native/src/terminal/ghostty_terminal/internal.rs` | CellIterator loop, build_cell_data(), VT thread run loop |
+| `native/src/terminal/ghostty_terminal/commands.rs` | Command enum, RunConfig, cell_data_tx channel |
+| `native/src/terminal/ghostty_terminal/public_api.rs` | spawn(), Session handle |
+| `native/src/terminal/pty.rs` | PtyPair — only allowed fork unsafe |
+| `native/src/render/cell_builder.rs` | CellInstanceConfig, build_instances_from_cell_data() |
+| `native/src/render/context.rs` | GpuContext (device, queue, surface) |
+| `native/src/render/pipeline.rs` | wgpu shader pipelines (WGSL) |
+| `native/src/render/pass.rs` | per-frame render pass logic |
+| `native/src/render/surface.rs` | ANativeWindow surface management |
+| `native/src/android/ffi.rs` | JNI FFI exports (12 functions) |
+| `native/src/mcp.rs` | MCP server (tower-mcp, CLI-compatible protocol) |
+| `native/src/lock_util.rs` | poison recovery helpers |
+| `android/app/.../TorvoxBridge.kt` | JNI native method declarations |
+| `native/src/render/pass.rs` | render_cell_data(), render_frame() |
+| `native/src/render/pipeline.rs` | wgpu render pipeline, atlas management |
+| `native/src/render/font/mod.rs` | cosmic-text shaping, swash glyph rasterization |
+| `native/src/android/ffi.rs` | JNI bridge — single export location |
 
 ---
 

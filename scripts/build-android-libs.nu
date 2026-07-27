@@ -45,10 +45,10 @@ def main [--profile: string = "", ...abis: string] {
         }
     }
 
-    # Build android-gui (cdylib) for all profiles and ABIs
+    # Build native (cdylib) for all profiles and ABIs
     for profile in $profiles {
         let ndk_args = ($abis | each { |a| ["--target", $a] } | flatten)
-        cargo ndk ...$ndk_args --platform 21 build --package android-gui --profile $profile
+        cargo ndk ...$ndk_args --platform 21 build --package native --profile $profile
     }
 
     # Copy release-profile .so to jniLibs (optimized for device)
@@ -58,12 +58,12 @@ def main [--profile: string = "", ...abis: string] {
         let triple = abi-to-target-triple $abi
         let lib_dir = $env.PWD | path join $JNILIBS $abi
         mkdir $lib_dir
-        let so_path = $env.PWD | path join "target" $triple $deploy_outdir "libandroid_gui_lib.so"
+        let so_path = $env.PWD | path join "target" $triple $deploy_outdir "libnative.so"
         if not ($so_path | path exists) {
-            print $"ERROR: libandroid_gui_lib.so not found at ($so_path)"
+            print $"ERROR: libnative.so not found at ($so_path)"
             exit 1
         }
-        cp $so_path ($lib_dir | path join "libandroid_gui_lib.so")
+        cp $so_path ($lib_dir | path join "libnative.so")
 
         let size = (stat --format=%s $so_path | str trim | into int)
         if $size < $MINIMUM_SO_SIZE_BYTES {
@@ -74,7 +74,7 @@ def main [--profile: string = "", ...abis: string] {
 
     # Ghostty linkage check
     for abi in $abis {
-        let so_path = $env.PWD | path join $JNILIBS $abi "libandroid_gui_lib.so"
+        let so_path = $env.PWD | path join $JNILIBS $abi "libnative.so"
         let readelf_out = (readelf --dynamic $so_path)
         let ghostty_needed = ($readelf_out | lines | where { $in =~ "NEEDED" and $in =~ "ghostty" })
         if not ($ghostty_needed | is-empty) {

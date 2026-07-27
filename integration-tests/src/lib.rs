@@ -15,9 +15,7 @@ mod config_file_validation {
             .to_string()
     }
 
-
     #[test]
-
     #[test]
     fn rust_toolchain_toml_exists_and_is_valid_toml() {
         let root = workspace_root();
@@ -67,17 +65,11 @@ mod config_file_validation {
     }
 
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     #[test]
-
     // Acceptance: [inspection] CI scripts contain test_type labels
     // — workflow names themselves serve as labels (rust-checks → unit,
     //   android-tests → unit+emulator, release → emulator)
@@ -228,7 +220,7 @@ mod config_file_validation {
 
 #[cfg(test)]
 mod vt_to_snapshot_pipeline {
-    use terminal_engine::ghostty_terminal::GhosttyTerminal;
+    use native::terminal::ghostty_terminal::GhosttyTerminal;
 
     #[test]
     fn vt_write_then_snapshot_dims() {
@@ -318,52 +310,11 @@ mod vt_to_snapshot_pipeline {
 
 #[cfg(test)]
 mod config_driven_session {
-    use terminal_core::config::{Shell, TerminalConfig};
-    use terminal_engine::ghostty_terminal::GhosttyTerminal;
-
-    #[test]
-    fn config_custom_shell() {
-        let cfg = TerminalConfig {
-            shell: Shell::Custom("/bin/sh".to_string()),
-            ..TerminalConfig::default()
-        };
-        assert!(matches!(cfg.shell, Shell::Custom(ref s) if s == "/bin/sh"));
-    }
-
-    #[test]
-    fn config_default_shell() {
-        let cfg = TerminalConfig::default();
-        assert_eq!(cfg.shell, Shell::SystemDefault);
-    }
-
-    #[test]
-    fn config_dimensions_applied() {
-        let cfg = TerminalConfig {
-            rows: 25,
-            cols: 81,
-            ..TerminalConfig::default()
-        };
-        assert_eq!(cfg.rows, 25);
-        assert_eq!(cfg.cols, 81);
-    }
-
-    #[test]
-    fn config_scrollback() {
-        let cfg = TerminalConfig {
-            scrollback_lines: 2000,
-            ..TerminalConfig::default()
-        };
-        assert_eq!(cfg.scrollback_lines, 2000);
-    }
+    use native::terminal::ghostty_terminal::GhosttyTerminal;
 
     #[test]
     fn ghostty_dimensions_match_config() {
-        let cfg = TerminalConfig {
-            rows: 17,
-            cols: 42,
-            ..TerminalConfig::default()
-        };
-        let t = GhosttyTerminal::new(cfg.rows, cfg.cols, cfg.scrollback_lines).unwrap();
+        let t = GhosttyTerminal::new(17, 42, 0).unwrap();
         assert_eq!(t.rows(), 17);
         assert_eq!(t.cols(), 42);
     }
@@ -397,10 +348,10 @@ mod config_driven_session {
 
 #[cfg(test)]
 mod session_e2e {
+    use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
-    use terminal_engine::ShellEnv;
 
-    use terminal_engine::session::Session;
+    use native::terminal::session::Session;
 
     #[test]
     fn spawn_echo_capture() {
@@ -468,8 +419,8 @@ mod session_e2e {
 
 #[cfg(test)]
 mod common {
+    use native::terminal::session::Session;
     use std::time::{Duration, Instant};
-    use terminal_engine::session::Session;
 
     pub fn drain_until(
         s: &mut Session,
@@ -516,11 +467,11 @@ mod common {
 
 #[cfg(test)]
 mod linux_pty_shell_interaction {
+    use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
-    use terminal_engine::ShellEnv;
 
     use super::common::*;
-    use terminal_engine::session::Session;
+    use native::terminal::session::Session;
 
     #[test]
     fn spawn_shell_and_echo() {
@@ -666,11 +617,11 @@ mod linux_pty_shell_interaction {
 
 #[cfg(test)]
 mod linux_signal_handling {
+    use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
-    use terminal_engine::ShellEnv;
 
     use super::common::*;
-    use terminal_engine::session::Session;
+    use native::terminal::session::Session;
 
     #[test]
     fn resize_sends_sigwinch() {
@@ -748,11 +699,11 @@ mod linux_signal_handling {
 
 #[cfg(test)]
 mod linux_exit_behavior {
+    use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
-    use terminal_engine::ShellEnv;
 
     use super::common::*;
-    use terminal_engine::session::Session;
+    use native::terminal::session::Session;
 
     #[test]
     fn shell_exits_on_exit_command() {
@@ -833,11 +784,11 @@ mod linux_exit_behavior {
 
 #[cfg(test)]
 mod linux_scrollback {
+    use native::terminal::ShellEnv;
     use std::time::Duration;
-    use terminal_engine::ShellEnv;
 
     use super::common::*;
-    use terminal_engine::session::Session;
+    use native::terminal::session::Session;
 
     #[test]
     fn long_output_triggers_scrollback() {
@@ -887,11 +838,11 @@ mod linux_scrollback {
 
 #[cfg(test)]
 mod linux_unicode_handling {
+    use native::terminal::ShellEnv;
     use std::time::Duration;
-    use terminal_engine::ShellEnv;
 
     use super::common::*;
-    use terminal_engine::session::Session;
+    use native::terminal::session::Session;
 
     #[test]
     fn echo_cjk_characters() {
@@ -945,11 +896,11 @@ mod linux_unicode_handling {
 
 #[cfg(test)]
 mod linux_ansi_sequences {
+    use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
-    use terminal_engine::ShellEnv;
 
     use super::common::*;
-    use terminal_engine::session::Session;
+    use native::terminal::session::Session;
 
     #[test]
     fn clear_screen_sequence() {
@@ -1055,11 +1006,11 @@ mod linux_ansi_sequences {
 
 #[cfg(test)]
 mod linux_binary_safety {
+    use native::terminal::ShellEnv;
     use std::time::Duration;
-    use terminal_engine::ShellEnv;
 
     use super::common::*;
-    use terminal_engine::session::Session;
+    use native::terminal::session::Session;
 
     #[test]
     fn null_bytes_do_not_panic() {
@@ -1115,11 +1066,11 @@ mod linux_binary_safety {
 
 #[cfg(test)]
 mod linux_session_lifecycle {
+    use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
-    use terminal_engine::ShellEnv;
 
     use super::common::*;
-    use terminal_engine::session::Session;
+    use native::terminal::session::Session;
 
     #[test]
     fn spawn_is_not_exited() {
@@ -1309,8 +1260,8 @@ mod build_config_validation {
         let path = workspace_root().join("android/build.gradle.kts");
         let content = fs::read_to_string(path).unwrap();
         assert!(
-            content.contains("org.jetbrains.kotlin.plugin.compose") && content.contains("2.4.0"),
-            "Kotlin plugin compose should be 2.4.0"
+            content.contains("org.jetbrains.kotlin.plugin.compose") && content.contains("2.4.10"),
+            "Kotlin plugin compose should be 2.4.10 (latest stable)"
         );
     }
 

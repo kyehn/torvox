@@ -5,9 +5,7 @@ edition.workspace = true
 description = "Integration tests terminal emulator"
 
 [dependencies]
-terminal-core = { workspace = true }
-terminal-engine = { workspace = true }
-gpu-renderer = { workspace = true }
+native = { workspace = true, features = ["test-util"] }
 
 [dev-dependencies]
 toml = { workspace = true }

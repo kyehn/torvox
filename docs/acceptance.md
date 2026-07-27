@@ -1,5 +1,11 @@
 # Acceptance Criteria — Torvox
 
+> **⚠️ STALE: This document has not been updated for the crate consolidation.**
+> All verification commands reference old crate names (`terminal-core`, `terminal-engine`,
+> `gpu-renderer`, `android-gui`, `mcp-server`, `fuzz`). Technologies removed:
+> rkyv, boltffi, JNA. The actual code lives in `native/`.
+> Full rewrite required — tracked as separate task.
+
 ## Overview
 
 Each functional requirement (FR-xxx) and non-functional requirement (NFR-xxx) has

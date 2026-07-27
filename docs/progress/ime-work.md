@@ -1,5 +1,8 @@
 # IME/Lag Fix — Investigation & Plan
 
+> **Status: Historical.** GPU cache ordering fix applied (P0). Items #2 (prev_render_height)
+> and #3 (resize debounce) remain unaddressed as of Jul 2026.
+
 ## Current State
 
 ### Root causes identified
