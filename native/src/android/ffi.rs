@@ -1,0 +1,483 @@
+//! JNI FFI bridge — replaces boltffi/JNA with direct JNI.
+//!
+//! This module exports `extern "system"` JNI functions called from Kotlin.
+//! Each function follows the JNI naming convention:
+//! `Java_io_term_bridge_TorvoxBridge_<methodName>`
+//!
+//! Session lifecycle:
+//! - `initSession()` creates a `Session` and registers it globally
+//! - `destroySession()` shuts down the session and removes it
+//! - The active session is set via `switchSession()`
+//!
+//! Events (bell, title, clipboard, exit) are pushed into a global queue
+//! and drained by Kotlin via `pollEvent()`.
+
+use std::collections::HashMap;
+use std::sync::atomic::AtomicU64;
+use std::sync::{LazyLock, Mutex};
+
+use jni::JNIEnv;
+use jni::objects::{JClass, JString};
+use jni::sys::{JNI_TRUE, jboolean, jint, jlong, jobject, jstring};
+
+use crate::terminal::ShellEnv;
+use crate::terminal::session::Session;
+use std::sync::Arc;
+
+// ══════════════════════════════════════════════════════════════════════════
+// NDK FFI declarations
+// ══════════════════════════════════════════════════════════════════════════
+
+type JNIEnvPtr = *mut std::ffi::c_void;
+type JObjectPtr = *mut std::ffi::c_void;
+
+// SAFETY: These are publicly documented Android NDK functions obtained from
+// `libandroid.so`. The pointer arguments must be valid JNI environment and
+// jobject references, which callers guarantee by deriving them from JNI entry
+// points that receive valid arguments from the Kotlin/Java runtime.
+#[cfg(target_os = "android")]
+#[link(name = "android")]
+unsafe extern "C" {
+    fn ANativeWindow_fromSurface(env: JNIEnvPtr, surface: JObjectPtr) -> *mut std::ffi::c_void;
+    fn ANativeWindow_release(window: *mut std::ffi::c_void);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Surface Command Channel
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Commands sent from the JNI thread to the Render thread for surface
+/// lifecycle management. Only the ANativeWindow pointer crosses the
+/// channel; all wgpu API calls stay on the Render thread.
+#[derive(Debug, Clone)]
+pub enum SurfaceCommand {
+    AttachWindow { ptr: u64, width: u32, height: u32 },
+    DetachWindow,
+    Resize { width: u32, height: u32 },
+}
+
+/// Surface commands pushed by JNI and consumed by the render thread
+/// (or Kotlin render loop). Stored in a global Mutex<Vec> — commands
+/// are rare (only on surface attach/detach/resize), so contention is
+/// negligible.
+static SURFACE_COMMANDS: LazyLock<Mutex<Vec<SurfaceCommand>>> =
+    LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// Push a surface command for the render thread.
+pub fn push_surface_command(cmd: SurfaceCommand) {
+    if let Ok(mut queue) = SURFACE_COMMANDS.lock() {
+        queue.push(cmd);
+    }
+}
+
+/// Drain all pending surface commands. Returns them in FIFO order.
+pub fn drain_surface_commands() -> Vec<SurfaceCommand> {
+    SURFACE_COMMANDS
+        .lock()
+        .map(|mut q| std::mem::take(&mut *q))
+        .unwrap_or_default()
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Session Registry
+// ══════════════════════════════════════════════════════════════════════════
+
+/// A registered session with its ID and thread-safe handle.
+struct SessionEntry {
+    id: u64,
+    session: Arc<Mutex<Session>>,
+}
+
+/// Global session registry. Thread-safe via Mutex.
+static SESSION_REGISTRY: LazyLock<Mutex<HashMap<u64, SessionEntry>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+static ACTIVE_SESSION_ID: AtomicU64 = AtomicU64::new(0);
+
+fn next_session_id() -> u64 {
+    NEXT_SESSION_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Event Queue
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Events emitted by sessions and consumed by Kotlin via `pollEvent()`.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum Event {
+    Title { session_id: u64, title: String },
+    Bell { session_id: u64 },
+    Clipboard { session_id: u64, text: String },
+    Exit { session_id: u64, code: i32 },
+}
+
+/// Global event queue. Events are rare (<1 Hz), so Mutex contention is fine.
+static EVENT_QUEUE: LazyLock<Mutex<Vec<Event>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+/// Push an event into the global queue (called from Session polling).
+pub fn push_event(event: Event) {
+    if let Ok(mut queue) = EVENT_QUEUE.lock() {
+        queue.push(event);
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: initSession
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Create a new terminal session with the default shell.
+/// Returns the session ID (jlong) on success, or 0 on failure.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_initSession(
+    mut env: JNIEnv,
+    _class: JClass,
+    rows: jint,
+    cols: jint,
+) -> jlong {
+    let rows = rows as u32;
+    let cols = cols as u32;
+
+    match Session::spawn("", rows, cols, &ShellEnv::default()) {
+        Ok(session) => {
+            let id = next_session_id();
+            let entry = SessionEntry {
+                id,
+                session: Arc::new(Mutex::new(session)),
+            };
+
+            if let Ok(mut registry) = SESSION_REGISTRY.lock() {
+                registry.insert(id, entry);
+                // Set as active if this is the first session
+                if ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+                    ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Relaxed);
+                }
+            }
+
+            log::info!("FFI: initSession -> id={}", id);
+            id as jlong
+        }
+        Err(e) => {
+            let _ = env.throw_new(
+                "java/lang/RuntimeException",
+                format!("initSession failed: {e}"),
+            );
+            0
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: destroySession
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Destroy a session by ID. Returns true on success.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_destroySession(
+    _env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+) -> jboolean {
+    let id = session_id as u64;
+    let removed = if let Ok(mut registry) = SESSION_REGISTRY.lock() {
+        registry.remove(&id).is_some()
+    } else {
+        false
+    };
+
+    if removed {
+        // If we removed the active session, clear the active ID
+        ACTIVE_SESSION_ID
+            .compare_exchange(
+                id,
+                0,
+                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Relaxed,
+            )
+            .ok();
+        log::info!("FFI: destroySession id={}", id);
+        JNI_TRUE
+    } else {
+        log::warn!("FFI: destroySession id={} not found", id);
+        0
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: switchSession
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Switch the active session. Returns true if the session exists.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_switchSession(
+    _env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+) -> jboolean {
+    let id = session_id as u64;
+    let exists = if let Ok(registry) = SESSION_REGISTRY.lock() {
+        registry.contains_key(&id)
+    } else {
+        false
+    };
+
+    if exists {
+        ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Relaxed);
+        JNI_TRUE
+    } else {
+        log::warn!("FFI: switchSession id={} not found", id);
+        0
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: getSessionCount
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Returns the number of active sessions.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_getSessionCount(
+    _env: JNIEnv,
+    _class: JClass,
+) -> jint {
+    let count = SESSION_REGISTRY.lock().map(|r| r.len() as i32).unwrap_or(0);
+    count
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: resize
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Resize the specified session.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_resize(
+    _env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    rows: jint,
+    cols: jint,
+) {
+    let id = session_id as u64;
+    if let Ok(registry) = SESSION_REGISTRY.lock() {
+        if let Some(entry) = registry.get(&id) {
+            if let Ok(mut session) = entry.session.lock() {
+                let _ = session.resize(rows as u32, cols as u32);
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: feedPty
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Write raw bytes to the PTY of the specified session.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_feedPty(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    data: JString,
+) {
+    let id = session_id as u64;
+
+    let input: String = match env.get_string(&data) {
+        Ok(s) => s.into(),
+        Err(_) => return,
+    };
+
+    if let Ok(registry) = SESSION_REGISTRY.lock() {
+        if let Some(entry) = registry.get(&id) {
+            if let Ok(mut session) = entry.session.lock() {
+                let _ = session.write(input.as_bytes());
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: writeKey
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Encode and submit a key event to the session.
+/// `key` is the key name (e.g., "a", "Enter", "Escape").
+/// `mods` is a bitmask of modifiers (1=shift, 2=alt, 4=ctrl, 8=meta, 16=super).
+/// `text` is optional composed text (for IME input).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_writeKey(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    key: JString,
+    mods: jint,
+    text: JString,
+) {
+    let id = session_id as u64;
+
+    let key_str: String = match env.get_string(&key) {
+        Ok(s) => s.into(),
+        Err(_) => return,
+    };
+    let has_text = !text.is_null();
+
+    if let Ok(registry) = SESSION_REGISTRY.lock() {
+        if let Some(entry) = registry.get(&id) {
+            if let Ok(mut session) = entry.session.lock() {
+                if has_text {
+                    if let Ok(t) = env.get_string(&text) {
+                        let _ = session.write(t.to_bytes());
+                    }
+                } else {
+                    // For now, send raw text via write(). Full key encoding
+                    // via key_encode_submit() will be wired in a follow-up.
+                    let _ = session.write(key_str.as_bytes());
+                }
+            }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: pollEvent
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Poll the global event queue. Returns the oldest pending event as a
+/// JSON string, or null if no events are pending.
+///
+/// Before draining the queue, this function polls the active session for
+/// new events (bell, clipboard, exit, title change) and pushes them in.
+///
+/// Each call drains one event. Kotlin should call this at frame rate
+/// (every ~16ms) in a LaunchedEffect.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_pollEvent<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    // Step 1: Poll the active session for new events.
+    let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Relaxed);
+    if active_id != 0 {
+        if let Ok(registry) = SESSION_REGISTRY.lock() {
+            if let Some(entry) = registry.get(&active_id) {
+                if let Ok(mut session) = entry.session.lock() {
+                    // Check bell
+                    if session.poll_bel() {
+                        push_event(Event::Bell {
+                            session_id: active_id,
+                        });
+                    }
+                    // Check clipboard
+                    if let Some(text) = session.poll_clipboard() {
+                        push_event(Event::Clipboard {
+                            session_id: active_id,
+                            text,
+                        });
+                    }
+                    // Check exit
+                    if session.is_exited() {
+                        push_event(Event::Exit {
+                            session_id: active_id,
+                            code: 0,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // Step 2: Drain one event from the queue.
+    let event = EVENT_QUEUE.lock().ok().and_then(|mut q| q.pop());
+
+    match event {
+        Some(e) => {
+            let json = serde_json::to_string(&e).unwrap_or_default();
+            match env.new_string(&json) {
+                Ok(s) => s.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            }
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: attachWindow
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Attach an Android Surface — Android only.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_attachWindow(
+    env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    surface: jobject,
+    width: jint,
+    height: jint,
+) {
+    if surface.is_null() {
+        log::error!("FFI: attachWindow called with null surface");
+        return;
+    }
+
+    // Get the raw ANativeWindow pointer from the Surface object.
+    // Uses the same NDK function as jni_bridge.rs.
+    let raw_env = env.get_native_interface();
+    // SAFETY: `raw_env` comes from `get_native_interface()` which returns a valid
+    // JNIEnv pointer; `surface` is a JNI method argument guaranteed valid by the
+    // JVM runtime. `ANativeWindow_fromSurface` is a documented NDK function from
+    // `libandroid.so`.
+    let ptr = unsafe { ANativeWindow_fromSurface(raw_env as *mut _, surface as *mut _) };
+
+    if ptr.is_null() {
+        log::error!("FFI: attachWindow — ANativeWindow_fromSurface returned NULL");
+        return;
+    }
+
+    log::info!("FFI: attachWindow ptr={:p} {}x{}", ptr, width, height);
+
+    push_surface_command(SurfaceCommand::AttachWindow {
+        ptr: ptr as u64,
+        width: width as u32,
+        height: height as u32,
+    });
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: detachWindow
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Detach the current surface — Android only.
+#[cfg(target_os = "android")]
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_detachWindow(
+    _env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+) {
+    log::info!("FFI: detachWindow");
+    push_surface_command(SurfaceCommand::DetachWindow);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: listSessions
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Returns a JSON array of active session IDs.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_term_bridge_TorvoxBridge_listSessions<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    let ids: Vec<u64> = SESSION_REGISTRY
+        .lock()
+        .map(|r| r.keys().copied().collect())
+        .unwrap_or_default();
+
+    let json = serde_json::to_string(&ids).unwrap_or_else(|_| "[]".into());
+    match env.new_string(&json) {
+        Ok(s) => s.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
