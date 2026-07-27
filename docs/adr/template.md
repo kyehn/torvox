@@ -49,10 +49,8 @@ automated checks where possible.
 
 - CI enforces `cargo clippy --all -- --deny warnings` (see
   [docs/standards/QUALITY-GATE.md](../standards/QUALITY-GATE.md)).
-- `cargo geiger --package terminal-core` exits zero — no new `unsafe` in the
-  core data-model crate.
-- The bridge type sync check in `docs/standards/QUALITY-GATE.md` is run
-  before every commit that changes `terminal-core` types.
+- The JNI bridge type sync check in `docs/standards/QUALITY-GATE.md` is run
+  before every commit that changes JNI signatures in `ffi.rs`.
 
 ---
 

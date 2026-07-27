@@ -6,23 +6,19 @@
 - Managed via Cargo workspace (`Cargo.toml` — `[workspace.dependencies]`)
 - All shared dependencies declared in `[workspace.dependencies]` with consistent versions
 - Pinned via `Cargo.lock` (committed to git)
-- Dependency order: strict one-way crate graph (see `docs/architecture.md#2.1`):
+- Dependency order: single `native` crate (see `docs/architecture.md#2.1`):
 
   ```
   libghostty-vt / libghostty-vt-sys
       ↑
-  terminal-core (no_std)
+  native (merged: terminal + render + android + mcp)
       ↑
-  terminal-engine
-      ↑
-  gpu-renderer
-      ↑
-  android-gui
+  exec-bin / integration-tests
       ↑
   android/app (Kotlin + Compose)
   ```
 
-- Violations of the one-way constraint break the build and are enforced by `cargo metadata --no-deps --format-version 1`
+- No crate boundary violations possible — all code in one `native/` crate
 - Upstream `libghostty-rs` pinned via git commit URL in `[workspace.dependencies]` (no crates.io release)
 
 ### 1.2 Nix Dependencies
@@ -38,8 +34,9 @@
   - `androidx.core:core-ktx`, `lifecycle-runtime-ktx`, `activity-compose`
   - `androidx.compose.ui`, `ui-graphics`, `material3`, `material-icons-extended`
   - `androidx.navigation:navigation-compose`, `androidx.datastore:datastore-preferences`
-- Dependency injection: `com.google.dagger:hilt-android:2.60` with KSP compiler
-- JNA bridge: `net.java.dev.jna:jna:5.19.1@aar`
+- Dependency injection: `com.google.dagger:hilt-android:2.60.1` with KSP compiler
+- Direct JNI (no JNA or boltffi)
+- MCP / IPC: `tower-mcp 0.14` (MCP protocol), `axum 0.8` (HTTP), `tokio 1` (async), `schemars 1` (JSON Schema)
 - Test frameworks: JUnit 4, MockK, Turbine, Robolectric, Roborazzi, Cucumber, Espresso, UI Automator, ArchUnit
 
 ## 2. Vulnerability Scanning
@@ -69,7 +66,7 @@
 
 ## 5. Supply Chain
 
-- **Upstream libghostty-rs**: Pinned via git commit URL in `Cargo.toml` `[workspace.dependencies]` (lines 62–63):
+- **Upstream libghostty-rs**: Pinned via git commit URL in `Cargo.toml` `[workspace.dependencies]` (lines 50–51):
   ```toml
   libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs.git", package = "libghostty-vt" }
   libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs.git", package = "libghostty-vt-sys" }

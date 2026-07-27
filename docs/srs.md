@@ -1,5 +1,11 @@
 # Software Requirements Specification — Torvox
 
+> **⚠️ STALE: This document has not been updated for the crate consolidation.**
+> All verification commands reference old crate names (`terminal-core`, `terminal-engine`,
+> `gpu-renderer`, `android-gui`, `mcp-server`). The actual code lives in `native/`.
+> See `docs/architecture.md` for current module layout.
+> Full rewrite required — tracked as separate task.
+
 ## 1. Introduction
 
 ### 1.1 Purpose
