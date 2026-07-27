@@ -2,7 +2,7 @@
 
 ## Pre-commit
 
-Ensure hooks are installed (`git config core.hooksPath .githooks`).
+Ensure git hooks are installed and configured.
 
 ```bash
 cargo nextest run --workspace --profile ci            # all tests pass
@@ -15,7 +15,7 @@ nu scripts/check-rust.nu
 
 ```bash
 cargo nextest run --package native --test property_tests
-cargo mutants --timeout 30                          # mutation score (config in .cargo/mutants.toml)
+cargo mutants --timeout 30                          # mutation score
 ```
 
 ## Android Verification
@@ -28,9 +28,9 @@ cd android && ./gradlew lint                                       # Android lin
 
 ## Bridge Changes
 
-When modifying JNI exports or `TorvoxBridge.kt`:
+When modifying JNI exports or `NativeBridge.kt`:
 
-1. Ensure `System.loadLibrary("native")` in `TorvoxBridge.kt` matches the cdylib name
+1. Ensure `System.loadLibrary("native")` in `NativeBridge.kt` matches the cdylib name
 2. Verify `#[no_mangle] extern "system"` function signatures match Kotlin `external fun` declarations
 3. Run `cargo test --package native --lib` to validate native compilation
 
@@ -103,9 +103,9 @@ Add the following to the pre-commit checklist:
 
 This project uses git hooks for local quality enforcement and CI for verification:
 
-1. **Pre-push hook** (`.githooks/pre-push`): Runs `cargo fmt --check`, `cargo clippy --all -- --deny warnings`, and `./gradlew spotlessCheck` before allowing push. Timeout: 30s per command. Bypass with `--no-verify` in emergencies.
+1. **Pre-push hook**: Runs `cargo fmt --check`, `cargo clippy --all -- --deny warnings`, and `./gradlew spotlessCheck` before allowing push. Timeout: 30s per command. Bypass with `--no-verify` in emergencies.
 
-2. **Commit-msg hook** (`.githooks/commit-msg`): Advisory conventional commit check. Blocks "changes"/"wip" messages. Warns on non-conventional format but allows the commit.
+2. **Commit-msg hook**: Advisory conventional commit check. Blocks "changes"/"wip" messages. Warns on non-conventional format but allows the commit.
 
 3. **CI enforcement**: CI runs the same checks independently of hooks. Even if hooks are bypassed, CI will catch violations.
 
@@ -135,9 +135,8 @@ and cannot be audited for correctness during code review.
 
 ### Enforcement
 
-- `gpu-renderer/screenshots/`, `gpu-renderer/test-screenshots/`,
-  `gpu-renderer/test_data/*_golden.png`, and
-  `android/app/src/test/resources/roborazzi/` are in `.gitignore`.
+- No golden-image-comparison pattern exists in `.gitignore` (old
+  `native/src/render/` test directories were removed with crate consolidation).
 - CI has no golden-image-comparison step.
 - All rendering tests must use either OCR verification (`rapidocr`) or
   pixel-coordinate assertions.

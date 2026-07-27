@@ -75,7 +75,7 @@ impl super::GhosttyTerminal {
             pty_write_responses,
             snapshot_rebuild_count,
             snapshot_cache: Mutex::new(SnapshotCache {
-                cached: GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS),
+                cached: Arc::new(GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS)),
                 pending_rx: None,
                 initialized: false,
             }),
@@ -220,7 +220,7 @@ impl super::GhosttyTerminal {
     /// actually changed (see `snapshot_needs_rebuild`), so the blocking cost is
     /// a single channel round-trip and is cheap when the grid is unchanged.
     pub fn take_snapshot_with_scroll(&self, scroll_offset: u32) -> GridSnapshot {
-        let (tx, rx) = bounded(1);
+        let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
         if let Err(error) = self
             .cmd_tx
             .send(Command::TakeSnapshot { tx, scroll_offset })
@@ -229,7 +229,7 @@ impl super::GhosttyTerminal {
             return GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS);
         }
         match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(snapshot) => snapshot,
+            Ok(snapshot) => Arc::unwrap_or_clone(snapshot),
             Err(_) => {
                 log::warn!("ghostty_terminal: take_snapshot_with_scroll timed out");
                 GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS)
@@ -265,7 +265,7 @@ impl super::GhosttyTerminal {
         if !cache.initialized {
             // First call: issue a command so the cache populates next frame,
             // then return None (the surface skips this one frame).
-            let (tx, rx) = bounded(1);
+            let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
             let _ = self
                 .cmd_tx
                 .send(Command::TakeSnapshot { tx, scroll_offset });
@@ -275,25 +275,28 @@ impl super::GhosttyTerminal {
         }
 
         // Issue a command for the next frame's snapshot.
-        let (tx, rx) = bounded(1);
+        let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
         let _ = self
             .cmd_tx
             .send(Command::TakeSnapshot { tx, scroll_offset });
         cache.pending_rx = Some(rx);
 
-        Some(cache.cached.clone())
+        Some(Arc::unwrap_or_clone(cache.cached.clone()))
     }
 
-    pub fn take_kgp_image(&self, image_id: u32) -> Option<KgpImageData> {
+    pub fn take_kitty_graphics_image(&self, image_id: u32) -> Option<KittyGraphicsImageData> {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.cmd_tx.send(Command::TakeKgpImage { id: image_id, tx }) {
+        if let Err(error) = self
+            .cmd_tx
+            .send(Command::TakeKittyGraphicsImage { id: image_id, tx })
+        {
             log::error!("ghostty_terminal: cmd_tx send failed: {error}");
         }
         match rx.recv() {
             Ok(result) => result,
             Err(error) => {
                 log::warn!(
-                    "ghostty_terminal: take_kgp_image recv failed — terminal may be dead: {error}"
+                    "ghostty_terminal: take_kitty_graphics_image recv failed — terminal may be dead: {error}"
                 );
                 None
             }

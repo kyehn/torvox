@@ -29,7 +29,7 @@ tags:
     id: "TerminalContent"
 - waitForAnimationToEnd:
     timeout: 3000
-- inputText: "echo TORVOX_MARKER"
+- inputText: "echo MARKER_MARKER"
 - pressKey: Enter
 - waitForAnimationToEnd:
     timeout: 2000

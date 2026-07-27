@@ -68,7 +68,7 @@ tags:
 # Type a longer query
 - tapOn:
     id: "SearchTextField"
-- inputText: " TORVOX"
+- inputText: " MARKER"
 - waitForAnimationToEnd:
     timeout: 2000
 - tapOn:

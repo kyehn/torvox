@@ -18,8 +18,8 @@ import android.util.Log
  * - [detachWindow] detaches when surface is destroyed
  * - [resize] updates terminal dimensions
  */
-object TorvoxBridge {
-    private const val TAG = "TorvoxBridge"
+object NativeBridge {
+    private const val TAG = "NativeBridge"
     private var nativeLoaded = false
 
     init {
@@ -105,4 +105,22 @@ object TorvoxBridge {
     /** Detach the current surface. */
     @JvmStatic
     external fun detachWindow(sessionId: Long)
+
+    // ── MCP server ──────────────────────────────────────────────────────
+
+    /** Enable or disable the MCP server. Starts/stops as needed. */
+    @JvmStatic
+    external fun setMcpEnabled(enabled: Boolean)
+
+    // ── User input callbacks ────────────────────────────────────────────
+
+    /** Called after showing a dialog or file picker to the user. */
+    @JvmStatic
+    external fun dialogResult(sessionId: Long, requestId: Long, result: String)
+
+    // ── Session persistence ─────────────────────────────────────────────
+
+    /** Set the persistence save path for a session (empty = disable). */
+    @JvmStatic
+    external fun setSessionSavePath(sessionId: Long, path: String)
 }
