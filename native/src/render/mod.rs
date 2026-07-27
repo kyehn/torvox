@@ -2,7 +2,7 @@
 //!
 //! The only rendering path — there is no CPU/Canvas fallback. The [`font`]
 //! sub-module performs text shaping (cosmic-text), glyph rasterization (swash),
-//! and atlas packing (guillotiere); [`context`] owns the `GpuContext` struct;
+//! and atlas packing (guillotiere); [`context`] owns the `Renderer` struct;
 //! [`pipeline`] builds wgpu pipelines; [`pass`] drives per-frame rendering;
 //! [`surface`] manages Android surface lifecycle.
 //!
@@ -35,7 +35,7 @@ pub(crate) use cell_builder::{
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
 pub(crate) use cell_builder::{blend_highlight, cell_highlight, color_f32x4_eq};
-pub use context::GpuContext;
+pub use context::Renderer;
 pub use context::orthographic_projection;
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
@@ -111,7 +111,7 @@ impl CellInstance {
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct KgpInstance {
+pub struct KittyGraphicsInstance {
     pub quad_origin: [f32; 2],
     pub quad_size: [f32; 2],
     pub atlas_offset: [f32; 2],
@@ -120,7 +120,7 @@ pub struct KgpInstance {
     pub _padding: f32,
 }
 
-impl KgpInstance {
+impl KittyGraphicsInstance {
     pub fn new(
         quad_origin: [f32; 2],
         quad_size: [f32; 2],
@@ -148,23 +148,16 @@ impl KgpInstance {
 
     pub fn buffer_layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
-            array_stride: std::mem::size_of::<KgpInstance>() as wgpu::BufferAddress,
+            array_stride: std::mem::size_of::<KittyGraphicsInstance>() as wgpu::BufferAddress,
             step_mode: wgpu::VertexStepMode::Instance,
             attributes: &Self::ATTRIBS,
         }
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub struct CursorInstance {
-    pub cursor_pos: [f32; 2],
-    pub cursor_size: [f32; 2],
-    pub color: [f32; 4],
-}
-
 // ── Backward-Compatible Re-exports ───────────────────────────────────────
-// Allow `native::render::gpu::GpuContext` etc. to keep working.
+// Allow `native::render::gpu::Renderer` to keep working.
+// `GpuContext` kept as type alias for backward compat.
 pub mod gpu {
     #![allow(unused_imports)]
     pub use super::cell_builder::{CellCursor, build_instances_from_cell_data};
@@ -174,9 +167,11 @@ pub mod gpu {
         build_cell_instances_from_flat, build_cell_instances_from_snapshot,
         build_cell_instances_into,
     };
-    pub use super::context::{GpuContext, orthographic_projection};
+    pub use super::context::{Renderer, orthographic_projection};
     pub use super::pipeline::{GpuUniforms, image_active_value};
     pub use super::{
-        CATPPUCCIN_MOCHA_BG, CellInstance, CursorInstance, GpuError, KgpInstance, RENDER_SCALE,
+        CATPPUCCIN_MOCHA_BG, CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE,
     };
+    /// Opaque name kept for backward compatibility with integration-tests.
+    pub type GpuContext = Renderer;
 }

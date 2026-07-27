@@ -16,7 +16,7 @@ object NativeWindow {
             System.loadLibrary("native")
             nativeLoaded = true
         } catch (exception: UnsatisfiedLinkError) {
-            Log.w("NativeWindow", "libtorvox_android not loaded: ${exception.message}")
+            Log.w("NativeWindow", "native library not loaded: ${exception.message}")
         }
     }
 

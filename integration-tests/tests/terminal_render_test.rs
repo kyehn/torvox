@@ -221,8 +221,8 @@ fn setup_gpu_env() -> (
     native::render::gpu::GpuContext,
     native::render::font::FontPipeline,
 ) {
-    let mut ctx = native::render::gpu::GpuContext::new_with_no_surface();
-    ctx.surface_config = Some(wgpu::SurfaceConfiguration {
+    let mut context = native::render::gpu::GpuContext::new_with_no_surface();
+    context.surface_config = Some(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
         format: wgpu::TextureFormat::Rgba8Unorm,
@@ -233,13 +233,16 @@ fn setup_gpu_env() -> (
         desired_maximum_frame_latency: 2,
         color_space: wgpu::SurfaceColorSpace::Auto,
     });
-    ctx.set_bg_color([0, 0, 0]);
-    ctx.initialize_pipeline_and_bind_group(256, 256, 800, 600);
-    (ctx, native::render::font::FontPipeline::new(256, 256, 14.0))
+    context.set_bg_color([0, 0, 0]);
+    context.initialize_pipeline_and_bind_group(256, 256, 800, 600);
+    (
+        context,
+        native::render::font::FontPipeline::new(256, 256, 14.0),
+    )
 }
 
 fn render_or_die(
-    ctx: &mut native::render::gpu::GpuContext,
+    context: &mut native::render::gpu::GpuContext,
     font_pipeline: &mut native::render::font::FontPipeline,
     snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
 ) -> Vec<u8> {
@@ -262,12 +265,13 @@ fn render_or_die(
             render_scale: 1.0,
         },
     );
-    ctx.render_to_buffer(&instances, &[])
+    context
+        .render_to_buffer(&instances, &[])
         .expect("render_to_buffer should succeed")
 }
 
 fn render_with_selection(
-    ctx: &mut native::render::gpu::GpuContext,
+    context: &mut native::render::gpu::GpuContext,
     font_pipeline: &mut native::render::font::FontPipeline,
     snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
     selection: native::render::gpu::SelectionRange,
@@ -291,7 +295,8 @@ fn render_with_selection(
             render_scale: 1.0,
         },
     );
-    ctx.render_to_buffer(&instances, &[])
+    context
+        .render_to_buffer(&instances, &[])
         .expect("render_to_buffer should succeed")
 }
 
@@ -306,7 +311,7 @@ fn region_pixels(buf: &[u8], stride: u32, row_start: u32, row_end: u32) -> &[u8]
 }
 
 fn render_dirty_or_die(
-    ctx: &mut native::render::gpu::GpuContext,
+    context: &mut native::render::gpu::GpuContext,
     font_pipeline: &mut native::render::font::FontPipeline,
     snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
     _dirty_rows: &[bool],
@@ -330,18 +335,19 @@ fn render_dirty_or_die(
             render_scale: 1.0,
         },
     );
-    ctx.render_to_buffer(&instances, &[])
+    context
+        .render_to_buffer(&instances, &[])
         .expect("render_to_buffer should succeed")
 }
 
 #[test]
 fn gpu_render_text_nonzero_output() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\x1b[2J\x1b[HHello");
     terminal.flush();
     let snap = terminal.take_snapshot();
-    let pixels = render_or_die(&mut ctx, &mut font_pipeline, &snap);
+    let pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
     assert!(
         pixels.len() >= 4,
         "pixel buffer should have at least 1 pixel"
@@ -358,7 +364,7 @@ fn gpu_render_text_nonzero_output() {
 
 #[test]
 fn gpu_render_colored_text() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\x1b[2J\x1b[H\x1b[31mR\x1b[0mG");
     terminal.flush();
@@ -371,7 +377,7 @@ fn gpu_render_colored_text() {
         g > 0.5 && g < 0.6,
         "red fg G should be ~0.545 (Catppuccin Mocha red), got {g}"
     );
-    let pixels = render_or_die(&mut ctx, &mut font_pipeline, &snap);
+    let pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
     // Check that the cell at (0,0) renders with non-default background colors
     // [30,30,46] (Catppuccin Mocha base). The red fg glyph may not render if
     // the test environment lacks a font with 'R', so only check pixel output
@@ -388,7 +394,7 @@ fn gpu_render_colored_text() {
 
 #[test]
 fn gpu_render_cursor_visible() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\x1b[2J\x1b[5;10HX");
     terminal.flush();
@@ -415,7 +421,7 @@ fn gpu_render_cursor_visible() {
             render_scale: 1.0,
         },
     );
-    let pixels = ctx.render_to_buffer(&instances, &[]).unwrap();
+    let pixels = context.render_to_buffer(&instances, &[]).unwrap();
     // With SrcAlpha blend, cursor at alpha 0.7 on black ≈ 178 (not 255).
     let bright = pixels
         .chunks_exact(4)
@@ -429,7 +435,7 @@ fn gpu_render_cursor_visible() {
 
 #[test]
 fn gpu_render_transparent_block_above_threshold() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\x1b[2J\x1b[5;10HX");
     terminal.flush();
@@ -453,7 +459,7 @@ fn gpu_render_transparent_block_above_threshold() {
             render_scale: 1.0,
         },
     );
-    let pixels = ctx.render_to_buffer(&instances, &[]).unwrap();
+    let pixels = context.render_to_buffer(&instances, &[]).unwrap();
     // With SrcAlpha blend, cursor at alpha 0.7 on black ≈ 178. Change threshold
     // from 255 to 128 so alpha-blended white still counts.
     let bright = pixels
@@ -468,12 +474,12 @@ fn gpu_render_transparent_block_above_threshold() {
 
 #[test]
 fn gpu_render_selection_swaps_fg_bg() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\x1b[2J\x1b[Hhello world");
     terminal.flush();
     let snap = terminal.take_snapshot();
-    let pixels_no_sel = render_or_die(&mut ctx, &mut font_pipeline, &snap);
+    let pixels_no_sel = render_or_die(&mut context, &mut font_pipeline, &snap);
     let sel = native::render::gpu::SelectionRange {
         start_row: 0,
         start_col: 6,
@@ -484,7 +490,7 @@ fn gpu_render_selection_swaps_fg_bg() {
         origin: None,
         is_empty: false,
     };
-    let pixels_sel = render_with_selection(&mut ctx, &mut font_pipeline, &snap, sel);
+    let pixels_sel = render_with_selection(&mut context, &mut font_pipeline, &snap, sel);
     let cell_w = font_pipeline.cell_metrics().0 as u32;
     let mut selected_differ: u32 = 0;
     let mut selected_total: u32 = 0;
@@ -509,12 +515,12 @@ fn gpu_render_selection_swaps_fg_bg() {
 
 #[test]
 fn gpu_font_shaping_cjk() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\x1b[2J\x1b[H\xe4\xb8\xad\xe6\x96\x87"); // 中文
     terminal.flush();
     let snap = terminal.take_snapshot();
-    let pixels = render_or_die(&mut ctx, &mut font_pipeline, &snap);
+    let pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
 
     // CJK glyph occupies 2 cells wide; verify pixel region has >10 non-zero pixels
     let cell_w = font_pipeline.cell_metrics().0 as u32;
@@ -535,7 +541,7 @@ fn gpu_font_shaping_cjk() {
 
 #[test]
 fn cjk_double_width_gpu_occupancy() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     // a + 中 + b: 'a' at col0, CJK at cols1-2, 'b' at col3
     terminal.vt_write(b"a\xe4\xb8\xadb");
@@ -543,7 +549,7 @@ fn cjk_double_width_gpu_occupancy() {
     let snap = terminal.take_snapshot();
     assert_eq!(snap.cell_at(0, 0).codepoint, u32::from(b'a'));
     assert_eq!(snap.cell_at(0, 3).codepoint, u32::from(b'b'));
-    let pixels = render_or_die(&mut ctx, &mut font_pipeline, &snap);
+    let pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
     let cell_w = font_pipeline.cell_metrics().0 as u32;
     // 'b' at col3 should produce visible pixels
     let b_start = (cell_w * 3 * 4) as usize;
@@ -571,13 +577,13 @@ fn cjk_double_width_gpu_occupancy() {
 
 #[test]
 fn gpu_atlas_glyph_packing() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     let all_ascii: Vec<u8> = (32u8..=126).collect();
     terminal.vt_write(&all_ascii);
     terminal.flush();
     let snap = terminal.take_snapshot();
-    let pixels = render_or_die(&mut ctx, &mut font_pipeline, &snap);
+    let pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
     assert!(pixels.len() >= 4, "pixel buffer non-empty");
     let has_content = pixels
         .chunks_exact(4)
@@ -641,7 +647,7 @@ fn window_resize_smaller_clips_scrollback() {
 #[test]
 fn window_resize_gpu_pixel_identity_on_shrink() {
     // GPU test: render at 24x80, resize to 12x80, render, compare visible pixel region
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\x1b[2J\x1b[H");
     for i in 0..ROWS as u8 {
@@ -649,12 +655,12 @@ fn window_resize_gpu_pixel_identity_on_shrink() {
     }
     terminal.flush();
     let snap_before = terminal.take_snapshot();
-    let pixels_before = render_or_die(&mut ctx, &mut font_pipeline, &snap_before);
+    let pixels_before = render_or_die(&mut context, &mut font_pipeline, &snap_before);
 
     terminal.resize(ROWS / 2, COLS);
     terminal.flush();
     let snap_after = terminal.take_snapshot();
-    let pixels_after = render_or_die(&mut ctx, &mut font_pipeline, &snap_after);
+    let pixels_after = render_or_die(&mut context, &mut font_pipeline, &snap_after);
 
     // The first ROWS/2 rows before resize should match rows 0..ROWS/2 after resize
     let cell_h = font_pipeline.cell_metrics().1 as u32;
@@ -894,7 +900,7 @@ fn tui_alt_screen_output_isolated() {
 fn window_resize_shrink_to_fit_pixel_exact() {
     // When terminal shrinks but content fits, every pixel in the smaller
     // terminal must match the top portion of the original.
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     // Fill less than capacity
     terminal.vt_write(b"\x1b[2J\x1b[H");
@@ -907,13 +913,13 @@ fn window_resize_shrink_to_fit_pixel_exact() {
     }
     terminal.flush();
     let snap_before = terminal.take_snapshot();
-    let pixels_before = render_or_die(&mut ctx, &mut font_pipeline, &snap_before);
+    let pixels_before = render_or_die(&mut context, &mut font_pipeline, &snap_before);
 
     // Shrink to content_rows (content still fits)
     terminal.resize(content_rows as u32, COLS);
     terminal.flush();
     let snap_after = terminal.take_snapshot();
-    let pixels_after = render_or_die(&mut ctx, &mut font_pipeline, &snap_after);
+    let pixels_after = render_or_die(&mut context, &mut font_pipeline, &snap_after);
 
     // Compare pixel data of top content_rows rows
     let stride = COLS;
@@ -930,19 +936,19 @@ fn window_resize_shrink_overflow_gpu_pixels() {
     // When terminal shrinks and content overflows, every visible cell in the
     // shrunken terminal must differ from the pre-shrink black cell at (0,0)
     // (proof that scrollback rows, not stale black, are visible).
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(5, 40, 1000).unwrap();
     for i in 0..10u8 {
         terminal.pty_write(&[b'L', 0x30 + i, b'\n']);
     }
     terminal.flush();
     let snap_big = terminal.take_snapshot();
-    let pixels_big = render_or_die(&mut ctx, &mut font_pipeline, &snap_big);
+    let pixels_big = render_or_die(&mut context, &mut font_pipeline, &snap_big);
 
     terminal.resize(3, 40);
     terminal.flush();
     let snap_small = terminal.take_snapshot();
-    let pixels_small = render_or_die(&mut ctx, &mut font_pipeline, &snap_small);
+    let pixels_small = render_or_die(&mut context, &mut font_pipeline, &snap_small);
 
     let cell_w = font_pipeline.cell_metrics().0 as u32;
     let small_first_cell = &pixels_small[..(cell_w as usize * 4)];
@@ -979,21 +985,21 @@ fn window_resize_shrink_overflow_gpu_pixels() {
 #[test]
 fn window_resize_grow_shrink_grow_pixel_cycle() {
     // After shrink → grow-back cycle, pixels must match original.
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(10, 40, 1000).unwrap();
     for i in 0..10u8 {
         terminal.pty_write(&[b'L', 0x30 + i, b'\n']);
     }
     terminal.flush();
     let snap_orig = terminal.take_snapshot();
-    let pixels_orig = render_or_die(&mut ctx, &mut font_pipeline, &snap_orig);
+    let pixels_orig = render_or_die(&mut context, &mut font_pipeline, &snap_orig);
 
     terminal.resize(5, 40);
     terminal.flush();
     terminal.resize(10, 40);
     terminal.flush();
     let snap_restored = terminal.take_snapshot();
-    let pixels_restored = render_or_die(&mut ctx, &mut font_pipeline, &snap_restored);
+    let pixels_restored = render_or_die(&mut context, &mut font_pipeline, &snap_restored);
 
     assert!(
         pixels_equal(&pixels_orig, &pixels_restored),
@@ -1005,12 +1011,12 @@ fn window_resize_grow_shrink_grow_pixel_cycle() {
 
 #[test]
 fn auto_scroll_gpu_render_correct() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(3, 20, 1000).unwrap();
     terminal.pty_write(b"111\n222\n333\n444");
     terminal.flush();
     let snap = terminal.take_snapshot();
-    let pixels = render_or_die(&mut ctx, &mut font_pipeline, &snap);
+    let pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
 
     // Row 0 should show "222" (not "111"), verify pixels match reference
     let cell_w = font_pipeline.cell_metrics().0 as u32;
@@ -1018,7 +1024,7 @@ fn auto_scroll_gpu_render_correct() {
     ref_term.vt_write(b"222");
     ref_term.flush();
     let ref_snap = ref_term.take_snapshot();
-    let ref_pixels = render_or_die(&mut ctx, &mut font_pipeline, &ref_snap);
+    let ref_pixels = render_or_die(&mut context, &mut font_pipeline, &ref_snap);
     let row0_first_cell = &pixels[..(cell_w as usize * 4)];
     let ref_row0 = &ref_pixels[..(cell_w as usize * 4)];
     assert!(
@@ -1029,7 +1035,7 @@ fn auto_scroll_gpu_render_correct() {
 
 #[test]
 fn auto_scroll_dirty_mask_triggers_repaint() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(5, 20, 1000).unwrap();
     terminal.pty_write(b"AAAAA\nBBBBB\nCCCCC\nDDDDD\nEEEEE\nFFFFF");
     terminal.flush();
@@ -1039,8 +1045,8 @@ fn auto_scroll_dirty_mask_triggers_repaint() {
         "after scroll, some rows should be dirty"
     );
     // Dirty-masked render must equal full render
-    let full_pixels = render_or_die(&mut ctx, &mut font_pipeline, &snap);
-    let dirty_pixels = render_dirty_or_die(&mut ctx, &mut font_pipeline, &snap, &snap.dirty);
+    let full_pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
+    let dirty_pixels = render_dirty_or_die(&mut context, &mut font_pipeline, &snap, &snap.dirty);
     assert!(
         pixels_equal(&full_pixels, &dirty_pixels),
         "dirty-masked render should match full render after scroll"
@@ -1051,7 +1057,7 @@ fn auto_scroll_dirty_mask_triggers_repaint() {
 
 #[test]
 fn tui_alt_screen_gpu_isolated_render() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"MAIN_VISIBLE");
     terminal.flush();
@@ -1067,7 +1073,7 @@ fn tui_alt_screen_gpu_isolated_render() {
         has_alt_content,
         "alt screen should have some content after writing to it"
     );
-    let pixels_alt = render_or_die(&mut ctx, &mut font_pipeline, &snap_alt);
+    let pixels_alt = render_or_die(&mut context, &mut font_pipeline, &snap_alt);
 
     // Exit alt screen
     terminal.vt_write(b"\x1b[?1049l");
@@ -1081,7 +1087,7 @@ fn tui_alt_screen_gpu_isolated_render() {
         "cell(0,0) should be 'M' after alt exit, got codepoint {}",
         cell.codepoint
     );
-    let pixels_main = render_or_die(&mut ctx, &mut font_pipeline, &snap_after);
+    let pixels_main = render_or_die(&mut context, &mut font_pipeline, &snap_after);
     // Alt screen render should contain non-black pixels
     let has_pixels = pixels_alt
         .chunks_exact(4)
@@ -1091,7 +1097,7 @@ fn tui_alt_screen_gpu_isolated_render() {
         "alt screen GPU render should have visible pixels"
     );
     // Restored main screen should match original main screen
-    let pixels_main_before = render_or_die(&mut ctx, &mut font_pipeline, &snap_main);
+    let pixels_main_before = render_or_die(&mut context, &mut font_pipeline, &snap_main);
     assert!(
         pixels_equal(&pixels_main_before, &pixels_main),
         "main screen pixels after alt exit should match original"
@@ -1100,17 +1106,17 @@ fn tui_alt_screen_gpu_isolated_render() {
 
 #[test]
 fn tui_alt_screen_gpu_main_restored() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"MAIN_CONTENT");
     terminal.flush();
     let snap_before = terminal.take_snapshot();
-    let pixels_before = render_or_die(&mut ctx, &mut font_pipeline, &snap_before);
+    let pixels_before = render_or_die(&mut context, &mut font_pipeline, &snap_before);
 
     terminal.vt_write(b"\x1b[?1049hALT_CONTENT\x1b[?1049l");
     terminal.flush();
     let snap_after = terminal.take_snapshot();
-    let pixels_after = render_or_die(&mut ctx, &mut font_pipeline, &snap_after);
+    let pixels_after = render_or_die(&mut context, &mut font_pipeline, &snap_after);
 
     assert!(
         pixels_equal(&pixels_before, &pixels_after),
@@ -1122,13 +1128,13 @@ fn tui_alt_screen_gpu_main_restored() {
 
 #[test]
 fn nerd_font_pua_gpu_renders_as_glyph() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\xef\x82\x85");
     terminal.flush();
     let snap = terminal.take_snapshot();
     assert_eq!(snap.cell_at(0, 0).codepoint, 0xF085);
-    let pixels = render_or_die(&mut ctx, &mut font_pipeline, &snap);
+    let pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
     let cell_w = font_pipeline.cell_metrics().0 as u32;
     let cell_pixels = &pixels[..(cell_w as usize * 4)];
     let non_zero = cell_pixels
@@ -1177,12 +1183,12 @@ fn osc133_command_output_sets_semantic_output() {
 
 #[test]
 fn osc133_gpu_render_with_semantic_marks() {
-    let (mut ctx, mut font_pipeline) = setup_gpu_env();
+    let (mut context, mut font_pipeline) = setup_gpu_env();
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;C\x07echo");
     terminal.flush();
     let snap = terminal.take_snapshot();
-    let pixels = render_or_die(&mut ctx, &mut font_pipeline, &snap);
+    let pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
     let has_content = pixels
         .chunks_exact(4)
         .any(|c| c[0] > 0 || c[1] > 0 || c[2] > 0);
@@ -1230,8 +1236,8 @@ fn bootstrap_rapidocr_available() {
 
 #[test]
 fn bootstrap_gpu_context_initializes() {
-    let mut ctx = native::render::gpu::GpuContext::new_with_no_surface();
-    ctx.surface_config = Some(wgpu::SurfaceConfiguration {
+    let mut context = native::render::gpu::GpuContext::new_with_no_surface();
+    context.surface_config = Some(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
         format: wgpu::TextureFormat::Rgba8Unorm,
@@ -1242,5 +1248,5 @@ fn bootstrap_gpu_context_initializes() {
         desired_maximum_frame_latency: 2,
         color_space: wgpu::SurfaceColorSpace::Auto,
     });
-    ctx.initialize_pipeline_and_bind_group(256, 256, 800, 600);
+    context.initialize_pipeline_and_bind_group(256, 256, 800, 600);
 }

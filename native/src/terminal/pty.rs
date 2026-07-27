@@ -716,7 +716,12 @@ mod tests {
 
     #[test]
     fn child_pid_is_positive() {
-        let _pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let pid = pty.child_pid();
+        assert!(
+            pid.as_raw() > 0,
+            "child PID should be positive, got {pid:?}"
+        );
     }
 
     #[test]

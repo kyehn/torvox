@@ -39,8 +39,7 @@ through direct JNI.**
 
 ```
 Ghostty C → CellIterator → flat bytemuck CellData[]
-→ wgpu_queue_write_buffer(device, queue, staging_belt)
-→ draw_indexed() → surface.present()
+→ queue.write_buffer() → render_pass.draw(0..4, 0..instances) → surface.present()
 ```
 
 No grid data crosses the FFI boundary. Kotlin interacts only via:
@@ -48,6 +47,7 @@ No grid data crosses the FFI boundary. Kotlin interacts only via:
 | Direction | Data | Mechanism |
 |-----------|------|-----------|
 | Rust→Kotlin | title, bell, clipboard, exit code | JNI `pollEvent()` (poll-based, not callback) |
+| Kotlin→Rust | session lifecycle | JNI `initSession(executable, args)`, `destroySession()`, `switchSession(id)` |
 | Kotlin→Rust | keyboard input | JNI `writeKey(keycode, modifiers)` |
 | Kotlin→Rust | PTY bytes | JNI `feedPty(bytes)` |
 | Kotlin→Rust | lifecycle events | JNI `attachWindow(ANativeWindow)`, `detachWindow()` |
@@ -81,7 +81,7 @@ No grid data crosses the FFI boundary. Kotlin interacts only via:
 - Zero serialization overhead for grid data
 - JNI overhead limited to ~5 light calls per frame (events, lifecycle)
 - Compose TreeUI complexities removed — Android UI is just a `TextureView`
-  hosting the Vulkan swapchain
+  hosting the wgpu swapchain (Vulkan where available, OpenGL ES fallback)
 - APK size decreases (no boltffi runtime, no JNA)
 
 ### Negative
@@ -97,7 +97,7 @@ No grid data crosses the FFI boundary. Kotlin interacts only via:
 - No `boltffi` or `jna` dependencies in `Cargo.toml`
 - No grid cell data in JNI function signatures — only ints, strings, and
   byte arrays for PTY data
-- `native/src/lib.rs` contains all `#[no_mangle] extern "system"` exports,
+- `native/src/android/ffi.rs` contains all `#[no_mangle] extern "system"` exports,
   each under 20 lines
 
 ## Status Note (Jul 2026)

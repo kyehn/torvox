@@ -29,9 +29,9 @@ tightly coupled to terminal state, not a remote API.
 MCP is an **embedded module** in `native/src/mcp.rs`:
 
 ```rust
-// native/src/mcp.rs — ~380 lines
+// native/src/mcp.rs — ~546 lines
 pub fn build_router() -> McpRouter { ... }
-pub async fn start_unix(path: &str) -> Result<()> { ... }
+pub fn start() { ... }
 pub async fn run_stdio() -> Result<()> { ... }
 ```
 
@@ -78,7 +78,7 @@ pub async fn run_stdio() -> Result<()> { ... }
 
 ## Compliance
 
-- Always compiled in (no feature gate needed)
+- Always compiled in (implemented with mcp feature gate; test-util implies mcp)
 - No `clap` or equivalent CLI dependency
 - MCP module must not depend on any crate not already in the dependency tree
 
@@ -86,10 +86,10 @@ pub async fn run_stdio() -> Result<()> { ... }
 
 This decision was **fully implemented** in Phase 7 of the re-architecture:
 
-- MCP server lives at `native/src/mcp.rs` (~380 lines)
+- MCP server lives at `native/src/mcp.rs` (~546 lines)
 - Uses **tower-mcp 0.14** (proper MCP protocol, not hand-rolled JSON-RPC) instead of the originally proposed hand-written dispatch
 - Provides **two transports**: `StdioTransport` (for Claude Code / Codex CLI) and `UnixSocketTransport` (for embedded use)
-- Supports **7 standard MCP tools**: `terminal_info`, `clipboard_get`, `clipboard_set`, `notify`, `toast`, `open_url`, `pick_file`
-- No feature gate — always compiled in (~50KB binary overhead)
+- Supports **8 standard MCP tools**: `terminal_info`, `clipboard_get`, `clipboard_set`, `notify`, `toast`, `open_url`, `pick_file`, `dialog`
+- Implemented with mcp feature gate (test-util implies mcp) — ~60KB binary overhead when enabled
 - Reads session state via snapshot channel (as originally designed)
 - Removed: `clap` CLI, three store modes, standalone binary

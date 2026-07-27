@@ -81,8 +81,8 @@ contract for new work; violating them regresses a fixed bug.
 
 ### Keyboard encoder
 
-- `terminal-engine` encodes keys with libghostty-vt's `key::Encoder` +
-  `key::Event`. These are allocated **once per `GhosttyTerminal` worker** and
+- `native/src/terminal/` encodes keys with libghostty-vt's `key::Encoder` +
+  `key::Event`. These are allocated **once per `GhosttyTerminal` session** and
   **reused** across keystrokes (`ghostty_terminal.rs`). Per-keypress allocation
   is a regression (loses per-encoder state).
 - Encoder modes are re-synced before every key via
@@ -129,17 +129,16 @@ contract for new work; violating them regresses a fixed bug.
 - `Drop` for `PtyPair` sends `SIGHUP`, waits `GRACEFUL_SHUTDOWN_TIMEOUT_MS`,
   then `SIGKILL`s and `waitpid`s (reaping the child, no zombie). Do not
   reintroduce `into_raw_fd` / `mem::forget(self)` — that leaks the child.
-- `unsafe` is confined to `pty.rs` fork/exec and the gui-android FFI, each with
-  a `// SAFETY:` comment. `terminal-core` and `gpu-renderer` remain
-  `#![forbid(unsafe_code)]`.
+- `unsafe` is confined to `pty.rs` fork/exec and `android/ffi.rs` JNI exports, each with
+  a `// SAFETY:` comment.
 
 ## FFI Conventions
 
 ### Bridge Type Sync
 
-- When modifying `terminal-core` types, update `android-gui/src/bridge.rs` types (single FFI export location)
-- Update `TorvoxBridge.kt` JNA bindings when bridge types change
-- The `SessionSnapshot` type (rkyv-serialized) is the primary Android bridge serialization type
+- When modifying types in `native/src/terminal/`, update `native/src/android/ffi.rs` JNI signatures (single FFI export location)
+- Update `NativeBridge.kt` JNI declarations when bridge types change
+- The `CellData` struct (80B, bytemuck Pod) is the primary render bridge serialization format
 
 ### Naming Across Rust and Kotlin
 
@@ -150,15 +149,14 @@ contract for new work; violating them regresses a fixed bug.
 
 ### Safety
 
-- `unsafe` confined to `pty.rs` fork/exec and `gui-android` FFI
+- `unsafe` confined to `pty.rs` fork/exec and `android/ffi.rs` JNI exports
 - Every `unsafe` block must have a `// SAFETY:` comment
-- `terminal-core` and `gpu-renderer` use `#![forbid(unsafe_code)]`
 
-### Boltffi Rules
+### Direct JNI Bridge Rules
 
-- Only one export location: `android-gui/src/bridge.rs`
-- No `message` field in boltffi Error types (conflicts with Kotlin `Throwable.message`)
-- Boltffi CLI does not generate bridge code — use JNA manual binding (TorvoxBridge.kt)
+- Only one export location: `native/src/android/ffi.rs`
+- No `message` field in JNI error responses (conflicts with Kotlin `Throwable.message`)
+- Use direct JNI (`#[no_mangle] extern "system"`) — no JNA, no boltffi (NativeBridge.kt)
 
 ## Documentation Standards
 

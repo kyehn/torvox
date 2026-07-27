@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Torvox</string>
+    <string name="app_name">Terminal</string>
     <string name="settings">Einstellungen</string>
     <string name="back">Zurück</string>
     <string name="appearance">Erscheinungsbild</string>
@@ -56,7 +56,7 @@
     <string name="scrollback_lines">Scrollback-Zeilen</string>
     <string name="sessions">Sitzungen</string>
     <string name="settings_button">Einstellungen</string>
-    <string name="terminal_title">Torvox</string>
+    <string name="terminal_title">Terminal</string>
     <string name="close">Schließen</string>
     <string name="cd_new_session">Neue Sitzung</string>
     <string name="cd_settings">Einstellungen</string>
