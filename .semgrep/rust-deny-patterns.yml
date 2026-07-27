@@ -54,7 +54,6 @@ rules:
       exclude:
         - "**/*/tests/*"
         - "**/exec-bin/**"
-        - "**/mcp-server/**"
 
   - id: no-transmute-without-safety
     patterns:
@@ -87,4 +86,3 @@ rules:
         - "**/*/examples/*"
         - "**/*/tests/*"
         - "**/exec-bin/**"
-        - "**/mcp-server/**"

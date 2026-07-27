@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Torvox</string>
+    <string name="app_name">Terminal</string>
     <string name="settings">설정</string>
     <string name="back">뒤로</string>
     <string name="appearance">모양</string>
@@ -56,7 +56,7 @@
     <string name="scrollback_lines">스크롤백 줄 수</string>
     <string name="sessions">세션</string>
     <string name="settings_button">설정</string>
-    <string name="terminal_title">Torvox</string>
+    <string name="terminal_title">Terminal</string>
     <string name="close">닫기</string>
     <string name="cd_new_session">새 세션</string>
     <string name="cd_settings">설정</string>

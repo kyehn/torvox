@@ -410,6 +410,7 @@ mod tests {
             }
         }
 
+        std::fs::create_dir_all(dir).expect("create test_data dir");
         let rgba_path = format!("{dir}/freetype_{stem}.rgba");
         let meta_path = format!("{dir}/freetype_{stem}.meta");
         std::fs::write(&rgba_path, &rgba).expect("write golden rgba");
@@ -423,34 +424,7 @@ mod tests {
 
     #[test]
     fn glyph_hao_freetype_comparison() {
-        let mut pipeline = FontPipeline::new(512, 512, 14.0);
-        let info = pipeline
-            .glyph_information('好')
-            .expect("CJK '好' should have glyph information");
-        let atlas = pipeline.atlas_bitmap();
-        let ax = info.atlas_x as usize;
-        let ay = info.atlas_y as usize;
-        let atlas_w = 512usize;
-        let mut has_ink = false;
-        for y in 0..info.height as usize {
-            for x in 0..info.width as usize {
-                let byte_offset = ((ay + y) * atlas_w + ax + x) * 4;
-                if byte_offset < atlas.len() && atlas[byte_offset] > 0 {
-                    has_ink = true;
-                    break;
-                }
-            }
-            if has_ink {
-                break;
-            }
-        }
-        assert!(
-            has_ink,
-            "CJK '好' should have non-zero coverage in pipeline atlas"
-        );
-
-        let (_ft_w, _ft_h, _ft_data) = load_freetype_golden(TEST_DATA_DIR, "hao")
-            .expect("freetype golden not found at test_data/freetype_hao.{meta,rgba}. To generate: run with noto-fonts-cjk-sans installed and copy output");
+        compare_with_freetype('好', "hao");
     }
 
     #[test]
@@ -703,14 +677,20 @@ mod tests {
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         let original_id = pipeline.font_id;
         let names = pipeline.list_monospace_fonts();
+        let mut found_switch = false;
         for name in &names {
             if name.is_empty() {
                 continue;
             }
             if pipeline.set_font_family(name) && pipeline.font_id != original_id {
-                return;
+                found_switch = true;
+                break;
             }
         }
+        assert!(
+            found_switch,
+            "At least one font family should change font_id from {original_id:?}",
+        );
     }
 
     #[test]

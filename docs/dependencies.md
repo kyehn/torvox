@@ -1,4 +1,4 @@
-# Dependencies and SBOM — Torvox
+# Dependencies and SBOM
 
 ## 1. Dependency Management
 
@@ -20,6 +20,14 @@
 
 - No crate boundary violations possible — all code in one `native/` crate
 - Upstream `libghostty-rs` pinned via git commit URL in `[workspace.dependencies]` (no crates.io release)
+- Key native crate (`Cargo.toml`) dependencies:
+  - **GPU**: `wgpu 30` (Vulkan/GLES), `guillotiere 0.7` (atlas packing)
+  - **Font**: `cosmic-text 0.19` (text shaping/layout), `swash 0.2` (glyph rasterization), `fontdb 0.23` (font discovery)
+  - **Bridge**: `jni 0.21` (direct JNI), `bytemuck 1` (zero-copy CellData)
+  - **IPC**: `tower-mcp 0.14` (MCP protocol), `axum 0.8` (HTTP), `tokio 1` (async), `schemars 1` (JSON Schema)
+  - **Terminal**: `libc 0.2` (PTY), `nix 0.31` (POSIX), `flume 0.12` (cell channel)
+  - **Utilities**: `serde 1`, `thiserror 2`, `bitflags 2`, `lru 0.18`
+  - **Dev/test**: `proptest 1.11`
 
 ### 1.2 Nix Dependencies
 - Build environment and all tools declared via `flake.nix` devShell

@@ -32,10 +32,8 @@ jni = { version = "0.21", default-features = false }
 
 flume = "0.12"
 
-# Testing infrastructure: proptest for property-based testing, arbitrary for structured fuzz generation
+# Testing infrastructure
 proptest = "1.11"
-arbitrary = { version = "1", features = ["derive"] }
-bitflags = "2"
 lru = "0.18"
 quickcheck = "1.1"
 quickcheck_macros = "1.2"
@@ -49,6 +47,12 @@ image = "0.25"
 # Zig correctness patches applied via scripts/bootstrap-libghostty.nu.
 libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs.git", package = "libghostty-vt" }
 libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs.git", package = "libghostty-vt-sys" }
+
+# Local patches for ABI fix: vendored ghostty 2dd79f3 has separate cols/rows params
+# while libghostty-rs bindings expect TerminalOptions struct.
+[patch."https://github.com/Uzaaft/libghostty-rs.git"]
+libghostty-vt-sys = { path = "patches/libghostty-vt-sys" }
+libghostty-vt = { path = "patches/libghostty-vt" }
 
 [profile.dev]
 incremental = true

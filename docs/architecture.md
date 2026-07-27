@@ -43,7 +43,7 @@ native/                          ← single cdylib + lib crate
 │   ├── android/                 ← JNI FFI exports (no boltffi)
 │   ├── mcp.rs                   ← tower-mcp server (Unix socket + stdio)
 │   └── lock_util.rs             ← poison recovery
-├── shaders/                     ← WGSL shader sources (5 files)
+├── shaders/                     ← WGSL shader sources (3 files)
 └── Cargo.toml
 ```
 
@@ -57,8 +57,8 @@ native/                          ← single cdylib + lib crate
 |--------|------|------------------|
 | `terminal/` | PTY master/slave, Ghostty VT wrapper, Session orchestration, keyboard encoding, shell env setup | `libghostty-vt` (vendored Zig), `nix`, `flume` |
 | `render/` | wgpu device/surface, cosmic-text shaping, swash rasterization, guillotiere atlas, WGSL pipelines, CellInstance construction | `wgpu`, `cosmic-text`, `swash`, `guillotiere`, `bytemuck` |
-| `android/` | 12 JNI `#[no_mangle]` functions: session lifecycle, surface attach/detach, input, polling | `jni` crate |
-| `mcp.rs` | 7 MCP tools via tower-mcp (terminal_info, clipboard, notify, toast, open_url, pick_file) | `tower-mcp`, `axum`, `tokio`, `schemars` |
+| `android/` | 14 JNI `#[no_mangle]` functions: session lifecycle, surface attach/detach, input, polling, dialog result, MCP toggle, persistence | `jni` crate |
+| `mcp.rs` | 7 MCP tools via tower-mcp (terminal_info, clipboard_get, clipboard_set, notify, toast, open_url, pick_file) | `tower-mcp`, `axum`, `tokio`, `schemars` |
 | `lock_util.rs` | `lock_or_recover()`, `write_or_recover()` — mutex/poison recovery helpers | None |
 
 ### 2.3 Dependency Graph

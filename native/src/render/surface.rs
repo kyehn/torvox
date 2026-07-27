@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use wgpu::util::DeviceExt;
 
-use crate::render::GpuContext;
 use crate::render::GpuError;
+use crate::render::Renderer;
 use crate::render::pipeline::QUAD_CORNERS;
 
 const DESIRED_FRAME_LATENCY: u32 = 2;
@@ -19,7 +19,7 @@ type CachedSurface = (
 
 pub(crate) static GLOBAL_SURFACE: OnceLock<Mutex<Option<CachedSurface>>> = OnceLock::new();
 
-impl GpuContext {
+impl Renderer {
     pub(crate) fn select_alpha_mode(caps: &wgpu::SurfaceCapabilities) -> wgpu::CompositeAlphaMode {
         if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
             wgpu::CompositeAlphaMode::Opaque

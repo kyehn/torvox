@@ -11,8 +11,9 @@
 //! ├── terminal/       — Ghostty VT parsing, PTY management, Session
 //! ├── render/         — wgpu pipeline, cosmic-text shaping, swash glyphs
 //! ├── android/        — JNI FFI exports, NDK bridge, logging
+//! ├── mcp/            — MCP server (feature-gated, tower-mcp)
 //! ├── lock_util       — poison recovery helpers
-//! └── screenshot_tests — included into render::gpu::tests
+//! └── screenshot_tests — included into render::tests
 //! ```
 
 mod lock_util;
@@ -28,6 +29,7 @@ pub mod render;
 pub mod android;
 
 // ── MCP (JSON-RPC over Unix socket for local IPC) ────────────────────────
+#[cfg(feature = "mcp")]
 pub mod mcp;
 
 // ── Re-exports for backward compatibility ────────────────────────────────

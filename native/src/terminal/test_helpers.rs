@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use crate::terminal::ghostty_terminal::{GhosttyTerminal, GridSnapshot};
 
 /// Convenience shorthand: `tc(&mut term).write(b"X").assert_row_text(0, "X")`.

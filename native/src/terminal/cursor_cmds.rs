@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Cursor movement interpreter — validates Ghostty cursor positioning.
 ///
 /// Each test writes a positional sequence and reads back the cursor state,

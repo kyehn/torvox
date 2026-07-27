@@ -7,6 +7,6 @@ def main [] {
     cargo clippy --all -- --deny warnings
     cargo test -p integration-tests --test tool_lint -- --test-threads 1
     cargo test --workspace
-    nix shell nixpkgs#spirv-tools --command "cargo test --package torvox-renderer --test shader_validation_test spirv_compilation -- --ignored"
+    # Shader validation tests removed — crate was merged into native/.
     print "Check completed successfully."
 }

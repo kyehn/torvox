@@ -1,5 +1,5 @@
 //! GPU render pipeline — shader compilation, bind groups, and draw calls.
-use crate::render::GpuContext;
+use crate::render::Renderer;
 
 pub(crate) const QUAD_VERTEX_COUNT: u32 = 6;
 pub(crate) const DEFAULT_BG_ALPHA: f32 = 0.8;
@@ -50,7 +50,7 @@ pub fn image_active_value(bg_bind_group_present: bool) -> f32 {
     if bg_bind_group_present { 1.0 } else { 0.0 }
 }
 
-impl GpuContext {
+impl Renderer {
     pub(crate) fn create_cell_pipeline(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -239,7 +239,7 @@ impl GpuContext {
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
     ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
-        let wgsl_source = include_str!("../../shaders/kgp.wgsl");
+        let wgsl_source = include_str!("../../shaders/kitty_graphics.wgsl");
         let kgp_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("KGP Shader"),
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl_source)),
@@ -292,7 +292,7 @@ impl GpuContext {
                 entry_point: Some("vs_main"),
                 buffers: &[
                     Some(quad_corner_buffer_layout()),
-                    Some(crate::render::KgpInstance::buffer_layout()),
+                    Some(crate::render::KittyGraphicsInstance::buffer_layout()),
                 ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },

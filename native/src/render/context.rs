@@ -1,6 +1,6 @@
 //! GPU context — wgpu instance, adapter, device, and pipeline management.
 //!
-//! Centralizes all wgpu resources into a single `GpuContext` struct.
+//! Centralizes all wgpu resources into a single `Renderer` struct.
 use std::sync::{Arc, OnceLock};
 use wgpu::util::DeviceExt;
 
@@ -21,7 +21,7 @@ struct GlobalGpu {
 fn global_gpu() -> &'static GlobalGpu {
     static INSTANCE: OnceLock<GlobalGpu> = OnceLock::new();
     INSTANCE.get_or_init(|| {
-        match futures::executor::block_on(GpuContext::initialize_instance_adapter_device()) {
+        match futures::executor::block_on(Renderer::initialize_instance_adapter_device()) {
             Ok((instance, adapter, device, queue)) => GlobalGpu {
                 instance,
                 adapter,
@@ -42,7 +42,7 @@ fn global_gpu() -> &'static GlobalGpu {
 }
 
 /// Central GPU context — owns the wgpu device, queues, pipelines, and all GPU resources.
-pub struct GpuContext {
+pub struct Renderer {
     pub instance: wgpu::Instance,
     pub adapter: wgpu::Adapter,
     pub device: wgpu::Device,
@@ -89,7 +89,7 @@ pub struct GpuContext {
     pub(crate) pending_gpu_drain: bool,
 }
 
-impl Drop for GpuContext {
+impl Drop for Renderer {
     fn drop(&mut self) {
         self.cell_bind_group = None;
         self.instance_buffer = None;
@@ -121,7 +121,7 @@ impl Drop for GpuContext {
     }
 }
 
-impl GpuContext {
+impl Renderer {
     /// Initialize wgpu instance, adapter, and device asynchronously.
     pub async fn initialize_instance_adapter_device()
     -> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue), GpuError> {
@@ -186,7 +186,7 @@ impl GpuContext {
         Ok((instance, adapter, device, queue))
     }
 
-    /// Create a new GpuContext with full async initialization.
+    /// Create a new Renderer with full async initialization.
     pub async fn new() -> Result<Self, GpuError> {
         let (instance, adapter, device, queue) = Self::initialize_instance_adapter_device().await?;
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -243,7 +243,7 @@ impl GpuContext {
         })
     }
 
-    /// Create a GpuContext sharing the global wgpu instance/adapter/device.
+    /// Create a Renderer sharing the global wgpu instance/adapter/device.
     /// Useful for headless contexts (e.g., tests, screenshot capture).
     pub fn new_with_no_surface() -> Self {
         let gpu = global_gpu();

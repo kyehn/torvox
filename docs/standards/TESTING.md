@@ -44,17 +44,17 @@ cd android && ./gradlew connectedDebugAndroidTest     # instrumented
 
 ### Six test types and where each lives
 
-torvox verifies Android behavior with six distinct test types. Use the
+The test suite verifies Android behavior with six distinct test types. Use the
 right type for the behavior under test — do not collapse them into one.
 
 | # | Type | Location | What it covers |
 |---|------|----------|----------------|
 | 1 | **Unit** (Rust) | `native/src/terminal/`, `native/src/render/`, `native/src/mcp.rs` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, MCP. Runs on host via `cargo nextest`. |
-| 2 | **Roborazzi** (screenshot) | `android/app/src/test/java/io/torvox/screenshot/*ScreenshotTest.kt`; goldens in `android/app/src/test/resources/roborazzi/` | Pixel-exact Compose/UI rendering under Robolectric. |
-| 3 | **Compose UI** | `android/app/src/test/java/io/torvox/ui/*ComposeTest.kt` (Robolectric) and `android/app/src/androidTest/java/io/torvox/ui/*ComposeTest.kt` (instrumented) | Compose widget state/interaction (theme switch, selection handles). |
-| 4 | **Maestro** | `android/app/src/androidTest/java/io/torvox/ui/*.yaml` flow files (e.g. `SelectionMaestroTest.yaml`) | End-to-end on-device flows driven by Maestro YAML. |
-| 5 | **Android UI testing framework** | `android/app/src/androidTest/java/io/torvox/ui/*UiAutomatorTest.kt` (e.g. `TerminalUiAutomatorTest`, `SelectionUiAutomatorTest`, `TextSearchUiAutomatorTest`) | Cross-app / system-level interaction via UiAutomator. |
-| 6 | **Espresso** | `android/app/src/androidTest/java/io/torvox/ui/*EspressoTest.kt` (e.g. `TerminalActivityEspressoTest`, `SelectionEspressoTest`, `TextSearchEspressoTest`) | In-app View-level interaction via Espresso. |
+| 2 | **Roborazzi** (screenshot) | `android/app/src/test/java/io/term/screenshot/*ScreenshotTest.kt`; goldens in `android/app/src/test/resources/roborazzi/` | Pixel-exact Compose/UI rendering under Robolectric. |
+| 3 | **Compose UI** | `android/app/src/test/java/io/term/ui/*ComposeTest.kt` (Robolectric) and `android/app/src/androidTest/java/io/term/ui/*ComposeTest.kt` (instrumented) | Compose widget state/interaction (theme switch, selection handles). |
+| 4 | **Maestro** | `android/app/src/androidTest/java/io/term/ui/*.yaml` flow files (e.g. `SelectionMaestroTest.yaml`) | End-to-end on-device flows driven by Maestro YAML. |
+| 5 | **Android UI testing framework** | `android/app/src/androidTest/java/io/term/ui/*UiAutomatorTest.kt` (e.g. `TerminalUiAutomatorTest`, `SelectionUiAutomatorTest`, `TextSearchUiAutomatorTest`) | Cross-app / system-level interaction via UiAutomator. |
+| 6 | **Espresso** | `android/app/src/androidTest/java/io/term/ui/*EspressoTest.kt` (e.g. `TerminalActivityEspressoTest`, `SelectionEspressoTest`, `TextSearchEspressoTest`) | In-app View-level interaction via Espresso. |
 
 ### Roborazzi Golden Management
 
@@ -66,7 +66,7 @@ CI fails on golden mismatch. Download `gradle-reports` artifact from the failed 
 
 ### RapidOCR Text Verification
 
-RapidOCR (via `rapidocr-onnxruntime`) is available in the dev shell for OCR-verifying screenshots on Linux.
+RapidOCR (via `rapidocr`) is available in the dev shell for OCR-verifying screenshots on Linux.
 
 Used by `native/src/render/tests.rs` to verify font rendering end-to-end: renders text with swash, saves PNG, OCR-verifies the output.
 

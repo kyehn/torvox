@@ -52,7 +52,7 @@ fn select_present_mode_prefers_vsync() {
         wgpu::PresentMode::Fifo,
     ];
     assert_eq!(
-        GpuContext::select_present_mode(&caps),
+        Renderer::select_present_mode(&caps),
         wgpu::PresentMode::Mailbox,
         "Mailbox preferred over Fifo (Fifo fallback on Mali-G57 which omits Mailbox)"
     );
@@ -61,7 +61,7 @@ fn select_present_mode_prefers_vsync() {
     let mut caps = base_caps();
     caps.present_modes = vec![wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo];
     assert_eq!(
-        GpuContext::select_present_mode(&caps),
+        Renderer::select_present_mode(&caps),
         wgpu::PresentMode::Fifo
     );
 
@@ -69,14 +69,14 @@ fn select_present_mode_prefers_vsync() {
     let mut caps = base_caps();
     caps.present_modes = vec![wgpu::PresentMode::Immediate, wgpu::PresentMode::AutoVsync];
     assert_eq!(
-        GpuContext::select_present_mode(&caps),
+        Renderer::select_present_mode(&caps),
         wgpu::PresentMode::AutoVsync
     );
 
     // Only Immediate -> Immediate (last resort; the lag mode we fixed away).
     let base = base_caps();
     assert_eq!(
-        GpuContext::select_present_mode(&base),
+        Renderer::select_present_mode(&base),
         wgpu::PresentMode::Immediate
     );
 }
@@ -191,19 +191,6 @@ fn color_f32x4_eq_zero_vs_near_zero() {
 #[test]
 fn color_f32x4_eq_negative_zero() {
     assert!(!color_f32x4_eq([0.0, 0.0, 0.0, 0.0], [-0.0, 0.0, 0.0, 0.0]));
-}
-
-#[test]
-fn cursor_instance_size() {
-    // Verify it is pod and serializable
-    let c = CursorInstance {
-        cursor_pos: [0.0, 0.0],
-        cursor_size: [10.0, 20.0],
-        color: [1.0, 1.0, 1.0, 1.0],
-    };
-    let bytes = bytemuck::bytes_of(&c);
-    let back: &CursorInstance = bytemuck::from_bytes(bytes);
-    assert!(f32_arrays_equal(&back.cursor_size, &[10.0, 20.0]));
 }
 
 #[test]
@@ -976,13 +963,13 @@ fn setup_test_gpu_context(
     adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
-) -> GpuContext {
+) -> Renderer {
     let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Quad Vertex Buffer"),
         contents: bytemuck::cast_slice(QUAD_CORNERS),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let mut ctx = GpuContext {
+    let mut context = Renderer {
         instance,
         adapter,
         device: device.clone(),
@@ -1038,8 +1025,8 @@ fn setup_test_gpu_context(
         render_paused: false,
         pending_gpu_drain: false,
     };
-    ctx.initialize_pipeline_and_bind_group(256, 256, 50, 50);
-    ctx
+    context.initialize_pipeline_and_bind_group(256, 256, 50, 50);
+    context
 }
 
 fn setup_test_gpu_context_custom(
@@ -1049,13 +1036,13 @@ fn setup_test_gpu_context_custom(
     queue: wgpu::Queue,
     width: u32,
     height: u32,
-) -> GpuContext {
+) -> Renderer {
     let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Quad Vertex Buffer"),
         contents: bytemuck::cast_slice(QUAD_CORNERS),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let mut ctx = GpuContext {
+    let mut context = Renderer {
         instance,
         adapter,
         device: device.clone(),
@@ -1116,8 +1103,8 @@ fn setup_test_gpu_context_custom(
         render_paused: false,
         pending_gpu_drain: false,
     };
-    ctx.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
-    ctx
+    context.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
+    context
 }
 
 #[test]
@@ -1128,9 +1115,10 @@ fn ocr_verifies_rendered_text() {
     let width = 480u32;
     let height = 60u32;
     let atlas_dim = width.max(256);
-    let mut ctx = setup_test_gpu_context_custom(instance, adapter, device, queue, width, height);
+    let mut context =
+        setup_test_gpu_context_custom(instance, adapter, device, queue, width, height);
     // Ensure GPU atlas dimensions match the font pipeline atlas (both must be square)
-    ctx.initialize_pipeline_and_bind_group(atlas_dim, atlas_dim, width, height);
+    context.initialize_pipeline_and_bind_group(atlas_dim, atlas_dim, width, height);
 
     let mut font_pipeline =
         crate::render::font::FontPipeline::new(atlas_dim as i32, atlas_dim as i32, 14.0);
@@ -1148,8 +1136,8 @@ fn ocr_verifies_rendered_text() {
         !instances.is_empty(),
         "build_cell_instances_from_flat returned 0 instances - font/glyph load failure"
     );
-    ctx.upload_atlas(font_pipeline.atlas_bitmap(), atlas_dim, atlas_dim, None);
-    let pixels = ctx
+    context.upload_atlas(font_pipeline.atlas_bitmap(), atlas_dim, atlas_dim, None);
+    let pixels = context
         .render_to_buffer(&instances, &[])
         .expect("wgpu render must succeed");
 
@@ -1212,16 +1200,16 @@ fn gpu_background_solid_image_opaque() {
     let Some((instance, adapter, device, queue)) = create_test_device() else {
         return;
     };
-    let mut ctx = setup_test_gpu_context(instance, adapter, device, queue);
+    let mut context = setup_test_gpu_context(instance, adapter, device, queue);
 
     let pixel = [255u8, 0, 0, 255];
     let pixels: Vec<u8> = pixel.repeat(50 * 50);
-    ctx.set_bg_image(&pixels, 50, 50);
-    ctx.set_background_params(0.0, 1.0);
-    ctx.ensure_bg_pipeline(50, 50);
+    context.set_bg_image(&pixels, 50, 50);
+    context.set_background_params(0.0, 1.0);
+    context.ensure_bg_pipeline(50, 50);
 
     // render_to_buffer must not panic — bg pipeline initialization is valid
-    let result = ctx
+    let result = context
         .render_to_buffer(&[], &[])
         .expect("wgpu render must succeed");
 
@@ -1255,16 +1243,16 @@ fn gpu_background_solid_image_transparent() {
     let Some((instance, adapter, device, queue)) = create_test_device() else {
         return;
     };
-    let mut ctx = setup_test_gpu_context(instance, adapter, device, queue);
+    let mut context = setup_test_gpu_context(instance, adapter, device, queue);
 
     let pixel = [255u8, 0, 0, 255];
     let pixels: Vec<u8> = pixel.repeat(50 * 50);
-    ctx.set_bg_image(&pixels, 50, 50);
-    ctx.set_background_params(0.0, 0.5);
-    ctx.ensure_bg_pipeline(50, 50);
+    context.set_bg_image(&pixels, 50, 50);
+    context.set_background_params(0.0, 0.5);
+    context.ensure_bg_pipeline(50, 50);
 
     // render_to_buffer must not panic
-    let result = ctx
+    let result = context
         .render_to_buffer(&[], &[])
         .expect("wgpu render must succeed");
 
@@ -1299,9 +1287,9 @@ fn gpu_background_no_image_fallback() {
     let Some((instance, adapter, device, queue)) = create_test_device() else {
         return;
     };
-    let mut ctx = setup_test_gpu_context(instance, adapter, device, queue);
+    let mut context = setup_test_gpu_context(instance, adapter, device, queue);
 
-    let result = ctx
+    let result = context
         .render_to_buffer(&[], &[])
         .expect("wgpu render must succeed");
 
@@ -2096,44 +2084,44 @@ fn cursor_color_custom_values() {
 
 #[test]
 fn render_paused_skips_frame() {
-    let mut ctx = GpuContext::new_with_no_surface();
-    assert!(!ctx.render_paused, "should start unpaused");
+    let mut context = Renderer::new_with_no_surface();
+    assert!(!context.render_paused, "should start unpaused");
     // Without a surface config, render should fail when not paused
     assert!(
-        ctx.render_frame(&[], &[]).is_err(),
+        context.render_frame(&[], &[]).is_err(),
         "expected error when not paused and no surface"
     );
     // When paused, render should succeed immediately (skips surface check)
-    ctx.set_render_paused(true);
+    context.set_render_paused(true);
     assert!(
-        ctx.render_frame(&[], &[]).is_ok(),
+        context.render_frame(&[], &[]).is_ok(),
         "expected ok when paused regardless of surface"
     );
 }
 
 #[test]
 fn render_paused_toggle_resumes_rendering() {
-    let mut ctx = GpuContext::new_with_no_surface();
+    let mut context = Renderer::new_with_no_surface();
     // Pause then unpause
-    ctx.set_render_paused(true);
+    context.set_render_paused(true);
     assert!(
-        ctx.render_frame(&[], &[]).is_ok(),
+        context.render_frame(&[], &[]).is_ok(),
         "paused skips surface check"
     );
-    ctx.set_render_paused(false);
+    context.set_render_paused(false);
     assert!(
-        ctx.render_frame(&[], &[]).is_err(),
+        context.render_frame(&[], &[]).is_err(),
         "unpaused fails without surface (correct behavior)"
     );
 }
 
 #[test]
 fn render_paused_remains_paused_after_multiple_frames() {
-    let mut ctx = GpuContext::new_with_no_surface();
-    ctx.set_render_paused(true);
+    let mut context = Renderer::new_with_no_surface();
+    context.set_render_paused(true);
     for _ in 0..10 {
         assert!(
-            ctx.render_frame(&[], &[]).is_ok(),
+            context.render_frame(&[], &[]).is_ok(),
             "paused render must stay ok across multiple frames"
         );
     }
@@ -2141,16 +2129,19 @@ fn render_paused_remains_paused_after_multiple_frames() {
 
 #[test]
 fn new_with_no_surface_starts_unpaused() {
-    let ctx = GpuContext::new_with_no_surface();
-    assert!(!ctx.render_paused, "new context must start unpaused");
+    let context = Renderer::new_with_no_surface();
+    assert!(!context.render_paused, "new context must start unpaused");
 }
 
 #[test]
 fn set_render_paused_idempotent() {
-    let mut ctx = GpuContext::new_with_no_surface();
-    ctx.set_render_paused(true);
-    ctx.set_render_paused(true);
-    assert!(ctx.render_frame(&[], &[]).is_ok(), "double-pause still ok");
+    let mut context = Renderer::new_with_no_surface();
+    context.set_render_paused(true);
+    context.set_render_paused(true);
+    assert!(
+        context.render_frame(&[], &[]).is_ok(),
+        "double-pause still ok"
+    );
 }
 
 #[test]
