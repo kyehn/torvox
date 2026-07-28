@@ -4,6 +4,37 @@ use libghostty_vt::render::{CellIterator, CursorVisualStyle, RenderState, RowIte
 use libghostty_vt::style::{PaletteIndex, StyleColor};
 use libghostty_vt::terminal::{Mode, Point, PointCoordinate};
 
+/// Helper to create the three per-frame render iterators.
+/// Returns `None` and logs on any creation failure.
+fn create_render_iterators() -> Option<(
+    RenderState<'static>,
+    RowIterator<'static>,
+    CellIterator<'static>,
+)> {
+    let render_state = match RenderState::new() {
+        Ok(rs) => rs,
+        Err(e) => {
+            log::error!("create_render_iterators: RenderState::new() failed: {e}");
+            return None;
+        }
+    };
+    let row_iter = match RowIterator::new() {
+        Ok(ri) => ri,
+        Err(e) => {
+            log::error!("create_render_iterators: RowIterator::new() failed: {e}");
+            return None;
+        }
+    };
+    let cell_iter = match CellIterator::new() {
+        Ok(ci) => ci,
+        Err(e) => {
+            log::error!("create_render_iterators: CellIterator::new() failed: {e}");
+            return None;
+        }
+    };
+    Some((render_state, row_iter, cell_iter))
+}
+
 /// Decide whether the VT thread must rebuild the grid snapshot from the
 /// terminal, as opposed to cloning the previously built (cached) snapshot.
 ///
@@ -178,27 +209,7 @@ impl super::GhosttyTerminal {
         let cols = terminal.cols().unwrap_or(80) as u32;
         let size = (rows * cols) as usize;
 
-        let mut render_state = match RenderState::new() {
-            Ok(rs) => rs,
-            Err(e) => {
-                log::error!("build_cell_data: RenderState::new() failed: {e}");
-                return None;
-            }
-        };
-        let mut row_iter = match RowIterator::new() {
-            Ok(ri) => ri,
-            Err(e) => {
-                log::error!("build_cell_data: RowIterator::new() failed: {e}");
-                return None;
-            }
-        };
-        let mut cell_iter = match CellIterator::new() {
-            Ok(ci) => ci,
-            Err(e) => {
-                log::error!("build_cell_data: CellIterator::new() failed: {e}");
-                return None;
-            }
-        };
+        let (mut render_state, mut row_iter, mut cell_iter) = create_render_iterators()?;
 
         let snapshot = match render_state.update(terminal) {
             Ok(s) => s,
@@ -400,26 +411,9 @@ impl super::GhosttyTerminal {
 
         // Local RenderState+iterators — created per-call to avoid lifetime
         // issues with the invariant-param Terminal type.
-        let mut render_state = match RenderState::new() {
-            Ok(rs) => rs,
-            Err(e) => {
-                log::error!("build_snapshot: RenderState::new() failed: {e}");
-                return GridSnapshot::fallback(rows, cols);
-            }
-        };
-        let mut row_iter = match RowIterator::new() {
-            Ok(ri) => ri,
-            Err(e) => {
-                log::error!("build_snapshot: RowIterator::new() failed: {e}");
-                return GridSnapshot::fallback(rows, cols);
-            }
-        };
-        let mut cell_iter = match CellIterator::new() {
-            Ok(ci) => ci,
-            Err(e) => {
-                log::error!("build_snapshot: CellIterator::new() failed: {e}");
-                return GridSnapshot::fallback(rows, cols);
-            }
+        let (mut render_state, mut row_iter, mut cell_iter) = match create_render_iterators() {
+            Some(v) => v,
+            None => return GridSnapshot::fallback(rows, cols),
         };
 
         let snapshot = match render_state.update(terminal) {

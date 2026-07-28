@@ -12,15 +12,23 @@
 //! Events (bell, title, clipboard, exit) are pushed into a global queue
 //! and drained by Kotlin via `pollEvent()`.
 
+// Style: nested-if is an error-handling idiom for JNI; unused-mut is a
+// false positive with jni crate (new_string needs &mut self on some configs).
+#![allow(clippy::collapsible_if, unused_mut, clippy::type_complexity)]
+
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
+#[cfg(feature = "mcp")]
+use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
-use jni::sys::{JNI_TRUE, jboolean, jint, jlong, jobject, jstring};
+use jni::sys::{JNI_TRUE, jboolean, jint, jlong, jstring};
 
+#[cfg(target_os = "android")]
+use crate::render::NativeWindow;
 use crate::terminal::ShellEnv;
 use crate::terminal::session::Session;
 use std::sync::Arc;
@@ -29,7 +37,10 @@ use std::sync::Arc;
 // NDK FFI declarations
 // ══════════════════════════════════════════════════════════════════════════
 
+/// NDK raw-pointer type for JNI invocation API.
+#[cfg(target_os = "android")]
 type JNIEnvPtr = *mut std::ffi::c_void;
+#[cfg(target_os = "android")]
 type JObjectPtr = *mut std::ffi::c_void;
 
 // SAFETY: These are publicly documented Android NDK functions obtained from
@@ -39,8 +50,11 @@ type JObjectPtr = *mut std::ffi::c_void;
 #[cfg(target_os = "android")]
 #[link(name = "android")]
 unsafe extern "C" {
-    fn ANativeWindow_fromSurface(env: JNIEnvPtr, surface: JObjectPtr) -> *mut std::ffi::c_void;
-    fn ANativeWindow_release(window: *mut std::ffi::c_void);
+    pub(crate) fn ANativeWindow_fromSurface(
+        env: JNIEnvPtr,
+        surface: JObjectPtr,
+    ) -> *mut std::ffi::c_void;
+    pub(crate) fn ANativeWindow_release(window: *mut std::ffi::c_void);
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -48,23 +62,32 @@ unsafe extern "C" {
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Commands sent from the JNI thread to the Render thread for surface
-/// lifecycle management. Only the ANativeWindow pointer crosses the
-/// channel; all wgpu API calls stay on the Render thread.
-#[derive(Debug, Clone)]
-pub enum SurfaceCommand {
-    AttachWindow { ptr: u64, width: u32, height: u32 },
+/// lifecycle management (Android-only: requires ANativeWindow).
+#[cfg(target_os = "android")]
+#[derive(Debug)]
+pub(crate) enum SurfaceCommand {
+    AttachWindow {
+        window: NativeWindow,
+        width: u32,
+        height: u32,
+    },
     DetachWindow,
-    Resize { width: u32, height: u32 },
+    Resize {
+        width: u32,
+        height: u32,
+    },
 }
 
 /// Surface commands pushed by JNI and consumed by the render thread
 /// (or Kotlin render loop). Stored in a global Mutex<Vec> — commands
 /// are rare (only on surface attach/detach/resize), so contention is
 /// negligible.
+#[cfg(target_os = "android")]
 static SURFACE_COMMANDS: LazyLock<Mutex<Vec<SurfaceCommand>>> =
     LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// Push a surface command for the render thread.
+#[cfg(target_os = "android")]
 pub(crate) fn push_surface_command(command: SurfaceCommand) {
     if let Ok(mut queue) = SURFACE_COMMANDS.lock() {
         queue.push(command);
@@ -72,6 +95,7 @@ pub(crate) fn push_surface_command(command: SurfaceCommand) {
 }
 
 /// Drain all pending surface commands. Returns them in FIFO order.
+#[cfg(target_os = "android")]
 pub(crate) fn drain_surface_commands() -> Vec<SurfaceCommand> {
     SURFACE_COMMANDS
         .lock()
@@ -85,7 +109,6 @@ pub(crate) fn drain_surface_commands() -> Vec<SurfaceCommand> {
 
 /// A registered session with its ID and thread-safe handle.
 struct SessionEntry {
-    id: u64,
     session: Arc<Mutex<Session>>,
     /// Last time the session state was saved (for periodic persistence).
     last_save: Mutex<Instant>,
@@ -127,6 +150,7 @@ pub enum Event {
     },
     /// Request Kotlin to show a dialog (input/confirm/select).
     /// Kotlin responds by calling `dialogResult()` JNI.
+    #[cfg(feature = "mcp")]
     ShowDialog {
         session_id: u64,
         request_id: u64,
@@ -136,6 +160,7 @@ pub enum Event {
     },
     /// Request Kotlin to show a file picker (Android SAF / desktop).
     /// Kotlin responds by calling `filePicked()` JNI.
+    #[cfg(feature = "mcp")]
     PickFile {
         session_id: u64,
         request_id: u64,
@@ -148,10 +173,14 @@ pub enum Event {
 static EVENT_QUEUE: LazyLock<Mutex<Vec<Event>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 /// Monotonic counter for user-input request IDs.
+#[cfg(feature = "mcp")]
+#[allow(dead_code)]
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Registry for pending user-input requests (dialog / file picker).
 /// Keyed by (session_id, request_id) to support multiple concurrent dialogs.
+#[cfg(feature = "mcp")]
+#[allow(dead_code)]
 static REQUEST_REGISTRY: LazyLock<
     Mutex<HashMap<(u64, u64), tokio::sync::oneshot::Sender<String>>>,
 > = LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -187,6 +216,8 @@ pub(crate) fn maybe_save_session(
 
 /// Register a pending user-input request and return the receiver.
 /// Kotlin will send the response via `dialogResult` JNI.
+#[cfg(feature = "mcp")]
+#[allow(dead_code)]
 pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::Receiver<String>) {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
@@ -219,7 +250,6 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_initSession(
             // Restore previous session state if available
             session_inner.restore_session();
             let entry = SessionEntry {
-                id,
                 session: Arc::new(Mutex::new(session_inner)),
                 last_save: Mutex::new(Instant::now()),
             };
@@ -318,18 +348,17 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_getSessionCount(
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
-    let count = SESSION_REGISTRY.lock().map(|r| r.len() as i32).unwrap_or(0);
-    count
+    SESSION_REGISTRY.lock().map(|r| r.len() as i32).unwrap_or(0)
 }
 
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: resize
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Resize the specified session.
+/// Resize the specified session. Throws RuntimeException if session not found.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_term_bridge_NativeBridge_resize(
-    _env: JNIEnv,
+    mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
     rows: jint,
@@ -339,10 +368,15 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_resize(
     if let Ok(registry) = SESSION_REGISTRY.lock() {
         if let Some(entry) = registry.get(&id) {
             if let Ok(mut session) = entry.session.lock() {
-                let _ = session.resize(rows as u32, cols as u32);
+                if let Err(e) = session.resize(rows as u32, cols as u32) {
+                    let _ =
+                        env.throw_new("java/lang/RuntimeException", format!("resize: failed: {e}"));
+                }
+                return;
             }
         }
     }
+    let _ = env.throw_new("java/lang/RuntimeException", "resize: session not found");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -350,6 +384,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_resize(
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Write raw bytes to the PTY of the specified session.
+/// Throws RuntimeException if session not found or write fails.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_term_bridge_NativeBridge_feedPty(
     mut env: JNIEnv,
@@ -361,17 +396,31 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_feedPty(
 
     let input: String = match env.get_string(&data) {
         Ok(s) => s.into(),
-        Err(_) => return,
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/RuntimeException",
+                "feedPty: failed to read input string",
+            );
+            return;
+        }
     };
 
     if let Ok(registry) = SESSION_REGISTRY.lock() {
         if let Some(entry) = registry.get(&id) {
             if let Ok(mut session) = entry.session.lock() {
-                let _ = session.write(input.as_bytes());
-                maybe_save_session(&session, &entry.last_save);
+                if let Err(e) = session.write(input.as_bytes()) {
+                    let _ = env.throw_new(
+                        "java/lang/RuntimeException",
+                        format!("feedPty: write failed: {e}"),
+                    );
+                } else {
+                    maybe_save_session(&session, &entry.last_save);
+                }
+                return;
             }
         }
     }
+    let _ = env.throw_new("java/lang/RuntimeException", "feedPty: session not found");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -389,7 +438,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
     _class: JClass,
     session_id: jlong,
     key: JString,
-    mods: jint,
+    _mods: jint,
     text: JString,
 ) {
     let id = session_id as u64;
@@ -451,7 +500,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
 /// (every ~16ms) in a LaunchedEffect.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
-    mut env: JNIEnv<'local>,
+    env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> jstring {
     // Step 1: Poll the active session for new events.
@@ -459,7 +508,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
     if active_id != 0 {
         if let Ok(registry) = SESSION_REGISTRY.lock() {
             if let Some(entry) = registry.get(&active_id) {
-                if let Ok(mut session) = entry.session.lock() {
+                if let Ok(session) = entry.session.lock() {
                     // Check bell
                     if session.poll_bel() {
                         push_event(Event::Bell {
@@ -475,9 +524,15 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
                     }
                     // Check exit
                     if session.is_exited() {
+                        let code = session
+                            .exit_code
+                            .lock()
+                            .ok()
+                            .and_then(|ec| *ec)
+                            .unwrap_or(0);
                         push_event(Event::Exit {
                             session_id: active_id,
-                            code: 0,
+                            code,
                         });
                     }
                 }
@@ -536,8 +591,11 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_attachWindow(
 
     log::info!("FFI: attachWindow ptr={:p} {}x{}", ptr, width, height);
 
+    // SAFETY: ptr is non-null from ANativeWindow_fromSurface.
+    let window = unsafe { NativeWindow::new(ptr) };
+
     push_surface_command(SurfaceCommand::AttachWindow {
-        ptr: ptr as u64,
+        window,
         width: width as u32,
         height: height as u32,
     });
@@ -607,6 +665,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_setSessionSavePath<'loca
 /// `result` is the user's input (text for input, "confirmed"/"cancelled"
 /// for confirm, selected option for select, file path for pick_file).
 #[unsafe(no_mangle)]
+#[cfg(feature = "mcp")]
 pub extern "system" fn Java_io_term_bridge_NativeBridge_dialogResult<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,

@@ -47,23 +47,25 @@ struct AcquireRequest {
     response: std::sync::mpsc::SyncSender<AcquireResult>,
 }
 
+fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<AcquireRequest>(1);
+    std::thread::Builder::new()
+        .name("gpu-acquire".into())
+        .spawn(move || {
+            for request in rx {
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    request.surface.get_current_texture()
+                }));
+                let _ = request.response.send(result);
+            }
+        })
+        .expect("failed to spawn gpu-acquire worker thread");
+    tx
+}
+
 fn acquire_worker_tx() -> &'static SyncSender<AcquireRequest> {
     static WORKER_TX: OnceLock<SyncSender<AcquireRequest>> = OnceLock::new();
-    WORKER_TX.get_or_init(|| {
-        let (tx, rx) = std::sync::mpsc::sync_channel::<AcquireRequest>(1);
-        std::thread::Builder::new()
-            .name("gpu-acquire".into())
-            .spawn(move || {
-                for request in rx {
-                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                        request.surface.get_current_texture()
-                    }));
-                    let _ = request.response.send(result);
-                }
-            })
-            .expect("failed to spawn gpu-acquire worker thread");
-        tx
-    })
+    WORKER_TX.get_or_init(spawn_acquire_worker)
 }
 
 impl Renderer {
@@ -119,7 +121,7 @@ impl Renderer {
         self.queue.present(output);
     }
 
-    fn acquire_texture(
+    pub(crate) fn acquire_texture(
         &self,
         surface: &std::sync::Arc<wgpu::Surface<'static>>,
         _cfg_width: u32,
@@ -135,9 +137,21 @@ impl Renderer {
             surface: std::sync::Arc::clone(surface),
             response: resp_tx,
         };
-        if acquire_worker_tx().try_send(request).is_err() {
-            log::warn!("acquire_texture: worker channel full or disconnected");
-            return None;
+        if let Err(e) = acquire_worker_tx().try_send(request) {
+            // Worker channel full or thread died (panic in catch_unwind).
+            // Fall back to inline acquire so the render thread never blocks.
+            log::warn!("acquire_texture: worker {e:?}, acquiring inline");
+            return match surface.get_current_texture() {
+                wgpu::CurrentSurfaceTexture::Success(tex)
+                | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
+                wgpu::CurrentSurfaceTexture::Lost => {
+                    if let Some(config) = &self.surface_config {
+                        surface.configure(&self.device, config);
+                    }
+                    None
+                }
+                _ => None,
+            };
         }
 
         match resp_rx.recv_timeout(ACQUIRE_TIMEOUT) {
@@ -174,34 +188,15 @@ impl Renderer {
         if self.render_paused {
             return Ok(());
         }
-        // Drain deferred GPU work from release_gpu_surface before acquiring new texture.
-        // Use a single-frame timeout (16ms) — if the GPU is still busy after one frame
-        // boundary, proceeding anyway avoids blocking the UI thread for 200ms+.
-        if self.pending_gpu_drain {
-            let _ = self.device.poll(wgpu::PollType::Wait {
-                submission_index: None,
-                timeout: Some(std::time::Duration::from_millis(16)),
-            });
-            self.pending_gpu_drain = false;
+        // Surface and config must be available when not paused.
+        if self.surface.is_none() || self.surface_config.is_none() {
+            return Err(GpuError::Surface("no surface configured".to_string()));
         }
-        let mut cfg_width = self
-            .surface_config
-            .as_ref()
-            .map(|c| c.width)
-            .ok_or(GpuError::Surface("No surface config".to_string()))?;
-        let mut cfg_height = self
-            .surface_config
-            .as_ref()
-            .map(|c| c.height)
-            .ok_or(GpuError::Surface("No surface config".to_string()))?;
 
-        self.ensure_bg_pipeline(cfg_width, cfg_height);
-        self.ensure_kgp_pipeline(cfg_width, cfg_height);
+        let mut frame_ctx = self
+            .begin_frame()
+            .ok_or_else(|| GpuError::Surface("begin_frame failed".to_string()))?;
 
-        let surface = self
-            .surface
-            .as_ref()
-            .ok_or(GpuError::Surface("No surface configured".to_string()))?;
         let pipeline = self
             .cell_pipeline
             .as_ref()
@@ -215,77 +210,19 @@ impl Renderer {
             self.cell_bind_group.is_some(),
         );
 
-        let output = self.acquire_texture(surface, cfg_width, cfg_height);
-
-        let output = match output {
-            Some(tex) => tex,
-            None => return Ok(()),
-        };
-
-        let tex_size = output.texture.size();
         log::debug!(
             "RENDER_FRAME: config={}x{} tex={}x{} instances={}",
-            cfg_width,
-            cfg_height,
-            tex_size.width,
-            tex_size.height,
+            frame_ctx.cfg_width,
+            frame_ctx.cfg_height,
+            frame_ctx.texture.texture.size().width,
+            frame_ctx.texture.texture.size().height,
             instances.len(),
         );
-        if tex_size.width != cfg_width || tex_size.height != cfg_height {
-            log::warn!(
-                "render_frame: size mismatch! config={}x{} texture={}x{}",
-                cfg_width,
-                cfg_height,
-                tex_size.width,
-                tex_size.height
-            );
-            cfg_width = tex_size.width;
-            cfg_height = tex_size.height;
-            let existing_config_ref = self.surface_config.as_ref().ok_or_else(|| {
-                GpuError::Surface("surface_config lost during reconfiguration".to_string())
-            })?;
-            let existing_config = existing_config_ref.clone();
-            let new_config = wgpu::SurfaceConfiguration {
-                width: cfg_width,
-                height: cfg_height,
-                ..existing_config
-            };
-            surface.configure(&self.device, &new_config);
-            self.surface_config = Some(new_config);
 
-            let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
-            let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
-            let proj = crate::render::orthographic_projection(cfg_width as f32, cfg_height as f32);
-            let uniforms = crate::render::pipeline::GpuUniforms {
-                projection: proj,
-                atlas_size: [aw as f32, ah as f32],
-                raster_scale: self.raster_scale,
-                image_active: crate::render::pipeline::image_active_value(
-                    self.bg_bind_group.is_some(),
-                ),
-                default_bg: [
-                    self.bg_color.r as f32,
-                    self.bg_color.g as f32,
-                    self.bg_color.b as f32,
-                    1.0,
-                ],
-            };
-            if let Some(buf) = &self.cell_uniform_buffer {
-                self.queue
-                    .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
-            }
-            log::debug!("RENDER_FRAME_RECONFIGURE: {}x{}", cfg_width, cfg_height);
-        }
-
-        let view = output
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
-
-        let mut encoder = self
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Frame Encoder"),
-            });
+        let cfg_width = frame_ctx.cfg_width;
+        let cfg_height = frame_ctx.cfg_height;
+        let view = &frame_ctx.view;
+        let encoder = &mut frame_ctx.encoder;
 
         #[cfg(debug_assertions)]
         encoder.push_debug_group("Frame");
@@ -347,7 +284,7 @@ impl Renderer {
                 let mut h_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Blur H Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
+                        view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(self.bg_color),
@@ -369,7 +306,7 @@ impl Renderer {
                 let mut v_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Blur V Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
+                        view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Load,
@@ -394,7 +331,7 @@ impl Renderer {
                 let mut bg_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Background Render Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: &view,
+                        view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(self.bg_color),
@@ -425,7 +362,7 @@ impl Renderer {
             let mut kgp_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("KGP Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Load,
@@ -456,7 +393,7 @@ impl Renderer {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Cell Render Pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view,
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: if has_bg {
@@ -505,8 +442,12 @@ impl Renderer {
         #[cfg(debug_assertions)]
         encoder.pop_debug_group(); // Frame
 
+        // Take ownership of encoder and texture to finish and present.
+        // The borrows on frame_ctx (encoder, view) end here.
+        let encoder = frame_ctx.encoder;
+        let texture = frame_ctx.texture;
         self.queue.submit(std::iter::once(encoder.finish()));
-        self.queue.present(output);
+        self.queue.present(texture);
 
         log::debug!("render_frame: presented {} instances", instances.len());
 
