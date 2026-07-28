@@ -8,6 +8,7 @@ use crate::render::GpuError;
 use crate::render::Renderer;
 use crate::render::pipeline::QUAD_CORNERS;
 
+#[allow(dead_code)]
 const DESIRED_FRAME_LATENCY: u32 = 2;
 const DESIRED_FRAME_LATENCY_ANDROID: u32 = 2;
 const GPU_POLL_TIMEOUT: Duration = Duration::from_secs(2);
@@ -18,6 +19,52 @@ type CachedSurface = (
 );
 
 pub(crate) static GLOBAL_SURFACE: OnceLock<Mutex<Option<CachedSurface>>> = OnceLock::new();
+
+/// RAII wrapper for `ANativeWindow` — calls `ANativeWindow_release` on drop.
+/// Must be dropped **after** the wgpu surface that uses it (Rust drops fields
+/// in declaration order, so this should be the last field in `Renderer`).
+#[allow(dead_code)]
+pub(crate) struct NativeWindow(*mut std::ffi::c_void);
+
+// SAFETY: ANativeWindow_fromSurface returns a thread-safe reference-counted
+// object; we only access it through wgpu (which is Send+Sync) and release it
+// on drop.
+unsafe impl Send for NativeWindow {}
+unsafe impl Sync for NativeWindow {}
+
+impl NativeWindow {
+    /// Wrap a validated `ANativeWindow` pointer. `ptr` must be non-null.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must be a non-null pointer returned by `ANativeWindow_fromSurface`.
+    /// The caller must ensure the pointer is valid for the lifetime of this
+    /// wrapper (until drop calls `ANativeWindow_release`).
+    #[allow(dead_code)]
+    pub(crate) unsafe fn new(ptr: *mut std::ffi::c_void) -> Self {
+        Self(ptr)
+    }
+}
+
+impl Drop for NativeWindow {
+    fn drop(&mut self) {
+        // SAFETY: `self.0` came from `ANativeWindow_fromSurface` and is valid
+        // until this drop. We're the sole owner of the reference, so releasing
+        // it here is correct.
+        #[cfg(target_os = "android")]
+        unsafe {
+            crate::android::ffi::ANativeWindow_release(self.0);
+        }
+    }
+}
+
+impl std::fmt::Debug for NativeWindow {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NativeWindow")
+            .field("ptr", &self.0)
+            .finish()
+    }
+}
 
 impl Renderer {
     pub(crate) fn select_alpha_mode(caps: &wgpu::SurfaceCapabilities) -> wgpu::CompositeAlphaMode {
@@ -50,13 +97,16 @@ impl Renderer {
         }
     }
 
-    pub fn set_surface_from_native_window(
+    #[allow(dead_code)]
+    pub(crate) fn set_surface_from_native_window(
         &mut self,
-        window_ptr: *mut std::ffi::c_void,
+        native_window: crate::render::NativeWindow,
         initial_width: u32,
         initial_height: u32,
         configure_surface: bool,
     ) -> Result<(), GpuError> {
+        let window_ptr = native_window.0;
+        self.native_window = Some(native_window);
         use raw_window_handle::{AndroidDisplayHandle, AndroidNdkWindowHandle};
 
         let non_null = std::ptr::NonNull::new(window_ptr)

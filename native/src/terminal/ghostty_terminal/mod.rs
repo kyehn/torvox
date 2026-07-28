@@ -24,6 +24,7 @@ pub use types::*;
 pub struct GhosttyTerminal {
     pub(crate) cmd_tx: Sender<Command>,
     pub(crate) query_tx: Sender<Command>,
+    pub(crate) cell_data_rx: Option<flume::Receiver<(Vec<CellData>, CursorInfo)>>,
     pub(crate) handle: Option<thread::JoinHandle<()>>,
     pub(crate) pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
     pub(crate) snapshot_cache: Mutex<SnapshotCache>,
