@@ -34,8 +34,7 @@ pub enum SelectionMode {
 /// same-frame cursor rendering. Produced by build_cell_data, consumed
 /// by the render thread as CellCursor.
 #[derive(Debug, Clone, Copy)]
-#[allow(dead_code)]
-pub(crate) struct CursorInfo {
+pub struct CursorInfo {
     pub row: u32,
     pub col: u32,
     pub visible: bool,

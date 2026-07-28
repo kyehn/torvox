@@ -11,6 +11,25 @@ pub(crate) fn log_gpu_error(error: &wgpu::Error) {
     log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
 }
 
+/// Per-frame rendering context — bundles encoder, surface texture, and view
+/// so these short-lived resources are clearly separated from the long-lived
+/// `Renderer` state. Created by `Renderer::begin_frame()`.
+pub struct FrameContext {
+    pub encoder: wgpu::CommandEncoder,
+    pub view: wgpu::TextureView,
+    pub texture: wgpu::SurfaceTexture,
+    pub cfg_width: u32,
+    pub cfg_height: u32,
+}
+
+impl FrameContext {
+    /// Submit the encoded commands to the GPU queue and present the surface texture.
+    pub fn submit(self, queue: &wgpu::Queue) {
+        queue.submit(std::iter::once(self.encoder.finish()));
+        queue.present(self.texture);
+    }
+}
+
 struct GlobalGpu {
     instance: wgpu::Instance,
     adapter: wgpu::Adapter,
@@ -87,6 +106,98 @@ pub struct Renderer {
     pub(crate) blur_v_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) render_paused: bool,
     pub(crate) pending_gpu_drain: bool,
+    /// Owned ANativeWindow reference, released after all wgpu resources.
+    #[allow(dead_code)]
+    pub(crate) native_window: Option<crate::render::NativeWindow>,
+}
+
+impl Renderer {
+    /// Acquire the surface texture and create a FrameContext for this frame.
+    /// Returns `None` if acquire fails (lost surface, timeout, or hung GPU).
+    pub(crate) fn begin_frame(&mut self) -> Option<FrameContext> {
+        // Drain deferred GPU work before acquiring new texture.
+        if self.pending_gpu_drain {
+            let _ = self.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_millis(16)),
+            });
+            self.pending_gpu_drain = false;
+        }
+        let cfg_width = self.surface_config.as_ref().map(|c| c.width)?;
+        let cfg_height = self.surface_config.as_ref().map(|c| c.height)?;
+
+        self.ensure_bg_pipeline(cfg_width, cfg_height);
+        self.ensure_kgp_pipeline(cfg_width, cfg_height);
+
+        let surface = self.surface.as_ref()?;
+        let output = self.acquire_texture(surface, cfg_width, cfg_height)?;
+
+        let tex_size = output.texture.size();
+        let (cfg_width, cfg_height) =
+            if tex_size.width != cfg_width || tex_size.height != cfg_height {
+                log::warn!(
+                    "begin_frame: size mismatch! config={}x{} texture={}x{}",
+                    cfg_width,
+                    cfg_height,
+                    tex_size.width,
+                    tex_size.height
+                );
+                let existing_config = self.surface_config.clone()?;
+                let new_config = wgpu::SurfaceConfiguration {
+                    width: tex_size.width,
+                    height: tex_size.height,
+                    ..existing_config
+                };
+                surface.configure(&self.device, &new_config);
+                self.surface_config = Some(new_config);
+
+                let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
+                let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
+                let proj = crate::render::orthographic_projection(
+                    tex_size.width as f32,
+                    tex_size.height as f32,
+                );
+                let uniforms = crate::render::pipeline::GpuUniforms {
+                    projection: proj,
+                    atlas_size: [aw as f32, ah as f32],
+                    raster_scale: self.raster_scale,
+                    image_active: crate::render::pipeline::image_active_value(
+                        self.bg_bind_group.is_some(),
+                    ),
+                    default_bg: [
+                        self.bg_color.r as f32,
+                        self.bg_color.g as f32,
+                        self.bg_color.b as f32,
+                        1.0,
+                    ],
+                };
+                if let Some(buf) = &self.cell_uniform_buffer {
+                    self.queue
+                        .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
+                }
+                (tex_size.width, tex_size.height)
+            } else {
+                (cfg_width, cfg_height)
+            };
+
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+
+        let encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Frame Encoder"),
+            });
+
+        Some(FrameContext {
+            encoder,
+            view,
+            texture: output,
+            cfg_width,
+            cfg_height,
+        })
+    }
 }
 
 impl Drop for Renderer {
@@ -240,6 +351,7 @@ impl Renderer {
             blur_v_pipeline: None,
             render_paused: false,
             pending_gpu_drain: false,
+            native_window: None,
         })
     }
 
@@ -302,6 +414,7 @@ impl Renderer {
             blur_v_pipeline: None,
             render_paused: false,
             pending_gpu_drain: false,
+            native_window: None,
         }
     }
 

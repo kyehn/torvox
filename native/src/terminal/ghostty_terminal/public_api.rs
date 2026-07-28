@@ -44,7 +44,8 @@ impl super::GhosttyTerminal {
         initial_ansi: [[u8; 3]; 16],
     ) -> Result<Self, String> {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
-        let (query_tx, query_rx) = flume::unbounded::<Command>();
+        let (query_tx, query_rx) = flume::bounded::<Command>(256);
+        let (cell_data_tx, cell_data_rx) = flume::bounded::<(Vec<CellData>, CursorInfo)>(4);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = pty_write_responses.clone();
         let snapshot_rebuild_count = Arc::new(AtomicU64::new(0));
@@ -52,25 +53,36 @@ impl super::GhosttyTerminal {
         let handle = thread::Builder::new()
             .name("ghostty-terminal".into())
             .spawn(move || {
-                Self::run(RunConfig {
-                    command_receiver: cmd_rx,
-                    query_receiver: query_rx,
-                    rows,
-                    cols,
-                    scrollback_lines,
-                    background_color: initial_bg,
-                    foreground_color: initial_fg,
-                    ansi_colors: initial_ansi,
-                    response_buffer: pty_for_run,
-                    snapshot_rebuild_count: snapshot_rebuild_count_for_run,
-                    cell_data_tx: None,
-                })
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    Self::run(RunConfig {
+                        command_receiver: cmd_rx,
+                        query_receiver: query_rx,
+                        rows,
+                        cols,
+                        scrollback_lines,
+                        background_color: initial_bg,
+                        foreground_color: initial_fg,
+                        ansi_colors: initial_ansi,
+                        response_buffer: pty_for_run,
+                        snapshot_rebuild_count: snapshot_rebuild_count_for_run,
+                        cell_data_tx: Some(cell_data_tx),
+                    })
+                }));
+                if let Err(panic) = result {
+                    let msg = panic
+                        .downcast_ref::<String>()
+                        .map(|s| s.as_str())
+                        .or_else(|| panic.downcast_ref::<&str>().copied())
+                        .unwrap_or("unknown panic payload");
+                    log::error!("ghostty_terminal thread panicked: {msg}");
+                }
             })
             .map_err(|e| format!("failed to spawn terminal thread: {e}"))?;
 
         Ok(Self {
             cmd_tx,
             query_tx,
+            cell_data_rx: Some(cell_data_rx),
             handle: Some(handle),
             pty_write_responses,
             snapshot_rebuild_count,
@@ -109,7 +121,7 @@ impl super::GhosttyTerminal {
         // so SGR reset here does NOT break colored output.
         buf.extend_from_slice(b"\x1b\\\x1b[0m");
         if let Err(error) = self.cmd_tx.send(Command::Write(buf)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
     }
 
@@ -141,7 +153,7 @@ impl super::GhosttyTerminal {
         // consuming the next chunk as sequence data.
         buf.extend_from_slice(b"\x1b\\\x1b[0m");
         if let Err(error) = self.cmd_tx.send(Command::Write(buf)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
     }
 
@@ -161,7 +173,7 @@ impl super::GhosttyTerminal {
     pub fn flush(&self) {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.send(Command::FlushAck(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         if rx.recv().is_err() {
             log::warn!("ghostty_terminal: flush_ack recv failed — session may be dead");
@@ -174,28 +186,28 @@ impl super::GhosttyTerminal {
             foreground,
             ansi,
         }) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
     }
 
     pub fn resize(&mut self, rows: u32, cols: u32) {
         if let Err(error) = self.cmd_tx.send(Command::Resize { rows, cols }) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
     }
 
     pub fn rows(&self) -> u32 {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::Rows(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::Rows(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped for rows: {error}");
         }
         Self::recv_or_fallback(rx, DISCONNECTED_ROWS, "rows")
     }
 
     pub fn cols(&self) -> u32 {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::Cols(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::Cols(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         Self::recv_or_fallback(rx, DISCONNECTED_COLS, "cols")
     }
@@ -225,7 +237,7 @@ impl super::GhosttyTerminal {
             .cmd_tx
             .send(Command::TakeSnapshot { tx, scroll_offset })
         {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
             return GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS);
         }
         match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
@@ -290,7 +302,7 @@ impl super::GhosttyTerminal {
             .cmd_tx
             .send(Command::TakeKittyGraphicsImage { id: image_id, tx })
         {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(result) => result,
@@ -305,32 +317,45 @@ impl super::GhosttyTerminal {
 
     pub fn cursor_x(&self) -> u32 {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::CursorX(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::CursorX(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         Self::recv_or_fallback(rx, DISCONNECTED_CURSOR_X, "cursor_x")
     }
 
     pub fn cursor_y(&self) -> u32 {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::CursorY(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::CursorY(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         Self::recv_or_fallback(rx, DISCONNECTED_CURSOR_Y, "cursor_y")
     }
 
     pub fn cursor_visible(&self) -> bool {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::CursorVisible(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::CursorVisible(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         Self::recv_or_fallback(rx, DISCONNECTED_CURSOR_VISIBLE, "cursor_visible")
     }
 
+    /// Receive the most recent CellData snapshot from the ghostty thread
+    /// (auto-pushed after every state mutation when the channel is enabled).
+    /// Drains stale entries so the caller always gets the freshest snapshot.
+    /// Returns `None` if the channel is disabled or no data is available yet.
+    pub fn receive_cell_data(&self) -> Option<(Vec<CellData>, CursorInfo)> {
+        let rx = self.cell_data_rx.as_ref()?;
+        let mut latest = rx.try_recv().ok()?;
+        while let Ok(next) = rx.try_recv() {
+            latest = next;
+        }
+        Some(latest)
+    }
+
     pub fn cwd(&self) -> String {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::Cwd(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::Cwd(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(cwd) => cwd,
@@ -412,8 +437,8 @@ impl super::GhosttyTerminal {
 
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::ModeGet(mode_num, kind, tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::ModeGet(mode_num, kind, tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(mode) => mode,
@@ -428,24 +453,24 @@ impl super::GhosttyTerminal {
 
     pub fn origin_mode(&self) -> bool {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::OriginMode(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::OriginMode(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         Self::recv_or_fallback(rx, DISCONNECTED_MODE_ORIGIN, "origin_mode")
     }
 
     pub fn autowrap(&self) -> bool {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::Autowrap(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::Autowrap(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         Self::recv_or_fallback(rx, DISCONNECTED_MODE_AUTOWRAP, "autowrap")
     }
 
     pub fn alt_screen(&self) -> bool {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::AltScreen(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::AltScreen(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(alt) => alt,
@@ -484,16 +509,16 @@ impl super::GhosttyTerminal {
 
     pub fn title(&self) -> String {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::Title(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::Title(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         Self::recv_or_fallback(rx, DISCONNECTED_TITLE.to_string(), "title")
     }
 
     pub fn scrollback_length(&self) -> u32 {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::ScrollbackLength(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::ScrollbackLength(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(len) => len,
@@ -506,8 +531,8 @@ impl super::GhosttyTerminal {
 
     pub fn read_line_text(&self, row: u32) -> Option<String> {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::ReadLineText { row, tx }) {
-            log::error!("ghostty_terminal: query_tx send failed for ReadLineText: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::ReadLineText { row, tx }) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed for ReadLineText: {error}");
         }
         match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(text) => text,
@@ -520,8 +545,8 @@ impl super::GhosttyTerminal {
 
     pub fn read_visible_text(&self) -> String {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.send(Command::ReadVisibleText(tx)) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+        if let Err(error) = self.query_tx.try_send(Command::ReadVisibleText(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(text) => text,
@@ -540,7 +565,7 @@ impl super::GhosttyTerminal {
             query: query.to_string(),
             tx,
         }) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(result) => result,
@@ -566,7 +591,7 @@ impl super::GhosttyTerminal {
             fuzzy,
             tx,
         }) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(result) => result,
@@ -582,7 +607,7 @@ impl super::GhosttyTerminal {
     pub fn dump_grid(&self) -> DumpedGrid {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.send(Command::DumpGrid { tx }) {
-            log::error!("ghostty_terminal: cmd_tx send failed: {error}");
+            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(grid) => grid,

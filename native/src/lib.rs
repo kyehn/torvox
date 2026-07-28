@@ -25,7 +25,6 @@ pub mod terminal;
 pub mod render;
 
 // ── Android JNI bridge (ex android-gui) ──────────────────────────────────
-#[cfg(target_os = "android")]
 pub mod android;
 
 // ── MCP (JSON-RPC over Unix socket for local IPC) ────────────────────────
