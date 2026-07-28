@@ -1024,6 +1024,7 @@ fn setup_test_gpu_context(
         blur_v_pipeline: None,
         render_paused: false,
         pending_gpu_drain: false,
+        native_window: None,
     };
     context.initialize_pipeline_and_bind_group(256, 256, 50, 50);
     context
@@ -1102,6 +1103,7 @@ fn setup_test_gpu_context_custom(
         blur_v_pipeline: None,
         render_paused: false,
         pending_gpu_drain: false,
+        native_window: None,
     };
     context.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
     context
@@ -2150,6 +2152,89 @@ fn image_active_value_flag_matches_bg_bind_group() {
     // uniform flag that makes default-background cells transparent.
     assert!(f32_eq(image_active_value(true), 1.0));
     assert!(f32_eq(image_active_value(false), 0.0));
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// Render Pipeline Benchmarks — realistic content
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Benchmark `build_instances_from_cell_data` with realistic mixed content:
+/// varied colors, bold, italic, CJK, wide chars. This simulates a real
+/// terminal screen with syntax highlighting, git output, and Unicode.
+#[test]
+fn bench_build_instances_from_cell_data() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+
+    let (rows, cols) = (24u32, 80u32);
+    let count = (rows * cols) as usize;
+    // Realistic screen: ~70% ASCII, ~15% CJK wide, ~15% empty
+    let mixed_data = [
+        ('A', 1, [0.9, 0.9, 0.9, 1.0], [0.1, 0.1, 0.1, 1.0], 0), // normal text
+        (' ', 1, [0.9, 0.9, 0.9, 1.0], [0.1, 0.1, 0.1, 1.0], 0), // space
+        ('中', 2, [1.0, 0.8, 0.2, 1.0], [0.05, 0.05, 0.1, 1.0], 0), // CJK (yellow)
+        ('W', 1, [0.3, 0.8, 1.0, 1.0], [0.1, 0.1, 0.1, 1.0], 1), // bold blue
+        ('i', 1, [0.5, 1.0, 0.5, 1.0], [0.1, 0.1, 0.1, 1.0], 2), // italic green
+        ('e', 1, [0.9, 0.9, 0.9, 1.0], [0.2, 0.0, 0.0, 1.0], 4), // red bg (diff)
+        ('█', 1, [0.6, 0.6, 0.6, 1.0], [0.15, 0.15, 0.15, 1.0], 0), // block char
+        ('~', 1, [0.4, 0.4, 0.4, 1.0], [0.1, 0.1, 0.1, 1.0], 8), // dim gray
+    ];
+
+    let cell_data: Vec<crate::terminal::ghostty_terminal::CellData> = (0..count)
+        .map(|i| {
+            let (ch, w, fg, bg, fl) = mixed_data[i % mixed_data.len()];
+            crate::terminal::ghostty_terminal::CellData {
+                codepoint: ch as u32,
+                width: w,
+                grapheme_extra: [0; 7],
+                fg_color: fg,
+                bg_color: bg,
+                flags: fl,
+                row: (i / cols as usize) as u32,
+                col: (i % cols as usize) as u32,
+            }
+        })
+        .collect();
+
+    let cursor = crate::render::CellCursor {
+        row: 12,
+        col: 40,
+        visible: true,
+        style: crate::terminal::CursorStyle::Block,
+        color: None,
+    };
+
+    let n = 100;
+    let start = Instant::now();
+    for _ in 0..n {
+        let result = crate::render::build_instances_from_cell_data(
+            &cell_data,
+            rows,
+            cols,
+            cursor,
+            &mut font_pipeline,
+            1024.0,
+            1024.0,
+        );
+        let instances = black_box(result.unwrap_or_default());
+        black_box(instances.len());
+    }
+    let elapsed = start.elapsed();
+    let fps = n as f64 / elapsed.as_secs_f64();
+    println!(
+        "Mixed-content render: {:.0} fps ({:.1}ms for {} × {} cells with CJK/colors/bold)",
+        fps,
+        elapsed.as_millis(),
+        n,
+        count
+    );
+    assert!(
+        fps > 10.0,
+        "Mixed-content render too slow: {:.0} fps (need >10)",
+        fps
+    );
 }
 
 include!("screenshot_tests.rs");

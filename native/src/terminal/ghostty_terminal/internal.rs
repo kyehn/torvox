@@ -128,6 +128,21 @@ impl super::GhosttyTerminal {
     }
 
     pub(crate) fn run(config: RunConfig) {
+        // Wrap the entire body in `catch_unwind` so that any unexpected FFI
+        // panic (e.g. from Ghostty's C code) is logged instead of silently
+        // killing the thread. `AssertUnwindSafe` is safe here because:
+        // - Terminal is `!UnwindSafe` due to internal C pointers, but its
+        //   Drop implementation will call `ghostty_terminal_free` on unwind.
+        // - We always exit the thread after a panic, so no double-use occurs.
+        let result =
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Self::run_inner(config)));
+        if let Err(panic) = result {
+            log::error!("ghostty_terminal: VT thread panicked: {panic:?}");
+        }
+    }
+
+    /// The inner run loop (separated so `catch_unwind` can call it).
+    fn run_inner(config: RunConfig) {
         let Ok(mut terminal) = Terminal::new(TerminalOptions {
             cols: config.cols as u16,
             rows: config.rows as u16,
@@ -210,10 +225,9 @@ impl super::GhosttyTerminal {
         // Use a separate dirty flag to avoid coupling with the
         // legacy GridSnapshot grid_dirty tracker. Both flags are
         // set together on Write/Resize/SetTheme, but cleared
-        // independently: cell_data_dirty after a successful send,
         // grid_dirty after TakeSnapshot.
-        let mut cell_data_dirty = true;
         let mut grid_dirty = true;
+
         loop {
             // Wait for the next command from the bounded channel. Use a
             // timeout so we periodically check the query channel even when
@@ -229,17 +243,12 @@ impl super::GhosttyTerminal {
                     while let Ok(query) = query_receiver.try_recv() {
                         Self::process_query(query, &mut terminal);
                     }
-                    // ── Auto-push CellData ──
-                    // When a cell_data_tx channel is configured, build and
-                    // send Vec<CellData> once when the grid changes.
-                    if cell_data_dirty {
-                        let tx = config.cell_data_tx.as_ref();
-                        let data = Self::build_cell_data(&terminal, default_fg, default_bg);
-                        #[allow(clippy::collapsible_if)]
-                        if let (Some(tx), Some(data)) = (tx, data) {
-                            if tx.try_send(data).is_ok() {
-                                cell_data_dirty = false;
-                            }
+                    // ── Auto-push CellData (also sent on each state change above) ──
+                    #[allow(clippy::collapsible_if)]
+                    if let Some(tx) = config.cell_data_tx.as_ref() {
+                        if let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                        {
+                            let _ = tx.try_send(data);
                         }
                     }
                     continue;
@@ -253,7 +262,13 @@ impl super::GhosttyTerminal {
                 Command::Write(data) => {
                     terminal.vt_write(&data);
                     grid_dirty = true;
-                    cell_data_dirty = true;
+                    #[allow(clippy::collapsible_if)]
+                    if let Some(tx) = config.cell_data_tx.as_ref() {
+                        if let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                        {
+                            let _ = tx.try_send(data);
+                        }
+                    }
                 }
                 Command::FlushAck(tx) => {
                     if let Err(error) = tx.send(()) {
@@ -294,7 +309,13 @@ impl super::GhosttyTerminal {
                         terminal.vt_write(osc4.as_bytes());
                     }
                     grid_dirty = true;
-                    cell_data_dirty = true;
+                    #[allow(clippy::collapsible_if)]
+                    if let Some(tx) = config.cell_data_tx.as_ref() {
+                        if let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                        {
+                            let _ = tx.try_send(data);
+                        }
+                    }
                 }
                 Command::Resize { rows, cols } => {
                     if let Err(error) = terminal.resize(
@@ -306,7 +327,13 @@ impl super::GhosttyTerminal {
                         log::error!("ghostty_terminal: resize failed: {error}");
                     }
                     grid_dirty = true;
-                    cell_data_dirty = true;
+                    #[allow(clippy::collapsible_if)]
+                    if let Some(tx) = config.cell_data_tx.as_ref() {
+                        if let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                        {
+                            let _ = tx.try_send(data);
+                        }
+                    }
                 }
                 Command::TakeSnapshot { tx, scroll_offset } => {
                     let needs_rebuild = snapshot::snapshot_needs_rebuild(
@@ -390,81 +417,6 @@ impl super::GhosttyTerminal {
                         fuzzy,
                     );
                     if let Err(error) = tx.send(results) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::Rows(tx) => {
-                    if let Err(error) = tx.send(terminal.rows().unwrap_or(24) as u32) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::Cols(tx) => {
-                    if let Err(error) = tx.send(terminal.cols().unwrap_or(80) as u32) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::CursorX(tx) => {
-                    if let Err(error) = tx.send(terminal.cursor_x().unwrap_or(0) as u32) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::CursorY(tx) => {
-                    if let Err(error) = tx.send(terminal.cursor_y().unwrap_or(0) as u32) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::CursorVisible(tx) => {
-                    if let Err(error) = tx.send(terminal.is_cursor_visible().unwrap_or(true)) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::OriginMode(tx) => {
-                    if let Err(error) =
-                        tx.send(terminal.mode(Mode::new(6, ModeKind::Dec)).unwrap_or(false))
-                    {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::Autowrap(tx) => {
-                    if let Err(error) =
-                        tx.send(terminal.mode(Mode::new(7, ModeKind::Dec)).unwrap_or(false))
-                    {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::AltScreen(tx) => {
-                    let is_alt = terminal
-                        .active_screen()
-                        .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate);
-                    if let Err(error) = tx.send(is_alt) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::Cwd(tx) => {
-                    if let Err(error) = tx.send(
-                        terminal
-                            .pwd()
-                            .map(|path| path.to_string())
-                            .unwrap_or_default(),
-                    ) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::ModeGet(num, kind, tx) => {
-                    let mode_kind = match kind {
-                        0 => libghostty_vt::terminal::ModeKind::Dec,
-                        _ => libghostty_vt::terminal::ModeKind::Ansi,
-                    };
-                    if let Err(error) = tx.send(
-                        terminal
-                            .mode(libghostty_vt::terminal::Mode::new(num, mode_kind))
-                            .unwrap_or(false),
-                    ) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
-                }
-                Command::Title(tx) => {
-                    if let Err(error) = tx.send(terminal.title().unwrap_or("").to_string()) {
                         log::error!("ghostty_terminal: command channel send failed: {error}");
                     }
                 }
@@ -577,6 +529,22 @@ impl super::GhosttyTerminal {
                 }
                 Command::SaveSession { tx } => {
                     Self::handle_save_session(&terminal, tx);
+                }
+                // Query-only commands — never reach command_receiver in
+                // normal operation (they go via query_receiver), but we
+                // must still handle them for match exhaustiveness.
+                Command::Rows(_)
+                | Command::Cols(_)
+                | Command::CursorX(_)
+                | Command::CursorY(_)
+                | Command::CursorVisible(_)
+                | Command::OriginMode(_)
+                | Command::Autowrap(_)
+                | Command::AltScreen(_)
+                | Command::Title(_)
+                | Command::Cwd(_)
+                | Command::ModeGet(..) => {
+                    log::warn!("ghostty_terminal: unexpected query on command channel, skipping");
                 }
                 Command::Terminate => break,
             }
