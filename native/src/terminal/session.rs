@@ -134,6 +134,8 @@ pub struct Session {
     wait_handle: Option<std::thread::JoinHandle<()>>,
     /// Optional path for session persistence via Ghostty Formatter.
     save_path: Option<String>,
+    /// Exit code captured from waitpid, `None` while process runs.
+    pub exit_code: Arc<Mutex<Option<i32>>>,
 }
 
 pub struct ThemeConfig {
@@ -286,12 +288,19 @@ impl Session {
             // `read_file` (and its fd) is dropped here, closing it safely.
         });
 
+        let exit_code = session.exit_code.clone();
         let exited_wait = exited.clone();
         let wait_handle = std::thread::spawn(move || {
             log::info!("wait thread: waiting for child pid={child_pid}");
-            let status = nix::sys::wait::waitpid(child_pid, None);
-            log::info!("wait thread: child exited: {status:?}");
+            let result = nix::sys::wait::waitpid(child_pid, None);
+            log::info!("wait thread: child exited: {result:?}");
             exited_wait.store(true, Ordering::Release);
+            #[allow(clippy::collapsible_if)]
+            if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result {
+                if let Ok(mut ec) = exit_code.lock() {
+                    *ec = Some(code);
+                }
+            }
         });
 
         session.reader_handle = Some(reader_handle);
@@ -356,6 +365,7 @@ impl Session {
             reader_handle: None,
             wait_handle: None,
             save_path: None,
+            exit_code: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -662,6 +672,27 @@ impl Session {
     }
 }
 
+/// Join a thread handle with a timeout. If the thread doesn't finish within
+/// the deadline, we detach it (the handle is dropped) to avoid blocking
+/// forever. The thread will clean up on its own when its blocking I/O returns.
+fn join_with_timeout(handle: &mut Option<std::thread::JoinHandle<()>>, timeout: Duration) {
+    let Some(handle) = handle.take() else {
+        return;
+    };
+    let deadline = std::time::Instant::now() + timeout;
+    while std::time::Instant::now() < deadline {
+        if handle.is_finished() {
+            if let Err(e) = handle.join() {
+                log::error!("session: thread panicked: {:?}", e);
+            }
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    log::warn!("session: thread did not exit within {timeout:?}, detaching");
+    // handle is dropped here → detached
+}
+
 impl Drop for Session {
     fn drop(&mut self) {
         self.exited.store(true, Ordering::Release);
@@ -680,16 +711,8 @@ impl Drop for Session {
             }
         }
 
-        if let Some(h) = self.reader_handle.take()
-            && let Err(error) = h.join()
-        {
-            log::error!("session: reader thread panicked: {:?}", error);
-        }
-        if let Some(h) = self.wait_handle.take()
-            && let Err(error) = h.join()
-        {
-            log::error!("session: wait thread panicked: {:?}", error);
-        }
+        join_with_timeout(&mut self.reader_handle, Duration::from_millis(50));
+        join_with_timeout(&mut self.wait_handle, Duration::from_millis(50));
     }
 }
 
