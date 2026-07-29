@@ -355,9 +355,10 @@ impl Renderer {
                         immediate_size: 0,
                     })
             });
-            let layout = bg_pipeline_layout
-                .as_ref()
-                .expect("blur pipeline layout created");
+            let layout = match bg_pipeline_layout.as_ref() {
+                Some(l) => l,
+                None => return,
+            };
             self.blur_h_pipeline = Some(self.device.create_render_pipeline(
                 &wgpu::RenderPipelineDescriptor {
                     label: Some("Background Blur H Pipeline"),
@@ -450,10 +451,10 @@ impl Renderer {
                 ..Default::default()
             }));
         }
-        let sampler = self
-            .bg_sampler
-            .as_ref()
-            .expect("background sampler initialized in ensure_bg_pipeline");
+        let sampler = match self.bg_sampler.as_ref() {
+            Some(s) => s,
+            None => return,
+        };
 
         if self.bg_uniform_buffer.is_none() {
             self.bg_uniform_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
@@ -463,10 +464,10 @@ impl Renderer {
                 mapped_at_creation: false,
             }));
         }
-        let buf = self
-            .bg_uniform_buffer
-            .as_ref()
-            .expect("background uniform buffer initialized in ensure_bg_pipeline");
+        let buf = match self.bg_uniform_buffer.as_ref() {
+            Some(b) => b,
+            None => return,
+        };
 
         let (blur, alpha) = (self.bg_blur_radius, self.bg_alpha);
         let texel_x = if surface_width > 0 {

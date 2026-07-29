@@ -800,8 +800,23 @@ impl CellIteration<'_, '_> {
         }?;
 
         // Reconstitute the original String
+        //
+        // SAFETY: `cbuf.ptr`, `cbuf.len`, and `cbuf.cap` were all obtained
+        // from `buf.as_mut_ptr()`, `buf.len()`, and `buf.capacity()` — all
+        // Rust-allocated via the global allocator. The C FFI side (`ghostty
+        // Zig code`) only *reads* from and *writes to* the buffer via the
+        // pointer; it never allocates or frees. On `OUT_OF_SPACE`, the C side
+        // reports the required capacity, and Rust calls `buf.reserve()` to
+        // reallocate (again via the global allocator). So the buffer is
+        // *always* Rust-managed, making `from_raw_parts` safe.
+        //
         // WITHOUT DROPPING THE EXISTING STRING OBJECT (!!)
-        // Otherwise, memory corruption, double frees, etc. WILL happen.
+        // `std::ptr::write` overwrites the bytes at `*buf` without running
+        // `String`'s drop. This is intentional: we are taking ownership of
+        // the old allocation (which was disassembled into ptr/len/cap) and
+        // reassembling it as a new String. If we used `*buf = ...`, then
+        // `buf`'s existing allocation would be freed *before* we even read
+        // cbuf, causing use-after-free.
         unsafe {
             std::ptr::write(buf, String::from_raw_parts(cbuf.ptr, cbuf.len, cbuf.cap));
         }

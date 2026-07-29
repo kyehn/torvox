@@ -257,12 +257,13 @@ pub fn build_cell_instances_into(
             let cell_span = cell.width.max(1) as f32;
             let is_cursor = cursor_visible && row == cursor_row && col == cursor_col;
 
+            let (mut fg, mut bg) = if cell.reverse {
+                (cell.background, cell.foreground)
+            } else {
+                (cell.foreground, cell.background)
+            };
+
             if cell.codepoint == 0 || cell.codepoint == 0x20 {
-                let (mut fg, mut bg) = if cell.reverse {
-                    (cell.background, cell.foreground)
-                } else {
-                    (cell.foreground, cell.background)
-                };
                 if selection.unwrap_or_default().contains(row, col, cols) {
                     if let Some(sbg) = selection_bg {
                         bg = sbg;
@@ -300,10 +301,12 @@ pub fn build_cell_instances_into(
                         raw_cursor_bg[2],
                         raw_cursor_bg[3] * cursor_alpha,
                     ];
-                    fg = bg;
-                    bg = cursor_bg;
                     match cursor_style {
                         CursorStyle::Default | CursorStyle::Block => {
+                            // Block cursor: set background quad to cursor color,
+                            // keep foreground (glyph) color unchanged so the
+                            // character stays visible against the cursor quad.
+                            bg = cursor_bg;
                             ([cell_w, cell_h], [base_x, base_y])
                         }
                         CursorStyle::Bar => {
@@ -403,6 +406,9 @@ pub fn build_cell_instances_into(
                 for sg in &shaped {
                     let gcol_f = sg.x / cell_w;
                     let gcol = (col as f32 + gcol_f).round() as u32;
+                    // Clamp to valid column range — shaped glyphs near the right
+                    // edge of the final cell can overflow past `cols - 1`.
+                    let gcol = gcol.min(cols.saturating_sub(1));
                     let gspan = ((sg.w / cell_w).round() as u32).max(1);
 
                     let cell_idx = (row * cols + gcol) as usize;
@@ -809,7 +815,12 @@ pub fn build_instances_from_cell_data(
         let ch = char::from_u32(cd.codepoint).unwrap_or(' ');
         let cell_span = cd.width.max(1) as f32;
         let mut quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
+        let mut fg_color = cd.fg_color;
         let mut bg_color = cd.bg_color;
+        // SGR 7 reverse video: swap foreground and background colors
+        if (cd.flags >> 4) & 1 == 1 {
+            std::mem::swap(&mut fg_color, &mut bg_color);
+        }
         let mut quad_size = [cell_w * cell_span, cell_h];
         let is_cursor = cursor.visible && cd.row == cursor.row && cd.col == cursor.col;
         if is_cursor {
@@ -836,13 +847,18 @@ pub fn build_instances_from_cell_data(
             }
         }
 
+        // Save the unmodified quad_size/origin for glyph rendering so
+        // Bar/Underline cursor styles don't clip the glyph.
+        let glyph_quad_size = [cell_w * cell_span, cell_h];
+        let glyph_quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
+
         // Always emit background quad (atlas_offset=[0,0] with glyph_advance_width=0
         // means only the background color tile is drawn).
         instances.push(CellInstance {
             quad_origin,
             atlas_offset: [0.0; 2],
             atlas_size: [0.0; 2],
-            fg_color: cd.fg_color,
+            fg_color,
             bg_color,
             quad_size,
             flags: cd.flags as f32,
@@ -871,12 +887,12 @@ pub fn build_instances_from_cell_data(
             };
 
             instances.push(CellInstance {
-                quad_origin,
+                quad_origin: glyph_quad_origin,
                 atlas_offset: [uv_x, uv_y],
                 atlas_size: [uv_w, uv_h],
-                fg_color: cd.fg_color,
-                bg_color: cd.bg_color,
-                quad_size,
+                fg_color,
+                bg_color,
+                quad_size: glyph_quad_size,
                 flags: cd.flags as f32,
                 bearing: [bearing_x, bearing_y],
                 glyph_advance_width: info.advance_width,
@@ -908,12 +924,12 @@ pub fn build_instances_from_cell_data(
                 };
 
                 instances.push(CellInstance {
-                    quad_origin,
+                    quad_origin: glyph_quad_origin,
                     atlas_offset: [uv_x, uv_y],
                     atlas_size: [uv_w, uv_h],
-                    fg_color: cd.fg_color,
-                    bg_color: cd.bg_color,
-                    quad_size,
+                    fg_color,
+                    bg_color,
+                    quad_size: glyph_quad_size,
                     flags: cd.flags as f32,
                     bearing: [bearing_x, bearing_y],
                     glyph_advance_width: 0.0,

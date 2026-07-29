@@ -240,6 +240,13 @@ impl FontPipeline {
     }
 
     pub(crate) fn try_cjk_outline_fallback(&mut self, ch: char) -> Option<GlyphInfo> {
+        // Check cache first — skip swash iteration for already-resolved CJK chars
+        if let Some(&(cached_font_id, cached_glyph_id)) = self.cjk_glyph_cache.get(&ch) {
+            let result = self.glyph_information_from_font(cached_font_id, ch, cached_glyph_id);
+            if result.is_some() {
+                return result;
+            }
+        }
         let glyphs: Vec<(fontdb::ID, swash::GlyphId)> = {
             let db = self.font_system.db();
             self.cjk_fallback_ids
@@ -258,7 +265,12 @@ impl FontPipeline {
         };
         for (fallback_id, fid) in &glyphs {
             if self.glyph_source_is_outline(*fallback_id, *fid) {
-                return self.glyph_information_from_font(*fallback_id, ch, *fid);
+                let result = self.glyph_information_from_font(*fallback_id, ch, *fid);
+                if result.is_some() {
+                    // Cache the successful CJK resolution
+                    self.cjk_glyph_cache.put(ch, (*fallback_id, *fid));
+                    return result;
+                }
             }
         }
         None

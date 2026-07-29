@@ -48,12 +48,15 @@ fn global_gpu() -> &'static GlobalGpu {
                 queue,
             },
             Err(e) => {
+                log::error!("GPU initialization failed: {e}");
+                log::error!("Solution: ensure a Vulkan-capable GPU is available.");
+                log::error!("  - Linux desktop: set VK_ICD_FILENAMES to a lavapipe or Mesa driver");
+                log::error!("  - Android emulator: use SwiftShader (default with GPU emulation)");
+                log::error!("  - Physical device: install Vulkan drivers for your hardware");
+                log::error!("This is a fatal error — the terminal cannot render without a GPU.");
                 panic!(
                     "GPU initialization failed: {e}. \
-                     Ensure a Vulkan-capable GPU is available: \
-                     lavapipe on Linux (set VK_ICD_FILENAMES), \
-                     SwiftShader on Android emulator, \
-                     or a physical GPU with Vulkan drivers."
+                     See log for details."
                 )
             }
         }
@@ -106,9 +109,6 @@ pub struct Renderer {
     pub(crate) blur_v_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) render_paused: bool,
     pub(crate) pending_gpu_drain: bool,
-    /// Owned ANativeWindow reference, released after all wgpu resources.
-    #[allow(dead_code)]
-    pub(crate) native_window: Option<crate::render::NativeWindow>,
 }
 
 impl Renderer {
@@ -351,7 +351,6 @@ impl Renderer {
             blur_v_pipeline: None,
             render_paused: false,
             pending_gpu_drain: false,
-            native_window: None,
         })
     }
 
@@ -414,7 +413,6 @@ impl Renderer {
             blur_v_pipeline: None,
             render_paused: false,
             pending_gpu_drain: false,
-            native_window: None,
         }
     }
 

@@ -150,7 +150,10 @@ impl PtyPair {
             }
             nix::unistd::ForkResult::Child => {
                 if let Err(e) = nix::unistd::close(master_fd) {
-                    log::warn!("failed to close PTY master fd in child after fork: {e}");
+                    // SAFETY: write(2) is async-signal-safe in single-threaded child after fork.
+                    // e is Display, but we cannot use format!() (allocates). Log fd close failure
+                    // silently — execve() will replace process image immediately anyway.
+                    let _ = e;
                 }
                 // Manually set controlling terminal using only syscalls.
                 // Avoid login_tty because it may call malloc() internally,
@@ -159,6 +162,9 @@ impl PtyPair {
                 // from the parent's controlling terminal (termux.c:54-96). Only
                 // call setsid() if we are not already a session leader, since
                 // calling it again would fail with EPERM.
+                // SAFETY: getsid(0) is a POSIX function that returns the calling
+                // process's session ID. Passing 0 is always valid and safe in
+                // the single-threaded child after fork.
                 let is_session_leader =
                     unsafe { libc::getsid(0) } == nix::unistd::getpid().as_raw();
                 if !is_session_leader && nix::unistd::setsid().is_err() {
@@ -191,14 +197,18 @@ impl PtyPair {
                 }
                 // Configure raw mode on stdin (fd 0, PTY slave device).
                 // Failure is non-fatal (shell runs in canonical mode without raw mode).
-                if let Err(e) = configure_raw_mode(libc::STDIN_FILENO) {
-                    log::warn!("failed to set raw mode on PTY stdin: {e}");
-                }
+                // SAFETY: tcgetattr/tcsetattr are lightweight syscall wrappers, safe in
+                // single-threaded child after fork.
+                configure_raw_mode_child(libc::STDIN_FILENO);
                 // SAFETY: chdir is safe with a valid, null-terminated path string.
                 // working_directory_ptr was allocated via CString::new() which guarantees
                 // null termination. Failure is non-fatal (defaults to /).
                 if unsafe { libc::chdir(working_directory_ptr) } != 0 {
-                    log::warn!("chdir to working directory failed, using /");
+                    const MSG: &[u8] = b"chdir to working directory failed, using /\n";
+                    // SAFETY: write(2) is async-signal-safe in single-threaded child after fork.
+                    // MSG is a static byte slice (no allocation).
+                    let _ =
+                        unsafe { libc::write(2, MSG.as_ptr() as *const libc::c_void, MSG.len()) };
                 }
                 // SAFETY: signal() is safe in the single-threaded child process post-fork.
                 // Resetting to SIG_DFL prevents leakage of parent's custom signal handlers.
@@ -377,6 +387,8 @@ impl Drop for PtyPair {
     }
 }
 
+#[cfg(any(test, feature = "test-util"))]
+#[allow(dead_code)]
 fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
     // SAFETY: tcgetattr is safe with a valid fd. fd is STDIN_FILENO (0)
@@ -429,6 +441,36 @@ fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     Ok(())
 }
 
+/// Async-signal-safe version of `configure_raw_mode` for use in the child after fork.
+/// Does NOT allocate, does NOT call log::warn!. Silently ignores errors (non-fatal).
+fn configure_raw_mode_child(fd: std::os::unix::io::RawFd) {
+    let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
+    // SAFETY: tcgetattr is a syscall wrapper, safe in single-threaded child after fork.
+    if unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) } != 0 {
+        return; // Non-fatal
+    }
+    // SAFETY: assume_init() after successful tcgetattr.
+    let mut termios = unsafe { termios.assume_init() };
+    termios.c_iflag &= !(libc::IGNBRK
+        | libc::BRKINT
+        | libc::PARMRK
+        | libc::ISTRIP
+        | libc::INLCR
+        | libc::IGNCR
+        | libc::ICRNL
+        | libc::IXON
+        | libc::IXOFF);
+    termios.c_iflag |= libc::IUTF8;
+    termios.c_oflag &= !(libc::OPOST);
+    termios.c_lflag &= !(libc::ECHO | libc::ECHONL | libc::ICANON | libc::ISIG | libc::IEXTEN);
+    termios.c_cflag &= !(libc::CSIZE | libc::PARENB);
+    termios.c_cflag |= libc::CS8;
+    termios.c_cc[libc::VMIN] = 1;
+    termios.c_cc[libc::VTIME] = 0;
+    // SAFETY: tcsetattr is a syscall wrapper, safe in child.
+    let _ = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) };
+}
+
 /// Conservative upper bound (in fd numbers) used when scanning for stray
 /// file descriptors to close in the child, if `sysconf(_SC_OPEN_MAX)` is
 /// unavailable. Kept small enough to bound syscall volume on any platform.
@@ -439,20 +481,28 @@ const STRAY_FD_SCAN_LIMIT: libc::c_int = 4096;
 /// termux.c:54-96 cleanup so the spawned shell does not inherit unrelated open
 /// fds from the parent (which could keep resources alive or leak capabilities).
 ///
+/// NOTE: This is a best-effort cleanup in the single-threaded child after fork
+/// but before exec. Any fd not in {0,1,2} is closed unconditionally — no
+/// white-list (e.g., for fd-passing socket pairs) is supported. If the calling
+/// process holds an fd from a library (e.g., log forwarding), it will be closed.
+/// This is acceptable because the child immediately exec()s into the shell.
+///
 /// Non-fatal: a failed `close()` (e.g. already closed / invalid) is ignored.
 fn close_stray_fds() {
-    // SAFETY: sysconf is a simple syscall wrapper. On failure we fall back to
-    // STRAY_FD_SCAN_LIMIT. close() is async-signal-safe; closing an invalid fd
-    // returns EBADF, which we ignore. We never touch fds 0/1/2.
+    // SAFETY: sysconf(3) is a POSIX function safe to call with valid constant.
+    // Returns c_long (i64 on 64-bit). We check > 0 and ≤ c_int::MAX before
+    // casting to c_int; values outside this range use STRAY_FD_SCAN_LIMIT.
     let open_max = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) };
-    let upper = if open_max > 0 {
+    let upper = if open_max > 0 && open_max <= (libc::c_int::MAX as i64) {
         open_max as libc::c_int
     } else {
         STRAY_FD_SCAN_LIMIT
     };
-    log::debug!("closing stray fds in child (upper bound {upper})");
+    // NOTE: cannot use log here because this may run in the child after fork
+    // (not async-signal-safe). Errors are silent by design.
     for fd in 3..=upper {
-        // SAFETY: close() on an invalid fd returns EBADF, which is harmless.
+        // SAFETY: close(2) on an invalid fd returns EBADF (harmless),
+        // so there is no risk of double-close or invalid-fd crash.
         // Standard fds (0,1,2) are excluded by starting at 3.
         unsafe {
             libc::close(fd);

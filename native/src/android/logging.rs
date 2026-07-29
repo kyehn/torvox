@@ -164,7 +164,12 @@ pub unsafe extern "C" fn ffi_set_log_file_path(path_ptr: *const u8, path_len: i3
     if path_ptr.is_null() || path_len <= 0 {
         return;
     }
-    let slice = unsafe { std::slice::from_raw_parts(path_ptr, path_len as usize) };
+    let slice = unsafe {
+        // SAFETY: `path_ptr` and `path_len` come from a trusted C caller
+        // (the Android JNI logging bridge). The pointer is validated as
+        // non-null above; `path_len` bounds the slice length.
+        std::slice::from_raw_parts(path_ptr, path_len as usize)
+    };
     let path = String::from_utf8_lossy(slice);
     set_log_file_path(&path);
 }
