@@ -16,8 +16,17 @@ fn project_root() -> PathBuf {
 
 /// Build native cdylib if not already present.
 fn build_cdylib(project_root: &PathBuf) -> PathBuf {
-    let lib_path = project_root.join("target/debug/libnative.so");
+    let profile = option_env!("CARGO_PROFILE").unwrap_or("debug");
+    let lib_path = project_root
+        .join("target")
+        .join(profile)
+        .join("libnative.so");
     if !lib_path.exists() {
+        // Try alternate profile (e.g., when PROFILE env is not set)
+        let alt_path = project_root.join("target/debug/libnative.so");
+        if alt_path.exists() {
+            return alt_path;
+        }
         let status = Command::new("cargo")
             .args(["build", "-p", "native"])
             .current_dir(project_root)
@@ -25,7 +34,10 @@ fn build_cdylib(project_root: &PathBuf) -> PathBuf {
             .expect("failed to run cargo build");
         assert!(status.success(), "cargo build -p native failed");
     }
-    assert!(lib_path.exists(), "libnative.so not found after build");
+    assert!(
+        lib_path.exists(),
+        "libnative.so not found after build at {lib_path:?}"
+    );
     lib_path
 }
 
@@ -72,7 +84,14 @@ fn run_java(lib_dir: &PathBuf, class_output: &PathBuf) -> String {
 #[test]
 fn jni_bridge_init_session() {
     let root = project_root();
-    let lib_dir = root.join("target/debug");
+    let profile = option_env!("CARGO_PROFILE").unwrap_or("debug");
+    let lib_dir = root.join("target").join(profile);
+    // Fallback to debug if profile directory doesn't exist
+    let lib_dir = if lib_dir.exists() {
+        lib_dir
+    } else {
+        root.join("target/debug")
+    };
     let jni_dir = root.join("integration-tests/jni");
     let class_output = root.join("target/jni-test-classes");
 

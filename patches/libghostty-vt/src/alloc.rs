@@ -34,6 +34,11 @@ impl Allocator<'_> {
     pub(crate) fn to_raw(&self) -> *const ffi::Allocator {
         std::ptr::from_ref(&self.inner)
     }
+    /// # Safety
+    ///
+    /// `raw` must be a valid, non-null pointer to a properly initialized
+    /// `ffi::Allocator`. The caller guarantees that the allocator outlives
+    /// this `Allocator` value and any `Bytes` values that reference it.
     pub(crate) unsafe fn from_raw(raw: *const ffi::Allocator) -> Self {
         Self {
             inner: unsafe { *raw },
@@ -117,6 +122,16 @@ impl<'alloc> Bytes<'alloc> {
         Ok(unsafe { Self::from_raw_parts(ptr, len, alloc) })
     }
 
+    // SAFETY:
+    // - `ptr` must be a valid, non-null pointer to a heap allocation
+    //   obtained from `alloc` via `ghostty_alloc`.
+    // - `len` must be ≤ the actual allocation size.
+    // - `alloc` must be a valid `*const Allocator` (can be NULL for the
+    //   default allocator) that remains valid for the `'alloc` lifetime.
+    //   The caller guarantees `alloc` outlives this `Bytes` value.
+    // - On drop, `ghostty_free(alloc, ptr, len)` is called, so the
+    //   allocation must be from Ghostty's allocator, not Rust's global
+    //   allocator.
     pub(crate) unsafe fn from_raw_parts(
         ptr: NonNull<u8>,
         len: usize,

@@ -93,7 +93,7 @@ public class NativeBridge {
         long sid = initSession(24, 80);
         check("session created for resize", sid > 0);
         resize(sid, 50, 150);
-        check("resize did not throw", true);
+        // resize does not throw (no crash = pass)
         destroySession(sid);
     }
 
@@ -102,7 +102,7 @@ public class NativeBridge {
         long sid = initSession(24, 80);
         check("session created for feedPty", sid > 0);
         feedPty(sid, "echo hello\n");
-        check("feedPty did not throw", true);
+        // feedPty does not crash
         destroySession(sid);
     }
 
@@ -145,10 +145,8 @@ public class NativeBridge {
 
     static void testSetMcpEnabled() {
         System.out.println("-- MCP toggle --");
-        // Just verify no crash
         setMcpEnabled(true);
-        check("setMcpEnabled(true) no crash", true);
         setMcpEnabled(false);
-        check("setMcpEnabled(false) no crash", true);
+        // no crash = pass
     }
 }

@@ -19,7 +19,7 @@ impl FontPipeline {
             pixel_size: (self.font_size * self.raster_scale) as u16,
         };
 
-        if let Some(info) = self.glyph_cache.get(&key).cloned() {
+        if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
             return Some(info);
         }
 
@@ -58,7 +58,7 @@ impl FontPipeline {
                     advance_width,
                     allocation_id: None,
                 };
-                self.glyph_cache.put(key, info.clone());
+                self.caches.glyph_cache.put(key, info.clone());
                 return Some(info);
             }
         };
@@ -76,7 +76,7 @@ impl FontPipeline {
                 advance_width,
                 allocation_id: None,
             };
-            self.glyph_cache.put(key, info.clone());
+            self.caches.glyph_cache.put(key, info.clone());
             return Some(info);
         }
 
@@ -86,9 +86,10 @@ impl FontPipeline {
         {
             Some(a) => a,
             None => {
-                let evict_count = (self.glyph_cache.len() / GLYPH_CACHE_EVICTION_DIVISOR).max(1);
+                let evict_count =
+                    (self.caches.glyph_cache.len() / GLYPH_CACHE_EVICTION_DIVISOR).max(1);
                 for _ in 0..evict_count {
-                    if let Some((_, evicted)) = self.glyph_cache.pop_lru()
+                    if let Some((_, evicted)) = self.caches.glyph_cache.pop_lru()
                         && let Some(allocated_id) = evicted.allocation_id
                     {
                         self.atlas.deallocate(allocated_id);
@@ -104,7 +105,7 @@ impl FontPipeline {
                         "ATLAS_REBUILD: atlas full ({}x{}), rebuilding with {} cached glyphs",
                         self.atlas_width,
                         self.atlas_height,
-                        self.glyph_cache.len(),
+                        self.caches.glyph_cache.len(),
                     );
                     self.rebuild_atlas();
                     self.atlas
@@ -192,13 +193,14 @@ impl FontPipeline {
             allocation_id,
         };
 
-        self.glyph_cache.put(key, info.clone());
+        self.caches.glyph_cache.put(key, info.clone());
         self.atlas_generation += 1;
         Some(info)
     }
 
     pub(super) fn rebuild_atlas(&mut self) {
         let entries: Vec<(GlyphKey, GlyphInfo)> = self
+            .caches
             .glyph_cache
             .iter()
             .map(|(&k, v)| (k, v.clone()))
@@ -208,7 +210,7 @@ impl FontPipeline {
             self.atlas_height as i32,
         ));
         self.atlas_bitmap.fill(0);
-        self.glyph_cache.clear();
+        self.caches.glyph_cache.clear();
         for (key, _old_info) in &entries {
             self.glyph_information_from_font(key.font_id, '\0', key.glyph_id);
         }
@@ -229,7 +231,7 @@ impl FontPipeline {
     }
 
     pub fn cache_length(&self) -> usize {
-        self.glyph_cache.len()
+        self.caches.glyph_cache.len()
     }
 
     pub fn atlas_bitmap(&self) -> &[u8] {
