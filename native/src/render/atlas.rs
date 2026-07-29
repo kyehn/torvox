@@ -50,7 +50,7 @@ impl Renderer {
                 }
                 None => (0, 0, width, height),
             };
-            let offset = (origin_y * width + origin_x) as u64 * 4;
+            let offset = (origin_y as u64 * width as u64 + origin_x as u64) * 4;
             self.queue.write_texture(
                 wgpu::TexelCopyTextureInfo {
                     texture,

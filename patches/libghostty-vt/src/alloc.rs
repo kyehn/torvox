@@ -141,16 +141,20 @@ impl Drop for Bytes<'_> {
 impl Deref for Bytes<'_> {
     type Target = [u8];
 
+    /// The underlying `Bytes` allocation is owned by `Allocator` and remains
+    /// valid until `Allocator::reset()` or `Drop`. The caller must ensure no
+    /// other mutation happens concurrently (these helpers are `&` only, so the
+    /// borrow checker enforces this naturally).
     #[inline]
     fn deref(&self) -> &Self::Target {
-        // SAFETY: See Drop
+        // SAFETY: Allocation validity and exclusivity guaranteed as above.
         unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
     }
 }
 impl DerefMut for Bytes<'_> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        // SAFETY: See Drop
+        // SAFETY: Same as Deref::deref, plus `&mut self` ensures exclusive access.
         unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
 }

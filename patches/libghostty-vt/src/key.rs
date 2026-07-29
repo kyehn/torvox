@@ -367,9 +367,10 @@ impl<'alloc> Event<'alloc> {
     #[must_use]
     pub fn unshifted_codepoint(&self) -> char {
         unsafe {
-            char::from_u32_unchecked(ffi::ghostty_key_event_get_unshifted_codepoint(
-                self.inner.as_raw(),
-            ))
+            let cp = ffi::ghostty_key_event_get_unshifted_codepoint(self.inner.as_raw());
+            // The C function returns a valid Unicode codepoint from a keyboard
+            // event, but we guard with from_u32() for defense in depth.
+            char::from_u32(cp).unwrap_or('\u{FFFD}')
         }
     }
 }

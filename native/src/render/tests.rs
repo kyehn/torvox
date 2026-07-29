@@ -1024,7 +1024,6 @@ fn setup_test_gpu_context(
         blur_v_pipeline: None,
         render_paused: false,
         pending_gpu_drain: false,
-        native_window: None,
     };
     context.initialize_pipeline_and_bind_group(256, 256, 50, 50);
     context
@@ -1103,7 +1102,6 @@ fn setup_test_gpu_context_custom(
         blur_v_pipeline: None,
         render_paused: false,
         pending_gpu_drain: false,
-        native_window: None,
     };
     context.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
     context
@@ -2231,9 +2229,372 @@ fn bench_build_instances_from_cell_data() {
         count
     );
     assert!(
-        fps > 10.0,
-        "Mixed-content render too slow: {:.0} fps (need >10)",
+        fps > 200.0,
+        "Mixed-content render too slow: {:.0} fps (need >200)",
         fps
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// GPU Pipeline Benchmarks  (wgpu buffer upload, command encoding, submit)
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Benchmark wgpu buffer upload throughput — the main GPU data path.
+/// Every frame writes CellInstance data to a GPU buffer via queue.write_buffer().
+/// This benchmark measures raw write speed for 24×80 instance data (1920 cells).
+#[test]
+fn bench_gpu_buffer_upload_throughput() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let renderer = Renderer::new_with_no_surface();
+    let device = &renderer.device;
+    let queue = &renderer.queue;
+
+    // Create a staging buffer of realistic size
+    let cell_instance_size = std::mem::size_of::<CellInstance>() as u64;
+    let buf_size = cell_instance_size * 1920;
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Bench Buffer"),
+        size: buf_size,
+        usage: wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    // Generate realistic instance data
+    let instance_data: Vec<CellInstance> = (0..1920)
+        .map(|i| CellInstance {
+            quad_origin: [i as f32 % 80.0 * 10.0, i as f32 / 80.0 * 20.0],
+            atlas_offset: [0.0, 0.0],
+            atlas_size: [0.0, 0.0],
+            fg_color: [0.9, 0.9, 0.9, 1.0],
+            bg_color: [0.1, 0.1, 0.1, 1.0],
+            quad_size: [10.0, 20.0],
+            flags: 0.0,
+            bearing: [0.0, 0.0],
+            glyph_advance_width: 0.0,
+        })
+        .collect();
+    let bytes = bytemuck::cast_slice(&instance_data);
+
+    let n = 1000;
+    let start = Instant::now();
+    for _ in 0..n {
+        queue.write_buffer(&buffer, 0, bytes);
+        black_box(&buffer);
+    }
+    let elapsed = start.elapsed();
+    let mb_per_sec = n as f64 * bytes.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
+    println!(
+        "GPU buffer upload: {:.0} MB/s ({}×{} bytes in {:.1}ms)",
+        mb_per_sec,
+        n,
+        bytes.len(),
+        elapsed.as_millis(),
+    );
+    assert!(
+        mb_per_sec > 500.0,
+        "Buffer upload too slow: {:.0} MB/s (need >500)",
+        mb_per_sec,
+    );
+}
+
+/// Benchmark wgpu command encoding overhead: create encoder, begin render pass,
+/// draw instances, end pass, submit. This tests the CPU-side graphics command
+/// path that happens every frame.
+#[test]
+fn bench_gpu_command_encoding_overhead() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let renderer = Renderer::new_with_no_surface();
+    let device = &renderer.device;
+    let queue = &renderer.queue;
+
+    // Create minimal off-screen render target
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Bench Texture"),
+        size: wgpu::Extent3d {
+            width: 800,
+            height: 600,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    let n = 500;
+    let start = Instant::now();
+    for _ in 0..n {
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Bench Encoder"),
+        });
+        {
+            let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Bench Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            black_box(&_rp);
+        }
+        queue.submit(black_box([encoder.finish()]));
+    }
+    let elapsed = start.elapsed();
+    let submissions_per_sec = n as f64 / elapsed.as_secs_f64();
+    println!(
+        "GPU command encoding + submit: {:.0} submissions/sec ({:.1}ms per submission)",
+        submissions_per_sec,
+        elapsed.as_millis() as f64 / n as f64,
+    );
+    assert!(
+        submissions_per_sec > 100.0,
+        "Command encoding too slow: {:.0} frames/sec (need >100)",
+        submissions_per_sec,
+    );
+}
+
+/// Benchmark full GPU pipeline throughput for rendering a screen of CellInstances:
+/// buffer upload + command encoding + submit + poll. This mirrors the actual
+/// render_frame() path without requiring a swapchain surface.
+#[test]
+fn bench_gpu_full_submit_throughput() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let renderer = Renderer::new_with_no_surface();
+    let device = &renderer.device;
+    let queue = &renderer.queue;
+
+    // Create off-screen target
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Bench Texture"),
+        size: wgpu::Extent3d {
+            width: 800,
+            height: 600,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // Staging buffer + instance data
+    let instance_data: Vec<CellInstance> = (0..1920)
+        .map(|i| CellInstance {
+            quad_origin: [i as f32 % 80.0 * 10.0, i as f32 / 80.0 * 20.0],
+            atlas_offset: [0.0, 0.0],
+            atlas_size: [0.0, 0.0],
+            fg_color: [0.9, 0.9, 0.9, 1.0],
+            bg_color: [0.1, 0.1, 0.1, 1.0],
+            quad_size: [10.0, 20.0],
+            flags: 0.0,
+            bearing: [0.0, 0.0],
+            glyph_advance_width: 0.0,
+        })
+        .collect();
+    let bytes = bytemuck::cast_slice(&instance_data);
+    let buf_size = bytes.len() as u64;
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Bench VBO"),
+        size: buf_size,
+        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+
+    let n = 200;
+    let start = Instant::now();
+    for _ in 0..n {
+        queue.write_buffer(&buffer, 0, bytes);
+
+        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+            label: Some("Bench Encoder"),
+        });
+        {
+            let _rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Bench Pass"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                        store: wgpu::StoreOp::Store,
+                    },
+                    depth_slice: None,
+                })],
+                depth_stencil_attachment: None,
+                ..Default::default()
+            });
+            black_box(&_rp);
+        }
+        queue.submit(black_box([encoder.finish()]));
+    }
+    // Drain all submitted work
+    let _ = device.poll(wgpu::PollType::Wait {
+        submission_index: None,
+        timeout: Some(std::time::Duration::from_secs(2)),
+    });
+    let elapsed = start.elapsed();
+    let fps = n as f64 / elapsed.as_secs_f64();
+    let mb_per_sec = n as f64 * bytes.len() as f64 / 1_048_576.0 / elapsed.as_secs_f64();
+    println!(
+        "GPU full submit: {:.0} frames/sec ({:.1}ms per frame, {:.0} MB/s upload)",
+        fps,
+        elapsed.as_millis() as f64 / n as f64,
+        mb_per_sec,
+    );
+    // Headless wgpu (Mesa Lavapipe) varies widely; set a conservative threshold
+    assert!(
+        fps > 30.0,
+        "GPU full submit too slow: {:.0} fps (need >30)",
+        fps,
+    );
+}
+
+/// Benchmark the interaction between FontPipeline atlas and wgpu texture upload.
+/// Measures the cost of creating + uploading a new atlas texture after glyph
+/// cache warmup — this happens when new glyphs are encountered.
+#[test]
+fn bench_gpu_atlas_texture_upload() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let renderer = Renderer::new_with_no_surface();
+    let device = &renderer.device;
+    let queue = &renderer.queue;
+
+    let n = 100;
+    let start = Instant::now();
+    for _ in 0..n {
+        let tex = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Atlas Bench"),
+            size: wgpu::Extent3d {
+                width: 1024,
+                height: 1024,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        // Simulate uploading atlas data (background thread rasterized into Vec<u8>)
+        let atlas_data = vec![0u8; 1024 * 1024 * 4];
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &tex,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            &atlas_data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(1024 * 4),
+                rows_per_image: Some(1024),
+            },
+            wgpu::Extent3d {
+                width: 1024,
+                height: 1024,
+                depth_or_array_layers: 1,
+            },
+        );
+        black_box(tex);
+    }
+    let elapsed = start.elapsed();
+    let uploads_per_sec = n as f64 / elapsed.as_secs_f64();
+    println!(
+        "GPU atlas texture upload: {:.0} uploads/sec ({:.1}ms per 1024×1024 RGBA)",
+        uploads_per_sec,
+        elapsed.as_millis() as f64 / n as f64,
+    );
+    // Lavapipe may be slow; threshold is set conservatively
+    assert!(
+        uploads_per_sec > 5.0,
+        "Atlas upload too slow: {:.0} uploads/sec (need >5)",
+        uploads_per_sec,
+    );
+}
+
+/// Benchmark glyph cache warmup stress: render 100 unique CJK characters through
+/// FontPipeline, measuring first-encounter time vs cache-hit time. This tests
+/// the CJK cache and atlas allocation for the cold-start scenario.
+#[test]
+fn bench_cjk_glyph_cache_warmup() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+
+    // 100 unique CJK ideographs from common ranges
+    let cjk_chars: Vec<char> = (0x4E00..0x4E64) // 100 CJK chars: 一-们
+        .filter_map(char::from_u32)
+        .collect();
+    assert_eq!(cjk_chars.len(), 100);
+
+    // First pass: cold cache — each char requires full resolution
+    let start = Instant::now();
+    for (i, &ch) in cjk_chars.iter().enumerate() {
+        let info = font_pipeline.glyph_information(ch);
+        assert!(
+            info.is_some(),
+            "CJK char U+{:04X} should resolve at index {}",
+            ch as u32,
+            i
+        );
+        black_box(info);
+    }
+    let cold_time = start.elapsed();
+
+    // Second pass: hot cache — all should hit cjk_glyph_cache + glyph_cache
+    let start = Instant::now();
+    for &ch in &cjk_chars {
+        let info = font_pipeline.glyph_information(ch);
+        assert!(
+            info.is_some(),
+            "CJK char U+{:04X} should resolve from cache",
+            ch as u32
+        );
+        black_box(info);
+    }
+    let hot_time = start.elapsed();
+
+    let cold_per_char = cold_time.as_micros() as f64 / cjk_chars.len() as f64;
+    let hot_per_char = hot_time.as_micros() as f64 / cjk_chars.len() as f64;
+    let speedup = cold_per_char / hot_per_char;
+
+    println!(
+        "CJK glyph cache: cold {:.1}µs/char → hot {:.1}µs/char ({:.0}× speedup)",
+        cold_per_char, hot_per_char, speedup,
+    );
+    assert!(
+        hot_per_char < 500.0,
+        "CJK hot cache too slow: {:.1}µs/char (need <500µs)",
+        hot_per_char,
+    );
+    assert!(
+        speedup > 5.0,
+        "CJK cache not effective: {:.0}× speedup (need >5× from 100 unique chars)",
+        speedup,
     );
 }
 

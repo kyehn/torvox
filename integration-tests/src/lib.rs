@@ -16,7 +16,6 @@ mod config_file_validation {
     }
 
     #[test]
-    #[test]
     fn rust_toolchain_toml_exists_and_is_valid_toml() {
         let root = workspace_root();
         let path = format!("{root}/rust-toolchain.toml");
@@ -65,15 +64,8 @@ mod config_file_validation {
     }
 
     #[test]
-    #[test]
-    #[test]
-    #[test]
-    #[test]
-    #[test]
     // Acceptance: [inspection] CI scripts contain test_type labels
-    // — workflow names themselves serve as labels (rust-checks → unit,
     //   android-tests → unit+emulator, release → emulator)
-    #[test]
     fn ci_workflow_names_are_distinct() {
         let root = std::path::Path::new(&workspace_root()).to_path_buf();
         let ci_dir = root.join(".github").join("workflows");
