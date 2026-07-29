@@ -1,8 +1,6 @@
 //! Text shaping — cosmic-text integration for Unicode ligature and complex script support.
 use super::{FontPipeline, ShapedGlyphInfo};
 
-pub(super) const SHAPE_CACHE_CAPACITY: usize = 4_096;
-
 /// Line height as a multiple of font size for cosmic-text Metrics.
 const DEFAULT_LINE_HEIGHT_RATIO: f32 = 1.2;
 
@@ -14,7 +12,7 @@ impl FontPipeline {
         if text.is_empty() {
             return Vec::new();
         }
-        if let Some(cached) = self.shape_cache.get(text) {
+        if let Some(cached) = self.caches.shape_cache.get(text) {
             return cached.clone();
         }
 
@@ -73,7 +71,9 @@ impl FontPipeline {
             .collect();
 
         self.shaping_buffer = Some(buffer);
-        self.shape_cache.put(text.to_string(), result.clone());
+        self.caches
+            .shape_cache
+            .put(text.to_string(), result.clone());
         result
     }
 }

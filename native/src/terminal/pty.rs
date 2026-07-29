@@ -82,6 +82,18 @@ pub struct PtyPair {
 }
 
 impl PtyPair {
+    /// Spawn a child process in a new PTY.
+    ///
+    /// # async-signal-safety
+    ///
+    /// After `fork()`, the child process must only call async-signal-safe
+    /// functions. All heap allocation (`CString::new`, `format!`, `log!`,
+    /// `println!`, etc.) happens **before** the fork. The child path uses
+    /// only `execvp`, `dup2`, `close`, `write(2)`, and `_exit(2)` which
+    /// are all async-signal-safe in a single-threaded child.
+    ///
+    /// **DO NOT add `log::debug!`, `format!`, or any allocation in the
+    /// child branch after `fork()`.**
     pub fn spawn(shell: &str, rows: u16, cols: u16, env: &ShellEnv) -> Result<Self, PtyError> {
         let winsize = nix::pty::Winsize {
             ws_row: rows,
@@ -169,7 +181,9 @@ impl PtyPair {
                     unsafe { libc::getsid(0) } == nix::unistd::getpid().as_raw();
                 if !is_session_leader && nix::unistd::setsid().is_err() {
                     // nosemgrep: semgrep.no-process-exit — child process after fork, must not longjmp
-                    std::process::exit(2);
+                    unsafe {
+                        libc::_exit(2);
+                    }
                 }
                 let slave_raw = slave_fd.as_raw_fd();
                 // SAFETY: All these libc calls are lightweight syscall wrappers that do not allocate.
@@ -178,7 +192,9 @@ impl PtyPair {
                 let result = unsafe { libc::ioctl(slave_raw, libc::TIOCSCTTY, 0) };
                 if result < 0 {
                     // nosemgrep: semgrep.no-process-exit — child process after fork, must not longjmp
-                    std::process::exit(3);
+                    unsafe {
+                        libc::_exit(3);
+                    }
                 }
                 // SAFETY: dup2 across well-known FDs (0, 1, 2) is safe and async-signal-safe
                 // post-fork. The slave FD is valid because setsid()+ioctl(TIOCSCTTY) above
@@ -378,11 +394,27 @@ impl Drop for PtyPair {
                 self.child_pid
             );
         }
-        if let Err(e) = nix::sys::wait::waitpid(self.child_pid, None) {
-            log::warn!(
-                "waitpid for child {} failed during drop: {e}",
-                self.child_pid
-            );
+        // Use WNOHANG + retry loop to avoid blocking Drop.
+        // SIGKILL was sent above, so reaping should complete quickly.
+        // ECHILD means already reaped by another thread.
+        for _attempt in 0..10 {
+            match nix::sys::wait::waitpid(
+                self.child_pid,
+                Some(nix::sys::wait::WaitPidFlag::WNOHANG),
+            ) {
+                Ok(
+                    nix::sys::wait::WaitStatus::Exited(_, _)
+                    | nix::sys::wait::WaitStatus::Signaled(_, _, _),
+                ) => break,
+                Ok(_) => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(nix::errno::Errno::ECHILD) => break,
+                Err(e) => {
+                    log::warn!("waitpid for child {} failed: {e}", self.child_pid);
+                    break;
+                }
+            }
         }
     }
 }
@@ -474,7 +506,10 @@ fn configure_raw_mode_child(fd: std::os::unix::io::RawFd) {
 /// Conservative upper bound (in fd numbers) used when scanning for stray
 /// file descriptors to close in the child, if `sysconf(_SC_OPEN_MAX)` is
 /// unavailable. Kept small enough to bound syscall volume on any platform.
-const STRAY_FD_SCAN_LIMIT: libc::c_int = 4096;
+/// Maximum fd number to scan in `close_stray_fds`. Chosen as a safe
+/// upper bound that prevents pathological scan times on systems where
+/// `sysconf(_SC_OPEN_MAX)` reports a very large value (e.g. 1 M+).
+const STRAY_FD_SCAN_LIMIT: libc::c_int = 65536;
 
 /// Close every open file descriptor in the child except the standard streams
 /// (0,1,2), which are the PTY slave after `dup2`. This mirrors termux-app's
@@ -489,12 +524,25 @@ const STRAY_FD_SCAN_LIMIT: libc::c_int = 4096;
 ///
 /// Non-fatal: a failed `close()` (e.g. already closed / invalid) is ignored.
 fn close_stray_fds() {
-    // SAFETY: sysconf(3) is a POSIX function safe to call with valid constant.
-    // Returns c_long (i64 on 64-bit). We check > 0 and ≤ c_int::MAX before
-    // casting to c_int; values outside this range use STRAY_FD_SCAN_LIMIT.
-    let open_max = unsafe { libc::sysconf(libc::_SC_OPEN_MAX) };
-    let upper = if open_max > 0 && open_max <= (libc::c_int::MAX as i64) {
-        open_max as libc::c_int
+    // SAFETY: getrlimit(2) is in the POSIX async-signal-safe list. It is
+    // safe to call from a thread forked from a multi-threaded process if
+    // RLIMIT_NOFILE has not been modified concurrently (it never is here).
+    let mut rlim = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    let upper = if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut rlim) } == 0 {
+        // rlim_cur is the soft limit (typically 1024-4096 on modern Linux).
+        // This is vastly cheaper than iterating to sysconf(OPEN_MAX) which can
+        // return ~1M on systemd-based systems.
+        // RLIM_INFINITY means "unlimited" — fall back to the static limit
+        // to avoid scanning to c_int::MAX (~2 billion).
+        if rlim.rlim_cur == libc::RLIM_INFINITY {
+            STRAY_FD_SCAN_LIMIT
+        } else {
+            // Cap at c_int::MAX to prevent truncation wrap.
+            rlim.rlim_cur.min(libc::c_int::MAX as u64) as libc::c_int
+        }
     } else {
         STRAY_FD_SCAN_LIMIT
     };

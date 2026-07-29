@@ -1,3 +1,5 @@
+#![allow(clippy::duration_suboptimal_units)]
+
 //! MCP server — Model Context Protocol (MCP) for AI agents.
 //!
 //! Implements the standard MCP protocol over two transports:
@@ -17,10 +19,44 @@
 //!                                  ▼
 //!                          McpRouter (tower-mcp)
 //!                           │       │       │
-//!                    clipboard  notify  terminal_info  ... (7 tools)
+//!                    clipboard  notify  terminal_info  ... (8 tools)
 //!                           │       │       │
 //!                           ▼       ▼       ▼
 //!                       McpState — JNI callbacks — Android host
+//! ```
+//!
+//! # Threading model
+//!
+//! The MCP server runs in a **dedicated background thread** started by
+//! [`start()`].  This thread owns its own tokio runtime and never blocks
+//! the render thread or JNI callbacks.
+//!
+//! - [`start()`]: spawns a `std::thread`; creates a `tokio::runtime` inside it.
+//! - [`stop()`]: deletes the Unix socket file and attempts a graceful
+//!   join with 50ms timeout. If the thread doesn't exit, it's detached
+//!   to avoid blocking the caller.
+//! - [`run_stdio()`]: meant for standalone mode (Claude Code CLI).  Blocks
+//!   the calling thread forever; must be called from outside the embedded
+//!   JNI context (i.e., not on the main UI thread).
+//!
+//! # Concurrency
+//!
+//! MCP tool handlers (in the background thread) access shared state through:
+//! - `McpState` (behind `once_lock!`) — session IDs, enabled flag, callbacks.
+//! - JNI callbacks that push **events** into `EVENT_QUEUE` and wait on a
+//!   oneshot channel for the Kotlin response.
+//!
+//! ## Important: MutexGuard must NOT cross `.await` boundaries
+//!
+//! All dialog/pick-file callbacks extract the closure from its `Mutex`,
+//! drop the guard, **then** `.await` the oneshot receiver.  Holding a
+//! MutexGuard across `.await` would create a `!Send` future (and block
+//! the tokio worker).  The pattern is:
+//!
+//! ```ignore
+//! let cb = state.0.on_show_dialog.lock().unwrap().take();
+//! drop(guard);  // MutexGuard released before await
+//! let result = rx.await;
 //! ```
 //!
 //! ## Usage (JNI bridge)
@@ -41,9 +77,10 @@
 
 use serde::Deserialize;
 use serde_json::json;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use std::time::Duration;
 
 use crate::lock_util::lock_or_recover;
 use tower_mcp::{
@@ -54,6 +91,13 @@ use tower_mcp::{
 // ── Settings ─────────────────────────────────────────────────────────────
 
 static MCP_ENABLED: AtomicBool = AtomicBool::new(false);
+
+/// Global MCP thread handle.
+///
+/// # Lock seam
+/// `stop()` acquires the lock, takes the handle, then **drops the guard**
+/// before calling `join()`. This prevents a deadlock if `start()` is called
+/// concurrently while a prior thread is still joining.
 static MCP_THREAD: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 /// Enable or disable the MCP server.
@@ -75,6 +119,14 @@ pub fn is_enabled() -> bool {
 
 type CallbackStr = Box<dyn Fn(String) + Send>;
 type CallbackGetStr = Box<dyn Fn() -> String + Send>;
+type CallbackDialog = Box<
+    dyn Fn(u64, String, String, String, Vec<String>) -> tokio::sync::oneshot::Receiver<String>
+        + Send
+        + Sync,
+>;
+type CallbackPickFile =
+    Box<dyn Fn(u64, String, String) -> tokio::sync::oneshot::Receiver<String> + Send + Sync>;
+type CallbackSendSignal = Box<dyn Fn(u64, i32) -> String + Send + Sync>;
 
 /// Thread-safe state shared between JNI bridge and MCP tools.
 #[derive(Clone)]
@@ -86,8 +138,12 @@ struct McpStateInner {
     on_open_url: Mutex<Option<CallbackStr>>,
     on_clipboard_get: Mutex<Option<CallbackGetStr>>,
     on_clipboard_set: Mutex<Option<CallbackStr>>,
+    on_show_dialog: Mutex<Option<CallbackDialog>>,
+    on_pick_file: Mutex<Option<CallbackPickFile>>,
+    on_send_signal: Mutex<Option<CallbackSendSignal>>,
     terminal_rows: AtomicU32,
     terminal_cols: AtomicU32,
+    active_session_id: AtomicU64,
 }
 
 impl McpState {
@@ -98,14 +154,23 @@ impl McpState {
             on_open_url: Mutex::new(None),
             on_clipboard_get: Mutex::new(None),
             on_clipboard_set: Mutex::new(None),
+            on_show_dialog: Mutex::new(None),
+            on_pick_file: Mutex::new(None),
+            on_send_signal: Mutex::new(None),
             terminal_rows: AtomicU32::new(24),
             terminal_cols: AtomicU32::new(80),
+            active_session_id: AtomicU64::new(0),
         }))
     }
 
     pub fn set_terminal_dims(&self, rows: u32, cols: u32) {
         self.0.terminal_rows.store(rows, Ordering::Release);
         self.0.terminal_cols.store(cols, Ordering::Release);
+    }
+
+    /// Update the active session ID (called from JNI bridge on switch).
+    pub fn set_active_session_id(&self, id: u64) {
+        self.0.active_session_id.store(id, Ordering::Release);
     }
 
     pub fn set_notify_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
@@ -126,6 +191,38 @@ impl McpState {
 
     pub fn set_clipboard_set_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
         *lock_or_recover(&self.0.on_clipboard_set, "mcp: set_clipboard_set") = Some(Box::new(f));
+    }
+
+    /// Set a handler for showing dialogs. Called from the MCP `dialog` tool.
+    /// The handler returns a oneshot receiver that resolves when the user responds.
+    /// `options` contains selectable choices for "select" type dialogs.
+    pub fn set_dialog_handler<F>(&self, f: F)
+    where
+        F: Fn(u64, String, String, String, Vec<String>) -> tokio::sync::oneshot::Receiver<String>
+            + Send
+            + Sync
+            + 'static,
+    {
+        *lock_or_recover(&self.0.on_show_dialog, "mcp: set_dialog") = Some(Box::new(f));
+    }
+
+    /// Set a handler for file picking. Called from the MCP `pick_file` tool.
+    /// The handler returns a oneshot receiver that resolves when the user picks a file.
+    pub fn set_pick_file_handler<F>(&self, f: F)
+    where
+        F: Fn(u64, String, String) -> tokio::sync::oneshot::Receiver<String>
+            + Send
+            + Sync
+            + 'static,
+    {
+        *lock_or_recover(&self.0.on_pick_file, "mcp: set_pick_file") = Some(Box::new(f));
+    }
+
+    pub fn set_send_signal_handler<F>(&self, f: F)
+    where
+        F: Fn(u64, i32) -> String + Send + Sync + 'static,
+    {
+        *lock_or_recover(&self.0.on_send_signal, "mcp: set_send_signal") = Some(Box::new(f));
     }
 }
 
@@ -169,6 +266,12 @@ struct ToastInput {
 #[derive(JsonSchema, Deserialize)]
 struct OpenUrlInput {
     url: String,
+}
+
+/// Input for send_signal.
+#[derive(JsonSchema, Deserialize)]
+struct SendSignalInput {
+    signal: i32,
 }
 
 // ── Tool definitions ─────────────────────────────────────────────────────
@@ -285,6 +388,25 @@ fn open_url_tool() -> Tool {
         .build()
 }
 
+fn send_signal_tool() -> Tool {
+    ToolBuilder::new("send_signal")
+        .title("Send signal to terminal")
+        .description("Send a POSIX signal (by number) to the foreground process in the active terminal session. Common signals: 2 (SIGINT), 3 (SIGQUIT), 9 (SIGKILL), 15 (SIGTERM), 20 (SIGTSTP).")
+        .handler(|input: SendSignalInput| async move {
+            let state = global_state();
+            let guard = lock_or_recover(&state.0.on_send_signal, "mcp: send_signal_handler");
+            match guard.as_ref() {
+                Some(f) => {
+                    let session_id = state.0.active_session_id.load(Ordering::Acquire);
+                    let result = f(session_id, input.signal);
+                    Ok(CallToolResult::text(result))
+                }
+                None => Ok(CallToolResult::error("send_signal not available")),
+            }
+        })
+        .build()
+}
+
 fn pick_file_tool() -> Tool {
     #[derive(Deserialize, JsonSchema)]
     struct PickFileInput {
@@ -300,32 +422,20 @@ fn pick_file_tool() -> Tool {
         .title("Pick file")
         .description("Open a system file picker dialog")
         .handler(|input: PickFileInput| async move {
-            #[cfg(target_os = "android")]
-            {
-                let (request_id, rx) = crate::android::ffi::register_request(0);
-                crate::android::ffi::push_event(crate::android::ffi::Event::PickFile {
-                    session_id: 0,
-                    request_id,
-                    starting_path: input.directory,
-                    filter: input.pattern,
-                });
-                match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
-                    Ok(Ok(path)) => {
-                        if path.is_empty() {
-                            Ok(CallToolResult::error("No file selected"))
-                        } else {
-                            Ok(CallToolResult::text(path))
-                        }
-                    }
+            let rx = {
+                let state = global_state();
+                let guard = lock_or_recover(&state.0.on_pick_file, "mcp: pick_file_handler");
+                let session_id = state.0.active_session_id.load(Ordering::Acquire);
+                guard
+                    .as_ref()
+                    .map(|callback| callback(session_id, input.directory, input.pattern))
+            }; // guard + state drop before await
+            match rx {
+                Some(rx) => match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                    Ok(Ok(path)) if !path.is_empty() => Ok(CallToolResult::text(path)),
                     _ => Ok(CallToolResult::error("File picker cancelled or timed out")),
-                }
-            }
-            #[cfg(not(target_os = "android"))]
-            {
-                let _ = (input.directory, input.pattern);
-                Ok(CallToolResult::error(
-                    "File picker not yet implemented on this platform",
-                ))
+                },
+                None => Ok(CallToolResult::error("File picker not available")),
             }
         })
         .build()
@@ -347,27 +457,26 @@ fn dialog_tool() -> Tool {
         .title("Show dialog")
         .description("Prompt the user with a dialog (confirm, input, or select)")
         .handler(|input: DialogInput| async move {
-            #[cfg(target_os = "android")]
-            {
-                let (request_id, rx) = crate::android::ffi::register_request(0);
-                crate::android::ffi::push_event(crate::android::ffi::Event::ShowDialog {
-                    session_id: 0,
-                    request_id,
-                    dialog_type: input.dialog_type,
-                    title: input.title,
-                    message: input.message,
-                });
-                match tokio::time::timeout(std::time::Duration::from_secs(300), rx).await {
+            let rx = {
+                let state = global_state();
+                let guard = lock_or_recover(&state.0.on_show_dialog, "mcp: dialog_handler");
+                let session_id = state.0.active_session_id.load(Ordering::Acquire);
+                guard.as_ref().map(|callback| {
+                    callback(
+                        session_id,
+                        input.dialog_type,
+                        input.title,
+                        input.message,
+                        input.options,
+                    )
+                })
+            }; // guard + state drop before await
+            match rx {
+                Some(rx) => match tokio::time::timeout(Duration::from_secs(300), rx).await {
                     Ok(Ok(result)) => Ok(CallToolResult::text(result)),
                     _ => Ok(CallToolResult::error("Dialog cancelled or timed out")),
-                }
-            }
-            #[cfg(not(target_os = "android"))]
-            {
-                let _ = (input.dialog_type, input.title, input.message, input.options);
-                Ok(CallToolResult::error(
-                    "Dialog not supported on this platform",
-                ))
+                },
+                None => Ok(CallToolResult::error("Dialog not available")),
             }
         })
         .build()
@@ -384,6 +493,7 @@ fn build_router() -> McpRouter {
         .tool(notify_tool())
         .tool(toast_tool())
         .tool(open_url_tool())
+        .tool(send_signal_tool())
         .tool(pick_file_tool())
         .tool(dialog_tool())
 }
@@ -469,13 +579,15 @@ pub fn start() {
 /// Stop the MCP server.
 ///
 /// Deletes the Unix socket file and attempts a graceful join of the server
-/// thread. If the thread is blocked in `accept()`, it may take a few seconds
-/// to notice the deleted socket (on Linux) or wait until process exit.
-/// This is acceptable for a terminal emulator — `stop()` is called on
-/// preferences changes, not in hot paths.
+/// thread with a 50ms timeout. If the thread doesn't exit in time, it is
+/// detached to avoid blocking the calling thread (JNI main thread) indefinitely.
+///
+/// The deleted socket file allows a new server to bind to the same path
+/// immediately. The detached thread will clean up on its own when accept()
+/// eventually returns or the process exits.
 pub fn stop() {
     // Take the handle OUT of the lock, then drop the lock immediately
-    // so handle.join() is NOT called while holding MCP_THREAD.
+    // so the timeout loop is NOT called while holding MCP_THREAD.
     let handle = match MCP_THREAD.lock() {
         Ok(mut guard) => guard.take(),
         Err(poisoned) => {
@@ -483,14 +595,34 @@ pub fn stop() {
             poisoned.into_inner().take()
         }
     };
-    // guard dropped here — lock released before join()
+    // guard dropped here — lock released before join/sleep
 
-    if let Some(handle) = handle {
-        let path = socket_path();
-        let _ = std::fs::remove_file(&path);
-        let _ = handle.join();
-        log::info!("MCP server stopped");
+    let Some(handle) = handle else {
+        return;
+    };
+
+    let path = socket_path();
+    let _ = std::fs::remove_file(&path);
+
+    // Try graceful join with 50ms timeout.
+    // is_finished() + join() is safe: join() after is_finished() is
+    // guaranteed immediate.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(50);
+    while std::time::Instant::now() < deadline {
+        if handle.is_finished() {
+            if let Err(panic) = handle.join() {
+                log::error!("MCP server thread panicked: {:?}", panic);
+            }
+            log::info!("MCP server stopped");
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
     }
+    log::warn!(
+        "MCP server thread did not exit within 50ms — DETACHING (will exit \
+         when accept returns)"
+    );
+    // handle dropped here → thread detached
 }
 
 /// Start the MCP server in stdio mode (for Claude Code / Codex CLI).
@@ -534,9 +666,10 @@ mod tests {
         assert!(names.contains(&"notify"));
         assert!(names.contains(&"toast"));
         assert!(names.contains(&"open_url"));
+        assert!(names.contains(&"send_signal"));
         assert!(names.contains(&"pick_file"));
         assert!(names.contains(&"dialog"));
-        assert_eq!(names.len(), 8);
+        assert_eq!(names.len(), 9);
     }
 
     #[tokio::test]
@@ -574,9 +707,17 @@ mod tests {
         let result = client
             .call_tool_expect_error("nonexistent", json!({}))
             .await;
-        assert!(
-            result.is_object() || result.as_str().is_some(),
-            "nonexistent tool should return an error response: {result}"
-        );
+        match &result {
+            serde_json::Value::Object(obj) => {
+                let msg = obj.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                assert!(
+                    msg.contains("not found"),
+                    "nonexistent tool should return a not-found error, got: {result}"
+                );
+            }
+            other => {
+                panic!("nonexistent tool should return a JSON-RPC error object, got: {other}");
+            }
+        }
     }
 }

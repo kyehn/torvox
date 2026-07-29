@@ -494,24 +494,31 @@ impl Renderer {
         self.queue
             .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
 
-        self.bg_bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Background Bind Group"),
-            layout: &layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: buf.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-        }));
+        // Bind group is created once: it binds to buffer/texture/sampler
+        // objects, not their contents. The uniform buffer is written above
+        // every frame via write_buffer, which doesn't invalidate the bind
+        // group. Only recreate when bg_image_view, bg_sampler, or
+        // bg_uniform_buffer change (e.g., a new background image is loaded).
+        if self.bg_bind_group.is_none() {
+            self.bg_bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Background Bind Group"),
+                layout: &layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: buf.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::Sampler(sampler),
+                    },
+                ],
+            }));
+        }
     }
 
     pub(crate) fn ensure_kgp_pipeline(&mut self, surface_width: u32, surface_height: u32) {

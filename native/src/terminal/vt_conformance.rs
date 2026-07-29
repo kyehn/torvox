@@ -1116,10 +1116,10 @@ fn capability_sixel() {
         t.flush();
         let snap = t.take_snapshot();
         let has_pixels = snap.cells.iter().any(|c| c.codepoint > 0);
-        if !has_pixels {
-            // nosemgrep: semgrep.no-eprintln-library — test diagnostic for sixel capability
-            eprintln!("BUG: Ghostty DA1 claims sixel=4 but no image rendered");
-        }
+        assert!(
+            has_pixels,
+            "Ghostty DA1 claims sixel=4 but no image rendered — sixel support is broken"
+        );
     }
     t.vt_write(b"\x1bPq!4~\x1b\\");
     t.flush();

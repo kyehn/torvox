@@ -1,7 +1,7 @@
 //! Render loop — frame submission, synchronization, and error recovery.
 use crate::render::GpuError;
 use crate::render::Renderer;
-use crate::render::atlas::MIN_ATLAS_BUFFER_SIZE;
+use crate::render::context::MIN_ATLAS_BUFFER_SIZE;
 use crate::render::pipeline::QUAD_VERTEX_COUNT;
 use std::sync::OnceLock;
 use std::sync::mpsc::SyncSender;
@@ -21,22 +21,6 @@ mod tests {
             std::ptr::eq(tx1, tx2),
             "acquire_worker must return the same sender each call"
         );
-    }
-
-    #[test]
-    fn gpu_poll_timeout_is_2_seconds() {
-        assert_eq!(GPU_POLL_TIMEOUT.as_secs(), 2);
-    }
-
-    #[test]
-    fn acquire_timeout_is_2_seconds() {
-        assert_eq!(ACQUIRE_TIMEOUT.as_secs(), 2);
-    }
-
-    #[test]
-    fn pending_drain_uses_16ms_single_frame_timeout() {
-        let drain = std::time::Duration::from_millis(16);
-        assert!(drain.as_millis() <= 16, "drain must not exceed one frame");
     }
 }
 
@@ -59,7 +43,13 @@ fn spawn_acquire_worker() -> SyncSender<AcquireRequest> {
                 let _ = request.response.send(result);
             }
         })
-        .expect("failed to spawn gpu-acquire worker thread");
+        .unwrap_or_else(|e| {
+            panic!(
+                "FATAL: cannot spawn gpu-acquire worker thread: {e}. \
+                 This is required for safe surface texture acquisition. \
+                 Check RLIMIT_NPROC / RLIMIT_THREAD."
+            )
+        });
     tx
 }
 
@@ -461,6 +451,7 @@ impl Renderer {
     ///
     /// `atlas_width`/`atlas_height` come from the font pipeline's atlas
     /// texture dimensions (typically passed alongside the CellData).
+    #[allow(clippy::too_many_arguments)]
     pub fn render_cell_data(
         &mut self,
         cell_data: &[crate::terminal::ghostty_terminal::CellData],
@@ -470,6 +461,9 @@ impl Renderer {
         font_pipeline: &mut crate::render::font::FontPipeline,
         atlas_width: f32,
         atlas_height: f32,
+        selection: Option<crate::render::cell_builder::SelectionRange>,
+        selection_bg: Option<[f32; 4]>,
+        search_highlights: &[crate::render::cell_builder::SearchHighlight],
     ) -> Result<(), GpuError> {
         let instances = crate::render::build_instances_from_cell_data(
             cell_data,
@@ -479,6 +473,9 @@ impl Renderer {
             font_pipeline,
             atlas_width,
             atlas_height,
+            selection,
+            selection_bg,
+            search_highlights,
         )
         .ok_or_else(|| GpuError::Surface("CellData conversion failed".into()))?;
         self.render_frame(&instances, &[])
@@ -719,17 +716,37 @@ impl Renderer {
         }
 
         let slice = dst.slice(..);
-        slice.map_async(wgpu::MapMode::Read, |r| {
-            if let Err(e) = r {
-                log::error!("readback map failed: {e:?}");
-            }
+        // Use a oneshot channel to reliably detect map completion.
+        let (map_tx, map_rx) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |r| {
+            let _ = map_tx.send(r);
         });
-        if let Err(error) = self.device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(GPU_POLL_TIMEOUT),
-        }) {
-            log::warn!("render_to_buffer (map wait): device poll error: {error}");
+        // Poll repeatedly until the map completes or timeout expires.
+        let poll_start = std::time::Instant::now();
+        let map_result;
+        loop {
+            if let Err(error) = self.device.poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: Some(std::time::Duration::from_millis(10)),
+            }) {
+                log::warn!("render_to_buffer (map wait): device poll error: {error}");
+            }
+            match map_rx.try_recv() {
+                Ok(result) => {
+                    map_result = result;
+                    break;
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    return Err(GpuError::Readback("map channel disconnected".into()));
+                }
+            }
+            if poll_start.elapsed() > std::time::Duration::from_millis(100) {
+                return Err(GpuError::Readback("map_async timed out".into()));
+            }
         }
+        // Propagate map_async errors (e.g. buffer too large, device lost).
+        map_result.map_err(|e| GpuError::Readback(format!("map_async failed: {e:?}")))?;
         let data = slice
             .get_mapped_range()
             .map_err(|e| GpuError::Readback(e.to_string()))?

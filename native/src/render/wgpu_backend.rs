@@ -1,0 +1,78 @@
+//! WGPU backend initialization — adapter selection, device creation.
+//!
+//! Encapsulates the wgpu instance/adapter/device creation logic so
+//! [`Renderer`][super::Renderer] does not need to manage GPU boilerplate.
+//! This makes the adapter-selection path independently testable and
+//! replaceable (e.g. with a mock or different backend).
+
+use std::sync::Arc;
+
+use crate::render::GpuError;
+
+/// Create a wgpu [`Instance`], [`Adapter`], [`Device`], and [`Queue`].
+///
+/// On Android this uses the Vulkan backend; on other platforms it uses
+/// the default primary backend (Vulkan/Metal/DX12). Debug builds enable
+/// validation.
+pub async fn initialize_wgpu()
+-> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue), GpuError> {
+    #[cfg(target_os = "android")]
+    let backends = wgpu::Backends::VULKAN;
+    #[cfg(not(target_os = "android"))]
+    let backends = wgpu::Backends::PRIMARY;
+    #[cfg(debug_assertions)]
+    let instance_flags = wgpu::InstanceFlags::VALIDATION
+        | wgpu::InstanceFlags::DEBUG
+        | wgpu::InstanceFlags::DISCARD_HAL_LABELS;
+    #[cfg(not(debug_assertions))]
+    let instance_flags = wgpu::InstanceFlags::DISCARD_HAL_LABELS;
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends,
+        flags: instance_flags,
+        memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+        backend_options: wgpu::BackendOptions::default(),
+        display: None,
+    });
+
+    crate::render::renderdoc_capture::initialize();
+
+    let adapter = instance
+        .request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        })
+        .await
+        .map_err(|_| GpuError::NoAdapter)?;
+
+    let adapter_info = adapter.get_info();
+    log::info!(
+        "GPU adapter: {} (backend={:?}, type={:?})",
+        adapter_info.name,
+        adapter_info.backend,
+        adapter_info.device_type,
+    );
+
+    let device_descriptor = wgpu::DeviceDescriptor {
+        label: Some("Device"),
+        #[cfg(debug_assertions)]
+        required_features: wgpu::Features::TEXTURE_ADAPTER_SPECIFIC_FORMAT_FEATURES,
+        #[cfg(not(debug_assertions))]
+        required_features: wgpu::Features::empty(),
+        required_limits: adapter.limits(),
+        ..Default::default()
+    };
+
+    let (device, queue) = adapter
+        .request_device(&device_descriptor)
+        .await
+        .map_err(|e| GpuError::DeviceRequest(e.to_string()))?;
+
+    device.on_uncaptured_error(Arc::new(|error| {
+        crate::render::context::log_gpu_error(&error);
+    }));
+
+    log::info!("GPU device created, queue ok");
+    Ok((instance, adapter, device, queue))
+}

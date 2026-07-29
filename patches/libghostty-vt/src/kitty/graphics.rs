@@ -794,7 +794,16 @@ pub fn set_png_decoder(f: Option<Box<dyn DecodePng>>) -> Result<()> {
             let Some(decoder) = decoder else {
                 return false;
             };
-            // SAFETY: We trust libghostty to return valid values.
+            if allocator.is_null() {
+                // No allocator configured — PNG decoding requires one.
+                // This can happen when the terminal was created with
+                // Terminal::new() without a custom allocator (the C
+                // side passes NULL). Return false to indicate failure.
+                return false;
+            }
+            // SAFETY: allocator is checked non-null above; it comes
+            // from the C callback and is valid for the duration of
+            // this call.
             let alloc = unsafe { Allocator::from_raw(allocator) };
             let data = unsafe { std::slice::from_raw_parts(data, data_len) };
 

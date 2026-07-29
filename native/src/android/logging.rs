@@ -136,6 +136,8 @@ pub(crate) fn set_log_file_path(path: &str) {
         });
     if let Ok(mut guard) = LOGGER.log_file.lock() {
         *guard = Some(file);
+    } else {
+        log::warn!("ffi_set_log_file_path: LOGGER.log_file lock poisoned");
     }
 }
 
@@ -161,15 +163,17 @@ pub unsafe extern "C" fn init_logger() {
 /// or be null when `path_len` is 0.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ffi_set_log_file_path(path_ptr: *const u8, path_len: i32) {
+    // SAFETY: `path_ptr` and `path_len` come from a trusted C caller
+    // (the Android JNI logging bridge). The pointer is validated as
+    // non-null above; `path_len` bounds the slice length.
     if path_ptr.is_null() || path_len <= 0 {
         return;
     }
-    let slice = unsafe {
-        // SAFETY: `path_ptr` and `path_len` come from a trusted C caller
-        // (the Android JNI logging bridge). The pointer is validated as
-        // non-null above; `path_len` bounds the slice length.
-        std::slice::from_raw_parts(path_ptr, path_len as usize)
-    };
+    // Clamp to a reasonable maximum path length (PATH_MAX is 4096 on Linux).
+    // This prevents a malicious or buggy caller from causing UB by passing
+    // an enormous path_len that would read out-of-bounds.
+    let len = (path_len as usize).min(4096);
+    let slice = unsafe { std::slice::from_raw_parts(path_ptr, len) };
     let path = String::from_utf8_lossy(slice);
     set_log_file_path(&path);
 }
