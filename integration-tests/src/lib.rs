@@ -369,10 +369,21 @@ mod session_e2e {
         assert_eq!(s.terminal().rows(), 40);
         s.write(b"echo after_resize\n").expect("write");
         let deadline = Instant::now() + Duration::from_secs(3);
+        let mut found = false;
         while Instant::now() < deadline {
             s.process_output();
+            let snap = s.terminal().take_snapshot();
+            if snap
+                .cells
+                .iter()
+                .any(|c| c.codepoint == b'a' as u32 || c.codepoint == b'A' as u32)
+            {
+                found = true;
+                break;
+            }
             std::thread::sleep(Duration::from_millis(20));
         }
+        assert!(found, "resize + echo: should see output after resize");
     }
 
     #[test]
@@ -955,6 +966,13 @@ mod linux_ansi_sequences {
             std::thread::sleep(Duration::from_millis(5));
         }
         s.process_output();
+        // Verify 'X' appears on screen after \x1b[5;5H
+        let snap = s.terminal().take_snapshot();
+        let x_cell = snap.cells.iter().find(|c| c.codepoint == b'X' as u32);
+        assert!(
+            x_cell.is_some(),
+            "cursor_movement: 'X' should appear on screen after cursor positioning"
+        );
     }
 
     #[test]

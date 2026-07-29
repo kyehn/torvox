@@ -10,7 +10,11 @@ static CACHED_FONT_PATHS: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sy
 static CACHED_FONT_DB: std::sync::OnceLock<fontdb::Database> = std::sync::OnceLock::new();
 
 #[cfg(target_os = "android")]
-static EXTRA_FONT_PATHS: std::sync::RwLock<Vec<std::path::PathBuf>> =
+/// Extra font paths provided by the GUI layer (Android).
+/// Written by `set_extra_font_paths()`, read by `FontPipeline::new()`
+/// via `pipeline.rs`.
+#[cfg(target_os = "android")]
+pub(crate) static EXTRA_FONT_PATHS: std::sync::RwLock<Vec<std::path::PathBuf>> =
     std::sync::RwLock::new(Vec::new());
 
 #[cfg(target_os = "android")]
@@ -105,8 +109,3 @@ fn is_font_file(entry: &std::path::Path) -> bool {
                 || ext.eq_ignore_ascii_case("ttc")
         })
 }
-
-/// Extra font paths provided by the GUI layer (Android).
-#[cfg(target_os = "android")]
-pub(crate) static EXTRA_FONT_PATHS_RW: std::sync::RwLock<Vec<std::path::PathBuf>> =
-    std::sync::RwLock::new(Vec::new());

@@ -36,7 +36,6 @@ cosmic-text = { workspace = true }
 fontdb = { workspace = true }
 swash = { workspace = true }
 guillotiere = { workspace = true }
-raw-window-handle = { workspace = true }
 
 # Android JNI
 jni = { workspace = true }

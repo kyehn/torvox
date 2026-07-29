@@ -97,6 +97,7 @@ impl super::GhosttyTerminal {
                 initialized: false,
             }),
             panicked,
+            last_pty_write_byte: 0,
         })
     }
 
@@ -127,7 +128,7 @@ impl super::GhosttyTerminal {
         // so SGR reset here does NOT break colored output.
         buf.extend_from_slice(b"\x1b\\\x1b[0m");
         if let Err(error) = self.cmd_tx.send(Command::Write(buf)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
 
@@ -141,7 +142,10 @@ impl super::GhosttyTerminal {
     /// and binary VT data should use [`vt_write`] instead.
     pub fn pty_write(&mut self, data: &[u8]) {
         let mut buf = Vec::with_capacity(data.len() + 4);
-        let mut prev: u8 = 0;
+        // Use last byte from previous call to detect `\r`/`\n` split across
+        // chunk boundaries (common with PTY output on Linux). Without this
+        // the LF→CRLF converter inserts a spurious `\r`, producing `\r\r\n`.
+        let mut prev: u8 = self.last_pty_write_byte;
         for &b in data {
             // Convert a bare LF to CRLF, but only when the LF is not already
             // preceded by a CR. Input that already contains CRLF (common from
@@ -158,8 +162,9 @@ impl super::GhosttyTerminal {
         // This prevents the Ghostty parser from staying in string mode and
         // consuming the next chunk as sequence data.
         buf.extend_from_slice(b"\x1b\\\x1b[0m");
+        self.last_pty_write_byte = prev;
         if let Err(error) = self.cmd_tx.send(Command::Write(buf)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
 
@@ -173,13 +178,13 @@ impl super::GhosttyTerminal {
     /// zombie-detection purposes; at most one command will silently fail before
     /// the next check detects the disconnection.
     pub fn is_alive(&self) -> bool {
-        !self.cmd_tx.is_disconnected()
+        !self.panicked.load(Ordering::Acquire) && !self.cmd_tx.is_disconnected()
     }
 
     pub fn flush(&self) {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.send(Command::FlushAck(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
         if rx.recv().is_err() {
             log::warn!("ghostty_terminal: flush_ack recv failed — session may be dead");
@@ -192,13 +197,13 @@ impl super::GhosttyTerminal {
             foreground,
             ansi,
         }) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
 
     pub fn resize(&mut self, rows: u32, cols: u32) {
         if let Err(error) = self.cmd_tx.send(Command::Resize { rows, cols }) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
 
@@ -243,7 +248,7 @@ impl super::GhosttyTerminal {
             .cmd_tx
             .send(Command::TakeSnapshot { tx, scroll_offset })
         {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
             return GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS);
         }
         match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
@@ -314,7 +319,7 @@ impl super::GhosttyTerminal {
             .cmd_tx
             .send(Command::TakeKittyGraphicsImage { id: image_id, tx })
         {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(result) => result,
@@ -577,7 +582,7 @@ impl super::GhosttyTerminal {
             query: query.to_string(),
             tx,
         }) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(result) => result,
@@ -603,7 +608,7 @@ impl super::GhosttyTerminal {
             fuzzy,
             tx,
         }) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(result) => result,
@@ -619,7 +624,7 @@ impl super::GhosttyTerminal {
     pub fn dump_grid(&self) -> DumpedGrid {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.send(Command::DumpGrid { tx }) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
         match rx.recv() {
             Ok(grid) => grid,

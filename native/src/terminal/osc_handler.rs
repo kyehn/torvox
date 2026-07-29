@@ -130,7 +130,9 @@ impl OscHandler {
     pub fn process(&mut self, input: &[u8]) {
         let needed = input.len() + MAX_SEQUENCE_OVERHEAD;
         if self.output_buf.len() < needed {
-            self.output_buf.resize(needed, 0);
+            // Reserve capacity so process() can append filtered bytes
+            // without reallocation during the loop.
+            self.output_buf.reserve(needed);
         }
         self.output_buf.clear();
         self.events_buf.clear();
@@ -268,12 +270,14 @@ impl OscHandler {
             // Harden against extreme capacity requests that could cause
             // integer overflow or OOM. 1 MB is far beyond any valid OSC
             // sequence — most are <4 KB.
-            if needed > 1_048_576 {
+            if needed > MAX_PAYLOAD_BYTES {
                 log::warn!(
-                    "OSC output buffer requested {} bytes (current capacity {}), capping at 1 MB",
+                    "OSC output buffer requested {} bytes (current capacity {}), capping at {} bytes — flushing existing buffers",
                     needed,
-                    self.output_buf.capacity()
+                    self.output_buf.capacity(),
+                    MAX_PAYLOAD_BYTES
                 );
+                self.flush_all();
                 return;
             }
             self.output_buf.reserve(additional);

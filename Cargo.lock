@@ -1562,7 +1562,6 @@ dependencies = [
  "proptest",
  "quickcheck",
  "quickcheck_macros",
- "raw-window-handle",
  "renderdoc",
  "schemars",
  "serde",

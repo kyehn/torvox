@@ -2,15 +2,74 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use libghostty_vt::key::{self, Mods};
-use libghostty_vt::terminal::{Mode, ModeKind};
+use libghostty_vt::render::{CellIterator, CursorVisualStyle, RenderState, RowIterator};
+use libghostty_vt::style::{PaletteIndex, StyleColor};
+use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate};
 use libghostty_vt::{Terminal, TerminalOptions};
 
 use super::commands::{Command, RunConfig};
 use super::keymap::map_android_key_code;
 use super::types::*;
+use flume::Sender;
 
-use super::snapshot;
+/// Send a value over a channel, logging on failure.
+fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
+    if let Err(e) = sender.send(value) {
+        log::error!("ghostty_terminal: {context}: channel send failed: {e}");
+    }
+}
 
+// ── Free functions ──────────────────────────────────────────────
+
+/// Helper to create the three per-frame render iterators.
+/// Returns `None` and logs on any creation failure.
+fn create_render_iterators() -> Option<(
+    RenderState<'static>,
+    RowIterator<'static>,
+    CellIterator<'static>,
+)> {
+    let render_state = match RenderState::new() {
+        Ok(rs) => rs,
+        Err(e) => {
+            log::error!("create_render_iterators: RenderState::new() failed: {e}");
+            return None;
+        }
+    };
+    let row_iter = match RowIterator::new() {
+        Ok(ri) => ri,
+        Err(e) => {
+            log::error!("create_render_iterators: RowIterator::new() failed: {e}");
+            return None;
+        }
+    };
+    let cell_iter = match CellIterator::new() {
+        Ok(ci) => ci,
+        Err(e) => {
+            log::error!("create_render_iterators: CellIterator::new() failed: {e}");
+            return None;
+        }
+    };
+    Some((render_state, row_iter, cell_iter))
+}
+
+/// Decide whether the VT thread must rebuild the grid snapshot from the
+/// terminal, as opposed to cloning the previously built (cached) snapshot.
+///
+/// Rebuild only when the grid content changed (`grid_dirty`, set by
+/// `Command::Write` / `Resize` / `SetTheme`), the scroll offset changed, or
+/// there is no cached snapshot yet. When none of these hold the grid content
+/// is byte-for-byte identical to the cached snapshot, so reusing it cannot
+/// yield a stale frame while skipping ~1920 per-cell ghostty FFI calls.
+pub(crate) fn snapshot_needs_rebuild(
+    grid_dirty: bool,
+    scroll_offset: u32,
+    cached_scroll_offset: u32,
+    has_cache: bool,
+) -> bool {
+    grid_dirty || scroll_offset != cached_scroll_offset || !has_cache
+}
+
+// ── impl GhosttyTerminal ──────────────────────────────────────
 impl super::GhosttyTerminal {
     pub(crate) fn osc_sequence(command: u8, r: u8, g: u8, b: u8) -> Vec<u8> {
         format!("\x1b]{};rgb:{:02x}/{:02x}/{:02x}\x1b\\", command, r, g, b).into_bytes()
@@ -47,9 +106,11 @@ impl super::GhosttyTerminal {
                 }
             }
             Command::CursorVisible(tx) => {
-                if let Err(error) = tx.send(terminal.is_cursor_visible().unwrap_or(true)) {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(
+                    &tx,
+                    terminal.is_cursor_visible().unwrap_or(true),
+                    "query channel send failed",
+                );
             }
             Command::OriginMode(tx) => {
                 if let Err(error) =
@@ -69,14 +130,14 @@ impl super::GhosttyTerminal {
                 let is_alt = terminal
                     .active_screen()
                     .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate);
-                if let Err(error) = tx.send(is_alt) {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(&tx, is_alt, "ghostty_terminal: query channel send failed");
             }
             Command::Title(tx) => {
-                if let Err(error) = tx.send(terminal.title().unwrap_or("").to_string()) {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(
+                    &tx,
+                    terminal.title().unwrap_or("").to_string(),
+                    "query channel send failed",
+                );
             }
             Command::Cwd(tx) => {
                 if let Err(error) =
@@ -99,14 +160,14 @@ impl super::GhosttyTerminal {
             Command::ScrollbackLength(tx) => {
                 let len = terminal.scrollback_rows().unwrap_or(0) as u32;
                 log::debug!("ghostty_terminal: scrollback_rows query returned {len}");
-                if let Err(error) = tx.send(len) {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(&tx, len, "ghostty_terminal: query channel send failed");
             }
             Command::ReadLineText { row, tx } => {
-                if let Err(error) = tx.send(Self::read_line_text_impl(terminal, row)) {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(
+                    &tx,
+                    Self::read_line_text_impl(terminal, row),
+                    "query channel send failed",
+                );
             }
             Command::ReadVisibleText(tx) => {
                 let rows = terminal.rows().unwrap_or(24) as u32;
@@ -119,9 +180,7 @@ impl super::GhosttyTerminal {
                         text.push('\n');
                     }
                 }
-                if let Err(error) = tx.send(text) {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
+                try_send(&tx, text, "ghostty_terminal: query channel send failed");
             }
             _ => {}
         }
@@ -271,9 +330,7 @@ impl super::GhosttyTerminal {
                     }
                 }
                 Command::FlushAck(tx) => {
-                    if let Err(error) = tx.send(()) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
+                    try_send(&tx, (), "command channel send failed");
                 }
                 Command::SetTheme {
                     background,
@@ -336,7 +393,7 @@ impl super::GhosttyTerminal {
                     }
                 }
                 Command::TakeSnapshot { tx, scroll_offset } => {
-                    let needs_rebuild = snapshot::snapshot_needs_rebuild(
+                    let needs_rebuild = snapshot_needs_rebuild(
                         grid_dirty,
                         scroll_offset,
                         cached_scroll_offset,
@@ -371,20 +428,22 @@ impl super::GhosttyTerminal {
                             Arc::new(GridSnapshot::fallback(fb_rows, fb_cols))
                         })
                     };
-                    if let Err(error) = tx.send(snapshot) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
+                    try_send(
+                        &tx,
+                        snapshot,
+                        "ghostty_terminal: command channel send failed",
+                    );
                 }
                 Command::ScrollbackLength(tx) => {
-                    if let Err(error) = tx.send(terminal.scrollback_rows().unwrap_or(0) as u32) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
+                    try_send(
+                        &tx,
+                        terminal.scrollback_rows().unwrap_or(0) as u32,
+                        "command channel send failed",
+                    );
                 }
                 Command::ReadLineText { row, tx } => {
                     let text = Self::read_line_text_impl(&terminal, row);
-                    if let Err(error) = tx.send(text) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
+                    try_send(&tx, text, "ghostty_terminal: command channel send failed");
                 }
                 Command::ReadVisibleText(tx) => {
                     let rows = terminal.rows().unwrap_or(24) as u32;
@@ -399,15 +458,11 @@ impl super::GhosttyTerminal {
                             text.push('\n');
                         }
                     }
-                    if let Err(error) = tx.send(text) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
+                    try_send(&tx, text, "ghostty_terminal: command channel send failed");
                 }
                 Command::SearchInScrollback { query, tx } => {
                     let result = Self::search_in_scrollback_impl(&terminal, &query);
-                    if let Err(error) = tx.send(result) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
+                    try_send(&tx, result, "ghostty_terminal: command channel send failed");
                 }
                 Command::SearchInScrollbackAll {
                     query,
@@ -421,15 +476,15 @@ impl super::GhosttyTerminal {
                         case_sensitive,
                         fuzzy,
                     );
-                    if let Err(error) = tx.send(results) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
+                    try_send(
+                        &tx,
+                        results,
+                        "ghostty_terminal: command channel send failed",
+                    );
                 }
                 Command::DumpGrid { tx } => {
                     let dumped = Self::build_dumped_grid(&terminal);
-                    if let Err(error) = tx.send(dumped) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
+                    try_send(&tx, dumped, "ghostty_terminal: command channel send failed");
                 }
                 Command::TakeKittyGraphicsImage { id, tx } => {
                     let kitty_graphics_data = (|| -> Option<KittyGraphicsImageData> {
@@ -445,9 +500,11 @@ impl super::GhosttyTerminal {
                             data: data.to_vec(),
                         })
                     })();
-                    if let Err(error) = tx.send(kitty_graphics_data) {
-                        log::error!("ghostty_terminal: command channel send failed: {error}");
-                    }
+                    try_send(
+                        &tx,
+                        kitty_graphics_data,
+                        "ghostty_terminal: command channel send failed",
+                    );
                 }
                 Command::KeyEncode {
                     key_code,
@@ -528,9 +585,7 @@ impl super::GhosttyTerminal {
                     if let Err(error) = encoder.encode_to_vec(event, &mut response) {
                         log::warn!("ghostty_terminal: encoder.encode_to_vec failed: {error}");
                     }
-                    if let Err(error) = tx.send(response) {
-                        log::warn!("ghostty_terminal: key_encode response send failed: {error}");
-                    }
+                    try_send(&tx, response, "key_encode response send failed");
                 }
                 Command::SaveSession { tx } => {
                     Self::handle_save_session(&terminal, tx);
@@ -573,6 +628,714 @@ impl super::GhosttyTerminal {
                     "ghostty_terminal: {method} timed out — returning fallback: {fallback:?}"
                 );
                 fallback
+            }
+        }
+    }
+    pub(crate) fn apply_style_to_snapshot(
+        data: &mut CellSnapshot,
+        style: &libghostty_vt::style::Style,
+        default_fg: [f32; 4],
+        default_bg: [f32; 4],
+        palette: &[[u8; 3]; 16],
+    ) {
+        match style.fg_color {
+            StyleColor::Rgb(c) => {
+                data.foreground = Self::byte_color_to_float([c.r, c.g, c.b]);
+            }
+            StyleColor::Palette(idx) => {
+                data.foreground = Self::palette_index_to_float(idx, palette);
+            }
+            _ => {
+                data.foreground = default_fg;
+            }
+        }
+        match style.bg_color {
+            StyleColor::Rgb(c) => {
+                data.background = Self::byte_color_to_float([c.r, c.g, c.b]);
+            }
+            StyleColor::Palette(idx) => {
+                data.background = Self::palette_index_to_float(idx, palette);
+            }
+            _ => {
+                data.background = default_bg;
+            }
+        }
+        data.bold = style.bold;
+        data.dim = style.faint;
+        data.italic = style.italic;
+        data.strikethrough = style.strikethrough;
+        data.overline = style.overline;
+        data.blink = style.blink;
+        data.hidden = style.invisible;
+        data.underline = matches!(
+            style.underline,
+            libghostty_vt::style::Underline::Single
+                | libghostty_vt::style::Underline::Double
+                | libghostty_vt::style::Underline::Curly
+                | libghostty_vt::style::Underline::Dashed
+                | libghostty_vt::style::Underline::Dotted
+        );
+        data.double_underline = style.underline == libghostty_vt::style::Underline::Double;
+        data.reverse = style.inverse;
+    }
+
+    pub(crate) fn build_dumped_grid(terminal: &Terminal) -> DumpedGrid {
+        let rows = terminal.rows().unwrap_or(24) as u32;
+        let cols = terminal.cols().unwrap_or(80) as u32;
+        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let palette = Self::catppuccin_mocha_palette().0;
+
+        let mut visible = Vec::with_capacity((rows * cols) as usize);
+        for row in 0..rows {
+            for col in 0..cols {
+                let coord = PointCoordinate {
+                    x: col as u16,
+                    y: row,
+                };
+                let mut data = CellSnapshot::default();
+                if let Ok(point) = terminal.grid_ref(Point::Viewport(coord)) {
+                    if let Ok(cell) = point.cell() {
+                        data.codepoint = cell.codepoint().unwrap_or(0);
+                    }
+                    if let Ok(style) = point.style() {
+                        Self::apply_style_to_snapshot(
+                            &mut data, &style, [0.0; 4], [0.0; 4], &palette,
+                        );
+                    }
+                }
+                visible.push(data);
+            }
+        }
+
+        let mut scrollback = Vec::with_capacity(scrollback_rows as usize);
+        for i in 0..scrollback_rows {
+            let mut row_cells = Vec::with_capacity(cols as usize);
+            for col in 0..cols {
+                let coord = PointCoordinate {
+                    x: col as u16,
+                    y: i,
+                };
+                let mut data = CellSnapshot::default();
+                if let Ok(point) = terminal.grid_ref(Point::History(coord)) {
+                    if let Ok(cell) = point.cell() {
+                        data.codepoint = cell.codepoint().unwrap_or(0);
+                    }
+                    if let Ok(style) = point.style() {
+                        Self::apply_style_to_snapshot(
+                            &mut data, &style, [0.0; 4], [0.0; 4], &palette,
+                        );
+                    }
+                }
+                row_cells.push(data);
+            }
+            scrollback.push(row_cells);
+        }
+
+        DumpedGrid {
+            rows,
+            cols,
+            visible,
+            scrollback,
+        }
+    }
+
+    pub(crate) fn byte_to_float(value: u8) -> f32 {
+        value as f32 / 255.0
+    }
+
+    pub(crate) fn byte_color_to_float(color: [u8; 3]) -> [f32; 4] {
+        [
+            Self::byte_to_float(color[0]),
+            Self::byte_to_float(color[1]),
+            Self::byte_to_float(color[2]),
+            1.0,
+        ]
+    }
+
+    pub(crate) fn palette_index_to_float(idx: PaletteIndex, palette: &[[u8; 3]; 16]) -> [f32; 4] {
+        let index = idx.0 as usize;
+        if index < 16 {
+            let [red, green, blue] = palette[index];
+            Self::byte_color_to_float([red, green, blue])
+        } else {
+            // Extended 256-color palette (indices 16-231: 6x6x6 cube, 232-255: grayscale)
+            let (red, green, blue) = if index < 232 {
+                let offset = index - 16;
+                let red_index = offset / 36;
+                let green_index = (offset % 36) / 6;
+                let blue_index = offset % 6;
+                let expand = |value: u8| -> u8 { if value == 0 { 0 } else { value * 40 + 55 } };
+                (
+                    expand(red_index as u8),
+                    expand(green_index as u8),
+                    expand(blue_index as u8),
+                )
+            } else {
+                let gray = (index - 232) * 10 + 8;
+                (gray as u8, gray as u8, gray as u8)
+            };
+            Self::byte_color_to_float([red, green, blue])
+        }
+    }
+
+    pub(crate) fn build_cell_data(
+        terminal: &Terminal,
+        default_fg: [f32; 4],
+        default_bg: [f32; 4],
+    ) -> Option<(Vec<CellData>, CursorInfo)> {
+        let rows = terminal.rows().unwrap_or(24) as u32;
+        let cols = terminal.cols().unwrap_or(80) as u32;
+        let size = (rows * cols) as usize;
+
+        let (mut render_state, mut row_iter, mut cell_iter) = create_render_iterators()?;
+
+        let snapshot = match render_state.update(terminal) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("build_cell_data: render_state.update failed: {e}");
+                return None;
+            }
+        };
+
+        let mut row_iter_impl = match row_iter.update(&snapshot) {
+            Ok(ri) => ri,
+            Err(e) => {
+                log::error!("build_cell_data: row_iter.update failed: {e}");
+                return None;
+            }
+        };
+
+        let mut data = Vec::with_capacity(size);
+        let mut current_row = 0u32;
+
+        while let Some(row) = row_iter_impl.next() {
+            let mut cell_iter_impl = match cell_iter.update(row) {
+                Ok(ci) => ci,
+                Err(_) => break,
+            };
+
+            let mut current_col = 0u32;
+
+            while let Some(cell) = cell_iter_impl.next() {
+                let raw = match cell.raw_cell() {
+                    Ok(c) => c,
+                    Err(_) => {
+                        data.push(CellData {
+                            codepoint: 0,
+                            width: 1,
+                            grapheme_extra: [0; 7],
+                            fg_color: default_fg,
+                            bg_color: default_bg,
+                            flags: 0,
+                            row: current_row,
+                            col: current_col,
+                        });
+                        current_col += 1;
+                        continue;
+                    }
+                };
+
+                let style = match cell.style() {
+                    Ok(s) => s,
+                    Err(_) => {
+                        data.push(CellData {
+                            codepoint: 0,
+                            width: 1,
+                            grapheme_extra: [0; 7],
+                            fg_color: default_fg,
+                            bg_color: default_bg,
+                            flags: 0,
+                            row: current_row,
+                            col: current_col,
+                        });
+                        current_col += 1;
+                        continue;
+                    }
+                };
+
+                let codepoint = raw.codepoint().unwrap_or(0);
+
+                // Skip spacer cells (SpacerTail, SpacerHead) that Ghostty
+                // emits for wide characters. These have no content and would
+                // advance `current_col` incorrectly, causing all subsequent
+                // cells to shift right by one column.
+                let width = match raw.wide() {
+                    Ok(libghostty_vt::screen::CellWide::Wide) => 2,
+                    Ok(
+                        libghostty_vt::screen::CellWide::SpacerTail
+                        | libghostty_vt::screen::CellWide::SpacerHead,
+                    ) => {
+                        // Spacer cells: do not produce a CellData entry.
+                        // current_col stays unchanged — the wide cell already
+                        // consumed both columns.
+                        continue;
+                    }
+                    _ => 1,
+                };
+
+                let mut grapheme_extra = [0u32; 7];
+                if let Ok(g) = cell.graphemes() {
+                    for (i, &c) in g.iter().enumerate().skip(1).take(7) {
+                        grapheme_extra[i - 1] = c as u32;
+                    }
+                }
+
+                let fg_color = match cell.fg_color() {
+                    Ok(Some(rgb)) => [
+                        rgb.r as f32 / 255.0,
+                        rgb.g as f32 / 255.0,
+                        rgb.b as f32 / 255.0,
+                        1.0,
+                    ],
+                    _ => default_fg,
+                };
+                let bg_color = match cell.bg_color() {
+                    Ok(Some(rgb)) => [
+                        rgb.r as f32 / 255.0,
+                        rgb.g as f32 / 255.0,
+                        rgb.b as f32 / 255.0,
+                        1.0,
+                    ],
+                    _ => default_bg,
+                };
+
+                let flags = Self::pack_style_flags(&style);
+
+                data.push(CellData {
+                    codepoint,
+                    width,
+                    grapheme_extra,
+                    fg_color,
+                    bg_color,
+                    flags,
+                    row: current_row,
+                    col: current_col,
+                });
+                current_col += width;
+            }
+            current_row += 1;
+        }
+        let cursor_style = snapshot
+            .cursor_visual_style()
+            .ok()
+            .map(|cvs| match cvs {
+                CursorVisualStyle::Bar => CursorStyle::Bar,
+                CursorVisualStyle::Block | CursorVisualStyle::BlockHollow => CursorStyle::Block,
+                CursorVisualStyle::Underline => CursorStyle::Underline,
+                _ => CursorStyle::default(),
+            })
+            .unwrap_or_default();
+        Some((
+            data,
+            CursorInfo {
+                row: terminal.cursor_y().unwrap_or(0) as u32,
+                col: terminal.cursor_x().unwrap_or(0) as u32,
+                visible: terminal.is_cursor_visible().unwrap_or(true),
+                style: cursor_style,
+            },
+        ))
+    }
+
+    /// Pack style attributes into a bitmask matching `cell.wgsl` shader layout:
+    /// Bit 0=bold, 1=italic, 2=reverse, 3=underline,
+    /// 5=strikethrough, 6=overline, 7=dim, 8=double_underline
+    /// Bits 4,9+ reserved for future use (not read by current shader).
+    fn pack_style_flags(style: &libghostty_vt::style::Style) -> u32 {
+        let mut flags = 0u32;
+        if style.bold {
+            flags |= 1 << 0;
+        }
+        if style.italic {
+            flags |= 1 << 1;
+        }
+        if style.inverse {
+            flags |= 1 << 2;
+        }
+        if matches!(
+            style.underline,
+            libghostty_vt::style::Underline::Single
+                | libghostty_vt::style::Underline::Double
+                | libghostty_vt::style::Underline::Curly
+                | libghostty_vt::style::Underline::Dashed
+                | libghostty_vt::style::Underline::Dotted
+        ) {
+            flags |= 1 << 3;
+        }
+        if style.strikethrough {
+            flags |= 1 << 5;
+        }
+        if style.overline {
+            flags |= 1 << 6;
+        }
+        if style.faint {
+            flags |= 1 << 7;
+        }
+        if style.underline == libghostty_vt::style::Underline::Double {
+            flags |= 1 << 8;
+        }
+        flags
+    }
+
+    pub(crate) fn build_snapshot(
+        terminal: &Terminal,
+        default_fg: [f32; 4],
+        default_bg: [f32; 4],
+        _palette: &[[u8; 3]; 16],
+        scroll_offset: u32,
+    ) -> GridSnapshot {
+        // Fallback path: when scrolled into history, use legacy per-cell
+        // grid_ref() approach. (RenderState doesn't expose scrollback.)
+        if scroll_offset > 0 {
+            return GridSnapshot::fallback(
+                terminal.rows().unwrap_or(24) as u32,
+                terminal.cols().unwrap_or(80) as u32,
+            );
+        }
+        let rows = terminal.rows().unwrap_or(24) as u32;
+        let cols = terminal.cols().unwrap_or(80) as u32;
+        let size = (rows * cols) as usize;
+        let mut cells = Vec::with_capacity(size);
+
+        // Local RenderState+iterators — created per-call to avoid lifetime
+        // issues with the invariant-param Terminal type.
+        let (mut render_state, mut row_iter, mut cell_iter) = match create_render_iterators() {
+            Some(v) => v,
+            None => return GridSnapshot::fallback(rows, cols),
+        };
+
+        let snapshot = match render_state.update(terminal) {
+            Ok(s) => s,
+            Err(e) => {
+                log::error!("build_snapshot: render_state.update failed: {e}");
+                return GridSnapshot::fallback(rows, cols);
+            }
+        };
+
+        let mut row_iter_impl = match row_iter.update(&snapshot) {
+            Ok(ri) => ri,
+            Err(e) => {
+                log::error!("build_snapshot: row_iter.update failed: {e}");
+                return GridSnapshot::fallback(rows, cols);
+            }
+        };
+
+        // ── CellIterator loop ──
+        // Iterate over all visible rows via RowIterator, then all cells
+        // per row via CellIterator. This replaces per-cell grid_ref.
+        while let Some(row) = row_iter_impl.next() {
+            let mut cell_iter_impl = match cell_iter.update(row) {
+                Ok(ci) => ci,
+                Err(_) => break,
+            };
+
+            while let Some(cell) = cell_iter_impl.next() {
+                let raw = match cell.raw_cell() {
+                    Ok(c) => c,
+                    Err(_) => {
+                        cells.push(CellSnapshot {
+                            foreground: default_fg,
+                            background: default_bg,
+                            ..CellSnapshot::default()
+                        });
+                        continue;
+                    }
+                };
+
+                let style = match cell.style() {
+                    Ok(s) => s,
+                    Err(_) => {
+                        cells.push(CellSnapshot {
+                            foreground: default_fg,
+                            background: default_bg,
+                            ..CellSnapshot::default()
+                        });
+                        continue;
+                    }
+                };
+
+                let codepoint = raw.codepoint().unwrap_or(0);
+
+                let width = match raw.wide() {
+                    Ok(libghostty_vt::screen::CellWide::Wide) => 2,
+                    _ => 1,
+                };
+
+                let graphemes: Vec<u32> = match cell.graphemes() {
+                    Ok(g) if g.len() <= MAX_GRAPHEME_CLUSTERS => {
+                        g.iter().map(|&c| c as u32).collect()
+                    }
+                    Ok(g) => g
+                        .iter()
+                        .take(MAX_GRAPHEME_CLUSTERS)
+                        .map(|&c| c as u32)
+                        .collect(),
+                    Err(_) => vec![codepoint],
+                };
+
+                let foreground = match cell.fg_color() {
+                    Ok(Some(rgb)) => [
+                        rgb.r as f32 / 255.0,
+                        rgb.g as f32 / 255.0,
+                        rgb.b as f32 / 255.0,
+                        1.0,
+                    ],
+                    _ => default_fg,
+                };
+                let background = match cell.bg_color() {
+                    Ok(Some(rgb)) => [
+                        rgb.r as f32 / 255.0,
+                        rgb.g as f32 / 255.0,
+                        rgb.b as f32 / 255.0,
+                        1.0,
+                    ],
+                    _ => default_bg,
+                };
+
+                let semantic = match raw.semantic_content() {
+                    Ok(libghostty_vt::screen::CellSemanticContent::Input) => SemanticContent::Input,
+                    Ok(libghostty_vt::screen::CellSemanticContent::Prompt) => {
+                        SemanticContent::Prompt
+                    }
+                    _ => SemanticContent::Output,
+                };
+
+                cells.push(CellSnapshot {
+                    codepoint,
+                    graphemes,
+                    foreground,
+                    background,
+                    bold: style.bold,
+                    dim: style.faint,
+                    italic: style.italic,
+                    underline: matches!(
+                        style.underline,
+                        libghostty_vt::style::Underline::Single
+                            | libghostty_vt::style::Underline::Double
+                            | libghostty_vt::style::Underline::Curly
+                            | libghostty_vt::style::Underline::Dashed
+                            | libghostty_vt::style::Underline::Dotted
+                    ),
+                    reverse: style.inverse,
+                    strikethrough: style.strikethrough,
+                    blink: style.blink,
+                    hidden: style.invisible,
+                    uri: None,
+                    semantic,
+                    overline: style.overline,
+                    double_underline: style.underline == libghostty_vt::style::Underline::Double,
+                    width,
+                });
+            }
+        }
+
+        let cursor_visible = terminal.is_cursor_visible().unwrap_or(true);
+        let cursor_row = terminal.cursor_y().unwrap_or(0) as u32;
+        let cursor_col = terminal.cursor_x().unwrap_or(0) as u32;
+
+        let dirty = vec![true; (rows as usize) * (cols as usize)];
+
+        let sync_active = terminal.mode(Mode::SYNC_OUTPUT).unwrap_or(false);
+
+        GridSnapshot {
+            rows,
+            cols,
+            cursor_row,
+            cursor_col,
+            cursor_visible,
+            cursor_style: snapshot
+                .cursor_visual_style()
+                .ok()
+                .map(|cvs| match cvs {
+                    CursorVisualStyle::Bar => CursorStyle::Bar,
+                    CursorVisualStyle::Block | CursorVisualStyle::BlockHollow => CursorStyle::Block,
+                    CursorVisualStyle::Underline => CursorStyle::Underline,
+                    _ => CursorStyle::default(),
+                })
+                .unwrap_or_default(),
+            cells,
+            dirty,
+
+            title: terminal.title().unwrap_or_default().to_string(),
+            scrollback_length: terminal.scrollback_rows().unwrap_or(0) as u32,
+            sync_active,
+        }
+    }
+    pub(crate) fn read_line_text_impl(terminal: &Terminal, row: u32) -> Option<String> {
+        let cols = terminal.cols().unwrap_or(80) as u32;
+        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let mut text = String::new();
+        for col in 0..cols {
+            let coord = PointCoordinate {
+                x: col as u16,
+                y: row,
+            };
+            let point = if row < scrollback_rows {
+                terminal.grid_ref(Point::History(coord))
+            } else {
+                let viewport_row = row - scrollback_rows;
+                let vp_coord = PointCoordinate {
+                    x: col as u16,
+                    y: viewport_row,
+                };
+                terminal.grid_ref(Point::Viewport(vp_coord))
+            };
+            if let Ok(point) = point
+                && let Ok(cell) = point.cell()
+            {
+                let cp = cell.codepoint().unwrap_or(0);
+                if cp != 0 {
+                    if let Some(ch) = char::from_u32(cp) {
+                        text.push(ch);
+                    }
+                } else {
+                    text.push(' ');
+                }
+            }
+        }
+        let trimmed = text.trim_end().to_string();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }
+
+    pub(crate) fn search_in_scrollback_impl(
+        terminal: &Terminal,
+        query: &str,
+    ) -> Option<(u32, u32)> {
+        if query.is_empty() {
+            return None;
+        }
+        let total = terminal.total_rows().unwrap_or(0) as u32;
+        for row in 0..total {
+            if let Some(line) = Self::read_line_text_impl(terminal, row)
+                && let Some(col) = line.find(query)
+            {
+                return Some((row, col as u32));
+            }
+        }
+        None
+    }
+
+    pub(crate) fn search_in_scrollback_all_impl(
+        terminal: &Terminal,
+        query: &str,
+        case_sensitive: bool,
+        fuzzy: bool,
+    ) -> Vec<SearchMatch> {
+        if query.is_empty() {
+            return vec![];
+        }
+        let total = terminal.total_rows().unwrap_or(0) as u32;
+        let mut results = Vec::new();
+        let search_query = if case_sensitive {
+            query.to_string()
+        } else {
+            query.to_lowercase()
+        };
+        for row in 0..total {
+            if let Some(line) = Self::read_line_text_impl(terminal, row) {
+                let search_line = if case_sensitive {
+                    line.clone()
+                } else {
+                    line.to_lowercase()
+                };
+                if fuzzy {
+                    let max_distance = std::cmp::max(1, search_query.len() / 3);
+                    if search_query.len() <= search_line.len() {
+                        let end = search_line.len() - search_query.len();
+                        // Sliding window: find all windows whose edit distance is within threshold.
+                        // Return each match position so all results are highlighted, not just
+                        // the nearest one (which would miss overlapping near-matches).
+                        for start in 0..=end {
+                            let window = &search_line[start..start + search_query.len()];
+                            let dist = Self::levenshtein_distance(&search_query, window);
+                            if dist <= max_distance {
+                                results.push(SearchMatch {
+                                    row,
+                                    start_col: start as u32,
+                                    end_col: (start + search_query.len()) as u32,
+                                });
+                            }
+                        }
+                    }
+                } else {
+                    let mut start = 0;
+                    while let Some(col) = search_line[start..].find(&search_query) {
+                        let abs_col = start + col;
+                        results.push(SearchMatch {
+                            row,
+                            start_col: abs_col as u32,
+                            end_col: (abs_col + search_query.len()) as u32,
+                        });
+                        start = abs_col + 1;
+                    }
+                }
+            }
+        }
+        results
+    }
+
+    /// Compute the Levenshtein distance (edit distance) between two strings.
+    /// Uses the classic dynamic programming approach with O(min(m,n)) memory.
+    pub(crate) fn levenshtein_distance(a: &str, b: &str) -> usize {
+        let a_chars: Vec<char> = a.chars().collect();
+        let b_chars: Vec<char> = b.chars().collect();
+        let m = a_chars.len();
+        let n = b_chars.len();
+        // Use the shorter string as the column vector for memory efficiency
+        if m < n {
+            return Self::levenshtein_distance(b, a);
+        }
+        let mut prev: Vec<usize> = (0..=n).collect();
+        for i in 1..=m {
+            let mut current = i;
+            for j in 1..=n {
+                let cost = (a_chars[i - 1] != b_chars[j - 1]) as usize;
+                let next =
+                    std::cmp::min(std::cmp::min(current + 1, prev[j] + 1), prev[j - 1] + cost);
+                prev[j - 1] = current;
+                current = next;
+            }
+            prev[n] = current;
+        }
+        prev[n]
+    }
+
+    /// Serialize terminal state to VT sequences using Ghostty Formatter.
+    /// Sends the result back via `tx`, or an empty vec on failure.
+    pub(crate) fn handle_save_session(
+        terminal: &libghostty_vt::Terminal,
+        tx: flume::Sender<Vec<u8>>,
+    ) {
+        use libghostty_vt::fmt::{Format, Formatter, FormatterOptions};
+
+        let mut formatter = match Formatter::new(
+            terminal,
+            FormatterOptions::new()
+                .with_format(Format::Vt)
+                .with_unwrap(false)
+                .with_trim(false)
+                .with_palette(false)
+                .with_modes(false)
+                .with_cursor(false),
+        ) {
+            Ok(f) => f,
+            Err(e) => {
+                log::error!("handle_save_session: Formatter::new failed: {e}");
+                let _ = tx.send(Vec::new());
+                return;
+            }
+        };
+
+        match formatter.format_alloc(None) {
+            Ok(bytes) => {
+                let _ = tx.send(bytes.to_vec());
+            }
+            Err(e) => {
+                log::error!("handle_save_session: format_alloc failed: {e}");
+                let _ = tx.send(Vec::new());
             }
         }
     }

@@ -15,6 +15,7 @@
 //!   `ws_xpixel`/`ws_ypixel`, stray-fd close) is configured in [`pty`].
 
 pub mod ghostty_terminal;
+#[cfg(any(test, feature = "test-util"))]
 pub mod mock_pty;
 pub mod osc_handler;
 pub mod output_processor;
@@ -36,6 +37,7 @@ pub(crate) mod test_helpers;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) mod vt_conformance;
 
+#[cfg(any(test, feature = "test-util"))]
 pub use mock_pty::{MockPty, MockPtyHandle};
 pub use pty::{Pty, PtyError, PtyPair};
 pub use shell_env::ShellEnv;

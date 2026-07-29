@@ -4,6 +4,21 @@
 //! android-gui crates into a single unit for faster compilation and simpler
 //! cross-module refactoring.
 //!
+//! ## Feature flags
+//!
+//! | Feature   | Deps pulled | Purpose | Default |
+//! |-----------|-------------|---------|---------|
+//! | `mcp`     | tower-mcp, axum, tokio, schemars | Embed MCP server (dialog/pickfile/clipboard tools) | **on** (implied by `test-util`) |
+//! | `test-util` | `mcp` + bytemuck | Enable test-only types (FlatGrid, SearchHighlight) | off |
+//!
+//! ```ignore
+//! # Dev / CI (run tests with MCP support)
+//! cargo test --features test-util
+//!
+//! # Production (Android release — no MCP, smaller binary)
+//! cargo build --release
+//! ```
+//!
 //! ## Module hierarchy
 //!
 //! ```text
@@ -16,6 +31,7 @@
 //! └── screenshot_tests — included into render::tests
 //! ```
 
+pub mod event;
 mod lock_util;
 
 // ── Terminal engine (ex terminal-engine) ─────────────────────────────────

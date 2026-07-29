@@ -123,6 +123,8 @@ pub struct Session {
     user_write_tx: flume::Sender<Vec<u8>>,
     user_write_rx: Receiver<Vec<u8>>,
     output_notify: Arc<(Mutex<bool>, Condvar)>,
+
+    // ── Event state (polled from Kotlin via push_event) ──────────────
     exited: Arc<AtomicBool>,
     bel_triggered: Arc<AtomicBool>,
     clipboard_text: Arc<Mutex<Option<String>>>,
@@ -130,12 +132,16 @@ pub struct Session {
     hyperlink: Arc<Mutex<Option<String>>>,
     cwd: Arc<Mutex<Option<String>>>,
     shell_integration: Arc<AtomicU8>,
+
+    // ── Thread lifecycle ─────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
     wait_handle: Option<std::thread::JoinHandle<()>>,
+
+    // ── Runtime state ────────────────────────────────────────────────
     /// Optional path for session persistence via Ghostty Formatter.
     save_path: Option<String>,
     /// Exit code captured from waitpid, `None` while process runs.
-    pub exit_code: Arc<Mutex<Option<i32>>>,
+    pub(crate) exit_code: Arc<Mutex<Option<i32>>>,
 }
 
 pub struct ThemeConfig {
@@ -294,13 +300,13 @@ impl Session {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
             log::info!("wait thread: child exited: {result:?}");
-            exited_wait.store(true, Ordering::Release);
             #[allow(clippy::collapsible_if)]
             if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result {
                 if let Ok(mut ec) = exit_code.lock() {
                     *ec = Some(code);
                 }
             }
+            exited_wait.store(true, Ordering::Release);
         });
 
         session.reader_handle = Some(reader_handle);
@@ -328,7 +334,8 @@ impl Session {
         let clipboard_text = Arc::new(Mutex::new(None));
         let output_notify = Arc::new((Mutex::new(false), Condvar::new()));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(128);
-        // User-write channel: unbounded so the UI thread's send never blocks.
+        // User-write channel: bounded at 4096 to provide backpressure and
+        // prevent the UI thread from flooding the PTY in pathological cases.
         let (user_write_tx, user_write_rx) = bounded::<Vec<u8>>(4096);
 
         let terminal = GhosttyTerminal::new_with_theme(
@@ -479,31 +486,41 @@ impl Session {
 
     const MAX_CHUNKS_PER_FRAME: u32 = 10;
 
-    pub fn process_output(&mut self) -> bool {
-        let mut changed = false;
+    /// Process terminal output from the PTY reader thread.
+    /// Reads VT output, updates terminal state, and drains write-back responses.
+    /// Returns true if any VT data was processed.
+    fn poll_pty_output(&mut self, max_chunks: u32) -> bool {
         let mut count = 0u32;
         while let Ok(data) = self.output_rx.try_recv() {
             let snap = self.output_processor.process(&data);
 
-            if let Some(text) = snap.clipboard
-                && let Ok(mut guard) = self.clipboard_text.lock()
-            {
-                *guard = Some(text);
+            if let Some(text) = snap.clipboard {
+                match self.clipboard_text.lock() {
+                    Ok(mut guard) => *guard = Some(text),
+                    Err(_) => log::warn!("poll_pty_output: clipboard_text lock poisoned"),
+                }
             }
-            if let Some(path) = snap.cwd
+            if let Some(path) = snap.cwd.as_ref()
                 && let Ok(mut guard) = self.cwd.lock()
             {
-                *guard = Some(path);
+                *guard = Some(path.clone());
+            } else if snap.cwd.is_some() {
+                log::warn!("poll_pty_output: cwd lock poisoned");
             }
-            if let Some(url) = snap.hyperlink
+            if let Some(url) = snap.hyperlink.as_ref()
                 && let Ok(mut guard) = self.hyperlink.lock()
             {
-                *guard = Some(url);
+                *guard = Some(url.clone());
+            } else if snap.hyperlink.is_some() {
+                log::warn!("poll_pty_output: hyperlink lock poisoned");
             }
-            if let Some((title, body)) = snap.notification
-                && let Ok(mut guard) = self.notification.lock()
-            {
-                *guard = Some((title, body));
+            if let Some((ref title, ref body)) = snap.notification {
+                match self.notification.lock() {
+                    Ok(mut guard) => {
+                        *guard = Some((title.clone(), body.clone()));
+                    }
+                    Err(_) => log::warn!("poll_pty_output: notification lock poisoned"),
+                }
             }
 
             if snap.bel {
@@ -514,29 +531,26 @@ impl Session {
                     .store(snap.shell_integration as u8, Ordering::Release);
             }
             self.terminal.pty_write(&snap.filtered);
-            changed = true;
             count += 1;
             // Cap per-frame processing to avoid one render call blocking
             // the session lock for too long. Remaining chunks are processed
             // on the next render frame at no correctness cost — the VT thread
             // processes commands in FIFO order.
-            if count >= Self::MAX_CHUNKS_PER_FRAME {
+            if count >= max_chunks {
                 log::trace!(
-                    "process_output: hit cap of {} chunks, {} remain",
-                    Self::MAX_CHUNKS_PER_FRAME,
+                    "poll_pty_output: hit cap of {} chunks, {} remain",
+                    max_chunks,
                     self.output_rx.len(),
                 );
                 self.terminal.flush();
-                break;
+                return true;
             }
         }
         if count > 0 {
-            log::trace!("process_output: processed {count} chunks");
-        }
-        if changed {
+            log::trace!("poll_pty_output: processed {count} chunks");
             self.terminal.flush();
             for response in self.terminal.drain_pty_write_responses() {
-                log::trace!("process_output: pty write-back {} bytes", response.len());
+                log::trace!("poll_pty_output: pty write-back {} bytes", response.len());
                 if let Err(error) = self.pty.write_all(&response) {
                     log::error!(
                         "session: PTY write-back failed ({} bytes): {}",
@@ -545,11 +559,17 @@ impl Session {
                     );
                 }
             }
+            true
+        } else {
+            false
         }
-        // Drain user-initiated PTY writes (keyboard/IME/paste) queued by the
-        // main thread through the lock-free channel. Written under the session
-        // lock already held by the render thread, so UI-thread input never
-        // blocks on the session mutex.
+    }
+
+    /// Drain user-initiated PTY writes (keyboard/IME/paste) queued by the
+    /// main thread through the lock-free channel.  Written under the session
+    /// lock already held by the render thread, so UI-thread input never
+    /// blocks on the session mutex.
+    fn flush_user_writes(&mut self) {
         let mut user_writes: Vec<Vec<u8>> = Vec::new();
         while let Ok(data) = self.user_write_rx.try_recv() {
             user_writes.push(data);
@@ -563,6 +583,15 @@ impl Session {
                 );
             }
         }
+    }
+
+    /// Process all available output and user input for this frame.
+    ///
+    /// Returns `true` if any VT output was processed (caller should
+    /// rebuild the display snapshot).
+    pub fn process_output(&mut self) -> bool {
+        let changed = self.poll_pty_output(Self::MAX_CHUNKS_PER_FRAME);
+        self.flush_user_writes();
         changed
     }
 
@@ -667,7 +696,7 @@ impl Session {
     }
 
     pub fn focus_event(&mut self, focused: bool) {
-        let data = if focused { b"[I" } else { b"[O" };
+        let data = if focused { b"\x1b[I" } else { b"\x1b[O" };
         self.terminal.vt_write(data);
     }
 }
@@ -675,6 +704,13 @@ impl Session {
 /// Join a thread handle with a timeout. If the thread doesn't finish within
 /// the deadline, we detach it (the handle is dropped) to avoid blocking
 /// forever. The thread will clean up on its own when its blocking I/O returns.
+/// Try to join a thread handle with a deadline timeout, then retry up to 3×.
+///
+/// If the initial `timeout` expires, we retry the join with 100ms deadlines
+/// for up to 3 additional attempts. This handles the case where the thread
+/// is blocked on I/O that may need multiple signals to unblock.
+/// If all retries fail, we detach (handle dropped) and log an error — the
+/// thread's resources are leaked (fd, memory).
 fn join_with_timeout(handle: &mut Option<std::thread::JoinHandle<()>>, timeout: Duration) {
     let Some(handle) = handle.take() else {
         return;
@@ -689,7 +725,20 @@ fn join_with_timeout(handle: &mut Option<std::thread::JoinHandle<()>>, timeout: 
         }
         std::thread::sleep(Duration::from_millis(10));
     }
-    log::warn!("session: thread did not exit within {timeout:?}, detaching");
+    log::warn!("session: thread did not exit within {timeout:?}, retrying up to 3×");
+    for _attempt in 0..3 {
+        let retry_deadline = std::time::Instant::now() + Duration::from_millis(100);
+        while std::time::Instant::now() < retry_deadline {
+            if handle.is_finished() {
+                if let Err(e) = handle.join() {
+                    log::error!("session: thread panicked: {:?}", e);
+                }
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+    }
+    log::error!("session: thread failed to exit after retries — DETACHING (resource leak)");
     // handle is dropped here → detached
 }
 
@@ -711,7 +760,14 @@ impl Drop for Session {
             }
         }
 
+        // Try to join the reader thread with a short timeout.
+        // If it's blocked on PTY read, SIGKILL above will have closed the fd
+        // and the thread should terminate quickly.
         join_with_timeout(&mut self.reader_handle, Duration::from_millis(50));
+        // Try to join the wait thread with a short timeout.
+        // SIGKILL was sent above, so waitpid() in the wait thread should
+        // return promptly. Best-effort: if the child doesn't terminate,
+        // the thread is detached to avoid blocking Drop indefinitely.
         join_with_timeout(&mut self.wait_handle, Duration::from_millis(50));
     }
 }
@@ -1017,23 +1073,15 @@ mod tests {
 
     #[test]
     fn session_write_after_exit_returns_error() {
-        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        handle.set_exited();
-        // Session::with_pty creates a session whose internal `exited`
-        // AtomicBool is independent of the mock's `child_exited`.
-        // The session's write path checks `self.exited` (its own flag) before
-        // calling pty.write_all(). Since with_pty never sets that flag, the
-        // PTY's write_all is always reached — but the mock's write returns
-        // BrokenPipe once child_exited is true.
-        //
-        // So even with the session state mismatch, the underlying PTY write
-        // still propagates the error upward. This test asserts that error path.
+        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
+        // Set the session's exited flag so write() checks it before calling the PTY
+        session.exited_flag().store(true, Ordering::Release);
         let result = session.write(b"test");
         assert!(
             result.is_err(),
-            "write to exited pty must return error, got Ok"
+            "write after exit must return error, got Ok"
         );
     }
 
