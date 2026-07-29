@@ -131,7 +131,11 @@ impl Pty for MockPty {
     }
 
     fn child_pid(&self) -> nix::unistd::Pid {
-        nix::unistd::Pid::from_raw(-1)
+        // Return a pid above PID_MAX_LIMIT (2²² = 4,194,304 on Linux) so that
+        // kill(pid, signal) returns ESRCH ("no such process") instead of
+        // broadcasting to all processes. Using -1 would send the signal to
+        // every process the caller can signal, which is catastrophic in tests.
+        nix::unistd::Pid::from_raw(4_194_305)
     }
 
     fn master_fd(&self) -> RawFd {

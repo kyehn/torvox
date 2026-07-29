@@ -7752,10 +7752,7 @@ fn sgr_separator_colon_38_5() {
     t.vt_write(b"\x1b[38:5:196mX");
     let snap = t.take_snapshot();
     let cell = cell_at(&snap, 0, 0).expect("cell at origin");
-    assert!(
-        cell.codepoint != 0 || cell.codepoint == 'X' as u32,
-        "38:5:196 should not corrupt grid"
-    );
+    assert_eq!(cell.codepoint, 'X' as u32, "38:5:196 should not corrupt grid");
 }
 
 /// SGR with ':' separator (38:2:R:G:B) should not crash
@@ -7765,10 +7762,7 @@ fn sgr_separator_colon_38_2() {
     t.vt_write(b"\x1b[38:2:255:0:0mX");
     let snap = t.take_snapshot();
     let cell = cell_at(&snap, 0, 0).expect("cell at origin");
-    assert!(
-        cell.codepoint != 0 || cell.codepoint == 'X' as u32,
-        "38:2:R:G:B should not corrupt grid"
-    );
+    assert_eq!(cell.codepoint, 'X' as u32, "38:2:R:G:B should not corrupt grid");
 }
 
 /// SGR bg with ':' separator (48:5:129) should not crash
@@ -7778,10 +7772,7 @@ fn sgr_separator_colon_48_5() {
     t.vt_write(b"\x1b[48:5:129mX");
     let snap = t.take_snapshot();
     let cell = cell_at(&snap, 0, 0).expect("cell at origin");
-    assert!(
-        cell.codepoint != 0 || cell.codepoint == 'X' as u32,
-        "48:5:129 should not corrupt grid"
-    );
+    assert_eq!(cell.codepoint, 'X' as u32, "48:5:129 should not corrupt grid");
 }
 
 // ── Termux-style behavioral VT tests ────────────────────────────────────
@@ -8411,6 +8402,9 @@ fn bench_end_to_end_cpu_pipeline_latency() {
             &mut font_pipeline,
             1024.0,
             1024.0,
+            None,
+            None,
+            &[],
         );
         let count = black_box(instances.map(|v| v.len()).unwrap_or(0));
         black_box(count);
@@ -8428,4 +8422,25 @@ fn bench_end_to_end_cpu_pipeline_latency() {
         "End-to-end CPU pipeline too slow: {:.1}ms per frame (need <16ms)",
         ms_per_frame,
     );
+}
+
+#[test]
+fn terminal_is_alive_after_creation() {
+    let t = small_term();
+    assert!(t.is_alive());
+}
+
+#[test]
+fn terminal_is_alive_after_vt_write() {
+    let mut t = small_term();
+    t.vt_write(b"Hello, world!");
+    assert!(t.is_alive());
+}
+
+#[test]
+fn terminal_is_alive_after_flush() {
+    let mut t = small_term();
+    t.vt_write(b"ABC");
+    t.flush();
+    assert!(t.is_alive());
 }

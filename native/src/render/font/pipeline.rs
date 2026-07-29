@@ -1,20 +1,15 @@
 //! FontPipeline — font loading, glyph rasterization, and atlas management.
 
-use std::num::NonZeroUsize;
-
 use cosmic_text::FontSystem;
-use lru::LruCache;
 
 use super::font_db;
-use super::{
-    CJK_IDEOGRAPHIC_START, GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey, PREFERRED_MONOSPACE_FONTS,
-};
+use super::{CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, PREFERRED_MONOSPACE_FONTS};
 
 pub struct FontPipeline {
     pub(crate) font_system: FontSystem,
     pub(crate) scaler_context: swash::scale::ScaleContext,
     pub(crate) atlas: guillotiere::AtlasAllocator,
-    pub(crate) glyph_cache: LruCache<GlyphKey, GlyphInfo>,
+    pub(crate) caches: super::glyph_cache::GlyphCache,
     pub(crate) atlas_bitmap: Vec<u8>,
     pub(crate) atlas_width: u32,
     pub(crate) atlas_height: u32,
@@ -26,14 +21,6 @@ pub struct FontPipeline {
     pub(crate) dirty_rect: Option<(u32, u32, u32, u32)>,
     system_locale: String,
     pub(crate) shaping_buffer: Option<cosmic_text::Buffer>,
-    pub(crate) shape_cache: LruCache<String, Vec<super::ShapedGlyphInfo>>,
-    pub(crate) ascii_glyph_ids: [Option<swash::GlyphId>; 128],
-    /// Cache for non-ASCII glyph_id lookups (codepoint → glyph_id in primary font).
-    /// Avoids repeated swash charmap() calls for repeated characters.
-    pub(crate) glyph_id_cache: LruCache<u32, swash::GlyphId>,
-    /// Cache for CJK glyph resolution (char → final font_id + glyph_id).
-    /// Avoids per-frame swash charmap + outline check for every CJK cell.
-    pub(crate) cjk_glyph_cache: LruCache<char, (fontdb::ID, swash::GlyphId)>,
 }
 
 impl FontPipeline {
@@ -42,7 +29,7 @@ impl FontPipeline {
         let mut db = font_db::load_font_database();
 
         #[cfg(target_os = "android")]
-        if let Ok(extra) = font_db::EXTRA_FONT_PATHS_RW.read() {
+        if let Ok(extra) = font_db::EXTRA_FONT_PATHS.read() {
             for path in extra.iter() {
                 if path.is_file() {
                     if let Err(error) = db.load_font_file(path) {
@@ -80,27 +67,17 @@ impl FontPipeline {
             font_system,
             scaler_context,
             atlas,
-            glyph_cache: LruCache::new(
-                NonZeroUsize::new(GLYPH_CACHE_CAPACITY)
-                    .expect("GLYPH_CACHE_CAPACITY is 10_000, always non-zero"),
-            ),
+            caches: super::glyph_cache::GlyphCache::new(),
             atlas_bitmap,
             atlas_width: atlas_width as u32,
             atlas_height: atlas_height as u32,
             font_id: None,
             cjk_fallback_ids: Vec::new(),
             font_size,
-            glyph_id_cache: LruCache::new(NonZeroUsize::new(500).expect("500")),
-            cjk_glyph_cache: LruCache::new(NonZeroUsize::new(200).expect("200")),
             atlas_generation: 0,
             dirty_rect: None,
             system_locale: String::new(),
             shaping_buffer: None,
-            shape_cache: LruCache::new(
-                NonZeroUsize::new(super::shaping::SHAPE_CACHE_CAPACITY)
-                    .expect("SHAPE_CACHE_CAPACITY must be non-zero"),
-            ),
-            ascii_glyph_ids: [None; 128],
             raster_scale: 1.0,
         };
 
@@ -147,27 +124,17 @@ impl FontPipeline {
             font_system,
             scaler_context,
             atlas,
-            glyph_cache: LruCache::new(
-                NonZeroUsize::new(GLYPH_CACHE_CAPACITY)
-                    .expect("GLYPH_CACHE_CAPACITY is 10_000, always non-zero"),
-            ),
+            caches: super::glyph_cache::GlyphCache::new(),
             atlas_bitmap,
             atlas_width: atlas_width as u32,
             atlas_height: atlas_height as u32,
             font_id: None,
             cjk_fallback_ids: Vec::new(),
             font_size,
-            glyph_id_cache: LruCache::new(NonZeroUsize::new(500).expect("500")),
-            cjk_glyph_cache: LruCache::new(NonZeroUsize::new(200).expect("200")),
             atlas_generation: 0,
             dirty_rect: None,
             system_locale: String::new(),
             shaping_buffer: None,
-            shape_cache: LruCache::new(
-                NonZeroUsize::new(super::shaping::SHAPE_CACHE_CAPACITY)
-                    .expect("SHAPE_CACHE_CAPACITY must be non-zero"),
-            ),
-            ascii_glyph_ids: [None; 128],
             raster_scale: 1.0,
         };
 
@@ -332,14 +299,14 @@ impl FontPipeline {
     }
 
     pub fn set_font_family(&mut self, family_name: &str) -> bool {
-        self.shape_cache.clear();
-        self.glyph_id_cache.clear();
-        self.cjk_glyph_cache.clear();
-        self.ascii_glyph_ids = [None; 128];
+        self.caches.shape_cache.clear();
+        self.caches.glyph_id_cache.clear();
+        self.caches.cjk_glyph_cache.clear();
+        self.caches.ascii_glyph_ids = [None; 128];
         if family_name.is_empty() {
             self.font_id = None;
             self.find_monospace_font();
-            self.glyph_cache.clear();
+            self.caches.glyph_cache.clear();
             self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
                 self.atlas_width as i32,
                 self.atlas_height as i32,
@@ -369,7 +336,7 @@ impl FontPipeline {
                 name
             );
             self.font_id = Some(id);
-            self.glyph_cache.clear();
+            self.caches.glyph_cache.clear();
             self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
                 self.atlas_width as i32,
                 self.atlas_height as i32,
@@ -390,10 +357,10 @@ impl FontPipeline {
     }
 
     pub fn set_system_locale(&mut self, locale: &str) {
-        self.shape_cache.clear();
-        self.glyph_id_cache.clear();
-        self.cjk_glyph_cache.clear();
-        self.ascii_glyph_ids = [None; 128];
+        self.caches.shape_cache.clear();
+        self.caches.glyph_id_cache.clear();
+        self.caches.cjk_glyph_cache.clear();
+        self.caches.ascii_glyph_ids = [None; 128];
         self.system_locale = locale.to_string();
         self.cjk_fallback_ids.clear();
         self.find_cjk_fallback_fonts(&self.system_locale.clone());
@@ -401,7 +368,8 @@ impl FontPipeline {
 
     pub fn set_font_size_in_place(&mut self, new_size: f32) -> (f32, f32) {
         self.font_size = new_size;
-        self.glyph_cache.clear();
+        self.caches.shape_cache.clear();
+        self.caches.glyph_cache.clear();
         self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
             self.atlas_width as i32,
             self.atlas_height as i32,
@@ -429,7 +397,8 @@ impl FontPipeline {
             return;
         }
         self.raster_scale = scale;
-        self.glyph_cache.clear();
+        self.caches.shape_cache.clear();
+        self.caches.glyph_cache.clear();
         self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
             self.atlas_width as i32,
             self.atlas_height as i32,
@@ -441,7 +410,7 @@ impl FontPipeline {
     }
 
     pub fn get_raster_scale(&self) -> f32 {
-        self.raster_scale
+        self.raster_scale.max(f32::EPSILON)
     }
 
     pub fn current_font_family_name(&self) -> Option<String> {
@@ -593,14 +562,14 @@ impl FontPipeline {
 
         // ── Fast path: ASCII with cached glyph_id —─────────────────────────
         if (ch as u32) < 128
-            && let Some(gid) = self.ascii_glyph_ids[ch as usize]
+            && let Some(gid) = self.caches.ascii_glyph_ids[ch as usize]
         {
             let key = GlyphKey {
                 font_id: primary_font_id,
                 glyph_id: gid,
                 pixel_size,
             };
-            if let Some(info) = self.glyph_cache.get(&key).cloned() {
+            if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
                 return Some(info);
             }
         }
@@ -608,20 +577,20 @@ impl FontPipeline {
         // ── CJK cache: skip swash + fallback for already-resolved chars ─────
         if (ch as u32) >= CJK_IDEOGRAPHIC_START
             && has_cjk_fallback
-            && let Some(&(cached_font_id, cached_glyph_id)) = self.cjk_glyph_cache.get(&ch)
+            && let Some(&(cached_font_id, cached_glyph_id)) = self.caches.cjk_glyph_cache.get(&ch)
         {
             let key = GlyphKey {
                 font_id: cached_font_id,
                 glyph_id: cached_glyph_id,
                 pixel_size,
             };
-            if let Some(info) = self.glyph_cache.get(&key).cloned() {
+            if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
                 return Some(info);
             }
         }
 
         // ── Resolve glyph_id (cached if possible) ───────────────────────────
-        let glyph_id = if let Some(&cached) = self.glyph_id_cache.get(&(ch as u32)) {
+        let glyph_id = if let Some(&cached) = self.caches.glyph_id_cache.get(&(ch as u32)) {
             cached
         } else {
             let gid = {
@@ -632,13 +601,13 @@ impl FontPipeline {
                     Some(charmap.map(ch))
                 })?
             }?;
-            self.glyph_id_cache.put(ch as u32, gid);
+            self.caches.glyph_id_cache.put(ch as u32, gid);
             gid
         };
 
         // Cache ASCII glyph_id for future fast-path lookups.
         if (ch as u32) < 128 {
-            self.ascii_glyph_ids[ch as usize] = Some(glyph_id);
+            self.caches.ascii_glyph_ids[ch as usize] = Some(glyph_id);
         }
 
         // ── Check glyph_cache before expensive CJK ops ──────────────────────
@@ -648,9 +617,11 @@ impl FontPipeline {
                 glyph_id,
                 pixel_size,
             };
-            if let Some(info) = self.glyph_cache.get(&key).cloned() {
+            if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
                 if (ch as u32) >= CJK_IDEOGRAPHIC_START {
-                    self.cjk_glyph_cache.put(ch, (primary_font_id, glyph_id));
+                    self.caches
+                        .cjk_glyph_cache
+                        .put(ch, (primary_font_id, glyph_id));
                 }
                 return Some(info);
             }
@@ -679,7 +650,7 @@ impl FontPipeline {
                     && fid != 0
                 {
                     let result = self.glyph_information_from_font(fallback_id, ch, fid)?;
-                    self.cjk_glyph_cache.put(ch, (fallback_id, fid));
+                    self.caches.cjk_glyph_cache.put(ch, (fallback_id, fid));
                     return Some(result);
                 }
             }
@@ -688,7 +659,9 @@ impl FontPipeline {
         // ── Fallback to primary font ────────────────────────────────────────
         let result = self.glyph_information_from_font(primary_font_id, ch, glyph_id)?;
         if (ch as u32) >= CJK_IDEOGRAPHIC_START {
-            self.cjk_glyph_cache.put(ch, (primary_font_id, glyph_id));
+            self.caches
+                .cjk_glyph_cache
+                .put(ch, (primary_font_id, glyph_id));
         }
         Some(result)
     }

@@ -2,11 +2,13 @@
 use crate::render::CellInstance;
 
 use crate::terminal::CursorStyle;
-
-#[cfg(any(test, feature = "test-util"))]
 use crate::terminal::SelectionMode;
-#[cfg(any(test, feature = "test-util"))]
+
 use std::collections::HashMap;
+
+/// Bit position of reverse video (SGR 7) in CellData.flags.
+/// Must match the bit layout used by pack_style_flags() and shader/cell.wgsl.
+const REVERSE_BIT: u8 = 2;
 
 /// Cursor state passed to build_instances_from_cell_data() for cursor rendering.
 #[derive(Debug, Clone, Copy, Default)]
@@ -18,25 +20,10 @@ pub struct CellCursor {
     pub color: Option<[f32; 4]>,
 }
 
-#[cfg(any(test, feature = "test-util"))]
-pub struct CellInstanceConfig<'a> {
-    pub atlas_width: f32,
-    pub atlas_height: f32,
-    pub projection_height: f32,
-    pub selection: Option<SelectionRange>,
-    pub selection_bg: Option<[f32; 4]>,
-    pub search_highlights: &'a [SearchHighlight],
-    pub cursor_color: Option<[f32; 4]>,
-    pub cursor_style: CursorStyle,
-    pub surface_bg: [f32; 4],
-    pub dirty_rows: &'a [bool],
-    pub render_scale: f32,
-    pub cached_instances: &'a [CellInstance],
-    pub cached_row_ends: &'a [usize],
-}
-
+/// A selected range of characters to highlight with a background color.
+///
+/// Supports Char/Word/Semantic (box), Line (full rows), and Block modes.
 #[derive(Debug, Clone, Copy, Default)]
-#[cfg(any(test, feature = "test-util"))]
 pub struct SelectionRange {
     pub start_row: i32,
     pub start_col: i32,
@@ -48,7 +35,8 @@ pub struct SelectionRange {
     pub is_empty: bool,
 }
 
-#[cfg(any(test, feature = "test-util"))]
+/// Returns ordered (lo_row, lo_col, hi_row, hi_col) so consuming code does
+/// not need to worry about direction.
 impl SelectionRange {
     pub fn contains(&self, row: u32, col: u32, _cols: u32) -> bool {
         if !self.active {
@@ -90,8 +78,8 @@ impl SelectionRange {
     }
 }
 
-#[derive(Debug, Clone)]
-#[cfg(any(test, feature = "test-util"))]
+#[derive(Debug, Clone, Copy)]
+/// A single row range for search result highlighting.
 pub struct SearchHighlight {
     pub row: i32,
     pub start_col: i32,
@@ -99,7 +87,7 @@ pub struct SearchHighlight {
     pub color: [u8; 4],
 }
 
-#[cfg(any(test, feature = "test-util"))]
+/// Check whether one cell falls inside a search highlight.
 pub(crate) fn cell_highlight<'a>(
     row: u32,
     col: u32,
@@ -112,15 +100,7 @@ pub(crate) fn cell_highlight<'a>(
     Some(&highlight.color)
 }
 
-#[cfg(any(test, feature = "test-util"))]
-pub(crate) fn color_f32x4_eq(a: [f32; 4], b: [f32; 4]) -> bool {
-    a[0].to_bits() == b[0].to_bits()
-        && a[1].to_bits() == b[1].to_bits()
-        && a[2].to_bits() == b[2].to_bits()
-        && a[3].to_bits() == b[3].to_bits()
-}
-
-#[cfg(any(test, feature = "test-util"))]
+/// Blend a highlight RGBA into a float color.
 pub(crate) fn blend_highlight(base: [f32; 4], hl_rgba: [u8; 4]) -> [f32; 4] {
     let alpha = hl_rgba[3] as f32 / 255.0;
     if alpha <= 0.0 {
@@ -138,739 +118,168 @@ pub(crate) fn blend_highlight(base: [f32; 4], hl_rgba: [u8; 4]) -> [f32; 4] {
 }
 
 #[inline]
-#[cfg(any(test, feature = "test-util"))]
-fn apply_search_highlight(fg: &mut [f32; 4], bg: &mut [f32; 4], hl: [u8; 4]) {
+/// Apply a search-highlight RGBA to a cell foreground/background.
+pub(crate) fn apply_search_highlight(fg: &mut [f32; 4], bg: &mut [f32; 4], hl: [u8; 4]) {
     if hl[3] >= 128 {
         std::mem::swap(fg, bg);
     }
     *bg = blend_highlight(*bg, hl);
 }
 
-#[cfg(any(test, feature = "test-util"))]
-pub fn build_cell_instances_from_snapshot(
-    snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
-    font_pipeline: &mut crate::render::font::FontPipeline,
-    config: CellInstanceConfig<'_>,
-) -> Vec<CellInstance> {
-    let mut instances = Vec::new();
-    let mut _row_ends = Vec::new();
-    build_cell_instances_into(
-        snapshot,
-        font_pipeline,
-        config,
-        &mut instances,
-        &mut _row_ends,
-    );
-    instances
-}
-
-#[cfg(any(test, feature = "test-util"))]
-pub fn build_cell_instances_into(
-    snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
-    font_pipeline: &mut crate::render::font::FontPipeline,
-    config: CellInstanceConfig<'_>,
-    instances: &mut Vec<CellInstance>,
-    row_ends: &mut Vec<usize>,
-) {
-    let atlas_width = config.atlas_width;
-    let atlas_height = config.atlas_height;
-    let projection_height = config.projection_height * config.render_scale;
-    let selection = config.selection.filter(|s| !s.is_empty);
-    let selection_bg = config.selection_bg;
-    let search_highlights = config.search_highlights;
-    let cursor_color = config.cursor_color;
-    let cursor_style = config.cursor_style;
-    let surface_bg = config.surface_bg;
-    let rows = snapshot.rows;
-    let cols = snapshot.cols;
-    let (mut cell_w, mut cell_h) = font_pipeline.cell_metrics();
-    cell_w *= config.render_scale;
-    cell_h *= config.render_scale;
-    let ascent_pixels = font_pipeline.ascent_pixels();
-    let raster_scale = font_pipeline.get_raster_scale();
-    let expected = (snapshot.rows * snapshot.cols) as usize;
-    if snapshot.cells.len() < expected {
-        log::warn!(
-            "build_cell_instances_into: snapshot cells too short ({} < {}), skipping render",
-            snapshot.cells.len(),
-            expected,
-        );
-        instances.clear();
-        return;
-    }
-
-    instances.clear();
-    let use_cache = !config.dirty_rows.is_empty()
-        && config.dirty_rows.len() >= rows as usize
-        && config.cached_row_ends.len() >= rows as usize
-        && config.cached_instances.len() > config.cached_row_ends[rows as usize - 1];
-    if use_cache {
-        instances.reserve(config.cached_instances.len());
-    } else {
-        instances.reserve((rows * cols) as usize);
-    }
-    row_ends.clear();
-
-    let cursor_row = snapshot.cursor_row;
-    let cursor_col = snapshot.cursor_col;
-    let cursor_visible = snapshot.cursor_visible;
-
-    let mut glyph_found = 0u64;
-    let mut glyph_not_found = 0u64;
-
-    const CURSOR_BAR_WIDTH_RATIO: f32 = 0.15;
-    const CURSOR_UNDERLINE_HEIGHT_RATIO: f32 = 0.15;
-    const CURSOR_BLOCK_ALPHA: f32 = 0.7;
-    const CURSOR_LINE_ALPHA: f32 = 0.9;
-
-    let mut highlights_by_row: HashMap<i32, Vec<&SearchHighlight>> = HashMap::new();
-    for h in search_highlights {
-        highlights_by_row.entry(h.row).or_default().push(h);
-    }
-
-    for row in 0..rows {
-        if projection_height > 0.0 && (row as f32 * cell_h) >= projection_height {
-            break;
-        }
-
-        if use_cache && !config.dirty_rows[row as usize] {
-            let ru = row as usize;
-            let start = if ru == 0 {
-                0_usize
-            } else {
-                config.cached_row_ends[ru - 1]
-            };
-            let end = config.cached_row_ends[ru];
-            instances.extend_from_slice(&config.cached_instances[start..end]);
-            row_ends.push(instances.len());
-            continue;
-        }
-        let mut skip_cols = 0u32;
-        for col in 0..cols {
-            if skip_cols > 0 {
-                skip_cols -= 1;
-                continue;
-            }
-
-            let idx = (row * cols + col) as usize;
-            let cell = &snapshot.cells[idx];
-            let cell_span = cell.width.max(1) as f32;
-            let is_cursor = cursor_visible && row == cursor_row && col == cursor_col;
-
-            let (mut fg, mut bg) = if cell.reverse {
-                (cell.background, cell.foreground)
-            } else {
-                (cell.foreground, cell.background)
-            };
-
-            if cell.codepoint == 0 || cell.codepoint == 0x20 {
-                if selection.unwrap_or_default().contains(row, col, cols) {
-                    if let Some(sbg) = selection_bg {
-                        bg = sbg;
-                    } else {
-                        std::mem::swap(&mut fg, &mut bg);
-                    }
-                }
-                if let Some(hl) = cell_highlight(row, col, &highlights_by_row) {
-                    apply_search_highlight(&mut fg, &mut bg, *hl);
-                }
-                let has_special_state = is_cursor
-                    || selection.unwrap_or_default().contains(row, col, cols)
-                    || cell_highlight(row, col, &highlights_by_row).is_some()
-                    || cell.reverse;
-                if (cell.codepoint == 0 || cell.codepoint == 0x20)
-                    && !has_special_state
-                    && color_f32x4_eq(bg, surface_bg)
-                {
-                    if cell_span > 1.0 {
-                        skip_cols = (cell_span as u32) - 1;
-                    }
-                    continue;
-                }
-                let base_x = col as f32 * cell_w;
-                let base_y = row as f32 * cell_h;
-                let (quad_size, quad_origin) = if is_cursor {
-                    let raw_cursor_bg = cursor_color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                    let cursor_alpha = match cursor_style {
-                        CursorStyle::Block => CURSOR_BLOCK_ALPHA,
-                        _ => CURSOR_LINE_ALPHA,
-                    };
-                    let cursor_bg = [
-                        raw_cursor_bg[0],
-                        raw_cursor_bg[1],
-                        raw_cursor_bg[2],
-                        raw_cursor_bg[3] * cursor_alpha,
-                    ];
-                    match cursor_style {
-                        CursorStyle::Default | CursorStyle::Block => {
-                            // Block cursor: set background quad to cursor color,
-                            // keep foreground (glyph) color unchanged so the
-                            // character stays visible against the cursor quad.
-                            bg = cursor_bg;
-                            ([cell_w, cell_h], [base_x, base_y])
-                        }
-                        CursorStyle::Bar => {
-                            ([cell_w * CURSOR_BAR_WIDTH_RATIO, cell_h], [base_x, base_y])
-                        }
-                        CursorStyle::Underline => (
-                            [cell_w, cell_h * CURSOR_UNDERLINE_HEIGHT_RATIO],
-                            [
-                                base_x,
-                                base_y + cell_h - cell_h * CURSOR_UNDERLINE_HEIGHT_RATIO,
-                            ],
-                        ),
-                    }
-                } else {
-                    ([cell_w, cell_h], [base_x, base_y])
-                };
-                instances.push(CellInstance {
-                    quad_origin,
-                    atlas_offset: [0.0; 2],
-                    atlas_size: [0.0; 2],
-                    fg_color: fg,
-                    bg_color: bg,
-                    quad_size,
-                    flags: 0.0,
-                    bearing: [0.0; 2],
-                    glyph_advance_width: 0.0,
-                });
-                if cell_span > 1.0 {
-                    skip_cols = (cell_span as u32) - 1;
-                }
-                continue;
-            }
-
-            let mut run_len = 1u32;
-            if !is_cursor {
-                let mut adv = col + cell_span as u32;
-                while adv < cols {
-                    let nidx = (row * cols + adv) as usize;
-                    let next = &snapshot.cells[nidx];
-                    let next_cursor = cursor_visible && row == cursor_row && adv == cursor_col;
-                    if next.codepoint == 0 || next.codepoint == 0x20 {
-                        break;
-                    }
-                    if next_cursor {
-                        break;
-                    }
-                    let attrs_differ = !color_f32x4_eq(next.foreground, cell.foreground)
-                        || !color_f32x4_eq(next.background, cell.background)
-                        || next.bold != cell.bold
-                        || next.dim != cell.dim
-                        || next.italic != cell.italic
-                        || next.underline != cell.underline
-                        || next.double_underline != cell.double_underline
-                        || next.reverse != cell.reverse
-                        || next.strikethrough != cell.strikethrough
-                        || next.overline != cell.overline
-                        || next.uri.is_some() != cell.uri.is_some();
-                    if attrs_differ {
-                        break;
-                    }
-                    run_len += 1;
-                    adv += next.width.max(1) as u32;
-                }
-            }
-
-            if run_len > 1 {
-                let mut run_text = String::with_capacity(run_len as usize * 4);
-                let mut adv_col = col;
-                let mut run_skip = 0u32;
-                for _ in 0..run_len {
-                    let cidx = (row * cols + adv_col) as usize;
-                    let c = &snapshot.cells[cidx];
-                    if let Some(ch) = char::from_u32(c.codepoint) {
-                        run_text.push(ch);
-                    }
-                    for &cp in c.graphemes.iter().skip(1) {
-                        if let Some(gch) = char::from_u32(cp) {
-                            run_text.push(gch);
-                        }
-                    }
-                    let span = c.width.max(1) as u32;
-                    run_skip += span - 1;
-                    adv_col += span;
-                }
-
-                let shaped = font_pipeline.shape_run(&run_text);
-                let flags = (if cell.bold { 1.0 } else { 0.0 })
-                    + (if cell.italic { 2.0 } else { 0.0 })
-                    + (if cell.reverse { 4.0 } else { 0.0 })
-                    + (if cell.underline { 8.0 } else { 0.0 })
-                    + (if cell.uri.is_some() { 16.0 } else { 0.0 })
-                    + (if cell.strikethrough { 32.0 } else { 0.0 })
-                    + (if cell.overline { 64.0 } else { 0.0 })
-                    + (if cell.dim { 128.0 } else { 0.0 })
-                    + (if cell.double_underline { 256.0 } else { 0.0 });
-
-                for sg in &shaped {
-                    let gcol_f = sg.x / cell_w;
-                    let gcol = (col as f32 + gcol_f).round() as u32;
-                    // Clamp to valid column range — shaped glyphs near the right
-                    // edge of the final cell can overflow past `cols - 1`.
-                    let gcol = gcol.min(cols.saturating_sub(1));
-                    let gspan = ((sg.w / cell_w).round() as u32).max(1);
-
-                    let cell_idx = (row * cols + gcol) as usize;
-                    let ref_cell = &snapshot.cells[cell_idx];
-                    let g_cursor = cursor_visible && row == cursor_row && gcol == cursor_col;
-
-                    let (mut gfg, mut gbg) = if ref_cell.reverse {
-                        (ref_cell.background, ref_cell.foreground)
-                    } else {
-                        (ref_cell.foreground, ref_cell.background)
-                    };
-                    if selection.unwrap_or_default().contains(row, gcol, cols) {
-                        if let Some(sbg) = selection_bg {
-                            gbg = sbg;
-                        } else {
-                            std::mem::swap(&mut gfg, &mut gbg);
-                        }
-                    }
-                    if let Some(hl) = cell_highlight(row, gcol, &highlights_by_row) {
-                        apply_search_highlight(&mut gfg, &mut gbg, *hl);
-                    }
-                    let (gfg_scoped, gbg_scoped) = if g_cursor {
-                        let raw_cursor_bg = cursor_color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                        let (cursor_alpha, gfg_override) = match cursor_style {
-                            CursorStyle::Block => (CURSOR_BLOCK_ALPHA, gbg),
-                            _ => (CURSOR_LINE_ALPHA, gfg),
-                        };
-                        let cursor_bg = [
-                            raw_cursor_bg[0],
-                            raw_cursor_bg[1],
-                            raw_cursor_bg[2],
-                            raw_cursor_bg[3] * cursor_alpha,
-                        ];
-                        (gfg_override, cursor_bg)
-                    } else {
-                        (gfg, gbg)
-                    };
-
-                    if let Some(info) =
-                        font_pipeline.glyph_information_for_glyph(sg.font_id, sg.glyph_id)
-                    {
-                        glyph_found += 1;
-                        let uv_x = info.atlas_x as f32 / atlas_width;
-                        let uv_y = info.atlas_y as f32 / atlas_height;
-                        let uv_w = info.width as f32 / atlas_width;
-                        let uv_h = info.height as f32 / atlas_height;
-                        let bearing_x = info.placement.left as f32 + sg.x_offset * raster_scale;
-                        let glyph_h = info.height as f32 / raster_scale;
-                        let raw_bearing_y =
-                            ascent_pixels * raster_scale - info.placement.top as f32;
-                        let bearing_y = if glyph_h > cell_h {
-                            (cell_h - glyph_h) / 2.0 * raster_scale * raster_scale
-                                + sg.y_offset * raster_scale
-                        } else {
-                            raw_bearing_y + sg.y_offset * raster_scale
-                        };
-
-                        instances.push(CellInstance {
-                            quad_origin: [gcol as f32 * cell_w, row as f32 * cell_h],
-                            atlas_offset: [uv_x, uv_y],
-                            atlas_size: [uv_w, uv_h],
-                            fg_color: gfg_scoped,
-                            bg_color: gbg_scoped,
-                            quad_size: [cell_w * gspan as f32, cell_h],
-                            flags,
-                            bearing: [bearing_x, bearing_y],
-                            glyph_advance_width: info.advance_width,
-                        });
-                    } else {
-                        glyph_not_found += 1;
-                        instances.push(CellInstance {
-                            quad_origin: [gcol as f32 * cell_w, row as f32 * cell_h],
-                            atlas_offset: [0.0; 2],
-                            atlas_size: [1.0 / atlas_width, 1.0 / atlas_height],
-                            fg_color: gfg_scoped,
-                            bg_color: gbg_scoped,
-                            quad_size: [cell_w * gspan as f32, cell_h],
-                            flags,
-                            bearing: [0.0; 2],
-                            glyph_advance_width: 0.0,
-                        });
-                    }
-                }
-
-                skip_cols = run_len - 1 + run_skip;
-                continue;
-            }
-
-            let ch = char::from_u32(cell.codepoint).unwrap_or('\u{FFFD}');
-            let flags = if cell.bold { 1.0 } else { 0.0 }
-                + if cell.italic { 2.0 } else { 0.0 }
-                + if cell.reverse { 4.0 } else { 0.0 }
-                + if cell.underline { 8.0 } else { 0.0 }
-                + if cell.uri.is_some() { 16.0 } else { 0.0 }
-                + if cell.strikethrough { 32.0 } else { 0.0 }
-                + if cell.overline { 64.0 } else { 0.0 }
-                + if cell.dim { 128.0 } else { 0.0 }
-                + if cell.double_underline { 256.0 } else { 0.0 };
-
-            let (mut fg, mut bg) = if cell.reverse {
-                (cell.background, cell.foreground)
-            } else {
-                (cell.foreground, cell.background)
-            };
-
-            if selection.unwrap_or_default().contains(row, col, cols) {
-                if let Some(sbg) = selection_bg {
-                    bg = sbg;
-                } else {
-                    std::mem::swap(&mut fg, &mut bg);
-                }
-            }
-            if let Some(hl) = cell_highlight(row, col, &highlights_by_row) {
-                apply_search_highlight(&mut fg, &mut bg, *hl);
-            }
-
-            let (fg, bg) = if is_cursor {
-                let raw_cursor_bg = cursor_color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-                let (cursor_alpha, fg_override) = match cursor_style {
-                    CursorStyle::Block => (CURSOR_BLOCK_ALPHA, bg),
-                    _ => (CURSOR_LINE_ALPHA, fg),
-                };
-                let cursor_bg = [
-                    raw_cursor_bg[0],
-                    raw_cursor_bg[1],
-                    raw_cursor_bg[2],
-                    raw_cursor_bg[3] * cursor_alpha,
-                ];
-                (fg_override, cursor_bg)
-            } else {
-                (fg, bg)
-            };
-
-            let base_x = col as f32 * cell_w;
-            let base_y = row as f32 * cell_h;
-            let (cursor_quad_size, cursor_quad_origin) = if is_cursor {
-                match cursor_style {
-                    CursorStyle::Default | CursorStyle::Block => {
-                        ([cell_w * cell_span, cell_h], [base_x, base_y])
-                    }
-                    CursorStyle::Bar | CursorStyle::Underline => {
-                        ([cell_w * cell_span, cell_h], [base_x, base_y])
-                    }
-                }
-            } else {
-                ([cell_w * cell_span, cell_h], [base_x, base_y])
-            };
-
-            if let Some(info) = font_pipeline.glyph_information(ch) {
-                glyph_found += 1;
-                let uv_x = info.atlas_x as f32 / atlas_width;
-                let uv_y = info.atlas_y as f32 / atlas_height;
-                let uv_w = info.width as f32 / atlas_width;
-                let uv_h = info.height as f32 / atlas_height;
-
-                let bearing_x = info.placement.left as f32;
-                let glyph_h = info.height as f32 / raster_scale;
-                let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-                let bearing_y = if glyph_h > cell_h {
-                    (cell_h - glyph_h) / 2.0
-                } else {
-                    raw_bearing_y
-                };
-
-                instances.push(CellInstance {
-                    quad_origin: cursor_quad_origin,
-                    atlas_offset: [uv_x, uv_y],
-                    atlas_size: [uv_w, uv_h],
-                    fg_color: fg,
-                    bg_color: bg,
-                    quad_size: cursor_quad_size,
-                    flags,
-                    bearing: [bearing_x, bearing_y],
-                    glyph_advance_width: info.advance_width,
-                });
-                if cell_span > 1.0 {
-                    skip_cols = (cell_span as u32) - 1;
-                }
-                for &cp in cell.graphemes.iter().skip(1) {
-                    let Some(mark_ch) = char::from_u32(cp) else {
-                        continue;
-                    };
-                    let Some(info) = font_pipeline.glyph_information(mark_ch) else {
-                        continue;
-                    };
-                    let uv_x = info.atlas_x as f32 / atlas_width;
-                    let uv_y = info.atlas_y as f32 / atlas_height;
-                    let uv_w = info.width as f32 / atlas_width;
-                    let uv_h = info.height as f32 / atlas_height;
-                    let bearing_x = info.placement.left as f32;
-                    let glyph_h = info.height as f32 / raster_scale;
-                    let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-                    let bearing_y = if glyph_h > cell_h {
-                        (cell_h - glyph_h) / 2.0 * raster_scale
-                    } else {
-                        raw_bearing_y
-                    };
-                    instances.push(CellInstance {
-                        quad_origin: cursor_quad_origin,
-                        atlas_offset: [uv_x, uv_y],
-                        atlas_size: [uv_w, uv_h],
-                        fg_color: fg,
-                        bg_color: bg,
-                        quad_size: cursor_quad_size,
-                        flags,
-                        bearing: [bearing_x, bearing_y],
-                        glyph_advance_width: 0.0,
-                    });
-                }
-            } else {
-                glyph_not_found += 1;
-                instances.push(CellInstance {
-                    quad_origin: cursor_quad_origin,
-                    atlas_offset: [0.0; 2],
-                    atlas_size: [1.0 / atlas_width, 1.0 / atlas_height],
-                    fg_color: fg,
-                    bg_color: bg,
-                    quad_size: cursor_quad_size,
-                    flags,
-                    bearing: [0.0; 2],
-                    glyph_advance_width: 0.0,
-                });
-                if cell_span > 1.0 {
-                    skip_cols = (cell_span as u32) - 1;
-                }
-                for &cp in cell.graphemes.iter().skip(1) {
-                    let Some(mark_ch) = char::from_u32(cp) else {
-                        continue;
-                    };
-                    let Some(info) = font_pipeline.glyph_information(mark_ch) else {
-                        continue;
-                    };
-                    let uv_x = info.atlas_x as f32 / atlas_width;
-                    let uv_y = info.atlas_y as f32 / atlas_height;
-                    let uv_w = info.width as f32 / atlas_width;
-                    let uv_h = info.height as f32 / atlas_height;
-                    let bearing_x = info.placement.left as f32;
-                    let glyph_h = info.height as f32 / raster_scale;
-                    let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-                    let bearing_y = if glyph_h > cell_h {
-                        (cell_h - glyph_h) / 2.0 * raster_scale
-                    } else {
-                        raw_bearing_y
-                    };
-                    instances.push(CellInstance {
-                        quad_origin: cursor_quad_origin,
-                        atlas_offset: [uv_x, uv_y],
-                        atlas_size: [uv_w, uv_h],
-                        fg_color: fg,
-                        bg_color: bg,
-                        quad_size: cursor_quad_size,
-                        flags,
-                        bearing: [bearing_x, bearing_y],
-                        glyph_advance_width: 0.0,
-                    });
-                }
-            }
-        }
-    }
-    if glyph_found + glyph_not_found > 0 {
-        log::debug!(
-            "build_cell_instances: glyph_found={} glyph_not_found={} total={}",
-            glyph_found,
-            glyph_not_found,
-            glyph_found + glyph_not_found
-        );
-    }
-}
-
-#[cfg(any(test, feature = "test-util"))]
-pub struct FlatGrid {
-    pub rows: u32,
-    pub cols: u32,
-    pub chars: Vec<char>,
-    pub foreground: Vec<[f32; 4]>,
-    pub background: Vec<[f32; 4]>,
-    pub selected: Vec<bool>,
-}
-
-#[cfg(any(test, feature = "test-util"))]
-impl FlatGrid {
-    pub fn new(rows: u32, cols: u32) -> Self {
-        let len = (rows * cols) as usize;
-        Self {
-            rows,
-            cols,
-            chars: vec![' '; len],
-            foreground: vec![[1.0, 1.0, 1.0, 1.0]; len],
-            background: vec![[0.0, 0.0, 0.0, 1.0]; len],
-            selected: vec![false; len],
-        }
-    }
-
-    pub fn set_cell(
-        &mut self,
-        row: u32,
-        col: u32,
-        ch: char,
-        foreground: [f32; 4],
-        background: [f32; 4],
-    ) {
-        let idx = (row * self.cols + col) as usize;
-        if idx < self.chars.len() {
-            self.chars[idx] = ch;
-            self.foreground[idx] = foreground;
-            self.background[idx] = background;
-        }
-    }
-
-    pub fn cell(&self, row: u32, col: u32) -> Option<(char, [f32; 4], [f32; 4])> {
-        if row >= self.rows || col >= self.cols {
-            return None;
-        }
-        let idx = (row * self.cols + col) as usize;
-        if idx < self.chars.len() {
-            Some((self.chars[idx], self.foreground[idx], self.background[idx]))
-        } else {
-            None
-        }
-    }
-}
-
-#[cfg(any(test, feature = "test-util"))]
-pub fn build_cell_instances_from_flat(
-    flat: &FlatGrid,
-    font_pipeline: &mut crate::render::font::FontPipeline,
-    atlas_width: f32,
-    atlas_height: f32,
-) -> Vec<CellInstance> {
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let ascent_pixels = font_pipeline.ascent_pixels();
-    let mut instances = Vec::with_capacity((flat.rows * flat.cols) as usize);
-
-    for row in 0..flat.rows {
-        for col in 0..flat.cols {
-            if let Some((ch, fg, bg)) = flat.cell(row, col) {
-                let idx = (row * flat.cols + col) as usize;
-                let (fg, bg) = if flat.selected.get(idx).copied().unwrap_or(false) {
-                    (bg, fg)
-                } else {
-                    (fg, bg)
-                };
-                if ch == ' ' {
-                    instances.push(CellInstance {
-                        quad_origin: [col as f32 * cell_w, row as f32 * cell_h],
-                        atlas_offset: [0.0, 0.0],
-                        atlas_size: [0.0, 0.0],
-                        fg_color: [0.0, 0.0, 0.0, 0.0],
-                        bg_color: bg,
-                        quad_size: [cell_w, cell_h],
-                        flags: 0.0,
-                        bearing: [0.0; 2],
-                        glyph_advance_width: 0.0,
-                    });
-                } else if let Some(info) = font_pipeline.glyph_information(ch) {
-                    let uv_x = info.atlas_x as f32 / atlas_width;
-                    let uv_y = info.atlas_y as f32 / atlas_height;
-                    let uv_w = info.width as f32 / atlas_width;
-                    let uv_h = info.height as f32 / atlas_height;
-
-                    let bearing_x = info.placement.left as f32;
-                    let bearing_y = ascent_pixels - info.placement.top as f32;
-
-                    instances.push(CellInstance {
-                        quad_origin: [col as f32 * cell_w, row as f32 * cell_h],
-                        atlas_offset: [uv_x, uv_y],
-                        atlas_size: [uv_w, uv_h],
-                        fg_color: fg,
-                        bg_color: bg,
-                        quad_size: [cell_w, cell_h],
-                        flags: 0.0,
-                        bearing: [bearing_x, bearing_y],
-                        glyph_advance_width: info.advance_width,
-                    });
-                }
-            }
-        }
-    }
-    instances
-}
-
-/// Build `CellInstance` vec from `CellData` (thread-safe transport format).
+/// Convert pre-built `CellData` slices into GPU instance data.
 ///
-/// This is the new data path: `Vec<CellData>` arrives from the ghostty thread
-/// via flume, and this function converts each cell to a GPU instance.
-/// Selection/cursor highlighting is handled separately by the render thread.
+/// Takes selection and search highlight parameters so the renderer can
+/// apply visual feedback (selection background swap, search highlight
+/// overlay) without requiring a full GridSnapshot.
 ///
 /// Returns `None` if conversion fails (font atlas unavailable, etc.).
+#[allow(clippy::too_many_arguments)]
 pub fn build_instances_from_cell_data(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     _rows: u32,
-    _cols: u32,
+    cols: u32,
     cursor: CellCursor,
     font_pipeline: &mut crate::render::font::FontPipeline,
     atlas_width: f32,
     atlas_height: f32,
+    selection: Option<SelectionRange>,
+    selection_bg: Option<[f32; 4]>,
+    search_highlights: &[SearchHighlight],
 ) -> Option<Vec<CellInstance>> {
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let ascent_pixels = font_pipeline.ascent_pixels();
     let raster_scale = font_pipeline.get_raster_scale();
     let mut instances = Vec::with_capacity(cell_data.len());
 
+    let selection = selection.filter(|s| !s.is_empty);
+    let mut highlights_by_row: HashMap<i32, Vec<&SearchHighlight>> = HashMap::new();
+    for h in search_highlights {
+        highlights_by_row.entry(h.row).or_default().push(h);
+    }
+
     for cd in cell_data {
+        // Validate codepoint before conversion — invalid values should be
+        // caught in debug builds so terminal-content bugs don't hide.
+        debug_assert!(
+            char::from_u32(cd.codepoint).is_some(),
+            "cell_builder: invalid codepoint: {}",
+            cd.codepoint
+        );
         let ch = char::from_u32(cd.codepoint).unwrap_or(' ');
         let cell_span = cd.width.max(1) as f32;
-        let mut quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
+        let quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
         let mut fg_color = cd.fg_color;
         let mut bg_color = cd.bg_color;
         // SGR 7 reverse video: swap foreground and background colors
-        if (cd.flags >> 4) & 1 == 1 {
+        // Check reverse attribute (bit 2 in new layout matching old path's
+        // `cell.reverse` bit position used by pack_style_flags → shader).
+        if (cd.flags >> REVERSE_BIT) & 1 == 1 {
             std::mem::swap(&mut fg_color, &mut bg_color);
         }
-        let mut quad_size = [cell_w * cell_span, cell_h];
+
+        // Selection highlight: swap fg/bg or apply selection_bg color
+        if selection.unwrap_or_default().contains(cd.row, cd.col, cols) {
+            if let Some(sbg) = selection_bg {
+                bg_color = sbg;
+            } else {
+                std::mem::swap(&mut fg_color, &mut bg_color);
+            }
+        }
+        // Search highlight overlay (applied on top of selection)
+        if let Some(hl) = cell_highlight(cd.row, cd.col, &highlights_by_row) {
+            apply_search_highlight(&mut fg_color, &mut bg_color, *hl);
+        }
         let is_cursor = cursor.visible && cd.row == cursor.row && cd.col == cursor.col;
+        let effective_fg = fg_color;
+        let mut effective_bg = bg_color;
+        let mut cursor_marker: Option<([f32; 2], [f32; 2], [f32; 4])> = None;
+        // Default quad size (used for Block cursor and empty cells)
+        let quad_size = [cell_w * cell_span, cell_h];
+
         if is_cursor {
             let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-            let cursor_alpha = match cursor.style {
-                CursorStyle::Block => 0.7,
-                _ => 0.9,
-            };
-            bg_color = [
-                cursor_color[0],
-                cursor_color[1],
-                cursor_color[2],
-                cursor_color[3] * cursor_alpha,
-            ];
             match cursor.style {
+                CursorStyle::Block | CursorStyle::Default => {
+                    // Block cursor: keep text readable by using the original
+                    // foreground; only the background is replaced by cursor color
+                    // (semi-transparent overlay).
+                    effective_bg = [
+                        cursor_color[0],
+                        cursor_color[1],
+                        cursor_color[2],
+                        cursor_color[3] * 0.7,
+                    ];
+                }
                 CursorStyle::Bar => {
-                    quad_size = [cell_w * 0.15, cell_h];
+                    // Bar cursor: emit a thin vertical bar as a background quad,
+                    // then render glyph full-size with original colors on top.
+                    cursor_marker = Some((
+                        quad_origin,
+                        [cell_w * 0.15, cell_h],
+                        [
+                            cursor_color[0],
+                            cursor_color[1],
+                            cursor_color[2],
+                            cursor_color[3] * 0.9,
+                        ],
+                    ));
                 }
                 CursorStyle::Underline => {
-                    quad_size = [cell_w * cell_span, cell_h * 0.15];
-                    quad_origin[1] += cell_h * 0.85;
+                    // Underline cursor: emit a thin horizontal bar at bottom,
+                    // then render glyph full-size with original colors on top.
+                    cursor_marker = Some((
+                        [quad_origin[0], quad_origin[1] + cell_h * 0.85],
+                        [cell_w * cell_span, cell_h * 0.15],
+                        [
+                            cursor_color[0],
+                            cursor_color[1],
+                            cursor_color[2],
+                            cursor_color[3] * 0.9,
+                        ],
+                    ));
                 }
-                _ => {} // Block cursor uses full cell size
             }
         }
 
-        // Save the unmodified quad_size/origin for glyph rendering so
-        // Bar/Underline cursor styles don't clip the glyph.
+        // Full-size glyph quad dimensions (so combining marks etc. aren't clipped
+        // by Bar/Underline cursor marker size).
         let glyph_quad_size = [cell_w * cell_span, cell_h];
         let glyph_quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
 
-        // Always emit background quad (atlas_offset=[0,0] with glyph_advance_width=0
-        // means only the background color tile is drawn).
-        instances.push(CellInstance {
-            quad_origin,
-            atlas_offset: [0.0; 2],
-            atlas_size: [0.0; 2],
-            fg_color,
-            bg_color,
-            quad_size,
-            flags: cd.flags as f32,
-            bearing: [0.0; 2],
-            glyph_advance_width: 0.0,
-        });
-
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
-            // Empty cell — background already emitted above
+            // Empty cell: emit cursor marker (if any) but NOT the background
+            // quad — cursor marker itself serves as the background.
+            if let Some((qo, qs, bg)) = cursor_marker.take() {
+                instances.push(CellInstance {
+                    quad_origin: qo,
+                    atlas_offset: [0.0; 2],
+                    atlas_size: [0.0; 2],
+                    fg_color: effective_fg,
+                    bg_color: bg,
+                    quad_size: qs,
+                    flags: cd.flags as f32,
+                    bearing: [0.0; 2],
+                    glyph_advance_width: 0.0,
+                });
+            } else {
+                instances.push(CellInstance {
+                    quad_origin,
+                    atlas_offset: [0.0; 2],
+                    atlas_size: [0.0; 2],
+                    fg_color: effective_fg,
+                    bg_color: effective_bg,
+                    quad_size,
+                    flags: cd.flags as f32,
+                    bearing: [0.0; 2],
+                    glyph_advance_width: 0.0,
+                });
+            }
             continue;
         }
 
+        // Non-empty cell: emit glyph quad first, then cursor marker
+        // (if any; for Bar/Underline) on top so the thin bar/underline
+        // is visible over the glyph.
         // Primary glyph
         if let Some(info) = font_pipeline.glyph_information(ch) {
             let uv_x = info.atlas_x as f32 / atlas_width;
@@ -890,8 +299,8 @@ pub fn build_instances_from_cell_data(
                 quad_origin: glyph_quad_origin,
                 atlas_offset: [uv_x, uv_y],
                 atlas_size: [uv_w, uv_h],
-                fg_color,
-                bg_color,
+                fg_color: effective_fg,
+                bg_color: effective_bg,
                 quad_size: glyph_quad_size,
                 flags: cd.flags as f32,
                 bearing: [bearing_x, bearing_y],
@@ -927,14 +336,46 @@ pub fn build_instances_from_cell_data(
                     quad_origin: glyph_quad_origin,
                     atlas_offset: [uv_x, uv_y],
                     atlas_size: [uv_w, uv_h],
-                    fg_color,
-                    bg_color,
+                    fg_color: effective_fg,
+                    bg_color: effective_bg,
                     quad_size: glyph_quad_size,
                     flags: cd.flags as f32,
                     bearing: [bearing_x, bearing_y],
                     glyph_advance_width: 0.0,
                 });
             }
+        } else {
+            // Glyph not found in atlas – push a blank background quad so
+            // the cell background (including selection/highlight) is visible.
+            // The glyph will appear once font atlas is rebuilt.
+            instances.push(CellInstance {
+                quad_origin,
+                atlas_offset: [0.0; 2],
+                atlas_size: [0.0; 2],
+                fg_color: effective_fg,
+                bg_color: effective_bg,
+                quad_size,
+                flags: cd.flags as f32,
+                bearing: [0.0; 2],
+                glyph_advance_width: 0.0,
+            });
+        }
+
+        // Cursor marker (for Bar/Underline styles), drawn on top of glyph.
+        // Use flags=0 so cell style flags (dim, underline, strikethrough)
+        // from the cell aren't applied to the cursor marker.
+        if let Some((qo, qs, bg)) = cursor_marker.take() {
+            instances.push(CellInstance {
+                quad_origin: qo,
+                atlas_offset: [0.0; 2],
+                atlas_size: [0.0; 2],
+                fg_color: effective_fg,
+                bg_color: bg,
+                quad_size: qs,
+                flags: 0.0,
+                bearing: [0.0; 2],
+                glyph_advance_width: 0.0,
+            });
         }
     }
     Some(instances)

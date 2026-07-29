@@ -14,12 +14,12 @@
 pub mod font;
 pub mod renderdoc_capture;
 
-mod atlas;
 pub(crate) mod cell_builder;
 pub mod context;
+pub(crate) mod old_path;
 mod pass;
 mod pipeline;
-mod surface;
+pub(crate) mod wgpu_backend;
 
 #[cfg(test)]
 mod tests;
@@ -28,16 +28,16 @@ mod tests;
 pub use cell_builder::{CellCursor, build_instances_from_cell_data};
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
-pub(crate) use cell_builder::{
-    CellInstanceConfig, FlatGrid, SearchHighlight, SelectionRange, build_cell_instances_from_flat,
-    build_cell_instances_from_snapshot, build_cell_instances_into,
-};
-#[cfg(any(test, feature = "test-util"))]
-#[allow(unused_imports)]
-pub(crate) use cell_builder::{blend_highlight, cell_highlight, color_f32x4_eq};
+pub(crate) use cell_builder::{SearchHighlight, SelectionRange, blend_highlight, cell_highlight};
 pub use context::FrameContext;
 pub use context::Renderer;
 pub use context::orthographic_projection;
+#[cfg(any(test, feature = "test-util"))]
+#[allow(unused_imports)]
+pub(crate) use old_path::{
+    CellInstanceConfig, FlatGrid, build_cell_instances_from_flat,
+    build_cell_instances_from_snapshot, build_cell_instances_into, color_f32x4_eq,
+};
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
 pub(crate) use pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
@@ -162,13 +162,13 @@ impl KittyGraphicsInstance {
 pub mod gpu {
     #![allow(unused_imports)]
     pub use super::cell_builder::{CellCursor, build_instances_from_cell_data};
-    #[cfg(any(test, feature = "test-util"))]
-    pub use super::cell_builder::{
-        CellInstanceConfig, FlatGrid, SearchHighlight, SelectionRange,
-        build_cell_instances_from_flat, build_cell_instances_from_snapshot,
-        build_cell_instances_into,
-    };
+    pub use super::cell_builder::{SearchHighlight, SelectionRange};
     pub use super::context::{Renderer, orthographic_projection};
+    #[cfg(any(test, feature = "test-util"))]
+    pub use super::old_path::{
+        CellInstanceConfig, FlatGrid, build_cell_instances_from_flat,
+        build_cell_instances_from_snapshot, build_cell_instances_into,
+    };
     pub use super::pipeline::{GpuUniforms, image_active_value};
     pub use super::{
         CATPPUCCIN_MOCHA_BG, CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE,

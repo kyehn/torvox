@@ -11,6 +11,30 @@
 //!
 //! Events (bell, title, clipboard, exit) are pushed into a global queue
 //! and drained by Kotlin via `pollEvent()`.
+//!
+//! # Threading model (JNI call site assumptions)
+//!
+//! All JNI exports are called from Kotlin's main UI thread
+//! (Dispatchers.Main) unless otherwise noted.  The Kotlin side serialises
+//! calls to `initSession`, `destroySession`, `switchSession`, `resize`,
+//! `feedPty`, `writeKey`, `setSessionSavePath`, and `dialogResult` on a
+//! single coroutine context.
+//!
+//! `pollEvent` is called at frame rate (~16ms intervals) from a
+//! `LaunchedEffect` — also on the main thread.
+//!
+//! `setMcpEnabled` may be called from settings or during initialisation.
+//! It is safe from any thread.
+//!
+//! # Concurrency model
+//!
+//! - `SESSION_REGISTRY` is an `RwLock`; reads dominate writes.
+//! - `EVENT_QUEUE` is a `Mutex`; push/pop are fast.
+//! - Lock order: `SESSION_REGISTRY` → `Session` → (exit_code|last_save).
+//!   `EVENT_QUEUE` is locked independently and never while holding a
+//!   `Session` lock.
+//! - `ACTIVE_SESSION_ID` is an `AtomicU64` with `Acquire`/`Release` ordering.
+//!   ID 0 means "no active session".
 
 // Style: nested-if is an error-handling idiom for JNI; unused-mut is a
 // false positive with jni crate (new_string needs &mut self on some configs).
@@ -20,9 +44,10 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicU64;
 #[cfg(feature = "mcp")]
 use std::sync::atomic::Ordering;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{LazyLock, Mutex, RwLock};
 use std::time::{Duration, Instant};
 
+use crate::event::Event;
 use crate::lock_util::lock_or_recover;
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
@@ -41,6 +66,8 @@ use std::sync::Arc;
 type JNIEnvPtr = *mut std::ffi::c_void;
 #[cfg(target_os = "android")]
 type JObjectPtr = *mut std::ffi::c_void;
+#[cfg(target_os = "android")]
+use jni::sys::jobject;
 
 // SAFETY: These are publicly documented Android NDK functions obtained from
 // `libandroid.so`. The pointer arguments must be valid JNI environment and
@@ -67,12 +94,45 @@ struct SessionEntry {
     last_save: Mutex<Instant>,
 }
 
-/// Global session registry. Thread-safe via Mutex.
-static SESSION_REGISTRY: LazyLock<Mutex<HashMap<u64, SessionEntry>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+/// Global session registry. Thread-safe via RwLock (read-heavy workload).
+///
+/// # Lock ordering
+/// Hierarchy: SESSION_REGISTRY → Session → (exit_code|last_save).
+/// SESSION_REGISTRY is acquired before Session lock. EVENT_QUEUE is locked
+/// independently, never while holding Session or SESSION_REGISTRY.
+/// See [`crate::event::EventQueue`] for EVENT_QUEUE lock details.
+static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
 
+/// Lock SESSION_REGISTRY for reading, recovering from poison.
+fn rlock_session_registry() -> std::sync::RwLockReadGuard<'static, HashMap<u64, SessionEntry>> {
+    match SESSION_REGISTRY.read() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::warn!("SESSION_REGISTRY: read lock poisoned, recovered");
+            poisoned.into_inner()
+        }
+    }
+}
+
+/// Lock SESSION_REGISTRY for writing, recovering from poison.
+fn wlock_session_registry() -> std::sync::RwLockWriteGuard<'static, HashMap<u64, SessionEntry>> {
+    match SESSION_REGISTRY.write() {
+        Ok(guard) => guard,
+        Err(poisoned) => {
+            log::warn!("SESSION_REGISTRY: write lock poisoned, recovered");
+            poisoned.into_inner()
+        }
+    }
+}
+
+/// Monotonically increasing session ID counter.
+/// ID 0 is reserved (no session); valid IDs start at 1.
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+/// Active session handle, read by `pollEvent` and JNI exports.
+/// Sentinels: 0 = no active session; non-zero = session ID.
+/// Accessed with `Ordering::Acquire` (load) / `Ordering::Release` (store).
 static ACTIVE_SESSION_ID: AtomicU64 = AtomicU64::new(0);
 
 fn next_session_id() -> u64 {
@@ -83,64 +143,79 @@ fn next_session_id() -> u64 {
 // Event Queue
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Events emitted by sessions and consumed by Kotlin via `pollEvent()`.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub enum Event {
-    Title {
-        session_id: u64,
-        title: String,
-    },
-    Bell {
-        session_id: u64,
-    },
-    Clipboard {
-        session_id: u64,
-        text: String,
-    },
-    Exit {
-        session_id: u64,
-        code: i32,
-    },
-    /// Request Kotlin to show a dialog (input/confirm/select).
-    /// Kotlin responds by calling `dialogResult()` JNI.
-    #[cfg(feature = "mcp")]
-    ShowDialog {
-        session_id: u64,
-        request_id: u64,
-        dialog_type: String,
-        title: String,
-        message: String,
-    },
-    /// Request Kotlin to show a file picker (Android SAF / desktop).
-    /// Kotlin responds by calling `filePicked()` JNI.
-    #[cfg(feature = "mcp")]
-    PickFile {
-        session_id: u64,
-        request_id: u64,
-        starting_path: String,
-        filter: String,
-    },
-}
-
-/// Global event queue. Events are rare (<1 Hz), so Mutex contention is fine.
-static EVENT_QUEUE: LazyLock<Mutex<Vec<Event>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+/// Global event queue. Thread-safe via EventQueue wrapper.
+/// Lock ordering: SESSION_REGISTRY before EVENT_QUEUE.
+static EVENT_QUEUE: crate::event::EventQueue = crate::event::EventQueue::new();
 
 /// Monotonic counter for user-input request IDs.
 #[cfg(feature = "mcp")]
-#[allow(dead_code)]
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
 /// Registry for pending user-input requests (dialog / file picker).
 /// Keyed by (session_id, request_id) to support multiple concurrent dialogs.
 #[cfg(feature = "mcp")]
-#[allow(dead_code)]
 static REQUEST_REGISTRY: LazyLock<
     Mutex<HashMap<(u64, u64), tokio::sync::oneshot::Sender<String>>>,
 > = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Push an event into the global queue (called from Session polling).
+/// Encode modifier flags into a byte sequence for PTY input.
+///
+/// Modifier bitmask (custom, set by Kotlin `TerminalSurface`):
+/// - 1 = SHIFT (handled by Kotlin sending uppercase key directly)
+/// - 2 = ALT → prepend ESC (0x1B)
+/// - 4 = CTRL → convert to control character via `c & 0x1F`
+/// - 8 = META → prepend ESC (0x1B)
+/// - 16 = SUPER → OS handled
+///
+/// Ctrl mapping uses the standard ASCII formula `c & 0x1F`:
+///
+/// | Input | Ctrl+ | Result |
+/// |-------|-------|--------|
+/// | `a`/`A` … `z`/`Z` | `0x01` … `0x1A` | Ctrl+A … Ctrl+Z |
+/// | `@` `` ` `` | `0x00` (NUL) | Ctrl+@ / Ctrl+` |
+/// | `[` `{` | `0x1B` (ESC) | Ctrl+[ / Ctrl+{ |
+/// | `\` `\|` | `0x1C` (FS) | Ctrl+\ / Ctrl+\| |
+/// | `]` `}` | `0x1D` (GS) | Ctrl+] / Ctrl+} |
+/// | `^` `~` | `0x1E` (RS) | Ctrl+^ / Ctrl+~ |
+/// | `_` | `0x1F` (US) | Ctrl+_ |
+/// | space | `0x00` (NUL) | Ctrl+Space |
+///
+/// Named keys (Enter, Escape, Tab, etc.) are passed through unchanged
+/// because their `key_str` length exceeds 1.
+///
+/// Alt+key or Meta+key prepend ESC (0x1B) before the encoded key.
+/// Multiple modifiers combine: Alt+Ctrl+a → ESC + `0x01`.
+///
+/// NOTE: `writeKey` is currently NOT called from Kotlin (input goes through
+/// `feedPty` instead). This function is provided for future use.
+fn encode_modifiers(input: &[u8], mods: i32) -> Vec<u8> {
+    let ctrl = (mods & 4) != 0;
+    let alt_or_meta = (mods & (2 | 8)) != 0;
+
+    let mut output = Vec::with_capacity(input.len() + 2);
+
+    if alt_or_meta {
+        output.push(0x1B); // ESC prefix for Alt/Meta
+    }
+
+    if ctrl && input.len() == 1 {
+        let c = input[0];
+        // For printable ASCII (0x20-0x7E), apply the standard Ctrl
+        // formula c & 0x1F. Pre-existing control chars and non-ASCII
+        // bytes pass through unchanged.
+        if (0x20..=0x7E).contains(&c) {
+            output.push(c & 0x1F);
+            return output;
+        }
+    }
+
+    output.extend_from_slice(input);
+    output
+}
+
 pub(crate) fn push_event(event: Event) {
-    lock_or_recover(&EVENT_QUEUE, "ffi: push_event").push(event);
+    EVENT_QUEUE.push(event);
 }
 
 /// Save interval for periodic persistence.
@@ -152,15 +227,10 @@ pub(crate) fn maybe_save_session(
     session: &crate::terminal::session::Session,
     last_save: &Mutex<Instant>,
 ) {
-    let elapsed = last_save
-        .lock()
-        .map(|t| t.elapsed())
-        .unwrap_or(Duration::MAX);
+    let elapsed = lock_or_recover(last_save, "ffi: maybe_save_session").elapsed();
     if elapsed >= Duration::from_secs(SAVE_INTERVAL_SECS) {
         if session.save_session() {
-            if let Ok(mut t) = last_save.lock() {
-                *t = Instant::now();
-            }
+            *lock_or_recover(last_save, "ffi: maybe_save_session save") = Instant::now();
         }
     }
 }
@@ -168,13 +238,11 @@ pub(crate) fn maybe_save_session(
 /// Register a pending user-input request and return the receiver.
 /// Kotlin will send the response via `dialogResult` JNI.
 #[cfg(feature = "mcp")]
-#[allow(dead_code)]
 pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::Receiver<String>) {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-    if let Ok(mut registry) = REQUEST_REGISTRY.lock() {
-        registry.insert((session_id, request_id), tx);
-    }
+    lock_or_recover(&REQUEST_REGISTRY, "ffi: register_request")
+        .insert((session_id, request_id), tx);
     (request_id, rx)
 }
 
@@ -191,8 +259,26 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_initSession(
     rows: jint,
     cols: jint,
 ) -> jlong {
-    let rows = rows as u32;
-    let cols = cols as u32;
+    let rows = match u32::try_from(rows) {
+        Ok(r) => r,
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "initSession: rows must be non-negative",
+            );
+            return 0;
+        }
+    };
+    let cols = match u32::try_from(cols) {
+        Ok(c) => c,
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "initSession: cols must be non-negative",
+            );
+            return 0;
+        }
+    };
 
     match Session::spawn("", rows, cols, &ShellEnv::default()) {
         Ok(mut session) => {
@@ -203,10 +289,12 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_initSession(
                 last_save: Mutex::new(Instant::now()),
             };
 
-            let mut registry = lock_or_recover(&SESSION_REGISTRY, "ffi: initSession");
+            let mut registry = wlock_session_registry();
             registry.insert(id, entry);
-            if ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Relaxed) == 0 {
-                ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Relaxed);
+            if ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire) == 0 {
+                ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Release);
+                #[cfg(feature = "mcp")]
+                crate::mcp::global_state().set_active_session_id(id);
             }
 
             log::info!("FFI: initSession -> id={}", id);
@@ -234,9 +322,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_destroySession(
     session_id: jlong,
 ) -> jboolean {
     let id = session_id as u64;
-    let removed = lock_or_recover(&SESSION_REGISTRY, "ffi: destroySession")
-        .remove(&id)
-        .is_some();
+    let removed = wlock_session_registry().remove(&id).is_some();
 
     if removed {
         // If we removed the active session, clear the active ID
@@ -244,7 +330,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_destroySession(
             .compare_exchange(
                 id,
                 0,
-                std::sync::atomic::Ordering::Relaxed,
+                std::sync::atomic::Ordering::Acquire,
                 std::sync::atomic::Ordering::Relaxed,
             )
             .ok();
@@ -268,10 +354,12 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_switchSession(
     session_id: jlong,
 ) -> jboolean {
     let id = session_id as u64;
-    let exists = lock_or_recover(&SESSION_REGISTRY, "ffi: switchSession").contains_key(&id);
+    let exists = rlock_session_registry().contains_key(&id);
 
     if exists {
-        ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Relaxed);
+        ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Release);
+        #[cfg(feature = "mcp")]
+        crate::mcp::global_state().set_active_session_id(id);
         JNI_TRUE
     } else {
         log::warn!("FFI: switchSession id={} not found", id);
@@ -289,7 +377,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_getSessionCount(
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
-    SESSION_REGISTRY.lock().map(|r| r.len() as i32).unwrap_or(0)
+    rlock_session_registry().len() as i32
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -306,11 +394,31 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_resize(
     cols: jint,
 ) {
     let id = session_id as u64;
-    let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: resize");
+    let registry = rlock_session_registry();
     if let Some(entry) = registry.get(&id) {
         match entry.session.lock() {
             Ok(mut session) => {
-                if let Err(e) = session.resize(rows as u32, cols as u32) {
+                let rows = match u32::try_from(rows) {
+                    Ok(r) => r,
+                    Err(_) => {
+                        let _ = env.throw_new(
+                            "java/lang/IllegalArgumentException",
+                            "resize: rows must be non-negative",
+                        );
+                        return;
+                    }
+                };
+                let cols = match u32::try_from(cols) {
+                    Ok(c) => c,
+                    Err(_) => {
+                        let _ = env.throw_new(
+                            "java/lang/IllegalArgumentException",
+                            "resize: cols must be non-negative",
+                        );
+                        return;
+                    }
+                };
+                if let Err(e) = session.resize(rows, cols) {
                     if let Err(e) =
                         env.throw_new("java/lang/RuntimeException", format!("resize: failed: {e}"))
                     {
@@ -355,7 +463,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_feedPty(
         }
     };
 
-    let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: feedPty");
+    let registry = rlock_session_registry();
     if let Some(entry) = registry.get(&id) {
         match entry.session.lock() {
             Ok(mut session) => {
@@ -389,6 +497,14 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_feedPty(
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Encode and submit a key event to the session.
+///
+/// NOTE: This JNI function is declared in NativeBridge.kt but currently NOT
+/// called from Kotlin — all keyboard input flows through `feedPty` with
+/// pre-encoded bytes. This implementation is provided for future use when
+/// the Kotlin side switches to Ghostty's key encoder (the modern path in
+/// `internal.rs` which handles Kitty keyboard protocol, compose sequences,
+/// and proper modifier encoding).
+///
 /// `key` is the key name (e.g., "a", "Enter", "Escape").
 /// `mods` is a bitmask of modifiers (1=shift, 2=alt, 4=ctrl, 8=meta, 16=super).
 /// `text` is optional composed text (for IME input).
@@ -399,7 +515,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
     _class: JClass,
     session_id: jlong,
     key: JString,
-    _mods: jint,
+    mods: jint,
     text: JString,
 ) {
     let id = session_id as u64;
@@ -416,7 +532,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
     };
     let has_text = !text.is_null();
 
-    let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: writeKey");
+    let registry = rlock_session_registry();
     if let Some(entry) = registry.get(&id) {
         match entry.session.lock() {
             Ok(mut session) => {
@@ -432,7 +548,12 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
                         }
                     }
                 } else {
-                    session.write(key_str.as_bytes())
+                    // Encode modifiers into the key byte sequence.
+                    // This is a basic encoder; the modern Ghostty key
+                    // encoder path (internal.rs key::Encoder + key::Event)
+                    // should be used for full Kitty keyboard protocol support.
+                    let bytes = encode_modifiers(key_str.as_bytes(), mods);
+                    session.write(&bytes)
                 };
                 if let Err(e) = result {
                     if let Err(e) = env.throw_new(
@@ -468,48 +589,68 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
 /// (every ~16ms) in a LaunchedEffect.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
-    env: JNIEnv<'local>,
+    mut env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> jstring {
     // Step 1: Poll the active session for new events.
-    let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Relaxed);
+    // Collect events first, then push them after dropping the session lock
+    // to maintain the lock order: SESSION_REGISTRY → Session, then EVENT_QUEUE.
+    // Never lock EVENT_QUEUE while holding a Session lock.
+    let mut pending_events: Vec<Event> = Vec::new();
+    let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
     if active_id != 0 {
-        let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: pollEvent");
-        if let Some(entry) = registry.get(&active_id) {
-            if let Ok(session) = entry.session.lock() {
-                // Check bell
-                if session.poll_bel() {
-                    push_event(Event::Bell {
-                        session_id: active_id,
-                    });
+        if let Some(entry) = rlock_session_registry().get(&active_id) {
+            let session = match entry.session.lock() {
+                Ok(guard) => guard,
+                Err(_poisoned) => {
+                    log::error!("pollEvent: session lock poisoned for session {active_id}");
+                    let _ = env.throw_new(
+                        "java/lang/RuntimeException",
+                        "pollEvent: session lock poisoned",
+                    );
+                    return std::ptr::null_mut();
                 }
-                // Check clipboard
-                if let Some(text) = session.poll_clipboard() {
-                    push_event(Event::Clipboard {
-                        session_id: active_id,
-                        text,
-                    });
-                }
-                // Check exit
-                if session.is_exited() {
-                    let code = *lock_or_recover(&session.exit_code, "ffi: pollEvent exit_code")
-                        .as_ref()
-                        .unwrap_or(&0);
-                    push_event(Event::Exit {
-                        session_id: active_id,
-                        code,
-                    });
-                }
+            };
+            // Check bell
+            if session.poll_bel() {
+                pending_events.push(Event::Bell {
+                    session_id: active_id,
+                });
             }
+            // Check clipboard
+            if let Some(text) = session.poll_clipboard() {
+                pending_events.push(Event::Clipboard {
+                    session_id: active_id,
+                    text,
+                });
+            }
+            // Check exit
+            if session.is_exited() {
+                let code = *lock_or_recover(&session.exit_code, "ffi: pollEvent exit_code")
+                    .as_ref()
+                    .unwrap_or(&0);
+                pending_events.push(Event::Exit {
+                    session_id: active_id,
+                    code,
+                });
+            }
+            // Session lock and registry read lock are dropped here.
+        }
+        // Push collected events — no Session or SESSION_REGISTRY locks held.
+        for event in pending_events {
+            EVENT_QUEUE.push(event);
         }
     }
 
     // Step 2: Drain one event from the queue.
-    let event = lock_or_recover(&EVENT_QUEUE, "ffi: pollEvent drain").pop();
+    let event = EVENT_QUEUE.pop();
 
     match event {
         Some(e) => {
-            let json = serde_json::to_string(&e).unwrap_or_default();
+            let json = serde_json::to_string(&e).unwrap_or_else(|err| {
+                log::error!("pollEvent: event serialization failed: {err}");
+                String::new()
+            });
             match env.new_string(&json) {
                 Ok(s) => s.into_raw(),
                 Err(_) => std::ptr::null_mut(),
@@ -594,7 +735,65 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_setMcpEnabled(
     enabled: jboolean,
 ) {
     #[cfg(feature = "mcp")]
-    crate::mcp::set_enabled(enabled == JNI_TRUE);
+    {
+        // Register dialog / pick_file callbacks once (they bridge
+        // from the MCP thread into the JNI event queue).
+        static MCP_HANDLERS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+        MCP_HANDLERS.get_or_init(|| {
+            let state = crate::mcp::global_state();
+            state.set_dialog_handler(
+                |session_id: u64,
+                 dialog_type: String,
+                 title: String,
+                 message: String,
+                 options: Vec<String>|
+                 -> tokio::sync::oneshot::Receiver<String> {
+                    let (request_id, rx) = register_request(session_id);
+                    push_event(Event::ShowDialog {
+                        session_id,
+                        request_id,
+                        dialog_type,
+                        title,
+                        message,
+                        options,
+                    });
+                    rx
+                },
+            );
+            state.set_pick_file_handler(
+                |session_id: u64,
+                 starting_path: String,
+                 filter: String|
+                 -> tokio::sync::oneshot::Receiver<String> {
+                    let (request_id, rx) = register_request(session_id);
+                    push_event(Event::PickFile {
+                        session_id,
+                        request_id,
+                        starting_path,
+                        filter,
+                    });
+                    rx
+                },
+            );
+            state.set_send_signal_handler(|session_id: u64, signum: i32| -> String {
+                let guard = match SESSION_REGISTRY.read() {
+                    Ok(g) => g,
+                    Err(e) => return format!("SESSION_REGISTRY poisoned: {e}"),
+                };
+                match guard.get(&session_id) {
+                    Some(entry) => match entry.session.lock() {
+                        Ok(session) => match session.send_signal(signum) {
+                            Ok(()) => format!("Signal {signum} sent to session {session_id}"),
+                            Err(e) => format!("send_signal failed: {e}"),
+                        },
+                        Err(e) => format!("Session lock poisoned: {e}"),
+                    },
+                    None => format!("Session {session_id} not found"),
+                }
+            });
+        });
+        crate::mcp::set_enabled(enabled == JNI_TRUE);
+    }
     #[cfg(not(feature = "mcp"))]
     let _ = enabled;
 }
@@ -612,12 +811,33 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_setSessionSavePath<'loca
     path: JString<'local>,
 ) {
     let id = session_id as u64;
-    let path_str: String = env.get_string(&path).map(|s| s.into()).unwrap_or_default();
-    let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: setSessionSavePath");
-    if let Some(entry) = registry.get(&id) {
-        if let Ok(mut session) = entry.session.lock() {
-            session.set_save_path(&path_str);
+    let path_str: String = match env.get_string(&path) {
+        Ok(s) => s.into(),
+        Err(e) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                format!("setSessionSavePath: invalid path string: {e}"),
+            );
+            return;
         }
+    };
+    let registry = rlock_session_registry();
+    if let Some(entry) = registry.get(&id) {
+        match entry.session.lock() {
+            Ok(mut guard) => {
+                guard.set_save_path(&path_str);
+            }
+            Err(_poisoned) => {
+                let msg = "setSessionSavePath: session lock poisoned";
+                log::error!("{msg}");
+                let _ = env.throw_new("java/lang/RuntimeException", msg);
+            }
+        }
+    } else {
+        let _ = env.throw_new(
+            "java/lang/IllegalArgumentException",
+            format!("setSessionSavePath: session {id} not found"),
+        );
     }
 }
 
@@ -641,14 +861,14 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_dialogResult<'local>(
     let request_id = request_id as u64;
 
     // Look up the pending request sender and send the result
-    if let Ok(mut registry) = REQUEST_REGISTRY.lock() {
-        if let Some(tx) = registry.remove(&(session_id, request_id)) {
-            let result_str: String = env
-                .get_string(&result)
-                .map(|s| s.into())
-                .unwrap_or_default();
-            let _ = tx.send(result_str);
-        }
+    if let Some(tx) =
+        lock_or_recover(&REQUEST_REGISTRY, "ffi: dialogResult").remove(&(session_id, request_id))
+    {
+        let result_str: String = env
+            .get_string(&result)
+            .map(|s| s.into())
+            .unwrap_or_default();
+        let _ = tx.send(result_str);
     }
 }
 // ══════════════════════════════════════════════════════════════════════════
@@ -659,10 +879,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_listSessions<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> jstring {
-    let ids: Vec<u64> = SESSION_REGISTRY
-        .lock()
-        .map(|r| r.keys().copied().collect())
-        .unwrap_or_default();
+    let ids: Vec<u64> = rlock_session_registry().keys().copied().collect();
 
     let json = serde_json::to_string(&ids).unwrap_or_else(|_| "[]".into());
     match env.new_string(&json) {
