@@ -10,11 +10,9 @@ use std::thread;
 use flume::Sender;
 
 mod commands;
-mod helpers;
 mod internal;
 mod keymap;
 mod public_api;
-mod snapshot;
 mod types;
 
 pub use commands::Command;
@@ -33,6 +31,9 @@ pub struct GhosttyTerminal {
     /// return errors instead of silently sending commands into a dead channel.
     #[allow(dead_code)]
     pub(crate) panicked: Arc<AtomicBool>,
+    /// Last byte written by `pty_write()`, used to detect `\r`/`\n` split
+    /// across consecutive write chunks. Prevents spurious `\r\r\n`.
+    pub(crate) last_pty_write_byte: u8,
 }
 
 impl Drop for GhosttyTerminal {

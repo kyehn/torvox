@@ -99,10 +99,11 @@ impl OutputProcessor {
         }
 
         let filtered = self.osc_handler.output();
-        if filtered.contains(&0x07) {
+        let marker = extract_osc133(filtered);
+        if marker.is_none() && filtered.contains(&0x07) {
             snapshot.bel = true;
         }
-        if let Some(marker) = extract_osc133(filtered) {
+        if let Some(marker) = marker {
             snapshot.shell_integration = marker;
         }
         snapshot.filtered = filtered.to_vec();

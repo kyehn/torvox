@@ -1,6 +1,7 @@
 pub mod atlas;
 pub mod cjk;
 pub mod font_db;
+pub mod glyph_cache;
 pub mod pipeline;
 pub mod rasterization;
 pub mod shaping;
