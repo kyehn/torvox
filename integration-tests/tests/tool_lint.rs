@@ -272,11 +272,9 @@ fn doc_module_has_requirements() {
     let mut found_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
     let crates = [
-        "terminal-core/src",
-        "terminal-engine/src",
-        "gpu-renderer/src",
-        "android-gui/src",
-        "mcp-server/src",
+        "native/src/terminal",
+        "native/src/render",
+        "native/src/android",
     ];
     let exempt_files: std::collections::BTreeSet<&str> = [
         "lib.rs",
@@ -412,20 +410,6 @@ fn cargo_ndk_is_available() {
 }
 
 #[test]
-fn core_forbids_unsafe_code() {
-    let lib_rs = std::path::Path::new(WORKSPACE)
-        .join("terminal-core")
-        .join("src")
-        .join("lib.rs");
-    let content = std::fs::read_to_string(&lib_rs)
-        .unwrap_or_else(|e| panic!("failed to read {}: {e}", lib_rs.display()));
-    assert!(
-        content.contains("#![forbid(unsafe_code)]"),
-        "terminal-core/src/lib.rs must contain #![forbid(unsafe_code)]"
-    );
-}
-
-#[test]
 fn nu_scripts_are_valid() {
     let scripts_dir = std::path::Path::new(WORKSPACE).join("scripts");
     let allowed: std::collections::HashSet<&str> = [
@@ -528,22 +512,4 @@ fn no_code_duplication() {
         output.status.success(),
         "jscpd found duplicated code:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
-}
-
-#[test]
-fn cargo_geiger_finds_no_unsafe_in_core() {
-    let output = std::process::Command::new("cargo")
-        .args(["geiger", "--package", "terminal-core"])
-        .current_dir(std::path::Path::new(WORKSPACE).join("terminal-core"))
-        .output()
-        .expect("cargo-geiger must be installed (try `nix develop`)");
-    if !String::from_utf8_lossy(&output.stdout).contains(":) terminal-core") {
-        let dump = std::env::temp_dir().join("geiger-output.txt");
-        std::fs::write(&dump, &output.stdout).ok();
-        std::fs::write(dump.with_extension("stderr"), &output.stderr).ok();
-        panic!(
-            "terminal-core has unsafe code or cargo geiger failed. Full output: {}",
-            dump.display()
-        );
-    }
 }

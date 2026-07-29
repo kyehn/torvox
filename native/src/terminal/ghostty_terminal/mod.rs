@@ -3,7 +3,7 @@
 //! Wraps the Ghostty VT parser in a thread-safe terminal engine with
 //! command-based communication between the PTY reader and render thread.
 
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -29,6 +29,10 @@ pub struct GhosttyTerminal {
     pub(crate) pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
     pub(crate) snapshot_cache: Mutex<SnapshotCache>,
     pub(crate) snapshot_rebuild_count: Arc<AtomicU64>,
+    /// Set to true if the terminal thread panicked. All subsequent operations
+    /// return errors instead of silently sending commands into a dead channel.
+    #[allow(dead_code)]
+    pub(crate) panicked: Arc<AtomicBool>,
 }
 
 impl Drop for GhosttyTerminal {

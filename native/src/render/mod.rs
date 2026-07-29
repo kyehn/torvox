@@ -42,7 +42,6 @@ pub use context::orthographic_projection;
 #[allow(unused_imports)]
 pub(crate) use pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
 pub use pipeline::{GpuUniforms, image_active_value};
-pub(crate) use surface::NativeWindow;
 
 // ── Public Constants ─────────────────────────────────────────────────────
 pub const RENDER_SCALE: f32 = 1.0;

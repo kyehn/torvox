@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -50,6 +50,8 @@ impl super::GhosttyTerminal {
         let pty_for_run = pty_write_responses.clone();
         let snapshot_rebuild_count = Arc::new(AtomicU64::new(0));
         let snapshot_rebuild_count_for_run = snapshot_rebuild_count.clone();
+        let panicked = Arc::new(AtomicBool::new(false));
+        let panicked_for_run = panicked.clone();
         let handle = thread::Builder::new()
             .name("ghostty-terminal".into())
             .spawn(move || {
@@ -75,6 +77,9 @@ impl super::GhosttyTerminal {
                         .or_else(|| panic.downcast_ref::<&str>().copied())
                         .unwrap_or("unknown panic payload");
                     log::error!("ghostty_terminal thread panicked: {msg}");
+                    // Mark all future operations as failed so callers
+                    // don't silently send commands into a dead channel.
+                    panicked_for_run.store(true, Ordering::Release);
                 }
             })
             .map_err(|e| format!("failed to spawn terminal thread: {e}"))?;
@@ -91,6 +96,7 @@ impl super::GhosttyTerminal {
                 pending_rx: None,
                 initialized: false,
             }),
+            panicked,
         })
     }
 
@@ -278,20 +284,26 @@ impl super::GhosttyTerminal {
             // First call: issue a command so the cache populates next frame,
             // then return None (the surface skips this one frame).
             let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
-            let _ = self
+            if self
                 .cmd_tx
-                .send(Command::TakeSnapshot { tx, scroll_offset });
-            cache.pending_rx = Some(rx);
+                .send(Command::TakeSnapshot { tx, scroll_offset })
+                .is_ok()
+            {
+                cache.pending_rx = Some(rx);
+            }
             cache.initialized = true;
             return None;
         }
 
         // Issue a command for the next frame's snapshot.
         let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
-        let _ = self
+        if self
             .cmd_tx
-            .send(Command::TakeSnapshot { tx, scroll_offset });
-        cache.pending_rx = Some(rx);
+            .send(Command::TakeSnapshot { tx, scroll_offset })
+            .is_ok()
+        {
+            cache.pending_rx = Some(rx);
+        }
 
         Some(Arc::unwrap_or_clone(cache.cached.clone()))
     }

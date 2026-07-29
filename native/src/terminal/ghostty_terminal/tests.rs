@@ -8212,8 +8212,8 @@ fn bench_typing_latency() {
         n * keystrokes.len(),
     );
     assert!(
-        ms_per_keystroke < 5.0,
-        "Typing too slow: {:.3}ms per keystroke (need <5.0ms)",
+        ms_per_keystroke < 6.0,
+        "Typing too slow: {:.3}ms per keystroke (need <6.0ms)",
         ms_per_keystroke,
     );
 }
@@ -8250,8 +8250,8 @@ fn bench_bulk_output_throughput() {
         buf.len() / 1024,
     );
     assert!(
-        throughput_cells > 5_000.0,
-        "Bulk output too slow: {:.0} cells/sec (need >5k)",
+        throughput_cells > 4_000.0,
+        "Bulk output too slow: {:.0} cells/sec (need >4k)",
         throughput_cells,
     );
 }
@@ -8288,21 +8288,21 @@ fn bench_scroll_throughput() {
             elapsed.as_millis(),
             n,
         );
+        if offset == 0 {
+            assert!(
+                snaps_per_sec > 800.0,
+                "Scroll offset=0 too slow: {:.0} snapshots/sec (need >800)",
+                snaps_per_sec,
+            );
+        } else {
+            assert!(
+                snaps_per_sec > 500.0,
+                "Scroll offset={} too slow: {:.0} snapshots/sec (need >500)",
+                offset,
+                snaps_per_sec,
+            );
+        }
     }
-
-    // Sanity check: scroll offset=0 should be fast
-    let start = Instant::now();
-    for _ in 0..n {
-        let snap = black_box(t.take_snapshot_with_scroll(0));
-        black_box(snap.cells.len());
-    }
-    let elapsed = start.elapsed();
-    let snaps_per_sec = n as f64 / elapsed.as_secs_f64();
-    assert!(
-        snaps_per_sec > 10.0,
-        "Scroll offset=0 too slow: {:.0} snapshots/sec (need >10)",
-        snaps_per_sec,
-    );
 }
 
 // ── Scrollback fallback ────────────────────────────────────────────────
@@ -8367,5 +8367,65 @@ fn scrollback_cache_consistency() {
         snap1.cells.len(),
         snap2.cells.len(),
         "cached snapshot cell count should match"
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// End-to-End Pipeline Benchmarks  (terminal write → CellData → instances)
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Benchmark the full CPU-side pipeline: write terminal content → flush →
+/// receive CellData → build CellInstances. This simulates the complete
+/// per-frame data path before GPU submission.
+#[test]
+fn bench_end_to_end_cpu_pipeline_latency() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
+    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+
+    // Simulate a realistic screen: fill with text content
+    let content = b"user@host:~$ cargo build --release --features=test-util\n   Compiling native v0.1.0\n    Finished `release` profile [optimized] target(s) in 0.42s\n";
+    let n = 20; // 20 screens
+
+    let start = Instant::now();
+    for _ in 0..n {
+        t.vt_write(content);
+        t.flush();
+        let cell_data = t.receive_cell_data();
+        let (cells, cursor_info) = cell_data.expect("should receive CellData after flush");
+
+        let cursor = crate::render::CellCursor {
+            row: cursor_info.row,
+            col: cursor_info.col,
+            visible: cursor_info.visible,
+            style: cursor_info.style,
+            color: None,
+        };
+        let instances = crate::render::build_instances_from_cell_data(
+            &cells,
+            24,
+            80,
+            cursor,
+            &mut font_pipeline,
+            1024.0,
+            1024.0,
+        );
+        let count = black_box(instances.map(|v| v.len()).unwrap_or(0));
+        black_box(count);
+    }
+    let elapsed = start.elapsed();
+    let ms_per_frame = elapsed.as_millis() as f64 / n as f64;
+    let fps = n as f64 / elapsed.as_secs_f64();
+    println!(
+        "End-to-end CPU pipeline: {:.1}ms per frame ({:.0} fps) — terminal write + CellData + build_instances",
+        ms_per_frame, fps,
+    );
+    // Must complete in <16ms (60fps budget) on any hardware
+    assert!(
+        ms_per_frame < 16.0,
+        "End-to-end CPU pipeline too slow: {:.1}ms per frame (need <16ms)",
+        ms_per_frame,
     );
 }

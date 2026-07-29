@@ -44,6 +44,8 @@ use serde_json::json;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+
+use crate::lock_util::lock_or_recover;
 use tower_mcp::{
     CallToolResult, McpRouter, StdioTransport, Tool, ToolBuilder, UnixSocketTransport,
     schemars::JsonSchema,
@@ -107,23 +109,23 @@ impl McpState {
     }
 
     pub fn set_notify_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
-        *self.0.on_notify.lock().unwrap() = Some(Box::new(f));
+        *lock_or_recover(&self.0.on_notify, "mcp: set_notify") = Some(Box::new(f));
     }
 
     pub fn set_toast_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
-        *self.0.on_toast.lock().unwrap() = Some(Box::new(f));
+        *lock_or_recover(&self.0.on_toast, "mcp: set_toast") = Some(Box::new(f));
     }
 
     pub fn set_open_url_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
-        *self.0.on_open_url.lock().unwrap() = Some(Box::new(f));
+        *lock_or_recover(&self.0.on_open_url, "mcp: set_open_url") = Some(Box::new(f));
     }
 
     pub fn set_clipboard_get_handler<F: Fn() -> String + Send + 'static>(&self, f: F) {
-        *self.0.on_clipboard_get.lock().unwrap() = Some(Box::new(f));
+        *lock_or_recover(&self.0.on_clipboard_get, "mcp: set_clipboard_get") = Some(Box::new(f));
     }
 
     pub fn set_clipboard_set_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
-        *self.0.on_clipboard_set.lock().unwrap() = Some(Box::new(f));
+        *lock_or_recover(&self.0.on_clipboard_set, "mcp: set_clipboard_set") = Some(Box::new(f));
     }
 }
 
@@ -195,7 +197,7 @@ fn clipboard_get_tool() -> Tool {
         .description("Read the current system clipboard text")
         .no_params_handler(|| async move {
             let state = global_state();
-            let guard = state.0.on_clipboard_get.lock().unwrap();
+            let guard = lock_or_recover(&state.0.on_clipboard_get, "mcp: clipboard_get_handler");
             match guard.as_ref() {
                 Some(f) => Ok(CallToolResult::text(f())),
                 None => Ok(CallToolResult::error(
@@ -212,7 +214,7 @@ fn clipboard_set_tool() -> Tool {
         .description("Write text to the system clipboard")
         .handler(|input: ClipboardSetInput| async move {
             let state = global_state();
-            let guard = state.0.on_clipboard_set.lock().unwrap();
+            let guard = lock_or_recover(&state.0.on_clipboard_set, "mcp: clipboard_set_handler");
             match guard.as_ref() {
                 Some(f) => {
                     f(input.text);
@@ -230,7 +232,7 @@ fn notify_tool() -> Tool {
         .description("Show a system notification with title and body")
         .handler(|input: NotifyInput| async move {
             let state = global_state();
-            let guard = state.0.on_notify.lock().unwrap();
+            let guard = lock_or_recover(&state.0.on_notify, "mcp: notify_handler");
             match guard.as_ref() {
                 Some(f) => {
                     let msg = if input.body.is_empty() {
@@ -253,7 +255,7 @@ fn toast_tool() -> Tool {
         .description("Show a brief toast message on screen")
         .handler(|input: ToastInput| async move {
             let state = global_state();
-            let guard = state.0.on_toast.lock().unwrap();
+            let guard = lock_or_recover(&state.0.on_toast, "mcp: toast_handler");
             match guard.as_ref() {
                 Some(f) => {
                     f(input.text);
@@ -271,7 +273,7 @@ fn open_url_tool() -> Tool {
         .description("Open a URL in the default browser")
         .handler(|input: OpenUrlInput| async move {
             let state = global_state();
-            let guard = state.0.on_open_url.lock().unwrap();
+            let guard = lock_or_recover(&state.0.on_open_url, "mcp: open_url_handler");
             match guard.as_ref() {
                 Some(f) => {
                     f(input.url);
@@ -406,15 +408,22 @@ fn socket_path() -> String {
 /// AI agents connect via `.mcp.json` with `"type": "unix"` and
 /// `"path": "/tmp/mcp.sock"`.
 pub fn start() {
-    if !is_enabled() {
-        log::info!("MCP server is disabled via settings");
+    // Check both is_enabled AND MCP_THREAD under a single lock acquisition
+    // to prevent TOCTOU between the two checks.
+    let mut guard = match MCP_THREAD.lock() {
+        Ok(g) => g,
+        Err(poisoned) => {
+            log::error!("MCP_THREAD lock poisoned in start()");
+            poisoned.into_inner()
+        }
+    };
+    if guard.is_some() {
+        log::info!("MCP server already running");
         return;
     }
-    // Don't start if already running
-    if let Ok(guard) = MCP_THREAD.lock()
-        && guard.is_some()
-    {
-        log::info!("MCP server already running");
+    // Re-check enabled under lock to catch set_enabled(false) just before us
+    if !is_enabled() {
+        log::info!("MCP server is disabled via settings");
         return;
     }
 
@@ -431,10 +440,16 @@ pub fn start() {
     log::info!("MCP server starting on Unix socket: {path}");
 
     let handle = std::thread::spawn(move || {
-        let rt = tokio::runtime::Builder::new_current_thread()
+        let rt = match tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .build()
-            .expect("failed to build tokio runtime for MCP");
+        {
+            Ok(r) => r,
+            Err(e) => {
+                log::error!("MCP server: failed to build tokio runtime: {e}");
+                return;
+            }
+        };
 
         rt.block_on(async {
             let router = build_router();
@@ -446,17 +461,34 @@ pub fn start() {
         });
     });
 
-    // Store JoinHandle for later stop
-    if let Ok(mut guard) = MCP_THREAD.lock() {
-        *guard = Some(handle);
-    }
+    // Store JoinHandle for later stop — guard is still held from the
+    // check-and-lock above, so no TOCTOU window exists.
+    *guard = Some(handle);
 }
 
 /// Stop the MCP server.
+///
+/// Deletes the Unix socket file and attempts a graceful join of the server
+/// thread. If the thread is blocked in `accept()`, it may take a few seconds
+/// to notice the deleted socket (on Linux) or wait until process exit.
+/// This is acceptable for a terminal emulator — `stop()` is called on
+/// preferences changes, not in hot paths.
 pub fn stop() {
-    if let Ok(mut guard) = MCP_THREAD.lock()
-        && guard.take().is_some()
-    {
+    // Take the handle OUT of the lock, then drop the lock immediately
+    // so handle.join() is NOT called while holding MCP_THREAD.
+    let handle = match MCP_THREAD.lock() {
+        Ok(mut guard) => guard.take(),
+        Err(poisoned) => {
+            log::error!("MCP_THREAD lock poisoned in stop()");
+            poisoned.into_inner().take()
+        }
+    };
+    // guard dropped here — lock released before join()
+
+    if let Some(handle) = handle {
+        let path = socket_path();
+        let _ = std::fs::remove_file(&path);
+        let _ = handle.join();
         log::info!("MCP server stopped");
     }
 }

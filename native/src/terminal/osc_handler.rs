@@ -265,7 +265,18 @@ impl OscHandler {
     fn ensure_output_capacity(&mut self, additional: usize) {
         let needed = self.output_buf.len() + additional;
         if self.output_buf.capacity() < needed {
-            self.output_buf.resize(needed, 0);
+            // Harden against extreme capacity requests that could cause
+            // integer overflow or OOM. 1 MB is far beyond any valid OSC
+            // sequence — most are <4 KB.
+            if needed > 1_048_576 {
+                log::warn!(
+                    "OSC output buffer requested {} bytes (current capacity {}), capping at 1 MB",
+                    needed,
+                    self.output_buf.capacity()
+                );
+                return;
+            }
+            self.output_buf.reserve(additional);
         }
     }
 

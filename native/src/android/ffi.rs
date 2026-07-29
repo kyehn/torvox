@@ -23,12 +23,11 @@ use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::lock_util::lock_or_recover;
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
 use jni::sys::{JNI_TRUE, jboolean, jint, jlong, jstring};
 
-#[cfg(target_os = "android")]
-use crate::render::NativeWindow;
 use crate::terminal::ShellEnv;
 use crate::terminal::session::Session;
 use std::sync::Arc;
@@ -55,52 +54,6 @@ unsafe extern "C" {
         surface: JObjectPtr,
     ) -> *mut std::ffi::c_void;
     pub(crate) fn ANativeWindow_release(window: *mut std::ffi::c_void);
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// Surface Command Channel
-// ══════════════════════════════════════════════════════════════════════════
-
-/// Commands sent from the JNI thread to the Render thread for surface
-/// lifecycle management (Android-only: requires ANativeWindow).
-#[cfg(target_os = "android")]
-#[derive(Debug)]
-pub(crate) enum SurfaceCommand {
-    AttachWindow {
-        window: NativeWindow,
-        width: u32,
-        height: u32,
-    },
-    DetachWindow,
-    Resize {
-        width: u32,
-        height: u32,
-    },
-}
-
-/// Surface commands pushed by JNI and consumed by the render thread
-/// (or Kotlin render loop). Stored in a global Mutex<Vec> — commands
-/// are rare (only on surface attach/detach/resize), so contention is
-/// negligible.
-#[cfg(target_os = "android")]
-static SURFACE_COMMANDS: LazyLock<Mutex<Vec<SurfaceCommand>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
-
-/// Push a surface command for the render thread.
-#[cfg(target_os = "android")]
-pub(crate) fn push_surface_command(command: SurfaceCommand) {
-    if let Ok(mut queue) = SURFACE_COMMANDS.lock() {
-        queue.push(command);
-    }
-}
-
-/// Drain all pending surface commands. Returns them in FIFO order.
-#[cfg(target_os = "android")]
-pub(crate) fn drain_surface_commands() -> Vec<SurfaceCommand> {
-    SURFACE_COMMANDS
-        .lock()
-        .map(|mut q| std::mem::take(&mut *q))
-        .unwrap_or_default()
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -187,9 +140,7 @@ static REQUEST_REGISTRY: LazyLock<
 
 /// Push an event into the global queue (called from Session polling).
 pub(crate) fn push_event(event: Event) {
-    if let Ok(mut queue) = EVENT_QUEUE.lock() {
-        queue.push(event);
-    }
+    lock_or_recover(&EVENT_QUEUE, "ffi: push_event").push(event);
 }
 
 /// Save interval for periodic persistence.
@@ -244,22 +195,18 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_initSession(
     let cols = cols as u32;
 
     match Session::spawn("", rows, cols, &ShellEnv::default()) {
-        Ok(session) => {
+        Ok(mut session) => {
             let id = next_session_id();
-            let mut session_inner = session;
-            // Restore previous session state if available
-            session_inner.restore_session();
+            session.restore_session();
             let entry = SessionEntry {
-                session: Arc::new(Mutex::new(session_inner)),
+                session: Arc::new(Mutex::new(session)),
                 last_save: Mutex::new(Instant::now()),
             };
 
-            if let Ok(mut registry) = SESSION_REGISTRY.lock() {
-                registry.insert(id, entry);
-                // Set as active if this is the first session
-                if ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Relaxed) == 0 {
-                    ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Relaxed);
-                }
+            let mut registry = lock_or_recover(&SESSION_REGISTRY, "ffi: initSession");
+            registry.insert(id, entry);
+            if ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+                ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Relaxed);
             }
 
             log::info!("FFI: initSession -> id={}", id);
@@ -287,11 +234,9 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_destroySession(
     session_id: jlong,
 ) -> jboolean {
     let id = session_id as u64;
-    let removed = if let Ok(mut registry) = SESSION_REGISTRY.lock() {
-        registry.remove(&id).is_some()
-    } else {
-        false
-    };
+    let removed = lock_or_recover(&SESSION_REGISTRY, "ffi: destroySession")
+        .remove(&id)
+        .is_some();
 
     if removed {
         // If we removed the active session, clear the active ID
@@ -323,11 +268,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_switchSession(
     session_id: jlong,
 ) -> jboolean {
     let id = session_id as u64;
-    let exists = if let Ok(registry) = SESSION_REGISTRY.lock() {
-        registry.contains_key(&id)
-    } else {
-        false
-    };
+    let exists = lock_or_recover(&SESSION_REGISTRY, "ffi: switchSession").contains_key(&id);
 
     if exists {
         ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Relaxed);
@@ -365,16 +306,25 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_resize(
     cols: jint,
 ) {
     let id = session_id as u64;
-    if let Ok(registry) = SESSION_REGISTRY.lock() {
-        if let Some(entry) = registry.get(&id) {
-            if let Ok(mut session) = entry.session.lock() {
+    let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: resize");
+    if let Some(entry) = registry.get(&id) {
+        match entry.session.lock() {
+            Ok(mut session) => {
                 if let Err(e) = session.resize(rows as u32, cols as u32) {
-                    let _ =
-                        env.throw_new("java/lang/RuntimeException", format!("resize: failed: {e}"));
+                    if let Err(e) =
+                        env.throw_new("java/lang/RuntimeException", format!("resize: failed: {e}"))
+                    {
+                        log::error!("resize: throw_new failed: {e}");
+                    }
                 }
-                return;
+            }
+            Err(_poisoned) => {
+                let msg = "resize: session lock poisoned";
+                log::error!("{msg}");
+                let _ = env.throw_new("java/lang/RuntimeException", msg);
             }
         }
+        return;
     }
     let _ = env.throw_new("java/lang/RuntimeException", "resize: session not found");
 }
@@ -405,16 +355,27 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_feedPty(
         }
     };
 
-    if let Ok(registry) = SESSION_REGISTRY.lock() {
-        if let Some(entry) = registry.get(&id) {
-            if let Ok(mut session) = entry.session.lock() {
+    let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: feedPty");
+    if let Some(entry) = registry.get(&id) {
+        match entry.session.lock() {
+            Ok(mut session) => {
                 if let Err(e) = session.write(input.as_bytes()) {
-                    let _ = env.throw_new(
+                    if let Err(e) = env.throw_new(
                         "java/lang/RuntimeException",
                         format!("feedPty: write failed: {e}"),
-                    );
+                    ) {
+                        log::error!("feedPty: throw_new failed: {e}");
+                    }
                 } else {
                     maybe_save_session(&session, &entry.last_save);
+                }
+                return;
+            }
+            Err(_poisoned) => {
+                let msg = "feedPty: session lock poisoned";
+                log::error!("{msg}");
+                if let Err(e) = env.throw_new("java/lang/RuntimeException", msg) {
+                    log::error!("feedPty: throw_new failed: {e}");
                 }
                 return;
             }
@@ -455,33 +416,40 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
     };
     let has_text = !text.is_null();
 
-    if let Ok(registry) = SESSION_REGISTRY.lock() {
-        if let Some(entry) = registry.get(&id) {
-            if let Ok(mut session) = entry.session.lock() {
+    let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: writeKey");
+    if let Some(entry) = registry.get(&id) {
+        match entry.session.lock() {
+            Ok(mut session) => {
                 let result = if has_text {
-                    if let Ok(t) = env.get_string(&text) {
-                        session.write(t.to_bytes())
-                    } else {
-                        let _ = env.throw_new(
-                            "java/lang/RuntimeException",
-                            "writeKey: failed to read text string",
-                        );
-                        return;
+                    match env.get_string(&text) {
+                        Ok(t) => session.write(t.to_bytes()),
+                        Err(_) => {
+                            let _ = env.throw_new(
+                                "java/lang/RuntimeException",
+                                "writeKey: failed to read text string",
+                            );
+                            return;
+                        }
                     }
                 } else {
-                    // For now, send raw text via write(). Full key encoding
-                    // via key_encode_submit() will be wired in a follow-up.
                     session.write(key_str.as_bytes())
                 };
                 if let Err(e) = result {
-                    let _ = env.throw_new(
+                    if let Err(e) = env.throw_new(
                         "java/lang/RuntimeException",
                         format!("writeKey: write failed: {e}"),
-                    );
+                    ) {
+                        log::error!("writeKey: throw_new failed: {e}");
+                    }
                 }
-                return;
+            }
+            Err(_poisoned) => {
+                let msg = "writeKey: session lock poisoned";
+                log::error!("{msg}");
+                let _ = env.throw_new("java/lang/RuntimeException", msg);
             }
         }
+        return;
     }
     let _ = env.throw_new("java/lang/RuntimeException", "writeKey: session not found");
 }
@@ -506,42 +474,38 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
     // Step 1: Poll the active session for new events.
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Relaxed);
     if active_id != 0 {
-        if let Ok(registry) = SESSION_REGISTRY.lock() {
-            if let Some(entry) = registry.get(&active_id) {
-                if let Ok(session) = entry.session.lock() {
-                    // Check bell
-                    if session.poll_bel() {
-                        push_event(Event::Bell {
-                            session_id: active_id,
-                        });
-                    }
-                    // Check clipboard
-                    if let Some(text) = session.poll_clipboard() {
-                        push_event(Event::Clipboard {
-                            session_id: active_id,
-                            text,
-                        });
-                    }
-                    // Check exit
-                    if session.is_exited() {
-                        let code = session
-                            .exit_code
-                            .lock()
-                            .ok()
-                            .and_then(|ec| *ec)
-                            .unwrap_or(0);
-                        push_event(Event::Exit {
-                            session_id: active_id,
-                            code,
-                        });
-                    }
+        let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: pollEvent");
+        if let Some(entry) = registry.get(&active_id) {
+            if let Ok(session) = entry.session.lock() {
+                // Check bell
+                if session.poll_bel() {
+                    push_event(Event::Bell {
+                        session_id: active_id,
+                    });
+                }
+                // Check clipboard
+                if let Some(text) = session.poll_clipboard() {
+                    push_event(Event::Clipboard {
+                        session_id: active_id,
+                        text,
+                    });
+                }
+                // Check exit
+                if session.is_exited() {
+                    let code = *lock_or_recover(&session.exit_code, "ffi: pollEvent exit_code")
+                        .as_ref()
+                        .unwrap_or(&0);
+                    push_event(Event::Exit {
+                        session_id: active_id,
+                        code,
+                    });
                 }
             }
         }
     }
 
     // Step 2: Drain one event from the queue.
-    let event = EVENT_QUEUE.lock().ok().and_then(|mut q| q.pop());
+    let event = lock_or_recover(&EVENT_QUEUE, "ffi: pollEvent drain").pop();
 
     match event {
         Some(e) => {
@@ -576,7 +540,6 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_attachWindow(
     }
 
     // Get the raw ANativeWindow pointer from the Surface object.
-    // Uses the ANativeWindow_fromSurface NDK function to get a native window
     let raw_env = env.get_native_interface();
     // SAFETY: `raw_env` comes from `get_native_interface()` which returns a valid
     // JNIEnv pointer; `surface` is a JNI method argument guaranteed valid by the
@@ -591,14 +554,16 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_attachWindow(
 
     log::info!("FFI: attachWindow ptr={:p} {}x{}", ptr, width, height);
 
-    // SAFETY: ptr is non-null from ANativeWindow_fromSurface.
-    let window = unsafe { NativeWindow::new(ptr) };
-
-    push_surface_command(SurfaceCommand::AttachWindow {
-        window,
-        width: width as u32,
-        height: height as u32,
-    });
+    // NOTE: Surface lifecycle integration is pending (ADR-0007). We do not
+    // yet use the ANativeWindow pointer in the render thread. Release it
+    // immediately to avoid leaking a native window resource on every
+    // attachWindow call. When surface integration is implemented, the
+    // pointer should be wrapped in the RAII `NativeWindow` type and
+    // released after the wgpu surface that references it.
+    // SAFETY: `ptr` is a valid ANativeWindow* from `ANativeWindow_fromSurface`
+    // and has not been used elsewhere. `ANativeWindow_release` is a documented
+    // NDK function that decrements the window's reference count.
+    unsafe { ANativeWindow_release(ptr) };
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -614,7 +579,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_detachWindow(
     _session_id: jlong,
 ) {
     log::info!("FFI: detachWindow");
-    push_surface_command(SurfaceCommand::DetachWindow);
+    // NOTE: Surface lifecycle integration is pending (ADR-0007).
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -648,11 +613,10 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_setSessionSavePath<'loca
 ) {
     let id = session_id as u64;
     let path_str: String = env.get_string(&path).map(|s| s.into()).unwrap_or_default();
-    if let Ok(registry) = SESSION_REGISTRY.lock() {
-        if let Some(entry) = registry.get(&id) {
-            if let Ok(mut session) = entry.session.lock() {
-                session.set_save_path(&path_str);
-            }
+    let registry = lock_or_recover(&SESSION_REGISTRY, "ffi: setSessionSavePath");
+    if let Some(entry) = registry.get(&id) {
+        if let Ok(mut session) = entry.session.lock() {
+            session.set_save_path(&path_str);
         }
     }
 }

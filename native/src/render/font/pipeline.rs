@@ -28,6 +28,12 @@ pub struct FontPipeline {
     pub(crate) shaping_buffer: Option<cosmic_text::Buffer>,
     pub(crate) shape_cache: LruCache<String, Vec<super::ShapedGlyphInfo>>,
     pub(crate) ascii_glyph_ids: [Option<swash::GlyphId>; 128],
+    /// Cache for non-ASCII glyph_id lookups (codepoint → glyph_id in primary font).
+    /// Avoids repeated swash charmap() calls for repeated characters.
+    pub(crate) glyph_id_cache: LruCache<u32, swash::GlyphId>,
+    /// Cache for CJK glyph resolution (char → final font_id + glyph_id).
+    /// Avoids per-frame swash charmap + outline check for every CJK cell.
+    pub(crate) cjk_glyph_cache: LruCache<char, (fontdb::ID, swash::GlyphId)>,
 }
 
 impl FontPipeline {
@@ -84,6 +90,8 @@ impl FontPipeline {
             font_id: None,
             cjk_fallback_ids: Vec::new(),
             font_size,
+            glyph_id_cache: LruCache::new(NonZeroUsize::new(500).expect("500")),
+            cjk_glyph_cache: LruCache::new(NonZeroUsize::new(200).expect("200")),
             atlas_generation: 0,
             dirty_rect: None,
             system_locale: String::new(),
@@ -149,6 +157,8 @@ impl FontPipeline {
             font_id: None,
             cjk_fallback_ids: Vec::new(),
             font_size,
+            glyph_id_cache: LruCache::new(NonZeroUsize::new(500).expect("500")),
+            cjk_glyph_cache: LruCache::new(NonZeroUsize::new(200).expect("200")),
             atlas_generation: 0,
             dirty_rect: None,
             system_locale: String::new(),
@@ -323,6 +333,9 @@ impl FontPipeline {
 
     pub fn set_font_family(&mut self, family_name: &str) -> bool {
         self.shape_cache.clear();
+        self.glyph_id_cache.clear();
+        self.cjk_glyph_cache.clear();
+        self.ascii_glyph_ids = [None; 128];
         if family_name.is_empty() {
             self.font_id = None;
             self.find_monospace_font();
@@ -378,6 +391,9 @@ impl FontPipeline {
 
     pub fn set_system_locale(&mut self, locale: &str) {
         self.shape_cache.clear();
+        self.glyph_id_cache.clear();
+        self.cjk_glyph_cache.clear();
+        self.ascii_glyph_ids = [None; 128];
         self.system_locale = locale.to_string();
         self.cjk_fallback_ids.clear();
         self.find_cjk_fallback_fonts(&self.system_locale.clone());
@@ -572,35 +588,75 @@ impl FontPipeline {
 
     pub fn glyph_information(&mut self, ch: char) -> Option<GlyphInfo> {
         let primary_font_id = self.font_id?;
+        let pixel_size = (self.font_size * self.raster_scale) as u16;
+        let has_cjk_fallback = !self.cjk_fallback_ids.is_empty();
 
+        // ── Fast path: ASCII with cached glyph_id —─────────────────────────
         if (ch as u32) < 128
             && let Some(gid) = self.ascii_glyph_ids[ch as usize]
         {
             let key = GlyphKey {
                 font_id: primary_font_id,
                 glyph_id: gid,
-                pixel_size: (self.font_size * self.raster_scale) as u16,
+                pixel_size,
             };
             if let Some(info) = self.glyph_cache.get(&key).cloned() {
                 return Some(info);
             }
         }
 
-        let glyph_id = {
-            let db = self.font_system.db();
-            db.with_face_data(primary_font_id, |font_data, face_index| {
-                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                let charmap = font_ref.charmap();
-                Some(charmap.map(ch))
-            })?
-        }?;
+        // ── CJK cache: skip swash + fallback for already-resolved chars ─────
+        if (ch as u32) >= CJK_IDEOGRAPHIC_START
+            && has_cjk_fallback
+            && let Some(&(cached_font_id, cached_glyph_id)) = self.cjk_glyph_cache.get(&ch)
+        {
+            let key = GlyphKey {
+                font_id: cached_font_id,
+                glyph_id: cached_glyph_id,
+                pixel_size,
+            };
+            if let Some(info) = self.glyph_cache.get(&key).cloned() {
+                return Some(info);
+            }
+        }
 
+        // ── Resolve glyph_id (cached if possible) ───────────────────────────
+        let glyph_id = if let Some(&cached) = self.glyph_id_cache.get(&(ch as u32)) {
+            cached
+        } else {
+            let gid = {
+                let db = self.font_system.db();
+                db.with_face_data(primary_font_id, |font_data, face_index| {
+                    let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+                    let charmap = font_ref.charmap();
+                    Some(charmap.map(ch))
+                })?
+            }?;
+            self.glyph_id_cache.put(ch as u32, gid);
+            gid
+        };
+
+        // Cache ASCII glyph_id for future fast-path lookups.
         if (ch as u32) < 128 {
             self.ascii_glyph_ids[ch as usize] = Some(glyph_id);
         }
 
-        let has_cjk_fallback = !self.cjk_fallback_ids.is_empty();
+        // ── Check glyph_cache before expensive CJK ops ──────────────────────
+        {
+            let key = GlyphKey {
+                font_id: primary_font_id,
+                glyph_id,
+                pixel_size,
+            };
+            if let Some(info) = self.glyph_cache.get(&key).cloned() {
+                if (ch as u32) >= CJK_IDEOGRAPHIC_START {
+                    self.cjk_glyph_cache.put(ch, (primary_font_id, glyph_id));
+                }
+                return Some(info);
+            }
+        }
 
+        // ── CJK: check outline, try fallback ────────────────────────────────
         if glyph_id != 0 && (ch as u32) >= CJK_IDEOGRAPHIC_START && has_cjk_fallback {
             let is_outline = self.glyph_source_is_outline(primary_font_id, glyph_id);
             if !is_outline && let Some(fallback_info) = self.try_cjk_outline_fallback(ch) {
@@ -608,6 +664,7 @@ impl FontPipeline {
             }
         }
 
+        // ── glyph_id == 0: search fallback fonts ────────────────────────────
         if glyph_id == 0 && has_cjk_fallback {
             for &fallback_id in &self.cjk_fallback_ids {
                 let fallback_glyph = {
@@ -621,12 +678,19 @@ impl FontPipeline {
                 if let Some(Some(fid)) = fallback_glyph
                     && fid != 0
                 {
-                    return self.glyph_information_from_font(fallback_id, ch, fid);
+                    let result = self.glyph_information_from_font(fallback_id, ch, fid)?;
+                    self.cjk_glyph_cache.put(ch, (fallback_id, fid));
+                    return Some(result);
                 }
             }
         }
 
-        self.glyph_information_from_font(primary_font_id, ch, glyph_id)
+        // ── Fallback to primary font ────────────────────────────────────────
+        let result = self.glyph_information_from_font(primary_font_id, ch, glyph_id)?;
+        if (ch as u32) >= CJK_IDEOGRAPHIC_START {
+            self.cjk_glyph_cache.put(ch, (primary_font_id, glyph_id));
+        }
+        Some(result)
     }
 
     pub fn glyph_information_for_glyph(

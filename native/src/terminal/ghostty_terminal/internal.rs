@@ -361,10 +361,15 @@ impl super::GhosttyTerminal {
                     } else {
                         // INVARIANT: when `needs_rebuild` is false, `cached_snapshot`
                         // is always `Some` (the third clause above guarantees it).
-                        cached_snapshot
-                            .as_ref()
-                            .map(Arc::clone)
-                            .expect("cached_snapshot present when not rebuilding")
+                        // Use fallback if invariant is violated (poison etc.).
+                        cached_snapshot.as_ref().map(Arc::clone).unwrap_or_else(|| {
+                            log::error!(
+                                "ghostty_terminal: cached_snapshot missing — using fallback"
+                            );
+                            let fb_rows = terminal.rows().unwrap_or(24) as u32;
+                            let fb_cols = terminal.cols().unwrap_or(80) as u32;
+                            Arc::new(GridSnapshot::fallback(fb_rows, fb_cols))
+                        })
                     };
                     if let Err(error) = tx.send(snapshot) {
                         log::error!("ghostty_terminal: command channel send failed: {error}");
