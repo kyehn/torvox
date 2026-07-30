@@ -10,7 +10,7 @@ def main [] {
 
     print "=== Running instrumentation tests ==="
     try {
-        ^./gradlew ":app:connectedDebugAndroidTest" "-Pandroid.testInstrumentationRunnerArguments.notPackage=io.term.benchmark"
+        ^./gradlew ":app:connectedDebugAndroidTest" "-Pandroid.testInstrumentationRunnerArguments.notPackage=terminal.emulator.benchmark"
     } catch {|e|
         print $"WARNING: Instrumentation tests failed: ($e)"
     }

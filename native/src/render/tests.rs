@@ -945,80 +945,29 @@ fn cjk_bearing_y_not_centered() {
 }
 
 #[cfg(test)]
-fn setup_test_gpu_context(
-    instance: wgpu::Instance,
-    adapter: wgpu::Adapter,
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-) -> Renderer {
+fn setup_test_gpu_context(device: wgpu::Device, queue: wgpu::Queue) -> Renderer {
     let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Quad Vertex Buffer"),
         contents: bytemuck::cast_slice(QUAD_CORNERS),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let mut context = Renderer {
-        instance,
-        adapter,
-        device: device.clone(),
-        queue,
-        surface: None,
-        surface_config: Some(wgpu::SurfaceConfiguration {
-            width: 50,
-            height: 50,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-            color_space: wgpu::SurfaceColorSpace::Auto,
-        }),
-        cell_pipeline: None,
-        quad_vertex_buffer,
-        cell_bind_group: None,
-        cell_uniform_buffer: None,
-        instance_buffer: None,
-        atlas_texture: None,
-        atlas_view: None,
-        atlas_sampler: None,
-        pipeline_format: wgpu::TextureFormat::Rgba8Unorm,
-        projection_width: 0,
-        projection_height: 0,
-        readback_texture: None,
-        readback_buffer: None,
-        bg_color: CATPPUCCIN_MOCHA_BG,
-        bg_image_texture: None,
-        bg_image_view: None,
-        bg_pipeline: None,
-        bg_bind_group_layout: None,
-        bg_bind_group: None,
-        bg_uniform_buffer: None,
-        bg_sampler: None,
-        bg_blur_radius: 0.0,
-        bg_alpha: DEFAULT_BG_ALPHA,
-        kgp_pipeline: None,
-        kgp_bind_group_layout: None,
-        kgp_bind_group: None,
-        kgp_uniform_buffer: None,
-        kgp_sampler: None,
-        kgp_instance_buffer: None,
-        kgp_texture: None,
-        kgp_atlas_data: Vec::new(),
-        kgp_atlas_width: 0,
-        kgp_atlas_height: 0,
-        raster_scale: 1.0,
-        blur_h_pipeline: None,
-        blur_v_pipeline: None,
-        render_paused: false,
-        pending_gpu_drain: false,
-    };
+    let mut context = Renderer::new_inner(device, queue, quad_vertex_buffer);
+    context.surface_config = Some(wgpu::SurfaceConfiguration {
+        width: 50,
+        height: 50,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        present_mode: wgpu::PresentMode::Fifo,
+        alpha_mode: wgpu::CompositeAlphaMode::Auto,
+        view_formats: vec![],
+        desired_maximum_frame_latency: 2,
+        color_space: wgpu::SurfaceColorSpace::Auto,
+    });
     context.initialize_pipeline_and_bind_group(256, 256, 50, 50);
     context
 }
 
 fn setup_test_gpu_context_custom(
-    instance: wgpu::Instance,
-    adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
     width: u32,
@@ -1029,81 +978,31 @@ fn setup_test_gpu_context_custom(
         contents: bytemuck::cast_slice(QUAD_CORNERS),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let mut context = Renderer {
-        instance,
-        adapter,
-        device: device.clone(),
-        queue,
-        surface: None,
-        surface_config: Some(wgpu::SurfaceConfiguration {
-            width,
-            height,
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            present_mode: wgpu::PresentMode::Fifo,
-            alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            view_formats: vec![],
-            desired_maximum_frame_latency: 2,
-            color_space: wgpu::SurfaceColorSpace::Auto,
-        }),
-        cell_pipeline: None,
-        quad_vertex_buffer,
-        cell_bind_group: None,
-        cell_uniform_buffer: None,
-        instance_buffer: None,
-        atlas_texture: None,
-        atlas_view: None,
-        atlas_sampler: None,
-        pipeline_format: wgpu::TextureFormat::Rgba8Unorm,
-        projection_width: 0,
-        projection_height: 0,
-        readback_texture: None,
-        readback_buffer: None,
-        bg_color: wgpu::Color {
-            r: 0.0,
-            g: 0.0,
-            b: 0.0,
-            a: 1.0,
-        },
-        bg_image_texture: None,
-        bg_image_view: None,
-        bg_pipeline: None,
-        bg_bind_group_layout: None,
-        bg_bind_group: None,
-        bg_uniform_buffer: None,
-        bg_sampler: None,
-        bg_blur_radius: 0.0,
-        bg_alpha: DEFAULT_BG_ALPHA,
-        kgp_pipeline: None,
-        kgp_bind_group_layout: None,
-        kgp_bind_group: None,
-        kgp_uniform_buffer: None,
-        kgp_sampler: None,
-        kgp_instance_buffer: None,
-        kgp_texture: None,
-        kgp_atlas_data: Vec::new(),
-        kgp_atlas_width: 0,
-        kgp_atlas_height: 0,
-        raster_scale: 1.0,
-        blur_h_pipeline: None,
-        blur_v_pipeline: None,
-        render_paused: false,
-        pending_gpu_drain: false,
-    };
+    let mut context = Renderer::new_inner(device.clone(), queue, quad_vertex_buffer);
+    context.surface_config = Some(wgpu::SurfaceConfiguration {
+        width,
+        height,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        present_mode: wgpu::PresentMode::Fifo,
+        alpha_mode: wgpu::CompositeAlphaMode::Auto,
+        view_formats: vec![],
+        desired_maximum_frame_latency: 2,
+        color_space: wgpu::SurfaceColorSpace::Auto,
+    });
     context.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
     context
 }
 
 #[test]
 fn ocr_verifies_rendered_text() {
-    let Some((instance, adapter, device, queue)) = create_test_device() else {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         return;
     };
     let width = 480u32;
     let height = 60u32;
     let atlas_dim = width.max(256);
-    let mut context =
-        setup_test_gpu_context_custom(instance, adapter, device, queue, width, height);
+    let mut context = setup_test_gpu_context_custom(device, queue, width, height);
     // Ensure GPU atlas dimensions match the font pipeline atlas (both must be square)
     context.initialize_pipeline_and_bind_group(atlas_dim, atlas_dim, width, height);
 
@@ -1184,10 +1083,10 @@ fn ocr_verifies_rendered_text() {
 
 #[test]
 fn gpu_background_solid_image_opaque() {
-    let Some((instance, adapter, device, queue)) = create_test_device() else {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         return;
     };
-    let mut context = setup_test_gpu_context(instance, adapter, device, queue);
+    let mut context = setup_test_gpu_context(device, queue);
 
     let pixel = [255u8, 0, 0, 255];
     let pixels: Vec<u8> = pixel.repeat(50 * 50);
@@ -1227,10 +1126,10 @@ fn gpu_background_solid_image_opaque() {
 
 #[test]
 fn gpu_background_solid_image_transparent() {
-    let Some((instance, adapter, device, queue)) = create_test_device() else {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         return;
     };
-    let mut context = setup_test_gpu_context(instance, adapter, device, queue);
+    let mut context = setup_test_gpu_context(device, queue);
 
     let pixel = [255u8, 0, 0, 255];
     let pixels: Vec<u8> = pixel.repeat(50 * 50);
@@ -1271,10 +1170,10 @@ fn gpu_background_solid_image_transparent() {
 
 #[test]
 fn gpu_background_no_image_fallback() {
-    let Some((instance, adapter, device, queue)) = create_test_device() else {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         return;
     };
-    let mut context = setup_test_gpu_context(instance, adapter, device, queue);
+    let mut context = setup_test_gpu_context(device, queue);
 
     let result = context
         .render_to_buffer(&[], &[])

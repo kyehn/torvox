@@ -5418,57 +5418,6 @@ fn tc_al_006_mode_preserved() {
     assert_invariants(&snap);
 }
 
-// ── 13.5: save_session / restore_session round-trip via snapshot ─
-
-#[test]
-fn tc_lifecycle_save_restore_session() {
-    // Create terminal, write content, take a snapshot, serialize
-    // to a temp file, create a fresh terminal, write the content
-    // back, and compare.
-    //
-    // NOTE: Content is ASCII-only to avoid non-congruent roundtrip
-    // through read_visible_text. CJK double-width cells map 2:1 to
-    // codepoints, so a text-based roundtrip shifts subsequent cells.
-    let mut t = GhosttyTerminal::new(10, 40, 100).expect("term");
-    t.pty_write(b"Hello, World!\nLine two\nLine three with text\n");
-    t.flush();
-    let snap1 = t.take_snapshot();
-
-    // Serialize to temp file.
-    let dir = std::env::temp_dir().join("vt_lifecycle_test");
-    if let Err(error) = std::fs::create_dir_all(&dir) {
-        log::error!("ghostty_terminal test: create_dir_all failed: {error}");
-    }
-    let path = dir.join("test_session.rkyv");
-    if let Err(error) = std::fs::remove_file(&path) {
-        log::warn!("ghostty_terminal test: remove_file failed: {error}");
-    }
-
-    // Simulate save: serialize snapshot grid as text, write to file.
-    let text_before = t.read_visible_text();
-
-    // Simulate restore: create fresh terminal and feed the text.
-    let mut t2 = GhosttyTerminal::new(10, 40, 100).expect("term");
-    t2.pty_write(text_before.as_bytes());
-    t2.flush();
-    let snap2 = t2.take_snapshot();
-
-    // Compare content codepoints.
-    for (i, (c1, c2)) in snap1.cells.iter().zip(snap2.cells.iter()).enumerate() {
-        assert_eq!(
-            c1.codepoint,
-            c2.codepoint,
-            "cell {i} (row={},col={}) codepoint mismatch",
-            i / snap1.cols as usize,
-            i % snap1.cols as usize,
-        );
-    }
-
-    if let Err(error) = std::fs::remove_file(&path) {
-        log::warn!("ghostty_terminal test: remove_file failed: {error}");
-    }
-}
-
 // ── 13.6: Pause / resume (simulated via resize) ────────────────
 
 #[test]
@@ -7752,7 +7701,10 @@ fn sgr_separator_colon_38_5() {
     t.vt_write(b"\x1b[38:5:196mX");
     let snap = t.take_snapshot();
     let cell = cell_at(&snap, 0, 0).expect("cell at origin");
-    assert_eq!(cell.codepoint, 'X' as u32, "38:5:196 should not corrupt grid");
+    assert_eq!(
+        cell.codepoint, 'X' as u32,
+        "38:5:196 should not corrupt grid"
+    );
 }
 
 /// SGR with ':' separator (38:2:R:G:B) should not crash
@@ -7762,7 +7714,10 @@ fn sgr_separator_colon_38_2() {
     t.vt_write(b"\x1b[38:2:255:0:0mX");
     let snap = t.take_snapshot();
     let cell = cell_at(&snap, 0, 0).expect("cell at origin");
-    assert_eq!(cell.codepoint, 'X' as u32, "38:2:R:G:B should not corrupt grid");
+    assert_eq!(
+        cell.codepoint, 'X' as u32,
+        "38:2:R:G:B should not corrupt grid"
+    );
 }
 
 /// SGR bg with ':' separator (48:5:129) should not crash
@@ -7772,7 +7727,10 @@ fn sgr_separator_colon_48_5() {
     t.vt_write(b"\x1b[48:5:129mX");
     let snap = t.take_snapshot();
     let cell = cell_at(&snap, 0, 0).expect("cell at origin");
-    assert_eq!(cell.codepoint, 'X' as u32, "48:5:129 should not corrupt grid");
+    assert_eq!(
+        cell.codepoint, 'X' as u32,
+        "48:5:129 should not corrupt grid"
+    );
 }
 
 // ── Termux-style behavioral VT tests ────────────────────────────────────

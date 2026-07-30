@@ -37,8 +37,6 @@
     <string name="bootstrap">引导程序</string>
     <string name="bootstrap_install">安装引导程序</string>
     <string name="bootstrap_installing">安装中\u2026</string>
-    <string name="session_restore">恢复会话</string>
-    <string name="session_restore_desc">在应用启动时重新打开之前的会话</string>
     <string name="keyboard_mode">键盘模式</string>
     <string name="keyboard_secure">安全模式</string>
     <string name="keyboard_secure_desc">无建议、无自动纠正、无个性化学习</string>
@@ -98,8 +96,6 @@
     <string name="title_changed">终端标题已更改为 %s</string>
 
     <!-- USB Serial -->
-    <string name="usb_serial">USB 串口</string>
-    <string name="usb_serial_desc">连接 USB 串口适配器（CDC-ACM、FTDI、CH340）</string>
 
     <!-- MCP Server -->
     <string name="mcp_server">MCP 服务器</string>
@@ -120,7 +116,6 @@
     <string name="cd_file_manager">打开文件管理器</string>
 
     <!-- Cursor Settings -->
-    <string name="session_restore_off_desc">应用启动时不会恢复之前的会话</string>
     <string name="on">开</string>
     <string name="off">关</string>
     <string name="cjk_fallback_missing_warning">未检测到 CJK 回退字体。东亚字符可能无法正确显示。</string>

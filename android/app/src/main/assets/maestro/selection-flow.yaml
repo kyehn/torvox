@@ -1,4 +1,4 @@
-appId: io.term
+appId: terminal.emulator
 ---
 - launchApp:
     clearState: true

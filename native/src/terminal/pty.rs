@@ -540,8 +540,11 @@ fn close_stray_fds() {
         if rlim.rlim_cur == libc::RLIM_INFINITY {
             STRAY_FD_SCAN_LIMIT
         } else {
-            // Cap at c_int::MAX to prevent truncation wrap.
-            rlim.rlim_cur.min(libc::c_int::MAX as u64) as libc::c_int
+            // Cap at STRAY_FD_SCAN_LIMIT to avoid iterating millions of fds
+            // in containers with large RLIMIT_NOFILE.
+            rlim.rlim_cur
+                .min(STRAY_FD_SCAN_LIMIT as u64)
+                .min(libc::c_int::MAX as u64) as libc::c_int
         }
     } else {
         STRAY_FD_SCAN_LIMIT
