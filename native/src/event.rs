@@ -20,7 +20,9 @@ use std::sync::Mutex;
 /// | `PickFile` | MCP `pick_file` tool call | `mcp` (via ffi callback) |
 ///
 /// All events are serialised as JSON before crossing the JNI boundary.
+/// Uses internal tagging (`#[serde(tag = "event")]`) so Kotlin can match on `event` field.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
     /// Terminal bell character (^G) received.
     Bell { session_id: u64 },

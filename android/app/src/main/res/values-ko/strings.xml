@@ -32,8 +32,6 @@
     <string name="bootstrap">부트스트랩</string>
     <string name="bootstrap_install">부트스트랩 설치</string>
     <string name="bootstrap_installing">설치 중\u2026</string>
-    <string name="session_restore">세션 복원</string>
-    <string name="session_restore_desc">앱 시작 시 이전 세션을 다시 열기</string>
     <string name="keyboard_mode">키보드 모드</string>
     <string name="keyboard_secure">보안 모드</string>
     <string name="keyboard_secure_desc">제안 없음, 자동 수정 없음, 개인화 없음</string>
@@ -72,8 +70,6 @@
     <string name="title_changed">터미널 제목이 %s(으)로 변경됨</string>
 
     <!-- USB Serial -->
-    <string name="usb_serial">USB 시리얼</string>
-    <string name="usb_serial_desc">USB 시리얼 어댑터 연결 (CDC-ACM, FTDI, CH340)</string>
 
     <!-- MCP Server -->
     <string name="mcp_server">MCP 서버</string>
@@ -96,7 +92,6 @@
     <string name="install">설치</string>
 
     <!-- Cursor Settings -->
-    <string name="session_restore_off_desc">앱 시작 시 세션이 복원되지 않습니다</string>
     <string name="on">켜짐</string>
     <string name="off">꺼짐</string>
     <string name="cjk_fallback_missing_warning">CJK 대체 글꼴이 감지되지 않았습니다. 동아시아 문자가 올바르게 표시되지 않을 수 있습니다.</string>

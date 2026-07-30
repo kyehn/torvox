@@ -2,7 +2,7 @@
 //!
 //! This module exports `extern "system"` JNI functions called from Kotlin.
 //! Each function follows the JNI naming convention:
-//! `Java_io_term_bridge_NativeBridge_<methodName>`
+//! `Java_terminal_emulator_bridge_NativeBridge_<methodName>`
 //!
 //! Session lifecycle:
 //! - `initSession()` creates a `Session` and registers it globally
@@ -17,7 +17,7 @@
 //! All JNI exports are called from Kotlin's main UI thread
 //! (Dispatchers.Main) unless otherwise noted.  The Kotlin side serialises
 //! calls to `initSession`, `destroySession`, `switchSession`, `resize`,
-//! `feedPty`, `writeKey`, `setSessionSavePath`, and `dialogResult` on a
+//! `feedPty`, `writeKey`, and `dialogResult` on a
 //! single coroutine context.
 //!
 //! `pollEvent` is called at frame rate (~16ms intervals) from a
@@ -30,7 +30,7 @@
 //!
 //! - `SESSION_REGISTRY` is an `RwLock`; reads dominate writes.
 //! - `EVENT_QUEUE` is a `Mutex`; push/pop are fast.
-//! - Lock order: `SESSION_REGISTRY` → `Session` → (exit_code|last_save).
+//! - Lock order: `SESSION_REGISTRY` → `Session` → `exit_code`.
 //!   `EVENT_QUEUE` is locked independently and never while holding a
 //!   `Session` lock.
 //! - `ACTIVE_SESSION_ID` is an `AtomicU64` with `Acquire`/`Release` ordering.
@@ -45,7 +45,6 @@ use std::sync::atomic::AtomicU64;
 #[cfg(feature = "mcp")]
 use std::sync::atomic::Ordering;
 use std::sync::{LazyLock, Mutex, RwLock};
-use std::time::{Duration, Instant};
 
 use crate::event::Event;
 use crate::lock_util::lock_or_recover;
@@ -90,17 +89,8 @@ unsafe extern "C" {
 /// A registered session with its ID and thread-safe handle.
 struct SessionEntry {
     session: Arc<Mutex<Session>>,
-    /// Last time the session state was saved (for periodic persistence).
-    last_save: Mutex<Instant>,
 }
 
-/// Global session registry. Thread-safe via RwLock (read-heavy workload).
-///
-/// # Lock ordering
-/// Hierarchy: SESSION_REGISTRY → Session → (exit_code|last_save).
-/// SESSION_REGISTRY is acquired before Session lock. EVENT_QUEUE is locked
-/// independently, never while holding Session or SESSION_REGISTRY.
-/// See [`crate::event::EventQueue`] for EVENT_QUEUE lock details.
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
@@ -126,13 +116,8 @@ fn wlock_session_registry() -> std::sync::RwLockWriteGuard<'static, HashMap<u64,
     }
 }
 
-/// Monotonically increasing session ID counter.
-/// ID 0 is reserved (no session); valid IDs start at 1.
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Active session handle, read by `pollEvent` and JNI exports.
-/// Sentinels: 0 = no active session; non-zero = session ID.
-/// Accessed with `Ordering::Acquire` (load) / `Ordering::Release` (store).
 static ACTIVE_SESSION_ID: AtomicU64 = AtomicU64::new(0);
 
 fn next_session_id() -> u64 {
@@ -143,52 +128,18 @@ fn next_session_id() -> u64 {
 // Event Queue
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Global event queue. Thread-safe via EventQueue wrapper.
-/// Lock ordering: SESSION_REGISTRY before EVENT_QUEUE.
 static EVENT_QUEUE: crate::event::EventQueue = crate::event::EventQueue::new();
 
 /// Monotonic counter for user-input request IDs.
 #[cfg(feature = "mcp")]
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Registry for pending user-input requests (dialog / file picker).
-/// Keyed by (session_id, request_id) to support multiple concurrent dialogs.
 #[cfg(feature = "mcp")]
 static REQUEST_REGISTRY: LazyLock<
     Mutex<HashMap<(u64, u64), tokio::sync::oneshot::Sender<String>>>,
 > = LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Push an event into the global queue (called from Session polling).
-/// Encode modifier flags into a byte sequence for PTY input.
-///
-/// Modifier bitmask (custom, set by Kotlin `TerminalSurface`):
-/// - 1 = SHIFT (handled by Kotlin sending uppercase key directly)
-/// - 2 = ALT → prepend ESC (0x1B)
-/// - 4 = CTRL → convert to control character via `c & 0x1F`
-/// - 8 = META → prepend ESC (0x1B)
-/// - 16 = SUPER → OS handled
-///
-/// Ctrl mapping uses the standard ASCII formula `c & 0x1F`:
-///
-/// | Input | Ctrl+ | Result |
-/// |-------|-------|--------|
-/// | `a`/`A` … `z`/`Z` | `0x01` … `0x1A` | Ctrl+A … Ctrl+Z |
-/// | `@` `` ` `` | `0x00` (NUL) | Ctrl+@ / Ctrl+` |
-/// | `[` `{` | `0x1B` (ESC) | Ctrl+[ / Ctrl+{ |
-/// | `\` `\|` | `0x1C` (FS) | Ctrl+\ / Ctrl+\| |
-/// | `]` `}` | `0x1D` (GS) | Ctrl+] / Ctrl+} |
-/// | `^` `~` | `0x1E` (RS) | Ctrl+^ / Ctrl+~ |
-/// | `_` | `0x1F` (US) | Ctrl+_ |
-/// | space | `0x00` (NUL) | Ctrl+Space |
-///
-/// Named keys (Enter, Escape, Tab, etc.) are passed through unchanged
-/// because their `key_str` length exceeds 1.
-///
-/// Alt+key or Meta+key prepend ESC (0x1B) before the encoded key.
-/// Multiple modifiers combine: Alt+Ctrl+a → ESC + `0x01`.
-///
-/// NOTE: `writeKey` is currently NOT called from Kotlin (input goes through
-/// `feedPty` instead). This function is provided for future use.
+#[allow(dead_code)]
 fn encode_modifiers(input: &[u8], mods: i32) -> Vec<u8> {
     let ctrl = (mods & 4) != 0;
     let alt_or_meta = (mods & (2 | 8)) != 0;
@@ -218,25 +169,6 @@ pub(crate) fn push_event(event: Event) {
     EVENT_QUEUE.push(event);
 }
 
-/// Save interval for periodic persistence.
-const SAVE_INTERVAL_SECS: u64 = 30;
-
-/// Periodically save session state if enough time has elapsed.
-/// Called after feedPty / process_output.
-pub(crate) fn maybe_save_session(
-    session: &crate::terminal::session::Session,
-    last_save: &Mutex<Instant>,
-) {
-    let elapsed = lock_or_recover(last_save, "ffi: maybe_save_session").elapsed();
-    if elapsed >= Duration::from_secs(SAVE_INTERVAL_SECS) {
-        if session.save_session() {
-            *lock_or_recover(last_save, "ffi: maybe_save_session save") = Instant::now();
-        }
-    }
-}
-
-/// Register a pending user-input request and return the receiver.
-/// Kotlin will send the response via `dialogResult` JNI.
 #[cfg(feature = "mcp")]
 pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::Receiver<String>) {
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -250,10 +182,8 @@ pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::R
 // JNI Export: initSession
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Create a new terminal session with the default shell.
-/// Returns the session ID (jlong) on success, or 0 on failure.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_initSession(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     mut env: JNIEnv,
     _class: JClass,
     rows: jint,
@@ -283,10 +213,8 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_initSession(
     match Session::spawn("", rows, cols, &ShellEnv::default()) {
         Ok(mut session) => {
             let id = next_session_id();
-            session.restore_session();
             let entry = SessionEntry {
                 session: Arc::new(Mutex::new(session)),
-                last_save: Mutex::new(Instant::now()),
             };
 
             let mut registry = wlock_session_registry();
@@ -316,7 +244,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_initSession(
 
 /// Destroy a session by ID. Returns true on success.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_destroySession(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_destroySession(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -348,7 +276,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_destroySession(
 
 /// Switch the active session. Returns true if the session exists.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_switchSession(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_switchSession(
     _env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -373,7 +301,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_switchSession(
 
 /// Returns the number of active sessions.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_getSessionCount(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionCount(
     _env: JNIEnv,
     _class: JClass,
 ) -> jint {
@@ -386,7 +314,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_getSessionCount(
 
 /// Resize the specified session. Throws RuntimeException if session not found.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_resize(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resize(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -441,10 +369,8 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_resize(
 // JNI Export: feedPty
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Write raw bytes to the PTY of the specified session.
-/// Throws RuntimeException if session not found or write fails.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_feedPty(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedPty(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -474,8 +400,6 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_feedPty(
                     ) {
                         log::error!("feedPty: throw_new failed: {e}");
                     }
-                } else {
-                    maybe_save_session(&session, &entry.last_save);
                 }
                 return;
             }
@@ -496,21 +420,8 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_feedPty(
 // JNI Export: writeKey
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Encode and submit a key event to the session.
-///
-/// NOTE: This JNI function is declared in NativeBridge.kt but currently NOT
-/// called from Kotlin — all keyboard input flows through `feedPty` with
-/// pre-encoded bytes. This implementation is provided for future use when
-/// the Kotlin side switches to Ghostty's key encoder (the modern path in
-/// `internal.rs` which handles Kitty keyboard protocol, compose sequences,
-/// and proper modifier encoding).
-///
-/// `key` is the key name (e.g., "a", "Enter", "Escape").
-/// `mods` is a bitmask of modifiers (1=shift, 2=alt, 4=ctrl, 8=meta, 16=super).
-/// `text` is optional composed text (for IME input).
-/// Throws RuntimeException if the session is not found or write fails.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_writeKey(
     mut env: JNIEnv,
     _class: JClass,
     session_id: jlong,
@@ -579,16 +490,8 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_writeKey(
 // JNI Export: pollEvent
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Poll the global event queue. Returns the oldest pending event as a
-/// JSON string, or null if no events are pending.
-///
-/// Before draining the queue, this function polls the active session for
-/// new events (bell, clipboard, exit, title change) and pushes them in.
-///
-/// Each call drains one event. Kotlin should call this at frame rate
-/// (every ~16ms) in a LaunchedEffect.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pollEvent<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> jstring {
@@ -600,7 +503,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
     if active_id != 0 {
         if let Some(entry) = rlock_session_registry().get(&active_id) {
-            let session = match entry.session.lock() {
+            let mut session = match entry.session.lock() {
                 Ok(guard) => guard,
                 Err(_poisoned) => {
                     log::error!("pollEvent: session lock poisoned for session {active_id}");
@@ -611,6 +514,13 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
                     return std::ptr::null_mut();
                 }
             };
+            // Process VT output from the PTY reader thread. This is the
+            // critical path that drives all terminal state updates: it
+            // reads from the output_rx channel, feeds data into Ghostty's
+            // VT parser, and populates event flags (bell, clipboard, etc.)
+            // that are polled below. Without this call the terminal will
+            // never process output and the output channel deadlocks.
+            session.process_output();
             // Check bell
             if session.poll_bel() {
                 pending_events.push(Event::Bell {
@@ -661,13 +571,59 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_pollEvent<'local>(
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// JNI Export: initLogger
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Initialise Rust-side logging (logcat + optional file).
+/// Called once from Kotlin on app startup.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initLogger(
+    _env: JNIEnv,
+    _class: JClass,
+) {
+    // Logging is already initialised by JNI_OnLoad; this is a no-op
+    // placeholder for future configuration.
+    log::info!("NativeBridge::initLogger called");
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: setLogFilePath
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Set the file path for Rust-side log output.
+/// Kotlin calls this after computing the log directory.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setLogFilePath<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    path: JString<'local>,
+) {
+    #[cfg(target_os = "android")]
+    {
+        let path_str: String = match env.get_string(&path) {
+            Ok(s) => s.into(),
+            Err(_) => {
+                log::error!("setLogFilePath: failed to read path string");
+                return;
+            }
+        };
+        crate::android::logging::set_log_file_path(&path_str);
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (&mut env, path);
+        log::info!("setLogFilePath: not supported on this platform");
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // JNI Export: attachWindow
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Attach an Android Surface — Android only.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_attachWindow(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_attachWindow(
     env: JNIEnv,
     _class: JClass,
     _session_id: jlong,
@@ -714,7 +670,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_attachWindow(
 /// Detach the current surface — Android only.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_detachWindow(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_detachWindow(
     _env: JNIEnv,
     _class: JClass,
     _session_id: jlong,
@@ -729,7 +685,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_detachWindow(
 
 /// Enable or disable the MCP server (starts/stops it as needed).
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_setMcpEnabled(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setMcpEnabled(
     _env: JNIEnv,
     _class: JClass,
     enabled: jboolean,
@@ -799,58 +755,13 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_setMcpEnabled(
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// JNI Export: setSessionSavePath
-// ══════════════════════════════════════════════════════════════════════════
-
-/// Set the persistence save path for a session. Pass empty string to disable.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_setSessionSavePath<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-    path: JString<'local>,
-) {
-    let id = session_id as u64;
-    let path_str: String = match env.get_string(&path) {
-        Ok(s) => s.into(),
-        Err(e) => {
-            let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                format!("setSessionSavePath: invalid path string: {e}"),
-            );
-            return;
-        }
-    };
-    let registry = rlock_session_registry();
-    if let Some(entry) = registry.get(&id) {
-        match entry.session.lock() {
-            Ok(mut guard) => {
-                guard.set_save_path(&path_str);
-            }
-            Err(_poisoned) => {
-                let msg = "setSessionSavePath: session lock poisoned";
-                log::error!("{msg}");
-                let _ = env.throw_new("java/lang/RuntimeException", msg);
-            }
-        }
-    } else {
-        let _ = env.throw_new(
-            "java/lang/IllegalArgumentException",
-            format!("setSessionSavePath: session {id} not found"),
-        );
-    }
-}
-
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: dialogResult — Kotlin responds to a dialog request
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Called by Kotlin after the user interacts with a dialog or file picker.
-/// `result` is the user's input (text for input, "confirmed"/"cancelled"
-/// for confirm, selected option for select, file path for pick_file).
 #[unsafe(no_mangle)]
 #[cfg(feature = "mcp")]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_dialogResult<'local>(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_dialogResult<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
     session_id: jlong,
@@ -875,7 +786,7 @@ pub extern "system" fn Java_io_term_bridge_NativeBridge_dialogResult<'local>(
 
 /// Returns a JSON array of active session IDs.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_term_bridge_NativeBridge_listSessions<'local>(
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'local>(
     mut env: JNIEnv<'local>,
     _class: JClass<'local>,
 ) -> jstring {

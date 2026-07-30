@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "io.term.baselineprofile"
+    namespace = "terminal.emulator.baselineprofile"
     compileSdk = 37
 
     defaultConfig {

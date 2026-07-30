@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "io.term.benchmark"
+    namespace = "terminal.emulator.benchmark"
     compileSdk = 37
 
     defaultConfig {

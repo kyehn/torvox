@@ -3,7 +3,7 @@
 
     <application>
         <activity
-            android:name="io.term.TestActivity"
+            android:name="terminal.emulator.TestActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

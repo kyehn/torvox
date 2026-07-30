@@ -65,3 +65,5 @@ ultracode/
 .reasonix/
 mutants.out/
 mutants.out.old/
+generated-patches/
+.cache/

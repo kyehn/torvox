@@ -32,8 +32,6 @@
     <string name="bootstrap">Bootstrap</string>
     <string name="bootstrap_install">Bootstrap installieren</string>
     <string name="bootstrap_installing">Installation\u2026</string>
-    <string name="session_restore">Sitzung wiederherstellen</string>
-    <string name="session_restore_desc">Vorherige Sitzung beim Start der App wieder öffnen</string>
     <string name="keyboard_mode">Tastaturmodus</string>
     <string name="keyboard_secure">Sicher</string>
     <string name="keyboard_secure_desc">Keine Vorschläge, keine Autokorrektur, keine Personalisierung</string>
@@ -72,8 +70,6 @@
     <string name="title_changed">Terminaltitel geändert zu %s</string>
 
     <!-- USB Serial -->
-    <string name="usb_serial">USB-Seriell</string>
-    <string name="usb_serial_desc">Verbindung zu USB-Seriell-Adaptern (CDC-ACM, FTDI, CH340)</string>
 
     <!-- MCP Server -->
     <string name="mcp_server">MCP-Server</string>
@@ -96,7 +92,6 @@
     <string name="install">Installieren</string>
 
     <!-- Cursor Settings -->
-    <string name="session_restore_off_desc">Sitzungen werden beim App-Start nicht wiederhergestellt</string>
     <string name="on">Ein</string>
     <string name="off">Aus</string>
     <string name="cjk_fallback_missing_warning">Keine CJK-Schriftart erkannt. Ostasiatische Zeichen werden möglicherweise nicht korrekt dargestellt.</string>

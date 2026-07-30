@@ -36,8 +36,6 @@
     <string name="bootstrap">ブートストラップ</string>
     <string name="bootstrap_install">ブートストラップをインストール</string>
     <string name="bootstrap_installing">インストール中\u2026</string>
-    <string name="session_restore">セッション復元</string>
-    <string name="session_restore_desc">アプリ起動時に前回のセッションを再開する</string>
     <string name="keyboard_mode">キーボードモード</string>
     <string name="keyboard_secure">セキュア</string>
     <string name="keyboard_secure_desc">提案なし、自動補正なし、パーソナライゼーションなし</string>
@@ -98,8 +96,6 @@
     <string name="title_changed">端末タイトルが %s に変更されました</string>
 
     <!-- USB Serial -->
-    <string name="usb_serial">USB シリアル</string>
-    <string name="usb_serial_desc">USB シリアルアダプターに接続 (CDC-ACM, FTDI, CH340)</string>
 
     <!-- MCP Server -->
     <string name="mcp_server">MCP サーバー</string>
@@ -122,7 +118,6 @@
     <string name="install">インストール</string>
 
     <!-- Cursor Settings -->
-    <string name="session_restore_off_desc">アプリ起動時にセッションは復元されません</string>
     <string name="on">オン</string>
     <string name="off">オフ</string>
     <string name="cjk_fallback_missing_warning">CJK フォールバックフォントが見つかりません。東アジア文字が正しく表示されない可能性があります。</string>

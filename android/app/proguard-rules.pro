@@ -1,6 +1,6 @@
 -dontoptimize
 -dontobfuscate
--keep class io.term.** { *; }
+-keep class terminal.emulator.** { *; }
 -keepclassmembers class * {
     @dagger.hilt.android.lifecycle.HiltViewModel <init>(...);
 }
@@ -18,4 +18,4 @@
 -keep class com.sun.jna.**$* { *; }
 
 -keep class io.cucumber.** { *; }
--keep class io.term.cucumber.** { *; }
+-keep class terminal.emulator.cucumber.** { *; }
