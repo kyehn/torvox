@@ -31,8 +31,6 @@ impl FrameContext {
 }
 
 pub(crate) struct GlobalGpu {
-    instance: wgpu::Instance,
-    adapter: wgpu::Adapter,
     device: wgpu::Device,
     queue: wgpu::Queue,
 }
@@ -41,12 +39,7 @@ fn global_gpu() -> &'static GlobalGpu {
     static INSTANCE: OnceLock<GlobalGpu> = OnceLock::new();
     INSTANCE.get_or_init(|| {
         match futures::executor::block_on(crate::render::wgpu_backend::initialize_wgpu()) {
-            Ok((instance, adapter, device, queue)) => GlobalGpu {
-                instance,
-                adapter,
-                device,
-                queue,
-            },
+            Ok((_instance, _adapter, device, queue)) => GlobalGpu { device, queue },
             Err(e) => {
                 log::error!("GPU initialization failed: {e}");
                 log::error!("Solution: ensure a Vulkan-capable GPU is available.");
@@ -61,27 +54,6 @@ fn global_gpu() -> &'static GlobalGpu {
             }
         }
     })
-}
-
-/// Like `global_gpu()` but returns `None` instead of panicking on init failure.
-/// Use in JNI entry points where a graceful degradation is better than a crash.
-#[allow(dead_code)]
-pub(crate) fn try_global_gpu() -> Option<&'static GlobalGpu> {
-    static INSTANCE: OnceLock<Result<GlobalGpu, String>> = OnceLock::new();
-    let init = || {
-        futures::executor::block_on(crate::render::wgpu_backend::initialize_wgpu())
-            .map(|(instance, adapter, device, queue)| GlobalGpu {
-                instance,
-                adapter,
-                device,
-                queue,
-            })
-            .map_err(|e| {
-                log::error!("GPU initialization failed: {e}");
-                e.to_string()
-            })
-    };
-    INSTANCE.get_or_init(init).as_ref().ok()
 }
 
 /// Central GPU context — owns the wgpu device, queues, pipelines, and all GPU resources.
@@ -107,10 +79,6 @@ pub(crate) fn try_global_gpu() -> Option<&'static GlobalGpu> {
 /// its entire lifetime.  `begin_frame()` and `render_frame()` must be called
 /// from the same thread, with `&mut self`.
 pub struct Renderer {
-    #[allow(dead_code)]
-    pub(crate) instance: wgpu::Instance,
-    #[allow(dead_code)]
-    pub(crate) adapter: wgpu::Adapter,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
     pub(crate) surface: Option<std::sync::Arc<wgpu::Surface<'static>>>,
@@ -186,7 +154,7 @@ impl Renderer {
                     tex_size.width,
                     tex_size.height
                 );
-                let existing_config = self.surface_config.clone()?;
+                let existing_config = self.surface_config.take()?;
                 let new_config = wgpu::SurfaceConfiguration {
                     width: tex_size.width,
                     height: tex_size.height,
@@ -277,81 +245,13 @@ impl Drop for Renderer {
 }
 
 impl Renderer {
-    /// Create a new Renderer with full async initialization.
-    pub async fn new() -> Result<Self, GpuError> {
-        let (instance, adapter, device, queue) =
-            crate::render::wgpu_backend::initialize_wgpu().await?;
-        let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Quad Vertex Buffer"),
-            contents: bytemuck::cast_slice(QUAD_CORNERS),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
-        Ok(Self {
-            instance,
-            adapter,
-            device,
-            queue,
-            surface: None,
-            surface_config: None,
-            cell_pipeline: None,
-            quad_vertex_buffer,
-            cell_bind_group: None,
-            cell_uniform_buffer: None,
-            instance_buffer: None,
-            atlas_texture: None,
-            atlas_view: None,
-            atlas_sampler: None,
-            pipeline_format: wgpu::TextureFormat::Rgba8Unorm,
-            projection_width: 0,
-            projection_height: 0,
-            readback_texture: None,
-            readback_buffer: None,
-            bg_color: CATPPUCCIN_MOCHA_BG,
-            bg_image_texture: None,
-            bg_image_view: None,
-            bg_pipeline: None,
-            bg_bind_group_layout: None,
-            bg_bind_group: None,
-            bg_uniform_buffer: None,
-            bg_sampler: None,
-            bg_blur_radius: 0.0,
-            bg_alpha: DEFAULT_BG_ALPHA,
-            kgp_pipeline: None,
-            kgp_bind_group_layout: None,
-            kgp_bind_group: None,
-            kgp_uniform_buffer: None,
-            kgp_sampler: None,
-            kgp_instance_buffer: None,
-            kgp_texture: None,
-            kgp_atlas_data: Vec::new(),
-            kgp_atlas_width: 0,
-            kgp_atlas_height: 0,
-            raster_scale: 1.0,
-            blur_h_pipeline: None,
-            blur_v_pipeline: None,
-            render_paused: false,
-            pending_gpu_drain: false,
-        })
-    }
-
-    /// Create a Renderer sharing the global wgpu instance/adapter/device.
-    /// Useful for headless contexts (e.g., tests, screenshot capture).
-    pub fn new_with_no_surface() -> Self {
-        let gpu = global_gpu();
-        let instance = gpu.instance.clone();
-        let adapter = gpu.adapter.clone();
-        let device = gpu.device.clone();
-        let queue = gpu.queue.clone();
-        let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Quad Vertex Buffer"),
-            contents: bytemuck::cast_slice(QUAD_CORNERS),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-
+    /// Shared initialization for all constructors.
+    pub(crate) fn new_inner(
+        device: wgpu::Device,
+        queue: wgpu::Queue,
+        quad_vertex_buffer: wgpu::Buffer,
+    ) -> Self {
         Self {
-            instance,
-            adapter,
             device,
             queue,
             surface: None,
@@ -395,6 +295,34 @@ impl Renderer {
             render_paused: false,
             pending_gpu_drain: false,
         }
+    }
+
+    /// Create a new Renderer with full async initialization.
+    pub async fn new() -> Result<Self, GpuError> {
+        let (_instance, _adapter, device, queue) =
+            crate::render::wgpu_backend::initialize_wgpu().await?;
+        let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Quad Vertex Buffer"),
+            contents: bytemuck::cast_slice(QUAD_CORNERS),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        Ok(Self::new_inner(device, queue, quad_vertex_buffer))
+    }
+
+    /// Create a Renderer sharing the global wgpu instance/adapter/device.
+    /// Useful for headless contexts (e.g., tests, screenshot capture).
+    pub fn new_with_no_surface() -> Self {
+        let gpu = global_gpu();
+        let device = gpu.device.clone();
+        let queue = gpu.queue.clone();
+        let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("Quad Vertex Buffer"),
+            contents: bytemuck::cast_slice(QUAD_CORNERS),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+
+        Self::new_inner(device, queue, quad_vertex_buffer)
     }
 
     pub fn set_bg_color(&mut self, background: [u8; 3]) {

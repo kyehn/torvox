@@ -41,14 +41,12 @@
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$e: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$exception: Throwable</ID>
-    <ID>TooGenericExceptionCaught:UsbSerialManager.kt$UsbSerialManager$exception: Exception</ID>
     <ID>TooManyFunctions:SettingsRepository.kt$SettingsRepository</ID>
     <ID>TooManyFunctions:TerminalSurface.kt$TerminalSurface : TextureViewSurfaceTextureListener</ID>
     <ID>TooManyFunctions:TerminalViewModel.kt$TerminalViewModel : ViewModel</ID>
     <ID>TooManyFunctions:NativeBridge.kt$NativeBridge : AutoCloseable</ID>
     <ID>TooManyFunctions:NativeBridge.kt$NativeBridge : Library</ID>
     <ID>TooManyFunctions:TerminalRuntime.kt$TerminalRuntime</ID>
-    <ID>TooManyFunctions:UsbSerialManager.kt$UsbSerialManager : Closeable</ID>
     <ID>UnusedImports:ModifierBarComprehensiveTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
     <ID>UnusedImports:ModifierBarScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
     <ID>UnusedImports:ScreenshotGoldenTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>

@@ -67,10 +67,7 @@ pub enum Command {
         unshifted_char: u32,
         tx: Sender<Vec<u8>>,
     },
-    /// Serialize terminal state using Ghostty Formatter VT API.
-    SaveSession {
-        tx: Sender<Vec<u8>>,
-    },
+    /// Graceful shutdown signal.
     Terminate,
 }
 

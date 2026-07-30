@@ -63,7 +63,7 @@ fn run_java(lib_dir: &PathBuf, class_output: &PathBuf) -> String {
         .arg(format!("-Djava.library.path={}", lib_dir.display()))
         .arg("-cp")
         .arg(class_output)
-        .arg("io.term.bridge.NativeBridge")
+        .arg("terminal.emulator.bridge.NativeBridge")
         .output()
         .expect("java not found — install JDK 21");
 

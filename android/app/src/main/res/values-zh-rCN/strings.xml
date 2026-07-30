@@ -34,8 +34,6 @@
     <string name="bootstrap_preset_termux">Termux 默认</string>
     <string name="bootstrap_preset_termux_desc">标准 Termux 引导程序，包含 bash、coreutils 和包管理器</string>
     <string name="bootstrap">引导程序</string>
-    <string name="session_restore">恢复会话</string>
-    <string name="session_restore_desc">在应用启动时重新打开之前的会话</string>
     <string name="keyboard_mode">键盘模式</string>
     <string name="keyboard_secure">安全模式</string>
     <string name="keyboard_secure_desc">无建议、无自动纠正、无个性化学习</string>
@@ -99,15 +97,12 @@
     <string name="bootstrap_installing">安装中…</string>
 
     <!-- Session restore -->
-    <string name="session_restore_off_desc">应用启动时不会恢复会话</string>
 
     <!-- Toggle -->
     <string name="on">开启</string>
     <string name="off">关闭</string>
 
     <!-- USB Serial -->
-    <string name="usb_serial">USB 串口</string>
-    <string name="usb_serial_desc">连接 USB 串口适配器 (CDC-ACM, FTDI, CH340)</string>
 
     <!-- MCP Server -->
     <string name="mcp_server">MCP 服务器</string>

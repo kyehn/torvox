@@ -16,7 +16,7 @@ detekt {
 }
 
 android {
-    namespace = "io.term"
+    namespace = "terminal.emulator"
     compileSdk = 37
 
     signingConfigs {
@@ -267,7 +267,7 @@ androidComponents {
                 "--reportDir",
                 reportDir,
                 "--targetClasses",
-                "io.term.*",
+                "terminal.emulator.*",
                 "--sourceDirs",
                 srcDirs,
                 "--threads",

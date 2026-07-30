@@ -587,9 +587,6 @@ impl super::GhosttyTerminal {
                     }
                     try_send(&tx, response, "key_encode response send failed");
                 }
-                Command::SaveSession { tx } => {
-                    Self::handle_save_session(&terminal, tx);
-                }
                 // Query-only commands — never reach command_receiver in
                 // normal operation (they go via query_receiver), but we
                 // must still handle them for match exhaustiveness.
@@ -1301,42 +1298,5 @@ impl super::GhosttyTerminal {
             prev[n] = current;
         }
         prev[n]
-    }
-
-    /// Serialize terminal state to VT sequences using Ghostty Formatter.
-    /// Sends the result back via `tx`, or an empty vec on failure.
-    pub(crate) fn handle_save_session(
-        terminal: &libghostty_vt::Terminal,
-        tx: flume::Sender<Vec<u8>>,
-    ) {
-        use libghostty_vt::fmt::{Format, Formatter, FormatterOptions};
-
-        let mut formatter = match Formatter::new(
-            terminal,
-            FormatterOptions::new()
-                .with_format(Format::Vt)
-                .with_unwrap(false)
-                .with_trim(false)
-                .with_palette(false)
-                .with_modes(false)
-                .with_cursor(false),
-        ) {
-            Ok(f) => f,
-            Err(e) => {
-                log::error!("handle_save_session: Formatter::new failed: {e}");
-                let _ = tx.send(Vec::new());
-                return;
-            }
-        };
-
-        match formatter.format_alloc(None) {
-            Ok(bytes) => {
-                let _ = tx.send(bytes.to_vec());
-            }
-            Err(e) => {
-                log::error!("handle_save_session: format_alloc failed: {e}");
-                let _ = tx.send(Vec::new());
-            }
-        }
     }
 }

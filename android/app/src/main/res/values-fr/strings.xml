@@ -32,8 +32,6 @@
     <string name="bootstrap">Bootstrap</string>
     <string name="bootstrap_install">Installer Bootstrap</string>
     <string name="bootstrap_installing">Installation\u2026</string>
-    <string name="session_restore">Restaurer la session</string>
-    <string name="session_restore_desc">Rouvrir la session précédente au lancement de l\'application</string>
     <string name="keyboard_mode">Mode clavier</string>
     <string name="keyboard_secure">Sécurisé</string>
     <string name="keyboard_secure_desc">Pas de suggestions, pas de correction automatique, pas de personnalisation</string>
@@ -72,8 +70,6 @@
     <string name="title_changed">Titre du terminal changé en %s</string>
 
     <!-- USB Serial -->
-    <string name="usb_serial">USB Série</string>
-    <string name="usb_serial_desc">Se connecter aux adaptateurs USB série (CDC-ACM, FTDI, CH340)</string>
 
     <!-- MCP Server -->
     <string name="mcp_server">Serveur MCP</string>
@@ -96,7 +92,6 @@
     <string name="install">Installer</string>
 
     <!-- Cursor Settings -->
-    <string name="session_restore_off_desc">Les sessions ne seront pas restaurées au démarrage de l\'application</string>
     <string name="on">Activé</string>
     <string name="off">Désactivé</string>
     <string name="cjk_fallback_missing_warning">Aucune police de secours CJK détectée. Les caractères d\'Asie de l\'Est peuvent ne pas s\'afficher correctement.</string>

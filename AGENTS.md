@@ -2,9 +2,19 @@
 
 ## Project Context
 
-GPU-accelerated Android terminal emulator using wgpu (Vulkan) for rendering, Ghostty VT parsing (vendored via `libghostty-vt-sys`), and a Kotlin+Compose UI. Ghostty is the single source of truth for all terminal state — no separate data-model crate.
+GPU-accelerated Android terminal emulator using wgpu (Vulkan) for rendering,
+Ghostty VT parsing (vendored via `libghostty-vt-sys`), and a Kotlin+Compose UI.
+Ghostty is the single source of truth for all terminal state — no separate
+data-model crate.
 
-Single crate (`native/`) with 2 thin workspace members, ~29.5k LOC Rust, JNI direct bridge (no boltffi/JNA).
+Single crate (`native/`) with 2 thin workspace members (`exec-bin`,
+`integration-tests`), ~13.7k LOC Rust (after 389 commits of cleanup),
+JNI direct bridge (no boltffi/JNA).
+
+**Maturity**: All phases of re-architecture complete. 6 rounds of comprehensive
+code review conducted; final verdict CLEAN (no P0/P1 issues). Git history
+cleaned (unified `jane <jane@computer.local>` identity, no forbidden files,
+no Co-Authored-By trailers). See `docs/project-health.md`.
 
 ## Setup and Commands
 
@@ -69,6 +79,14 @@ No pre-installed hooks. Run checks manually before commit.
 ## Architecture — Summary
 
 See `docs/architecture.md` for the full architecture document.
+Key architecture features:
+- **Single crate** (`native/`): terminal engine + GPU renderer + JNI bridge + MCP
+- **Ghostty** as single source of truth for all terminal state
+- **wgpu** (Vulkan) GPU rendering via cosmic-text + swash + guillotiere
+- **Direct JNI** (jni crate), no boltffi/JNA
+- **Embedded MCP** (tower-mcp, Unix socket + Stdio, 8 tools)
+- **4 threads per session** (PTY Reader, Input Writer, Process Waiter, Render Thread)
+- **CellData** (80B bytemuck) fast path for rendering; GridSnapshot for query path
 
 ---
 
@@ -198,10 +216,13 @@ Prefer `scripts/` over workflows. Only modify workflows when scripts cannot solv
 
 ---
 
-## docs/standards/ Reference
+## docs/ Reference
 
 | File | When to Read |
 |------|-------------|
 | `docs/standards/STYLE.md` | Before writing any file |
 | `docs/standards/TESTING.md` | Before writing tests |
 | `docs/standards/QUALITY-GATE.md` | Before review or commit |
+| `docs/project-health.md` | For project status, known gaps, review history |
+| `docs/performance.md` | For benchmark results and thresholds |
+| `docs/reference-projects.md` | For peer project architecture comparison |
