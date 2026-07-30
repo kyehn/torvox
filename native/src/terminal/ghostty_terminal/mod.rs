@@ -29,7 +29,6 @@ pub struct GhosttyTerminal {
     pub(crate) snapshot_rebuild_count: Arc<AtomicU64>,
     /// Set to true if the terminal thread panicked. All subsequent operations
     /// return errors instead of silently sending commands into a dead channel.
-    #[allow(dead_code)]
     pub(crate) panicked: Arc<AtomicBool>,
     /// Last byte written by `pty_write()`, used to detect `\r`/`\n` split
     /// across consecutive write chunks. Prevents spurious `\r\r\n`.

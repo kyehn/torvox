@@ -123,7 +123,7 @@ fn render_grid(
     expected_ocr: Option<&str>,
     clear_color: Option<wgpu::Color>,
 ) -> (Vec<u8>, u32, u32) {
-    let Some((instance, adapter, device, queue)) = create_test_device() else {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         panic!("no GPU for {test_name}");
     };
     let atlas_dim: u32 = 512;
@@ -132,7 +132,7 @@ fn render_grid(
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let width = (grid.cols as f32 * cell_w).round() as u32 + TEST_PADDING_X;
     let height = (grid.rows as f32 * cell_h).round() as u32 + TEST_PADDING_Y;
-    let mut ctx = setup_test_gpu_context_custom(instance, adapter, device, queue, width, height);
+    let mut ctx = setup_test_gpu_context_custom(device, queue, width, height);
     if let Some(c) = clear_color {
         ctx.bg_color = c;
     }

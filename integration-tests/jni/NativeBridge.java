@@ -1,9 +1,9 @@
-package io.term.bridge;
+package terminal.emulator.bridge;
 
 /**
  * Minimal Java test class matching the JNI exports in native/src/android/ffi.rs.
  * Compile with: javac -d ../../target/jni-test-classes NativeBridge.java
- * Run with: java -Djava.library.path=../../target/debug -cp ../../target/jni-test-classes io.term.bridge.NativeBridge
+ * Run with: java -Djava.library.path=../../target/debug -cp ../../target/jni-test-classes terminal.emulator.bridge.NativeBridge
  */
 public class NativeBridge {
     // ── native method declarations (matching ffi.rs exports) ──
@@ -17,7 +17,6 @@ public class NativeBridge {
     static native void writeKey(long sessionId, String key, int mods, String text);
     static native String pollEvent();
     static native void setMcpEnabled(boolean enabled);
-    static native void setSessionSavePath(long sessionId, String path);
 
     // ── test harness ──
     static int passed = 0;

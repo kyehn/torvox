@@ -139,7 +139,6 @@ pub struct Session {
 
     // ── Runtime state ────────────────────────────────────────────────
     /// Optional path for session persistence via Ghostty Formatter.
-    save_path: Option<String>,
     /// Exit code captured from waitpid, `None` while process runs.
     pub(crate) exit_code: Arc<Mutex<Option<i32>>>,
 }
@@ -371,7 +370,6 @@ impl Session {
             shell_integration,
             reader_handle: None,
             wait_handle: None,
-            save_path: None,
             exit_code: Arc::new(Mutex::new(None)),
         })
     }
@@ -390,47 +388,6 @@ impl Session {
         self.pty.resize(rows as u16, cols as u16)?;
         self.terminal.resize(rows, cols);
         Ok(())
-    }
-
-    /// Set the session persistence save path.
-    pub fn set_save_path(&mut self, path: &str) {
-        self.save_path = Some(path.to_string());
-    }
-
-    /// Save the current terminal state to the save path using Ghostty Formatter.
-    /// Returns true if the save was successful.
-    pub fn save_session(&self) -> bool {
-        let path = match &self.save_path {
-            Some(p) => p.clone(),
-            None => return false,
-        };
-
-        let (tx, rx) = flume::bounded(1);
-        let command = super::ghostty_terminal::Command::SaveSession { tx };
-        if self.terminal.clone_cmd_tx().send(command).is_err() {
-            return false;
-        }
-
-        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
-            Ok(data) if !data.is_empty() => std::fs::write(&path, &data).is_ok(),
-            _ => false,
-        }
-    }
-
-    /// Restore session state from the save path.
-    /// Returns true if a save file was found and written to the terminal.
-    pub fn restore_session(&mut self) -> bool {
-        let path = match &self.save_path {
-            Some(p) => p.clone(),
-            None => return false,
-        };
-        let data = match std::fs::read(&path) {
-            Ok(d) if !d.is_empty() => d,
-            _ => return false,
-        };
-        // Write saved VT data to the terminal before shell starts
-        self.terminal.pty_write(&data);
-        true
     }
 
     /// Send a POSIX signal (by number) to the child process backing this session.
@@ -570,12 +527,8 @@ impl Session {
     /// lock already held by the render thread, so UI-thread input never
     /// blocks on the session mutex.
     fn flush_user_writes(&mut self) {
-        let mut user_writes: Vec<Vec<u8>> = Vec::new();
         while let Ok(data) = self.user_write_rx.try_recv() {
-            user_writes.push(data);
-        }
-        for data in &user_writes {
-            if let Err(error) = self.pty.write_all(data) {
+            if let Err(error) = self.pty.write_all(&data) {
                 log::error!(
                     "session: user PTY write failed ({} bytes): {}",
                     data.len(),
