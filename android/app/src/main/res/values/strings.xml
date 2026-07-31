@@ -122,6 +122,7 @@
     <string name="clear_app_data_desc" translatable="false">Reset all settings, sessions, and logs. This will not delete bootstrap files or home directory.</string>
     <string name="clear_app_data_confirm" translatable="false">Are you sure you want to clear all app data? This action cannot be undone. Settings, session history, and logs will be permanently deleted. Bootstrap files and home directory will not be affected.</string>
     <string name="clear_app_data_action" translatable="false">Clear</string>
+    <string name="clear_app_data_done" translatable="false">App data cleared. Restart the app for a full reset.</string>
 
     <!-- Font CJK Warning -->
     <string name="cjk_fallback_missing_warning">No CJK fallback font detected. East Asian characters may not render correctly.</string>

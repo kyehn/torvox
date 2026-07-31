@@ -10,11 +10,11 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import androidx.compose.ui.test.swipeUp
+import org.junit.Rule
+import org.junit.Test
 import terminal.emulator.MainActivity
 import terminal.emulator.openSettings
 import terminal.emulator.waitForSession
-import org.junit.Rule
-import org.junit.Test
 
 class FontSwitchInstrumentedTest {
     @get:Rule

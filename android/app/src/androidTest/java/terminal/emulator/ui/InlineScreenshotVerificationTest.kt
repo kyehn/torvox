@@ -16,12 +16,12 @@ import android.view.ViewGroup
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import terminal.emulator.MainActivity
 import org.junit.After
 import org.junit.Assert
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.MainActivity
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -109,7 +109,7 @@ class InlineScreenshotVerificationTest {
     }
 
     private fun writeToPty(data: String) {
-        var bridge: terminal.emulator.bridge.NativeBridge? = null
+        var bridge: terminal.emulator.bridge.Bridge? = null
         scenario!!.onActivity { activity ->
             bridge = (activity as? MainActivity)?.runtime?.bridge()
         }

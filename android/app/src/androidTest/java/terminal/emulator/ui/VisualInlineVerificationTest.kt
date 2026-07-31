@@ -14,13 +14,13 @@ import android.view.ViewGroup
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import terminal.emulator.MainActivity
-import terminal.emulator.getBridge
-import terminal.emulator.waitForSession
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.MainActivity
+import terminal.emulator.getBridge
+import terminal.emulator.waitForSession
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -30,7 +30,7 @@ class VisualInlineVerificationTest {
     @get:Rule val composeRule = createAndroidComposeRule<MainActivity>()
 
     private var tv: TextureView? = null
-    private var bridge: terminal.emulator.bridge.NativeBridge? = null
+    private var bridge: terminal.emulator.bridge.Bridge? = null
 
     companion object {
         private fun findTextureView(root: View): TextureView? {

@@ -316,15 +316,29 @@ impl OscHandler {
     fn dispatch_osc52(&self, payload: &str) -> Option<OscEvent> {
         let semi = payload.find(';')?;
         let base64_data = &payload[semi + 1..];
-        if base64_data.is_empty() {
+        let selection = payload[..semi].to_string();
+        // OSC 52 read request (`?` instead of base64 payload): FR-036 is
+        // not implemented, so there is no clipboard read-back path. Log it
+        // instead of silently swallowing the sequence (the application
+        // would otherwise wait forever for a response).
+        if base64_data.trim() == "?" {
+            log::warn!("osc52: clipboard read request ignored (FR-036 not implemented)");
             return None;
+        }
+        // Empty payload (xterm semantics) = clear the clipboard. Deliver an
+        // empty-text event; the Kotlin side writes an empty ClipData so the
+        // system clipboard does not retain stale (possibly sensitive) data.
+        if base64_data.is_empty() {
+            return Some(OscEvent::Clipboard(ClipboardEvent {
+                selection,
+                text: String::new(),
+            }));
         }
         use base64::Engine;
         let decoded = base64::engine::general_purpose::STANDARD
             .decode(base64_data.as_bytes())
             .ok()?;
         let text = String::from_utf8_lossy(&decoded).to_string();
-        let selection = payload[..semi].to_string();
         Some(OscEvent::Clipboard(ClipboardEvent { selection, text }))
     }
 

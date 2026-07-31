@@ -3,54 +3,102 @@
   <ManuallySuppressedIssues/>
   <CurrentIssues>
     <ID>CognitiveComplexMethod:BootstrapDownloader.kt$BootstrapDownloader$suspend fun download( url: String, arch: String, ): Result&lt;File></ID>
+    <ID>CognitiveComplexMethod:BootstrapInstaller.kt$BootstrapInstaller$private fun processZipEntries( zis: ZipInputStream, symlinks: MutableList&lt;Pair&lt;String, String>>, onEntryProcessed: (Int) -> Unit, )</ID>
     <ID>CognitiveComplexMethod:ModifierBar.kt$@Suppress("LongParameterList", "CyclomaticComplexMethod") @Composable private fun ConfigurableModifierBar( toolbarLayout: List&lt;ToolbarItem>, onKeyClick: (String) -> Unit, onDrawerClick: () -> Unit, onScrollClick: () -> Unit, ctrlState: ModifierState, altState: ModifierState, onToggleCtrl: () -> Unit, onToggleAlt: () -> Unit, textColor: Color, backgroundColor: Color, modifier: Modifier, label: (String) -> String, )</ID>
     <ID>CognitiveComplexMethod:ModifierBar.kt$@Suppress("LongParameterList", "CyclomaticComplexMethod", "LongMethod") @Composable private fun RowScope.ExtraKeyButton( text: String, onClick: () -> Unit, textColor: androidx.compose.ui.graphics.Color, isActive: Boolean = false, modifierState: ModifierState? = null, testTag: String = "", contentDescription: String? = null, onRepeat: (() -> Unit)? = null, )</ID>
     <ID>CognitiveComplexMethod:SettingsScreen.kt$@Composable internal fun AppThemeSelector( selectedMode: String, onModeSelected: (String) -> Unit, textColor: Color, cardBackground: Color, accentColor: Color, )</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$fun closeSession(id: Long)</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun closeDeadSession(entry: SessionEntry)</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun handleSessionExit(entry: SessionEntry, exitCode: Int)</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
     <ID>CognitiveComplexMethod:TerminalScreen.kt$@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) @Suppress("DEPRECATION", "CyclomaticComplexMethod", "LongMethod") @Composable fun TerminalScreen( modifier: Modifier = Modifier, viewModel: TerminalViewModel = hiltViewModel(), onSettings: () -> Unit = {}, isOverlayVisible: Boolean = false, )</ID>
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$@Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth") // Acceptable — dispatches ~15 distinct gesture/intent types override fun onTouchEvent(event: MotionEvent): Boolean</ID>
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection</ID>
-    <ID>CognitiveComplexMethod:TerminalViewModel.kt$TerminalViewModel$@Suppress("CyclomaticComplexMethod") private fun extractSelectedText( selection: SelectionState, scrollOffset: Int = 0, ): String</ID>
-    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
-    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
+    <ID>CognitiveComplexMethod:TerminalViewModel.kt$TerminalViewModel$@Suppress("CyclomaticComplexMethod") private fun extractSelectedText(selection: SelectionState): String</ID>
+    <ID>CyclomaticComplexMethod:BootstrapDownloader.kt$BootstrapDownloader$suspend fun download( url: String, arch: String, ): Result&lt;File></ID>
     <ID>CyclomaticComplexMethod:SettingsScreen.kt$@Composable private fun FontInfoSection( fontInfo: String, textColor: Color, secondaryText: Color, )</ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun controlByteForKeyCode(keyCode: Int): Byte?</ID>
+    <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun csiSequenceWithModifier( keyCode: Int, ctrlActive: Boolean, altActive: Boolean, ): String?</ID>
+    <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun escapeSequenceForKeyCode( keyCode: Int, ctrlActive: Boolean, altActive: Boolean, ): String?</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$fun closeSession(id: Long)</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun closeDeadSession(entry: SessionEntry)</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun handleSessionExit(entry: SessionEntry, exitCode: Int)</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
-    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
-    <ID>LateinitUsage:MainActivity.kt$MainActivity$@Inject lateinit var runtime: TerminalRuntime // Dagger injection — lateinit required</ID>
-    <ID>LongMethod:SecondStageRunner.kt$SecondStageRunner$suspend fun run(): Result</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair&lt;Pair&lt;Int, Int>, Pair&lt;Int, Int>>?</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getCellHeight(): Float</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getCellWidth(): Float</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getDefaultFontName(): String</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getFontInfo(): FontInfo?</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getGridRowsColsPacked(): Long</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getTitle(): String?</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun isCellEmpty(row: Int, col: Int): Boolean</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun render(shouldSkipOutput: Boolean = false): Int</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun scrollbackLength(): Int</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun scrollbackLine(row: Int): String?</ID>
+    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List&lt;Triple&lt;Int, Int, Int>>?</ID>
+    <ID>InstanceOfCheckForException:TerminalRuntime.kt$TerminalRuntime$exception is kotlinx.coroutines.CancellationException</ID>
+    <ID>InstanceOfCheckForException:TerminalRuntime.kt$TerminalRuntime$serviceException is kotlinx.coroutines.CancellationException</ID>
+    <ID>LargeClass:TerminalRuntime.kt$TerminalRuntime</ID>
+    <ID>LongMethod:BootstrapDownloader.kt$BootstrapDownloader$suspend fun download( url: String, arch: String, ): Result&lt;File></ID>
     <ID>LongMethod:SessionDrawer.kt$@Composable fun SessionDrawer( viewModel: TerminalViewModel, onSettings: () -> Unit, onSearch: () -> Unit, onClose: () -> Unit, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable private fun SystemFontSelector( selectedFamily: String, onFamilySelected: (String) -> Unit, textColor: Color, cardBackground: Color, accentColor: Color, fonts: List&lt;String> = emptyList(), defaultFontName: String = "", fontInfo: String = "", onPickFontFile: (() -> Unit)? = null, )</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$fun closeSession(id: Long)</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun closeDeadSession(entry: SessionEntry)</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun handleSessionExit(entry: SessionEntry, exitCode: Int)</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
-    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, blitCallback: (() -> Unit)? = null, )</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
+    <ID>NestedBlockDepth:BootstrapInstaller.kt$BootstrapInstaller$private fun processZipEntries( zis: ZipInputStream, symlinks: MutableList&lt;Pair&lt;String, String>>, onEntryProcessed: (Int) -> Unit, )</ID>
+    <ID>SwallowedException:Bridge.kt$Bridge$exception: RuntimeException</ID>
+    <ID>SwallowedException:InputBatchBuffer.kt$InputBatchBuffer$exception: java.util.concurrent.RejectedExecutionException</ID>
     <ID>TooGenericExceptionCaught:BootstrapDownloader.kt$BootstrapDownloader$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:BootstrapInstaller.kt$BootstrapInstaller$cleanupException: Exception</ID>
     <ID>TooGenericExceptionCaught:BootstrapInstaller.kt$BootstrapInstaller$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:BootstrapOrchestrator.kt$BootstrapOrchestrator$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:Bridge.kt$Bridge$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:Bridge.kt$Bridge$exception: RuntimeException</ID>
+    <ID>TooGenericExceptionCaught:Bridge.kt$Bridge$exception: Throwable</ID>
+    <ID>TooGenericExceptionCaught:InputBatchBuffer.kt$InputBatchBuffer$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:LogcatFileWriter.kt$LogcatFileWriter$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$e: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$serviceException: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity.&lt;no name provided>$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:MemoryMonitor.kt$MemoryMonitor$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:SecondStageRunner.kt$SecondStageRunner$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SecondStageRunner.kt$SecondStageRunner$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:SettingsScreen.kt$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$error: Exception</ID>
-    <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$e: Exception</ID>
-    <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:ToolbarPreferences.kt$ToolbarPreferences$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalApp.kt$TerminalApp$error: Throwable</ID>
     <ID>TooGenericExceptionCaught:TerminalApp.kt$TerminalApp$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalForegroundService.kt$TerminalForegroundService$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalForegroundService.kt$TerminalForegroundService.Companion$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$closeException: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$e: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$exception: Throwable</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$replyException: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$restoreException: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$retryException: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$serviceException: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$error: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$e: Throwable</ID>
+    <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:ToolbarPreferences.kt$ToolbarPreferences$e: Exception</ID>
+    <ID>TooManyFunctions:Bridge.kt$Bridge</ID>
+    <ID>TooManyFunctions:NativeBridge.kt$NativeBridge</ID>
     <ID>TooManyFunctions:SettingsRepository.kt$SettingsRepository</ID>
+    <ID>TooManyFunctions:TerminalRuntime.kt$TerminalRuntime</ID>
     <ID>TooManyFunctions:TerminalSurface.kt$TerminalSurface : TextureViewSurfaceTextureListener</ID>
     <ID>TooManyFunctions:TerminalViewModel.kt$TerminalViewModel : ViewModel</ID>
-    <ID>TooManyFunctions:NativeBridge.kt$NativeBridge : AutoCloseable</ID>
-    <ID>TooManyFunctions:NativeBridge.kt$NativeBridge : Library</ID>
-    <ID>TooManyFunctions:TerminalRuntime.kt$TerminalRuntime</ID>
-    <ID>UnusedImports:ModifierBarComprehensiveTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
-    <ID>UnusedImports:ModifierBarScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
-    <ID>UnusedImports:ScreenshotGoldenTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
-    <ID>UnusedImports:TerminalScreenScreenshotTest.kt$import kotlin.coroutines.EmptyCoroutineContext</ID>
+    <ID>UnusedPrivateProperty:Bridge.kt$Bridge$unused</ID>
     <ID>UseDataClass:SettingsDataStoreProvider.kt$SettingsDataStoreProvider</ID>
+    <ID>UseRequire:TerminalDocumentsProvider.kt$TerminalDocumentsProvider$throw IllegalArgumentException("Invalid document name: '$displayName'")</ID>
   </CurrentIssues>
 </SmellBaseline>

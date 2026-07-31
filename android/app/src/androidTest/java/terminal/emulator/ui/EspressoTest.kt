@@ -19,13 +19,13 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
-import terminal.emulator.MainActivity
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.Matcher
 import org.junit.Assert.assertNotNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.MainActivity
 
 /**
  * Espresso instrumentation tests.

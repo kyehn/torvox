@@ -7,13 +7,13 @@ package terminal.emulator.bridge;
  */
 public class NativeBridge {
     // ── native method declarations (matching ffi.rs exports) ──
-    static native long initSession(int rows, int cols);
+    static native long initSession(int rows, int cols, String shell, String home, String user, String path, String workingDirectory, String prefix);
     static native boolean destroySession(long sessionId);
     static native boolean switchSession(long sessionId);
     static native int getSessionCount();
     static native String listSessions();
     static native void resize(long sessionId, int rows, int cols);
-    static native void feedPty(long sessionId, String data);
+    static native void feedPty(long sessionId, byte[] data);
     static native void writeKey(long sessionId, String key, int mods, String text);
     static native String pollEvent();
     static native void setMcpEnabled(boolean enabled);
@@ -56,13 +56,13 @@ public class NativeBridge {
         int before = getSessionCount();
         check("initial count is 0", before >= 0);
 
-        long sid = initSession(24, 80);
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
         check("initSession returns positive id", sid > 0);
 
         int afterCreate = getSessionCount();
         check("count increased after create", afterCreate > before);
 
-        long sid2 = initSession(40, 120);
+        long sid2 = initSession(40, 120, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
         check("second session has different id", sid2 != sid);
         check("two sessions created", getSessionCount() >= 2);
 
@@ -82,14 +82,14 @@ public class NativeBridge {
     static void testInitInvalidArgs() {
         System.out.println("-- Init with invalid args --");
         // 0 rows/cols should still work (VT handles minimum internally)
-        long sid = initSession(0, 0);
+        long sid = initSession(0, 0, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
         check("initSession(0,0) succeeds", sid > 0);
         destroySession(sid);
     }
 
     static void testResize() {
         System.out.println("-- Resize --");
-        long sid = initSession(24, 80);
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
         check("session created for resize", sid > 0);
         resize(sid, 50, 150);
         // resize does not throw (no crash = pass)
@@ -98,16 +98,16 @@ public class NativeBridge {
 
     static void testFeedPty() {
         System.out.println("-- Feed PTY --");
-        long sid = initSession(24, 80);
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
         check("session created for feedPty", sid > 0);
-        feedPty(sid, "echo hello\n");
+        feedPty(sid, "echo hello\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         // feedPty does not crash
         destroySession(sid);
     }
 
     static void testPollEvent() {
         System.out.println("-- Poll event --");
-        long sid = initSession(24, 80);
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
         check("session created for pollEvent", sid > 0);
 
         // pollEvent should return null initially (no events)
@@ -116,7 +116,7 @@ public class NativeBridge {
               event == null || event.startsWith("{\""));
 
         // Feed some data, then poll again
-        feedPty(sid, "echo terminal-test-poll\n");
+        feedPty(sid, "echo terminal-test-poll\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         // Give the VT thread a moment to process
         try { Thread.sleep(200); } catch (InterruptedException e) {}
         String event2 = pollEvent();
@@ -128,8 +128,8 @@ public class NativeBridge {
 
     static void testMultiSession() {
         System.out.println("-- Multi-session --");
-        long a = initSession(24, 80);
-        long b = initSession(24, 80);
+        long a = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        long b = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
         check("session A created", a > 0);
         check("session B created", b > 0);
         check("A != B", a != b);

@@ -375,12 +375,18 @@ impl super::GhosttyTerminal {
                     }
                 }
                 Command::Resize { rows, cols } => {
-                    if let Err(error) = terminal.resize(
-                        cols as u16,
-                        rows as u16,
-                        DEFAULT_CELL_WIDTH,
-                        DEFAULT_CELL_HEIGHT,
-                    ) {
+                    // Ghostty's C API takes u16 dimensions; reject out-of-
+                    // range values instead of silently truncating (a
+                    // hostile Kotlin caller could pass >65535 and wrap).
+                    let (Ok(cols), Ok(rows)) = (u16::try_from(cols), u16::try_from(rows)) else {
+                        log::error!(
+                            "ghostty_terminal: resize rejected — dimensions out of u16 range"
+                        );
+                        continue;
+                    };
+                    if let Err(error) =
+                        terminal.resize(cols, rows, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT)
+                    {
                         log::error!("ghostty_terminal: resize failed: {error}");
                     }
                     grid_dirty = true;
@@ -1239,20 +1245,33 @@ impl super::GhosttyTerminal {
                     line.to_lowercase()
                 };
                 if fuzzy {
-                    let max_distance = std::cmp::max(1, search_query.len() / 3);
-                    if search_query.len() <= search_line.len() {
-                        let end = search_line.len() - search_query.len();
+                    // Window size is the query's char count, not byte
+                    // length: a multi-byte query (CJK) otherwise forms
+                    // windows that end mid-character and can never match.
+                    let query_chars = search_query.chars().count();
+                    let max_distance = std::cmp::max(1, query_chars / 3);
+                    // Char-boundary byte offsets of the line; windows are
+                    // sized by char count so slicing stays valid.
+                    let boundaries: Vec<usize> = search_line
+                        .char_indices()
+                        .map(|(offset, _)| offset)
+                        .collect();
+                    if query_chars <= boundaries.len() {
                         // Sliding window: find all windows whose edit distance is within threshold.
                         // Return each match position so all results are highlighted, not just
                         // the nearest one (which would miss overlapping near-matches).
-                        for start in 0..=end {
-                            let window = &search_line[start..start + search_query.len()];
+                        for (window_index, &start) in boundaries.iter().enumerate() {
+                            let end = boundaries
+                                .get(window_index + query_chars)
+                                .copied()
+                                .unwrap_or(search_line.len());
+                            let window = &search_line[start..end];
                             let dist = Self::levenshtein_distance(&search_query, window);
                             if dist <= max_distance {
                                 results.push(SearchMatch {
                                     row,
                                     start_col: start as u32,
-                                    end_col: (start + search_query.len()) as u32,
+                                    end_col: end as u32,
                                 });
                             }
                         }
@@ -1266,7 +1285,18 @@ impl super::GhosttyTerminal {
                             start_col: abs_col as u32,
                             end_col: (abs_col + search_query.len()) as u32,
                         });
-                        start = abs_col + 1;
+                        // Advance past this match to its end (always a char
+                        // boundary), then step to the next boundary so
+                        // overlapping matches are still found without
+                        // slicing mid-character.
+                        let mut next = abs_col + search_query.len();
+                        if next < search_line.len() {
+                            next += 1;
+                            while next < search_line.len() && !search_line.is_char_boundary(next) {
+                                next += 1;
+                            }
+                        }
+                        start = next;
                     }
                 }
             }

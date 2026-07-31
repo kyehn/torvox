@@ -6,12 +6,12 @@ import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.waitForSession
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.MainActivity
+import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
 class TerminalScreenUiTest {
