@@ -44,8 +44,8 @@ use std::fs::File;
 use std::io::Read;
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
-use std::sync::{Condvar, Mutex};
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use flume::{Receiver, bounded};
@@ -53,7 +53,7 @@ use thiserror::Error;
 
 use crate::lock_util::lock_or_recover;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
-use crate::terminal::output_processor::{OutputProcessor, ShellIntegration};
+use crate::terminal::output_processor::OutputProcessor;
 use crate::terminal::pty::{Pty, PtyError, PtyPair};
 use crate::terminal::shell_env::ShellEnv;
 
@@ -76,6 +76,27 @@ pub enum SessionError {
     Ghostty(String),
     #[error("session closed")]
     Closed,
+    #[error("invalid dimensions (out of u16 range)")]
+    InvalidDimensions,
+}
+
+/// Result of a resize: whether the ghostty grid accepted the command.
+/// `Applied` — PTY and grid both resized. `Dropped` — PTY winsize changed
+/// but the grid command was dropped (channel full/wedged VT thread); the
+/// caller must not publish the new dims as authoritative (round-113).
+pub enum ResizeOutcome {
+    Applied,
+    Dropped,
+}
+
+impl SessionError {
+    /// True when the underlying write failed with EAGAIN/EWOULDBLOCK —
+    /// i.e. the PTY buffer is full (child not reading) on a non-blocking
+    /// master. Callers drop the input in that case (xterm semantics)
+    /// instead of surfacing it as an error.
+    pub fn is_would_block(&self) -> bool {
+        matches!(self, SessionError::Io(e) if e.kind() == std::io::ErrorKind::WouldBlock)
+    }
 }
 
 /// A terminal session — wires PTY reader, VT parser, and process waiter together.
@@ -116,31 +137,39 @@ pub struct Session {
     output_processor: OutputProcessor,
     output_tx: flume::Sender<Vec<u8>>,
     output_rx: Receiver<Vec<u8>>,
-    /// Lock-free channel for user-initiated PTY writes (keyboard/IME input,
-    /// paste). The main thread sends here without taking the session lock;
-    /// `process_output` drains it under the lock already held by the render
-    /// thread, so input never blocks the UI thread on the session mutex.
-    user_write_tx: flume::Sender<Vec<u8>>,
-    user_write_rx: Receiver<Vec<u8>>,
-    output_notify: Arc<(Mutex<bool>, Condvar)>,
 
     // ── Event state (polled from Kotlin via push_event) ──────────────
     exited: Arc<AtomicBool>,
+    /// Set once the Exit event for a background (non-active) session has
+    /// been pushed to the event queue, so the per-frame sweep in pollEvent
+    /// reports it exactly once.
+    exit_reported: Arc<AtomicBool>,
     bel_triggered: Arc<AtomicBool>,
     clipboard_text: Arc<Mutex<Option<String>>>,
     notification: Arc<Mutex<Option<(String, String)>>>,
-    hyperlink: Arc<Mutex<Option<String>>>,
     cwd: Arc<Mutex<Option<String>>>,
-    shell_integration: Arc<AtomicU8>,
 
     // ── Thread lifecycle ─────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
     wait_handle: Option<std::thread::JoinHandle<()>>,
 
     // ── Runtime state ────────────────────────────────────────────────
-    /// Optional path for session persistence via Ghostty Formatter.
     /// Exit code captured from waitpid, `None` while process runs.
     pub(crate) exit_code: Arc<Mutex<Option<i32>>>,
+
+    // ── Cached grid size ─────────────────────────────────────────────
+    /// Last known terminal grid size, updated on spawn and successful
+    /// resize. Read lock-free by ffi::switch_session_inner to refresh the
+    /// MCP terminal_info dims WITHOUT a blocking query RPC on the VT
+    /// thread (a query inside the registry write lock would freeze every
+    /// session operation for up to 2×QUERY_TIMEOUT_MS).
+    terminal_rows: AtomicU32,
+    terminal_cols: AtomicU32,
+    /// Set when a grid resize command was dropped while the PTY was already
+    /// resized. Cleared on the next successful grid resize. Prevents the
+    /// size short-circuit from permanently masking the PTY/grid divergence
+    /// (round-113).
+    grid_dirty: AtomicBool,
 }
 
 pub struct ThemeConfig {
@@ -184,6 +213,12 @@ impl Session {
         theme: ThemeConfig,
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn: shell='{shell}', rows={rows}, cols={cols}");
+        // Reject out-of-range dimensions up front (mirrors resize's
+        // InvalidDimensions check): `as u16` below would silently truncate
+        // and the cached grid_size would then disagree with the PTY.
+        if !(u16::try_from(rows).is_ok() && u16::try_from(cols).is_ok()) {
+            return Err(SessionError::InvalidDimensions);
+        }
         let pty = match PtyPair::spawn(shell, rows as u16, cols as u16, env) {
             Ok(p) => {
                 log::info!("Session::spawn: PtyPair::spawn OK");
@@ -221,12 +256,10 @@ impl Session {
             };
 
         let exited = session.exited.clone();
-        let output_notify = session.output_notify.clone();
         let output_tx = session.output_tx.clone();
 
         log::info!("Session::spawn: spawning reader thread");
         let exited_read = exited.clone();
-        let notify_read = output_notify.clone();
         let reader_handle = std::thread::spawn(move || {
             let mut read_buf = [0u8; READ_BUF_SIZE];
             let poll_fd = read_file.as_raw_fd();
@@ -254,7 +287,6 @@ impl Session {
                     std::cmp::Ordering::Less => {
                         log::info!("reader thread: poll error: {poll_result}");
                         exited_read.store(true, Ordering::Release);
-                        Self::notify_output(&notify_read);
                         break;
                     }
                 }
@@ -262,7 +294,6 @@ impl Session {
                     Ok(0) => {
                         log::info!("reader thread: EOF from PTY");
                         exited_read.store(true, Ordering::Release);
-                        Self::notify_output(&notify_read);
                         break;
                     }
                     Ok(bytes_read) => {
@@ -271,20 +302,17 @@ impl Session {
                             log::info!("reader thread: output channel closed");
                             break;
                         }
-                        Self::notify_output(&notify_read);
                     }
                     Err(e) => match e.raw_os_error() {
                         Some(libc::EINTR) => {}
                         Some(libc::EIO) => {
                             log::info!("reader thread: PTY EOF (slave closed, EIO)");
                             exited_read.store(true, Ordering::Release);
-                            Self::notify_output(&notify_read);
                             break;
                         }
                         _ => {
                             log::info!("reader thread: read error: {e}");
                             exited_read.store(true, Ordering::Release);
-                            Self::notify_output(&notify_read);
                             break;
                         }
                     },
@@ -299,11 +327,21 @@ impl Session {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
             log::info!("wait thread: child exited: {result:?}");
-            #[allow(clippy::collapsible_if)]
-            if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result {
-                if let Ok(mut ec) = exit_code.lock() {
-                    *ec = Some(code);
+            match result {
+                Ok(nix::sys::wait::WaitStatus::Exited(_, code)) => {
+                    if let Ok(mut ec) = exit_code.lock() {
+                        *ec = Some(code);
+                    }
                 }
+                // Shell killed by a signal (Ctrl+\, kill -9): report the
+                // conventional 128 + signal code so the UI does not present
+                // a signal death as a clean exit code 0.
+                Ok(nix::sys::wait::WaitStatus::Signaled(_, signal, _)) => {
+                    if let Ok(mut ec) = exit_code.lock() {
+                        *ec = Some(128 + signal as i32);
+                    }
+                }
+                _ => {}
             }
             exited_wait.store(true, Ordering::Release);
         });
@@ -314,13 +352,6 @@ impl Session {
         Ok(session)
     }
 
-    fn notify_output(notify: &Arc<(Mutex<bool>, Condvar)>) {
-        let (lock, cvar) = &**notify;
-        let mut pending = lock.lock().unwrap_or_else(|e| e.into_inner());
-        *pending = true;
-        cvar.notify_one();
-    }
-
     fn spawn_with_theme_inner(
         pty: Box<dyn Pty>,
         rows: u32,
@@ -329,13 +360,10 @@ impl Session {
     ) -> Result<Self, SessionError> {
         log::info!("Session::spawn_with_theme_inner: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
+        let exit_reported = Arc::new(AtomicBool::new(false));
         let bel_triggered = Arc::new(AtomicBool::new(false));
         let clipboard_text = Arc::new(Mutex::new(None));
-        let output_notify = Arc::new((Mutex::new(false), Condvar::new()));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(128);
-        // User-write channel: bounded at 4096 to provide backpressure and
-        // prevent the UI thread from flooding the PTY in pathological cases.
-        let (user_write_tx, user_write_rx) = bounded::<Vec<u8>>(4096);
 
         let terminal = GhosttyTerminal::new_with_theme(
             rows,
@@ -347,9 +375,7 @@ impl Session {
         )
         .map_err(SessionError::Ghostty)?;
 
-        let shell_integration = Arc::new(AtomicU8::new(0));
         let notification = Arc::new(Mutex::new(None));
-        let hyperlink = Arc::new(Mutex::new(None));
         let cwd = Arc::new(Mutex::new(None));
 
         Ok(Self {
@@ -358,19 +384,18 @@ impl Session {
             output_processor: OutputProcessor::new(),
             output_tx,
             output_rx,
-            user_write_tx,
-            user_write_rx,
-            output_notify,
             exited,
+            exit_reported,
             bel_triggered,
             clipboard_text,
             notification,
-            hyperlink,
             cwd,
-            shell_integration,
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(None)),
+            terminal_rows: AtomicU32::new(rows),
+            terminal_cols: AtomicU32::new(cols),
+            grid_dirty: AtomicBool::new(false),
         })
     }
 
@@ -384,10 +409,48 @@ impl Session {
     }
 
     /// Resize the terminal to the given number of rows and columns.
-    pub fn resize(&mut self, rows: u32, cols: u32) -> Result<(), SessionError> {
-        self.pty.resize(rows as u16, cols as u16)?;
-        self.terminal.resize(rows, cols);
-        Ok(())
+    /// Rejects dimensions outside the u16 range of the PTY ioctl.
+    ///
+    /// Returns the outcome: when the grid command was dropped the PTY
+    /// winsize is still updated (ioctl already succeeded) but the caller
+    /// must not publish the new dims as authoritative (round-113).
+    pub fn resize(&mut self, rows: u32, cols: u32) -> Result<ResizeOutcome, SessionError> {
+        let (Ok(rows), Ok(cols)) = (u16::try_from(rows), u16::try_from(cols)) else {
+            return Err(SessionError::InvalidDimensions);
+        };
+        // Short-circuit identical sizes UNLESS a previous grid resize was
+        // dropped: the cached size then no longer matches the grid, so the
+        // same dims must be re-sent to heal the divergence (round-113).
+        let dirty = self.grid_dirty.load(Ordering::Acquire);
+        if !dirty && (rows as u32, cols as u32) == self.grid_size() {
+            return Ok(ResizeOutcome::Applied);
+        }
+        self.pty.resize(rows, cols)?;
+        if !self.terminal.resize(rows as u32, cols as u32) {
+            // PTY winsize changed but the ghostty grid did not (command
+            // dropped). Cache keeps the OLD size and grid_dirty is set so
+            // the next resize event (even with identical dims) retries
+            // instead of short-circuiting (round-112/113).
+            self.grid_dirty.store(true, Ordering::Release);
+            log::warn!(
+                "session: ghostty grid resize to {rows}x{cols} dropped; PTY updated, grid lags — retry on next resize"
+            );
+            return Ok(ResizeOutcome::Dropped);
+        }
+        self.grid_dirty.store(false, Ordering::Release);
+        self.terminal_rows.store(rows as u32, Ordering::Release);
+        self.terminal_cols.store(cols as u32, Ordering::Release);
+        Ok(ResizeOutcome::Applied)
+    }
+
+    /// Lock-free read of the last known grid size (spawn/resize). Never
+    /// blocks: the VT thread's authoritative size is only reachable via a
+    /// query RPC, which callers holding the registry write lock must avoid.
+    pub fn grid_size(&self) -> (u32, u32) {
+        (
+            self.terminal_rows.load(Ordering::Acquire),
+            self.terminal_cols.load(Ordering::Acquire),
+        )
     }
 
     /// Send a POSIX signal (by number) to the child process backing this session.
@@ -402,51 +465,20 @@ impl Session {
         })
     }
 
-    /// Set the pixel dimensions of the terminal for graphics protocol support.
-    pub fn set_pixel_size(&mut self, width: u16, height: u16) {
-        self.pty.set_pixel_size(width, height);
-    }
-
-    /// Block until new output is available from the PTY.
-    pub fn wait_for_output(&self) {
-        let (lock, cvar) = &*self.output_notify;
-        let mut pending = lock.lock().unwrap_or_else(|e| e.into_inner());
-        while !*pending {
-            pending = cvar.wait(pending).unwrap_or_else(|e| e.into_inner());
-        }
-        *pending = false;
-    }
-
-    /// Wait for PTY output or timeout. Returns `true` if output arrived,
-    /// `false` if the timeout elapsed.
-    pub fn wait_for_output_timeout(&self, timeout: std::time::Duration) -> bool {
-        let (lock, cvar) = &*self.output_notify;
-        let mut pending = lock.lock().unwrap_or_else(|e| e.into_inner());
-        if *pending {
-            *pending = false;
-            return true;
-        }
-        let (mut pending_inner, _result) = cvar
-            .wait_timeout(pending, timeout)
-            .unwrap_or_else(|e| e.into_inner());
-        let woke = *pending_inner;
-        *pending_inner = false;
-        woke
-    }
-
-    /// Returns a clone of the lock-free sender for user-initiated PTY writes.
-    /// The main thread uses this to enqueue keyboard/IME/paste data without
-    /// taking the session mutex, avoiding UI-thread stalls.
-    pub fn user_write_sender(&self) -> flume::Sender<Vec<u8>> {
-        self.user_write_tx.clone()
-    }
-
+    /// Maximum chunks of VT output processed per session frame, bounding
+    /// render-thread latency when the PTY floods output.
     const MAX_CHUNKS_PER_FRAME: u32 = 10;
+
+    /// Timeout for the DECSET 1004 mode query inside [`Self::focus_event`].
+    /// focus_event runs on the UI thread (window focus change), so the
+    /// query must fail fast when the VT thread is wedged instead of
+    /// stalling the UI for the full query timeout.
+    const FOCUS_MODE_QUERY_TIMEOUT_MS: u64 = 50;
 
     /// Process terminal output from the PTY reader thread.
     /// Reads VT output, updates terminal state, and drains write-back responses.
     /// Returns true if any VT data was processed.
-    fn poll_pty_output(&mut self, max_chunks: u32) -> bool {
+    pub(crate) fn poll_pty_output(&mut self, max_chunks: u32) -> bool {
         let mut count = 0u32;
         while let Ok(data) = self.output_rx.try_recv() {
             let snap = self.output_processor.process(&data);
@@ -464,13 +496,6 @@ impl Session {
             } else if snap.cwd.is_some() {
                 log::warn!("poll_pty_output: cwd lock poisoned");
             }
-            if let Some(url) = snap.hyperlink.as_ref()
-                && let Ok(mut guard) = self.hyperlink.lock()
-            {
-                *guard = Some(url.clone());
-            } else if snap.hyperlink.is_some() {
-                log::warn!("poll_pty_output: hyperlink lock poisoned");
-            }
             if let Some((ref title, ref body)) = snap.notification {
                 match self.notification.lock() {
                     Ok(mut guard) => {
@@ -482,10 +507,6 @@ impl Session {
 
             if snap.bel {
                 self.bel_triggered.store(true, Ordering::Release);
-            }
-            if snap.shell_integration != ShellIntegration::None {
-                self.shell_integration
-                    .store(snap.shell_integration as u8, Ordering::Release);
             }
             self.terminal.pty_write(&snap.filtered);
             count += 1;
@@ -500,38 +521,32 @@ impl Session {
                     self.output_rx.len(),
                 );
                 self.terminal.flush();
+                // Drain write-back responses even on the cap path: a flood
+                // of output must not starve DECRPM/DSR/DA replies (the
+                // child application would wait for them indefinitely).
+                self.drain_pty_write_back();
                 return true;
             }
         }
         if count > 0 {
             log::trace!("poll_pty_output: processed {count} chunks");
             self.terminal.flush();
-            for response in self.terminal.drain_pty_write_responses() {
-                log::trace!("poll_pty_output: pty write-back {} bytes", response.len());
-                if let Err(error) = self.pty.write_all(&response) {
-                    log::error!(
-                        "session: PTY write-back failed ({} bytes): {}",
-                        response.len(),
-                        error
-                    );
-                }
-            }
+            self.drain_pty_write_back();
             true
         } else {
             false
         }
     }
 
-    /// Drain user-initiated PTY writes (keyboard/IME/paste) queued by the
-    /// main thread through the lock-free channel.  Written under the session
-    /// lock already held by the render thread, so UI-thread input never
-    /// blocks on the session mutex.
-    fn flush_user_writes(&mut self) {
-        while let Ok(data) = self.user_write_rx.try_recv() {
-            if let Err(error) = self.pty.write_all(&data) {
+    /// Write back any pending VT responses (DECRPM, DSR, DA, …) to the
+    /// child PTY. The VT engine buffers them; the child waits for them.
+    fn drain_pty_write_back(&mut self) {
+        for response in self.terminal.drain_pty_write_responses() {
+            log::trace!("poll_pty_output: pty write-back {} bytes", response.len());
+            if let Err(error) = self.pty.write_all(&response) {
                 log::error!(
-                    "session: user PTY write failed ({} bytes): {}",
-                    data.len(),
+                    "session: PTY write-back failed ({} bytes): {}",
+                    response.len(),
                     error
                 );
             }
@@ -543,9 +558,7 @@ impl Session {
     /// Returns `true` if any VT output was processed (caller should
     /// rebuild the display snapshot).
     pub fn process_output(&mut self) -> bool {
-        let changed = self.poll_pty_output(Self::MAX_CHUNKS_PER_FRAME);
-        self.flush_user_writes();
-        changed
+        self.poll_pty_output(Self::MAX_CHUNKS_PER_FRAME)
     }
 
     /// Poll for a BEL (bell character) event. Returns true if a BEL was received since last poll.
@@ -565,26 +578,29 @@ impl Session {
         guard.take()
     }
 
-    /// Poll for a hyperlink URL set by an OSC 8 escape sequence.
-    pub fn poll_hyperlink(&self) -> Option<String> {
-        let mut guard = lock_or_recover(&self.hyperlink, "poll_hyperlink");
-        guard.take()
-    }
-
-    /// Poll for a shell integration marker (OSC 133).
-    pub fn poll_shell_integration(&self) -> ShellIntegration {
-        let raw_value = self.shell_integration.swap(0, Ordering::AcqRel);
-        ShellIntegration::from(raw_value)
-    }
-
     /// Returns true if the child process has exited.
     pub fn is_exited(&self) -> bool {
         self.exited.load(Ordering::Acquire)
     }
 
+    /// Read the child's exit code if the wait thread already wrote it.
+    /// Non-blocking: callers that need to wait for the code poll this in a
+    /// loop WITHOUT holding the session lock (see ffi::wait_exit_code).
+    pub fn exit_code_now(&self) -> Option<i32> {
+        let guard = lock_or_recover(&self.exit_code, "session: exit_code_now");
+        *guard
+    }
+
     /// Get a clone of the exit flag for external monitoring.
     pub fn exited_flag(&self) -> Arc<AtomicBool> {
         self.exited.clone()
+    }
+
+    /// Atomically mark the exit event as reported to the Kotlin side.
+    /// Returns true only for the first caller — the per-frame background
+    /// sweep in pollEvent uses this to report each exit exactly once.
+    pub fn mark_exit_reported(&self) -> bool {
+        !self.exit_reported.swap(true, Ordering::AcqRel)
     }
 
     /// Get a reference to the terminal engine.
@@ -612,52 +628,34 @@ impl Session {
         self.terminal.cwd()
     }
 
-    /// Encode a key event into terminal escape sequences.
-    pub fn key_encode(
-        &self,
-        key_code: u32,
-        modifiers: u16,
-        action: u8,
-        unicode_char: u32,
-        unshifted_char: u32,
-    ) -> Option<Vec<u8>> {
-        self.terminal
-            .key_encode(key_code, modifiers, action, unicode_char, unshifted_char)
-    }
-
-    /// Submit a key for encoding and return a receiver for the result.
-    /// The caller should NOT hold any session lock while waiting on the returned receiver.
-    pub fn clone_cmd_tx(&self) -> flume::Sender<crate::terminal::ghostty_terminal::Command> {
-        self.terminal.clone_cmd_tx()
-    }
-
-    /// Submit a key for encoding and return a receiver for the result.
-    pub fn key_encode_submit(
-        &self,
-        key_code: u32,
-        modifiers: u16,
-        action: u8,
-        unicode_char: u32,
-        unshifted_char: u32,
-    ) -> Option<flume::Receiver<Vec<u8>>> {
-        self.terminal
-            .key_encode_submit(key_code, modifiers, action, unicode_char, unshifted_char)
-    }
-
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
         self.terminal.mode_get(mode_num, kind)
     }
 
     pub fn focus_event(&mut self, focused: bool) {
+        // DECSET 1004 focus reporting: the sequence must go DIRECTLY to the
+        // child PTY, not into the VT engine. The engine's output-stream
+        // parser interprets `CSI I` as CHT (cursor horizontal tab) and
+        // `CSI O` as an invalid CSI — feeding them to the engine moves the
+        // cursor to the next tab stop instead of notifying the application.
+        // Only send when the child actually enabled 1004 (xterm semantics).
+        // Short timeout: this runs on the UI thread (window focus change);
+        // a wedged VT thread must not stall it for the full query timeout.
+        if !self.terminal.mode_get_with_timeout(
+            1004,
+            0,
+            std::time::Duration::from_millis(Self::FOCUS_MODE_QUERY_TIMEOUT_MS),
+        ) {
+            return;
+        }
         let data = if focused { b"\x1b[I" } else { b"\x1b[O" };
-        self.terminal.vt_write(data);
+        if let Err(error) = self.pty.write_all(data) {
+            log::warn!("session: focus_event write failed: {error}");
+        }
     }
 }
 
-/// Join a thread handle with a timeout. If the thread doesn't finish within
-/// the deadline, we detach it (the handle is dropped) to avoid blocking
-/// forever. The thread will clean up on its own when its blocking I/O returns.
-/// Try to join a thread handle with a deadline timeout, then retry up to 3×.
+/// Join a thread handle with a deadline timeout, then retry up to 3×.
 ///
 /// If the initial `timeout` expires, we retry the join with 100ms deadlines
 /// for up to 3 additional attempts. This handles the case where the thread
@@ -785,6 +783,53 @@ mod tests {
     }
 
     #[test]
+    fn session_resize_same_size_is_applied_noop() {
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        let before = handle.resize_count();
+        // Clean state: same-size resize short-circuits and reports Applied.
+        let outcome = session.resize(24, 80).expect("resize failed");
+        assert!(matches!(outcome, ResizeOutcome::Applied));
+        assert!(!session.grid_dirty.load(Ordering::Acquire));
+        // The PTY must be untouched by the short-circuit (round-115).
+        assert_eq!(
+            handle.resize_count(),
+            before,
+            "pty.resize must not be called"
+        );
+        // Grid unchanged (still the spawn size).
+        assert_eq!(session.grid_size(), (24, 80));
+        assert_eq!(session.terminal().rows(), 24);
+    }
+
+    #[test]
+    fn session_resize_dirty_same_size_still_retries() {
+        let mut session =
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        // Simulate a dropped grid command: dirty set, cache at old size.
+        session.grid_dirty.store(true, Ordering::Release);
+        // Same-size resize must NOT short-circuit: it re-issues the ioctl +
+        // grid command and clears the dirty flag (heals the divergence).
+        let outcome = session.resize(24, 80).expect("resize failed");
+        assert!(matches!(outcome, ResizeOutcome::Applied));
+        assert!(!session.grid_dirty.load(Ordering::Acquire));
+        assert_eq!(session.grid_size(), (24, 80));
+    }
+
+    #[test]
+    fn session_resize_dirty_cleared_on_success() {
+        let mut session =
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        session.grid_dirty.store(true, Ordering::Release);
+        // A genuinely different size clears the dirty flag on success.
+        let outcome = session.resize(40, 120).expect("resize failed");
+        assert!(matches!(outcome, ResizeOutcome::Applied));
+        assert!(!session.grid_dirty.load(Ordering::Acquire));
+        assert_eq!(session.grid_size(), (40, 120));
+    }
+
+    #[test]
     fn session_after_exit_returns_error() {
         let mut session =
             Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
@@ -907,6 +952,34 @@ mod tests {
         let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
             .expect("with_pty must succeed");
         assert!(!session.poll_bel(), "fresh session must not have bel set");
+    }
+
+    #[test]
+    fn mark_exit_reported_is_idempotent_under_concurrency() {
+        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        // Exactly one caller must win the report race; every other caller
+        // (concurrent pollEvent threads) must see false so the Exit event
+        // is never duplicated. Arc<Mutex<...>> mirrors the production
+        // SESSION_REGISTRY shape (Box<dyn Pty> is not Sync, so the session
+        // must be shared through a mutex).
+        let session = std::sync::Arc::new(std::sync::Mutex::new(session));
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let session = session.clone();
+            handles.push(std::thread::spawn(move || {
+                session.lock().expect("test lock").mark_exit_reported()
+            }));
+        }
+        let winners = handles
+            .into_iter()
+            .filter_map(|h| h.join().ok())
+            .filter(|won| *won)
+            .count();
+        assert_eq!(winners, 1, "exactly one caller must report the exit");
+        // Subsequent calls stay false.
+        assert!(!session.lock().expect("test lock").mark_exit_reported());
     }
 
     #[test]
@@ -1040,6 +1113,7 @@ mod tests {
 
     #[test]
     fn shell_integration_from_u8() {
+        use crate::terminal::output_processor::ShellIntegration;
         assert_eq!(ShellIntegration::from(0u8), ShellIntegration::None);
         assert_eq!(ShellIntegration::from(1u8), ShellIntegration::PromptStart);
         assert_eq!(ShellIntegration::from(2u8), ShellIntegration::PromptEnd);

@@ -40,13 +40,29 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         fun encodeDocId(
             file: File,
             rootDir: File,
-        ): String {
+        ): String? {
             val rootPath = rootDir.canonicalPath
-            val filePath = file.canonicalPath
-            require(filePath.startsWith(rootPath + File.separator) || filePath == rootPath) {
-                "encodeDocId: $filePath is outside root $rootPath"
+            // For symlinks, encode the link's own path rather than its
+            // canonical target: SAF clients then address the link entry
+            // itself, so deleteDocument removes only the link — never the
+            // target's whole tree. Containment is still checked against the
+            // canonical path (a link pointing outside the home is skipped
+            // below, as before).
+            val filePath =
+                if (java.nio.file.Files.isSymbolicLink(file.toPath())) {
+                    file.path
+                } else {
+                    file.canonicalPath
+                }
+            val fileCanonical = file.canonicalPath
+            // Symlinks pointing outside the home dir are common in a
+            // terminal (e.g. ln -s /sdcard/x ~/link). Skip them rather
+            // than throwing — require() would abort the whole SAF
+            // directory listing on every browse.
+            if (!(fileCanonical.startsWith(rootPath + File.separator) || fileCanonical == rootPath)) {
+                return null
             }
-            return if (filePath == rootPath) {
+            return if (fileCanonical == rootPath) {
                 ROOT_ID
             } else {
                 filePath.removePrefix(rootPath + File.separator)
@@ -71,7 +87,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             val target = file.canonicalFile
             if (!(target.path.startsWith(root.path + File.separator) || target == root)) {
                 throw java.io.FileNotFoundException(
-                    "Access denied: ${target.path} is outside the terminal home directory"
+                    "Access denied: ${target.path} is outside the terminal home directory",
                 )
             }
         }
@@ -140,12 +156,40 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val rootDir = getRootDir()
         val file = decodeDocId(documentId, rootDir)
         requireInsideRoot(file, rootDir)
-        val isWrite = mode.contains("w")
+        // Exact match of ParcelFileDescriptor.parseMode semantics: only
+        // "w"/"wt"/"rwt" truncate, "wa" appends, "rw" is a plain
+        // read-modify-write. Any "contains" heuristic misclassifies at
+        // least one of these (round-61 truncated "rw"/"wa"; round-62
+        // stopped truncating plain "w", corrupting save-with-shorter-
+        // content).
         val fileMode =
-            if (isWrite) {
-                ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
-            } else {
-                ParcelFileDescriptor.MODE_READ_ONLY
+            when (mode) {
+                "r" -> ParcelFileDescriptor.MODE_READ_ONLY
+
+                "w", "wt" ->
+                    ParcelFileDescriptor.MODE_WRITE_ONLY or
+                        ParcelFileDescriptor.MODE_CREATE or
+                        ParcelFileDescriptor.MODE_TRUNCATE
+
+                "wa" ->
+                    ParcelFileDescriptor.MODE_WRITE_ONLY or
+                        ParcelFileDescriptor.MODE_CREATE or
+                        ParcelFileDescriptor.MODE_APPEND
+
+                "rw" -> ParcelFileDescriptor.MODE_READ_WRITE
+
+                "rwt" ->
+                    ParcelFileDescriptor.MODE_READ_WRITE or
+                        ParcelFileDescriptor.MODE_CREATE or
+                        ParcelFileDescriptor.MODE_TRUNCATE
+
+                else -> {
+                    // An unknown mode string is a client contract violation
+                    // (ParcelFileDescriptor.parseMode semantics): fail loudly
+                    // instead of silently handing out a read-only fd to a
+                    // client that asked for write access.
+                    throw IllegalArgumentException("Unsupported mode '$mode'")
+                }
             }
         return ParcelFileDescriptor.open(file, fileMode)
     }
@@ -158,25 +202,129 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val rootDir = getRootDir()
         val parent = decodeDocId(parentDocumentId, rootDir)
         requireInsideRoot(parent, rootDir)
-        val safeName = displayName.replace(Regex("[/\\\\]"), "_").replace("..", "_")
+        val safeName =
+            displayName
+                .replace(Regex("[/\\\\]"), "_")
+                .replace("..", "_")
+                .trim()
+        // Refuse degenerate names: an empty name or "." resolves File(parent,
+        // name) back to the parent directory itself — "creating" it would
+        // return the parent's docId as a new document, and a client calling
+        // deleteDocument on that id would delete the whole directory tree.
+        if (safeName.isEmpty() || safeName == ".") {
+            throw IllegalArgumentException("Invalid document name: '$displayName'")
+        }
         val isDir = mimeType == Document.MIME_TYPE_DIR
         val child = File(parent, safeName)
         if (isDir) {
-            child.mkdirs()
+            if (!child.mkdirs() && !child.isDirectory) {
+                throw java.io.IOException("Failed to create directory '$safeName'")
+            }
         } else {
-            child.createNewFile()
+            if (!child.createNewFile()) {
+                throw java.io.IOException("Failed to create file '$safeName'")
+            }
         }
+        // A failure to encode (canonical path IO error) must not silently
+        // return ROOT_ID: the client would treat the new document as the
+        // root and deleteDocument would later reject it. Fail loudly so
+        // the client can surface the error.
         return encodeDocId(child, rootDir)
+            ?: throw java.io.IOException("Failed to encode docId for '$safeName'")
     }
 
     override fun deleteDocument(documentId: String) {
         val rootDir = getRootDir()
+        if (documentId == ROOT_ID) {
+            // Root delete would wipe the entire terminal home in one call.
+            // SAF clients are never entitled to that; refuse.
+            throw java.io.FileNotFoundException("Refusing to delete the root document")
+        }
+        val rawFile = File(rootDir, documentId)
+        if (java.nio.file.Files.isSymbolicLink(rawFile.toPath())) {
+            // The docId addresses a symlink entry itself (encodeDocId
+            // encodes the link path, not its canonical target). Delete
+            // only the link inode — deleting the canonical target would
+            // wipe the linked directory tree the user did not ask to
+            // remove.
+            // Containment is checked on the link's OWN path, never its
+            // canonical target: rawFile may contain ".." segments (a
+            // hostile docId), and File does not normalize them. Resolve
+            // the parent canonically and re-append the name so the check
+            // covers the actual entry being deleted.
+            val parentCanonical = rawFile.parentFile?.canonicalFile
+            if (parentCanonical == null) {
+                throw java.io.FileNotFoundException("Invalid document id: $documentId")
+            }
+            val linkPath = File(parentCanonical, rawFile.name).canonicalPath
+            val rootPath = rootDir.canonicalPath
+            if (!(linkPath.startsWith(rootPath + File.separator) || linkPath == rootPath)) {
+                throw java.io.FileNotFoundException(
+                    "Access denied: $linkPath is outside the terminal home directory",
+                )
+            }
+            if (rawFile.delete()) {
+                return
+            }
+            throw java.io.FileNotFoundException("Failed to delete symlink $documentId")
+        }
         val file = decodeDocId(documentId, rootDir)
         requireInsideRoot(file, rootDir)
-        if (file.isDirectory) {
-            file.deleteRecursively()
-        } else {
-            file.delete()
+        if (file.canonicalFile == rootDir.canonicalFile) {
+            // Defense in depth: a docId of "" or "." decodes back to the
+            // root directory itself (File(root, "") / File(root, ".")),
+            // which requireInsideRoot permits via the target == root
+            // equality. Refuse so deleteDocument can never wipe the whole
+            // terminal home.
+            throw java.io.FileNotFoundException("Refusing to delete the root document")
+        }
+        deleteWithoutFollowingSymlinks(file)
+    }
+
+    /**
+     * Iterative delete that never follows symlinks and never recurses into
+     * the JVM stack.
+     *
+     * A user's `ln -s . loop` in the terminal home makes deleteRecursively()
+     * recurse into the link's target (the directory itself) forever →
+     * StackOverflowError, which bypasses catch(Exception) and crashes the
+     * whole process (all sessions). A symlink is just an inode: delete it,
+     * not its destination. A deeply nested directory tree (2000+ levels built
+     * with repeated `cd` + mkdir) would likewise overflow the stack with
+     * recursion — walk it iteratively instead.
+     */
+    private fun deleteWithoutFollowingSymlinks(file: File) {
+        // Two phases: walk the tree once collecting directories, deleting
+        // files/symlinks on the way; then delete directories deepest-first
+        // (reverse of the pre-order walk guarantees children come before
+        // parents). The previous requeue-until-empty variant could spin
+        // forever when a child delete() failed (read-only file, I/O error):
+        // the directory would be requeued for every child that could not
+        // be removed.
+        val directories = ArrayList<File>()
+        val stack = ArrayDeque<File>()
+        stack.addLast(file)
+        while (stack.isNotEmpty()) {
+            val current = stack.removeLast()
+            if (!java.nio.file.Files.isSymbolicLink(current.toPath()) && current.isDirectory) {
+                directories.add(current)
+                current.listFiles()?.forEach { stack.addLast(it) }
+            } else {
+                // A failed delete silently leaving a file behind confuses
+                // SAF clients (the document appears to be gone but still
+                // exists); surface it.
+                if (!current.delete()) {
+                    throw java.io.IOException("Failed to delete '${current.path}'")
+                }
+            }
+        }
+        for (i in directories.indices.reversed()) {
+            // Directory deletes can fail if a child delete above failed;
+            // since we already throw on the first child failure, a failure
+            // here is an unexpected race — still report it.
+            if (!directories[i].delete()) {
+                throw java.io.IOException("Failed to delete directory '${directories[i].path}'")
+            }
         }
     }
 
@@ -201,7 +349,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         file: File,
         rootDir: File,
     ) {
-        val docId = encodeDocId(file, rootDir)
+        val docId = encodeDocId(file, rootDir) ?: return
         val mime = if (file.isDirectory) Document.MIME_TYPE_DIR else getMimeType(file.name)
         var flags = 0
         if (file.isDirectory) flags = flags or Document.FLAG_DIR_SUPPORTS_CREATE

@@ -16,10 +16,7 @@ import io.cucumber.java.en.When
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
-import terminal.emulator.injectDoubleTap
 import terminal.emulator.injectLongPress
-import terminal.emulator.injectTap
-import terminal.emulator.injectTripleTap
 import terminal.emulator.ui.TerminalSurface
 import terminal.emulator.waitForSession
 import javax.inject.Inject
@@ -62,49 +59,16 @@ constructor(
         injectLongPress(s, s.width / 2f, s.height * 0.1f)
     }
 
-    @When("^the user long-presses on a URL$")
-    fun userLongPressesOnUrl() {
-        val bridge =
-            composeRuleHolder.composeRule.getBridge()
-                ?: throw AssertionError("Bridge is null")
-        bridge.writeToPty("echo 'https://example.com/test'\n".toByteArray())
-        Thread.sleep(3000)
-        val s = surface()
-        injectLongPress(s, s.width / 2f, s.height / 2f)
-    }
-
     @When("^the user double-taps on a word$")
     fun userDoubleTapsOnWord() {
-        // GestureDetector cannot detect double-tap with simulated events
-        // (Android removes the TAP handler on the first UP, making hadTapMessage=false
-        //  when the second DOWN arrives). Fall back to long-press which triggers
-        // handleLongPress with semantic word expansion — identical outcome.
+        // STUB (round-104): GestureDetector cannot detect double-tap with
+        // simulated events (Android removes the TAP handler on the first UP,
+        // making hadTapMessage=false when the second DOWN arrives). Fall
+        // back to long-press which triggers handleLongPress with semantic
+        // word expansion — identical outcome for now; revisit when a real
+        // double-tap injection path exists.
         val s = surface()
         injectLongPress(s, s.width / 2f, s.height / 2f)
-    }
-
-    @When("^the user triple-taps on a line$")
-    fun userTripleTapsOnLine() {
-        // GestureDetector triple-tap detection requires onDoubleTap to fire twice,
-        // which can't happen with simulated events. Use bridge API directly to select
-        // the entire first line.
-        val bridge =
-            composeRuleHolder.composeRule.getBridge()
-                ?: throw AssertionError("Bridge is null")
-        val cols = bridge.getGridCols()
-        bridge.setSelection(0u, 0u, 0u, (cols - 1).toUInt(), false, 0)
-        bridge.render()
-        try {
-            Thread.sleep(300)
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-        }
-    }
-
-    @When("^the user taps on the terminal$")
-    fun userTapsOnTerminal() {
-        val s = surface()
-        injectTap(s, s.width / 2f, s.height / 2f)
     }
 
     @When("^the user drags the selection handle forward$")
@@ -130,66 +94,6 @@ constructor(
         }
     }
 
-    @When("^the user triggers paste$")
-    fun userTriggersPaste() {
-        val bridge =
-            composeRuleHolder.composeRule.getBridge()
-                ?: throw AssertionError("Bridge is null")
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = clipboard.primaryClip
-        if (clip != null && clip.itemCount > 0) {
-            val text = clip.getItemAt(0).text?.toString() ?: ""
-            bridge.writeToPty(text.toByteArray())
-        }
-    }
-
-    @When("^the user triggers select all$")
-    fun userTriggersSelectAll() {
-        composeRuleHolder.composeRule.waitForIdle()
-        val bridge =
-            composeRuleHolder.composeRule.getBridge()
-                ?: throw AssertionError("Bridge is null")
-        val gridCols = bridge.getGridCols()
-        val gridRows = bridge.getGridRows()
-        if (gridCols > 0 && gridRows > 0) {
-            bridge.setSelection(0u, 0u, (gridRows - 1).toUInt(), (gridCols - 1).toUInt(), true, 0)
-            bridge.render()
-        }
-    }
-
-    @When("^the user switches to another session$")
-    fun userSwitchesToAnotherSession() {
-        val drawerOpen =
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("SessionDrawer"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        if (!drawerOpen) {
-            composeRuleHolder.composeRule.onNodeWithTag("Key_DRAWER").performClick()
-            composeRuleHolder.composeRule.waitForIdle()
-        }
-        val sessionNodes =
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("SessionItem"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-        if (sessionNodes.size > 1) {
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("SessionItem"), useUnmergedTree = true)[1]
-                .performClick()
-        }
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
-    @When("^the user opens the IME$")
-    fun userOpensIme() {
-        composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
-            val imm = activity.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(activity.window.decorView.findFocus(), 0)
-        }
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
     @Then("^a selection handle appears$")
     fun selectionHandleAppears() {
         composeRuleHolder.composeRule.waitForIdle()
@@ -199,24 +103,8 @@ constructor(
             .assertIsDisplayed()
     }
 
-    @Then("^dragging extends the selection$")
-    fun draggingExtendsSelection() {
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
-            .assertIsDisplayed()
-    }
-
     @Then("^the word is selected$")
     fun wordIsSelected() {
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
-            .assertIsDisplayed()
-    }
-
-    @Then("^the line is selected$")
-    fun lineIsSelected() {
         composeRuleHolder.composeRule.waitForIdle()
         composeRuleHolder.composeRule
             .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
@@ -231,35 +119,14 @@ constructor(
         assert(clip != null && clip.itemCount > 0) { "Clipboard should contain text" }
     }
 
-    @Then("^the clipboard text is inserted$")
-    fun clipboardTextIsInserted() {
-        composeRuleHolder.composeRule.waitForIdle()
-        val bridge =
-            composeRuleHolder.composeRule.getBridge()
-                ?: throw AssertionError("Bridge is null")
-        val dataText = bridge.getTerminalText()
-        assert(dataText != null) { "Terminal should still have content after paste" }
-    }
-
     @Then("^the paste popup appears$")
     fun pastePopupAppears() {
         composeRuleHolder.composeRule.waitForIdle()
-        // The selection/paste action bar (ModifierBar) is shown in the popup region.
+        // The real paste popup is PasteChipOverlay; ModifierBar is always
+        // visible and would make this assertion tautological (round-104).
         composeRuleHolder.composeRule
-            .onNodeWithTag("ModifierBar", useUnmergedTree = true)
+            .onNodeWithTag("PasteChipOverlay", useUnmergedTree = true)
             .assertIsDisplayed()
-    }
-
-    @Then("^the full URL is selected$")
-    fun fullUrlIsSelected() {
-        composeRuleHolder.composeRule.waitForIdle()
-        val bridge =
-            composeRuleHolder.composeRule.getBridge()
-                ?: throw AssertionError("Bridge is null")
-        val dataText = bridge.getTerminalText()
-        assert(dataText != null && dataText.contains("https://example.com/test")) {
-            "Full URL should be in terminal output"
-        }
     }
 
     @Then("^the selection extends to the drag target$")
@@ -276,38 +143,5 @@ constructor(
         composeRuleHolder.composeRule
             .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
             .assertIsDisplayed()
-    }
-
-    @Then("^the selection is cleared$")
-    fun selectionIsCleared() {
-        composeRuleHolder.composeRule.waitForIdle()
-        val bridge =
-            composeRuleHolder.composeRule.getBridge()
-                ?: throw AssertionError("Bridge is null")
-        val dataText = bridge.getTerminalText()
-        assert(dataText != null) { "Terminal should still have content after clear" }
-    }
-
-    @Then("^the entire terminal content is selected$")
-    fun entireTerminalContentSelected() {
-        composeRuleHolder.composeRule.waitForIdle()
-        val bridge =
-            composeRuleHolder.composeRule.getBridge()
-                ?: throw AssertionError("Bridge is null")
-        val dataText = bridge.getTerminalText()
-        assert(dataText != null) { "Terminal content should exist" }
-    }
-
-    @Then("^the selection is preserved$")
-    fun selectionIsPreserved() {
-        composeRuleHolder.composeRule.waitForIdle()
-        // The session is still present and its content is intact.
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
-        val bridge =
-            composeRuleHolder.composeRule.getBridge()
-                ?: throw AssertionError("Bridge is null")
-        assert(bridge.getTerminalText() != null) { "Terminal content should survive session switch" }
     }
 }

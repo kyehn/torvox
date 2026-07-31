@@ -189,22 +189,10 @@ check(File(workingDirForCargo, "Cargo.toml").exists()) {
 }
 
 tasks.withType<Test>().matching { it.name == "testDebugUnitTest" }.configureEach {
-    filter {
-        // These tests require the native .so library (JNA via NativeBridge.ensureLib()),
-        // which is unavailable in the JVM unit test environment. They are covered
-        // by integration (E2E) tests.
-        excludeTestsMatching("*CrashHandlerTest*")
-        excludeTestsMatching("*DocumentsProviderTest*")
-        excludeTestsMatching("*LogUtilTest*")
-        // Compose UI tests that also transitively need the native library
-        excludeTestsMatching("*BackHandlerTest*")
-        excludeTestsMatching("*ComposingTextTest*")
-        excludeTestsMatching("*GestureInteractionTest*")
-        excludeTestsMatching("*SelectionMenuComposeTest*")
-        excludeTestsMatching("*TerminalLifecycleTest*")
-        excludeTestsMatching("*TouchGestureTest*")
-        excludeTestsMatching("*WordSelectionTest*")
-    }
+    // No unit tests exist in src/test (only an android.util.Log stub); the
+    // 10 exclude rules that previously lived here referenced test classes
+    // that have never existed in this tree and were dead configuration
+    // (round-114).
     jvmArgs("-Djava.library.path=")
 }
 
@@ -218,18 +206,11 @@ dependencies {
 }
 
 val excludedUnitTests =
-    listOf(
-        "*CrashHandlerTest*",
-        "*DocumentsProviderTest*",
-        "*LogUtilTest*",
-        "*BackHandlerTest*",
-        "*ComposingTextTest*",
-        "*GestureInteractionTest*",
-        "*SelectionMenuComposeTest*",
-        "*TerminalLifecycleTest*",
-        "*TouchGestureTest*",
-        "*WordSelectionTest*",
-    )
+    // src/test contains no test classes (only an android.util.Log shadow);
+    // these patterns reference classes that have never existed in this tree
+    // and are kept solely to guard a future JNA-era unit test from running
+    // without the native .so (round-115).
+    listOf<String>()
 
 // Register pitest tasks for debug-only Android build variants
 androidComponents {
@@ -259,8 +240,8 @@ androidComponents {
                     .asFile.absolutePath
             val srcDirs =
                 listOf(
-                    project.projectDir.resolve("src/main/kotlin").absolutePath,
-                    project.projectDir.resolve("src/${variant.name}/kotlin").absolutePath,
+                    project.projectDir.resolve("src/main/java").absolutePath,
+                    project.projectDir.resolve("src/${variant.name}/java").absolutePath,
                 ).filter { File(it).exists() }.joinToString(",")
 
             args(

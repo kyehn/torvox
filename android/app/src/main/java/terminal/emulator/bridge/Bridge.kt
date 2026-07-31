@@ -8,6 +8,7 @@ import android.util.Log
 sealed interface Shell {
     /** Use the system default shell (/system/bin/sh). */
     data object SystemDefault : Shell
+
     /** Use a custom shell at the given path. */
     data class Custom(val path: String) : Shell
 }
@@ -22,10 +23,22 @@ data class BridgeTheme(
     val fg: Int,
     val cursor: Int,
     val selectionBg: Int,
-    val ansi0: Int, val ansi1: Int, val ansi2: Int, val ansi3: Int,
-    val ansi4: Int, val ansi5: Int, val ansi6: Int, val ansi7: Int,
-    val ansi8: Int, val ansi9: Int, val ansi10: Int, val ansi11: Int,
-    val ansi12: Int, val ansi13: Int, val ansi14: Int, val ansi15: Int,
+    val ansi0: Int,
+    val ansi1: Int,
+    val ansi2: Int,
+    val ansi3: Int,
+    val ansi4: Int,
+    val ansi5: Int,
+    val ansi6: Int,
+    val ansi7: Int,
+    val ansi8: Int,
+    val ansi9: Int,
+    val ansi10: Int,
+    val ansi11: Int,
+    val ansi12: Int,
+    val ansi13: Int,
+    val ansi14: Int,
+    val ansi15: Int,
 )
 
 /**
@@ -64,20 +77,56 @@ class Bridge(private val config: TerminalConfig) {
     }
 
     // ── Session lifecycle ─────────────────────────────────────────────
-    fun spawnTerminal(rows: Int, cols: Int): Long {
-        sessionId = NativeBridge.initSession(rows, cols)
+
+    /** Resolve the configured [Shell] to an absolute executable path. */
+    fun shellPath(): String = when (val shell = config.shell) {
+        is Shell.SystemDefault -> "/system/bin/sh"
+        is Shell.Custom -> shell.path
+    }
+
+    fun spawnTerminal(rows: Int, cols: Int, shell: String): Long {
+        sessionId =
+            NativeBridge.initSession(
+                rows,
+                cols,
+                shell,
+                config.home,
+                config.user,
+                config.path,
+                config.workingDirectory,
+                config.prefix,
+            )
         return sessionId
     }
 
     fun close() {
         if (sessionId != 0L) {
-            NativeBridge.destroySession(sessionId)
+            try {
+                NativeBridge.destroySession(sessionId)
+            } catch (exception: Throwable) {
+                // Cleanup path: a failure here (RuntimeException from the
+                // native side for an unknown session, UnsatisfiedLinkError for
+                // a partially loaded library) must never escape — callers
+                // catch(Exception) only, and an Error would reach the global
+                // handler and kill the process. The registry entry is removed
+                // regardless; native tolerates unknown IDs.
+                Log.e(TAG, "close: destroySession failed", exception)
+            }
             sessionId = 0L
         }
     }
 
     fun resize(rows: Int, cols: Int) {
-        if (sessionId != 0L) NativeBridge.resize(sessionId, rows, cols)
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.resize(sessionId, rows, cols)
+        } catch (exception: RuntimeException) {
+            // Race: the session was destroyed on the IO thread between the
+            // sessionId check and this call (closeSession/stop/exit). The
+            // native side throws RuntimeException for unknown sessions;
+            // dropping the resize is correct — the session is gone.
+            Log.d(TAG, "resize: session $sessionId already destroyed, dropping")
+        }
     }
 
     /** Recompute grid from pixel dimensions (rows/cols derived by native side). */
@@ -87,36 +136,52 @@ class Bridge(private val config: TerminalConfig) {
         Log.d(TAG, "recomputeGrid($width,$height) — native resolves rows/cols from events")
     }
 
-    fun getGridRowsColsPacked(): Long =
-        // Placeholder; real values come via pollEvent(). Packed: (rows.toLong() shl 32) or cols.toLong()
-        (24L shl 32) or 80L
+    fun getGridRowsColsPacked(): Long = // Placeholder — real values arrive via pollEvent(). 0 means
+        // "unknown": callers must not overwrite real dimensions with it
+        // (a fixed 24x80 here would later shrink a running PTY through a
+        // resize() triggered by the settings path).
+        0L
 
     fun getCellWidth(): Float = 0f
     fun getCellHeight(): Float = 0f
 
-    // ── Grid queries (used by tests and ViewModel) ─────────────────────
-    fun getGridRows(): Int = (getGridRowsColsPacked() shr 32).toInt()
-    fun getGridCols(): Int = getGridRowsColsPacked().toInt()
-    /** Save a frame capture for test verification. */
-    fun saveTestFrame(dataDir: String) { Log.d(TAG, "saveTestFrame($dataDir)") }
-
     // ── Rendering ─────────────────────────────────────────────────────
+
     /** Render a frame. Returns >0 if output was available, 0 if idle, -1 on error. */
     fun render(shouldSkipOutput: Boolean = false): Int {
-        Log.d(TAG, "render(skip=$shouldSkipOutput)")
+        // No per-frame log: this runs at 60fps on the render thread and
+        // would spam logcat. Debug via logcat tag filtering if needed.
         // WARNING: no native JNI export for render() — the render loop
         // currently calls pollEvent() in a tight loop instead.
         return 0
     }
 
-    fun waitOutput(timeoutMs: Long): Boolean = false
+    /**
+     * Parks the calling thread for [timeoutMs] (or until
+     * [TerminalRuntime.notifyRender] unparks it, whichever comes first).
+     *
+     * There is no native render JNI export yet (ADR-0007: surface
+     * integration pending), so this park-based sleep both bounds the
+     * render-loop poll cadence (no 100% CPU busy-spin) and pairs with
+     * [TerminalRuntime.SessionEntry.notifyRender] which calls
+     * LockSupport.unpark on the render thread.
+     *
+     * The return value is advisory only — callers re-check the interrupt
+     * flag themselves after this returns; `parkNanos` returns on interrupt
+     * without clearing the flag, so `Thread.interrupted()` still sees it.
+     * Returns true if the wait was not interrupted.
+     */
+    fun waitOutput(timeoutMs: Long): Boolean {
+        if (timeoutMs <= 0L) return true
+        java.util.concurrent.locks.LockSupport.parkNanos(timeoutMs * 1_000_000L)
+        return !Thread.currentThread().isInterrupted
+    }
 
     fun setNativeWindow(windowPointer: Long, width: Int, height: Int) {
         Log.d(TAG, "setNativeWindow($windowPointer, $width, $height)")
     }
 
-    fun updateNativeWindow(windowPointer: Long, width: Int, height: Int) =
-        setNativeWindow(windowPointer, width, height)
+    fun updateNativeWindow(windowPointer: Long, width: Int, height: Int) = setNativeWindow(windowPointer, width, height)
 
     fun releaseGpuSurface() {
         Log.d(TAG, "releaseGpuSurface()")
@@ -173,8 +238,52 @@ class Bridge(private val config: TerminalConfig) {
         val clipboard: String? = null,
         val exit: Boolean = false,
         val exitCode: Int = 0,
-        val dialog: DialogRequest? = null,
-        val pickFile: PickFileRequest? = null,
+        val sessionId: Long = 0L,
+        val dialogs: List<DialogRequest> = emptyList(),
+        val pickFiles: List<PickFileRequest> = emptyList(),
+        val toastText: String? = null,
+        val openUrl: String? = null,
+        val clipboardGets: List<ClipboardRequest> = emptyList(),
+        // Every exit event seen this frame, in order. The single-slot
+        // exit/sessionId/exitCode fields above describe only the FIRST one;
+        // extra exits in the same frame must be reaped from this list or
+        // they would leak (native exit_reported is set at push and never
+        // re-sent).
+        val exits: List<ExitInfo> = emptyList(),
+    ) {
+        /** Merge a later polled event into this result; later wins for scalar fields. */
+        fun merge(later: PollResult): PollResult = PollResult(
+            bel = bel || later.bel,
+            notification = later.notification ?: notification,
+            clipboard = later.clipboard ?: clipboard,
+            exit = exit || later.exit,
+            // exitCode belongs to the same (first) exit as sessionId.
+            exitCode = if (later.exit && !exit) later.exitCode else exitCode,
+            // sessionId only serves exit attribution. The FIRST exit
+            // seen in a frame wins: a later non-exit event (e.g. a
+            // dialog for another session) must not overwrite the
+            // exiting session's id (which would reap a live session).
+            sessionId = if (later.exit && !exit) later.sessionId else sessionId,
+            // Request events accumulate: each one carries a distinct
+            // request_id and must be dispatched exactly once (a single
+            // slot would silently drop concurrent MCP requests).
+            dialogs = dialogs + later.dialogs,
+            pickFiles = pickFiles + later.pickFiles,
+            toastText = later.toastText ?: toastText,
+            openUrl = later.openUrl ?: openUrl,
+            clipboardGets = clipboardGets + later.clipboardGets,
+            exits = exits + later.exits,
+        )
+    }
+
+    data class ExitInfo(
+        val sessionId: Long,
+        val exitCode: Int,
+    )
+
+    data class ClipboardRequest(
+        val sessionId: Long,
+        val requestId: Long,
     )
 
     data class DialogRequest(
@@ -194,112 +303,252 @@ class Bridge(private val config: TerminalConfig) {
     )
 
     fun pollAll(): PollResult {
-        val json = NativeBridge.pollEvent() ?: return PollResult()
-        return try {
-            val obj = org.json.JSONObject(json)
-            val eventType = obj.optString("event", "")
-            PollResult(
-                bel = eventType == "bell",
-                notification = if (eventType == "notification") {
-                    Pair(obj.optString("title", ""), obj.optString("body", ""))
-                } else null,
-                clipboard = if (eventType == "clipboard") obj.optString("text", "").ifEmpty { null } else null,
-                exit = eventType == "exit",
-                exitCode = if (eventType == "exit") obj.optInt("code", 0) else 0,
-                dialog =
-                    if (eventType == "show_dialog") {
-                        DialogRequest(
-                            sessionId = obj.optLong("session_id", 0L),
-                            requestId = obj.optLong("request_id", 0L),
-                            dialogType = obj.optString("dialog_type", ""),
-                            title = obj.optString("title", ""),
-                            message = obj.optString("message", ""),
-                            options = obj.optJSONArray("options")?.let { arr ->
-                                (0 until arr.length()).map { arr.optString(it) }
-                            } ?: emptyList(),
-                        )
-                    } else null,
-                pickFile =
-                    if (eventType == "pick_file") {
-                        PickFileRequest(
-                            sessionId = obj.optLong("session_id", 0L),
-                            requestId = obj.optLong("request_id", 0L),
-                            startingPath = obj.optString("starting_path", ""),
-                            filter = obj.optString("filter", ""),
-                        )
-                    } else null,
-            )
-        } catch (e: Exception) {
-            Log.w(TAG, "pollAll: bad JSON: ${e.message}")
-            PollResult()
+        // Drain up to MAX_EVENTS_PER_POLL queued events per frame so a
+        // backlog (e.g. an agent firing many OSC 9 / dialog requests) is
+        // consumed in a few frames instead of one event per 16ms frame.
+        // Results merge: a later event of the same kind wins (exit is
+        // sticky — later events for a dead session are stale).
+        var result = PollResult()
+        // Plain for loop: `break` is required when the queue drains.
+        for (unused in 0 until MAX_EVENTS_PER_POLL) {
+            val json = NativeBridge.pollEvent() ?: break
+            val parsed =
+                try {
+                    parseEvent(org.json.JSONObject(json))
+                } catch (e: Exception) {
+                    Log.w(TAG, "pollAll: bad JSON: ${e.message}")
+                    continue
+                }
+            result = result.merge(parsed)
+            // Do NOT break on exit: events queued after the Exit (e.g. MCP
+            // dialog/pick_file requests dispatched before the exit was
+            // detected) would otherwise be stranded in the native queue —
+            // no other session drains them and the MCP call would hang.
+            // Exit is sticky in merge, so draining on is harmless.
         }
+        return result
+    }
+
+    private fun parseEvent(obj: org.json.JSONObject): PollResult {
+        val eventType = obj.optString("event", "")
+        return PollResult(
+            bel = eventType == "bell",
+            notification =
+            if (eventType == "notification") {
+                Pair(obj.optString("title", ""), obj.optString("body", ""))
+            } else {
+                null
+            },
+            clipboard =
+            if (eventType == "clipboard") obj.optString("text", "") else null,
+            exit = eventType == "exit",
+            exitCode = if (eventType == "exit") obj.optInt("code", 0) else 0,
+            sessionId = obj.optLong("session_id", 0L),
+            exits =
+            if (eventType == "exit") {
+                listOf(
+                    ExitInfo(
+                        sessionId = obj.optLong("session_id", 0L),
+                        exitCode = obj.optInt("code", 0),
+                    ),
+                )
+            } else {
+                emptyList()
+            },
+            dialogs =
+            if (eventType == "show_dialog") {
+                listOf(
+                    DialogRequest(
+                        sessionId = obj.optLong("session_id", 0L),
+                        requestId = obj.optLong("request_id", 0L),
+                        dialogType = obj.optString("dialog_type", ""),
+                        title = obj.optString("title", ""),
+                        message = obj.optString("message", ""),
+                        options =
+                        obj.optJSONArray("options")?.let { arr ->
+                            (0 until arr.length()).map { arr.optString(it) }
+                        } ?: emptyList(),
+                    ),
+                )
+            } else {
+                emptyList()
+            },
+            pickFiles =
+            if (eventType == "pick_file") {
+                listOf(
+                    PickFileRequest(
+                        sessionId = obj.optLong("session_id", 0L),
+                        requestId = obj.optLong("request_id", 0L),
+                        startingPath = obj.optString("starting_path", ""),
+                        filter = obj.optString("filter", ""),
+                    ),
+                )
+            } else {
+                emptyList()
+            },
+            toastText = if (eventType == "toast") obj.optString("text", "") else null,
+            openUrl = if (eventType == "open_url") obj.optString("url", "") else null,
+            clipboardGets =
+            if (eventType == "get_clipboard") {
+                listOf(
+                    ClipboardRequest(
+                        sessionId = obj.optLong("session_id", 0L),
+                        requestId = obj.optLong("request_id", 0L),
+                    ),
+                )
+            } else {
+                emptyList()
+            },
+        )
     }
 
     // ── Theme / appearance ────────────────────────────────────────────
     fun setTheme(theme: BridgeTheme) {
         Log.d(TAG, "setTheme: ${theme.name}")
-        // TODO: add native JNI setTheme when Rust side implements it
+        // Rust GhosttyTerminal::set_theme is implemented (try_send); the
+        // missing piece is a JNI export + external fun. Deferred with the
+        // rest of ADR-0007 surface work (round-115).
     }
 
-    fun setSystemLocale(locale: String) { Log.d(TAG, "setSystemLocale($locale)") }
-    fun setFontFamily(family: String) { Log.d(TAG, "setFontFamily($family)") }
-    fun setFontSize(sizeTenths: Int) { Log.d(TAG, "setFontSize($sizeTenths)") }
-    fun setFontSizeInPlace(sizeTenths: Int) { Log.d(TAG, "setFontSizeInPlace($sizeTenths)") }
-    fun setCursorStyle(style: String) { Log.d(TAG, "setCursorStyle($style)") }
-    fun setExtraFontPaths(paths: List<String>) { Log.d(TAG, "setExtraFontPaths($paths)") }
-    fun loadFontFile(path: String): String? { Log.d(TAG, "loadFontFile($path)"); return null }
+    fun setSystemLocale(locale: String) {
+        Log.d(TAG, "setSystemLocale($locale)")
+    }
+    fun setFontFamily(family: String) {
+        Log.d(TAG, "setFontFamily($family)")
+    }
+    fun setFontSize(sizeTenths: Int) {
+        Log.d(TAG, "setFontSize($sizeTenths)")
+    }
+    fun setFontSizeInPlace(sizeTenths: Int) {
+        Log.d(TAG, "setFontSizeInPlace($sizeTenths)")
+    }
+    fun setCursorStyle(style: String) {
+        Log.d(TAG, "setCursorStyle($style)")
+    }
+    fun setExtraFontPaths(paths: List<String>) {
+        Log.d(TAG, "setExtraFontPaths($paths)")
+    }
+
+    // ADR-0007 stub: font parsing lives in the native font pipeline, which is
+    // not wired yet. Returning null makes the installer report the font as
+    // unsupported — a deliberate honest failure (per project preference, do
+    // not pretend success when the feature is unavailable).
+    fun loadFontFile(path: String): String? {
+        Log.d(TAG, "loadFontFile($path)")
+        return null
+    }
 
     // ── Input ─────────────────────────────────────────────────────────
     fun writeToPty(data: ByteArray): Boolean {
         if (sessionId == 0L) return false
-        val text = try {
-            data.decodeToString()
-        } catch (e: Exception) {
-            Log.e(TAG, "writeToPty: invalid UTF-8", e)
+        try {
+            // Raw bytes end-to-end: decoding to a Java String here would
+            // replace non-UTF-8 sequences (pasted GBK/ISO-8859-1, binary
+            // protocols) with U+FFFD and corrupt what the child receives.
+            NativeBridge.feedPty(sessionId, data)
+        } catch (exception: RuntimeException) {
+            // Race: session destroyed between the sessionId check and this
+            // call (closeSession/stop on the IO thread). Input for a closed
+            // session is dropped by design.
+            Log.d(TAG, "writeToPty: session $sessionId already destroyed, dropping")
             return false
         }
-        NativeBridge.feedPty(sessionId, text)
         return true
     }
 
     fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
-        Log.d(TAG, "processKeyEvent($keyCode, $modifiers, $action, unicode=$unicodeChar)")
+        Log.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
         if (sessionId == 0L) return false
-        // For soft keyboard: if unicodeChar is a printable character, send it directly
-        if (unicodeChar > 0 && unicodeChar != 0x7F) {
-            val ch = unicodeChar.toChar().toString()
-            NativeBridge.writeKey(sessionId, ch, modifiers.toInt(), null)
-            return true
+        // Only ACTION_DOWN produces output: both onKeyDown and onKeyUp route
+        // here, and writing on UP would double every keystroke ("llss",
+        // double Enter, double Ctrl+C). ACTION_UP returns false so the
+        // platform default (no-op) handles it.
+        if (action != android.view.KeyEvent.ACTION_DOWN) return false
+        try {
+            val modifierBits = modifiers.toInt()
+            val ctrlActive = modifierBits and 4 != 0
+            val altActive = modifierBits and 2 != 0
+            // Route ALL hardware keys through the same encoder the IME path
+            // uses. Sending the key NAME (keyCodeToName: "Up", "Home", ...)
+            // as literal bytes would write the text "Up" into the PTY — the
+            // native writeKey does not parse key names, so vim/less arrows,
+            // Home/End, PageUp/Down and Delete were all broken.
+            val encoded =
+                terminal.emulator.ui.TerminalInputEncoder
+                    .encodeKeyEvent(keyCode, unicodeChar, ctrlActive, altActive)
+            if (encoded != null) {
+                NativeBridge.feedPty(sessionId, encoded)
+                return true
+            }
+            // Fallback for keys the encoder does not handle: raw printable
+            // unicode (supplementary-plane safe). Never while Ctrl is held:
+            // the native writeKey folds single-byte ASCII with c & 0x1F,
+            // which would turn Ctrl+9/Ctrl+0 into Ctrl+Y/Ctrl+P. Ctrl+printable
+            // keys are either encoded above or intentionally dropped
+            // (Ctrl+9/0 have no traditional mapping).
+            if (!ctrlActive && unicodeChar > 0 && unicodeChar != 0x7F) {
+                val ch =
+                    if (Character.isValidCodePoint(unicodeChar)) {
+                        String(Character.toChars(unicodeChar))
+                    } else {
+                        return false
+                    }
+                NativeBridge.writeKey(sessionId, ch, modifierBits, null)
+                return true
+            }
+            return false
+        } catch (exception: RuntimeException) {
+            // Race: session destroyed between the sessionId check and this
+            // call. Keystrokes for a closed session are dropped by design.
+            Log.d(TAG, "processKeyEvent: session $sessionId already destroyed, dropping")
+            return false
         }
-        // For hardware keyboard: map key code to key name
-        val keyName = keyCodeToName(keyCode) ?: return false
-        NativeBridge.writeKey(sessionId, keyName, modifiers.toInt(), null)
-        return true
     }
 
-    fun focusEvent(focused: Boolean) { Log.d(TAG, "focusEvent($focused)") }
+    fun focusEvent(focused: Boolean) {
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.focusEvent(sessionId, focused)
+        } catch (exception: RuntimeException) {
+            // Session closed between the id check and the native call.
+            Log.d(TAG, "focusEvent: session gone: ${exception.message}")
+        }
+    }
 
     // ── Terminal queries ──────────────────────────────────────────────
-    fun cwd(): String = ""
     fun getTitle(): String? = null
     fun getActiveSessionTitle(): String = getTitle() ?: ""
+
     // ── Selection ─────────────────────────────────────────────────────
     fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean? = null, mode: Byte = 0) {
         Log.d(TAG, "setSelection: ($startRow,$startCol)-($endRow,$endCol)")
     }
-    fun setSelectionEndpoint(handleSide: Byte, anchorRow: Int, anchorCol: Int, hasSelection: Boolean) {
-        Log.d(TAG, "setSelectionEndpoint($handleSide, ($anchorRow,$anchorCol))")
-    }
     fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair<Pair<Int, Int>, Pair<Int, Int>>? = null
 
-    // ── Search ─────────────────────────────────────────────────────────
-    fun clearSearchHighlights() { Log.d(TAG, "clearSearchHighlights()") }
-    fun setSearchHighlights(data: ByteArray) { Log.d(TAG, "setSearchHighlights: ${data.size}B") }
+    // ── Search / scrollback ────────────────────────────────────────────
+    // ADR-0007: the native query path is not wired yet, so the grid stubs
+    // below return conservative defaults. Documented contract:
+    //   • scrollbackLine/scrollbackLength/searchAllInScrollback — null/0/empty
+    //     list: "no data". Callers must treat them as unavailable, not as
+    //     "empty content". This is a deliberate honest degradation — faking
+    //     data here would corrupt selections and search results once the
+    //     native path lands.
+    //   • isCellEmpty — true: long-press on any cell opens the paste popup
+    //     (the only long-press action usable without native data). Text
+    //     selection needs scrollbackLine and stays disabled until then.
+    fun clearSearchHighlights() {
+        Log.d(TAG, "clearSearchHighlights()")
+    }
+    fun setSearchHighlights(data: ByteArray) {
+        Log.d(TAG, "setSearchHighlights: ${data.size}B")
+    }
     fun scrollbackLine(row: Int): String? = null
     fun scrollbackLength(): Int = 0
     fun isCellEmpty(row: Int, col: Int): Boolean = true
     fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? = null
-    fun setScrollOffset(offset: Int) { Log.d(TAG, "setScrollOffset($offset)") }
+    fun setScrollOffset(offset: Int) {
+        Log.d(TAG, "setScrollOffset($offset)")
+    }
 
     /** Return full terminal text content. */
     fun getTerminalText(): String? {
@@ -315,33 +564,8 @@ class Bridge(private val config: TerminalConfig) {
 
     companion object {
         private const val TAG = "Bridge"
-    }
-}
 
-/** Minimal key-code → name mapping for [Bridge.processKeyEvent]. */
-private fun keyCodeToName(code: Int): String? = when (code) {
-    android.view.KeyEvent.KEYCODE_ENTER -> "Enter"
-    android.view.KeyEvent.KEYCODE_TAB -> "Tab"
-    android.view.KeyEvent.KEYCODE_SPACE -> "Space"
-    android.view.KeyEvent.KEYCODE_DEL -> "Backspace"
-    android.view.KeyEvent.KEYCODE_FORWARD_DEL -> "Delete"
-    android.view.KeyEvent.KEYCODE_ESCAPE -> "Escape"
-    android.view.KeyEvent.KEYCODE_DPAD_UP -> "Up"
-    android.view.KeyEvent.KEYCODE_DPAD_DOWN -> "Down"
-    android.view.KeyEvent.KEYCODE_DPAD_LEFT -> "Left"
-    android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> "Right"
-    android.view.KeyEvent.KEYCODE_PAGE_UP -> "PageUp"
-    android.view.KeyEvent.KEYCODE_PAGE_DOWN -> "PageDown"
-    android.view.KeyEvent.KEYCODE_MOVE_HOME -> "Home"
-    android.view.KeyEvent.KEYCODE_MOVE_END -> "End"
-    android.view.KeyEvent.KEYCODE_INSERT -> "Insert"
-    android.view.KeyEvent.KEYCODE_BREAK -> "Pause"
-    android.view.KeyEvent.KEYCODE_NUMPAD_ENTER -> "Enter"
-    android.view.KeyEvent.KEYCODE_SHIFT_LEFT, android.view.KeyEvent.KEYCODE_SHIFT_RIGHT -> null // modifiers
-    android.view.KeyEvent.KEYCODE_ALT_LEFT, android.view.KeyEvent.KEYCODE_ALT_RIGHT -> null
-    android.view.KeyEvent.KEYCODE_CTRL_LEFT, android.view.KeyEvent.KEYCODE_CTRL_RIGHT -> null
-    android.view.KeyEvent.KEYCODE_META_LEFT, android.view.KeyEvent.KEYCODE_META_RIGHT -> null
-    in 7..16 -> ('0' + code - 7).toString()  // KEYCODE_0=7..KEYCODE_9=16
-    in 29..54 -> ('a' + code - 29).toString()  // KEYCODE_A=29..KEYCODE_Z=54
-    else -> null
+        /** Max events drained per pollAll() frame — bounds render-thread cost. */
+        private const val MAX_EVENTS_PER_POLL = 32
+    }
 }

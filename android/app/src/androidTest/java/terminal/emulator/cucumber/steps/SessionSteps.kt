@@ -7,6 +7,7 @@ import androidx.compose.ui.test.performClick
 import io.cucumber.java.en.Given
 import io.cucumber.java.en.Then
 import io.cucumber.java.en.When
+import org.junit.Assert.assertTrue
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.openDrawer
 import terminal.emulator.waitForSession
@@ -134,5 +135,15 @@ constructor(
         composeRuleHolder.composeRule
             .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
             .assertIsDisplayed()
+        // The new session exists: the count can only grow across scenarios
+        // (Activity is shared for the whole Cucumber run, so a fixed total
+        // like 2 would flake on the third scenario). Grid content itself is
+        // unreadable while getTerminalText is an ADR-0007 stub (round-117).
+        val sessionCount =
+            composeRuleHolder.composeRule
+                .onAllNodes(hasTestTag("SessionItem"), useUnmergedTree = true)
+                .fetchSemanticsNodes()
+                .size
+        assertTrue("Expected at least 2 sessions after creating a new one, got $sessionCount", sessionCount >= 2)
     }
 }

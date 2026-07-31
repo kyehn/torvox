@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-use flume::{Receiver, Sender, bounded};
+use flume::{Sender, bounded};
 
 use super::commands::{Command, RunConfig, SnapshotCache};
 use super::types::*;
@@ -98,6 +98,7 @@ impl super::GhosttyTerminal {
             }),
             panicked,
             last_pty_write_byte: 0,
+            last_in_string_mode: false,
         })
     }
 
@@ -127,7 +128,10 @@ impl super::GhosttyTerminal {
         // (settings, OSC sequences, test data), not for streaming PTY output,
         // so SGR reset here does NOT break colored output.
         buf.extend_from_slice(b"\x1b\\\x1b[0m");
-        if let Err(error) = self.cmd_tx.send(Command::Write(buf)) {
+        // try_send: a wedged VT thread must not block the caller
+        // indefinitely (same policy as pty_write). vt_write is used for
+        // programmatic VT data only, never on a hot path.
+        if let Err(error) = self.cmd_tx.try_send(Command::Write(buf)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
@@ -146,6 +150,10 @@ impl super::GhosttyTerminal {
         // chunk boundaries (common with PTY output on Linux). Without this
         // the LF→CRLF converter inserts a spurious `\r`, producing `\r\r\n`.
         let mut prev: u8 = self.last_pty_write_byte;
+        let mut in_string = self.last_in_string_mode;
+        // The previous chunk may have ended with ESC (the first byte of a
+        // two-byte sequence); seed the tracking state accordingly.
+        let mut prev_was_esc = prev == 0x1B;
         for &b in data {
             // Convert a bare LF to CRLF, but only when the LF is not already
             // preceded by a CR. Input that already contains CRLF (common from
@@ -155,15 +163,39 @@ impl super::GhosttyTerminal {
                 buf.push(b'\r');
             }
             buf.push(b);
+            // Track OSC/DCS/SOS/PM/APC string mode: these sequences are
+            // terminated by ST (ESC \) or BEL (OSC). If a chunk ends inside
+            // one, the next chunk would be swallowed as string data; a CSI
+            // sequence (ESC [) needs no such handling — the VT parser is a
+            // state machine and resumes it across chunks on its own.
+            if in_string {
+                // ST = ESC \ ; detect the backslash following the ESC byte.
+                if b == 0x07 || (b == b'\\' && prev_was_esc) {
+                    in_string = false;
+                }
+            } else if prev_was_esc {
+                match b {
+                    b']' | b'P' | b'X' | b'^' | b'_' => in_string = true,
+                    _ => {}
+                }
+            }
+            prev_was_esc = b == 0x1B;
             prev = b;
         }
-        // Append ST (String Terminator) and SGR reset to close any incomplete
-        // escape sequence that may have been truncated at the end of this chunk.
-        // This prevents the Ghostty parser from staying in string mode and
-        // consuming the next chunk as sequence data.
-        buf.extend_from_slice(b"\x1b\\\x1b[0m");
+        // Close an unterminated string with ST so the parser never stays in
+        // string mode across chunks. No SGR reset here: it would break a
+        // colour run split across a chunk boundary.
+        if in_string {
+            buf.extend_from_slice(b"\x1b\\");
+        }
         self.last_pty_write_byte = prev;
-        if let Err(error) = self.cmd_tx.send(Command::Write(buf)) {
+        self.last_in_string_mode = in_string;
+        // try_send: this runs on the session/render path while holding the
+        // session lock. A full command channel (VT thread busy with a long
+        // command) must not block the caller indefinitely; dropping a chunk
+        // is acceptable — the VT engine is frame-based and the next chunk
+        // carries on.
+        if let Err(error) = self.cmd_tx.try_send(Command::Write(buf)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
     }
@@ -185,14 +217,26 @@ impl super::GhosttyTerminal {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.send(Command::FlushAck(tx)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
+            return;
         }
-        if rx.recv().is_err() {
-            log::warn!("ghostty_terminal: flush_ack recv failed — session may be dead");
+        // Bounded wait: if the VT thread is wedged (e.g. a pathological C
+        // parser input), an unbounded recv would block the caller forever
+        // while it holds the session lock, freezing every JNI entry point
+        // and tripping the ANR watchdog. The timeout is deliberately far
+        // above the worst legitimate backlog (a burst of writes can take a
+        // while to drain in debug builds) — 5s of silence means the VT
+        // thread is genuinely stuck.
+        match rx.recv_timeout(std::time::Duration::from_secs(FLUSH_TIMEOUT_SECS)) {
+            Ok(()) => {}
+            Err(_) => {
+                log::warn!("ghostty_terminal: flush_ack timed out — session may be dead");
+            }
         }
     }
 
     pub fn set_theme(&self, background: [u8; 3], foreground: [u8; 3], ansi: [[u8; 3]; 16]) {
-        if let Err(error) = self.cmd_tx.send(Command::SetTheme {
+        // try_send: same non-blocking policy as resize (round-111).
+        if let Err(error) = self.cmd_tx.try_send(Command::SetTheme {
             background,
             foreground,
             ansi,
@@ -201,10 +245,22 @@ impl super::GhosttyTerminal {
         }
     }
 
-    pub fn resize(&mut self, rows: u32, cols: u32) {
-        if let Err(error) = self.cmd_tx.send(Command::Resize { rows, cols }) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
+    /// Returns true when the resize command was accepted by the VT thread.
+    /// A `false` result means the grid was NOT resized (PTY may still have
+    /// been updated by the caller's `pty.resize`); the caller must not cache
+    /// the new size so the next resize event retries (round-112).
+    pub fn resize(&mut self, rows: u32, cols: u32) -> bool {
+        // try_send, not send: a wedged VT thread must not block the caller
+        // (switchSession holds the Kotlin sessionLock across this call).
+        // NOTE: a dropped resize is NOT replayed — the PTY/grid keep the old
+        // size until the next resize event arrives (IME change, rotation,
+        // settings change, session switch). The channel capacity (1024) makes
+        // loss unlikely outside a VT-thread stall (round-110/111).
+        if let Err(error) = self.cmd_tx.try_send(Command::Resize { rows, cols }) {
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for resize: {error}");
+            return false;
         }
+        true
     }
 
     pub fn rows(&self) -> u32 {
@@ -321,11 +377,11 @@ impl super::GhosttyTerminal {
         {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
-        match rx.recv() {
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(result) => result,
             Err(error) => {
                 log::warn!(
-                    "ghostty_terminal: take_kitty_graphics_image recv failed — terminal may be dead: {error}"
+                    "ghostty_terminal: take_kitty_graphics_image timed out or disconnected — terminal may be dead: {error}"
                 );
                 None
             }
@@ -374,45 +430,13 @@ impl super::GhosttyTerminal {
         if let Err(error) = self.query_tx.try_send(Command::Cwd(tx)) {
             log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
-        match rx.recv() {
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(cwd) => cwd,
             Err(_) => {
-                log::warn!("ghostty_terminal: terminal thread disconnected — returning empty cwd");
+                log::warn!("ghostty_terminal: cwd timed out or disconnected — returning empty cwd");
                 String::new()
             }
         }
-    }
-
-    /// Returns a clone of the lock-free command sender for direct ghostty thread access.
-    /// The caller uses this with Self::key_encode_submit_via to bypass the session mutex,
-    /// eliminating UI-thread stalls when the render thread holds the session lock.
-    pub fn clone_cmd_tx(&self) -> Sender<Command> {
-        self.cmd_tx.clone()
-    }
-
-    /// Send a key event for encoding using a pre-cloned sender.
-    /// Returns a receiver for the encoded result. This function does NOT need
-    /// `&self` — the caller can submit directly to ghostty without any session lock.
-    pub fn key_encode_submit_via(
-        cmd_tx: &Sender<Command>,
-        key_code: u32,
-        modifiers: u16,
-        action: u8,
-        unicode_char: u32,
-        unshifted_char: u32,
-    ) -> Option<Receiver<Vec<u8>>> {
-        let (tx, rx) = flume::bounded(1);
-        cmd_tx
-            .send(Command::KeyEncode {
-                key_code,
-                modifiers,
-                action,
-                unicode_char,
-                unshifted_char,
-                tx,
-            })
-            .ok()?;
-        Some(rx)
     }
 
     pub fn key_encode(
@@ -425,7 +449,10 @@ impl super::GhosttyTerminal {
     ) -> Option<Vec<u8>> {
         let rx =
             self.key_encode_submit(key_code, modifiers, action, unicode_char, unshifted_char)?;
-        rx.recv().ok()
+        // Bounded wait: a wedged VT thread must not block the caller
+        // (potentially the UI thread) forever.
+        rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS))
+            .ok()
     }
 
     /// Submit a key for encoding and return a receiver for the result.
@@ -439,8 +466,10 @@ impl super::GhosttyTerminal {
         unshifted_char: u32,
     ) -> Option<flume::Receiver<Vec<u8>>> {
         let (tx, rx) = flume::bounded(1);
+        // try_send: consistent with resize/set_theme — a wedged VT thread
+        // must not block the caller (round-112).
         self.cmd_tx
-            .send(Command::KeyEncode {
+            .try_send(Command::KeyEncode {
                 key_code,
                 modifiers,
                 action,
@@ -453,15 +482,32 @@ impl super::GhosttyTerminal {
     }
 
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
+        self.mode_get_with_timeout(
+            mode_num,
+            kind,
+            std::time::Duration::from_millis(QUERY_TIMEOUT_MS),
+        )
+    }
+
+    /// Like [`Self::mode_get`] but with a caller-provided timeout. Used by
+    /// callers on latency-sensitive paths (e.g. UI-thread focus reporting)
+    /// where a wedged VT thread must not stall the caller for the full
+    /// query timeout.
+    pub fn mode_get_with_timeout(
+        &self,
+        mode_num: u16,
+        kind: u8,
+        timeout: std::time::Duration,
+    ) -> bool {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.query_tx.try_send(Command::ModeGet(mode_num, kind, tx)) {
             log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
-        match rx.recv() {
+        match rx.recv_timeout(timeout) {
             Ok(mode) => mode,
             Err(_) => {
                 log::warn!(
-                    "ghostty_terminal: terminal thread disconnected — returning false for mode_get({mode_num}, {kind})"
+                    "ghostty_terminal: mode_get({mode_num}, {kind}) timed out or disconnected — returning false"
                 );
                 false
             }
@@ -489,11 +535,11 @@ impl super::GhosttyTerminal {
         if let Err(error) = self.query_tx.try_send(Command::AltScreen(tx)) {
             log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
-        match rx.recv() {
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(alt) => alt,
             Err(_) => {
                 log::warn!(
-                    "ghostty_terminal: terminal thread disconnected — returning false for alt_screen"
+                    "ghostty_terminal: alt_screen timed out or disconnected — returning false"
                 );
                 false
             }
@@ -565,11 +611,11 @@ impl super::GhosttyTerminal {
         if let Err(error) = self.query_tx.try_send(Command::ReadVisibleText(tx)) {
             log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
-        match rx.recv() {
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(text) => text,
             Err(_) => {
                 log::warn!(
-                    "ghostty_terminal: terminal thread disconnected — returning empty string for read_visible_text"
+                    "ghostty_terminal: read_visible_text timed out or disconnected — returning empty string"
                 );
                 String::new()
             }
@@ -584,11 +630,11 @@ impl super::GhosttyTerminal {
         }) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
-        match rx.recv() {
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(result) => result,
             Err(_) => {
                 log::warn!(
-                    "ghostty_terminal: terminal thread disconnected — returning None for search_in_scrollback"
+                    "ghostty_terminal: search_in_scrollback timed out or disconnected — returning None"
                 );
                 None
             }
@@ -610,11 +656,11 @@ impl super::GhosttyTerminal {
         }) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
-        match rx.recv() {
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(result) => result,
             Err(_) => {
                 log::warn!(
-                    "ghostty_terminal: terminal thread disconnected — returning empty results for search_all_in_scrollback"
+                    "ghostty_terminal: search_all_in_scrollback timed out or disconnected — returning empty results"
                 );
                 Vec::new()
             }
@@ -626,11 +672,11 @@ impl super::GhosttyTerminal {
         if let Err(error) = self.cmd_tx.send(Command::DumpGrid { tx }) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
         }
-        match rx.recv() {
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
             Ok(grid) => grid,
             Err(_) => {
                 log::warn!(
-                    "ghostty_terminal: terminal thread disconnected — returning empty grid for dump_grid"
+                    "ghostty_terminal: dump_grid timed out or disconnected — returning empty grid"
                 );
                 DumpedGrid {
                     rows: 0,

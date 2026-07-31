@@ -17,14 +17,25 @@ class BootstrapInstaller(
 ) {
     companion object {
         const val COPY_BUFFER_SIZE = 8096
+        const val MAX_SYMLINKS_BYTES = 1024 * 1024
         const val EXECUTABLE_FILE_MODE = 0x1ED
         val EXEC_PREFIXES = listOf("bin/", "libexec/", "lib/apt/apt-helper", "lib/apt/methods/")
         private const val EXTRACT_PROGRESS_INTERVAL = 10
+
+        // Zip-bomb guard: cap total uncompressed payload. A real bootstrap
+        // is ~150 MB; the limit gives headroom while preventing a hostile
+        // archive from filling the data partition.
+        private const val MAX_EXTRACTED_BYTES = 1L * 1024 * 1024 * 1024
     }
 
     fun needsInstall(): Boolean = !File(prefixDir, "bin/bash").exists()
 
-    fun isInstalled(): Boolean = File(prefixDir, "bin/bash").exists()
+    fun isInstalled(): Boolean = // termux.env is written last by the second stage; requiring it here
+        // means a failed/wedged second stage (e.g. writeTermuxEnv hitting a
+        // full disk) is not reported as a healthy install, so the retry path
+        // stays open instead of leaving a permanently broken environment.
+        File(prefixDir, "bin/bash").exists() &&
+            File(prefixDir, "etc/termux/termux.env").exists()
 
     suspend fun install(zipFile: File): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -41,7 +52,17 @@ class BootstrapInstaller(
             ensureHomeAndTmp()
             Result.success(Unit)
         } catch (exception: Exception) {
-            Log.e("BootstrapInstaller", "Install failed", exception)
+            // Log the class only, consistent with BootstrapDownloader: the
+            // exception message can embed user-supplied paths (round-104).
+            Log.e("BootstrapInstaller", "Install failed: ${exception.javaClass.simpleName}")
+            // Discard the partially extracted staging dir: it can be
+            // hundreds of MB and the system never clears filesDir, so a
+            // failed install would leak disk until the next retry.
+            try {
+                delete(stagingDir)
+            } catch (cleanupException: Exception) {
+                Log.w("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
+            }
             Result.failure(exception)
         }
     }
@@ -81,16 +102,53 @@ class BootstrapInstaller(
     ) {
         var entry = zis.nextEntry
         var entryIndex = 0
+        var totalExtractedBytes = 0L
         while (entry != null) {
             val name = entry.name
+            // Zip-slip guard: reject absolute paths and any ".." segment
+            // so a malicious/tampered bootstrap archive cannot write
+            // outside the staging directory (e.g. overwrite prefs/logs).
+            val normalized = File(name).path
+            if (name.startsWith("/") || normalized == ".." ||
+                normalized.startsWith("../") || normalized.contains("/../")
+            ) {
+                throw java.io.IOException("Unsafe zip entry name: $name")
+            }
             if (name == "SYMLINKS.txt") {
-                symlinks.addAll(parseSymlinks(zis.readBytes().decodeToString()))
+                // Bounded read: the entry is metadata and must be small;
+                // an unbounded readBytes() on a hostile archive OOMs the
+                // process.
+                val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
+                if (bytes.size >= MAX_SYMLINKS_BYTES) {
+                    throw java.io.IOException("SYMLINKS.txt exceeds $MAX_SYMLINKS_BYTES bytes")
+                }
+                symlinks.addAll(parseSymlinks(bytes.decodeToString()))
             } else if (entry.isDirectory) {
                 File(stagingDir, name).mkdirs()
             } else {
                 val targetFile = File(stagingDir, name)
                 targetFile.parentFile?.mkdirs()
-                targetFile.outputStream().use { out -> zis.copyTo(out, COPY_BUFFER_SIZE) }
+                targetFile.outputStream().use { out ->
+                    var entryBytes = 0L
+                    val buffer = ByteArray(COPY_BUFFER_SIZE)
+                    while (true) {
+                        val read = zis.read(buffer)
+                        if (read < 0) break
+                        entryBytes += read
+                        if (entryBytes > MAX_EXTRACTED_BYTES) {
+                            throw java.io.IOException("Bootstrap entry $name exceeds $MAX_EXTRACTED_BYTES bytes uncompressed")
+                        }
+                        totalExtractedBytes += read
+                        // Zip-bomb guard across the whole archive: a 1 GiB
+                        // download with a high compression ratio can expand
+                        // to TBs across many entries. The cap is enforced
+                        // here on the cumulative total, not just per entry.
+                        if (totalExtractedBytes > MAX_EXTRACTED_BYTES) {
+                            throw java.io.IOException("Bootstrap archive exceeds $MAX_EXTRACTED_BYTES bytes total uncompressed")
+                        }
+                        out.write(buffer, 0, read)
+                    }
+                }
                 if (isExecutable(name)) {
                     Os.chmod(targetFile.absolutePath, EXECUTABLE_FILE_MODE)
                 }
@@ -113,6 +171,26 @@ class BootstrapInstaller(
 
     private fun createSymlinks(symlinks: List<Pair<String, String>>) {
         for ((target, linkPath) in symlinks) {
+            // Symlink path escape guard (same rule as zip entry names):
+            // a hostile SYMLINKS.txt must not be able to create links
+            // outside the staging directory.
+            val normalized = File(linkPath).path
+            if (linkPath.startsWith("/") || normalized == ".." ||
+                normalized.startsWith("../") || normalized.contains("/../")
+            ) {
+                throw java.io.IOException("Unsafe symlink path: $linkPath")
+            }
+            // The target is also attacker-controlled. Reject absolute
+            // paths and traversal so a link cannot point outside the
+            // staging tree — otherwise the recursive delete() below
+            // (staging cleanup / backup removal) would follow the link
+            // and wipe arbitrary directories.
+            val normalizedTarget = File(target).path
+            if (target.startsWith("/") || normalizedTarget == ".." ||
+                normalizedTarget.startsWith("../") || normalizedTarget.contains("/../")
+            ) {
+                throw java.io.IOException("Unsafe symlink target: $target")
+            }
             val linkFile = File(stagingDir, linkPath)
             linkFile.parentFile?.mkdirs()
             Os.symlink(target, linkFile.absolutePath)
@@ -123,9 +201,24 @@ class BootstrapInstaller(
         val staging = stagingDir
         val prefix = prefixDir
         if (prefix.exists()) {
-            delete(prefix)
-        }
-        if (!staging.renameTo(prefix)) {
+            // Move the old prefix aside first (rename is atomic on the same
+            // filesystem), then swap in the new one. Deleting the old prefix
+            // before renaming leaves a window where a process kill loses the
+            // working bootstrap with no way to recover except a 150 MB
+            // re-download.
+            val backupName = "${prefix.name}.old-${System.currentTimeMillis()}"
+            val backup = File(prefix.parentFile, backupName)
+            if (!prefix.renameTo(backup)) {
+                throw Exception("Failed to move old prefix aside: ${prefix.path}")
+            }
+            val renamed = staging.renameTo(prefix)
+            if (!renamed) {
+                // Restore the old prefix so the previous bootstrap stays usable.
+                backup.renameTo(prefix)
+                throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
+            }
+            delete(backup)
+        } else if (!staging.renameTo(prefix)) {
             throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
         }
     }
@@ -136,7 +229,12 @@ class BootstrapInstaller(
     }
 
     private fun delete(file: File) {
-        if (file.isDirectory) {
+        // Never follow symlinks while deleting: a symlink pointing at a
+        // directory resolves as isDirectory=true, so listing and recursing
+        // would delete the *target's* contents (data loss) and a self-
+        // referential link would recurse forever (StackOverflowError).
+        // A symlink is just an inode — delete it, not its destination.
+        if (!java.nio.file.Files.isSymbolicLink(file.toPath()) && file.isDirectory) {
             file.listFiles()?.forEach { delete(it) }
         }
         file.delete()

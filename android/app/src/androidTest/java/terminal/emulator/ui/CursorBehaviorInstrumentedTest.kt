@@ -3,21 +3,21 @@ package terminal.emulator.ui
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import terminal.emulator.MainActivity
-import terminal.emulator.bridge.NativeBridge
-import terminal.emulator.getBridge
-import terminal.emulator.waitForSession
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.MainActivity
+import terminal.emulator.bridge.Bridge
+import terminal.emulator.getBridge
+import terminal.emulator.waitForSession
 
 class CursorBehaviorInstrumentedTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-    private var bridge: NativeBridge? = null
+    private var bridge: Bridge? = null
 
-    private fun getBridgeOrWait(timeoutMs: Long = 15_000): NativeBridge {
+    private fun getBridgeOrWait(timeoutMs: Long = 15_000): Bridge {
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             bridge = composeTestRule.getBridge()

@@ -118,14 +118,22 @@ pub fn is_enabled() -> bool {
 // ── Shared state ─────────────────────────────────────────────────────────
 
 type CallbackStr = Box<dyn Fn(String) + Send>;
-type CallbackGetStr = Box<dyn Fn() -> String + Send>;
+/// Returns `(request_id, receiver)`; the receiver resolves when Kotlin
+/// answers via `clipboardResult()`.
+type CallbackGetStr = Box<dyn Fn() -> (u64, tokio::sync::oneshot::Receiver<String>) + Send>;
 type CallbackDialog = Box<
-    dyn Fn(u64, String, String, String, Vec<String>) -> tokio::sync::oneshot::Receiver<String>
+    dyn Fn(
+            u64,
+            String,
+            String,
+            String,
+            Vec<String>,
+        ) -> (u64, tokio::sync::oneshot::Receiver<String>)
         + Send
         + Sync,
 >;
 type CallbackPickFile =
-    Box<dyn Fn(u64, String, String) -> tokio::sync::oneshot::Receiver<String> + Send + Sync>;
+    Box<dyn Fn(u64, String, String) -> (u64, tokio::sync::oneshot::Receiver<String>) + Send + Sync>;
 type CallbackSendSignal = Box<dyn Fn(u64, i32) -> String + Send + Sync>;
 
 /// Thread-safe state shared between JNI bridge and MCP tools.
@@ -163,6 +171,13 @@ impl McpState {
         }))
     }
 
+    /// Update the terminal dimensions exposed via the `terminal_info` MCP
+    /// tool. NOTE: this is a global UI reference value (updated on init and
+    /// resize), NOT per-session state — after a session is destroyed it
+    /// intentionally keeps the last known dimensions until the next
+    /// init/resize overwrites them. Only the ACTIVE session's init/resize
+    /// updates the value, and switchSession refreshes it from the newly
+    /// active session (ffi.rs guards all three call sites).
     pub fn set_terminal_dims(&self, rows: u32, cols: u32) {
         self.0.terminal_rows.store(rows, Ordering::Release);
         self.0.terminal_cols.store(cols, Ordering::Release);
@@ -185,7 +200,12 @@ impl McpState {
         *lock_or_recover(&self.0.on_open_url, "mcp: set_open_url") = Some(Box::new(f));
     }
 
-    pub fn set_clipboard_get_handler<F: Fn() -> String + Send + 'static>(&self, f: F) {
+    pub fn set_clipboard_get_handler<
+        F: Fn() -> (u64, tokio::sync::oneshot::Receiver<String>) + Send + 'static,
+    >(
+        &self,
+        f: F,
+    ) {
         *lock_or_recover(&self.0.on_clipboard_get, "mcp: set_clipboard_get") = Some(Box::new(f));
     }
 
@@ -198,7 +218,13 @@ impl McpState {
     /// `options` contains selectable choices for "select" type dialogs.
     pub fn set_dialog_handler<F>(&self, f: F)
     where
-        F: Fn(u64, String, String, String, Vec<String>) -> tokio::sync::oneshot::Receiver<String>
+        F: Fn(
+                u64,
+                String,
+                String,
+                String,
+                Vec<String>,
+            ) -> (u64, tokio::sync::oneshot::Receiver<String>)
             + Send
             + Sync
             + 'static,
@@ -210,7 +236,7 @@ impl McpState {
     /// The handler returns a oneshot receiver that resolves when the user picks a file.
     pub fn set_pick_file_handler<F>(&self, f: F)
     where
-        F: Fn(u64, String, String) -> tokio::sync::oneshot::Receiver<String>
+        F: Fn(u64, String, String) -> (u64, tokio::sync::oneshot::Receiver<String>)
             + Send
             + Sync
             + 'static,
@@ -299,10 +325,28 @@ fn clipboard_get_tool() -> Tool {
         .title("Get clipboard content")
         .description("Read the current system clipboard text")
         .no_params_handler(|| async move {
-            let state = global_state();
-            let guard = lock_or_recover(&state.0.on_clipboard_get, "mcp: clipboard_get_handler");
-            match guard.as_ref() {
-                Some(f) => Ok(CallToolResult::text(f())),
+            let (session_id, pending) = {
+                let state = global_state();
+                let guard =
+                    lock_or_recover(&state.0.on_clipboard_get, "mcp: clipboard_get_handler");
+                let session_id = state.0.active_session_id.load(Ordering::Acquire);
+                (session_id, guard.as_ref().map(|f| f()))
+            }; // guard dropped before await
+            match pending {
+                Some((request_id, rx)) => {
+                    match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                        // Empty text is a legitimate result (empty clipboard),
+                        // not a failure. Only a dropped sender (session closed)
+                        // or the timeout is reported as an error.
+                        Ok(Ok(text)) => Ok(CallToolResult::text(text)),
+                        _ => {
+                            crate::android::ffi::cancel_request(session_id, request_id);
+                            Ok(CallToolResult::error(
+                                "Clipboard read cancelled or timed out",
+                            ))
+                        }
+                    }
+                }
                 None => Ok(CallToolResult::error(
                     "Clipboard not available on this platform",
                 )),
@@ -392,6 +436,13 @@ fn send_signal_tool() -> Tool {
     ToolBuilder::new("send_signal")
         .title("Send signal to terminal")
         .description("Send a POSIX signal (by number) to the foreground process in the active terminal session. Common signals: 2 (SIGINT), 3 (SIGQUIT), 9 (SIGKILL), 15 (SIGTERM), 20 (SIGTSTP).")
+        // Round-98 note: the handler synchronously takes the session
+        // registry read lock + the session lock on the MCP worker thread
+        // (no await inside). It blocks up to a pollEvent frame or a 50ms
+        // focus-event query while the UI thread holds the session lock —
+        // brief and deadlock-free (lock order is the global one), but it
+        // DOES briefly block the MCP worker, unlike the pure snapshot
+        // reads of the other tools.
         .handler(|input: SendSignalInput| async move {
             let state = global_state();
             let guard = lock_or_recover(&state.0.on_send_signal, "mcp: send_signal_handler");
@@ -422,19 +473,31 @@ fn pick_file_tool() -> Tool {
         .title("Pick file")
         .description("Open a system file picker dialog")
         .handler(|input: PickFileInput| async move {
-            let rx = {
+            let (session_id, rx) = {
                 let state = global_state();
                 let guard = lock_or_recover(&state.0.on_pick_file, "mcp: pick_file_handler");
                 let session_id = state.0.active_session_id.load(Ordering::Acquire);
-                guard
-                    .as_ref()
-                    .map(|callback| callback(session_id, input.directory, input.pattern))
+                (
+                    session_id,
+                    guard
+                        .as_ref()
+                        .map(|callback| callback(session_id, input.directory, input.pattern)),
+                )
             }; // guard + state drop before await
             match rx {
-                Some(rx) => match tokio::time::timeout(Duration::from_secs(300), rx).await {
-                    Ok(Ok(path)) if !path.is_empty() => Ok(CallToolResult::text(path)),
-                    _ => Ok(CallToolResult::error("File picker cancelled or timed out")),
-                },
+                Some((request_id, rx)) => {
+                    match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                        Ok(Ok(path)) if !path.is_empty() => Ok(CallToolResult::text(path)),
+                        _ => {
+                            // Drop the pending registry entry so a
+                            // never-answered picker cannot leak one Sender
+                            // per call. The request_id is only known here,
+                            // after the callback registered it.
+                            crate::android::ffi::cancel_request(session_id, request_id);
+                            Ok(CallToolResult::error("File picker cancelled or timed out"))
+                        }
+                    }
+                }
                 None => Ok(CallToolResult::error("File picker not available")),
             }
         })
@@ -457,25 +520,33 @@ fn dialog_tool() -> Tool {
         .title("Show dialog")
         .description("Prompt the user with a dialog (confirm, input, or select)")
         .handler(|input: DialogInput| async move {
-            let rx = {
+            let (session_id, rx) = {
                 let state = global_state();
                 let guard = lock_or_recover(&state.0.on_show_dialog, "mcp: dialog_handler");
                 let session_id = state.0.active_session_id.load(Ordering::Acquire);
-                guard.as_ref().map(|callback| {
-                    callback(
-                        session_id,
-                        input.dialog_type,
-                        input.title,
-                        input.message,
-                        input.options,
-                    )
-                })
+                (
+                    session_id,
+                    guard.as_ref().map(|callback| {
+                        callback(
+                            session_id,
+                            input.dialog_type,
+                            input.title,
+                            input.message,
+                            input.options,
+                        )
+                    }),
+                )
             }; // guard + state drop before await
             match rx {
-                Some(rx) => match tokio::time::timeout(Duration::from_secs(300), rx).await {
-                    Ok(Ok(result)) => Ok(CallToolResult::text(result)),
-                    _ => Ok(CallToolResult::error("Dialog cancelled or timed out")),
-                },
+                Some((request_id, rx)) => {
+                    match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                        Ok(Ok(result)) => Ok(CallToolResult::text(result)),
+                        _ => {
+                            crate::android::ffi::cancel_request(session_id, request_id);
+                            Ok(CallToolResult::error("Dialog cancelled or timed out"))
+                        }
+                    }
+                }
                 None => Ok(CallToolResult::error("Dialog not available")),
             }
         })
@@ -549,25 +620,33 @@ pub fn start() {
 
     log::info!("MCP server starting on Unix socket: {path}");
 
-    let handle = std::thread::spawn(move || {
-        let rt = match tokio::runtime::Builder::new_current_thread()
-            .enable_io()
-            .build()
-        {
-            Ok(r) => r,
-            Err(e) => {
-                log::error!("MCP server: failed to build tokio runtime: {e}");
-                return;
-            }
-        };
+    // Build the runtime BEFORE spawning the thread: if it fails, nothing
+    // was registered in MCP_THREAD, so set_enabled(true) can retry later
+    // (a failed runtime left behind would make the server permanently
+    // "already running" with a dead handle).
+    let runtime = match tokio::runtime::Builder::new_current_thread()
+        .enable_io()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("MCP server: failed to build tokio runtime: {e}");
+            return;
+        }
+    };
 
-        rt.block_on(async {
+    let handle = std::thread::spawn(move || {
+        runtime.block_on(async {
             let router = build_router();
             if let Err(e) = UnixSocketTransport::new(router).serve(&path).await {
                 log::error!("MCP server error: {e}");
             }
-            // Clean up socket on shutdown
-            let _ = std::fs::remove_file(&path);
+            // NOTE: deliberately NOT removing the socket file here. stop()
+            // removes it while the server is known to be shutting down; a
+            // detached thread removing it later could unlink a NEW server's
+            // socket bound at the same path after a quick restart. A stale
+            // file left by an abnormal exit is harmless — start() removes
+            // it before binding.
         });
     });
 

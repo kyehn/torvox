@@ -22,6 +22,14 @@ class RenderWatchDog(
 
     fun stop() {
         checker.interrupt()
+        // Join so a stale watchdog cannot fire onHangDetected after a
+        // restart: the closure reads the *new* thread's running flag and
+        // would falsely mark the fresh render thread as dead.
+        try {
+            checker.join(2000L)
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
     }
 
     private fun watchLoop() {

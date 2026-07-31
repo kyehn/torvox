@@ -40,8 +40,6 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -69,12 +67,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.ui.theme.TerminalTheme
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 private const val SMALL_SCREEN_WIDTH_DP = 400
 private const val FONT_SIZE_RANGE_MIN = 8f
@@ -1312,6 +1310,22 @@ private fun ClearAppDataSection(textColor: Color) {
                                 context.getDir("logs_root", Context.MODE_PRIVATE).deleteRecursively()
                                 context.getDir("bin", Context.MODE_PRIVATE).deleteRecursively()
                                 context.cacheDir.listFiles()?.forEach { it.delete() }
+                                // The process-wide DataStore singleton keeps
+                                // running: recreate the prefs directory so
+                                // the next settings write does not fail with
+                                // an uncaught IOException (which kills the
+                                // process via the crash handler).
+                                context.getDir("prefs", Context.MODE_PRIVATE)
+                                // In-process StateFlows still hold the old
+                                // values; a restart is required for a full
+                                // reset.
+                                android.widget.Toast
+                                    .makeText(
+                                        context,
+                                        context.getString(R.string.clear_app_data_done),
+                                        android.widget.Toast.LENGTH_LONG,
+                                    )
+                                    .show()
                             } catch (exception: Exception) {
                                 Log.e("ClearAppData", "Failed to clear app data", exception)
                             }

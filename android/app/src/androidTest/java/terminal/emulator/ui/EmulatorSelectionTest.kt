@@ -4,10 +4,10 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
 import androidx.test.core.app.ActivityScenario
-import terminal.emulator.MainActivity
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
+import terminal.emulator.MainActivity
 
 /**
  * Dispatches touch events directly to TerminalSurface via dispatchTouchEvent.

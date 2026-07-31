@@ -33,7 +33,11 @@ impl FontPipeline {
             for path in extra.iter() {
                 if path.is_file() {
                     if let Err(error) = db.load_font_file(path) {
-                        log::warn!("font: failed to load font file {path:?}: {error}");
+                        // File name only: the full path can embed a user home dir (round-109).
+                        log::warn!(
+                            "font: failed to load font file {}: {error}",
+                            path.file_name().unwrap_or_default().to_string_lossy()
+                        );
                     }
                 } else if path.is_dir()
                     && let Ok(entries) = std::fs::read_dir(path)
@@ -43,7 +47,11 @@ impl FontPipeline {
                         if is_font_file(&file_path)
                             && let Err(error) = db.load_font_file(&file_path)
                         {
-                            log::warn!("font: failed to load font file {file_path:?}: {error}");
+                            // File name only: the full path can embed a user home dir (round-109).
+                            log::warn!(
+                                "font: failed to load font file {}: {error}",
+                                file_path.file_name().unwrap_or_default().to_string_lossy()
+                            );
                         }
                     }
                 }
@@ -111,7 +119,11 @@ impl FontPipeline {
                     .is_some_and(|e| e.eq_ignore_ascii_case("ttf") || e.eq_ignore_ascii_case("otf"))
                     && let Err(error) = db.load_font_file(&file_path)
                 {
-                    log::warn!("font: failed to load font file {file_path:?}: {error}");
+                    // File name only: the full path can embed a user home dir (round-109).
+                    log::warn!(
+                        "font: failed to load font file {}: {error}",
+                        file_path.file_name().unwrap_or_default().to_string_lossy()
+                    );
                 }
             }
         }

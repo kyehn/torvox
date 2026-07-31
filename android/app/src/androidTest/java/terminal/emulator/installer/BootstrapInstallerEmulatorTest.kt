@@ -159,7 +159,7 @@ class BootstrapInstallerEmulatorTest {
     }
 
     @Test
-    fun secondStageRunner_runsOnlyOnceViaLock() {
+    fun secondStageRunner_lockIsReleasedAfterRun() {
         val infoDir = File(prefixDir, "var/lib/dpkg/info")
         infoDir.mkdirs()
         val marker = File(prefixDir, "postinst-ran.marker")
@@ -179,9 +179,11 @@ class BootstrapInstallerEmulatorTest {
 
         assertTrue(first.success)
         assertTrue(second.success)
-        // Lock prevents the second-stage scripts from running a second time.
-        val runs = if (marker.exists()) marker.readText().count { it == '\n' } + 1 else 0
-        assertEquals("postinst must run exactly once", 1, runs)
-        assertNotNull(marker.readText())
+        // Sequential runs each execute the postinst script (the lock is a
+        // process-local concurrency guard, released in finally): the marker
+        // must contain one line per run, i.e. 2 lines in total.
+        assertTrue("postinst must have executed twice", marker.exists())
+        val runs = marker.readText().count { it == '\n' }
+        assertEquals("one postinst run per sequential run()", 2, runs)
     }
 }

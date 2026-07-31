@@ -1,39 +1,29 @@
 package terminal.emulator.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.openDrawer
-import terminal.emulator.openSettings
-import terminal.emulator.waitForSession
+import org.junit.Assert.assertTrue
 import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.junit.runners.MethodSorters
+import terminal.emulator.MainActivity
+import terminal.emulator.openDrawer
+import terminal.emulator.openSettings
+import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class TerminalScreenTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
-
-    @Test
-    fun testTerminalScreenRenders() {
-        composeTestRule.waitForSession()
-        composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
-    }
-
-    @Test
-    fun testModifierBarVisible() {
-        composeTestRule.waitForSession()
-        composeTestRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
-    }
 
     @Test
     fun testSettingsScreenRenders() {
@@ -80,8 +70,10 @@ class TerminalScreenTest {
     @Test
     fun terminal_content_has_modifier_bar_below() {
         composeTestRule.waitForSession()
-        composeTestRule.onNodeWithTag("TerminalContent").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
+        val contentBounds = composeTestRule.onNodeWithTag("TerminalContent").getBoundsInRoot()
+        val barBounds = composeTestRule.onNodeWithTag("ModifierBar").getBoundsInRoot()
+        // The modifier bar must sit below the terminal content area.
+        assertTrue("ModifierBar must be below TerminalContent", barBounds.top >= contentBounds.bottom)
     }
 
     @Test

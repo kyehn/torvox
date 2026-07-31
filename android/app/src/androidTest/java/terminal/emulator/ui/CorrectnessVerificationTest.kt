@@ -9,12 +9,12 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import terminal.emulator.MainActivity
-import terminal.emulator.waitForSession
 import org.junit.FixMethodOrder
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runners.MethodSorters
+import terminal.emulator.MainActivity
+import terminal.emulator.waitForSession
 
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
 class CorrectnessVerificationTest {

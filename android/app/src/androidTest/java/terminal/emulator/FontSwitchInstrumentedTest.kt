@@ -98,62 +98,54 @@ class FontSwitchInstrumentedTest {
     fun font_change_opens_dialog() {
         openSettings()
         scrollTo("Font Family")
-        val changeBtn = device.findObject(By.text("Change"))
-        if (changeBtn != null) {
-            changeBtn.click()
-            Thread.sleep(2000)
-            val dialogVisible =
-                device.findObject(By.textContains("Fira")) != null ||
-                    device.findObject(By.textContains("Roboto")) != null ||
-                    device.findObject(By.textContains("Noto")) != null ||
-                    device.findObject(By.textContains("System")) != null
-            assertTrue("Font picker dialog should show font names", dialogVisible)
-        }
+        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        changeBtn.click()
+        Thread.sleep(2000)
+        val dialogVisible =
+            device.findObject(By.textContains("Fira")) != null ||
+                device.findObject(By.textContains("Roboto")) != null ||
+                device.findObject(By.textContains("Noto")) != null ||
+                device.findObject(By.textContains("System")) != null
+        assertTrue("Font picker dialog should show font names", dialogVisible)
     }
 
     @Test
     fun font_dialog_shows_system_default() {
         openSettings()
         scrollTo("Font Family")
-        val changeBtn = device.findObject(By.text("Change"))
-        if (changeBtn != null) {
-            changeBtn.click()
-            Thread.sleep(2000)
-            val hasFonts =
-                device.findObject(By.textContains("Mono")) != null ||
-                    device.findObject(By.textContains("Sans")) != null
-            assertTrue("Font picker should show available font options", hasFonts)
-        }
+        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        changeBtn.click()
+        Thread.sleep(2000)
+        val hasFonts =
+            device.findObject(By.textContains("Mono")) != null ||
+                device.findObject(By.textContains("Sans")) != null
+        assertTrue("Font picker should show available font options", hasFonts)
     }
 
     @Test
     fun font_dialog_shows_monospace_fonts() {
         openSettings()
         scrollTo("Font Family")
-        val changeBtn = device.findObject(By.text("Change"))
-        if (changeBtn != null) {
-            changeBtn.click()
-            Thread.sleep(2000)
-            val hasMono = device.findObject(By.textContains("Mono")) != null
-            assertTrue("Font picker should show monospace fonts", hasMono)
-        }
+        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        changeBtn.click()
+        Thread.sleep(2000)
+        val hasMono = device.findObject(By.textContains("Mono")) != null
+        assertTrue("Font picker should show monospace fonts", hasMono)
     }
 
     @Test
     fun font_select_changes_font_family() {
         openSettings()
         scrollTo("Font Family")
-        val changeBtn = device.findObject(By.text("Change"))
-        if (changeBtn != null) {
-            changeBtn.click()
-            Thread.sleep(3000)
-            val fonts = listOf("Roboto Mono", "Noto Sans Mono", "Fira Code", "Source Code Pro", "monospace")
-            val selectedFont = fonts.firstOrNull { device.findObject(By.textContains(it)) != null }
-            if (selectedFont != null) {
-                device.findObject(By.textContains(selectedFont))?.click()
-                Thread.sleep(3000)
-            }
+        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        changeBtn.click()
+        Thread.sleep(3000)
+        val fonts = listOf("Roboto Mono", "Noto Sans Mono", "Fira Code", "Source Code Pro", "monospace")
+        val selectedFont = checkNotNull(fonts.firstOrNull { device.findObject(By.textContains(it)) != null }) {
+            "Font picker must show at least one known font family"
         }
+        device.findObject(By.textContains(selectedFont))?.click()
+        Thread.sleep(3000)
         val appAlive = device.findObject(By.pkg(PACKAGE).depth(0)) != null
         assertTrue("App must survive font change", appAlive)
     }
@@ -162,16 +154,14 @@ class FontSwitchInstrumentedTest {
     fun app_survives_font_change() {
         openSettings()
         scrollTo("Font Family")
-        val changeBtn = device.findObject(By.text("Change"))
-        if (changeBtn != null) {
-            changeBtn.click()
-            Thread.sleep(2000)
-            val firstFont = device.findObject(By.textContains("Noto"))
-            if (firstFont != null) {
-                firstFont.click()
-                Thread.sleep(3000)
-            }
+        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        changeBtn.click()
+        Thread.sleep(2000)
+        val firstFont = checkNotNull(device.findObject(By.textContains("Noto"))) {
+            "Font picker must show the Noto family"
         }
+        firstFont.click()
+        Thread.sleep(3000)
         val appAlive = device.findObject(By.pkg(PACKAGE).depth(0)) != null
         assertTrue("App must survive font change", appAlive)
     }

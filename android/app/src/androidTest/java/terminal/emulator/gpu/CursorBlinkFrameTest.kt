@@ -4,14 +4,15 @@ package terminal.emulator.gpu
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextInput
-import terminal.emulator.MainActivity
-import terminal.emulator.getBridge
-import terminal.emulator.waitForSession
 import org.junit.Assert
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.MainActivity
+import terminal.emulator.getBridge
+import terminal.emulator.waitForSession
 
+@org.junit.Ignore("All four tests call Bridge.setCursorBlink*/resetCursorBlink/setCursorStyle which are log-only ADR-0007 stubs — nothing reaches JNI, so the tests have zero assertion value (round-112)")
 class CursorBlinkFrameTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
@@ -30,7 +31,6 @@ class CursorBlinkFrameTest {
         bridge.resetCursorBlink()
 
         // If no UnsatisfiedLinkError thrown, native methods are loaded
-        Assert.assertTrue("bridge native methods reachable", true)
     }
 
     @Test

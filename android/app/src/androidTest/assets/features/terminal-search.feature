@@ -3,7 +3,12 @@ Feature: Text Search
   The terminal provides a search bar accessible from the session panel
   that highlights matching text and supports navigation.
 
+  NOTE: scenarios are @wip until the native data path lands — search has no
+  injectable terminal content while Bridge.getTerminalText is a stub, so the
+  match-based assertions are vacuous (round-105).
+
   @REQ_SEARCH_001
+  @wip
   Scenario: Search bar opens from session panel button
     Given a terminal session is active
     When the user opens the search bar from the session panel
@@ -11,12 +16,14 @@ Feature: Text Search
     And the modifier bar is hidden
 
   @REQ_SEARCH_001
+  @wip
   Scenario: Search highlights matching text
     Given a terminal session is active with visible text
     When the user searches for "the"
     Then at least one match is highlighted on screen
 
   @REQ_SEARCH_001
+  @wip
   Scenario: Search previous and next navigate between matches
     Given the terminal has multiple "the" matches visible
     When the user presses "Next"
@@ -25,6 +32,7 @@ Feature: Text Search
     Then the current match indicator returns
 
   @REQ_SEARCH_001
+  @wip
   Scenario: Case sensitive toggle filters results
     Given a terminal session is active with mixed case text
     When the user enables case-sensitive search
@@ -32,6 +40,7 @@ Feature: Text Search
     Then only uppercase matches are highlighted
 
   @REQ_SEARCH_001
+  @wip
   Scenario: Search closes and clears highlights
     Given the terminal has search highlights active
     When the user closes the search bar
@@ -39,6 +48,7 @@ Feature: Text Search
     And the modifier bar is visible again
 
   @REQ_SEARCH_002
+  @wip
   Scenario: Search auto-scrolls to off-screen match
     Given the terminal has scrolled content with "UNIQUE_MARKER"
     When the user searches for "UNIQUE_MARKER"
@@ -46,6 +56,7 @@ Feature: Text Search
     Then the terminal scrolls to show the match
 
   @REQ_SEARCH_002
+  @wip
   Scenario: IME does not cover search bar
     Given the search bar is visible
     When the soft keyboard opens
