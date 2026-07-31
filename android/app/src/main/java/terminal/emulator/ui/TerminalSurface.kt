@@ -37,6 +37,12 @@ import terminal.emulator.TouchClass
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 
+// Approximate height reserved for the ModifierBar overlay when computing
+// the terminal grid (see applyGridResize). The bar itself is ~36dp of
+// buttons + padding + navigationBarsPadding; 80dp is a deliberately safe
+// over-estimate. Inert while Bridge.getCellWidth is an ADR-0007 stub;
+// recalibrate against the real ModifierBar layout when rendering lands
+// (round-113).
 private val modifierBarHeightPx: Int by lazy {
     android.content.res.Resources.getSystem().displayMetrics.density.let { density ->
         (80f * density + 0.5f).toInt()
@@ -92,6 +98,50 @@ constructor(
     defStyleAttr: Int = 0,
 ) : TextureView(context, attrs, defStyleAttr),
     TextureView.SurfaceTextureListener {
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // Stop the edge-scroll self-loop: it is driven by postDelayed and
+        // only stops on ACTION_UP/CANCEL. A detach mid-drag (rotation,
+        // window destruction) would otherwise leave it running forever,
+        // holding this view (and the whole viewModel chain) via the
+        // handler's runnable and burning main-thread cycles on
+        // repositionHandle.
+        stopEdgeScroll()
+        // Clear the fling scroll-end marker and the render-unpause callback:
+        // both are postDelayed runnables that capture this view; after a
+        // detach they would fire on a destroyed window (and repeated flings
+        // stack up multiple copies).
+        scrollEndRunnable?.let { removeCallbacks(it) }
+        scrollEndRunnable = null
+        pendingUnpauseRunnable?.let { removeCallbacks(it) }
+        pendingUnpauseRunnable = null
+        // Dismiss the floating selection UI: an action mode, the selection
+        // handle popups and the magnifier all own system windows that hold
+        // this view (and the whole viewModel chain) alive after the view is
+        // detached — same leak class as the runnables above. The surface
+        // teardown path also calls this, but a detach can happen without a
+        // surface destruction (Compose replaces the view during
+        // recomposition).
+        hideSelectionHandles()
+        try {
+            magnifier?.dismiss()
+        } catch (exception: Exception) {
+            LogUtil.w(TAG, "onDetachedFromWindow: magnifier dismiss failed", exception)
+        }
+        magnifier = null
+        // Stop the PtyWriter sender thread: the view is being destroyed
+        // (activity recreation, back press) and a fresh TerminalSurface will
+        // build a new InputBatchBuffer. Without this, every recreation leaks
+        // a daemon thread that pins the whole view chain via its sink closure.
+        inputBatchBuffer.close()
+    }
+
+    private fun stopEdgeScroll() {
+        edgeScrollRunning = false
+        edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
+    }
+
     companion object {
         private const val TAG = "TerminalSurface"
         private const val SWIPE_THRESHOLD_PIXELS = 500f
@@ -106,10 +156,27 @@ constructor(
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
         private const val FLING_MAX_LINES = 50
         private const val SCROLL_END_DELAY_MS = 300L
+
+        // Upper bound for direct clipboard paste: keeps main-thread string
+        // copies (toString/replace/toByteArray) from OOMing on a huge
+        // clipboard. Pastes this large are streamed in chunks through
+        // InputBatchBuffer (see pasteFromClipboardDirect).
+        private const val MAX_PASTE_CHARS = 1_000_000
+
+        // Chunk size for paste streaming. Must stay well below the PTY
+        // kernel buffer (~64KB) so a chunk never fails wholesale on EAGAIN.
+        private const val MAX_PASTE_CHUNK_CHARS = 4_000
         private const val FALLBACK_CELL_WIDTH = 8f
         private const val FALLBACK_CELL_HEIGHT = 16f
         private const val BACKSPACE_BYTE = 0x08.toByte()
         private const val DELETE_BYTE = 0x7F.toByte()
+
+        // Upper bound for deleteSurroundingText arguments (untrusted IME
+        // input). One line is more than any real IME requests at once.
+        private const val MAX_SURROUNDING_DELETES = 256
+
+        /** Number of Unicode code points in [text] (surrogate-pair safe). */
+        private fun codePointCount(text: String): Int = text.codePointCount(0, text.length)
         private const val MENU_COPY = 1
         private const val MENU_PASTE = 2
         private const val MENU_SELECT_ALL = 3
@@ -198,6 +265,10 @@ constructor(
     ) {
         hideSelectionHandles()
         if (startRow < 0 || startCol < 0 || endRow < 0 || endCol < 0) return
+        // showAtLocation requires a window token; during activity-finish
+        // transition frames the view may already be detached and the call
+        // throws BadTokenException.
+        if (!isAttachedToWindow) return
 
         val loc = IntArray(2)
         getLocationInWindow(loc)
@@ -227,7 +298,14 @@ constructor(
         val startView = createHandleViewWithDrawable(leftDrawable, HandleDrag.START)
         startHandlePopup =
             createHandlePopup(startView).apply {
-                showAtLocation(this@TerminalSurface, 0, loc[0] + startX, loc[1] + startY)
+                try {
+                    showAtLocation(this@TerminalSurface, 0, loc[0] + startX, loc[1] + startY)
+                } catch (exception: Exception) {
+                    // WindowManager.BadTokenException: the activity detached
+                    // between the isAttachedToWindow check and showAtLocation
+                    // (back press / rotation while a drag handle is up).
+                    LogUtil.w(TAG, "showSelectionHandles: start popup show failed", exception)
+                }
             }
         startHandleRect.set(startX, startY, startX + handleW, startY + handleH)
         startHandleRect.inset(-handleW / 4, -handleH / 4)
@@ -241,7 +319,12 @@ constructor(
         val endView = createHandleViewWithDrawable(rightDrawable, HandleDrag.END)
         endHandlePopup =
             createHandlePopup(endView).apply {
-                showAtLocation(this@TerminalSurface, 0, loc[0] + endX, loc[1] + endY)
+                try {
+                    showAtLocation(this@TerminalSurface, 0, loc[0] + endX, loc[1] + endY)
+                } catch (exception: Exception) {
+                    // WindowManager.BadTokenException — see start handle above.
+                    LogUtil.w(TAG, "showSelectionHandles: end popup show failed", exception)
+                }
             }
         endHandleRect.set(endX, endY, endX + handleW, endY + handleH)
         endHandleRect.inset(-handleW / 4, -handleH / 4)
@@ -272,7 +355,14 @@ constructor(
         val popupX = loc[0] + adjustedX
         val popupY = loc[1] + clampedY
         val popup = if (which == HandleDrag.START) startHandlePopup else endHandlePopup
-        popup?.update(popupX, popupY, -1, -1)
+        try {
+            popup?.update(popupX, popupY, -1, -1)
+        } catch (exception: Exception) {
+            // WindowManager.BadTokenException: the activity detached while
+            // the drag handle was being repositioned (back press/rotation).
+            // Same class of race as showSelectionHandles' showAtLocation.
+            LogUtil.w(TAG, "repositionHandle: popup update failed", exception)
+        }
 
         val rect = if (which == HandleDrag.START) startHandleRect else endHandleRect
         rect.set(
@@ -285,7 +375,13 @@ constructor(
     }
 
     fun hideSelectionToolbar() {
-        actionMode?.hide(ActionMode.DEFAULT_HIDE_DURATION.toLong())
+        try {
+            actionMode?.hide(ActionMode.DEFAULT_HIDE_DURATION.toLong())
+        } catch (exception: Exception) {
+            // The action mode may already be gone (window destroyed, mode
+            // finished while the field was stale). Hide is best-effort.
+            LogUtil.w("Surface", "hideSelectionToolbar failed", exception)
+        }
     }
 
     internal fun showContextMenu(
@@ -374,6 +470,13 @@ constructor(
                 }
             }
 
+        if (!isAttachedToWindow) {
+            // A floating ActionMode on a detached view throws
+            // IllegalStateException/BadToken during rotation or activity
+            // teardown frames.
+            LogUtil.w("Surface", "showContextMenu: view not attached, ignoring")
+            return
+        }
         actionMode = startActionMode(callback, ActionMode.TYPE_FLOATING)
     }
 
@@ -470,7 +573,13 @@ constructor(
     }
 
     fun hideContextMenu() {
-        actionMode?.finish()
+        try {
+            actionMode?.finish()
+        } catch (exception: Exception) {
+            // Same staleness window as hideSelectionToolbar: the mode may
+            // already be finished/destroyed. Best-effort.
+            LogUtil.w("Surface", "hideContextMenu failed", exception)
+        }
         actionMode = null
     }
 
@@ -520,12 +629,26 @@ constructor(
 
         cursorHandlePopup =
             createHandlePopup(cursorView).apply {
-                showAtLocation(this@TerminalSurface, 0, popupX, loc[1] + cursorY)
+                try {
+                    showAtLocation(this@TerminalSurface, 0, popupX, loc[1] + cursorY)
+                } catch (exception: Exception) {
+                    // WindowManager.BadTokenException — activity detached
+                    // between isAttachedToWindow and showAtLocation.
+                    // Same guard as showSelectionHandles.
+                    LogUtil.w(TAG, "showCursorHandle: popup show failed", exception)
+                }
             }
     }
 
     fun hideCursorHandle() {
-        cursorHandlePopup?.dismiss()
+        try {
+            cursorHandlePopup?.dismiss()
+        } catch (exception: Exception) {
+            // PopupWindow.dismiss can throw "View not attached to window
+            // manager" when the activity was torn down first (rotation/
+            // finish during handle drag). Symmetric with the show guards.
+            LogUtil.w(TAG, "hideCursorHandle: dismiss failed", exception)
+        }
         cursorHandlePopup = null
     }
 
@@ -580,7 +703,7 @@ constructor(
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    viewModel?.endSelection(scrollOffset)
+                    viewModel?.endSelection()
                     handleDragState = HandleDrag.NONE
                     val selection = viewModel?.state?.value?.selection
                     if (selection?.start != null && selection?.end != null) {
@@ -619,9 +742,17 @@ constructor(
     }
 
     fun hideSelectionHandles() {
-        startHandlePopup?.dismiss()
+        try {
+            startHandlePopup?.dismiss()
+        } catch (exception: Exception) {
+            LogUtil.w(TAG, "hideSelectionHandles: start dismiss failed", exception)
+        }
         startHandlePopup = null
-        endHandlePopup?.dismiss()
+        try {
+            endHandlePopup?.dismiss()
+        } catch (exception: Exception) {
+            LogUtil.w(TAG, "hideSelectionHandles: end dismiss failed", exception)
+        }
         endHandlePopup = null
         hideSelectionToolbar()
         hideContextMenu()
@@ -658,6 +789,7 @@ constructor(
     private var suppressUntilNanos = 0L
 
     private var pendingUnpauseRunnable: Runnable? = null
+    private var scrollEndRunnable: Runnable? = null
 
     @JvmField
     var isAfterLongPress = false
@@ -727,11 +859,10 @@ constructor(
                     onScrollingStateChanged?.invoke(true)
                 }
                 // Treat one full cell-height of finger travel as one row of
-                // scroll, but scale so a full-viewport swipe scrolls the
-                // whole viewport. This keeps scrolling proportional and
-                // responsive instead of moving a single row per gesture.
-                val scale = (height.toFloat() / cellHeight.coerceAtLeast(1f)).coerceAtLeast(1f)
-                val rawAmount = (distanceY / cellHeight * scale / 4f).toInt()
+                // scroll: a full-viewport swipe (distance = cellHeight ×
+                // viewport rows) then scrolls exactly one viewport. The
+                // previous scale²/4 formula scrolled 6–10× too fast.
+                val rawAmount = (distanceY / cellHeight.coerceAtLeast(1f)).toInt()
                 val scrollAmount =
                     if (rawAmount > 0) {
                         maxOf(1, rawAmount)
@@ -774,10 +905,12 @@ constructor(
                     scrollOffset = newOffset
                     onScrollChanged?.invoke(scrollOffset)
                 }
-                postDelayed({
-                    isScrolling = false
-                    onScrollingStateChanged?.invoke(false)
-                }, SCROLL_END_DELAY_MS)
+                scrollEndRunnable?.let { removeCallbacks(it) }
+                scrollEndRunnable =
+                    Runnable {
+                        isScrolling = false
+                        onScrollingStateChanged?.invoke(false)
+                    }.also { postDelayed(it, SCROLL_END_DELAY_MS) }
                 return true
             }
 
@@ -838,14 +971,14 @@ constructor(
                 if (now - lastTapTime < DOUBLE_TAP_WINDOW_MS) {
                     val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
                     val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+                    val gridRow = currentScrollbackLength() - scrollOffset + row
                     viewModel?.setSelectionMode(SelectionMode.Line)
-                    viewModel?.startSelection(row, 0)
+                    viewModel?.startSelection(gridRow, 0)
                     val bridge = viewModel?.runtime?.bridge()
-                    val scrollbackLength = bridge?.scrollbackLength() ?: 0
-                    val line = bridge?.scrollbackLine((scrollbackLength - scrollOffset + row)) ?: ""
-                    viewModel?.updateSelection(row, line.length.coerceAtLeast(0))
-                    viewModel?.endSelection(scrollOffset)
-                    showSelectionHandles(row, 0, row, line.length.coerceAtLeast(0), getAccentColor())
+                    val line = bridge?.scrollbackLine(gridRow) ?: ""
+                    viewModel?.updateSelection(gridRow, line.length.coerceAtLeast(0))
+                    viewModel?.endSelection()
+                    showSelectionHandles(gridRow, 0, gridRow, line.length.coerceAtLeast(0), getAccentColor())
                 } else {
                     startSelectionAt(event, expandToWord = true)
                     val currentSelection = viewModel?.state?.value?.selection
@@ -870,11 +1003,6 @@ constructor(
                 longPressDragging = true
                 longPressStartX = event.x
                 longPressStartY = event.y
-                val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-                val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
-                val bridge = viewModel?.runtime?.bridge()
-                val scrollbackLength = bridge?.scrollbackLength() ?: 0
-                val line = bridge?.scrollbackLine((scrollbackLength - scrollOffset + row)) ?: ""
                 handleLongPress(event.x, event.y)
             }
         }
@@ -939,8 +1067,8 @@ constructor(
             )
         } else if (isOnWhitespace) {
             viewModel?.setSelectionMode(SelectionMode.Word)
-            viewModel?.startSelection(row, col, TouchClass.Whitespace)
-            viewModel?.endSelection(scrollOffset)
+            viewModel?.startSelection(gridRow, col, TouchClass.Whitespace)
+            viewModel?.endSelection()
 
             Log.d(
                 "Selection",
@@ -983,7 +1111,7 @@ constructor(
 
             viewModel?.startSelection(startRow, startCol, TouchClass.Text)
             viewModel?.updateSelection(endRow, endCol)
-            viewModel?.endSelection(scrollOffset)
+            viewModel?.endSelection()
             showSelectionHandles(startRow, startCol, endRow, endCol, getAccentColor())
         }
     }
@@ -1015,7 +1143,8 @@ constructor(
                         if (newOffset != scrollOffset) {
                             scrollOffset = newOffset
                             onScrollChanged?.invoke(scrollOffset)
-                            val gridRow = scrollOffset
+                            // Top viewport row in grid coordinates.
+                            val gridRow = scrollbackLen - newOffset
                             val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
                             if (handleDragState == HandleDrag.START) {
                                 viewModel?.updateSelectionStart(gridRow, curCol)
@@ -1030,7 +1159,8 @@ constructor(
                         if (newOffset != scrollOffset) {
                             scrollOffset = newOffset
                             onScrollChanged?.invoke(scrollOffset)
-                            val gridRow = scrollOffset + rows - 1
+                            // Bottom viewport row in grid coordinates.
+                            val gridRow = currentScrollbackLength() - newOffset + rows - 1
                             val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
                             if (handleDragState == HandleDrag.START) {
                                 viewModel?.updateSelectionStart(gridRow, curCol)
@@ -1107,31 +1237,37 @@ constructor(
         val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
         if (imeBottom != lastImeBottom) {
             lastImeBottom = imeBottom
-            val cellWidth = viewModel?.runtime?.cellWidth ?: return result
-            val cellHeight = viewModel?.runtime?.cellHeight ?: return result
-            if (cellWidth <= 0f || cellHeight <= 0f) return result
-            if (imeBottom > 0) {
-                // ModifierBar is now a Compose overlay; terminal grid must not render rows behind it.
-                val availableHeight = height - imeBottom - modifierBarHeightPx
-                if (availableHeight <= 0) return result
-                val newCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
-                val newRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
-                if (newRows != this.rows || newCols != this.cols) {
-                    viewModel?.runtime?.resize(newRows, newCols)
-                    this.rows = newRows
-                    this.cols = newCols
-                }
-            } else if (imeBottom == 0) {
-                val fullRows = ((height - modifierBarHeightPx).toFloat() / cellHeight).toInt().coerceAtLeast(1)
-                val fullCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
-                if (fullRows != this.rows || fullCols != this.cols) {
-                    viewModel?.runtime?.resize(fullRows, fullCols)
-                    this.rows = fullRows
-                    this.cols = fullCols
-                }
-            }
+            // Inert while runtime.cellWidth/cellHeight are 0 (Bridge
+            // getCellWidth is an ADR-0007 stub); activates with real cell
+            // metrics (round-113).
+            applyGridResize(width, height, imeBottom)
         }
         return result
+    }
+
+    /**
+     * Compute the grid from the window size and the current IME inset, then
+     * align the PTY. Single formula shared by the insets path and
+     * applySurfaceResize so both can never diverge: rows exclude the IME
+     * inset and the ModifierBar overlay (round-112).
+     */
+    private fun applyGridResize(
+        width: Int,
+        height: Int,
+        imeBottom: Int,
+    ) {
+        val cellWidth = viewModel?.runtime?.cellWidth ?: return
+        val cellHeight = viewModel?.runtime?.cellHeight ?: return
+        if (cellWidth <= 0f || cellHeight <= 0f) return
+        val availableHeight = height - imeBottom - modifierBarHeightPx
+        if (availableHeight <= 0) return
+        val newCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
+        val newRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
+        if (newRows != this.rows || newCols != this.cols) {
+            viewModel?.runtime?.resize(newRows, newCols)
+            this.rows = newRows
+            this.cols = newCols
+        }
     }
 
     fun initialize(viewModel: TerminalViewModel) {
@@ -1217,8 +1353,6 @@ constructor(
         }
     }
 
-    fun consumePendingInput(): ByteArray? = viewModel?.consumePendingInput()
-
     private val inputBatchBuffer = InputBatchBuffer({ data -> viewModel?.writeToPty(data) })
     private val coalescer = InputCoalescer({ data -> inputBatchBuffer.write(data) })
     private var currentInputConnection: InputConnection? = null
@@ -1273,15 +1407,23 @@ constructor(
                         }
 
                         composingBuffer.startsWith(newComposing) -> {
-                            // Composition contracted: backspace the removed characters.
+                            // Composition contracted: backspace the removed
+                            // characters. Count code points, not UTF-16
+                            // units — an emoji in the removed suffix is one
+                            // character, and counting units would emit extra
+                            // backspaces that eat a committed neighbour.
+                            val removed =
+                                codePointCount(composingBuffer) - codePointCount(newComposing)
                             viewModel?.writeToPty(
-                                ByteArray(composingBuffer.length - newComposing.length) { BACKSPACE_BYTE },
+                                ByteArray(removed) { BACKSPACE_BYTE },
                             )
                         }
 
                         else -> {
                             // Diverged: replace the whole composing run.
-                            viewModel?.writeToPty(ByteArray(composingBuffer.length) { BACKSPACE_BYTE })
+                            viewModel?.writeToPty(
+                                ByteArray(codePointCount(composingBuffer)) { BACKSPACE_BYTE },
+                            )
                             encodeAndSend(newComposing, ctrlActive = false, altActive = false)
                         }
                     }
@@ -1318,7 +1460,7 @@ constructor(
                             // Already forwarded via composing deltas; do not resend.
                         } else {
                             terminalViewModel?.writeToPty(
-                                ByteArray(composingBuffer.length) { BACKSPACE_BYTE },
+                                ByteArray(codePointCount(composingBuffer)) { BACKSPACE_BYTE },
                             )
                             encodeAndSend(committedText, ctrlActive, altActive)
                         }
@@ -1351,12 +1493,41 @@ constructor(
                     if (isPaused || System.nanoTime() < suppressUntilNanos) {
                         return true
                     }
-                    if (beforeLength > 0) {
-                        val bs = ByteArray(beforeLength) { BACKSPACE_BYTE }
+                    // beforeLength/afterLength come from the IME (untrusted):
+                    // a negative or huge value would crash with
+                    // NegativeArraySizeException / OutOfMemoryError on the
+                    // main thread. Clamp to the composing-buffer length when
+                    // composing, otherwise to a sane single-line maximum.
+                    val maxDeletes = composingBuffer.length.coerceAtLeast(MAX_SURROUNDING_DELETES)
+                    val safeBefore = beforeLength.coerceIn(0, maxDeletes)
+                    val safeAfter = afterLength.coerceIn(0, maxDeletes)
+                    if (safeBefore > 0) {
+                        // Keep composingBuffer in sync with what the PTY will
+                        // contain: setComposingText's incremental logic
+                        // (startsWith/append/backspace branches) assumes the
+                        // buffer mirrors the committed+composing text.
+                        // Otherwise IME backspace during composition deletes
+                        // once here and again in setComposingText's backspace
+                        // branch, eating an extra character.
+                        if (composingBuffer.isNotEmpty()) {
+                            // beforeLength counts code points (API 33+);
+                            // drop that many from the end, walking over
+                            // surrogate pairs so emoji stay aligned with the
+                            // PTY content.
+                            var removed = 0
+                            var end = composingBuffer.length
+                            while (removed < safeBefore && end > 0) {
+                                val codePoint = composingBuffer.codePointBefore(end)
+                                end -= Character.charCount(codePoint)
+                                removed++
+                            }
+                            composingBuffer = composingBuffer.substring(0, end)
+                        }
+                        val bs = ByteArray(safeBefore) { BACKSPACE_BYTE }
                         viewModel?.writeToPty(bs)
                     }
-                    if (afterLength > 0) {
-                        val del = ByteArray(afterLength) { DELETE_BYTE }
+                    if (safeAfter > 0) {
+                        val del = ByteArray(safeAfter) { DELETE_BYTE }
                         viewModel?.writeToPty(del)
                     }
                     return true
@@ -1370,22 +1541,46 @@ constructor(
         val clipboard = getClipboardManager() ?: return
         if (!clipboard.hasPrimaryClip()) return
         val clipboardText = clipboard.primaryClip?.getItemAt(0)?.text ?: return
-        val data = clipboardText.toString().replace("\n", "\r").toByteArray()
-        viewModel?.writeToPty(data)
+        // Bound the paste on the main thread: toString + replace + toByteArray
+        // each copy the payload, and a multi-megabyte clipboard would OOM the
+        // UI thread before the PTY batching limit ever sees it.
+        val text = clipboardText.toString()
+        if (text.length > MAX_PASTE_CHARS) {
+            LogUtil.w("Surface", "pasteFromClipboardDirect: clipboard too large (${text.length} chars), truncating to $MAX_PASTE_CHARS")
+        }
+        val normalized = text.take(MAX_PASTE_CHARS).replace("\n", "\r")
+        // Chunk the paste through the InputBatchBuffer: one synchronous
+        // feedPty call with the full payload always exceeds the PTY kernel
+        // buffer (~64KB) and is dropped entirely on EAGAIN. Each chunk goes
+        // through the per-frame flush path, giving the child shell time to
+        // drain between chunks. Chunks are split on code-point boundaries
+        // (never inside a surrogate pair).
+        var offset = 0
+        while (offset < normalized.length) {
+            var end = minOf(offset + MAX_PASTE_CHUNK_CHARS, normalized.length)
+            if (end < normalized.length && Character.isHighSurrogate(normalized[end - 1])) {
+                end -= 1
+            }
+            if (end <= offset) break
+            val chunk = normalized.substring(offset, end).toByteArray()
+            inputBatchBuffer.write(chunk)
+            offset = end
+        }
     }
 
     fun getSelectedText(): String {
         val selection = viewModel?.state?.value?.selection ?: return ""
         if (!selection.active || selection.start == null || selection.end == null) return ""
         val bridge = viewModel?.runtime?.bridge() ?: return ""
-        val scrollbackLength = bridge.scrollbackLength()
         val loRow = minOf(selection.start.row, selection.end.row)
         val hiRow = maxOf(selection.start.row, selection.end.row)
         val loCol = if (selection.start.row <= selection.end.row) selection.start.col else selection.end.col
         val hiCol = if (selection.start.row <= selection.end.row) selection.end.col else selection.start.col
         val builder = StringBuilder()
         for (row in loRow..hiRow) {
-            val line = bridge.scrollbackLine((scrollbackLength - scrollOffset + row)) ?: continue
+            // Selection rows are grid rows (see startSelectionAt / handle
+            // drag paths); no viewport conversion here.
+            val line = bridge.scrollbackLine(row) ?: continue
             val startCol = if (row == loRow) loCol else 0
             val endCol = if (row == hiRow) hiCol.coerceAtMost(line.length) else line.length
             if (startCol < endCol) {
@@ -1418,17 +1613,22 @@ constructor(
                 viewModel?.setSelectionMode(SelectionMode.Word)
                 viewModel?.startSelection(start.first, start.second)
                 viewModel?.updateSelection(end.first, end.second)
-                viewModel?.endSelection(scrollOffset)
+                viewModel?.endSelection()
                 Log.d(
                     "Selection",
                     "DOUBLE_TAP word: tapRow=$row tapCol=$col " +
                         "expanded start=(${start.first},${start.second}) end=(${end.first},${end.second})",
                 )
             } else {
-                viewModel?.startSelection(row, col)
+                // Selection state uses grid rows (0 = top of scrollback):
+                // convert the viewport row before storing so extraction and
+                // handle rendering agree.
+                val scrollbackLength = viewModel?.runtime?.bridge()?.scrollbackLength() ?: 0
+                viewModel?.startSelection(scrollbackLength - scrollOffset + row, col)
             }
         } else {
-            viewModel?.startSelection(row, col)
+            val scrollbackLength = viewModel?.runtime?.bridge()?.scrollbackLength() ?: 0
+            viewModel?.startSelection(scrollbackLength - scrollOffset + row, col)
         }
 
         try {
@@ -1484,9 +1684,13 @@ constructor(
             val action: Int = 1 // KeyEvent.ACTION_UP = 1
             val unicodeChar = event.unicodeChar
             val unshiftedChar = event.getUnicodeChar(event.metaState and KeyEvent.META_SHIFT_MASK.inv())
-            bridge.processKeyEvent(keyCode, modifiers, action, unicodeChar, unshiftedChar)
+            val success = bridge.processKeyEvent(keyCode, modifiers, action, unicodeChar, unshiftedChar)
+            if (success) return true
         }
-        return true
+        // Symmetric with onKeyDown: unhandled keys fall through to the
+        // system so key-up semantics (long-press repeat, system gestures)
+        // are not swallowed.
+        return super.onKeyUp(keyCode, event)
     }
 
     private fun handleKeyEvent(event: KeyEvent): Boolean = onKeyDown(event.keyCode, event)
@@ -1545,7 +1749,7 @@ constructor(
                     val touchY = event.y
                     val touchCol = (touchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
                     val touchRow = (touchY / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
-                    val gridRow = touchRow + scrollOffset
+                    val gridRow = currentScrollbackLength() - scrollOffset + touchRow
                     if (!startHandleRect.isEmpty() && startHandleRect.contains(touchX.toInt(), touchY.toInt())) {
                         handleDragState = HandleDrag.START
                         viewModel?.updateSelectionStart(gridRow, touchCol)
@@ -1589,7 +1793,7 @@ constructor(
                         edgeScrollRunning = false
                         pendingEdgeScroll = 0
                         edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
-                        val gridRow = row + scrollOffset
+                        val gridRow = currentScrollbackLength() - scrollOffset + row
                         if (handleDragState == HandleDrag.START) {
                             viewModel?.updateSelectionStart(gridRow, col)
                         } else {
@@ -1600,11 +1804,18 @@ constructor(
                 } else if (longPressDragging && isSelectingText) {
                     val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
                     val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
-                    val gridRow = row + scrollOffset
+                    val gridRow = currentScrollbackLength() - scrollOffset + row
                     viewModel?.updateSelection(gridRow, col)
                     val sel = viewModel?.state?.value?.selection
                     if (sel?.start != null && sel?.end != null) {
-                        showSelectionHandles(sel.start.row, sel.start.col, sel.end.row, sel.end.col, getAccentColor())
+                        // reposition, don't rebuild: showSelectionHandles
+                        // dismisses and recreates 2 PopupWindows (4
+                        // WindowManager IPC + allocations) — at 60-120Hz
+                        // ACTION_MOVE that is a guaranteed frame-drop
+                        // source. repositionHandle uses PopupWindow.update
+                        // (in-process) instead.
+                        repositionHandle(HandleDrag.START, sel.start.row, sel.start.col)
+                        repositionHandle(HandleDrag.END, sel.end.row, sel.end.col)
                     }
                 }
             }
@@ -1614,7 +1825,7 @@ constructor(
                     longPressDragging = false
                     val sel = viewModel?.state?.value?.selection
                     if (sel?.start != null && sel?.end != null) {
-                        viewModel?.endSelection(scrollOffset)
+                        viewModel?.endSelection()
                         val clipboard = getClipboardManager()
                         showSelectionHandles(sel.start.row, sel.start.col, sel.end.row, sel.end.col, getAccentColor())
                     }
@@ -1623,7 +1834,7 @@ constructor(
                 pendingEdgeScroll = 0
                 edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
                 if (isSelectingText && handleDragState != HandleDrag.NONE) {
-                    viewModel?.endSelection(scrollOffset)
+                    viewModel?.endSelection()
                     val selection = viewModel?.state?.value?.selection
                     if (selection?.start != null && selection?.end != null) {
                         val clipboard = getClipboardManager()
@@ -1724,19 +1935,32 @@ constructor(
             return
         }
         terminalViewModel.currentSurface = surface
-        val windowPointer = terminalViewModel.runtime.getNativeWindowPtr(surface)
-        if (windowPointer == 0L) {
-            Log.w(TAG, "applySurfaceResize: windowPointer=0, skipping")
-            return
-        }
-        terminalViewModel.runtime.updateNativeWindow(windowPointer, width, height)
+        // ADR-0007: no ANativeWindow pointer crosses the bridge (the native
+        // side receives the Surface via attachWindow JNI and extracts the
+        // ANativeWindow inside Rust). updateNativeWindow must still run so
+        // the resize path below (ensureDefaultSession retry) is not skipped.
+        terminalViewModel.runtime.updateNativeWindow(0L, width, height)
         val runtimeState = terminalViewModel.runtime.state.value
         if (runtimeState.rows > 0 && runtimeState.cols > 0) {
             rows = runtimeState.rows
             cols = runtimeState.cols
+        } else if (!runtimeState.isRunning) {
+            // start() bails out on small surfaces (split-screen, freeform,
+            // foldable half-screen) and nothing retries it — the terminal
+            // would stay blank forever once the window grows, because
+            // surfaceChanged only resizes. Retry session creation here now
+            // that the surface is valid and sized.
+            Log.i(TAG, "applySurfaceResize: runtime not started, retrying default session")
+            terminalViewModel.ensureDefaultSession()
         }
         lastConfiguredWidth = width
         lastConfiguredHeight = height
+        // Rotation / window-size changes (without an IME event) never reach
+        // runtime.resize: the only other trigger is onApplyWindowInsets.
+        // Use the shared formula so both paths agree on the grid (round-112).
+        // Effective only once real cell metrics arrive (Bridge.getCellWidth
+        // is an ADR-0007 stub returning 0, so this is a no-op until then).
+        applyGridResize(width, height, lastImeBottom)
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1760,20 +1984,22 @@ constructor(
             if (!isRunning) {
                 terminalViewModel.startRuntime(textureSurface, width, height)
             } else {
-                val windowPointer = terminalViewModel.runtime.getNativeWindowPtr(textureSurface)
-                if (windowPointer != 0L) {
-                    terminalViewModel.runtime.updateNativeWindow(windowPointer, width, height)
-                    terminalViewModel.runtime.recomputeGrid(width, height)
-                    terminalViewModel.runtime.resumeRendering()
-                    val runtimeState = terminalViewModel.runtime.state.value
-                    if (runtimeState.rows > 0 && runtimeState.cols > 0) {
-                        rows = runtimeState.rows
-                        cols = runtimeState.cols
-                    }
+                // ADR-0007: no raw ANativeWindow pointer crosses the bridge;
+                // the surface resume must not be gated on one. Without
+                // this, resumeRendering() (the only call site) never runs
+                // after surface destroy/recreate and the terminal stays
+                // black.
+                terminalViewModel.runtime.updateNativeWindow(0L, width, height)
+                terminalViewModel.runtime.recomputeGrid(width, height)
+                terminalViewModel.runtime.resumeRendering()
+                val runtimeState = terminalViewModel.runtime.state.value
+                if (runtimeState.rows > 0 && runtimeState.cols > 0) {
+                    rows = runtimeState.rows
+                    cols = runtimeState.cols
                 }
+                lastConfiguredWidth = width
+                lastConfiguredHeight = height
             }
-            lastConfiguredWidth = width
-            lastConfiguredHeight = height
         }
     }
 
@@ -1796,11 +2022,26 @@ constructor(
     override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
         viewModel?.runtime?.onSurfaceDestroyed()
         viewModel?.runtime?.releaseAllGpuSurfaces()
-        if (isAttachedToWindow) {
-            hideContextMenu()
-        }
-        cachedSurface?.release()
+        // Dismiss selection/cursor handle popups: they hold an Activity
+        // context and a dismissed-but-showing popup triggers StrictMode
+        // activity leaks (and a BadTokenException crash on rotation when
+        // the activity is being destroyed).
+        hideSelectionHandles()
+        // Stop the edge-scroll loop: without this the self-reposting
+        // runnable keeps firing every 50ms after destroy, touching a
+        // cleared ViewModel and dismissed popups.
+        edgeScrollRunning = false
+        edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
+        // Release the Android Surface only after the render thread has been
+        // joined (pauseRendering runs on the surface-transition executor and
+        // its join can take up to 1s per session). Releasing the ANativeWindow
+        // while the render thread may still be inside native render code is a
+        // use-after-free; the executor ordering guarantees the join finished.
+        val surfaceToRelease = cachedSurface
         cachedSurface = null
+        viewModel?.runtime?.runAfterRenderThreadsStopped {
+            surfaceToRelease?.release()
+        }
         lastConfiguredWidth = 0
         lastConfiguredHeight = 0
         viewModel?.currentSurface = null

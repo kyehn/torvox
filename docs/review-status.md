@@ -56,7 +56,7 @@ Kotlin:     TerminalRuntime → Bridge (instance) → NativeBridge (static JNI) 
 | Area | Issue | Notes |
 |------|-------|-------|
 | Bridge stubs | Many Bridge methods log and return defaults | Need native JNI counterparts added incrementally |
-| Search/scroll | `scrollbackLine()`, `scrollbackLength()`, `searchAllInScrollback()` return null/0 | Search UI works via WireWriter path |
+| Search/scroll | `scrollbackLine()`, `scrollbackLength()`, `searchAllInScrollback()` return null/0 | Search UI is a stub: `performSearch` always yields "No results", highlights never render (round-20 review) |
 | Background image | `setBackgroundImage()` logs only | No JNI export yet |
 | Font queries | `getFontInfo()` returns null | Cell dimensions obtained from events |
 | Render loop | `bridge.render()` returns 0 | pollEvent loop drives rendering |

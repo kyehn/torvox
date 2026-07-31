@@ -224,6 +224,11 @@ pub struct CellSnapshot {
 
 pub(crate) const COMMAND_CHANNEL_CAPACITY: usize = 1024;
 pub(crate) const QUERY_TIMEOUT_MS: u64 = 500;
+/// How long `flush()` waits for the VT thread to drain its backlog before
+/// giving up. Must be far above legitimate burst-write drain times in
+/// debug builds (hundreds of ms); 5s of silence means the VT thread is
+/// genuinely wedged.
+pub(crate) const FLUSH_TIMEOUT_SECS: u64 = 5;
 pub(crate) const DISCONNECTED_ROWS: u32 = 24;
 pub(crate) const DISCONNECTED_COLS: u32 = 80;
 pub(crate) const DISCONNECTED_CURSOR_X: u32 = 0;

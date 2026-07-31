@@ -1,21 +1,20 @@
 package terminal.emulator
 
 import android.app.Application
+import android.os.StrictMode
 import android.util.Log
 import dagger.hilt.android.HiltAndroidApp
-import android.os.StrictMode
-import terminal.emulator.bridge.NativeBridge
-import terminal.emulator.monitor.AnrWatchDog
-import terminal.emulator.monitor.BootGuard
-import terminal.emulator.monitor.MemoryMonitor
-
-import terminal.emulator.monitor.ThermalMonitor
-import terminal.emulator.runtime.LogcatFileWriter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.monitor.AnrWatchDog
+import terminal.emulator.monitor.BootGuard
+import terminal.emulator.monitor.MemoryMonitor
+import terminal.emulator.monitor.ThermalMonitor
+import terminal.emulator.runtime.LogcatFileWriter
 import java.io.File
 import java.io.FileOutputStream
 import java.io.PrintWriter
@@ -59,10 +58,19 @@ open class TerminalApp : Application() {
         )
         LogcatFileWriter.init(this)
         Thread({
-            getSharedPreferences("toolbar_prefs", MODE_PRIVATE)
-            NativeBridge.initLogger()
-            LogcatFileWriter.getLogFilePath()?.let { NativeBridge.setLogFilePath(it) }
-        }, "JNA-Init").start()
+            try {
+                getSharedPreferences("toolbar_prefs", MODE_PRIVATE)
+                NativeBridge.initLogger()
+                LogcatFileWriter.getLogFilePath()?.let { NativeBridge.setLogFilePath(it) }
+            } catch (error: Throwable) {
+                // Native library missing/corrupt (or any cold-start error in
+                // this best-effort init): swallow it here. The installCrashHandler
+                // below would otherwise see an uncaught exception from this
+                // background thread and kill the process via BootGuard on
+                // every cold start, with no recovery option.
+                android.util.Log.e("TerminalApp", "Native JNI init failed: ${error.message}")
+            }
+        }, "NativeInit").start()
         installAnrWatchDog()
         installMemoryMonitor()
         installThermalMonitor()
@@ -84,11 +92,8 @@ open class TerminalApp : Application() {
     }
 
     private fun installMemoryMonitor() {
-        val logDir = getDir("logs", MODE_PRIVATE)
         memoryMonitor =
-            MemoryMonitor(this, monitorScope) {
-                BootGuard.exit(logDir, "Critical memory pressure")
-            }.also {
+            MemoryMonitor(this, monitorScope).also {
                 it.startPolling()
             }
     }
@@ -97,7 +102,7 @@ open class TerminalApp : Application() {
         val logDir = getDir("logs", MODE_PRIVATE)
         thermalMonitor =
             ThermalMonitor(this, logDir) {
-                BootGuard.exit(logDir, "Thermal SEVERE+")
+                BootGuard.exit(logDir, "Thermal CRITICAL+")
             }.also { it.register() }
     }
 
@@ -106,11 +111,19 @@ open class TerminalApp : Application() {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             try {
                 writeCrashLog(thread, throwable)
-                // BootGuard.exit() increments boot counter; do not double-count
             } catch (exception: Exception) {
                 Log.e("App", "Failed to write crash log", exception)
             }
-            BootGuard.exit(getDir("logs", MODE_PRIVATE), "Uncaught exception on ${thread.name}")
+            // Record the exit for boot-loop detection WITHOUT killing the
+            // process ourselves: the platform handler below terminates the
+            // process and writes the FATAL EXCEPTION stack to logcat/dropbox
+            // (remote crash reporting). BootGuard.exit() kills first, so the
+            // platform handler never runs and the stack is lost entirely.
+            try {
+                BootGuard(getDir("logs", MODE_PRIVATE)).recordExit()
+            } catch (exception: Exception) {
+                Log.e("App", "Failed to record boot exit", exception)
+            }
             defaultHandler?.uncaughtException(thread, throwable)
         }
     }

@@ -29,7 +29,10 @@ sealed class BootstrapProgress {
     ) : BootstrapProgress() {
         override fun overallProgress(): Float = 0.85f +
             if (totalEntries > 0) {
-                (entriesExtracted.toFloat() / totalEntries) * 0.15f
+                // Capped at 0.97 so CreatingSymlinks (0.99) and
+                // RunningPostInstall (0.97..1.0) never regress the bar
+                // (round-108).
+                (entriesExtracted.toFloat() / totalEntries) * 0.12f
             } else {
                 0f
             }
@@ -44,9 +47,12 @@ sealed class BootstrapProgress {
         val scriptsCompleted: Int,
         val totalScripts: Int,
     ) : BootstrapProgress() {
-        override fun overallProgress(): Float = 0.97f +
+        override fun overallProgress(): Float = 0.99f +
             if (totalScripts > 0) {
-                (scriptsCompleted.toFloat() / totalScripts) * 0.02f
+                // Starts at 0.99 (range 0.99..1.0) so the bar never regresses
+                // from CreatingSymlinks (0.99); Complete (1.0) is the final
+                // step (round-109).
+                (scriptsCompleted.toFloat() / totalScripts) * 0.01f
             } else {
                 0f
             }

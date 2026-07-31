@@ -8,16 +8,19 @@
 //!
 //! | Feature   | Deps pulled | Purpose | Default |
 //! |-----------|-------------|---------|---------|
-//! | `mcp`     | tower-mcp, axum, tokio, schemars | Embed MCP server (dialog/pickfile/clipboard tools) | **on** (implied by `test-util`) |
+//! | `mcp`     | tower-mcp, axum, tokio, schemars | Embed MCP server (dialog/pickfile/clipboard tools) | **on** (default) |
 //! | `test-util` | `mcp` + bytemuck | Enable test-only types (FlatGrid, SearchHighlight) | off |
 //!
 //! ```ignore
 //! # Dev / CI (run tests with MCP support)
 //! cargo test --features test-util
 //!
-//! # Production (Android release — no MCP, smaller binary)
+//! # Production (Android release — MCP compiled in, disabled at runtime)
 //! cargo build --release
 //! ```
+//!
+//! The MCP server is compiled by default but *not started* until the user
+//! enables it in settings (`MCP_ENABLED` starts `false`).
 //!
 //! ## Module hierarchy
 //!
@@ -56,6 +59,7 @@ pub mod mcp;
 
 // Re-exports from terminal module (matching terminal_engine crate's public API)
 pub use terminal::ghostty_terminal::{CursorStyle, SelectionMode, is_wide};
+#[cfg(any(test, feature = "test-util"))]
 pub use terminal::mock_pty::{MockPty, MockPtyHandle};
 pub use terminal::pty::{Pty, PtyError, PtyPair};
 pub use terminal::shell_env::ShellEnv;

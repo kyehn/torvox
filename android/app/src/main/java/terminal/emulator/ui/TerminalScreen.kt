@@ -60,12 +60,12 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SelectionAnchor
 import terminal.emulator.SelectionState
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.ui.theme.BuiltInThemes
-import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -158,16 +158,18 @@ fun TerminalScreen(
         val observer =
             LifecycleEventObserver { _, event ->
                 if (event == Lifecycle.Event.ON_PAUSE) {
-                    (hostView as? TerminalSurface)?.finishComposing()
+                    // LocalView.current at composition top level is the
+                    // AndroidComposeView, not the TerminalSurface; use the
+                    // surfaceRef captured from the AndroidView factory.
+                    surfaceRef.value?.finishComposing()
                     val inputMethodManager =
                         context.getSystemService(
                             android.content.Context.INPUT_METHOD_SERVICE,
                         ) as android.view.inputmethod.InputMethodManager
-                    inputMethodManager.hideSoftInputFromWindow(hostView.windowToken, 0)
+                    inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
                 } else if (event == Lifecycle.Event.ON_RESUME) {
-                    val surfaceView = hostView
-                    (surfaceView as? TerminalSurface)?.postDelayedUnpause(200L)
-                    hostView.requestFocus()
+                    surfaceRef.value?.postDelayedUnpause(200L)
+                    view.requestFocus()
                 }
             }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -492,55 +494,73 @@ fun TerminalScreen(
                         )
                     }
 
-                    if (showTextSearch && searchState.hasResults) {
-                        val surface = surfaceRef.value
-                        if (surface != null) {
-                            val rows = surface.getRows()
-                            val scrollbackCount = surface.getMaxScrollOffset()
-                            val scrollOffset = surface.getScrollOffset()
-                            val themeForeground = resolvedTerminalTheme.foreground
-                            val themeSelectionBg = resolvedTerminalTheme.selectionBg
+                    // Search-highlight painting must run as a side effect,
+                    // not inline during composition: it calls into native
+                    // (bridge.render) and mutates searchState, which would
+                    // otherwise re-execute on every recomposition and
+                    // trigger a state write during composition.
+                    LaunchedEffect(
+                        showTextSearch,
+                        searchState.hasResults,
+                        searchState.resultCount,
+                        searchState.currentIndex,
+                        searchState.results,
+                        surfaceRef.value?.let { Triple(it.getRows(), it.getMaxScrollOffset(), it.getScrollOffset()) },
+                        resolvedTerminalTheme.foreground,
+                        resolvedTerminalTheme.selectionBg,
+                    ) {
+                        if (showTextSearch && searchState.hasResults) {
+                            val surface = surfaceRef.value
+                            if (surface != null) {
+                                val rows = surface.getRows()
+                                val scrollbackCount = surface.getMaxScrollOffset()
+                                val scrollOffset = surface.getScrollOffset()
+                                val themeForeground = resolvedTerminalTheme.foreground
+                                val themeSelectionBg = resolvedTerminalTheme.selectionBg
 
-                            val buf = java.io.ByteArrayOutputStream()
-                            fun writeI32(v: Int) {
-                                buf.write(v and 0xFF)
-                                buf.write((v ushr 8) and 0xFF)
-                                buf.write((v ushr 16) and 0xFF)
-                                buf.write((v ushr 24) and 0xFF)
-                            }
-                            fun writeByte(v: Byte) { buf.write(v.toInt()) }
-                            writeI32(searchState.resultCount)
-                            for ((index, match) in searchState.results.withIndex()) {
-                                val gridRow = match.lineIndex - scrollbackCount + scrollOffset
-                                if (gridRow < 0 || gridRow >= rows) continue
-                                val isCurrent = index == searchState.currentIndex
-                                writeI32(gridRow)
-                                writeI32(match.startIndex)
-                                writeI32(match.endIndex.coerceAtLeast(match.startIndex + 1))
-                                if (isCurrent) {
-                                    // Current match: use foreground color at moderate opacity
-                                    // so the text appears "lit up" — distinctly different from
-                                    // the subtle selectionBg overlay of other matches.
-                                    writeByte((themeForeground.red * 255).toInt().toByte())
-                                    writeByte((themeForeground.green * 255).toInt().toByte())
-                                    writeByte((themeForeground.blue * 255).toInt().toByte())
-                                    writeByte(160.toByte()) // ~63% opacity
-                                } else {
-                                    // Other matches: selection_bg semi-transparent overlay
-                                    writeByte((themeSelectionBg.red * 255).toInt().toByte())
-                                    writeByte((themeSelectionBg.green * 255).toInt().toByte())
-                                    writeByte((themeSelectionBg.blue * 255).toInt().toByte())
-                                    writeByte((SEARCH_MATCH_ALPHA * 255).toInt().toByte()) // 25%
+                                val buf = java.io.ByteArrayOutputStream()
+                                fun writeI32(v: Int) {
+                                    buf.write(v and 0xFF)
+                                    buf.write((v ushr 8) and 0xFF)
+                                    buf.write((v ushr 16) and 0xFF)
+                                    buf.write((v ushr 24) and 0xFF)
                                 }
+                                fun writeByte(v: Byte) {
+                                    buf.write(v.toInt())
+                                }
+                                writeI32(searchState.resultCount)
+                                for ((index, match) in searchState.results.withIndex()) {
+                                    val gridRow = match.lineIndex - scrollbackCount + scrollOffset
+                                    if (gridRow < 0 || gridRow >= rows) continue
+                                    val isCurrent = index == searchState.currentIndex
+                                    writeI32(gridRow)
+                                    writeI32(match.startIndex)
+                                    writeI32(match.endIndex.coerceAtLeast(match.startIndex + 1))
+                                    if (isCurrent) {
+                                        // Current match: use foreground color at moderate opacity
+                                        // so the text appears "lit up" — distinctly different from
+                                        // the subtle selectionBg overlay of other matches.
+                                        writeByte((themeForeground.red * 255).toInt().toByte())
+                                        writeByte((themeForeground.green * 255).toInt().toByte())
+                                        writeByte((themeForeground.blue * 255).toInt().toByte())
+                                        writeByte(160.toByte()) // ~63% opacity
+                                    } else {
+                                        // Other matches: selection_bg semi-transparent overlay
+                                        writeByte((themeSelectionBg.red * 255).toInt().toByte())
+                                        writeByte((themeSelectionBg.green * 255).toInt().toByte())
+                                        writeByte((themeSelectionBg.blue * 255).toInt().toByte())
+                                        writeByte((SEARCH_MATCH_ALPHA * 255).toInt().toByte()) // 25%
+                                    }
+                                }
+                                val highlightBytes = buf.toByteArray()
+                                // Single call: surface.setSearchHighlights internally calls bridge.setSearchHighlights + bridge.render
+                                surface.setSearchHighlights(highlightBytes)
+                                searchState = searchState.copy(highlightsActive = true)
                             }
-                            val highlightBytes = buf.toByteArray()
-                            // Single call: surface.setSearchHighlights internally calls bridge.setSearchHighlights + bridge.render
-                            surface.setSearchHighlights(highlightBytes)
-                            searchState = searchState.copy(highlightsActive = true)
+                        } else if (searchState.highlightsActive) {
+                            surfaceRef.value?.clearSearchHighlights()
+                            searchState = searchState.copy(highlightsActive = false)
                         }
-                    } else if (searchState.highlightsActive) {
-                        surfaceRef.value?.clearSearchHighlights()
-                        searchState = searchState.copy(highlightsActive = false)
                     }
                 }
 

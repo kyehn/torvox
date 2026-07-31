@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Binder
 import android.os.IBinder
 import android.os.PowerManager
+import android.util.Log
 import terminal.emulator.MainActivity
 import terminal.emulator.R
 
@@ -24,15 +25,15 @@ class TerminalForegroundService : Service() {
             context.startForegroundService(intent)
         }
 
-        fun stop(context: Context) {
-            context.stopService(Intent(context, TerminalForegroundService::class.java))
-        }
+        fun stop(context: Context): Boolean = context.stopService(Intent(context, TerminalForegroundService::class.java))
 
         fun updateSessionCount(
             context: Context,
             count: Int,
         ) {
             if (count <= 0) {
+                // Return value intentionally ignored: stopService(false for
+                // a stopped service) is the desired end state either way.
                 stop(context)
                 return
             }
@@ -40,7 +41,16 @@ class TerminalForegroundService : Service() {
                 Intent(context, TerminalForegroundService::class.java).apply {
                     putExtra("session_count", count)
                 }
-            context.startForegroundService(intent)
+            try {
+                context.startForegroundService(intent)
+            } catch (exception: Exception) {
+                // API 31+: ForegroundServiceStartNotAllowedException when
+                // the app is in the background and the service is not
+                // already running (e.g. system killed it and START_STICKY
+                // has not restarted it yet). This must not crash the
+                // render thread.
+                android.util.Log.w("TerminalForegroundService", "startForegroundService failed", exception)
+            }
         }
     }
 
@@ -67,7 +77,15 @@ class TerminalForegroundService : Service() {
         flags: Int,
         startId: Int,
     ): Int {
-        sessionCount = intent?.getIntExtra("session_count", 1) ?: 1
+        // START_STICKY restart after the process was killed: no sessions
+        // survive a process death, so the service (and its PARTIAL_WAKE_LOCK)
+        // has nothing to keep alive. Stop instead of re-pinning the
+        // notification forever with a permanent wake lock.
+        if (intent == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        sessionCount = intent.getIntExtra("session_count", 1).coerceAtLeast(1)
         startForegroundWithSessionCount(sessionCount)
         acquireWakeLockIfNeeded()
         return START_STICKY
@@ -101,7 +119,25 @@ class TerminalForegroundService : Service() {
                 .setContentIntent(pending)
                 .setCategory(Notification.CATEGORY_SERVICE)
                 .build()
-        startForeground(NOTIFICATION_ID, notification)
+        try {
+            startForeground(NOTIFICATION_ID, notification)
+        } catch (exception: Exception) {
+            // minSdk 33 without POST_NOTIFICATIONS permission (and some
+            // vendor ROMs) makes startForeground throw SecurityException on
+            // the main onStartCommand path — the static updateSessionCount
+            // path already guards; this one must not crash the process.
+            // KNOWN LIMITATION (round-92): the runtime's
+            // foregroundServiceRunning flag was already set true by
+            // startForegroundServiceIfNeeded before this call, and no
+            // failure signal is sent back — a subsequent
+            // startForegroundServiceIfNeeded will skip starting (stale
+            // flag) until the count hits 0 via updateForegroundSessionCount
+            // (round-82 reset) or stopForegroundService runs. The service
+            // itself is still bound by the runtime's startService call, so
+            // the wake lock and process-foreground guarantees hold; only
+            // the notification is missing. Closing all sessions heals it.
+            Log.e("TerminalForegroundService", "startForeground failed", exception)
+        }
     }
 
     private fun acquireWakeLockIfNeeded() {
@@ -123,15 +159,6 @@ class TerminalForegroundService : Service() {
         wakeLock = null
     }
 
-    fun updateSessionCount(count: Int) {
-        sessionCount = count
-        if (count <= 0) {
-            stopSelf()
-            return
-        }
-        startForegroundWithSessionCount(count)
-    }
-
     override fun onBind(intent: Intent?): IBinder = Binder()
 
     override fun onDestroy() {
@@ -141,6 +168,14 @@ class TerminalForegroundService : Service() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        releaseWakeLock()
+        // The service keeps running (START_STICKY) with live terminal
+        // sessions. Re-acquire the wake lock instead of dropping it:
+        // otherwise, with the task swiped away and the screen off, the
+        // sessions' CPU and network access would be frozen with no way
+        // to recover the lock (nothing calls acquireWakeLockIfNeeded
+        // again after this point).
+        if (wakeLock?.isHeld != true) {
+            acquireWakeLockIfNeeded()
+        }
     }
 }

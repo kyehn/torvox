@@ -55,6 +55,9 @@ pub trait Pty: Send {
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd>;
     fn wait(&self) -> nix::Result<nix::sys::wait::WaitStatus>;
     fn set_nonblocking(&self) -> Result<(), PtyError>;
+    // Reserved for graphics-protocol support; no production caller yet
+    // (Session::set_pixel_size was removed in round-88). Kept as a trait
+    // method so MockPty and PtyPair stay shape-compatible.
     fn set_pixel_size(&mut self, width: u16, height: u16);
 
     fn spawn(shell: &str, rows: u16, cols: u16, env: &ShellEnv) -> Result<Box<dyn Pty>, PtyError>
@@ -64,6 +67,12 @@ pub trait Pty: Send {
     fn write_all(&mut self, mut buf: &[u8]) -> io::Result<()> {
         while !buf.is_empty() {
             let bytes_written = self.write(buf)?;
+            if bytes_written == 0 {
+                // Non-blocking master returns EAGAIN via write(), never a
+                // 0 count, but a test double or unusual backend could: an
+                // infinite loop on 0 is worse than a spurious WouldBlock.
+                return Err(io::Error::from(io::ErrorKind::WouldBlock));
+            }
             buf = &buf[bytes_written..];
         }
         Ok(())
@@ -162,9 +171,8 @@ impl PtyPair {
             }
             nix::unistd::ForkResult::Child => {
                 if let Err(e) = nix::unistd::close(master_fd) {
-                    // SAFETY: write(2) is async-signal-safe in single-threaded child after fork.
-                    // e is Display, but we cannot use format!() (allocates). Log fd close failure
-                    // silently — execve() will replace process image immediately anyway.
+                    // close(2) failure before execve is harmless; ignore
+                    // silently (no allocation/logging allowed post-fork).
                     let _ = e;
                 }
                 // Manually set controlling terminal using only syscalls.
@@ -183,6 +191,28 @@ impl PtyPair {
                     // nosemgrep: semgrep.no-process-exit — child process after fork, must not longjmp
                     unsafe {
                         libc::_exit(2);
+                    }
+                }
+                // Kill the child when the app process dies (OOM kill, force
+                // stop, crash). Without PDEATHSIG the shell and its process
+                // tree become orphans that keep running after the terminal
+                // is gone. PR_SET_PDEATHSIG is a per-process prctl (no
+                // allocation, async-signal-safe).
+                // SAFETY: prctl is a plain syscall wrapper; valid constants
+                // and pointer-free arguments. Safe in the single-threaded
+                // child after fork.
+                let pdeathsig_ok =
+                    unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) } == 0;
+                // Classic PDEATHSIG race: if the parent died between fork()
+                // and prctl(), the signal was never armed and the child is
+                // already an orphan. Detect it via getppid() == 1 (reparented
+                // to init) and exit instead of leaking a permanent orphan.
+                // SAFETY: getppid is a plain syscall; safe after fork.
+                let orphaned = unsafe { libc::getppid() } == 1;
+                if !pdeathsig_ok || orphaned {
+                    // nosemgrep: semgrep.no-process-exit — child after fork
+                    unsafe {
+                        libc::_exit(1);
                     }
                 }
                 let slave_raw = slave_fd.as_raw_fd();
@@ -423,8 +453,9 @@ impl Drop for PtyPair {
 #[allow(dead_code)]
 fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
-    // SAFETY: tcgetattr is safe with a valid fd. fd is STDIN_FILENO (0)
-    // after login_tty dup'd the PTY slave, so it's always valid.
+    // SAFETY: tcgetattr is safe with a valid fd. The caller must pass a
+    // terminal fd it holds (tests pass the PTY master; production paths
+    // pass the slave after login).
     let result = unsafe { libc::tcgetattr(fd, termios.as_mut_ptr()) };
     if result != 0 {
         return Err(PtyError::Termios(nix::errno::Errno::last()));

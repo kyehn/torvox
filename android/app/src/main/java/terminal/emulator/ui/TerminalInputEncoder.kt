@@ -21,14 +21,31 @@ object TerminalInputEncoder {
             bytes.addAll(BRACKETED_PASTE_END.toByteArray(Charsets.UTF_8).toList())
             return bytes.toByteArray()
         }
-        text.forEach { character ->
-            val controlByte = if (ctrlActive) controlByteForCharacter(character) else null
-            if (controlByte != null) {
-                bytes.add(controlByte)
-            } else {
-                if (altActive) bytes.add(0x1B)
-                bytes.addAll(character.toString().toByteArray(Charsets.UTF_8).toList())
+        // CTRL conversion applies to a single character only (a real Ctrl+X
+        // keypress). Multi-character IME commits — pinyin candidates, swipe
+        // input, IME-internal paste, autocomplete — must NOT have each
+        // character folded into a control byte ("abc" → 0x01 0x02 0x03).
+        // A bracketed-paste-wrapped multi-char commit is the correct shape.
+        if (ctrlActive && text.length == 1) {
+            val codePoint = text[0].code
+            // Digits 1/9/0 have no traditional Ctrl mapping (c & 0x1F would
+            // collide with Ctrl+Q / Ctrl+Y / Ctrl+P) and are dropped,
+            // matching the hardware-key path (encodeKeyEvent).
+            if (codePoint == '1'.code || codePoint == '9'.code || codePoint == '0'.code) {
+                return byteArrayOf()
             }
+            val controlByte = controlByteForCodePoint(codePoint)
+            if (controlByte != null) return withAltPrefix(altActive, byteArrayOf(controlByte))
+        }
+        // Iterate by code point: text.forEach over Char would split surrogate
+        // pairs and encode each half as U+FFFD replacement, corrupting any
+        // supplementary-plane character (emoji) committed by the IME.
+        var index = 0
+        while (index < text.length) {
+            val codePoint = text.codePointAt(index)
+            if (altActive) bytes.add(0x1B)
+            bytes.addAll(String(Character.toChars(codePoint)).toByteArray(Charsets.UTF_8).toList())
+            index += Character.charCount(codePoint)
         }
         return bytes.toByteArray()
     }
@@ -41,7 +58,24 @@ object TerminalInputEncoder {
     ): ByteArray? {
         if (ctrlActive) {
             val controlByte = controlByteForKeyCode(keyCode)
-            if (controlByte != null) return byteArrayOf(controlByte)
+            if (controlByte != null) return withAltPrefix(altActive, byteArrayOf(controlByte))
+            // Ctrl+Space — some devices report unicodeChar=0 here, some 0x20.
+            if (keyCode == KeyEvent.KEYCODE_SPACE) {
+                return withAltPrefix(altActive, byteArrayOf(0x00))
+            }
+            // Fold Ctrl+printable-ASCII into a control byte (shared table
+            // with encodeCommittedText). Ctrl+1/9/0 are not folded: no
+            // traditional mapping, and c & 0x1F would collide with Ctrl+Q /
+            // Ctrl+Y / Ctrl+P — they are dropped instead. When Alt is also
+            // held the folded byte is prefixed with ESC, matching xterm
+            // (Ctrl+Alt+A → ESC 0x01).
+            if (unicodeChar in 0x20..0x7E) {
+                if (unicodeChar == '1'.code || unicodeChar == '9'.code || unicodeChar == '0'.code) {
+                    return null
+                }
+                val folded = controlByteForCodePoint(unicodeChar)
+                if (folded != null) return withAltPrefix(altActive, byteArrayOf(folded))
+            }
         }
         val escapeSequence = escapeSequenceForKeyCode(keyCode, ctrlActive, altActive)
         if (escapeSequence != null) return escapeSequence.toByteArray(Charsets.UTF_8)
@@ -51,6 +85,9 @@ object TerminalInputEncoder {
         val encoded = String(Character.toChars(unicodeChar)).toByteArray(Charsets.UTF_8)
         return if (altActive) byteArrayOf(0x1B) + encoded else encoded
     }
+
+    /** Prefixes ESC when Alt is held, matching xterm (Alt+X → ESC x). */
+    private fun withAltPrefix(altActive: Boolean, bytes: ByteArray): ByteArray = if (altActive) byteArrayOf(0x1B) + bytes else bytes
 
     private fun escapeSequenceForKeyCode(
         keyCode: Int,
@@ -63,6 +100,22 @@ object TerminalInputEncoder {
             if (csiSeq != null) return csiSeq
         }
         return when (keyCode) {
+            KeyEvent.KEYCODE_TAB -> "\t"
+            KeyEvent.KEYCODE_ESCAPE -> "\u001b"
+            KeyEvent.KEYCODE_FORWARD_DEL -> "\u001b[3~"
+            KeyEvent.KEYCODE_INSERT -> "\u001b[2~"
+            KeyEvent.KEYCODE_F1 -> "\u001bOP"
+            KeyEvent.KEYCODE_F2 -> "\u001bOQ"
+            KeyEvent.KEYCODE_F3 -> "\u001bOR"
+            KeyEvent.KEYCODE_F4 -> "\u001bOS"
+            KeyEvent.KEYCODE_F5 -> "\u001b[15~"
+            KeyEvent.KEYCODE_F6 -> "\u001b[17~"
+            KeyEvent.KEYCODE_F7 -> "\u001b[18~"
+            KeyEvent.KEYCODE_F8 -> "\u001b[19~"
+            KeyEvent.KEYCODE_F9 -> "\u001b[20~"
+            KeyEvent.KEYCODE_F10 -> "\u001b[21~"
+            KeyEvent.KEYCODE_F11 -> "\u001b[23~"
+            KeyEvent.KEYCODE_F12 -> "\u001b[24~"
             KeyEvent.KEYCODE_DPAD_UP -> "\u001b[A"
             KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[B"
             KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[C"
@@ -82,6 +135,20 @@ object TerminalInputEncoder {
     ): String? {
         val modifierParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
         return when (keyCode) {
+            KeyEvent.KEYCODE_F1 -> "\u001b[1;${modifierParam}P"
+            KeyEvent.KEYCODE_F2 -> "\u001b[1;${modifierParam}Q"
+            KeyEvent.KEYCODE_F3 -> "\u001b[1;${modifierParam}R"
+            KeyEvent.KEYCODE_F4 -> "\u001b[1;${modifierParam}S"
+            KeyEvent.KEYCODE_F5 -> "\u001b[15;$modifierParam~"
+            KeyEvent.KEYCODE_F6 -> "\u001b[17;$modifierParam~"
+            KeyEvent.KEYCODE_F7 -> "\u001b[18;$modifierParam~"
+            KeyEvent.KEYCODE_F8 -> "\u001b[19;$modifierParam~"
+            KeyEvent.KEYCODE_F9 -> "\u001b[20;$modifierParam~"
+            KeyEvent.KEYCODE_F10 -> "\u001b[21;$modifierParam~"
+            KeyEvent.KEYCODE_F11 -> "\u001b[23;$modifierParam~"
+            KeyEvent.KEYCODE_F12 -> "\u001b[24;$modifierParam~"
+            KeyEvent.KEYCODE_FORWARD_DEL -> "\u001b[3;$modifierParam~"
+            KeyEvent.KEYCODE_INSERT -> "\u001b[2;$modifierParam~"
             KeyEvent.KEYCODE_DPAD_UP -> "\u001b[1;${modifierParam}A"
             KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[1;${modifierParam}B"
             KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[1;${modifierParam}C"
@@ -95,9 +162,39 @@ object TerminalInputEncoder {
         }
     }
 
-    private fun controlByteForCharacter(character: Char): Byte? = when (character) {
-        in 'a'..'z' -> (character.code - LOWERCASE_CONTROL_OFFSET).toByte()
-        in 'A'..'Z' -> (character.code - UPPERCASE_CONTROL_OFFSET).toByte()
+    /**
+     * POSIX Ctrl fold for a printable ASCII code point; null = not foldable
+     * (callers send it verbatim or drop it). Digits 9/0 are intentionally
+     * absent: c & 0x1F would collide with Ctrl+Y / Ctrl+P, so callers drop
+     * them before calling.
+     */
+    private fun controlByteForCodePoint(codePoint: Int): Byte? = when (codePoint) {
+        in 'a'.code..'z'.code -> (codePoint - LOWERCASE_CONTROL_OFFSET).toByte()
+
+        in 'A'.code..'Z'.code -> (codePoint - UPPERCASE_CONTROL_OFFSET).toByte()
+
+        // Space and digits 2-8 follow the ANSI/VT100 tradition (their shifted
+        // symbols are @ [ \ ] ^ _): Ctrl+Space/Ctrl+2 → NUL, Ctrl+3 → ESC,
+        // Ctrl+4 → 0x1C, Ctrl+5 → 0x1D, Ctrl+6 → 0x1E, Ctrl+7 → 0x1F,
+        // Ctrl+8 → DEL.
+        ' '.code, '2'.code -> 0x00
+
+        '3'.code -> 0x1B
+
+        '4'.code -> 0x1C
+
+        '5'.code -> 0x1D
+
+        '6'.code -> 0x1E
+
+        '7'.code -> 0x1F
+
+        '8'.code -> 0x7F
+
+        // Ctrl+[ → ESC, Ctrl+\ → 0x1C, Ctrl+] → 0x1D, Ctrl+^ → 0x1E,
+        // Ctrl+_ → 0x1F, Ctrl+/ → 0x0F, and other punctuation via c & 0x1F.
+        in 0x20..0x7E -> (codePoint and 0x1F).toByte()
+
         else -> null
     }
 

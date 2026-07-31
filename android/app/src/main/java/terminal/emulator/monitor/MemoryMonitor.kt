@@ -5,18 +5,17 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.os.Debug
 import android.util.Log
-import terminal.emulator.runtime.LogUtil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import terminal.emulator.runtime.LogUtil
 
 class MemoryMonitor(
     private val context: Context,
     private val scope: CoroutineScope,
-    private val onCriticalMemory: (() -> Unit)? = null,
 ) {
     private val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val memInfo = ActivityManager.MemoryInfo()
@@ -43,10 +42,21 @@ class MemoryMonitor(
     }
 
     fun checkMemory() {
-        am.getMemoryInfo(memInfo)
-        val availMb = memInfo.availMem / BYTES_PER_MB
-        val totalMb = memInfo.totalMem / BYTES_PER_MB
-        val thresholdMb = memInfo.threshold / BYTES_PER_MB
+        val availMb: Long
+        val totalMb: Long
+        val thresholdMb: Long
+        try {
+            am.getMemoryInfo(memInfo)
+            availMb = memInfo.availMem / BYTES_PER_MB
+            totalMb = memInfo.totalMem / BYTES_PER_MB
+            thresholdMb = memInfo.threshold / BYTES_PER_MB
+        } catch (exception: Exception) {
+            // A binder/IPC failure would otherwise propagate out of the
+            // polling loop, be swallowed by the SupervisorJob, and silently
+            // disable memory monitoring for the rest of the process lifetime.
+            Log.w(TAG, "getMemoryInfo failed", exception)
+            return
+        }
 
         val pssKb: Long
         val pssStr: String?
@@ -106,8 +116,11 @@ class MemoryMonitor(
             }
 
             ComponentCallbacks2.TRIM_MEMORY_COMPLETE -> {
-                Log.e(TAG, "TRIM_MEMORY_COMPLETE — system will kill processes")
-                onCriticalMemory?.invoke()
+                // The process sits at the bottom of the LRU and the system
+                // will reclaim it shortly — that is exactly what should
+                // happen; killing ourselves first only guarantees losing
+                // every session with no hardware benefit.
+                Log.w(TAG, "TRIM_MEMORY_COMPLETE — process is a reclaim candidate, letting the system decide")
             }
         }
     }

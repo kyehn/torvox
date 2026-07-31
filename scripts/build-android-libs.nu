@@ -46,9 +46,12 @@ def main [--profile: string = "", ...abis: string] {
     }
 
     # Build native (cdylib) for all profiles and ABIs
+    # --features mcp: the embedded MCP server (dialog/pick_file/notify tools)
+    # must be compiled into the Android build; without it the JNI exports
+    # dialogResult/setMcpEnabled do not exist and the settings toggle is a no-op.
     for profile in $profiles {
         let ndk_args = ($abis | each { |a| ["--target", $a] } | flatten)
-        cargo ndk ...$ndk_args --platform 21 build --package native --profile $profile
+        cargo ndk ...$ndk_args --platform 21 build --package native --profile $profile --features mcp
     }
 
     # Copy release-profile .so to jniLibs (optimized for device)

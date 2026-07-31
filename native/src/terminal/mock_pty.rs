@@ -12,6 +12,9 @@ struct MockPtyInner {
     child_exited: bool,
     rows: u16,
     cols: u16,
+    /// Number of resize() calls, for tests asserting the short-circuit does
+    /// not touch the PTY (round-115).
+    resize_count: usize,
 }
 
 /// Mock PTY for testing — simulates a pseudo-terminal without forking a real process.
@@ -28,6 +31,7 @@ impl MockPty {
     pub fn new(rows: u16, cols: u16) -> (Self, MockPtyHandle) {
         let inner = Arc::new(Mutex::new(MockPtyInner {
             input_buffer: VecDeque::new(),
+            resize_count: 0,
             output_buffer: VecDeque::new(),
             child_exited: false,
             rows,
@@ -85,6 +89,11 @@ impl MockPtyHandle {
         self.inner.lock().expect("mock mutex poisoned").rows
     }
 
+    /// Number of resize calls made to this mock (round-115).
+    pub fn resize_count(&self) -> usize {
+        self.inner.lock().expect("mock mutex poisoned").resize_count
+    }
+
     pub fn cols(&self) -> u16 {
         self.inner.lock().expect("mock mutex poisoned").cols
     }
@@ -127,6 +136,7 @@ impl Pty for MockPty {
         let mut inner = self.inner.lock().expect("mock mutex poisoned");
         inner.rows = rows;
         inner.cols = cols;
+        inner.resize_count += 1;
         Ok(())
     }
 

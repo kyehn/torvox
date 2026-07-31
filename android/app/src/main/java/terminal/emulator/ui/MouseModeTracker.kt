@@ -46,6 +46,10 @@ class MouseModeTracker {
         get() = activeAlternateScreenModes.isNotEmpty()
 
     companion object {
+        // applyMode recognises 4 modes; anything beyond this is garbage.
+        // Cap the parameter list so a pathological ESC[?1;1;1;... run
+        // cannot grow it unboundedly (round-116).
+        private const val MAX_PENDING_MODES = 8
         private val MOUSE_MODES = setOf(1000, 1002, 1003)
         private const val BRACKET_PASTE_MODE = 2004
         private val ALT_SCREEN_MODES = setOf(1049, 1047, 47)
@@ -105,11 +109,22 @@ class MouseModeTracker {
     private fun processDigits(byte: Int) {
         when {
             byte in '0'.code..'9'.code -> {
-                modeAccumulator = modeAccumulator * 10 + (byte - '0'.code)
+                // Cap the digit run: an absurdly long numeric parameter
+                // (e.g. ESC[?99999...9h) would otherwise wrap Int and become
+                // an arbitrary mode. applyMode only recognises 4 modes, so
+                // anything past 6 digits is garbage anyway (round-115).
+                if (modeAccumulator < 1_000_000) {
+                    modeAccumulator = modeAccumulator * 10 + (byte - '0'.code)
+                }
             }
 
             byte == ';'.code -> {
-                pendingModes.add(modeAccumulator)
+                // Cap the parameter list: applyMode only recognises 4 modes,
+                // so a pathological ESC[?1;1;1;... run must not grow the
+                // list unboundedly (round-116).
+                if (pendingModes.size < MAX_PENDING_MODES) {
+                    pendingModes.add(modeAccumulator)
+                }
                 modeAccumulator = 0
             }
 

@@ -9,6 +9,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 
 @Suppress("DEPRECATION")
 class AnrWatchDog(
@@ -17,25 +18,36 @@ class AnrWatchDog(
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
-    @Volatile private var running = false
+    private val running = AtomicBoolean(false)
     private var watchThread: Thread? = null
     private val anrInProgress = AtomicBoolean(false)
     private val completed = AtomicBoolean(false)
 
+    // Bumped on every start(); a watchdog thread whose generation no longer
+    // matches exits — so a stop()→start() cycle where the old thread
+    // survived the join timeout cannot leave two watchers alive (round-115).
+    private val generation = AtomicInteger(0)
+
     fun start() {
-        if (running) return
-        running = true
+        // CAS: two concurrent callers must not start two watchdog threads
+        // (each may kill the process) (round-114).
+        if (!running.compareAndSet(false, true)) return
+        val myGeneration = generation.incrementAndGet()
         completed.set(false)
         anrInProgress.set(false)
         watchThread =
-            Thread({ watchLoop() }, "AnrWatchDog").apply {
+            Thread({ watchLoop(myGeneration) }, "AnrWatchDog").apply {
                 isDaemon = true
                 start()
             }
     }
 
+    // Defensive API: no production caller today (the watchdog lives for the
+    // whole process). Keep the generation handshake so a future caller
+    // cannot leak a stale watcher (round-115).
     fun stop() {
-        running = false
+        running.set(false)
+        generation.incrementAndGet()
         watchThread?.apply {
             interrupt()
             join(1000)
@@ -43,8 +55,22 @@ class AnrWatchDog(
         watchThread = null
     }
 
-    private fun watchLoop() {
-        while (running) {
+    private fun watchLoop(myGeneration: Int) {
+        // Warm-up window: cold start (Hilt injection, first Compose frame,
+        // DataStore reads) routinely exceeds 5s on slow devices; a single
+        // false positive kills the process and loses every session. Skip
+        // checks until the app has been running for a while.
+        val startUpNanos = System.nanoTime()
+        while (System.nanoTime() - startUpNanos < WARM_UP_MILLIS * 1_000_000L) {
+            if (!running.get() || generation.get() != myGeneration) return
+            try {
+                Thread.sleep(WARM_UP_SLEEP_MILLIS)
+            } catch (_: InterruptedException) {
+                Thread.currentThread().interrupt()
+                return
+            }
+        }
+        while (running.get() && generation.get() == myGeneration) {
             if (anrInProgress.get()) {
                 try {
                     Thread.sleep(timeoutMs)
@@ -60,7 +86,7 @@ class AnrWatchDog(
             }
             val startMs = System.currentTimeMillis()
             try {
-                while (running) {
+                while (running.get() && generation.get() == myGeneration) {
                     val elapsed = System.currentTimeMillis() - startMs
                     if (elapsed >= timeoutMs) {
                         onAnrDetected()
@@ -80,6 +106,16 @@ class AnrWatchDog(
     private fun onAnrDetected() {
         if (!anrInProgress.compareAndSet(false, true)) return
         try {
+            val suppressed = !BootGuard.autoKillEnabled
+            if (suppressed) {
+                // BootGuard has already suppressed killing after repeated
+                // exits. Writing a full thread dump every 5 s while the
+                // main thread stays blocked would fill the data partition
+                // (dumps are fsync'd and never rotated), so only log to
+                // logcat in this state.
+                Log.e("AnrWatchDog", "ANR suppressed by BootGuard; skipping dump")
+                return
+            }
             val stackTraces = StringBuilder()
             val mainStackTrace = Looper.getMainLooper().thread.stackTrace
             stackTraces.appendLine("== ANR Detected ==")
@@ -130,5 +166,7 @@ class AnrWatchDog(
     companion object {
         private const val ANR_TIMEOUT_MILLIS = 5_000L
         private const val BUSY_WAIT_SLEEP_MILLIS = 100L
+        private const val WARM_UP_MILLIS = 20_000L
+        private const val WARM_UP_SLEEP_MILLIS = 500L
     }
 }

@@ -75,6 +75,54 @@ fn pty_write_lf_is_promoted_to_crlf() {
     assert_invariants(&snap);
 }
 
+// ── R: pty_write string-mode termination across chunk boundaries ──
+
+/// An OSC string split across two chunks must be closed with ST at the
+/// first chunk boundary so the following text is not swallowed as string
+/// data by the VT parser.
+#[test]
+fn pty_write_closes_unterminated_osc_across_chunks() {
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    t.flush();
+    // Chunk 1 ends inside an OSC (no ST/BEL yet).
+    t.pty_write(b"\x1b]52;c;abc");
+    t.flush();
+    // Chunk 2 continues with normal text. If chunk 1 had NOT been closed
+    // with ST, the parser would still be in string mode and swallow 'def'.
+    t.pty_write(b"def");
+    t.flush();
+    let snap = t.take_snapshot();
+    // 'def' must render at row 0 — proving the auto-ST closed the OSC and
+    // the OSC payload ('abc') itself never rendered.
+    assert_eq!(
+        snap.cells[0].codepoint, 'd' as u32,
+        "'d' must render at row0 col0 — the unterminated OSC from chunk 1 \
+         must be closed with ST so chunk 2 is not swallowed"
+    );
+    assert_eq!(snap.cells[3].codepoint, 0, "OSC payload must not render");
+    assert_invariants(&snap);
+}
+
+/// A chunk that ends with a complete ST-terminated OSC must not leave the
+/// next chunk inside string mode.
+#[test]
+fn pty_write_complete_st_resets_string_mode() {
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    t.flush();
+    t.pty_write(b"\x1b]0;title\x1b\\");
+    t.flush();
+    // If chunk 1 had wrongly ended in string mode, 'hello' would be
+    // swallowed as OSC payload and never render.
+    t.pty_write(b"hello");
+    t.flush();
+    let snap = t.take_snapshot();
+    assert_eq!(
+        snap.cells[0].codepoint, 'h' as u32,
+        "'h' must render at row0 col0 — complete ST must exit string mode"
+    );
+    assert_invariants(&snap);
+}
+
 // ── R7: take_snapshot_with_scroll routes through recv_or_fallback ─
 
 /// `recv_or_fallback` returns the channel value when the terminal thread
@@ -348,5 +396,41 @@ fn key_encode_submit_dropped_receiver_does_not_panic() {
     assert!(
         !result.is_empty(),
         "key_encode after dropped receiver must produce output: {result:?}"
+    );
+}
+
+/// Regression: search must not panic on multi-byte (CJK) lines — byte
+/// slicing used to land mid-character (start = abs_col + 1 and byte
+/// sliding windows), which panics deterministically on CJK text.
+#[test]
+fn search_all_in_scrollback_cjk_no_panic() {
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    t.vt_write("你好世界 hello 中文测试\n".as_bytes());
+    t.flush();
+    // Non-fuzzy: query after a multi-byte char; overlap stepping must
+    // stay on char boundaries. (Ghostty reads wide-char rows with
+    // interleaved spaces, e.g. "你 好 世 界  hello 中 文 测 试",
+    // so an ASCII query is the reliable probe here.)
+    let results = t.search_all_in_scrollback("hello", true, false);
+    assert_eq!(results.len(), 1, "must find ASCII query on CJK line");
+    // Fuzzy: byte sliding window over CJK content must not panic and
+    // must return matches with valid (byte-offset) ranges. The query
+    // "世界" matches the row text "世 界" at edit distance 1
+    // (max_distance = max(1, 2/3) = 1).
+    let fuzzy = t.search_all_in_scrollback("世界", true, true);
+    assert!(
+        !fuzzy.is_empty(),
+        "fuzzy CJK query must find near-match, got {:?}",
+        fuzzy
+    );
+    for m in &fuzzy {
+        assert!(m.start_col < m.end_col, "start_col must precede end_col");
+    }
+    // Case-insensitive path over the same CJK row: must not panic and
+    // must still find the ASCII query.
+    let lower = t.search_all_in_scrollback("HELLO", false, false);
+    assert!(
+        lower.iter().any(|m| m.row == 0),
+        "case-insensitive query must find the match on row 0"
     );
 }

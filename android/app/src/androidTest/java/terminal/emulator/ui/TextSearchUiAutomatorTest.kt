@@ -10,13 +10,13 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
-import terminal.emulator.MainActivity
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.MainActivity
 
 @RunWith(AndroidJUnit4::class)
 @LargeTest
@@ -54,6 +54,7 @@ class TextSearchUiAutomatorTest {
     }
 
     @Test
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an ADR-0007 stub (no real results; assertions only check UI presence) (round-108)")
     fun searchNavigatesResults() {
         openSearchBar()
         assertTrue("Search bar must open", waitForSearchBar())

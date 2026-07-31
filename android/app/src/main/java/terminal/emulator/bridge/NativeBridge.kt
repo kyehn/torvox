@@ -38,7 +38,16 @@ object NativeBridge {
 
     /** Create a new terminal session. Returns session ID (0 on failure). */
     @JvmStatic
-    external fun initSession(rows: Int, cols: Int): Long
+    external fun initSession(
+        rows: Int,
+        cols: Int,
+        shell: String,
+        home: String,
+        user: String,
+        path: String,
+        workingDirectory: String,
+        prefix: String,
+    ): Long
 
     /** Destroy a session by ID. Returns true on success. */
     @JvmStatic
@@ -65,9 +74,9 @@ object NativeBridge {
     @JvmStatic
     external fun resize(sessionId: Long, rows: Int, cols: Int)
 
-    /** Write raw text to the PTY (keyboard input). */
+    /** Write raw bytes to the PTY (binary-safe; no UTF-8 mangling). */
     @JvmStatic
-    external fun feedPty(sessionId: Long, data: String)
+    external fun feedPty(sessionId: Long, data: ByteArray)
 
     /**
      * Encode and submit a key event.
@@ -77,6 +86,21 @@ object NativeBridge {
      */
     @JvmStatic
     external fun writeKey(sessionId: Long, key: String, mods: Int, text: String?)
+
+    /**
+     * Forward an application-window focus change to a session so the child
+     * receives DECSET 1004 focus reporting (`\x1b[I` / `\x1b[O`).
+     */
+    @JvmStatic
+    external fun focusEvent(sessionId: Long, focused: Boolean): Boolean
+
+    /**
+     * Reply to an MCP `clipboard_get` request with the system clipboard text.
+     * Like [dialogResult], a request must be answered exactly once: a second
+     * reply for the same request id is a native no-op (round-101).
+     */
+    @JvmStatic
+    external fun clipboardResult(sessionId: Long, requestId: Long, text: String)
 
     // ── Events ────────────────────────────────────────────────────────
 

@@ -31,20 +31,23 @@ class TerminalUiAutomatorTest {
 
     @Test
     fun appLaunches() {
-        val termuxApp = device.wait(Until.findObject(By.pkg("com.termux")), 3000)
+        // 10s: cold start on slow emulators can exceed 3s (round-114).
+        val termuxApp = device.wait(Until.findObject(By.pkg("com.termux")), 10_000)
         assertNotNull("App should be running", termuxApp)
     }
 
     @Test
-    fun keyboardInputWorks() {
-        device.wait(Until.hasObject(By.pkg("com.termux")), 3000)
-        device.findObject(By.pkg("com.termux"))?.let { terminal ->
-            terminal.click()
-            device.pressKeyCode(KeyEvent.KEYCODE_E)
-            device.pressKeyCode(KeyEvent.KEYCODE_C)
-            device.pressKeyCode(KeyEvent.KEYCODE_H)
-            device.pressKeyCode(KeyEvent.KEYCODE_O)
-            device.pressEnter()
+    fun keyboardInputSmoke_noCrash() {
+        // 10s: cold start on slow emulators can exceed 3s (round-114).
+        device.wait(Until.hasObject(By.pkg("com.termux")), 10_000)
+        val terminal = checkNotNull(device.findObject(By.pkg("com.termux"))) {
+            "Terminal app must be running to send keystrokes"
         }
+        terminal.click()
+        device.pressKeyCode(KeyEvent.KEYCODE_E)
+        device.pressKeyCode(KeyEvent.KEYCODE_C)
+        device.pressKeyCode(KeyEvent.KEYCODE_H)
+        device.pressKeyCode(KeyEvent.KEYCODE_O)
+        device.pressEnter()
     }
 }

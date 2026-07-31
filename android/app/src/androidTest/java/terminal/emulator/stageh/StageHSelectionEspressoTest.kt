@@ -11,13 +11,13 @@ import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withClassName
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import terminal.emulator.MainActivity
 import org.hamcrest.CoreMatchers.`is`
 import org.hamcrest.Matchers.endsWith
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.MainActivity
 
 /**
  * Stage H — Espresso-driven verification of the default (session 1) terminal surface,

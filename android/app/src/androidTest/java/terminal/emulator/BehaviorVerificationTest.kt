@@ -12,12 +12,12 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.UiDevice
-import terminal.emulator.waitForSession
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
 class BehaviorVerificationTest {
@@ -171,7 +171,10 @@ class BehaviorVerificationTest {
     }
 
     @Test
-    fun ctrl_key_toggle_changes_appearance() {
+    fun ctrl_key_toggle_doesNotCrash() {
+        // Smoke only: toggling CTRL twice must not crash. No appearance
+        // assertion is possible while the modifier state has no visible
+        // render path (round-112).
         composeRule.waitForSession()
         composeRule.onNodeWithText("CTRL").performClick()
         device.waitForIdle(1000)

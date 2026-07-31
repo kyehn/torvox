@@ -23,8 +23,23 @@ class SecondStageRunner(
 
     suspend fun run(): Result = withContext(Dispatchers.IO) {
         val lockFile = File(prefixDir, "bin/termux-bootstrap-second-stage.sh.lock")
-        if (lockFile.exists()) {
-            return@withContext Result(true)
+        if (lockFile.exists() || java.nio.file.Files.isSymbolicLink(lockFile.toPath())) {
+            // The lock is a SELF-REFERENTIAL symlink (created below).
+            // File.exists() follows the link → ELOOP → false, so stale
+            // locks from a killed process (SIGKILL skips finally) must be
+            // detected via isSymbolicLink. Short-circuiting to "success"
+            // would permanently skip postinst while dpkg stays half-
+            // configured. The postinst scripts are idempotent (dpkg
+            // "configure" reruns), so delete the stale lock and retry.
+            // NOTE (round-103): this stale-detection cannot distinguish a
+            // live concurrent runner from a stale lock — a second process
+            // would delete the active lock and run postinst concurrently.
+            // This is best-effort by design: process-local concurrency is
+            // serialized by BootstrapOrchestrator.processInstalling, and
+            // cross-process overlap is tolerated because postinst scripts
+            // are idempotent (dpkg "configure" semantics).
+            Log.w("SecondStageRunner", "Stale lock file found, deleting and retrying postinst")
+            lockFile.delete()
         }
         try {
             lockFile.parentFile?.mkdirs()
@@ -35,6 +50,18 @@ class SecondStageRunner(
             }
             return@withContext Result(false, listOf("Lock file error: ${exception.message}"))
         }
+        try {
+            return@withContext runPostInstalls()
+        } finally {
+            // Always release the lock: if the process is killed mid-postinst
+            // the stale lock would otherwise make every retry short-circuit
+            // to "success" while dpkg stays half-configured. Deleting the
+            // lock (not the symlink target) allows a genuine retry.
+            lockFile.delete()
+        }
+    }
+
+    private suspend fun runPostInstalls(): Result {
         val dpkgVersion = detectDpkgVersion() ?: "unknown"
         val arch = detectAbi()
         val postinstDir = File(prefixDir, "var/lib/dpkg/info")
@@ -77,13 +104,29 @@ class SecondStageRunner(
                             File("/"),
                         )
                     proc.outputStream.close()
-                    val stdoutThread = Thread { proc.inputStream.bufferedReader().readText() }
-                    val stderrThread = Thread { proc.errorStream.bufferedReader().readText() }
+                    // Daemon consumers: if the postinst's grandchildren keep
+                    // the pipes open after destroyForcibly(), the blocked
+                    // readText threads must not outlive the process (a plain
+                    // thread would leak and pin the JVM's lifetime).
+                    val stdoutThread =
+                        Thread { proc.inputStream.bufferedReader().readText() }.apply {
+                            isDaemon = true
+                        }
+                    val stderrThread =
+                        Thread { proc.errorStream.bufferedReader().readText() }.apply {
+                            isDaemon = true
+                        }
                     stdoutThread.start()
                     stderrThread.start()
                     val exited = proc.waitFor(30, TimeUnit.SECONDS)
                     if (!exited) {
                         proc.destroyForcibly()
+                        // Android's Process has no ProcessHandle API, so
+                        // grandchildren cannot be killed directly. SIGKILL on
+                        // the direct child plus the daemon pipe consumers
+                        // below is the best available cleanup; a surviving
+                        // grandchild is orphaned and reaped by the system
+                        // when the app process dies.
                         proc.waitFor(5, TimeUnit.SECONDS)
                         stdoutThread.join(THREAD_JOIN_TIMEOUT_MS)
                         stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
@@ -102,17 +145,37 @@ class SecondStageRunner(
             }
         }
         writeTermuxEnv()
-        Result(true, errors)
+        return Result(true, errors)
     }
 
-    private fun detectDpkgVersion(): String? = try {
-        val proc = Runtime.getRuntime().exec(arrayOf(File(prefixDir, "bin/dpkg").absolutePath, "--version"))
-        val text = proc.inputStream.bufferedReader().readText()
-        val match = Regex("""(\d+\.\d+\.\d+)""").find(text)
-        match?.value
-    } catch (e: Exception) {
-        Log.w("SecondStageRunner", "detectDpkgVersion failed", e)
-        null
+    private fun detectDpkgVersion(): String? {
+        var proc: Process? = null
+        return try {
+            proc = Runtime.getRuntime().exec(arrayOf(File(prefixDir, "bin/dpkg").absolutePath, "--version"))
+            proc.outputStream.close()
+            // Consume stderr on a daemon thread: a corrupt dpkg binary that
+            // floods stderr past the 64KB pipe buffer would otherwise block
+            // the readText() below forever (the main postinst path has a 30s
+            // timeout; this helper had none).
+            val stderrThread =
+                Thread { proc.errorStream.bufferedReader().readText() }.apply {
+                    isDaemon = true
+                }
+            stderrThread.start()
+            if (!proc.waitFor(10, TimeUnit.SECONDS)) {
+                proc.destroyForcibly()
+                Log.w("SecondStageRunner", "detectDpkgVersion timed out")
+                return null
+            }
+            val text = proc.inputStream.bufferedReader().readText()
+            val match = Regex("""(\d+\.\d+\.\d+)""").find(text)
+            match?.value
+        } catch (e: Exception) {
+            Log.w("SecondStageRunner", "detectDpkgVersion failed", e)
+            null
+        } finally {
+            proc?.destroy()
+        }
     }
 
     private fun detectAbi(): String = terminal.emulator.detectArchFromAbi()

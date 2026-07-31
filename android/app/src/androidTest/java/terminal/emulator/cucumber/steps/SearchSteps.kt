@@ -205,12 +205,6 @@ constructor(
         composeRuleHolder.composeRule.waitForIdle()
     }
 
-    @When("^the user waits (\\d+) seconds$")
-    fun userWaitsSeconds(seconds: Int) {
-        Thread.sleep(seconds * 1000L)
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
     @When("^the soft keyboard opens$")
     fun softKeyboardOpens() {
         composeRuleHolder.composeRule
@@ -247,6 +241,11 @@ constructor(
             .assertIsDisplayed()
     }
 
+    // NOTE (round-116): these four steps assert only the result counter
+    // while Bridge.searchAllInScrollback is an ADR-0007 stub (no real
+    // highlights exist to inspect). They live in @wip scenarios today; the
+    // assertions MUST be strengthened (pixel/semantics highlight checks)
+    // before those scenarios are un-wipped.
     @Then("^at least one match is highlighted on screen$")
     fun atLeastOneMatchHighlighted() {
         composeRuleHolder.composeRule
@@ -299,7 +298,9 @@ constructor(
     @Then("^the terminal scrolls to show the match$")
     fun terminalScrollsToShowMatch() {
         composeRuleHolder.composeRule.waitForIdle()
-        // The terminal is still rendered and interactive after the scroll.
+        // NOTE (round-116): stub-limited — only proves the terminal is still
+        // displayed, not that it scrolled. Strengthen when scroll offset is
+        // readable through the bridge.
         composeRuleHolder.composeRule
             .onNodeWithTag("TerminalScreen")
             .assertIsDisplayed()

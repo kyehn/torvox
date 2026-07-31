@@ -9,13 +9,13 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
-import terminal.emulator.MainActivity
-import terminal.emulator.bridge.NativeBridge
-import terminal.emulator.getBridge
-import terminal.emulator.waitForSession
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.MainActivity
+import terminal.emulator.bridge.Bridge
+import terminal.emulator.getBridge
+import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
 @LargeTest
@@ -77,6 +77,7 @@ class TextSearchImeSmartCaseTest {
     }
 
     @Test
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an ADR-0007 stub (no real results; assertions only check UI presence) (round-108)")
     fun smartCase_uppercaseSearch_returnsDifferentResults() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
