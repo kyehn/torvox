@@ -29,7 +29,7 @@ tightly coupled to terminal state, not a remote API.
 MCP is an **embedded module** in `native/src/mcp.rs`:
 
 ```rust
-// native/src/mcp.rs — ~546 lines
+// native/src/mcp.rs — ~723 lines
 pub fn build_router() -> McpRouter { ... }
 pub fn start() { ... }
 pub async fn run_stdio() -> Result<()> { ... }
@@ -65,7 +65,10 @@ pub async fn run_stdio() -> Result<()> { ... }
 - ~2.5 KLOC removed from the codebase
 - Zero serialization overhead — the MCP handler reads Ghostty state directly
 - No process management, IPC, or CLI parsing complexity
-- MCP feature can be compiled out of release builds for smaller APK
+- MCP is compiled in by default (`default = ["mcp"]`) so the JNI exports
+  always exist; it can still be compiled out with `--no-default-features`
+  for a smaller APK. The server is runtime-disabled until the user enables
+  it in settings.
 
 ### Negative
 
@@ -86,7 +89,7 @@ pub async fn run_stdio() -> Result<()> { ... }
 
 This decision was **fully implemented** in Phase 7 of the re-architecture:
 
-- MCP server lives at `native/src/mcp.rs` (~546 lines)
+- MCP server lives at `native/src/mcp.rs` (~723 lines)
 - Uses **tower-mcp 0.14** (proper MCP protocol, not hand-rolled JSON-RPC) instead of the originally proposed hand-written dispatch
 - Provides **two transports**: `StdioTransport` (for Claude Code / Codex CLI) and `UnixSocketTransport` (for embedded use)
 - Supports **8 standard MCP tools**: `terminal_info`, `clipboard_get`, `clipboard_set`, `notify`, `toast`, `open_url`, `pick_file`, `dialog`

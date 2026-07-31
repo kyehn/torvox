@@ -1,9 +1,9 @@
 //! Custom `log::Log` implementation for Android that writes to logcat
 //! AND to an optional file simultaneously.
 //!
-//! Initialised by [`init_logger`] (called from Kotlin via JNA). The
-//! file path is set via [`set_log_file_path`] — until it is called,
-//! logs go only to logcat.
+//! Initialised from Kotlin via JNI (`Java_..._initLogger`). The file
+//! path is set via [`set_log_file_path`] — until it is called, logs go
+//! only to logcat.
 //!
 //! Replaces the previous `android_logger::init_once()` call in `bridge.rs`.
 //!
@@ -27,6 +27,10 @@ const ANDROID_LOG_INFO: i32 = 4;
 const ANDROID_LOG_WARN: i32 = 5;
 const ANDROID_LOG_ERROR: i32 = 6;
 
+// SAFETY: `__android_log_write` is the public NDK logging function from
+// liblog.so. The `tag` and `text` pointers must be NUL-terminated C strings
+// valid for the duration of the call; all call sites pass CString/str::as_ptr
+// into strings that outlive the call (see `log` below).
 #[link(name = "log")]
 unsafe extern "C" {
     fn __android_log_write(prio: i32, tag: *const c_char, text: *const c_char) -> i32;
@@ -141,39 +145,4 @@ pub(crate) fn set_log_file_path(path: &str) {
     }
 }
 
-// ── JNA exports ─────────────────────────────────────────────────────────
-
-/// JNA export: initialise the logger once. Safe to call multiple times
-/// (idempotent via Once). Must be called before any log macro.
-///
-/// # Safety
-/// Must only be called from a context where JNA exports are valid (i.e., from
-/// the library's exported function table). The function itself delegates to the
-/// safe `init()` and has no direct unsafe operations.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn init_logger() {
-    init();
-}
-
-/// JNA export: set the log file path. The file is opened in append mode.
-/// Safe to call before or after `init_logger`.
-///
-/// # Safety
-/// `path_ptr` must point to a valid UTF-8 byte array of length `path_len`,
-/// or be null when `path_len` is 0.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn ffi_set_log_file_path(path_ptr: *const u8, path_len: i32) {
-    // SAFETY: `path_ptr` and `path_len` come from a trusted C caller
-    // (the Android JNI logging bridge). The pointer is validated as
-    // non-null above; `path_len` bounds the slice length.
-    if path_ptr.is_null() || path_len <= 0 {
-        return;
-    }
-    // Clamp to a reasonable maximum path length (PATH_MAX is 4096 on Linux).
-    // This prevents a malicious or buggy caller from causing UB by passing
-    // an enormous path_len that would read out-of-bounds.
-    let len = (path_len as usize).min(4096);
-    let slice = unsafe { std::slice::from_raw_parts(path_ptr, len) };
-    let path = String::from_utf8_lossy(slice);
-    set_log_file_path(&path);
-}
+// ── JNI exports ─────────────────────────────────────────────────────────

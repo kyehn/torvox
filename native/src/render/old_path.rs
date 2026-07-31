@@ -6,10 +6,14 @@
 //!
 //! Production code uses `build_instances_from_cell_data` in `cell_builder.rs`.
 
+#[cfg(any(test, feature = "test-util"))]
 use std::collections::HashMap;
 
+#[cfg(any(test, feature = "test-util"))]
 use crate::render::CellInstance;
+#[cfg(any(test, feature = "test-util"))]
 use crate::render::cell_builder::{apply_search_highlight, cell_highlight};
+#[cfg(any(test, feature = "test-util"))]
 use crate::terminal::CursorStyle;
 
 /// Configuration passed to `build_cell_instances_from_snapshot()`.

@@ -9,12 +9,12 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
-import terminal.emulator.MainActivity
-import terminal.emulator.openSettings
-import terminal.emulator.waitForSession
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
+import terminal.emulator.MainActivity
+import terminal.emulator.openSettings
+import terminal.emulator.waitForSession
 
 class SettingsScreenTest {
     @get:Rule

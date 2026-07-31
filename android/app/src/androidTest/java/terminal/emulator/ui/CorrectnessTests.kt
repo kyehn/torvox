@@ -11,12 +11,12 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import terminal.emulator.MainActivity
-import terminal.emulator.openDrawer
-import terminal.emulator.waitForSession
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.MainActivity
+import terminal.emulator.openDrawer
+import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
 class CorrectnessTests {
