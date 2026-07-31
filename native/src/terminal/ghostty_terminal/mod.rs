@@ -33,6 +33,9 @@ pub struct GhosttyTerminal {
     /// Last byte written by `pty_write()`, used to detect `\r`/`\n` split
     /// across consecutive write chunks. Prevents spurious `\r\r\n`.
     pub(crate) last_pty_write_byte: u8,
+    /// True when the last `pty_write()` chunk ended inside an unterminated
+    /// OSC/DCS string; `pty_write()` closes it with ST on the next chunk.
+    pub(crate) last_in_string_mode: bool,
 }
 
 impl Drop for GhosttyTerminal {

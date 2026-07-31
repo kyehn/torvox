@@ -12,12 +12,12 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
-import terminal.emulator.MainActivity
-import terminal.emulator.openDrawer
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import terminal.emulator.MainActivity
+import terminal.emulator.openDrawer
 
 @RunWith(AndroidJUnit4::class)
 @LargeTest

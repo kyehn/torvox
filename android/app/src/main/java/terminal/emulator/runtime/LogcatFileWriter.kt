@@ -28,8 +28,14 @@ object LogcatFileWriter {
         val prev = StrictMode.allowThreadDiskWrites()
         try {
             synchronized(lock) {
+                if (initialized) {
+                    // Idempotence guard: a second init (test, hot reload,
+                    // activity recreation) would otherwise re-open the file
+                    // writer and spawn another never-stopped LogcatFlush
+                    // daemon thread per call.
+                    return
+                }
                 try {
-                    initialized = true
                     var logsDirectory = tryCreateLogsDir(context.getExternalFilesDir(null))
                     if (logsDirectory == null) {
                         logsDirectory = tryCreateLogsDir(context.getDir("logs_root", Context.MODE_PRIVATE))
@@ -43,6 +49,10 @@ object LogcatFileWriter {
                     currentSize = if (file.exists()) file.length() else 0L
                     logFile = file
                     fileWriter = OutputStreamWriter(FileOutputStream(file, true), StandardCharsets.UTF_8)
+                    // Set the flag only after the writer is actually usable:
+                    // setting it first would permanently cache an init failure
+                    // (no writable directory) for the process lifetime.
+                    initialized = true
                     Log.d("LogcatFileWriter", "Log file: ${file.absolutePath}")
                 } catch (exception: Exception) {
                     Log.e("LogcatFileWriter", "Failed to init file logging", exception)
@@ -51,11 +61,15 @@ object LogcatFileWriter {
         } finally {
             StrictMode.setThreadPolicy(prev)
         }
-        thread(name = "LogcatFlush", isDaemon = true) {
-            while (!Thread.currentThread().isInterrupted()) {
-                Thread.sleep(5000L)
-                timedFlush()
+        if (initialized) {
+            thread(name = "LogcatFlush", isDaemon = true) {
+                while (!Thread.currentThread().isInterrupted()) {
+                    Thread.sleep(5000L)
+                    timedFlush()
+                }
             }
+        } else {
+            Log.w("LogcatFileWriter", "Log file init failed — no log file will be written")
         }
     }
 
@@ -78,10 +92,13 @@ object LogcatFileWriter {
             try {
                 maybeRotate()
                 val timestamp = dateFormat.format(Date())
+                val line = "$timestamp $tag: $message\n"
                 fileWriter?.apply {
-                    write("$timestamp $tag: $message\n")
+                    write(line)
                 }
-                currentSize += timestamp.length + tag.length + message.length + 4
+                // Count UTF-8 bytes, not chars, so multi-byte text cannot
+                // under-count and delay rotation past MAX_FILE_SIZE.
+                currentSize += line.toByteArray(Charsets.UTF_8).size
             } catch (exception: Exception) {
                 Log.e("LogcatFileWriter", "Failed to write log entry", exception)
             }
@@ -115,12 +132,19 @@ object LogcatFileWriter {
                 file.delete()
             }
         }
-        // Compact high indices after purging
-        for (i in MAX_FILE_COUNT downTo 1) {
-            val file = File(directory, "debug.${i + 1}.log")
-            if (file.exists()) {
-                val target = File(directory, "debug.$i.log")
-                file.renameTo(target)
+        // Compact high indices after purging: move each file down only into an
+        // empty slot, low to high. The previous loop overwrote every slot from
+        // the top, collapsing all rotation files into one copy of the newest
+        // content on every cold start.
+        for (i in 1..MAX_FILE_COUNT) {
+            val target = File(directory, "debug.$i.log")
+            if (target.exists()) continue
+            for (j in (i + 1)..(MAX_FILE_COUNT + 1)) {
+                val source = File(directory, "debug.$j.log")
+                if (source.exists()) {
+                    source.renameTo(target)
+                    break
+                }
             }
         }
     }

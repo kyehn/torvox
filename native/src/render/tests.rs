@@ -2128,11 +2128,18 @@ fn bench_build_instances_from_cell_data() {
 // GPU Pipeline Benchmarks  (wgpu buffer upload, command encoding, submit)
 // ══════════════════════════════════════════════════════════════════════════
 
+/// Serialises GPU benchmarks: under software Vulkan (Mesa Lavapipe) each
+/// test creates its own wgpu device, and parallel benchmarks contend for
+/// CPU so hard throughput thresholds become flaky. The lock is held for
+/// the whole benchmark body, guaranteeing one GPU benchmark at a time.
+static GPU_BENCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Benchmark wgpu buffer upload throughput — the main GPU data path.
 /// Every frame writes CellInstance data to a GPU buffer via queue.write_buffer().
 /// This benchmark measures raw write speed for 24×80 instance data (1920 cells).
 #[test]
 fn bench_gpu_buffer_upload_throughput() {
+    let _serial = GPU_BENCH_LOCK.lock().unwrap();
     use std::hint::black_box;
     use std::time::Instant;
 
@@ -2193,6 +2200,7 @@ fn bench_gpu_buffer_upload_throughput() {
 /// path that happens every frame.
 #[test]
 fn bench_gpu_command_encoding_overhead() {
+    let _serial = GPU_BENCH_LOCK.lock().unwrap();
     use std::hint::black_box;
     use std::time::Instant;
 
@@ -2261,6 +2269,7 @@ fn bench_gpu_command_encoding_overhead() {
 /// render_frame() path without requiring a swapchain surface.
 #[test]
 fn bench_gpu_full_submit_throughput() {
+    let _serial = GPU_BENCH_LOCK.lock().unwrap();
     use std::hint::black_box;
     use std::time::Instant;
 
@@ -2362,6 +2371,7 @@ fn bench_gpu_full_submit_throughput() {
 /// cache warmup — this happens when new glyphs are encountered.
 #[test]
 fn bench_gpu_atlas_texture_upload() {
+    let _serial = GPU_BENCH_LOCK.lock().unwrap();
     use std::hint::black_box;
     use std::time::Instant;
 
