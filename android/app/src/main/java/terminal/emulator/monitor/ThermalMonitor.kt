@@ -73,10 +73,15 @@ class ThermalMonitor(
         lastStatus = status
         val label = thermalStatusLabel(status)
 
-        if (status >= PowerManager.THERMAL_STATUS_SEVERE) {
+        // SEVERE is a common throttling level (compile, download, charging)
+        // and killing the process there loses every session without any
+        // hardware risk. Only CRITICAL+ (genuine overheating) terminates.
+        if (status >= PowerManager.THERMAL_STATUS_CRITICAL) {
             writeThermalLog(status, label)
-            Log.e(TAG, "$label — killing process (SEVERE+)")
+            Log.e(TAG, "$label — killing process (CRITICAL+)")
             onCritical?.invoke()
+        } else if (status >= PowerManager.THERMAL_STATUS_SEVERE) {
+            Log.w(TAG, "$label — severe throttling, consider cooling")
         } else if (status >= PowerManager.THERMAL_STATUS_MODERATE) {
             Log.w(TAG, "$label — throttling may occur")
         } else {

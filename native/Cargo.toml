@@ -6,6 +6,10 @@ rust-version.workspace = true
 description = "Merged native crate — terminal engine, GPU renderer, JNI bridge"
 
 [features]
+default = ["mcp"]
+# mcp is compiled by default so the JNI exports (dialogResult, setMcpEnabled)
+# always exist; the MCP server itself is disabled at runtime (MCP_ENABLED=false
+# until the user toggles it in settings).
 test-util = ["mcp"]
 mcp = ["tower-mcp", "axum", "tokio", "schemars"]
 
