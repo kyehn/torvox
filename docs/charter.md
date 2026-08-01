@@ -22,7 +22,7 @@ Ghostty's vendored VT parser, and Kotlin + Compose UI.
 - **Android developers** needing a native terminal for debugging, Git, adb
 - **Termux users** who rely on the existing Termux ecosystem
 - **SSH/Mosh users** connecting to remote servers from Android
-- **AI-assisted developers** using Claude Code, Codex CLI, or similar agents
+- **AI-assisted developers** using AI coding agents (Codex CLI, OpenCode, etc.)
   that consume MCP services
 
 ## Design Philosophy
