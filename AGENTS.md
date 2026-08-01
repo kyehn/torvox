@@ -8,12 +8,12 @@ Ghostty is the single source of truth for all terminal state — no separate
 data-model crate.
 
 Single crate (`native/`) with 2 thin workspace members (`exec-bin`,
-`integration-tests`), ~13.7k LOC Rust (after 389 commits of cleanup),
+`integration-tests`), ~13.7k LOC Rust (31 thematic commits),
 JNI direct bridge (no boltffi/JNA).
 
 **Maturity**: All phases of re-architecture complete. 6 rounds of comprehensive
 code review conducted; final verdict CLEAN (no P0/P1 issues). Git history
-cleaned (unified `jane <jane@computer.local>` identity, no forbidden files,
+cleaned (unified single maintainer identity, no forbidden files,
 no Co-Authored-By trailers). See `docs/project-health.md`.
 
 ## Setup and Commands

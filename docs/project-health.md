@@ -1,6 +1,6 @@
 # Project Health
 
-As of August 2026 after 389 commits of re-architecture and cleanup.
+As of August 2026, the history is organized into 31 thematic commits covering re-architecture and cleanup.
 
 ---
 
@@ -27,7 +27,7 @@ Six rounds of systematic code review were conducted, each building on the prior:
 | **R3** | Architecture deep-dive | process_output missing in JNI path | P0 fix: added `session.process_output()` to `pollEvent` |
 | **R4** | Code/performance/security | ~25 P1/P2 findings | new_inner extraction, dead code removal, flush_user_writes, close_stray_fds cap, surface_config.take() |
 | **R5** | Full cross-cutting review | 10 P1/P2 + external dep analysis | encode_modifiers dead code marker, surface_config.clone fix, 12 external lib evaluations |
-| **R6** | Git history identity cleanup | stray author, Co-Authored-By trailers, forbidden files | filter-repo mailmap + path removal + message callback |
+| **R6** | Git history identity cleanup | foreign author, Co-Authored-By trailers, forbidden files | filter-repo mailmap + path removal + message callback |
 
 **Final verdict: CLEAN** — no P0/P1 issues remain after R6.
 
@@ -80,10 +80,10 @@ Run on x86 Linux with Mesa Lavapipe (software Vulkan). Debug profile unless note
 
 ## 6. Git History
 
-- **389 commits**, all authored by `jane <jane@computer.local>`
-- `legacy identity unified via git-filter-repo mailmap
-- `Co-Authored-By` trailers stripped from 2 commits
-- `.claude/` and `openspec/` directories expunged from all history
+- **31 thematic commits**, all authored by a single maintainer identity
+- foreign identity unified via git-filter-repo mailmap
+- `Co-Authored-By` trailers stripped from history
+- agent workspace and openspec directories expunged from all history
 - Forbidden file types (`.png`, `.mp4`, `ultragoal`, `.githooks`, etc.) confirmed absent
 - Single `main` branch; forced push to `origin` after cleanup
 

@@ -173,7 +173,7 @@ MCP Listener (tokio runtime, one per process)
 | 3 | **Single crate** (no cross-crate boundaries) | Faster compilation, simpler refactoring after boltffi/terminal-core removal | ADR-0001 | ✅ |
 | 4 | **GPU-only wgpu/Vulkan** (no GL/CPU fallback) | Consistent across Linux, Android, emulator; Lavapipe/SwiftShader provide SW fallback | ADR-0008 | ✅ |
 | 5 | **4+1 thread model** | PTY reader + VT parser on one thread avoids grid sync; separate input writer | ADR-0004 | ✅ |
-| 6 | **Embedded MCP** (tower-mcp) | ~400 LOC replaces ~2K standalone crate; stdio (Claude Code) + Unix socket | ADR-0005 | ✅ |
+| 6 | **Embedded MCP** (tower-mcp) | ~400 LOC replaces ~2K standalone crate; stdio (AI coding agent) + Unix socket | ADR-0005 | ✅ |
 | 7 | **TextureView over SurfaceView** | No `setZOrderOnTop` needed; natural Compose integration | ADR-0003, pitfall #12 | ✅ |
 | 8 | **cargo-audit over cargo-deny** | Existing infra; license checking handled elsewhere | ADR-0006 | ✅ |
 
