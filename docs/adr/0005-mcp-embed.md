@@ -36,7 +36,7 @@ pub async fn run_stdio() -> Result<()> { ... }
 ```
 
 - Uses **tower-mcp 0.14** (standard MCP protocol SDK) — proper `tools/list` + `tools/call` with JSON Schema via `schemars`
-- Communication via **Unix socket** (embedded, app-launched) or **stdio** (standalone for Claude Code / Codex CLI)
+- Communication via **Unix socket** (embedded, app-launched) or **stdio** (standalone for AI coding agent CLIs)
 - No CLI parser — configuration via environment variables
 - No independent process — runs inside the app process
 - The MCP handler reads session state through a **snapshot channel** rather
@@ -91,7 +91,7 @@ This decision was **fully implemented** in Phase 7 of the re-architecture:
 
 - MCP server lives at `native/src/mcp.rs` (~723 lines)
 - Uses **tower-mcp 0.14** (proper MCP protocol, not hand-rolled JSON-RPC) instead of the originally proposed hand-written dispatch
-- Provides **two transports**: `StdioTransport` (for Claude Code / Codex CLI) and `UnixSocketTransport` (for embedded use)
+- Provides **two transports**: `StdioTransport` (for AI coding agent CLIs) and `UnixSocketTransport` (for embedded use)
 - Supports **8 standard MCP tools**: `terminal_info`, `clipboard_get`, `clipboard_set`, `notify`, `toast`, `open_url`, `pick_file`, `dialog`
 - Implemented with mcp feature gate (test-util implies mcp) — ~60KB binary overhead when enabled
 - Reads session state via snapshot channel (as originally designed)
