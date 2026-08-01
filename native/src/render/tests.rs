@@ -1,3 +1,8 @@
+//! Render unit tests + GPU benchmarks.
+//!
+//! # Requirements
+//! - FR-050 — surface lifecycle and render pipeline covered by unit tests
+
 use std::collections::HashMap;
 
 use crate::terminal::{CursorStyle, SelectionMode};

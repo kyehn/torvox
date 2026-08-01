@@ -1,5 +1,8 @@
 //! WGPU backend initialization — adapter selection, device creation.
 //!
+//! # Requirements
+//! - FR-050 — surface lifecycle: device/adapter selection survives surface recreation
+//!
 //! Encapsulates the wgpu instance/adapter/device creation logic so
 //! [`Renderer`][super::Renderer] does not need to manage GPU boilerplate.
 //! This makes the adapter-selection path independently testable and
@@ -34,6 +37,7 @@ pub async fn initialize_wgpu()
         display: None,
     });
 
+    #[cfg(not(target_os = "android"))]
     crate::render::renderdoc_capture::initialize();
 
     let adapter = instance

@@ -550,6 +550,24 @@ requirements:
       - "native/src/mcp.rs"
     verification: "cargo test --package native"
 
+  FR-049:
+    description: "Use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction)."
+    design:
+      - "native/src/android/ffi.rs"
+    api: []
+    tests:
+      - "native/src/android/ffi.rs"
+    verification: "cargo test --package native"
+
+  FR-050:
+    description: "Handle Android surface creation and destruction events, recreating the wgpu surface and render pipeline as needed."
+    design:
+      - "native/src/render/context.rs"
+    api: []
+    tests:
+      - "native/src/render/tests.rs"
+    verification: "cargo test --package native"
+
   # ==========================================================================
   # 3.9 Android Bridge (FR-051 — FR-053)
   # ==========================================================================

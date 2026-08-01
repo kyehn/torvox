@@ -940,7 +940,11 @@ mod linux_ansi_sequences {
 
     #[test]
     fn cursor_movement() {
-        let mut s = Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn");
+        // /bin/cat echoes stdin back to the PTY, so the ANSI sequences
+        // written below reach the VT parser. A raw shell (dash) does not
+        // echo under raw-mode PTY (ECHO off), so the sequences would never
+        // arrive (see clear_screen_sequence for the same pattern).
+        let mut s = Session::spawn("/bin/cat", 24, 80, &ShellEnv::default()).expect("spawn");
         // Clear screen
         s.write(b"\x1b[2J\x1b[H").expect("clear");
         let deadline = Instant::now() + Duration::from_millis(200);

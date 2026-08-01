@@ -1,4 +1,7 @@
 //! Render loop — frame submission, synchronization, and error recovery.
+//!
+//! # Requirements
+//! - FR-050 — surface lifecycle: frame submission recovers from surface recreation
 use crate::render::GpuError;
 use crate::render::Renderer;
 use crate::render::context::MIN_ATLAS_BUFFER_SIZE;

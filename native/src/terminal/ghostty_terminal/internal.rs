@@ -71,10 +71,6 @@ pub(crate) fn snapshot_needs_rebuild(
 
 // ── impl GhosttyTerminal ──────────────────────────────────────
 impl super::GhosttyTerminal {
-    pub(crate) fn osc_sequence(command: u8, r: u8, g: u8, b: u8) -> Vec<u8> {
-        format!("\x1b]{};rgb:{:02x}/{:02x}/{:02x}\x1b\\", command, r, g, b).into_bytes()
-    }
-
     pub(crate) fn process_query(query: Command, terminal: &mut Terminal) {
         match query {
             Command::Rows(tx) => {
@@ -258,18 +254,30 @@ impl super::GhosttyTerminal {
             }
         };
 
-        terminal.vt_write(&Self::osc_sequence(
-            11,
-            config.background_color[0],
-            config.background_color[1],
-            config.background_color[2],
-        ));
-        terminal.vt_write(&Self::osc_sequence(
-            10,
-            config.foreground_color[0],
-            config.foreground_color[1],
-            config.foreground_color[2],
-        ));
+        // Initial theme: libghostty-vt is a pure VT layer and does not
+        // process OSC 10/11/4 color escapes (the embedder owns them), so use
+        // the native setters. Without this the terminal keeps the built-in
+        // xterm palette and the theme colors never reach the grid.
+        let _ = terminal.set_default_bg_color(Some(libghostty_vt::style::RgbColor {
+            r: config.background_color[0],
+            g: config.background_color[1],
+            b: config.background_color[2],
+        }));
+        let _ = terminal.set_default_fg_color(Some(libghostty_vt::style::RgbColor {
+            r: config.foreground_color[0],
+            g: config.foreground_color[1],
+            b: config.foreground_color[2],
+        }));
+        if let Ok(mut palette) = terminal.default_color_palette() {
+            for (i, color) in config.ansi_colors.iter().enumerate() {
+                palette[i] = libghostty_vt::style::RgbColor {
+                    r: color[0],
+                    g: color[1],
+                    b: color[2],
+                };
+            }
+            let _ = terminal.set_default_color_palette(Some(palette));
+        }
 
         let query_receiver = config.query_receiver;
 
@@ -346,24 +354,32 @@ impl super::GhosttyTerminal {
                         default_bg,
                         default_fg
                     );
-                    terminal.vt_write(&Self::osc_sequence(
-                        11,
-                        background[0],
-                        background[1],
-                        background[2],
-                    ));
-                    terminal.vt_write(&Self::osc_sequence(
-                        10,
-                        foreground[0],
-                        foreground[1],
-                        foreground[2],
-                    ));
-                    for (i, color) in ansi.iter().enumerate() {
-                        let osc4 = format!(
-                            "\x1b]4;{};rgb:{:02x}/{:02x}/{:02x}\x1b\\",
-                            i, color[0], color[1], color[2]
-                        );
-                        terminal.vt_write(osc4.as_bytes());
+                    // Use the native theme API instead of hand-written
+                    // OSC 10/11/4 sequences: libghostty-vt is a pure VT
+                    // layer and does not process OSC color escapes (the
+                    // embedder owns them), so the OSC approach silently
+                    // kept the built-in xterm palette. These setters store
+                    // the default colors that `cell.fg_color()` /
+                    // `cell.bg_color()` resolve against.
+                    let _ = terminal.set_default_bg_color(Some(libghostty_vt::style::RgbColor {
+                        r: background[0],
+                        g: background[1],
+                        b: background[2],
+                    }));
+                    let _ = terminal.set_default_fg_color(Some(libghostty_vt::style::RgbColor {
+                        r: foreground[0],
+                        g: foreground[1],
+                        b: foreground[2],
+                    }));
+                    if let Ok(mut palette) = terminal.default_color_palette() {
+                        for (i, color) in ansi.iter().enumerate() {
+                            palette[i] = libghostty_vt::style::RgbColor {
+                                r: color[0],
+                                g: color[1],
+                                b: color[2],
+                            };
+                        }
+                        let _ = terminal.set_default_color_palette(Some(palette));
                     }
                     grid_dirty = true;
                     #[allow(clippy::collapsible_if)]
