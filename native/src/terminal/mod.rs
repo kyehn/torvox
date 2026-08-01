@@ -14,6 +14,10 @@
 //! * PTY hygiene (setsid + controlling tty, IUTF8, IXON/IXOFF cleared,
 //!   `ws_xpixel`/`ws_ypixel`, stray-fd close) is configured in [`pty`].
 
+//! # Requirements
+//! - FR-054 — Terminal configuration (dimensions, scrollback, shell path) via `TerminalConfig`
+//! - FR-049 — JNI NDK bridge for session lifecycle (spawn, resize, input, exit)
+
 pub mod ghostty_terminal;
 #[cfg(any(test, feature = "test-util"))]
 pub mod mock_pty;

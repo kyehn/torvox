@@ -1101,7 +1101,7 @@ constructor(
                         val host = uri.host
                         if (host.isNullOrBlank()) return@runCatching "<no-host>"
                         "$scheme://$host"
-                    }.getOrNull() ?: "<unparseable>"
+                    }.getOrNull() ?: "<unparsable>"
                 LogUtil.d("Runtime", "Bootstrap URL set: $origin")
                 val downloader = terminal.emulator.installer.BootstrapDownloader(context)
                 val installer =
@@ -1409,7 +1409,7 @@ constructor(
      * (double-tap on the new-session button) and against [start]: two
      * concurrent creations would each spawn a native session and start a
      * render thread, and two render threads consuming the single global
-     * event queue mis-route events (exit events dropped, sessions leaked).
+     * event queue misroute events (exit events dropped, sessions leaked).
      */
     suspend fun createSession(
         surface: Surface,
@@ -1855,7 +1855,7 @@ constructor(
             // active session while we were rendering the first frame. Its
             // render thread is running; stop it before starting ours so only
             // one render thread ever consumes the shared event queue (two
-            // consumers mis-route bell/clipboard/notification events).
+            // consumers misroute bell/clipboard/notification events).
             if (activeSessionId != previousActiveId) {
                 val concurrent = sessions[activeSessionId]
                 if (concurrent != null && concurrent !== target) {
