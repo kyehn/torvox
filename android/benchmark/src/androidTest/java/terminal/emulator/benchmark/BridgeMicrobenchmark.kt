@@ -13,6 +13,16 @@ class BridgeMicrobenchmark {
     @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 
+    private fun grantNotificationPermission(
+        device: androidx.test.uiautomator.UiDevice,
+    ) {
+        // Macrobenchmark (re)installs the target app, which resets
+        // runtime permissions; MainActivity.onCreate() then shows the
+        // POST_NOTIFICATIONS dialog and startup metrics read zero
+        // (round-119). Grant before measuring — idempotent.
+        device.executeShellCommand("pm grant com.termux android.permission.POST_NOTIFICATIONS")
+    }
+
     @Test
     fun coldStart() {
         benchmarkRule.measureRepeated(
@@ -20,6 +30,7 @@ class BridgeMicrobenchmark {
             metrics = listOf(StartupTimingMetric(), FrameTimingMetric()),
             iterations = 10,
             setupBlock = {
+                grantNotificationPermission(device)
                 device.pressHome()
             },
             measureBlock = {
@@ -35,6 +46,7 @@ class BridgeMicrobenchmark {
             metrics = listOf(StartupTimingMetric()),
             iterations = 10,
             setupBlock = {
+                grantNotificationPermission(device)
                 startActivityAndWait()
                 device.waitForIdle()
                 device.pressHome()
@@ -52,6 +64,7 @@ class BridgeMicrobenchmark {
             metrics = listOf(StartupTimingMetric()),
             iterations = 10,
             setupBlock = {
+                grantNotificationPermission(device)
                 device.pressHome()
             },
             measureBlock = {

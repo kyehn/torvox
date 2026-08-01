@@ -78,6 +78,11 @@ constructor(
     fun fontFilesStoredInPrivateDirectory() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val fontsDir = File(context.filesDir, "fonts")
-        assert(fontsDir.isDirectory) { "Fonts directory should exist" }
+        // TerminalScreen becomes visible before TerminalRuntime.start()
+        // finishes (it creates filesDir/fonts asynchronously), so poll
+        // instead of asserting immediately (round-119 race).
+        composeRuleHolder.composeRule.waitUntil(timeoutMillis = 15_000) {
+            fontsDir.isDirectory
+        }
     }
 }

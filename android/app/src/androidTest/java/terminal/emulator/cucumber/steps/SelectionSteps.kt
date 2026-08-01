@@ -56,7 +56,10 @@ constructor(
     @When("^the user long-presses on an empty area$")
     fun userLongPressesOnEmptyArea() {
         val s = surface()
-        injectLongPress(s, s.width / 2f, s.height * 0.1f)
+        // Round-119: press near the bottom. After "the terminal displays
+        // text" the prompt occupies the top rows, so height*0.1 lands on
+        // text and triggers word-selection instead of the paste popup.
+        injectLongPress(s, s.width / 2f, s.height * 0.9f)
     }
 
     @When("^the user double-taps on a word$")
