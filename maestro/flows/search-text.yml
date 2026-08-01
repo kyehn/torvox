@@ -36,6 +36,9 @@ tags:
     id: "SearchNext"
 - assertVisible:
     id: "SearchPrevious"
+# The search field auto-focuses and the soft keyboard covers the
+# bottom-right close button; dismiss it before asserting.
+- hideKeyboard
 - assertVisible:
     id: "SearchClose"
 # Type a single-character query (finds many matches)

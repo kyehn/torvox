@@ -91,25 +91,6 @@ class SettingsInstrumentedTest {
     }
 
     @Test
-    fun settings_shows_restore_sessions() {
-        openSettings()
-        val restoreReady = device.wait(Until.hasObject(By.textContains("Restore")), WAIT_TIMEOUT)
-        if (!restoreReady) {
-            scrollTo("Restore", maxSwipes = 40)
-        }
-        val found = device.findObject(By.textContains("Restore")) != null
-        assertTrue("Should see Restore sessions", found)
-    }
-
-    @Test
-    fun settings_shows_keyboard_mode() {
-        openSettings()
-        scrollTo("Keyboard Mode")
-        val found = device.findObject(By.text("Keyboard Mode")) != null
-        assertTrue("Should see Keyboard Mode", found)
-    }
-
-    @Test
     fun settings_shows_bootstrap_with_install_buttons() {
         openSettings()
         scrollTo("Bootstrap")

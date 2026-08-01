@@ -116,12 +116,16 @@ fun SettingsScreen(
         color = backgroundColor,
     ) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            // Fixed header: SettingsHeader must stay visible while the
+            // LazyColumn scrolls, otherwise the back button scrolls out of
+            // reach (round-119: maestro open-settings flow failed to find
+            // SettingsBackButton after scrolling down).
+            SettingsHeader(onBack, textColor, isSmallScreen)
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = horizontalPadding).testTag("SettingsLazyColumn"),
                 verticalArrangement = Arrangement.spacedBy(if (isSmallScreen) 8.dp else 12.dp),
                 contentPadding = PaddingValues(bottom = 32.dp),
             ) {
-                item { SettingsHeader(onBack, textColor, isSmallScreen) }
                 item {
                     SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
                     SettingsCard(cardBackground, isSmallScreen) {

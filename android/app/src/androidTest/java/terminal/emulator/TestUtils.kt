@@ -19,6 +19,12 @@ import java.io.File
 
 fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
     System.setProperty("test.minSurface", "true")
+    // MainActivity.onCreate() requests POST_NOTIFICATIONS on first run
+    // (Android 13+); the permission dialog overlays the activity and
+    // blocks waitUntil(TerminalScreen). Grant up front — idempotent,
+    // and a pending request dialog is dismissed once the permission is
+    // granted underneath it.
+    grantNotificationPermission()
     // Use the standard assertion approach (same as search steps) instead of
     // allNodes + fetchSemanticsNodes, which may fail in merged-tree scenarios
     waitUntil(timeoutMillis = timeoutMs) {
@@ -31,6 +37,14 @@ fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
             false
         }
     }
+}
+
+fun grantNotificationPermission() {
+    val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+    instrumentation.uiAutomation.grantRuntimePermission(
+        instrumentation.targetContext.packageName,
+        android.Manifest.permission.POST_NOTIFICATIONS,
+    )
 }
 
 fun AndroidComposeTestRule<*, *>.getBridge(): Bridge? {

@@ -1,23 +1,45 @@
-package terminal.emulator.ui
+// ! Robolectric unit tests for TerminalDocumentsProvider.
+// !
+// ! The provider is pure ContentProvider logic (query roots/documents,
+// ! flags, MIME types) with no rendering or PTY dependency, so the full
+// ! instrumented suite in src/androidTest was migrated here — the same
+// ! assertions run on the JVM in seconds instead of on an emulator.
+// !
+// ! # Requirements
+// ! - FR-058 — DocumentsProvider exposes terminal home via SAF
+
+package terminal.emulator
 
 import android.provider.DocumentsContract
-import androidx.test.ext.junit.runners.AndroidJUnit4
-import androidx.test.platform.app.InstrumentationRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
 
-@RunWith(AndroidJUnit4::class)
-class DocumentsProviderInstrumentedTest {
+@RunWith(RobolectricTestRunner::class)
+class DocumentsProviderTest {
     private val authority = "terminal.emulator.documents"
+
+    // Robolectric's ShadowContentResolver does not perform the Android-O+
+    // ContentResolver → DocumentsProvider Bundle-extras conversion, so the
+    // 5-arg query would hit the "Pre-Android-O query format" rejection.
+    // Call the provider directly with the 6-arg form (same contract).
+    private lateinit var provider: TerminalDocumentsProvider
+
+    @org.junit.Before
+    fun setUp() {
+        // setupContentProvider attaches the provider, calls attachInfo +
+        // onCreate, and returns the instance ready for direct queries.
+        provider =
+            org.robolectric.Robolectric.setupContentProvider(TerminalDocumentsProvider::class.java)
+    }
 
     @Test
     fun queryRoots_returns_terminal_home() {
-        val resolver = InstrumentationRegistry.getInstrumentation().targetContext.contentResolver
         val rootUri = DocumentsContract.buildRootsUri(authority)
-        val cursor = resolver.query(rootUri, null, null, null, null)
+        val cursor = provider.query(rootUri, null, android.os.Bundle(), null)
         assertNotNull("Roots cursor should not be null", cursor)
         cursor!!.use {
             assertTrue("Should have at least one root", it.count >= 1)
@@ -31,9 +53,8 @@ class DocumentsProviderInstrumentedTest {
 
     @Test
     fun root_has_expected_flags() {
-        val resolver = InstrumentationRegistry.getInstrumentation().targetContext.contentResolver
         val rootUri = DocumentsContract.buildRootsUri(authority)
-        val cursor = resolver.query(rootUri, null, null, null, null)
+        val cursor = provider.query(rootUri, null, android.os.Bundle(), null)
         assertNotNull(cursor)
         cursor!!.use {
             it.moveToFirst()
@@ -52,16 +73,15 @@ class DocumentsProviderInstrumentedTest {
 
     @Test
     fun query_root_document_returns_directory() {
-        val resolver = InstrumentationRegistry.getInstrumentation().targetContext.contentResolver
         val rootUri = DocumentsContract.buildRootsUri(authority)
-        val rootsCursor = resolver.query(rootUri, null, null, null, null)
+        val rootsCursor = provider.query(rootUri, null, android.os.Bundle(), null)
         assertNotNull(rootsCursor)
         rootsCursor!!.use {
             it.moveToFirst()
             val docIdIndex = it.getColumnIndex(DocumentsContract.Root.COLUMN_DOCUMENT_ID)
             val rootDocId = it.getString(docIdIndex)
             val docUri = DocumentsContract.buildDocumentUri(authority, rootDocId)
-            val docCursor = resolver.query(docUri, null, null, null, null)
+            val docCursor = provider.query(docUri, null, android.os.Bundle(), null)
             assertNotNull("Document cursor should not be null", docCursor)
             docCursor!!.use { dc ->
                 assertTrue("Root document should exist", dc.count == 1)

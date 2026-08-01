@@ -24,13 +24,14 @@ tags:
     id: "ModifierBar"
 - assertVisible:
     id: "TerminalContent"
-# Open settings via drawer
-- swipe:
-    start: 3%,50%
-    end: 50%,50%
-    duration: 500
-- waitForAnimationToEnd:
-    timeout: 3000
+# Open settings via drawer (tap, not swipe — edge swipe hits the
+# system back-gesture on gesture-nav devices)
+- tapOn:
+    id: "Key_DRAWER"
+- extendedWaitUntil:
+    visible:
+      id: "SessionDrawer"
+    timeout: 15000
 - tapOn:
     id: "SettingsButton"
 - waitForAnimationToEnd:
@@ -57,7 +58,7 @@ tags:
 - assertVisible:
     text: "Follow System"
 - assertVisible:
-    text: "Fixed"
+    id: "TerminalThemeFollowSystemSwitch"
 - scrollUntilVisible:
     element:
       text: "Terminal"

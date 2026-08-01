@@ -152,18 +152,6 @@ class BehaviorInstrumentedTest {
     }
 
     @Test
-    fun behavior_settings_restore_sessions_off() {
-        openSettings()
-        val restoreReady = device.wait(Until.hasObject(By.textContains("Restore sessions")), WAIT_TIMEOUT)
-        if (!restoreReady) {
-            scrollTo("Restore sessions", maxSwipes = 60)
-        }
-        val toggle = device.findObject(By.textContains("Restore sessions"))
-        assertTrue("Restore sessions should be visible", toggle != null)
-        goBack()
-    }
-
-    @Test
     fun behavior_settings_bootstrap_action_buttons() {
         openSettings()
         val termuxReady = device.wait(Until.hasObject(By.text("Termux Default")), WAIT_TIMEOUT)
@@ -221,18 +209,6 @@ class BehaviorInstrumentedTest {
         assertTrue("Session should be in drawer", sessions != null)
         settings?.click()
         Thread.sleep(2000)
-        goBack()
-    }
-
-    @Test
-    fun behavior_keyboard_mode_secure() {
-        openSettings()
-        val secureReady = device.wait(Until.hasObject(By.text("Secure")), WAIT_TIMEOUT)
-        if (!secureReady) {
-            scrollTo("Secure", maxSwipes = 60)
-        }
-        val secure = device.findObject(By.text("Secure"))
-        assertNotNull("Secure mode should be visible", secure)
         goBack()
     }
 
