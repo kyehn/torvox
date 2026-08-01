@@ -6,12 +6,12 @@
 //!
 //! - **HTTP** (via axum + Unix socket): embedded in the native process,
 //!   used by tools like `curl` or any HTTP MCP client.
-//! - **Stdio** (stdin/stdout): for Claude Code, Codex CLI, OpenCode, etc.
+//! - **Stdio** (stdin/stdout): for AI coding agents (Codex CLI, OpenCode, etc.)
 //!
 //! ## Architecture
 //!
 //! ```text
-//! AI Agent (Claude Code / Codex CLI / OpenCode)
+//! AI Agent (Codex CLI / OpenCode)
 //!   │
 //!   ├── Stdio ──► StdioTransport ──┐
 //!   │                              │
@@ -35,7 +35,7 @@
 //! - [`stop()`]: deletes the Unix socket file and attempts a graceful
 //!   join with 50ms timeout. If the thread doesn't exit, it's detached
 //!   to avoid blocking the caller.
-//! - [`run_stdio()`]: meant for standalone mode (Claude Code CLI).  Blocks
+//! - [`run_stdio()`]: meant for standalone mode (AI coding agent CLI).  Blocks
 //!   the calling thread forever; must be called from outside the embedded
 //!   JNI context (i.e., not on the main UI thread).
 //!
@@ -704,7 +704,7 @@ pub fn stop() {
     // handle dropped here → thread detached
 }
 
-/// Start the MCP server in stdio mode (for Claude Code / Codex CLI).
+/// Start the MCP server in stdio mode (for AI coding agent CLIs).
 ///
 /// Reads JSON-RPC from stdin, writes to stdout. Call this from a
 /// CLI subcommand (`terminal-mcp`) to support `"command": "terminal-mcp"`
