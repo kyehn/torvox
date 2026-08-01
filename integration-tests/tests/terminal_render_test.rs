@@ -222,7 +222,7 @@ fn setup_gpu_env() -> (
     native::render::font::FontPipeline,
 ) {
     let mut context = native::render::gpu::GpuContext::new_with_no_surface();
-    context.surface_config = Some(wgpu::SurfaceConfiguration {
+    context.set_surface_config(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
         format: wgpu::TextureFormat::Rgba8Unorm,
@@ -1237,7 +1237,7 @@ fn bootstrap_rapidocr_available() {
 #[test]
 fn bootstrap_gpu_context_initializes() {
     let mut context = native::render::gpu::GpuContext::new_with_no_surface();
-    context.surface_config = Some(wgpu::SurfaceConfiguration {
+    context.set_surface_config(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
         format: wgpu::TextureFormat::Rgba8Unorm,

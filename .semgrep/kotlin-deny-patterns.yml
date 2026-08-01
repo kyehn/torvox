@@ -19,8 +19,8 @@ rules:
     languages: [kotlin]
     paths:
       exclude:
-        - "*/test/*"
-        - "*/tests/*"
+        - "**/*/test/*"
+        - "**/*/tests/*"
 
   - id: no-non-null-assertion
     patterns:

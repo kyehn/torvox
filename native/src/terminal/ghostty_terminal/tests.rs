@@ -8239,7 +8239,7 @@ fn bench_scroll_throughput() {
         );
         if offset == 0 {
             // Single-run throughput is ~2000+ snaps/sec; the full suite runs
-            // tests in parallel and CPU contention (software Vulkan benchs)
+            // tests in parallel and CPU contention (software Vulkan benches)
             // cuts wall time significantly. The bound is ~5x below the
             // single-run number: an anti-flake guard that still catches
             // order-of-magnitude regressions.

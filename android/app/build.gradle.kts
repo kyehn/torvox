@@ -192,8 +192,11 @@ tasks.withType<Test>().matching { it.name == "testDebugUnitTest" }.configureEach
     // No unit tests exist in src/test (only an android.util.Log stub); the
     // 10 exclude rules that previously lived here referenced test classes
     // that have never existed in this tree and were dead configuration
-    // (round-114).
+    // (round-114). Gradle 9.6 fails the task when no tests are discovered,
+    // so the failure is disabled while the Log shadow remains the only
+    // src/test content.
     jvmArgs("-Djava.library.path=")
+    failOnNoDiscoveredTests = false
 }
 
 // ── PIT mutation testing (AGP 9.x compatible, no plugin dependency) ──

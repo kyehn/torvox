@@ -257,7 +257,7 @@ class MainActivity : ComponentActivity() {
     // Launches whose ActivityResult callback is still outstanding, in launch
     // order. ActivityResult delivers exactly one callback per launch, in
     // order, so the queue head identifies the request being answered. A
-    // single-slot key would mis-answer the FIRST request when a second
+    // single-slot key would misanswer the FIRST request when a second
     // launch happens before the first result returns (round-115). Only
     // touched on the main thread.
     private val pendingPickFileLaunchKeys = kotlin.collections.ArrayDeque<Pair<Long, Long>>()
@@ -479,7 +479,7 @@ class MainActivity : ComponentActivity() {
                     } catch (exception: Exception) {
                         pendingPickFileRequests.remove(Pair(sessionId, requestId))
                         // The queued key must not linger: a later callback
-                        // would otherwise consume it and mis-answer a live
+                        // would otherwise consume it and misanswer a live
                         // request (round-116).
                         pendingPickFileLaunchKeys.removeAll { it == Pair(sessionId, requestId) }
                         inFlightPickFileKey = null

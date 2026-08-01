@@ -6,7 +6,7 @@ rules:
     pattern-regex: '/data/[a-zA-Z0-9._]+/files'
     paths:
       include:
-        - "android/app/src/main/**/*.kt"
+        - "**/android/app/src/main/**/*.kt"
     message: "No hardcoded /data/.*/files paths in production code — use context.filesDir"
     severity: ERROR
     languages:
@@ -18,7 +18,7 @@ rules:
       - pattern-not-inside: '#[cfg(test)]'
     paths:
       include:
-        - "native/src/**/*.rs"
+        - "**/native/src/**/*.rs"
       exclude:
         - "**/test_helpers*"
     message: "No #[allow] in production source code — fix the underlying issue instead"
@@ -27,30 +27,30 @@ rules:
       - rust
 
   - id: no-android-in-terminal
-    pattern: crate::android::
+    pattern-regex: 'crate::android::'
     paths:
       include:
-        - "native/src/terminal/**/*.rs"
+        - "**/native/src/terminal/**/*.rs"
     message: "terminal module must not depend on android module (violates layer direction)"
     severity: ERROR
     languages:
       - rust
 
   - id: no-android-in-render
-    pattern: crate::android::
+    pattern-regex: 'crate::android::'
     paths:
       include:
-        - "native/src/render/**/*.rs"
+        - "**/native/src/render/**/*.rs"
     message: "render module must not depend on android module (violates layer direction)"
     severity: ERROR
     languages:
       - rust
 
   - id: no-render-in-terminal
-    pattern: crate::render::
+    pattern-regex: 'crate::render::'
     paths:
       include:
-        - "native/src/terminal/**/*.rs"
+        - "**/native/src/terminal/**/*.rs"
     message: "terminal module must not depend on render module (violates layer direction)"
     severity: ERROR
     languages:
@@ -60,7 +60,7 @@ rules:
     pattern-regex: '\banyhow\b'
     paths:
       include:
-        - "native/src/**/*.rs"
+        - "**/native/src/**/*.rs"
     message: "anyhow is forbidden in library crate — use thiserror"
     severity: ERROR
     languages:

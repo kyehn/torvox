@@ -1290,6 +1290,10 @@ private fun McpServerToggle(
 @Composable
 private fun ClearAppDataSection(textColor: Color) {
     val context = LocalContext.current
+    // Resolve once in composable scope: LocalContext-based resource reads
+    // are not configuration-aware (lint LocalContextGetResourceValueCall),
+    // and stringResource() cannot be called inside the onClick lambda.
+    val clearAppDataDone = stringResource(R.string.clear_app_data_done)
     var showConfirmDialog by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
@@ -1322,7 +1326,7 @@ private fun ClearAppDataSection(textColor: Color) {
                                 android.widget.Toast
                                     .makeText(
                                         context,
-                                        context.getString(R.string.clear_app_data_done),
+                                        clearAppDataDone,
                                         android.widget.Toast.LENGTH_LONG,
                                     )
                                     .show()
