@@ -24,13 +24,13 @@ class RenderPauseTest {
     fun settings_open_does_not_crash() {
         composeTestRule.openSettings()
         // Verify settings screen rendered: look for back button or settings UI
-        composeTestRule.onNodeWithTag("settings_back_button").assertExists()
+        composeTestRule.onNodeWithTag("SettingsBackButton").assertExists()
     }
 
     @Test
     fun settings_close_resumes_rendering() {
         composeTestRule.openSettings()
-        composeTestRule.onNodeWithTag("settings_back_button").performClick()
+        composeTestRule.onNodeWithTag("SettingsBackButton").performClick()
         // After closing settings, the terminal screen must be visible again
         // and the session must still be alive (render loop resumed).
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
