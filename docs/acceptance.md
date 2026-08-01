@@ -570,6 +570,31 @@ text (AI agent automation).
 
 ---
 
+### FR-049: JNI NDK Bridge
+
+**Requirement**: The system SHALL use JNI for NDK-level functions
+(ANativeWindow lifecycle, surface creation/destruction).
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | JNI functions match the native method signatures in Kotlin | `cargo test --package native` ([test source](native/src/android/ffi.rs)) |
+| 2 | `ANativeWindow_fromSurface` and `ANativeWindow_release` are paired in the lifecycle | Code review: `native/src/android/ffi.rs` — surface lifecycle pairing |
+
+---
+
+### FR-050: Surface Lifecycle
+
+**Requirement**: The system SHALL handle Android surface creation and
+destruction events, recreating the wgpu surface and render pipeline as
+needed.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | Surface attach/detach events recreate the wgpu surface | Code review: `native/src/render/context.rs` — surface lifecycle |
+| 2 | Render pipeline survives surface recreation | `cargo test --package native -- render` ([test source](native/src/render/tests.rs)) |
+
+---
+
 ## 9. Android Bridge
 
 ### FR-051: JNI for NDK Functions

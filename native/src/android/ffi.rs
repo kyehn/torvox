@@ -1,5 +1,9 @@
 //! JNI FFI bridge — replaces boltffi/JNA with direct JNI.
 //!
+//! # Requirements
+//! - FR-049 — JNI NDK bridge: session lifecycle exported to Kotlin
+//! - FR-050 — surface lifecycle: attach/detach window events
+//!
 //! This module exports `extern "system"` JNI functions called from Kotlin.
 //! Each function follows the JNI naming convention:
 //! `Java_terminal_emulator_bridge_NativeBridge_<methodName>`

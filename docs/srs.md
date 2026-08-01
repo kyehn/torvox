@@ -343,7 +343,7 @@ The primary users are:
 | SSH/Mosh Connectivity | FR-042 — FR-043 | — |
 | MCP Server | FR-044 — FR-048 | — |
 | Android Bridge | FR-049 — FR-051 | NFR-016 |
-| Configuration & Themes | FR-052 — FR-055 | — |
+| Configuration & Themes | FR-052 — FR-057 | — |
 | Safety | — | NFR-001 — NFR-005 |
 | Performance | — | NFR-006 — NFR-011 |
 | Maintainability | — | NFR-012 — NFR-016 |
@@ -471,6 +471,8 @@ Each requirement is linked to its verification method, test command, and accepta
 | FR-053 | Support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots. | Automated Test | `cargo test --package native` | §FR-053§ (Custom Theme Definition) |
 | FR-054 | Support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via `TerminalConfig`. | Automated Test | `cargo test --package native` | §FR-054§ (Terminal Configuration) |
 | FR-055 | Repository SHALL NOT contain golden images; rendering verification SHALL use logical assertions or OCR. | Tool Inspection | `git ls-files '*.png' | grep -E 'screenshots|golden|roborazzi' | wc -l` | §FR-055§ (Golden Image Ban) |
+| FR-056 | Support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via `TerminalConfig`. | Automated Test | `cargo test --package native` | §FR-056§ (Terminal Configuration) |
+| FR-057 | Repository SHALL NOT contain golden images or font file blobs (`.ttf`, `.otf`, `.woff`, `.woff2`, `.eot`); rendering verification SHALL use logical assertions or OCR. | Tool Inspection | `git ls-files '*.png' '*.ttf' '*.otf' '*.woff' '*.woff2' '*.eot' | wc -l` | §FR-057§ (Banned Binary Artifacts) |
 | NFR-001 | The native terminal module SHALL contain zero `unsafe` blocks, verified by audit. | Tool Inspection | `cargo audit` | §NFR-001§ (Zero Unsafe in Core) |
 | NFR-002 | All `unsafe` blocks in the codebase SHALL be preceded by a `// SAFETY:` comment explaining the invariants. | Tool Inspection | `grep -r '^unsafe' native/src/ --include='*.rs'` | §NFR-002§ (SAFETY Comments) |
 | NFR-003 | The system SHALL not panic in error paths. Library functions SHALL return `Result` or `Option` rather than panicking. | Automated Test | `cargo test --workspace` | §NFR-003§ (No Panic in Error Paths) |

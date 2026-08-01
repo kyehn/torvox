@@ -1,5 +1,8 @@
 //! Legacy GridSnapshot-based cell instance builder — test-only.
 //!
+//! # Requirements
+//! - FR-050 — surface lifecycle: legacy builder kept for unit-test comparison
+//!
 //! These functions convert a [`GridSnapshot`] into GPU [`CellInstance`] data.
 //! They are only used by unit tests (e.g. `render/tests.rs`) and are gated
 //! behind `#[cfg(any(test, feature = "test-util"))]`.

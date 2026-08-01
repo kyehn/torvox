@@ -18,8 +18,8 @@ rules:
     fix: ""
     paths:
       exclude:
-        - "*/test/*"
-        - "*/tests/*"
+        - "**/*/test/*"
+        - "**/*/tests/*"
 
   - id: no-todo-unimplemented
     patterns:
@@ -41,8 +41,8 @@ rules:
     languages: [rust]
     paths:
       exclude:
-        - "*/test/*"
-        - "*/tests/*"
+        - "**/*/test/*"
+        - "**/*/tests/*"
 
   - id: no-process-exit
     patterns:
