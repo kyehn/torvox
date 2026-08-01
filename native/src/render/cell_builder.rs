@@ -1,4 +1,7 @@
 //! Cell instance builder — converts terminal grid state into GPU instance data.
+//!
+//! # Requirements
+//! - FR-050 — surface lifecycle: cell instances rebuilt on resize/surface recreation
 use crate::render::CellInstance;
 
 use crate::terminal::CursorStyle;

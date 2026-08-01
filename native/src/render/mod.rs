@@ -10,8 +10,12 @@
 //! GBA = 0), a **linear** (non-sRGB) format; glyph coverage data is already in
 //! linear space, so the GPU applies no gamma correction on sampling.
 
+//! # Requirements
+//! - FR-050 — Android surface lifecycle (attach/detach) recreates the wgpu surface and pipeline
+
 // ── Sub-modules ──────────────────────────────────────────────────────────
 pub mod font;
+#[cfg(not(target_os = "android"))]
 pub mod renderdoc_capture;
 
 pub(crate) mod cell_builder;

@@ -79,7 +79,9 @@ No pre-installed hooks. Run checks manually before commit.
 ## Architecture — Summary
 
 See `docs/architecture.md` for the full architecture document.
+
 Key architecture features:
+
 - **Single crate** (`native/`): terminal engine + GPU renderer + JNI bridge + MCP
 - **Ghostty** as single source of truth for all terminal state
 - **wgpu** (Vulkan) GPU rendering via cosmic-text + swash + guillotiere
