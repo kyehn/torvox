@@ -136,8 +136,6 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.2.1")
     implementation("androidx.navigation:navigation-compose:2.9.8")
 
-    implementation("net.java.dev.jna:jna:5.19.1@aar")
-
     // LeakCanary 3.x auto-installs. No Application code change needed.
     debugImplementation("com.squareup.leakcanary:leakcanary-android:3.0-alpha-9")
 
