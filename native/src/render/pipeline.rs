@@ -1,4 +1,7 @@
 //! GPU render pipeline — shader compilation, bind groups, and draw calls.
+//!
+//! # Requirements
+//! - FR-050 — surface lifecycle: pipelines rebuilt when the surface is recreated
 use crate::render::Renderer;
 
 pub(crate) const QUAD_VERTEX_COUNT: u32 = 6;

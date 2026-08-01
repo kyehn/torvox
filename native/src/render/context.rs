@@ -1,6 +1,9 @@
 //! GPU context — wgpu instance, adapter, device, and pipeline management.
 //!
 //! Centralizes all wgpu resources into a single `Renderer` struct.
+//!
+//! # Requirements
+//! - FR-050 — surface lifecycle: attach/detach recreates the wgpu surface and render pipeline
 use std::sync::{Mutex, OnceLock};
 use wgpu::util::DeviceExt;
 
@@ -323,6 +326,15 @@ impl Renderer {
         });
 
         Self::new_inner(device, queue, quad_vertex_buffer)
+    }
+
+    /// Set the surface configuration used by headless/off-screen tests.
+    ///
+    /// The render pass uses `surface_config` as the frame dimensions and
+    /// format when no real window surface is attached. Exposed publicly for
+    /// integration tests that drive the renderer without an Android window.
+    pub fn set_surface_config(&mut self, config: wgpu::SurfaceConfiguration) {
+        self.surface_config = Some(config);
     }
 
     pub fn set_bg_color(&mut self, background: [u8; 3]) {
