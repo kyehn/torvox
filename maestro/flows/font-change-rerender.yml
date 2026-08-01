@@ -23,10 +23,10 @@ tags:
 # Open drawer → Settings
 - tapOn:
     id: "Key_DRAWER"
-- waitForAnimationToEnd:
-    timeout: 3000
-- assertVisible:
-    id: "SettingsButton"
+- extendedWaitUntil:
+    visible:
+      id: "SettingsButton"
+    timeout: 15000
 - tapOn:
     id: "SettingsButton"
 - waitForAnimationToEnd:
@@ -50,9 +50,11 @@ tags:
 - assertVisible:
     text: "Select Font Family"
 - takeScreenshot: font_picker_dialog
-# Select a different font
+# Select a different font (the picker lists system font files; there is
+# no "System Default" entry. DroidSansMono exists on AOSP emulator images;
+# Roboto does not — Google emulators ship Noto instead.)
 - tapOn:
-    text: "System Default"
+    text: "Droid Sans Mono"
 - waitForAnimationToEnd:
     timeout: 2000
 # Go back to terminal

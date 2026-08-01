@@ -5,10 +5,14 @@ appId: com.termux
 - launchApp:
     appId: "com.termux"
     clearState: true
-- waitForVisible: "TerminalScreen"
+- extendedWaitUntil:
+    visible: "TerminalScreen"
+    timeout: 30000
 - tapOn: "TerminalContent"
 - inputText: "echo testing selection\n"
-- waitForVisible: "TerminalScreen"
+- extendedWaitUntil:
+    visible: "TerminalScreen"
+    timeout: 30000
 - tapOn:
     point: "50%,50%"
 - longPressOn:

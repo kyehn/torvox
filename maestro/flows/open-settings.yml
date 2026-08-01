@@ -20,13 +20,14 @@ tags:
     timeout: 30000
 - assertVisible:
     id: "TerminalScreen"
-# Open drawer via swipe (full width to ensure drawer opens)
-- swipe:
-    start: 3%,50%
-    end: 50%,50%
-    duration: 500
-- waitForAnimationToEnd:
-    timeout: 3000
+# Open drawer via tap (swipe from 3% is intercepted by the system
+# back-gesture on gesture-nav devices)
+- tapOn:
+    id: "Key_DRAWER"
+- extendedWaitUntil:
+    visible:
+      id: "SessionDrawer"
+    timeout: 15000
 - tapOn:
     id: "SettingsButton"
 - waitForAnimationToEnd:

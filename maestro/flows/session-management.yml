@@ -22,13 +22,14 @@ tags:
     id: "TerminalScreen"
 - assertVisible:
     id: "ModifierBar"
-# Open session drawer via swipe
-- swipe:
-    start: 3%,50%
-    end: 50%,50%
-    duration: 500
-- waitForAnimationToEnd:
-    timeout: 3000
+# Open session drawer (tap, not swipe: an edge swipe from 3% is
+# intercepted by the system back-gesture on gesture-nav devices)
+- tapOn:
+    id: "Key_DRAWER"
+- extendedWaitUntil:
+    visible:
+      id: "SessionDrawer"
+    timeout: 15000
 - assertVisible:
     id: "SessionDrawer"
 - assertVisible:
