@@ -10,6 +10,12 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <provider
+            android:name="terminal.emulator.TerminalDocumentsProvider"
+            android:authorities="terminal.emulator.documents"
+            android:exported="true"
+            android:grantUriPermissions="true" />
     </application>
 
 </manifest>
