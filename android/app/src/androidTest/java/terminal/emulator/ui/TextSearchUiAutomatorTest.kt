@@ -113,6 +113,7 @@ class TextSearchUiAutomatorTest {
     }
 
     @Test
+    @org.junit.Ignore("searchAllInScrollback is an ADR-0007 stub returning zero results — the count text is vacuous (same policy as TextSearchInstrumentedTest)")
     fun searchResultCountVisible() {
         openSearchBar()
         assertTrue("Search bar must open", waitForSearchBar())

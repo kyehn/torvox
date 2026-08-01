@@ -4,16 +4,26 @@ appId: com.termux
 - launchApp:
     appId: "com.termux"
     clearState: true
-- waitForVisible: "TerminalScreen"
+- extendedWaitUntil:
+    visible: "TerminalScreen"
+    timeout: 30000
 # Open drawer and add session
 - tapOn: "Key_DRAWER"
-- waitForVisible: "New session"
+- extendedWaitUntil:
+    visible: "New session"
+    timeout: 10000
 - tapOn: "New session"
-- waitForVisible: "TerminalScreen"
+- extendedWaitUntil:
+    visible: "TerminalScreen"
+    timeout: 30000
 # Verify session drawer has 2 sessions
 - tapOn: "Key_DRAWER"
-- waitForVisible: "Session"
+- extendedWaitUntil:
+    visible: "Session"
+    timeout: 10000
 # Close drawer
 - tapOn:
     point: "10%,10%"
-- waitForVisible: "TerminalScreen"
+- extendedWaitUntil:
+    visible: "TerminalScreen"
+    timeout: 30000
