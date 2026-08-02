@@ -8,7 +8,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 
-@RunWith(AndroidJUnit4::class)
 /**
  * App-level macrobenchmarks: cold/warm startup and terminal output timing.
  *
@@ -19,6 +18,7 @@ import org.junit.runner.RunWith
  * round-trips would need a benchmark APK sharing the app process and is
  * tracked as a follow-up (docs/test-coverage-audit.md P1-7).
  */
+@RunWith(AndroidJUnit4::class)
 class AppStartupBenchmark {
     @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
