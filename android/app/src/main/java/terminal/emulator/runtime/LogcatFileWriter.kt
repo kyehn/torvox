@@ -7,8 +7,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.concurrent.thread
 
@@ -17,7 +17,7 @@ object LogcatFileWriter {
     private var logFile: File? = null
     private var currentSize: Long = 0L
     private var initialized = false
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+    private val dateFormat = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
     private val lock = Any()
 
     private const val MAX_FILE_SIZE = 1_000_000L // 1 MB
@@ -91,7 +91,7 @@ object LogcatFileWriter {
         synchronized(lock) {
             try {
                 maybeRotate()
-                val timestamp = dateFormat.format(Date())
+                val timestamp = dateFormat.format(LocalDateTime.now())
                 val line = "$timestamp $tag: $message\n"
                 fileWriter?.apply {
                     write(line)

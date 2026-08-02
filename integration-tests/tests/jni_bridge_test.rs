@@ -5,7 +5,7 @@
 //!
 //! The Java class mirrors the JNI exports in `native/src/android/ffi.rs`.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn project_root() -> PathBuf {
@@ -42,7 +42,7 @@ fn build_cdylib(project_root: &PathBuf) -> PathBuf {
 }
 
 /// Compile TestNativeBridge.java.
-fn compile_java(jni_dir: &PathBuf, class_output: &PathBuf) {
+fn compile_java(jni_dir: &Path, class_output: &Path) {
     let src = jni_dir.join("NativeBridge.java");
     assert!(src.exists(), "TestNativeBridge.java not found at {:?}", src);
 
@@ -58,7 +58,7 @@ fn compile_java(jni_dir: &PathBuf, class_output: &PathBuf) {
 }
 
 /// Run the Java test and return stdout.
-fn run_java(lib_dir: &PathBuf, class_output: &PathBuf) -> String {
+fn run_java(lib_dir: &Path, class_output: &Path) -> String {
     let output = Command::new("java")
         .arg(format!("-Djava.library.path={}", lib_dir.display()))
         .arg("-cp")

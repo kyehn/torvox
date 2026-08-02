@@ -3,8 +3,10 @@ package terminal.emulator.ui
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
-import org.json.JSONArray
-import org.json.JSONObject
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import terminal.emulator.bridge.pollEventJson
 
 enum class ToolbarKey(
     val defaultLabel: String,
@@ -67,18 +69,14 @@ class ToolbarPreferences(
     fun getLayout(): List<ToolbarItem> {
         val json = sharedPreferences.getString("layout", null) ?: return defaultLayout()
         return try {
-            val arr = JSONArray(json)
-            (0 until arr.length()).map { i ->
-                val obj = arr.getJSONObject(i)
-                if (obj.has("key")) {
-                    val keyName = obj.getString("key")
-                    val key = ToolbarKey.valueOf(keyName)
-                    ToolbarItem.Default(key)
+            pollEventJson.decodeFromString<List<ToolbarItemDto>>(json).map { dto ->
+                if (dto.key != null) {
+                    ToolbarItem.Default(ToolbarKey.valueOf(dto.key))
                 } else {
                     ToolbarItem.Custom(
-                        label = obj.getString("label"),
-                        sequence = obj.getString("sequence"),
-                        id = obj.optString("id", "custom_${System.currentTimeMillis()}"),
+                        label = dto.label.orEmpty(),
+                        sequence = dto.sequence.orEmpty(),
+                        id = dto.id ?: "custom_${System.currentTimeMillis()}",
                     )
                 }
             }
@@ -89,24 +87,33 @@ class ToolbarPreferences(
     }
 
     fun saveLayout(items: List<ToolbarItem>) {
-        val arr = JSONArray()
-        for (item in items) {
-            val obj = JSONObject()
-            when (item) {
-                is ToolbarItem.Default -> {
-                    obj.put("key", item.key.name)
-                }
+        val dtos =
+            items.map { item ->
+                when (item) {
+                    is ToolbarItem.Default -> ToolbarItemDto(key = item.key.name)
 
-                is ToolbarItem.Custom -> {
-                    obj.put("label", item.label)
-                    obj.put("sequence", item.sequence)
-                    obj.put("id", item.id)
+                    is ToolbarItem.Custom ->
+                        ToolbarItemDto(
+                            label = item.label,
+                            sequence = item.sequence,
+                            id = item.id,
+                        )
                 }
             }
-            arr.put(obj)
-        }
-        sharedPreferences.edit().putString("layout", arr.toString()).apply()
+        sharedPreferences.edit().putString("layout", pollEventJson.encodeToString(dtos)).apply()
     }
+
+/** JSON shape of a toolbar item in shared preferences.
+     *  `key` != null means a [ToolbarItem.Default] (built-in key), otherwise
+     *  a [ToolbarItem.Custom] with label/sequence/id. Same on-disk format as
+     *  the previous org.json implementation, so existing layouts stay valid. */
+    @Serializable
+    data class ToolbarItemDto(
+        val key: String? = null,
+        @SerialName("label") val label: String? = null,
+        @SerialName("sequence") val sequence: String? = null,
+        @SerialName("id") val id: String? = null,
+    )
 
     private fun defaultLayout(): List<ToolbarItem> = listOf(
         ToolbarItem.Default(ToolbarKey.ESC),

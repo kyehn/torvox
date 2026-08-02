@@ -49,7 +49,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +66,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import terminal.emulator.R
@@ -212,14 +212,14 @@ private fun AppearanceSectionContent(
     accentColor: Color,
     backgroundColor: Color,
 ) {
-    val fontSize by viewModel.fontSize.collectAsState()
-    val fontFamily by viewModel.fontFamily.collectAsState()
-    val cursorBlinkEnabled by viewModel.cursorBlink.collectAsState()
-    val cursorSpeedMs by viewModel.cursorSpeed.collectAsState()
-    val cursorStyleValue by viewModel.cursorStyle.collectAsState()
-    val availableFonts by viewModel.availableFonts.collectAsState()
-    val defaultFontName by viewModel.defaultFontName.collectAsState()
-    val fontInfo by viewModel.fontInfo.collectAsState()
+    val fontSize by viewModel.fontSize.collectAsStateWithLifecycle()
+    val fontFamily by viewModel.fontFamily.collectAsStateWithLifecycle()
+    val cursorBlinkEnabled by viewModel.cursorBlink.collectAsStateWithLifecycle()
+    val cursorSpeedMs by viewModel.cursorSpeed.collectAsStateWithLifecycle()
+    val cursorStyleValue by viewModel.cursorStyle.collectAsStateWithLifecycle()
+    val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
+    val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
+    val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
     FontSizeSlider(
         modifier = Modifier.testTag("FontSizeSlider"),
         value = fontSize,
@@ -290,7 +290,7 @@ private fun AppThemeSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val appThemeMode by viewModel.appThemeMode.collectAsState()
+    val appThemeMode by viewModel.appThemeMode.collectAsStateWithLifecycle()
     SectionHeader(stringResource(R.string.software_theme), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         AppThemeSelector(
@@ -312,10 +312,10 @@ private fun TerminalThemeSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val themeMode by viewModel.themeMode.collectAsState()
-    val dayThemeName by viewModel.dayThemeName.collectAsState()
-    val nightThemeName by viewModel.nightThemeName.collectAsState()
-    val themeName by viewModel.themeName.collectAsState()
+    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val dayThemeName by viewModel.dayThemeName.collectAsStateWithLifecycle()
+    val nightThemeName by viewModel.nightThemeName.collectAsStateWithLifecycle()
+    val themeName by viewModel.themeName.collectAsStateWithLifecycle()
     SectionHeader(stringResource(R.string.theme), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         TerminalThemeModeSelector(
@@ -376,9 +376,9 @@ private fun BackgroundSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val backgroundImagePath by viewModel.backgroundImagePath.collectAsState()
-    val backgroundBlurRadius by viewModel.backgroundBlurRadius.collectAsState()
-    val backgroundAlpha by viewModel.backgroundAlpha.collectAsState()
+    val backgroundImagePath by viewModel.backgroundImagePath.collectAsStateWithLifecycle()
+    val backgroundBlurRadius by viewModel.backgroundBlurRadius.collectAsStateWithLifecycle()
+    val backgroundAlpha by viewModel.backgroundAlpha.collectAsStateWithLifecycle()
     val imagePickerLauncher =
         rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
             uri?.let { viewModel.setBackgroundImagePath(it.toString()) }
@@ -435,8 +435,8 @@ private fun TerminalConfigSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val selectedShell by viewModel.shell.collectAsState()
-    val scrollbackLines by viewModel.scrollbackLines.collectAsState()
+    val selectedShell by viewModel.shell.collectAsStateWithLifecycle()
+    val scrollbackLines by viewModel.scrollbackLines.collectAsStateWithLifecycle()
     SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         ShellInput(shellPath = selectedShell, onShellChanged = { viewModel.setShell(it) }, textColor = textColor, accentColor = accentColor)
@@ -450,7 +450,7 @@ private fun TerminalConfigSection(
         )
         Spacer(modifier = Modifier.height(8.dp))
         McpServerToggle(
-            enabled = viewModel.mcpServerEnabled.collectAsState().value,
+            enabled = viewModel.mcpServerEnabled.collectAsStateWithLifecycle().value,
             onToggle = { viewModel.setMcpServerEnabled(it) },
             textColor = textColor,
             accentColor = accentColor,
@@ -469,10 +469,10 @@ private fun BootstrapSectionFromSettings(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val bootstrapUrl by viewModel.bootstrapUrl.collectAsState()
-    val bootstrapRunning by viewModel.bootstrapRunning.collectAsState()
-    val bootstrapResult by viewModel.bootstrapResult.collectAsState()
-    val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsState()
+    val bootstrapUrl by viewModel.bootstrapUrl.collectAsStateWithLifecycle()
+    val bootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
+    val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
+    val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsStateWithLifecycle()
     SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen, Modifier.testTag("BootstrapSection")) {
         BootstrapSection(

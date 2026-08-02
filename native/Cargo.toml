@@ -20,6 +20,8 @@ crate-type = ["cdylib", "lib"]
 nix = { workspace = true }
 libc = { workspace = true }
 flume = { workspace = true }
+foldhash = "0.2"
+parking_lot = "0.12"
 log = { workspace = true }
 lru = { workspace = true }
 futures = { workspace = true }
@@ -61,6 +63,15 @@ quickcheck = { workspace = true }
 quickcheck_macros = { workspace = true }
 proptest = { workspace = true }
 shuttle = "0.9"
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "vt_typing"
+harness = false
+
+[[bench]]
+name = "cell_builder"
+harness = false
 
 [lints]
 workspace = true

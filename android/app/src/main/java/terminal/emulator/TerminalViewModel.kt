@@ -13,6 +13,9 @@ import android.view.KeyEvent
 import android.view.Surface
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import coil3.BitmapImage
+import coil3.ImageLoader
+import coil3.request.ImageRequest
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -684,34 +687,23 @@ constructor(
             if (path.isNotEmpty()) {
                 try {
                     val uri = android.net.Uri.parse(path)
-                    // Two-pass decode: query bounds first, then compute an
-                    // inSampleSize so large photos (48MP+) never allocate
-                    // hundreds of MB (OOM crash). OutOfMemoryError is an
+                    // Coil decodes with EXIF orientation applied and a
+                    // size cap (1920x1080) that preserves the previous
+                    // inSampleSize OOM protection. OutOfMemoryError is an
                     // Error, not an Exception, so it must be caught too.
-                    val options = android.graphics.BitmapFactory.Options()
-                    options.inJustDecodeBounds = true
-                    context.contentResolver.openInputStream(uri)?.use { boundsStream ->
-                        android.graphics.BitmapFactory.decodeStream(boundsStream, null, options)
-                    } ?: return@launch
-                    options.inJustDecodeBounds = false
-                    var sampleSize = 1
-                    while (options.outWidth / sampleSize > 1920 || options.outHeight / sampleSize > 1080) {
-                        sampleSize *= 2
-                    }
-                    options.inSampleSize = sampleSize
-                    val inputStream = context.contentResolver.openInputStream(uri) ?: return@launch
-                    val bitmap =
-                        try {
-                            android.graphics.BitmapFactory.decodeStream(inputStream, null, options)
-                        } finally {
-                            inputStream.close()
-                        }
+                    val imageLoader = ImageLoader.Builder(context).build()
+                    val request =
+                        ImageRequest.Builder(context)
+                            .data(uri)
+                            .size(1920, 1080)
+                            .build()
+                    val image = imageLoader.execute(request).image
+                    val bitmap = (image as? BitmapImage)?.bitmap
                     if (bitmap != null) {
                         val bitmapWidth = bitmap.width
                         val bitmapHeight = bitmap.height
                         val buffer = java.nio.ByteBuffer.allocate(bitmapWidth * bitmapHeight * 4)
                         bitmap.copyPixelsToBuffer(buffer)
-                        bitmap.recycle()
                         val rgbaData = buffer.array()
                         bridge.setBackgroundImage(rgbaData, bitmapWidth, bitmapHeight)
                         bridge.setBackgroundParams(

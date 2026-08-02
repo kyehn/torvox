@@ -36,7 +36,6 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -60,6 +59,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SelectionAnchor
@@ -101,15 +101,15 @@ fun TerminalScreen(
     onSettings: () -> Unit = {},
     isOverlayVisible: Boolean = false,
 ) {
-    val state by viewModel.state.collectAsState()
-    val viewModelThemeMode by viewModel.themeMode.collectAsState()
-    val viewModelThemeName by viewModel.themeName.collectAsState()
-    val viewModelDayThemeName by viewModel.dayThemeName.collectAsState()
-    val viewModelNightThemeName by viewModel.nightThemeName.collectAsState()
-    val useNerdFontGlyphs by viewModel.useNerdFontGlyphs.collectAsState()
-    val runtimeState by viewModel.runtime.state.collectAsState()
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val viewModelThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
+    val viewModelThemeName by viewModel.themeName.collectAsStateWithLifecycle()
+    val viewModelDayThemeName by viewModel.dayThemeName.collectAsStateWithLifecycle()
+    val viewModelNightThemeName by viewModel.nightThemeName.collectAsStateWithLifecycle()
+    val useNerdFontGlyphs by viewModel.useNerdFontGlyphs.collectAsStateWithLifecycle()
+    val runtimeState by viewModel.runtime.state.collectAsStateWithLifecycle()
     val isSettingsDark =
-        when (viewModel.appThemeMode.collectAsState().value) {
+        when (viewModel.appThemeMode.collectAsStateWithLifecycle().value) {
             "night" -> true
             "day" -> false
             else -> androidx.compose.foundation.isSystemInDarkTheme()
