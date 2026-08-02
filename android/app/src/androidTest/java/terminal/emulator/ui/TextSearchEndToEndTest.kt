@@ -216,17 +216,22 @@ class TextSearchEndToEndTest {
                 File(composeTestRule.activity.filesDir, SCREENSHOT_DIR),
                 "02_search_highlights.png",
             )
-        if (screenshotFile.exists()) {
-            val ocrResult = ocrImage(screenshotFile.absolutePath)
-            if (ocrResult != null) {
-                assertTrue(
-                    "OCR must detect searched text. Found: $ocrResult",
-                    ocrResult.contains(uniqueMarker, ignoreCase = true) ||
-                        ocrResult.contains("MARKER", ignoreCase = true) ||
-                        ocrResult.contains("SRCH", ignoreCase = true),
-                )
+        assertTrue(
+            "Screenshot must exist for OCR verification",
+            screenshotFile.exists(),
+        )
+        val ocrResult =
+            checkNotNull(ocrImage(screenshotFile.absolutePath)) {
+                "rapidocr must be available on the host (nix devShell provides it) " +
+                    "to verify search highlights — a missing OCR binary must fail " +
+                    "the test, not silently skip the assertion"
             }
-        }
+        assertTrue(
+            "OCR must detect searched text. Found: $ocrResult",
+            ocrResult.contains(uniqueMarker, ignoreCase = true) ||
+                ocrResult.contains("MARKER", ignoreCase = true) ||
+                ocrResult.contains("SRCH", ignoreCase = true),
+        )
     }
 
     // ── Test 3: Search navigation (previous/next) with scrolling ──
@@ -435,14 +440,19 @@ class TextSearchEndToEndTest {
                 File(composeTestRule.activity.filesDir, SCREENSHOT_DIR),
                 "10_highlight_colors.png",
             )
-        if (screenshotFile.exists()) {
-            val ocrResult = ocrImage(screenshotFile.absolutePath)
-            Log.d(TAG, "OCR result for highlight color test: $ocrResult")
-            // OCR should at least detect some text content
-            assertTrue(
-                "OCR must detect text content after highlight",
-                ocrResult != null && ocrResult.length > 5,
-            )
-        }
+        assertTrue(
+            "Screenshot must exist for OCR verification",
+            screenshotFile.exists(),
+        )
+        val ocrResult =
+            checkNotNull(ocrImage(screenshotFile.absolutePath)) {
+                "rapidocr must be available on the host to verify highlight colors"
+            }
+        Log.d(TAG, "OCR result for highlight color test: $ocrResult")
+        // OCR should at least detect some text content
+        assertTrue(
+            "OCR must detect text content after highlight",
+            ocrResult.length > 5,
+        )
     }
 }

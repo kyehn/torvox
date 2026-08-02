@@ -211,6 +211,30 @@ pub(crate) fn push_event(event: Event) {
 }
 
 #[cfg(feature = "mcp")]
+/// Wait for a host-app clipboard answer with a bounded timeout.
+///
+/// Kotlin always answers `clipboardResult` (even with an empty string on
+/// failure), so the only ways to reach the deadline are a dead process or
+/// a misbehaving client; an empty answer is the xterm-compatible "empty
+/// clipboard" response.
+const CLIPBOARD_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn wait_for_clipboard_answer(mut rx: tokio::sync::oneshot::Receiver<String>) -> String {
+    let deadline = std::time::Instant::now() + CLIPBOARD_ANSWER_TIMEOUT;
+    loop {
+        match rx.try_recv() {
+            Ok(text) => return text,
+            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => return String::new(),
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+                if std::time::Instant::now() >= deadline {
+                    return String::new();
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+        }
+    }
+}
+
 pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::Receiver<String>) {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
@@ -899,6 +923,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
     // holding the registry read lock that long would block destroySession/
     // initSession write locks (RwLock writer starvation).
     let mut pending_exits: Vec<(u64, Arc<Mutex<Session>>)> = Vec::new();
+    let mut pending_clipboard_reads: Vec<(u64, String)> = Vec::new();
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
     {
         let registry = rlock_session_registry();
@@ -924,6 +949,14 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
                         session_id: active_id,
                         text,
                     });
+                }
+                // Check OSC 52 clipboard read request (`ESC ] 52 ; c ; ?`).
+                // Collect the selection here (inside the session lock); the
+                // one-shot slot + responder thread are set up after the
+                // registry/session locks are released (see below) so the
+                // lock order stays single-directional.
+                if let Some(selection) = session.poll_clipboard_read() {
+                    pending_clipboard_reads.push((active_id, selection));
                 }
                 // Check notification (OSC 9)
                 if let Some((title, body)) = session.poll_notification() {
@@ -983,6 +1016,36 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
         }
         // Registry read lock is released here.
     }
+    // Process pending OSC 52 clipboard read requests (outside the
+    // registry/session locks): register a one-shot answer slot, push the
+    // event, and spawn a short-lived responder thread that writes the
+    // host-app answer back to the PTY. The VT thread must never block on
+    // the host app, and clipboardResult may arrive on any thread.
+    for (session_id, selection) in pending_clipboard_reads {
+        let (request_id, rx) = register_request(session_id);
+        pending_events.push(Event::ClipboardRead {
+            session_id,
+            request_id,
+            selection: selection.clone(),
+        });
+        let registry = wlock_session_registry();
+        let session = registry.get(&session_id).map(|entry| entry.session.clone());
+        drop(registry);
+        if let Some(session) = session {
+            std::thread::spawn(move || {
+                let text = wait_for_clipboard_answer(rx);
+                let mut session = session.lock();
+                if let Err(error) = session.answer_clipboard_read(&selection, &text) {
+                    log::warn!("osc52: clipboard read answer write-back failed: {error}");
+                }
+            });
+        } else {
+            // Session vanished before the responder started; drop the
+            // one-shot slot so no Sender leaks in REQUEST_REGISTRY.
+            cancel_request(session_id, request_id);
+        }
+    }
+
     // Read exit codes AFTER the registry read lock is released: the
     // wait may take up to 100ms, and holding a read lock that long
     // would starve destroySession/initSession write locks (RwLock

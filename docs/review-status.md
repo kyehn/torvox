@@ -15,7 +15,7 @@ in `docs/architecture.md` and individual ADRs.
 
 ### Key Points
 
-- 1045 unit tests, 0 failing
+- 1071 unit tests, 0 failing
 - `cargo clippy -D warnings` — zero warnings
 - 13 JNI exports match `NativeBridge.kt` declarations
 - `CellData` fast path active (replaces `GridSnapshot` for rendering)
