@@ -12,6 +12,30 @@ use std::sync::Arc;
 
 use crate::render::GpuError;
 
+/// Android display wrapper: raw-window-handle's `AndroidDisplayHandle`
+/// does not implement `HasDisplayHandle` itself, but wgpu 30 requires a
+/// `WgpuHasDisplayHandle` object in `InstanceDescriptor::display` for
+/// later surface creation. This zero-sized type satisfies the trait by
+/// handing back the empty Android display handle.
+#[cfg(target_os = "android")]
+#[derive(Debug)]
+struct AndroidDisplay(raw_window_handle::AndroidDisplayHandle);
+
+#[cfg(target_os = "android")]
+impl raw_window_handle::HasDisplayHandle for AndroidDisplay {
+    fn display_handle(
+        &self,
+    ) -> Result<raw_window_handle::DisplayHandle<'_>, raw_window_handle::HandleError> {
+        // SAFETY: AndroidDisplayHandle is an empty (zero-field) marker;
+        // `borrow_raw`'s validity contract is trivially satisfied.
+        Ok(unsafe {
+            raw_window_handle::DisplayHandle::borrow_raw(
+                raw_window_handle::RawDisplayHandle::Android(self.0),
+            )
+        })
+    }
+}
+
 /// Create a wgpu [`Instance`], [`Adapter`], [`Device`], and [`Queue`].
 ///
 /// On Android this uses the Vulkan backend; on other platforms it uses
@@ -19,8 +43,14 @@ use crate::render::GpuError;
 /// validation.
 pub async fn initialize_wgpu()
 -> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue), GpuError> {
+    // Android: the emulator's software Vulkan (ranchu/gfxstream + SwiftShader)
+    // deadlocks on vkAcquireNextImageKHR's ANativeWindow dequeueBuffer
+    // (observed: -110 timeout every frame, both TextureView and SurfaceView).
+    // The GLES backend (EGL window surface) is the mature gfxstream path and
+    // renders correctly on both emulators and physical devices. Physical
+    // devices support both; prefer GL for consistency.
     #[cfg(target_os = "android")]
-    let backends = wgpu::Backends::VULKAN;
+    let backends = wgpu::Backends::GL;
     #[cfg(not(target_os = "android"))]
     let backends = wgpu::Backends::PRIMARY;
     #[cfg(debug_assertions)]
@@ -29,12 +59,26 @@ pub async fn initialize_wgpu()
         | wgpu::InstanceFlags::DISCARD_HAL_LABELS;
     #[cfg(not(debug_assertions))]
     let instance_flags = wgpu::InstanceFlags::DISCARD_HAL_LABELS;
+    // wgpu 30 requires a display handle at instance creation on Android:
+    // surface creation later (`create_surface_unsafe` with an
+    // AndroidNdkWindowHandle) fails with "No DisplayHandle is available"
+    // unless InstanceDescriptor::display carries AndroidDisplayHandle.
+    // wgpu 30 wants a HasDisplayHandle object at instance creation on
+    // Android: surface creation later fails with "No DisplayHandle is
+    // available" unless InstanceDescriptor::display is set.
+    #[cfg(target_os = "android")]
+    let display = Some(Box::new(AndroidDisplay(
+        raw_window_handle::AndroidDisplayHandle::new(),
+    ))
+        as Box<dyn wgpu_types::instance::WgpuHasDisplayHandle>);
+    #[cfg(not(target_os = "android"))]
+    let display: Option<Box<dyn wgpu_types::instance::WgpuHasDisplayHandle>> = None;
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends,
         flags: instance_flags,
         memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
         backend_options: wgpu::BackendOptions::default(),
-        display: None,
+        display,
     });
 
     #[cfg(not(target_os = "android"))]

@@ -142,6 +142,14 @@ constructor(
     @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
 ) {
+    // ADR-0007: surface handed over by TerminalSurface; attached once the
+    // session's Bridge exists (attach can only run after spawn).
+    @Volatile private var pendingSurface: android.view.Surface? = null
+
+    @Volatile private var pendingSurfaceWidth: Int = 0
+
+    @Volatile private var pendingSurfaceHeight: Int = 0
+
     /** Render-thread lifecycle supervision (C6). */
     val renderSupervisor = RenderSupervisor()
 
@@ -1373,6 +1381,13 @@ constructor(
         }
         // LogUtil.d already mirrors to LogcatFileWriter — no duplicate write.
         LogUtil.d("Runtime", "start() called: surface=$surface width=$width height=$height")
+        // ADR-0007: remember the surface handed in by startRuntime so the
+        // renderer can attach it once the session bridge exists.
+        if (surface != null) {
+            pendingSurface = surface
+            pendingSurfaceWidth = width
+            pendingSurfaceHeight = height
+        }
         if (!NativeBridge.isNativeLoaded()) {
             // Mirror createSession's guard. Without it, bridge.ping() throws
             // RuntimeException, the rollback's destroySession throws
@@ -1614,6 +1629,8 @@ constructor(
             // the real render thread. Instead, signal the render loop to produce the
             // first frame via forceRenderRequested, which will be picked up by the
             // real render thread once it starts.
+            // ADR-0007: attach the surface now that the bridge exists.
+            attachPendingSurface(bridge)
             startedEntry.forceRenderRequested = true
             // Start the render thread, publish the UI state, and start the
             // foreground service + monitor under ONE sessionLock critical
@@ -2019,11 +2036,9 @@ constructor(
             // previous session if the switch/spawn fails.
             previousActiveId = activeSessionId
             if (id == activeSessionId) return
-            // ADR-0007: surface integration deferred — no ANativeWindow
-            // pointer is consumed by the native side yet; setNativeWindow is
-            // a stub. Previously getNativeWindowPtr() (missing JNI symbol)
-            // aborted the switch here; the raw pointer is not needed until
-            // surface integration lands.
+            // ADR-0007: hand the Surface to the renderer (attachWindow JNI
+            // extracts the ANativeWindow inside Rust).
+            target.bridge?.attachSurface(surface, width, height)
             val windowPointer = 0L
 
             if (!surface.isValid) {
@@ -2531,6 +2546,26 @@ constructor(
         val bridge = sessions[activeSessionId]?.bridge ?: return
         bridge.recomputeGrid(width, height)
         syncGridDimensions(bridge)
+    }
+
+    /**
+     * Hand the Android Surface to the renderer (ADR-0007). If the session
+     * bridge does not exist yet (spawn in progress), the surface is kept
+     * pending and attached right after the session starts.
+     */
+    fun attachSurface(surface: android.view.Surface, width: Int, height: Int) {
+        pendingSurface = surface
+        pendingSurfaceWidth = width
+        pendingSurfaceHeight = height
+        val bridge = sessions[activeSessionId]?.bridge
+        if (bridge != null) {
+            bridge.attachSurface(surface, width, height)
+        }
+    }
+
+    private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
+        val surface = pendingSurface ?: return
+        bridge.attachSurface(surface, pendingSurfaceWidth, pendingSurfaceHeight)
     }
 
     fun updateNativeWindow(
