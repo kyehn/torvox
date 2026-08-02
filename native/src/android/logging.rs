@@ -14,10 +14,10 @@
 
 use core::ffi::c_char;
 use log::{Level, LevelFilter, Log, Metadata, Record};
+use parking_lot::Mutex;
 use std::ffi::CString;
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::sync::Mutex;
 
 // ── Android log priorities (from <android/log.h>) ──────────────────────
 
@@ -77,9 +77,8 @@ impl Log for AndroidLogger {
         }
 
         // Write to file if a log file was configured
-        if let Ok(mut guard) = self.log_file.lock()
-            && let Some(ref mut file) = *guard
-        {
+        let mut guard = self.log_file.lock();
+        if let Some(ref mut file) = *guard {
             let _ = writeln!(
                 file,
                 "D {} {}:{}: {}",
@@ -92,9 +91,8 @@ impl Log for AndroidLogger {
     }
 
     fn flush(&self) {
-        if let Ok(mut guard) = self.log_file.lock()
-            && let Some(ref mut file) = *guard
-        {
+        let mut guard = self.log_file.lock();
+        if let Some(ref mut file) = *guard {
             let _ = file.flush();
         }
     }
@@ -112,7 +110,27 @@ pub(crate) fn init() {
     INIT.call_once(|| {
         log::set_logger(&LOGGER).expect("Logger already set");
         log::set_max_level(LevelFilter::Debug);
+        install_panic_hook();
     });
+}
+
+/// Route panics from any Rust thread into the logging system (logcat +
+/// optional file) with a captured backtrace.
+///
+/// Without this hook a panic in a non-JNI thread — e.g. the PTY reader
+/// thread spawned in `session.rs`, which has no `catch_unwind` — prints
+/// to stderr only, which is invisible on Android: the thread dies
+/// silently and the crash site is lost. Kotlin's
+/// `Thread.setDefaultUncaughtExceptionHandler` does not cover Rust
+/// threads.
+///
+/// `Backtrace::force_capture()` works in release builds without
+/// `RUST_BACKTRACE` (Rust 1.65+).
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        let backtrace = std::backtrace::Backtrace::force_capture();
+        log::error!("panic: {info}\n{backtrace}");
+    }));
 }
 
 /// Open (or re-open) the file backing the log-file side of [`LOGGER`].
@@ -138,11 +156,7 @@ pub(crate) fn set_log_file_path(path: &str) {
                 .open("/dev/null")
                 .expect("cannot open /dev/null")
         });
-    if let Ok(mut guard) = LOGGER.log_file.lock() {
-        *guard = Some(file);
-    } else {
-        log::warn!("ffi_set_log_file_path: LOGGER.log_file lock poisoned");
-    }
+    *LOGGER.log_file.lock() = Some(file);
 }
 
 // ── JNI exports ─────────────────────────────────────────────────────────

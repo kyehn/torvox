@@ -8146,7 +8146,7 @@ fn bench_typing_latency() {
     let start = Instant::now();
     for _ in 0..n {
         for ks in &keystrokes {
-            t.vt_write(*ks);
+            t.vt_write(ks);
         }
         t.flush();
         let count = black_box(t.receive_cell_data().map(|(c, _)| c.len()).unwrap_or(0));
@@ -8357,7 +8357,8 @@ fn bench_end_to_end_cpu_pipeline_latency() {
             style: cursor_info.style,
             color: None,
         };
-        let instances = crate::render::build_instances_from_cell_data(
+        let mut instances = Vec::new();
+        crate::render::build_instances_from_cell_data(
             &cells,
             24,
             80,
@@ -8368,8 +8369,9 @@ fn bench_end_to_end_cpu_pipeline_latency() {
             None,
             None,
             &[],
+            &mut instances,
         );
-        let count = black_box(instances.map(|v| v.len()).unwrap_or(0));
+        let count = black_box(instances.len());
         black_box(count);
     }
     let elapsed = start.elapsed();

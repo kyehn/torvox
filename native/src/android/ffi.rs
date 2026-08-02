@@ -61,14 +61,14 @@
 // false positive with jni crate (new_string needs &mut self on some configs).
 #![allow(clippy::collapsible_if, unused_mut, clippy::type_complexity)]
 
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
 #[cfg(feature = "mcp")]
 use std::sync::atomic::Ordering;
-use std::sync::{LazyLock, Mutex, RwLock};
 
 use crate::event::Event;
-use crate::lock_util::lock_or_recover;
 use jni::JNIEnv;
 use jni::objects::{JClass, JString};
 use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring};
@@ -141,25 +141,14 @@ static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Lock SESSION_REGISTRY for reading, recovering from poison.
-fn rlock_session_registry() -> std::sync::RwLockReadGuard<'static, HashMap<u64, SessionEntry>> {
-    match SESSION_REGISTRY.read() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            log::warn!("SESSION_REGISTRY: read lock poisoned, recovered");
-            poisoned.into_inner()
-        }
-    }
+fn rlock_session_registry() -> parking_lot::RwLockReadGuard<'static, HashMap<u64, SessionEntry>> {
+    // parking_lot has no poisoning; panic safety is jni_export_guard's job.
+    SESSION_REGISTRY.read()
 }
 
 /// Lock SESSION_REGISTRY for writing, recovering from poison.
-fn wlock_session_registry() -> std::sync::RwLockWriteGuard<'static, HashMap<u64, SessionEntry>> {
-    match SESSION_REGISTRY.write() {
-        Ok(guard) => guard,
-        Err(poisoned) => {
-            log::warn!("SESSION_REGISTRY: write lock poisoned, recovered");
-            poisoned.into_inner()
-        }
-    }
+fn wlock_session_registry() -> parking_lot::RwLockWriteGuard<'static, HashMap<u64, SessionEntry>> {
+    SESSION_REGISTRY.write()
 }
 
 static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
@@ -225,8 +214,7 @@ pub(crate) fn push_event(event: Event) {
 pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::Receiver<String>) {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-    lock_or_recover(&REQUEST_REGISTRY, "ffi: register_request")
-        .insert((session_id, request_id), tx);
+    REQUEST_REGISTRY.lock().insert((session_id, request_id), tx);
     (request_id, rx)
 }
 
@@ -235,7 +223,7 @@ pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::R
 /// request cannot leak one oneshot Sender in REQUEST_REGISTRY per call.
 #[cfg(feature = "mcp")]
 pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
-    lock_or_recover(&REQUEST_REGISTRY, "ffi: cancel_request").remove(&(session_id, request_id));
+    REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
 }
 
 /// Current active session id (0 = none). Read helper for MCP event
@@ -568,20 +556,9 @@ fn switch_session_inner(_env: &mut JNIEnv, _class: JClass, session_id: jlong) ->
             // may still wait up to a pollEvent frame or a 50ms focus-event
             // query while the UI thread holds it, which is acceptable
             // (dims refresh is best-effort).
-            match guard[&id].session.lock() {
-                Ok(session_guard) => {
-                    let (rows, cols) = session_guard.grid_size();
-                    mcp.set_terminal_dims(rows, cols);
-                }
-                Err(poisoned) => {
-                    log::error!("switchSession: session lock poisoned for session {id}");
-                    // Recover and still refresh dims (best-effort, same as
-                    // the pollEvent sweep branch): a stale terminal_info
-                    // would mislead MCP agents about the grid size.
-                    let (rows, cols) = poisoned.into_inner().grid_size();
-                    mcp.set_terminal_dims(rows, cols);
-                }
-            }
+            let session_guard = guard[&id].session.lock();
+            let (rows, cols) = session_guard.grid_size();
+            mcp.set_terminal_dims(rows, cols);
         }
     }
     JNI_TRUE
@@ -630,62 +607,53 @@ fn resize_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, rows: jint,
     let id = session_id as u64;
     let registry = rlock_session_registry();
     if let Some(entry) = registry.get(&id) {
-        match entry.session.lock() {
-            Ok(mut session) => {
-                let rows = match u32::try_from(rows) {
-                    Ok(r) => r,
-                    Err(_) => {
-                        let _ = env.throw_new(
-                            "java/lang/IllegalArgumentException",
-                            "resize: rows must be non-negative",
-                        );
-                        return;
-                    }
-                };
-                let cols = match u32::try_from(cols) {
-                    Ok(c) => c,
-                    Err(_) => {
-                        let _ = env.throw_new(
-                            "java/lang/IllegalArgumentException",
-                            "resize: cols must be non-negative",
-                        );
-                        return;
-                    }
-                };
-                match session.resize(rows, cols) {
-                    Err(e) => {
-                        if let Err(e) = env
-                            .throw_new("java/lang/RuntimeException", format!("resize: failed: {e}"))
-                        {
-                            log::error!("resize: throw_new failed: {e}");
-                        }
-                    }
-                    Ok(outcome) => {
-                        // Only the ACTIVE session's size is reflected in the
-                        // global MCP dims: background sessions may
-                        // legitimately have a different grid (e.g. deferred
-                        // resize), and terminal_info must report the visible
-                        // one. When the grid command was dropped the PTY and
-                        // grid disagree, so the dims stay at the cached (old)
-                        // values — publishing the new ones would make MCP
-                        // dims flip-flop between resize and switch paths
-                        // (round-113).
-                        if matches!(outcome, crate::terminal::session::ResizeOutcome::Applied)
-                            && id == ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire)
-                        {
-                            #[cfg(feature = "mcp")]
-                            crate::mcp::global_state().set_terminal_dims(rows, cols);
-                        }
-                    }
+        let mut session = entry.session.lock();
+        let rows = match u32::try_from(rows) {
+            Ok(r) => r,
+            Err(_) => {
+                let _ = env.throw_new(
+                    "java/lang/IllegalArgumentException",
+                    "resize: rows must be non-negative",
+                );
+                return;
+            }
+        };
+        let cols = match u32::try_from(cols) {
+            Ok(c) => c,
+            Err(_) => {
+                let _ = env.throw_new(
+                    "java/lang/IllegalArgumentException",
+                    "resize: cols must be non-negative",
+                );
+                return;
+            }
+        };
+        match session.resize(rows, cols) {
+            Err(e) => {
+                if let Err(e) =
+                    env.throw_new("java/lang/RuntimeException", format!("resize: failed: {e}"))
+                {
+                    log::error!("resize: throw_new failed: {e}");
                 }
             }
-            Err(_poisoned) => {
-                let msg = "resize: session lock poisoned";
-                log::error!("{msg}");
-                let _ = env.throw_new("java/lang/RuntimeException", msg);
+            Ok(outcome) => {
+                // Only the ACTIVE session's size is reflected in the
+                // global MCP dims: background sessions may
+                // legitimately have a different grid (e.g. deferred
+                // resize), and terminal_info must report the visible
+                // one. When the grid command was dropped the PTY and
+                // grid disagree, so the dims stay at the cached (old)
+                // values — publishing the new ones would make MCP
+                // dims flip-flop between resize and switch paths
+                // (round-113).
+                if matches!(outcome, crate::terminal::session::ResizeOutcome::Applied)
+                    && id == ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire)
+                {
+                    #[cfg(feature = "mcp")]
+                    crate::mcp::global_state().set_terminal_dims(rows, cols);
+                }
             }
         }
-        return;
     }
     let _ = env.throw_new("java/lang/RuntimeException", "resize: session not found");
 }
@@ -707,7 +675,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_focusEvent(
 }
 
 fn focus_event_inner(
-    env: &mut JNIEnv,
+    _env: &mut JNIEnv,
     _class: JClass,
     session_id: jlong,
     focused: jboolean,
@@ -715,23 +683,9 @@ fn focus_event_inner(
     let id = session_id as u64;
     let registry = rlock_session_registry();
     if let Some(entry) = registry.get(&id) {
-        match entry.session.lock() {
-            Ok(mut session) => {
-                session.focus_event(focused == JNI_TRUE);
-                return JNI_TRUE;
-            }
-            Err(_poisoned) => {
-                // Same policy as resize/feedPty (round-98): a poisoned
-                // session lock means a panic happened inside the VT thread;
-                // silence would mask the crash — throw and let Kotlin log it.
-                log::error!("focusEvent: session lock poisoned for session {id}");
-                let _ = env.throw_new(
-                    "java/lang/RuntimeException",
-                    format!("focusEvent: session lock poisoned for session {id}"),
-                );
-                return JNI_FALSE;
-            }
-        }
+        let mut session = entry.session.lock();
+        session.focus_event(focused == JNI_TRUE);
+        return JNI_TRUE;
     }
     JNI_FALSE
 }
@@ -788,34 +742,23 @@ fn feed_pty_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, data: jby
 
     let registry = rlock_session_registry();
     if let Some(entry) = registry.get(&id) {
-        match entry.session.lock() {
-            Ok(mut session) => {
-                if let Err(e) = session.write(&input) {
-                    // The master fd is O_NONBLOCK (set in Session::spawn): a
-                    // full PTY buffer (child not reading) surfaces as EAGAIN.
-                    // Dropping the input matches xterm behaviour; surfacing it
-                    // as an error would spam the log on every keystroke of a
-                    // huge paste.
-                    if e.is_would_block() {
-                        return;
-                    }
-                    if let Err(e) = env.throw_new(
-                        "java/lang/RuntimeException",
-                        format!("feedPty: write failed: {e}"),
-                    ) {
-                        log::error!("feedPty: throw_new failed: {e}");
-                    }
-                }
+        let mut session = entry.session.lock();
+        if let Err(e) = session.write(&input) {
+            // The master fd is O_NONBLOCK (set in Session::spawn): a
+            // full PTY buffer (child not reading) surfaces as EAGAIN.
+            // Dropping the input matches xterm behaviour; surfacing it
+            // as an error would spam the log on every keystroke of a
+            // huge paste.
+            if e.is_would_block() {
                 return;
             }
-            Err(_poisoned) => {
-                let msg = "feedPty: session lock poisoned";
-                log::error!("{msg}");
-                if let Err(e) = env.throw_new("java/lang/RuntimeException", msg) {
-                    log::error!("feedPty: throw_new failed: {e}");
-                }
-                return;
+            if let Err(e) = env.throw_new(
+                "java/lang/RuntimeException",
+                format!("feedPty: write failed: {e}"),
+            ) {
+                log::error!("feedPty: throw_new failed: {e}");
             }
+            return;
         }
     }
     let _ = env.throw_new("java/lang/RuntimeException", "feedPty: session not found");
@@ -865,45 +808,37 @@ fn write_key_inner(
 
     let registry = rlock_session_registry();
     if let Some(entry) = registry.get(&id) {
-        match entry.session.lock() {
-            Ok(mut session) => {
-                let result = if has_text {
-                    match env.get_string(&text) {
-                        Ok(t) => session.write(t.to_bytes()),
-                        Err(_) => {
-                            let _ = env.throw_new(
-                                "java/lang/RuntimeException",
-                                "writeKey: failed to read text string",
-                            );
-                            return;
-                        }
-                    }
-                } else {
-                    // Encode modifiers into the key byte sequence.
-                    // This is a basic encoder; the modern Ghostty key
-                    // encoder path (internal.rs key::Encoder + key::Event)
-                    // should be used for full Kitty keyboard protocol support.
-                    let bytes = encode_modifiers(key_str.as_bytes(), mods);
-                    session.write(&bytes)
-                };
-                if let Err(e) = result {
-                    // EAGAIN (full PTY buffer) drops the input silently —
-                    // same rationale as feedPty.
-                    if e.is_would_block() {
-                        return;
-                    }
-                    if let Err(e) = env.throw_new(
+        let mut session = entry.session.lock();
+        let result = if has_text {
+            match env.get_string(&text) {
+                Ok(t) => session.write(t.to_bytes()),
+                Err(_) => {
+                    let _ = env.throw_new(
                         "java/lang/RuntimeException",
-                        format!("writeKey: write failed: {e}"),
-                    ) {
-                        log::error!("writeKey: throw_new failed: {e}");
-                    }
+                        "writeKey: failed to read text string",
+                    );
+                    return;
                 }
             }
-            Err(_poisoned) => {
-                let msg = "writeKey: session lock poisoned";
-                log::error!("{msg}");
-                let _ = env.throw_new("java/lang/RuntimeException", msg);
+        } else {
+            // Encode modifiers into the key byte sequence.
+            // This is a basic encoder; the modern Ghostty key
+            // encoder path (internal.rs key::Encoder + key::Event)
+            // should be used for full Kitty keyboard protocol support.
+            let bytes = encode_modifiers(key_str.as_bytes(), mods);
+            session.write(&bytes)
+        };
+        if let Err(e) = result {
+            // EAGAIN (full PTY buffer) drops the input silently —
+            // same rationale as feedPty.
+            if e.is_would_block() {
+                return;
+            }
+            if let Err(e) = env.throw_new(
+                "java/lang/RuntimeException",
+                format!("writeKey: write failed: {e}"),
+            ) {
+                log::error!("writeKey: throw_new failed: {e}");
             }
         }
         return;
@@ -941,7 +876,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pollEvent<'loc
 fn wait_exit_code(session: &Arc<Mutex<Session>>) -> i32 {
     for _ in 0..10 {
         {
-            let guard = lock_or_recover(session.as_ref(), "ffi: wait_exit_code");
+            let guard = session.as_ref().lock();
             if let Some(code) = guard.exit_code_now() {
                 return code;
             }
@@ -969,17 +904,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
         let registry = rlock_session_registry();
         if active_id != 0 {
             if let Some(entry) = registry.get(&active_id) {
-                let mut session = match entry.session.lock() {
-                    Ok(guard) => guard,
-                    Err(_poisoned) => {
-                        log::error!("pollEvent: session lock poisoned for session {active_id}");
-                        let _ = env.throw_new(
-                            "java/lang/RuntimeException",
-                            "pollEvent: session lock poisoned",
-                        );
-                        return std::ptr::null_mut();
-                    }
-                };
+                let mut session = entry.session.lock();
                 // Process VT output from the PTY reader thread. This is the
                 // critical path that drives all terminal state updates: it
                 // reads from the output_rx channel, feeds data into Ghostty's
@@ -1029,13 +954,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
             if active_id != 0 && *id == active_id {
                 continue;
             }
-            let mut session = match entry.session.lock() {
-                Ok(guard) => guard,
-                Err(poisoned) => {
-                    log::error!("pollEvent: sweep session lock poisoned for session {id}");
-                    poisoned.into_inner()
-                }
-            };
+            let mut session = entry.session.lock();
             // 2 chunks per frame per background session: enough to keep
             // the reader thread unblocked under sustained output.
             session.poll_pty_output(BACKGROUND_CHUNKS_PER_FRAME);
@@ -1326,13 +1245,13 @@ fn set_mcp_enabled_inner(_env: &mut JNIEnv, _class: JClass, enabled: jboolean) {
                 // registry read in this file (round-99).
                 let guard = rlock_session_registry();
                 match guard.get(&session_id) {
-                    Some(entry) => match entry.session.lock() {
-                        Ok(session) => match session.send_signal(signum) {
+                    Some(entry) => {
+                        let session = entry.session.lock();
+                        match session.send_signal(signum) {
                             Ok(()) => format!("Signal {signum} sent to session {session_id}"),
                             Err(e) => format!("send_signal failed: {e}"),
-                        },
-                        Err(e) => format!("Session lock poisoned: {e}"),
-                    },
+                        }
+                    }
                     None => format!("Session {session_id} not found"),
                 }
             });
@@ -1408,9 +1327,7 @@ fn clipboard_result_inner<'local>(
     let session_id = session_id as u64;
     let request_id = request_id as u64;
 
-    if let Some(tx) =
-        lock_or_recover(&REQUEST_REGISTRY, "ffi: clipboardResult").remove(&(session_id, request_id))
-    {
+    if let Some(tx) = REQUEST_REGISTRY.lock().remove(&(session_id, request_id)) {
         let text_str: String = env.get_string(&text).map(|s| s.into()).unwrap_or_default();
         let _ = tx.send(text_str);
     }
@@ -1448,9 +1365,7 @@ fn dialog_result_inner<'local>(
     let request_id = request_id as u64;
 
     // Look up the pending request sender and send the result
-    if let Some(tx) =
-        lock_or_recover(&REQUEST_REGISTRY, "ffi: dialogResult").remove(&(session_id, request_id))
-    {
+    if let Some(tx) = REQUEST_REGISTRY.lock().remove(&(session_id, request_id)) {
         let result_str: String = env
             .get_string(&result)
             .map(|s| s.into())

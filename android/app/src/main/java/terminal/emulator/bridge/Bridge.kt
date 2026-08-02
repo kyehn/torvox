@@ -314,7 +314,7 @@ class Bridge(private val config: TerminalConfig) {
             val json = NativeBridge.pollEvent() ?: break
             val parsed =
                 try {
-                    parseEvent(org.json.JSONObject(json))
+                    parseEvent(json)
                 } catch (e: Exception) {
                     Log.w(TAG, "pollAll: bad JSON: ${e.message}")
                     continue
@@ -329,77 +329,75 @@ class Bridge(private val config: TerminalConfig) {
         return result
     }
 
-    private fun parseEvent(obj: org.json.JSONObject): PollResult {
-        val eventType = obj.optString("event", "")
-        return PollResult(
-            bel = eventType == "bell",
-            notification =
-            if (eventType == "notification") {
-                Pair(obj.optString("title", ""), obj.optString("body", ""))
-            } else {
-                null
-            },
-            clipboard =
-            if (eventType == "clipboard") obj.optString("text", "") else null,
-            exit = eventType == "exit",
-            exitCode = if (eventType == "exit") obj.optInt("code", 0) else 0,
-            sessionId = obj.optLong("session_id", 0L),
-            exits =
-            if (eventType == "exit") {
+    private fun parseEvent(json: String): PollResult = when (val event = pollEventJson.decodeFromString<PollEvent>(json)) {
+        is PollEvent.Bell ->
+            PollResult(bel = true, sessionId = event.sessionId)
+
+        is PollEvent.Notification ->
+            PollResult(
+                notification = event.title to event.body,
+                sessionId = event.sessionId,
+            )
+
+        is PollEvent.Clipboard ->
+            PollResult(clipboard = event.text.ifEmpty { null }, sessionId = event.sessionId)
+
+        is PollEvent.Exit ->
+            PollResult(
+                exit = true,
+                exitCode = event.code,
+                sessionId = event.sessionId,
+                exits =
                 listOf(
                     ExitInfo(
-                        sessionId = obj.optLong("session_id", 0L),
-                        exitCode = obj.optInt("code", 0),
+                        sessionId = event.sessionId,
+                        exitCode = event.code,
                     ),
-                )
-            } else {
-                emptyList()
-            },
-            dialogs =
-            if (eventType == "show_dialog") {
+                ),
+            )
+
+        is PollEvent.ShowDialog ->
+            PollResult(
+                dialogs =
                 listOf(
                     DialogRequest(
-                        sessionId = obj.optLong("session_id", 0L),
-                        requestId = obj.optLong("request_id", 0L),
-                        dialogType = obj.optString("dialog_type", ""),
-                        title = obj.optString("title", ""),
-                        message = obj.optString("message", ""),
-                        options =
-                        obj.optJSONArray("options")?.let { arr ->
-                            (0 until arr.length()).map { arr.optString(it) }
-                        } ?: emptyList(),
+                        sessionId = event.sessionId,
+                        requestId = event.requestId,
+                        dialogType = event.dialogType,
+                        title = event.title,
+                        message = event.message,
+                        options = event.options,
                     ),
-                )
-            } else {
-                emptyList()
-            },
-            pickFiles =
-            if (eventType == "pick_file") {
+                ),
+            )
+
+        is PollEvent.PickFile ->
+            PollResult(
+                pickFiles =
                 listOf(
                     PickFileRequest(
-                        sessionId = obj.optLong("session_id", 0L),
-                        requestId = obj.optLong("request_id", 0L),
-                        startingPath = obj.optString("starting_path", ""),
-                        filter = obj.optString("filter", ""),
+                        sessionId = event.sessionId,
+                        requestId = event.requestId,
+                        startingPath = event.startingPath,
+                        filter = event.filter,
                     ),
-                )
-            } else {
-                emptyList()
-            },
-            toastText = if (eventType == "toast") obj.optString("text", "") else null,
-            openUrl = if (eventType == "open_url") obj.optString("url", "") else null,
-            clipboardGets =
-            if (eventType == "get_clipboard") {
+                ),
+            )
+
+        is PollEvent.GetClipboard ->
+            PollResult(
+                clipboardGets =
                 listOf(
                     ClipboardRequest(
-                        sessionId = obj.optLong("session_id", 0L),
-                        requestId = obj.optLong("request_id", 0L),
+                        sessionId = event.sessionId,
+                        requestId = event.requestId,
                     ),
-                )
-            } else {
-                emptyList()
-            },
-        )
+                ),
+            )
+
+        is PollEvent.Toast -> PollResult(toastText = event.text)
+
+        is PollEvent.OpenUrl -> PollResult(openUrl = event.url)
     }
 
     // ── Theme / appearance ────────────────────────────────────────────

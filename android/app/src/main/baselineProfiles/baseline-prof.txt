@@ -1,0 +1,36 @@
+# Baseline Profile — hand-written rules covering the cold-start path.
+# Generated profiles (from the :baselineprofile module) can be merged
+# into this file later; these rules cover the app class + first frame.
+
+# Application + entry points
+Lterminal/emulator/TerminalApp;
+Lterminal/emulator/MainActivity;
+Lterminal/emulator/TerminalViewModel;
+Lterminal/emulator/runtime/TerminalRuntime;
+Lterminal/emulator/runtime/SessionEntry;
+
+# Hilt/Dagger generated components (startup cost)
+Lterminal/emulator/TerminalApp_HiltComponents;
+Ldagger/hilt/android/internal/;
+
+# Compose runtime + UI framework (first frame)
+Landroidx/compose/runtime/;
+Landroidx/compose/ui/;
+Landroidx/compose/foundation/;
+Landroidx/compose/material3/;
+Landroidx/compose/animation/;
+
+# Lifecycle + ViewModel
+Landroidx/lifecycle/;
+Landroidx/activity/ComponentActivity;
+Landroidx/activity/compose/;
+
+# Coroutines (used by ViewModel init)
+Lkotlinx/coroutines/;
+
+# OkHttp (bootstrap download check on startup)
+Lokhttp3/OkHttpClient;
+
+# Native bridge
+Lterminal/emulator/bridge/NativeBridge;
+Lterminal/emulator/bridge/Bridge;

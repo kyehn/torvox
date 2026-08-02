@@ -4,8 +4,8 @@
 //! is the central rendezvous point: terminal/MCP push events into it,
 //! Kotlin `pollEvent()` drains them in FIFO order.
 
+use parking_lot::Mutex;
 use std::collections::VecDeque;
-use std::sync::Mutex;
 use std::time::Instant;
 
 /// Maximum number of events buffered before the oldest are dropped.
@@ -126,53 +126,31 @@ impl EventQueue {
     /// un-reaped exits — practically unreachable (Kotlin reaps within a
     /// frame), but the invariant is deliberate.
     pub fn push(&self, event: Event) {
-        match self.inner.lock() {
-            Ok(mut guard) => {
-                if guard.len() >= MAX_QUEUED_EVENTS {
-                    self.warn_overflow_once();
-                    let evict_idx = guard.iter().position(|e| !matches!(e, Event::Exit { .. }));
-                    match evict_idx {
-                        Some(idx) => {
-                            guard.remove(idx);
-                        }
-                        None => {
-                            // Queue holds only Exit events: evicting one
-                            // would strand that session forever (its
-                            // exit_reported flag is already set), so drop
-                            // the NEW event instead.
-                            return;
-                        }
-                    }
+        // parking_lot Mutex has no poisoning, so no recovery branch.
+        let mut guard = self.inner.lock();
+        if guard.len() >= MAX_QUEUED_EVENTS {
+            self.warn_overflow_once();
+            let evict_idx = guard.iter().position(|e| !matches!(e, Event::Exit { .. }));
+            match evict_idx {
+                Some(idx) => {
+                    guard.remove(idx);
                 }
-                guard.push_back(event);
-            }
-            Err(poisoned) => {
-                log::warn!("EventQueue: push lock poisoned, recovered");
-                let mut guard = poisoned.into_inner();
-                if guard.len() >= MAX_QUEUED_EVENTS {
-                    self.warn_overflow_once();
-                    let evict_idx = guard.iter().position(|e| !matches!(e, Event::Exit { .. }));
-                    match evict_idx {
-                        Some(idx) => {
-                            guard.remove(idx);
-                        }
-                        None => {
-                            return;
-                        }
-                    }
+                None => {
+                    // Queue holds only Exit events: evicting one
+                    // would strand that session forever (its
+                    // exit_reported flag is already set), so drop
+                    // the NEW event instead.
+                    return;
                 }
-                guard.push_back(event);
             }
         }
+        guard.push_back(event);
     }
 
     /// Log the queue-overflow warning at most once per second.
     fn warn_overflow_once(&self) {
         let now = Instant::now();
-        let mut last = match self.last_overflow_warn.lock() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
-        };
+        let mut last = self.last_overflow_warn.lock();
         if last.is_none_or(|t| now.duration_since(t) >= OVERFLOW_WARN_INTERVAL) {
             log::warn!("EventQueue: dropping oldest event (queue full at {MAX_QUEUED_EVENTS})");
             *last = Some(now);
@@ -181,13 +159,7 @@ impl EventQueue {
 
     /// Pop the oldest event from the front of the queue (FIFO).
     pub fn pop(&self) -> Option<Event> {
-        match self.inner.lock() {
-            Ok(mut guard) => guard.pop_front(),
-            Err(poisoned) => {
-                log::warn!("EventQueue: pop lock poisoned, recovered");
-                poisoned.into_inner().pop_front()
-            }
-        }
+        self.inner.lock().pop_front()
     }
 }
 

@@ -5,8 +5,8 @@ import android.os.Looper
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -138,7 +138,7 @@ class AnrWatchDog(
             }
 
             val timestamp =
-                SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+                DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.US).format(LocalDateTime.now())
             val logFile = File(logDir, "anr_$timestamp.log")
             logDir.mkdirs()
 

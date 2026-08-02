@@ -4,7 +4,8 @@
 //!
 //! # Requirements
 //! - FR-050 — surface lifecycle: attach/detach recreates the wgpu surface and render pipeline
-use std::sync::{Mutex, OnceLock};
+use parking_lot::Mutex;
+use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
 use crate::render::pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
@@ -91,6 +92,9 @@ pub struct Renderer {
     pub(crate) cell_bind_group: Option<wgpu::BindGroup>,
     pub(crate) cell_uniform_buffer: Option<wgpu::Buffer>,
     pub(crate) instance_buffer: Option<wgpu::Buffer>,
+    /// CPU-side instance buffer reused across frames (avoids a ~100KB
+    /// allocation per frame; see build_instances_from_cell_data).
+    pub(crate) cpu_instances: Vec<crate::render::CellInstance>,
     pub(crate) atlas_texture: Option<wgpu::Texture>,
     pub(crate) atlas_view: Option<wgpu::TextureView>,
     pub(crate) atlas_sampler: Option<wgpu::Sampler>,
@@ -264,6 +268,7 @@ impl Renderer {
             cell_bind_group: None,
             cell_uniform_buffer: None,
             instance_buffer: None,
+            cpu_instances: Vec::new(),
             atlas_texture: None,
             atlas_view: None,
             atlas_sampler: None,
@@ -650,7 +655,7 @@ type CachedSurface = (
     wgpu::SurfaceConfiguration,
 );
 
-pub(crate) static GLOBAL_SURFACE: std::sync::OnceLock<std::sync::Mutex<Option<CachedSurface>>> =
+pub(crate) static GLOBAL_SURFACE: OnceLock<parking_lot::Mutex<Option<CachedSurface>>> =
     std::sync::OnceLock::new();
 
 impl Renderer {
@@ -676,7 +681,7 @@ impl Renderer {
                 .expect("surface confirmed Some by is_some guard");
             let config = self.surface_config.take();
             if let Some(config) = config
-                && let Ok(mut guard) = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock()
+                && let mut guard = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock()
             {
                 *guard = Some((surface, config));
             }
@@ -688,7 +693,8 @@ impl Renderer {
     }
 
     pub fn clear_global_surface() {
-        if let Ok(mut guard) = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock() {
+        let mut guard = GLOBAL_SURFACE.get_or_init(|| Mutex::new(None)).lock();
+        {
             *guard = None;
         }
     }

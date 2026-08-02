@@ -313,6 +313,13 @@ impl OscHandler {
         }
     }
 
+    /// Test-only entry point for proptest: dispatches an OSC 52 payload
+    /// directly (bypasses the sequence parser). See `prop_tests.rs`.
+    #[cfg(test)]
+    pub fn dispatch_osc52_for_test(&self, payload: &str) -> Option<OscEvent> {
+        self.dispatch_osc52(payload)
+    }
+
     fn dispatch_osc52(&self, payload: &str) -> Option<OscEvent> {
         let semi = payload.find(';')?;
         let base64_data = &payload[semi + 1..];

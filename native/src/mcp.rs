@@ -75,14 +75,14 @@
 //! mcp::run_stdio(state).await?;
 //! ```
 
+use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::json;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use crate::lock_util::lock_or_recover;
 use tower_mcp::{
     CallToolResult, McpRouter, StdioTransport, Tool, ToolBuilder, UnixSocketTransport,
     schemars::JsonSchema,
@@ -189,15 +189,15 @@ impl McpState {
     }
 
     pub fn set_notify_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
-        *lock_or_recover(&self.0.on_notify, "mcp: set_notify") = Some(Box::new(f));
+        *self.0.on_notify.lock() = Some(Box::new(f));
     }
 
     pub fn set_toast_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
-        *lock_or_recover(&self.0.on_toast, "mcp: set_toast") = Some(Box::new(f));
+        *self.0.on_toast.lock() = Some(Box::new(f));
     }
 
     pub fn set_open_url_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
-        *lock_or_recover(&self.0.on_open_url, "mcp: set_open_url") = Some(Box::new(f));
+        *self.0.on_open_url.lock() = Some(Box::new(f));
     }
 
     pub fn set_clipboard_get_handler<
@@ -206,11 +206,11 @@ impl McpState {
         &self,
         f: F,
     ) {
-        *lock_or_recover(&self.0.on_clipboard_get, "mcp: set_clipboard_get") = Some(Box::new(f));
+        *self.0.on_clipboard_get.lock() = Some(Box::new(f));
     }
 
     pub fn set_clipboard_set_handler<F: Fn(String) + Send + 'static>(&self, f: F) {
-        *lock_or_recover(&self.0.on_clipboard_set, "mcp: set_clipboard_set") = Some(Box::new(f));
+        *self.0.on_clipboard_set.lock() = Some(Box::new(f));
     }
 
     /// Set a handler for showing dialogs. Called from the MCP `dialog` tool.
@@ -229,7 +229,7 @@ impl McpState {
             + Sync
             + 'static,
     {
-        *lock_or_recover(&self.0.on_show_dialog, "mcp: set_dialog") = Some(Box::new(f));
+        *self.0.on_show_dialog.lock() = Some(Box::new(f));
     }
 
     /// Set a handler for file picking. Called from the MCP `pick_file` tool.
@@ -241,14 +241,14 @@ impl McpState {
             + Sync
             + 'static,
     {
-        *lock_or_recover(&self.0.on_pick_file, "mcp: set_pick_file") = Some(Box::new(f));
+        *self.0.on_pick_file.lock() = Some(Box::new(f));
     }
 
     pub fn set_send_signal_handler<F>(&self, f: F)
     where
         F: Fn(u64, i32) -> String + Send + Sync + 'static,
     {
-        *lock_or_recover(&self.0.on_send_signal, "mcp: set_send_signal") = Some(Box::new(f));
+        *self.0.on_send_signal.lock() = Some(Box::new(f));
     }
 }
 
@@ -327,8 +327,7 @@ fn clipboard_get_tool() -> Tool {
         .no_params_handler(|| async move {
             let (session_id, pending) = {
                 let state = global_state();
-                let guard =
-                    lock_or_recover(&state.0.on_clipboard_get, "mcp: clipboard_get_handler");
+                let guard = state.0.on_clipboard_get.lock();
                 let session_id = state.0.active_session_id.load(Ordering::Acquire);
                 (session_id, guard.as_ref().map(|f| f()))
             }; // guard dropped before await
@@ -361,7 +360,7 @@ fn clipboard_set_tool() -> Tool {
         .description("Write text to the system clipboard")
         .handler(|input: ClipboardSetInput| async move {
             let state = global_state();
-            let guard = lock_or_recover(&state.0.on_clipboard_set, "mcp: clipboard_set_handler");
+            let guard = state.0.on_clipboard_set.lock();
             match guard.as_ref() {
                 Some(f) => {
                     f(input.text);
@@ -379,7 +378,7 @@ fn notify_tool() -> Tool {
         .description("Show a system notification with title and body")
         .handler(|input: NotifyInput| async move {
             let state = global_state();
-            let guard = lock_or_recover(&state.0.on_notify, "mcp: notify_handler");
+            let guard = state.0.on_notify.lock();
             match guard.as_ref() {
                 Some(f) => {
                     let msg = if input.body.is_empty() {
@@ -402,7 +401,7 @@ fn toast_tool() -> Tool {
         .description("Show a brief toast message on screen")
         .handler(|input: ToastInput| async move {
             let state = global_state();
-            let guard = lock_or_recover(&state.0.on_toast, "mcp: toast_handler");
+            let guard = state.0.on_toast.lock();
             match guard.as_ref() {
                 Some(f) => {
                     f(input.text);
@@ -420,7 +419,7 @@ fn open_url_tool() -> Tool {
         .description("Open a URL in the default browser")
         .handler(|input: OpenUrlInput| async move {
             let state = global_state();
-            let guard = lock_or_recover(&state.0.on_open_url, "mcp: open_url_handler");
+            let guard = state.0.on_open_url.lock();
             match guard.as_ref() {
                 Some(f) => {
                     f(input.url);
@@ -445,7 +444,7 @@ fn send_signal_tool() -> Tool {
         // reads of the other tools.
         .handler(|input: SendSignalInput| async move {
             let state = global_state();
-            let guard = lock_or_recover(&state.0.on_send_signal, "mcp: send_signal_handler");
+            let guard = state.0.on_send_signal.lock();
             match guard.as_ref() {
                 Some(f) => {
                     let session_id = state.0.active_session_id.load(Ordering::Acquire);
@@ -475,7 +474,7 @@ fn pick_file_tool() -> Tool {
         .handler(|input: PickFileInput| async move {
             let (session_id, rx) = {
                 let state = global_state();
-                let guard = lock_or_recover(&state.0.on_pick_file, "mcp: pick_file_handler");
+                let guard = state.0.on_pick_file.lock();
                 let session_id = state.0.active_session_id.load(Ordering::Acquire);
                 (
                     session_id,
@@ -522,7 +521,7 @@ fn dialog_tool() -> Tool {
         .handler(|input: DialogInput| async move {
             let (session_id, rx) = {
                 let state = global_state();
-                let guard = lock_or_recover(&state.0.on_show_dialog, "mcp: dialog_handler");
+                let guard = state.0.on_show_dialog.lock();
                 let session_id = state.0.active_session_id.load(Ordering::Acquire);
                 (
                     session_id,
@@ -591,13 +590,7 @@ fn socket_path() -> String {
 pub fn start() {
     // Check both is_enabled AND MCP_THREAD under a single lock acquisition
     // to prevent TOCTOU between the two checks.
-    let mut guard = match MCP_THREAD.lock() {
-        Ok(g) => g,
-        Err(poisoned) => {
-            log::error!("MCP_THREAD lock poisoned in start()");
-            poisoned.into_inner()
-        }
-    };
+    let mut guard = MCP_THREAD.lock();
     if guard.is_some() {
         log::info!("MCP server already running");
         return;
@@ -667,13 +660,7 @@ pub fn start() {
 pub fn stop() {
     // Take the handle OUT of the lock, then drop the lock immediately
     // so the timeout loop is NOT called while holding MCP_THREAD.
-    let handle = match MCP_THREAD.lock() {
-        Ok(mut guard) => guard.take(),
-        Err(poisoned) => {
-            log::error!("MCP_THREAD lock poisoned in stop()");
-            poisoned.into_inner().take()
-        }
-    };
+    let handle = MCP_THREAD.lock().take();
     // guard dropped here — lock released before join/sleep
 
     let Some(handle) = handle else {

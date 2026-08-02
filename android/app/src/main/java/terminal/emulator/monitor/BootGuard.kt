@@ -4,8 +4,8 @@ import android.os.Process
 import android.util.Log
 import java.io.File
 import java.io.FileOutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -91,7 +91,7 @@ class BootGuard(
 
             try {
                 logDir.mkdirs()
-                val timestamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+                val timestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.US).format(LocalDateTime.now())
                 val logFile = File(logDir, "fatal_$timestamp.log")
                 val content =
                     buildString {
