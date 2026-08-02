@@ -8,6 +8,7 @@ import android.view.inputmethod.InputMethodManager
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
 import io.cucumber.java.en.Given
@@ -88,13 +89,12 @@ constructor(
 
     @When("^the user triggers copy$")
     fun userTriggersCopy() {
-        composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
-            val surface = findTerminalSurface(activity) as TerminalSurface
-            val text = surface.getSelectedText()
-            val context = InstrumentationRegistry.getInstrumentation().targetContext
-            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("terminal", text))
-        }
+        // Route through the selection menu's Copy item, which calls
+        // viewModel.copySelectionToClipboard() (the TerminalSurface
+        // getSelectedText accessor was removed with the ADR-0007 stubs).
+        composeRuleHolder.composeRule
+            .onNodeWithText("Copy", useUnmergedTree = true)
+            .performClick()
     }
 
     @Then("^a selection handle appears$")

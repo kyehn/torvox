@@ -13,6 +13,14 @@ cargo test --features test-util -- bench  # Run all benchmarks
 Benchmarks use `#[bench]` gates and run in debug profile by default. Release
 profile yields ~5-50× improvement on CPU-bound paths.
 
+**Threshold tiers**: benchmark threshold assertions are two-tiered.
+Local (non-`CI`) runs assert strict thresholds (typing < 3 ms/keystroke,
+bulk > 8k cells/s, scroll > 800/500 snaps/s) and fail on real regressions.
+CI runs (parallel test load + software Vulkan contention) keep an
+anti-flake floor ~5× below the local single-run number that catches
+order-of-magnitude regressions only. GPU throughput thresholds apply in
+both tiers (buffer upload is CPU-copy bound even under Lavapipe).
+
 ---
 
 ## 2. Benchmark Results

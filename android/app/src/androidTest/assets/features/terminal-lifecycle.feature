@@ -8,12 +8,9 @@ Feature: Terminal Lifecycle
     Then the terminal screen is still displayed
     And the session is still functional
 
-  @REQ_TERM_007
-  Scenario: Session persists across app restart
-    Given the app has launched and a session is active
-    When the app is force-stopped and relaunched
-    Then the session is restored
-    And the terminal is still interactive
+  # Session-restore scenario removed: session persistence across process
+  # death was deleted with the save/restore feature; TerminalRuntime is a
+  # process-local singleton, so force-stop necessarily ends all sessions.
 
   @REQ_ANDR_010
   Scenario: Process survives configuration change

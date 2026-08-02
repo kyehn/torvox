@@ -215,7 +215,7 @@ requirements:
     design:
       - "docs/architecture.md#6-error-handling"
       - "native/src/render/surface.rs"
-      - "native/src/android/jni_bridge.rs"
+      - "native/src/android/ffi.rs"
     api: []
     tests:
       - "native/src/render/tests.rs"
@@ -283,7 +283,7 @@ requirements:
       - "native/src/render/surface.rs"
     api: []
     tests:
-      - "android/app/src/androidTest/java/io/term/TouchGestureInstrumentedTest.kt"
+      - "android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt"
     verification: "cd android && ./gradlew testDebugUnitTest"
 
   FR-025:
@@ -573,10 +573,10 @@ requirements:
   # ==========================================================================
 
   FR-051:
-    description: "The system SHALL use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction) via jni_bridge.rs."
+    description: "The system SHALL use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction) via `native/src/android/ffi.rs`."
     design:
       - "docs/architecture.md#2.2-module-responsibilities"
-      - "native/src/android/jni_bridge.rs"
+      - "native/src/android/ffi.rs"
     api: []
     tests: []
     verification: "cargo test --package native"
@@ -586,7 +586,7 @@ requirements:
     design:
       - "docs/architecture.md#6-error-handling"
       - "native/src/render/surface.rs"
-      - "native/src/android/jni_bridge.rs"
+      - "native/src/android/ffi.rs"
     api: []
     tests:
       - "native/src/render/tests.rs"
@@ -818,7 +818,7 @@ requirements:
       - "docs/architecture.md#2.1-crate-structure"
     api: []
     tests:
-      - "android/app/src/androidTest/java/io/term/ui/*.kt"
+      - "android/app/src/androidTest/java/terminal/emulator/ui/*.kt"
     verification: "cd android && ./gradlew assembleDebug"
 
   NFR-018:

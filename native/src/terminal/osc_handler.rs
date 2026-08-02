@@ -16,7 +16,8 @@
 ///    7 — current working directory (`OscEvent::Cwd`)
 ///    8 — hyperlinks (open/close) (`OscEvent::Hyperlink`)
 ///    9 — notifications (iTerm2-style) (`OscEvent::Notification`)
-///   52 — clipboard set (base64 decode) (`OscEvent::Clipboard`)
+///   52 — clipboard set (base64 decode) (`OscEvent::Clipboard`) and clipboard
+///        read (`?` payload) (`OscEvent::ClipboardRead`)
 ///  777 — notifications (rxvt-unicode-style) (`OscEvent::Notification`)
 ///
 /// Unrecognised OSC numbers (0, 1, 4, 10, etc.) pass through unchanged so
@@ -62,6 +63,18 @@ pub struct ClipboardEvent {
     pub text: String,
 }
 
+/// Decoded OSC 52 clipboard *read* request (`ESC ] 52 ; <selection> ; ?`).
+///
+/// The application asks the terminal to read the system clipboard and
+/// answer with `ESC ] 52 ; <selection> ; <base64> ESC \\`. Rust cannot
+/// reach the system clipboard itself (Android clipboard lives in the app
+/// process), so the session forwards the request to Kotlin through the
+/// event queue and writes the answer back to the PTY (FR-036).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClipboardReadEvent {
+    pub selection: String,
+}
+
 /// Decoded OSC 7 CWD event.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CwdEvent {
@@ -85,6 +98,7 @@ pub struct NotificationEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OscEvent {
     Clipboard(ClipboardEvent),
+    ClipboardRead(ClipboardReadEvent),
     Cwd(CwdEvent),
     Hyperlink(HyperlinkEvent),
     Notification(NotificationEvent),
@@ -324,13 +338,10 @@ impl OscHandler {
         let semi = payload.find(';')?;
         let base64_data = &payload[semi + 1..];
         let selection = payload[..semi].to_string();
-        // OSC 52 read request (`?` instead of base64 payload): FR-036 is
-        // not implemented, so there is no clipboard read-back path. Log it
-        // instead of silently swallowing the sequence (the application
-        // would otherwise wait forever for a response).
+        // OSC 52 read request (`?` instead of base64 payload). The session
+        // forwards it to the host app (FR-036) and writes the answer back.
         if base64_data.trim() == "?" {
-            log::warn!("osc52: clipboard read request ignored (FR-036 not implemented)");
-            return None;
+            return Some(OscEvent::ClipboardRead(ClipboardReadEvent { selection }));
         }
         // Empty payload (xterm semantics) = clear the clipboard. Deliver an
         // empty-text event; the Kotlin side writes an empty ClipData so the
@@ -412,6 +423,18 @@ mod tests {
         handler.process(b"hello world");
         assert_eq!(handler.output(), b"hello world");
         assert!(handler.events().is_empty());
+    }
+
+    #[test]
+    fn strip_osc52_clipboard_read_request() {
+        let mut handler = OscHandler::new();
+        handler.process(b"\x1b]52;c;?\x07");
+        assert!(handler.output().is_empty(), "read request must be stripped");
+        assert_eq!(handler.events().len(), 1);
+        match &handler.events()[0] {
+            OscEvent::ClipboardRead(ce) => assert_eq!(ce.selection, "c"),
+            _ => panic!("expected clipboard read event"),
+        }
     }
 
     #[test]

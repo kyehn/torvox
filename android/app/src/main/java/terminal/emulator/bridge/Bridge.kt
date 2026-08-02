@@ -262,6 +262,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val toastText: String? = null,
         val openUrl: String? = null,
         val clipboardGets: List<ClipboardRequest> = emptyList(),
+        val clipboardReads: List<ClipboardRequest> = emptyList(),
         // Every exit event seen this frame, in order. The single-slot
         // exit/sessionId/exitCode fields above describe only the FIRST one;
         // extra exits in the same frame must be reaped from this list or
@@ -290,6 +291,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             toastText = later.toastText ?: toastText,
             openUrl = later.openUrl ?: openUrl,
             clipboardGets = clipboardGets + later.clipboardGets,
+            clipboardReads = clipboardReads + later.clipboardReads,
             exits = exits + later.exits,
         )
     }
@@ -302,6 +304,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     data class ClipboardRequest(
         val sessionId: Long,
         val requestId: Long,
+        val selection: String = "",
     )
 
     data class DialogRequest(
@@ -409,6 +412,18 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                     ClipboardRequest(
                         sessionId = event.sessionId,
                         requestId = event.requestId,
+                    ),
+                ),
+            )
+
+        is PollEvent.ClipboardRead ->
+            PollResult(
+                clipboardReads =
+                listOf(
+                    ClipboardRequest(
+                        sessionId = event.sessionId,
+                        requestId = event.requestId,
+                        selection = event.selection,
                     ),
                 ),
             )
