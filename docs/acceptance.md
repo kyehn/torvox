@@ -129,7 +129,7 @@ as the sole graphics backend. OpenGL and CPU software paths are not supported.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | wgpu instance and surface create successfully on a Vulkan-capable device | `cargo test --package native -- gpu_noop_tests` ([test source](native/src/render/tests.rs)) |
+| 1 | wgpu instance and surface create successfully on a Vulkan-capable device | `cargo test -p native --features test-util --lib -- render` (Lavapipe headless; no surface swap — ADR-0007 deferred) ([test source](native/src/render/tests.rs)) |
 | 2 | Headless wgpu rendering produces correct pixel output (OCR-confirmed) | `cargo test --package native -- text_ocr_test` ([test source](native/src/render/screenshot_tests.rs)) |
 | 3 | No OpenGL or CPU rendering dependencies present in `Cargo.toml` | Code review: no `opengl`, `glutin`, or `Canvas.drawText` references in production code |
 
@@ -152,7 +152,7 @@ using `guillotiere` for dynamic rectangle allocation and eviction.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | `guillotiere` allocates rectangles in the atlas texture for each glyph | `cargo test --package native -- gpu_headless_test` ([test source](native/src/render/tests.rs)) |
-| 2 | Atlas evicts least-recently-used glyphs when capacity is reached | Code review: `native/src/gpu.rs` — atlas eviction path |
+| 2 | Atlas evicts least-recently-used glyphs when capacity is reached | Code review: `native/src/render/font/atlas.rs` — atlas eviction path |
 | 3 | Atlas allocation tracks at least 10,000 glyph entries | Code review: `native/src/font.rs` — atlas capacity constant |
 
 ### FR-013: Dirty Mask for Incremental Rendering
@@ -175,7 +175,7 @@ beam) with configurable color and blink behavior.
 |---|-----------|-------------|
 | 1 | Each cursor style (block, bar, underline, beam) is rendered as a distinct visual shape in the wgpu pipeline | `cargo test --package native -- gpu_headless_test` ([test source](native/src/render/tests.rs)) |
 | 2 | Cursor color respects the configured theme cursor color | Code review: `native/src/config.rs` (`Theme.cursor`) and shader uniform path |
-| 3 | Blink cursor toggles visibility at the configured rate | Code review: `native/src/gpu.rs` — blink timer integration |
+| 3 | Blink cursor toggles visibility at the configured rate | Code review: `native/src/render/context.rs` — cursor blink state |
 
 ### FR-015: Selection Rendering
 
@@ -186,7 +186,7 @@ word, line, block modes) as colored overlays on the affected cells.
 |---|-----------|-------------|
 | 1 | Selection in character, word, line, and block mode produces highlights on the correct cells | `cargo test --package native -- gpu_headless_test` ([test source](native/src/render/tests.rs)) |
 | 2 | Selection background color is configurable and defaults to the theme selection color | Code review: `native/src/config.rs` (`Theme.selection_foreground`, `Theme.selection_background`) |
-| 3 | Empty selection renders no highlight overlay | Code review: `native/src/gpu.rs` — instance count is zero when selection is empty |
+| 3 | Empty selection renders no highlight overlay | Code review: `native/src/render/cell_builder.rs` — instance emission when selection is empty |
 
 ### FR-016: Font Configuration
 
@@ -209,7 +209,7 @@ and 16-color ANSI palette from the active theme configuration.
 |---|-----------|-------------|
 | 1 | Applying a theme sets the background and foreground rendered by wgpu | `cargo test --package native -- gpu_headless_test` ([test source](native/src/render/tests.rs)) |
 | 2 | All 16 ANSI palette colors from the theme are used when rendering foreground/background | `cargo test --package native -- terminal_colors` ([test source](native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | Theme colors are applied uniformly across the entire terminal grid | Code review: `native/src/gpu.rs` — uniform buffer upload of theme colors |
+| 3 | Theme colors are applied uniformly across the entire terminal grid | Code review: `native/src/render/context.rs` — uniform buffer upload |
 
 ### FR-018: GPU Surface Recovery
 
@@ -219,9 +219,9 @@ without data loss.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | After surface destruction, the wgpu pipeline and swap chain are recreated without crashing | `cargo test --package native -- gpu_noop_tests` ([test source](native/src/render/tests.rs)) |
-| 2 | Terminal grid content is preserved across surface recreation (no data loss) | `cargo test --package native -- gpu_noop_tests` ([test source](native/src/render/tests.rs)) |
-| 3 | After 100 consecutive render errors, the render thread exits permanently | Code review: `native/src/gpu.rs` — error counter threshold check |
+| 1 | After surface destruction, the wgpu pipeline and swap chain are recreated without crashing | Deferred with ADR-0007 (surface integration not implemented; `reconfigure_swapchain` is Android-only and untested on device) |
+| 2 | Terminal grid content is preserved across surface recreation (no data loss) | Deferred with ADR-0007 — grid state lives in the Ghostty terminal, independent of the surface |
+| 3 | After 100 consecutive render errors, the render thread exits permanently | Code review: `native/src/render/pass.rs` — consecutive error counter |
 
 ### FR-019: Kitty Graphics Protocol (KGP)
 
@@ -231,7 +231,7 @@ rendering inline images as textured quads.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | KGP sequences (`_Gi`) produce textured quads in the instance buffer | `cargo test --package native -- gpu_headless_test` ([test source](native/src/render/tests.rs)) |
-| 2 | KGP images are rendered at the correct cell-aligned position and size | Code review: `native/src/gpu.rs` (`KgpInstance`) — instance positioning logic |
+| 2 | KGP images are rendered at the correct cell-aligned position and size | Deferred: KGP (kitty graphics) support removed; requirement stale |
 | 3 | KGP placeholder cells (SPACE with `KGP_IMAGE` attribute) are rendered as image areas | Code review: `native/src/cell.rs` — `CellFlags::KGP_IMAGE` bit |
 
 ---
@@ -288,8 +288,8 @@ selection handles, and swipe for scrollback navigation.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Long-press gesture initiates selection mode with visible handles | `cd android && ./gradlew connectedDebugAndroidTest` — `TouchGestureInstrumentedTest` ([`android/app/src/androidTest/java/io/term/TouchGestureInstrumentedTest.kt`](android/app/src/androidTest/java/io/term/TouchGestureInstrumentedTest.kt)) |
-| 2 | Swipe gesture scrolls the scrollback buffer | `cd android && ./gradlew connectedDebugAndroidTest` — `TouchGestureInstrumentedTest` ([`android/app/src/androidTest/java/io/term/TouchGestureInstrumentedTest.kt`](android/app/src/androidTest/java/io/term/TouchGestureInstrumentedTest.kt)) |
+| 1 | Long-press gesture initiates selection mode with visible handles | `cd android && ./gradlew connectedDebugAndroidTest` — `TouchGestureInstrumentedTest` ([`android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt`](android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt)) |
+| 2 | Swipe gesture scrolls the scrollback buffer | `cd android && ./gradlew connectedDebugAndroidTest` — `TouchGestureInstrumentedTest` ([`android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt`](android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt)) |
 
 ### FR-025: Backspace and Right-Alt Mode Configuration
 
@@ -577,8 +577,8 @@ text (AI agent automation).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | JNI functions match the native method signatures in Kotlin | `cargo test --package native` ([test source](native/src/android/ffi.rs)) |
-| 2 | `ANativeWindow_fromSurface` and `ANativeWindow_release` are paired in the lifecycle | Code review: `native/src/android/ffi.rs` — surface lifecycle pairing |
+| 1 | JNI functions match the native method signatures in Kotlin | `cargo test -p integration-tests --test jni_bridge_test` (JDK-based symbol resolution + call round-trip, [test source](integration-tests/jni/NativeBridge.java)) |
+| 2 | `ANativeWindow_fromSurface` and `ANativeWindow_release` are paired in the lifecycle | Code review: `native/src/android/ffi.rs` — `attachWindow` is an ADR-0007 stub (surface integration deferred); pairing lands with the real render path |
 
 ---
 
@@ -590,32 +590,12 @@ needed.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Surface attach/detach events recreate the wgpu surface | Code review: `native/src/render/context.rs` — surface lifecycle |
-| 2 | Render pipeline survives surface recreation | `cargo test --package native -- render` ([test source](native/src/render/tests.rs)) |
+| 1 | Surface attach/detach events recreate the wgpu surface | Code review: `native/src/render/context.rs` — `reconfigure_swapchain` (Android-only); ADR-0007 deferred — no on-device path yet |
+| 2 | Render pipeline survives surface recreation | `cargo test -p native --features test-util --lib -- render` ([test source](native/src/render/tests.rs)) — Lavapipe headless, no surface swap |
 
 ---
 
 ## 9. Android Bridge
-
-### FR-051: JNI for NDK Functions
-
-**Requirement**: The system SHALL use JNI for NDK-level functions (ANativeWindow
-lifecycle, surface creation/destruction) via `jni_bridge.rs`.
-
-| # | Criterion | Verification |
-|---|-----------|-------------|
-| 1 | JNI functions registered in `jni_bridge.rs` match the expected native method signatures in Kotlin | `cargo test --package native -- ffi_contract_tests` ([test source](native/src/render/tests.rs)) |
-| 2 | `ANativeWindow_fromSurface` and `ANativeWindow_release` are called in the correct lifecycle order | Code review: `native/src/jni_bridge.rs` — surface lifecycle pairing |
-
-### FR-052: Surface Lifecycle Management
-
-**Requirement**: The system SHALL handle Android surface creation and
-destruction events, recreating the wgpu surface and render pipeline as needed.
-
-| # | Criterion | Verification |
-|---|-----------|-------------|
-| 1 | Surface creation triggers wgpu surface and render pipeline initialization | `cargo test --package native -- gpu_noop_tests` ([test source](native/src/render/tests.rs)) |
-| 2 | Surface destruction triggers wgpu surface teardown without leaving dangling GPU resources | `cargo test --package native -- gpu_noop_tests` ([test source](native/src/render/tests.rs)) |
 
 ### FR-053: ProGuard/R8 Compatibility
 
@@ -624,7 +604,7 @@ destruction events, recreating the wgpu surface and render pipeline as needed.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Release APK build succeeds with `-dontoptimize` in ProGuard rules | `cd android && ./gradlew assembleDebug` — verifies build succeeds |
+| 1 | Release APK build succeeds with `-dontoptimize` in ProGuard rules | `cd android && ./gradlew assembleRelease` — verifies build succeeds |
 | 2 | JNI bridge classes are not obfuscated by R8 (retained by ProGuard rules) | Code review: `android/app/proguard-rules.pro` — `-keep` rules for JNI types |
 
 ---
@@ -640,7 +620,7 @@ in `docs/srs.md` for the full list).
 |---|-----------|-------------|
 | 1 | `Theme::all_built_in()` returns exactly 16 themes with the expected names | `cargo test --package native -- config_integration` ([test source](native/src/terminal/ghostty_terminal/tests.rs)) |
 | 2 | Each built-in theme has non-default values for all 16 ANSI color slots | `cargo test --package native -- config_drift` ([test source](native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | Built-in themes are accessible from the Kotlin UI via the bridge | `cd android && ./gradlew connectedDebugAndroidTest` — `ThemeInstrumentedTest` ([`android/app/src/androidTest/java/io/term/ThemeInstrumentedTest.kt`](android/app/src/androidTest/java/io/term/ThemeInstrumentedTest.kt)) |
+| 3 | Built-in themes are accessible from the Kotlin UI via the bridge | `cd android && ./gradlew connectedDebugAndroidTest` — `ThemeInstrumentedTest` ([`android/app/src/androidTest/java/terminal/emulator/ThemeInstrumentedTest.kt`](android/app/src/androidTest/java/terminal/emulator/ThemeInstrumentedTest.kt)) |
 
 ### FR-055: Custom Theme via TOML
 
@@ -698,7 +678,7 @@ dedicated wrapper modules.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Zero `unsafe` blocks in `native/src/` outside whitelisted files (`ffi.rs`, `jni_bridge.rs`, `raw_fd.rs`, `raw_syscall.rs`) | `cargo geiger --package native` — unsafe count per file |
+| 1 | Zero `unsafe` blocks in `native/src/` outside whitelisted files (`android/ffi.rs`, `android/logging.rs`, `terminal/pty.rs`, `terminal/shell_env.rs`) | `cargo geiger --package native` — unsafe count per file |
 | 2 | Each whitelisted `unsafe` module has a doc comment explaining why `unsafe` is necessary | Code review: per-module safety comments |
 
 ### NFR-002: FFI Safety — extern "C" Validation
@@ -709,8 +689,8 @@ at the FFI boundary SHALL be rejected by CI.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | FFI contract tests verify null-pointer checks for every `extern "C"` function | `cargo test --package native -- ffi_contract_tests` ([test source](native/src/render/tests.rs)) |
-| 2 | The `extern_safe` macro (or equivalent) is used for all new FFI declarations | Code review: `native/src/ffi.rs` — macro usage |
+| 1 | JNI exports resolve and round-trip against Kotlin declarations | `cargo test -p integration-tests --test jni_bridge_test` ([test source](integration-tests/jni/NativeBridge.java)) |
+| 2 | Panic-safety: JNI exports route through `jni_export_guard` (exceptions, no process abort) | Code review: `native/src/android/ffi.rs` — `jni_export_guard` usage |
 
 ### NFR-003: No Panics in Library Code
 
@@ -798,7 +778,7 @@ the `DirtyMask` bitfield, avoiding full-grid redraws on every frame.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | Property tests verify that clean rows produce zero dirty bits | `cargo test --package native -- property_tests` ([test source](native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | After rendering a frame, the dirty mask is cleared for all processed rows | Code review: `native/src/gpu.rs` — dirty mask handshake |
+| 2 | After rendering a frame, the dirty mask is cleared for all processed rows | Code review: `native/src/render/pass.rs` — dirty-row handshake |
 
 ### NFR-011: Shaped Text Cache Cap
 
@@ -861,7 +841,7 @@ correspondingly.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | FFI contract tests verify Rust bridge types match Kotlin JNI mappings | `cargo test --package native -- ffi_contract_tests` ([test source](native/src/render/tests.rs)) |
+| 1 | Rust bridge types match Kotlin JNI mappings | `cargo test -p integration-tests --test jni_bridge_test` ([test source](integration-tests/jni/NativeBridge.java)) |
 | 2 | Bridge round-trip tests verify no data corruption across the FFI boundary | `cargo test --package native -- bridge_integration` ([test source](native/src/render/tests.rs)) |
 
 ---
@@ -935,7 +915,7 @@ thread SHALL exit permanently and require a new surface to restart.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | Surface recreation is triggered on `wgpu::SurfaceError::Lost` and completes without crash | `cargo test --package native -- gpu_noop_tests` ([test source](native/src/render/tests.rs)) |
-| 2 | After 100 consecutive render errors, the render thread exits with a terminal error | Code review: `native/src/gpu.rs` — error counter and thread exit logic |
+| 2 | After 100 consecutive render errors, the render thread exits with a terminal error | Code review: `native/src/render/` — error counter and thread exit logic |
 
 ### NFR-023: OSC Payload Size Limit
 

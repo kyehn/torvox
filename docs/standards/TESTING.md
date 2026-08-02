@@ -50,11 +50,11 @@ right type for the behavior under test — do not collapse them into one.
 | # | Type | Location | What it covers |
 |---|------|----------|----------------|
 | 1 | **Unit** (Rust) | `native/src/terminal/`, `native/src/render/`, `native/src/mcp.rs` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, MCP. Runs on host via `cargo nextest`. |
-| 2 | **Roborazzi** (screenshot) | `android/app/src/test/java/io/term/screenshot/*ScreenshotTest.kt`; goldens in `android/app/src/test/resources/roborazzi/` | Pixel-exact Compose/UI rendering under Robolectric. |
-| 3 | **Compose UI** | `android/app/src/test/java/io/term/ui/*ComposeTest.kt` (Robolectric) and `android/app/src/androidTest/java/io/term/ui/*ComposeTest.kt` (instrumented) | Compose widget state/interaction (theme switch, selection handles). |
-| 4 | **Maestro** | `android/app/src/androidTest/java/io/term/ui/*.yaml` flow files (e.g. `SelectionMaestroTest.yaml`) | End-to-end on-device flows driven by Maestro YAML. |
-| 5 | **Android UI testing framework** | `android/app/src/androidTest/java/io/term/ui/*UiAutomatorTest.kt` (e.g. `TerminalUiAutomatorTest`, `SelectionUiAutomatorTest`, `TextSearchUiAutomatorTest`) | Cross-app / system-level interaction via UiAutomator. |
-| 6 | **Espresso** | `android/app/src/androidTest/java/io/term/ui/*EspressoTest.kt` (e.g. `TerminalActivityEspressoTest`, `SelectionEspressoTest`, `TextSearchEspressoTest`) | In-app View-level interaction via Espresso. |
+| 2 | **Roborazzi** (screenshot) | `android/app/src/test/java/terminal/emulator/screenshot/*ScreenshotTest.kt`; goldens in `android/app/src/test/resources/roborazzi/` | Pixel-exact Compose/UI rendering under Robolectric. |
+| 3 | **Compose UI** | `android/app/src/test/java/terminal/emulator/ui/*ComposeTest.kt` (Robolectric) and `android/app/src/androidTest/java/terminal/emulator/ui/*ComposeTest.kt` (instrumented) | Compose widget state/interaction (theme switch, selection handles). |
+| 4 | **Maestro** | `android/app/src/androidTest/java/terminal/emulator/ui/*.yaml` flow files (e.g. `SelectionMaestroTest.yaml`) | End-to-end on-device flows driven by Maestro YAML. |
+| 5 | **Android UI testing framework** | `android/app/src/androidTest/java/terminal/emulator/ui/*UiAutomatorTest.kt` (e.g. `TerminalUiAutomatorTest`, `SelectionUiAutomatorTest`, `TextSearchUiAutomatorTest`) | Cross-app / system-level interaction via UiAutomator. |
+| 6 | **Espresso** | `android/app/src/androidTest/java/terminal/emulator/ui/*EspressoTest.kt` (e.g. `TerminalActivityEspressoTest`, `SelectionEspressoTest`, `TextSearchEspressoTest`) | In-app View-level interaction via Espresso. |
 
 ### Roborazzi Golden Management
 

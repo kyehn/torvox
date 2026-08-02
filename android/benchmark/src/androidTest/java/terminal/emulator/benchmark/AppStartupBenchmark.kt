@@ -9,7 +9,17 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class BridgeMicrobenchmark {
+/**
+ * App-level macrobenchmarks: cold/warm startup and terminal output timing.
+ *
+ * Named AppStartupBenchmark (not Bridge*) because these measure app
+ * lifecycle phases, not JNI bridge call-level costs. Bridge call-level
+ * measurements live in the Rust bench suite (render/terminal benches) and
+ * the JNI integration tests; a device-side microbenchmark of raw JNI
+ * round-trips would need a benchmark APK sharing the app process and is
+ * tracked as a follow-up (docs/test-coverage-audit.md P1-7).
+ */
+class AppStartupBenchmark {
     @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 

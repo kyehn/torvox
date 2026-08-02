@@ -73,6 +73,16 @@ pub enum Event {
     /// answer via `clipboardResult()` JNI.
     #[cfg(feature = "mcp")]
     GetClipboard { session_id: u64, request_id: u64 },
+    /// OSC 52 clipboard read request (`ESC ] 52 ; c ; ?`): the host app
+    /// reads the system clipboard and answers via `clipboardResult()` JNI;
+    /// Rust writes the reply back to the PTY (FR-036). Mirrors
+    /// `GetClipboard` but carries the requested selection name.
+    #[cfg(feature = "mcp")]
+    ClipboardRead {
+        session_id: u64,
+        request_id: u64,
+        selection: String,
+    },
     /// MCP `toast`: request Kotlin to show a brief toast message.
     #[cfg(feature = "mcp")]
     Toast { text: String },

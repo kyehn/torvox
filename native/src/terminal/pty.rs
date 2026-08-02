@@ -55,11 +55,6 @@ pub trait Pty: Send {
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd>;
     fn wait(&self) -> nix::Result<nix::sys::wait::WaitStatus>;
     fn set_nonblocking(&self) -> Result<(), PtyError>;
-    // Reserved for graphics-protocol support; no production caller yet
-    // (Session::set_pixel_size was removed in round-88). Kept as a trait
-    // method so MockPty and PtyPair stay shape-compatible.
-    fn set_pixel_size(&mut self, width: u16, height: u16);
-
     fn spawn(shell: &str, rows: u16, cols: u16, env: &ShellEnv) -> Result<Box<dyn Pty>, PtyError>
     where
         Self: Sized;
@@ -323,11 +318,6 @@ impl PtyPair {
         Ok(())
     }
 
-    pub fn set_pixel_size(&mut self, width: u16, height: u16) {
-        self.pixel_width = width;
-        self.pixel_height = height;
-    }
-
     pub fn set_nonblocking(&self) -> Result<(), PtyError> {
         let flags = nix::fcntl::fcntl(&self.master, nix::fcntl::FcntlArg::F_GETFL)
             .map_err(PtyError::Fcntl)?;
@@ -374,10 +364,6 @@ impl Pty for PtyPair {
 
     fn set_nonblocking(&self) -> Result<(), PtyError> {
         PtyPair::set_nonblocking(self)
-    }
-
-    fn set_pixel_size(&mut self, width: u16, height: u16) {
-        PtyPair::set_pixel_size(self, width, height)
     }
 
     fn spawn(shell: &str, rows: u16, cols: u16, env: &ShellEnv) -> Result<Box<dyn Pty>, PtyError> {

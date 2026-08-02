@@ -71,19 +71,6 @@ constructor(
             .assertIsDisplayed()
     }
 
-    @Then("^the session is restored$")
-    fun sessionIsRestored() {
-        composeRuleHolder.composeRule.waitUntil(timeoutMillis = 25000) {
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("TerminalScreen"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-                .isNotEmpty()
-        }
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
-    }
-
     @Then("^the terminal is still interactive$")
     fun terminalIsStillInteractive() {
         composeRuleHolder.composeRule
