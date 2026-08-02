@@ -32,16 +32,15 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.input.KeyboardMode
+import terminal.emulator.input.ModifierState
+import terminal.emulator.input.next
+import terminal.emulator.input.toKeyboardMode
+import terminal.emulator.input.toSettingsString
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.PasteChunker
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
-import terminal.emulator.ui.KeyboardMode
-import terminal.emulator.ui.ModifierKey
-import terminal.emulator.ui.ModifierState
-import terminal.emulator.ui.defaultModifierKeys
-import terminal.emulator.ui.next
-import terminal.emulator.ui.toKeyboardMode
-import terminal.emulator.ui.toSettingsString
 import javax.inject.Inject
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
@@ -124,7 +123,6 @@ data class TerminalState(
     val isRunning: Boolean = false,
     val title: String = "Terminal",
     val selection: SelectionState = SelectionState(),
-    val modifierKeys: List<ModifierKey> = defaultModifierKeys,
     val ctrlState: ModifierState = ModifierState.Off,
     val altState: ModifierState = ModifierState.Off,
     val scrollActive: Boolean = false,
@@ -160,13 +158,12 @@ constructor(
     private val settingsRepository: SettingsRepository,
     val runtime: TerminalRuntime,
 ) : ViewModel() {
+    private val pasteChunker = PasteChunker(tag = "ViewModel")
+
     companion object {
         private const val TAG = "TerminalViewModel"
         private const val STOP_TIMEOUT_MILLIS = 5000L
         private const val DEBOUNCE_MILLIS = 300L
-        private const val DEFAULT_SCROLLBACK_LINES = 50_000
-        private const val DEFAULT_FONT_SIZE_TENTHS = 18f
-        private const val DEFAULT_THEME_NAME = "Dracula Plus"
 
         // Upper bound for text extraction loops (one JNI scrollbackLine call
         // per row, on the main thread). Keeps worst case bounded even when a
@@ -175,9 +172,6 @@ constructor(
 
         // Upper bound for clipboard paste (main-thread string copies) and
         // the chunk size used to stream it (must stay well below the PTY
-        // kernel buffer ~64KB so a chunk never fails wholesale on EAGAIN).
-        private const val MAX_PASTE_CHARS = 1_000_000
-        private const val PASTE_CHUNK_CHARS = 4_000
     }
 
     private val _state = MutableStateFlow(TerminalState())
@@ -202,85 +196,17 @@ constructor(
         }
     }
 
-    val fontSize: StateFlow<Float> =
-        settingsRepository.fontSize
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), DEFAULT_FONT_SIZE_TENTHS)
-
-    val themeName: StateFlow<String> =
-        settingsRepository.themeName
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), DEFAULT_THEME_NAME)
-
-    val shell: StateFlow<String> =
-        settingsRepository.shell
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), "/system/bin/sh")
-
-    val scrollbackLines: StateFlow<Int> =
-        settingsRepository.scrollbackLines
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), DEFAULT_SCROLLBACK_LINES)
-
-    val fontFamily: StateFlow<String> =
-        settingsRepository.fontFamily
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), "")
-
-    val touchBehavior: StateFlow<String> =
-        settingsRepository.touchBehavior
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), "right_click")
-
-    val bootstrapUrl: StateFlow<String> =
-        settingsRepository.bootstrapUrl
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), "")
-
-    val useNerdFontGlyphs: StateFlow<Boolean> =
-        settingsRepository.useNerdFontGlyphs
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), false)
-
-    val useSemanticSelection: StateFlow<Boolean> =
-        settingsRepository.useSemanticSelection
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), false)
-
-    val dayThemeName: StateFlow<String> =
-        settingsRepository.dayThemeName
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), SettingsRepository.DEFAULT_DAY_THEME_NAME)
-
-    val nightThemeName: StateFlow<String> =
-        settingsRepository.nightThemeName
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), DEFAULT_THEME_NAME)
-
-    val themeMode: StateFlow<String> =
-        settingsRepository.themeMode
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), "fixed")
-
-    val appThemeMode: StateFlow<String> =
-        settingsRepository.appThemeMode
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), "follow_system")
-
-    val mcpServerEnabled: StateFlow<Boolean> =
-        settingsRepository.mcpServerEnabled
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), false)
-
-    val backgroundImagePath: StateFlow<String> =
-        settingsRepository.backgroundImagePath
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), "")
-
-    val backgroundBlurRadius: StateFlow<Int> =
-        settingsRepository.backgroundBlurRadius
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), 0)
-
-    val backgroundAlpha: StateFlow<Float> =
-        settingsRepository.backgroundAlpha
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), 0.8f)
-
-    val cursorBlink: StateFlow<Boolean> =
-        settingsRepository.cursorBlink
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), true)
-
-    val cursorStyle: StateFlow<String> =
-        settingsRepository.cursorStyle
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), "block")
-
-    val cursorSpeed: StateFlow<Int> =
-        settingsRepository.cursorSpeed
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS), 530)
+    /**
+     * Single merged snapshot of every persisted setting (C7). UI subscribes
+     * to this one StateFlow; per-field access is `settings.fontSize` etc.
+     */
+    val settings: StateFlow<SettingsRepository.SettingsState> =
+        settingsRepository.settings
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+                SettingsRepository.SettingsState(),
+            )
 
     private val _availableFonts = MutableStateFlow<List<String>>(emptyList())
     val availableFonts: StateFlow<List<String>> = _availableFonts.asStateFlow()
@@ -361,17 +287,46 @@ constructor(
             }
         }
         viewModelScope.launch {
-            cursorBlink.collect { enabled ->
+            settings.map { it.cursorBlink }.distinctUntilChanged().collect { enabled ->
                 val bridge = runtime.bridge() ?: return@collect
                 bridge.setCursorBlinkEnabled(enabled)
                 runtime.forceRender()
             }
         }
         viewModelScope.launch {
-            cursorSpeed.collect { speed ->
+            settings.map { it.cursorSpeed }.distinctUntilChanged().collect { speed ->
                 val bridge = runtime.bridge() ?: return@collect
                 bridge.setCursorBlinkSpeedMs(speed.coerceIn(100, 1000))
                 runtime.forceRender()
+            }
+        }
+    }
+
+    /**
+     * Delete all app-private data (settings, sessions, logs, cache) and
+     * recreate the DataStore prefs directory so the next settings write
+     * does not fail (C10: moved out of the settings UI composable).
+     *
+     * The [onComplete] callback runs on the IO dispatcher (not the main
+     * thread); post UI work (e.g. Toasts) must hop to the main thread
+     * themselves or use Android's auto-posting Toast API.
+     */
+    fun clearAppData(onComplete: () -> Unit) {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                context.getDir("prefs", Context.MODE_PRIVATE).deleteRecursively()
+                context.getDir("sessions", Context.MODE_PRIVATE).deleteRecursively()
+                context.getDir("logs", Context.MODE_PRIVATE).deleteRecursively()
+                context.getDir("logs_root", Context.MODE_PRIVATE).deleteRecursively()
+                context.getDir("bin", Context.MODE_PRIVATE).deleteRecursively()
+                context.cacheDir.listFiles()?.forEach { it.delete() }
+                // The process-wide DataStore singleton keeps running: recreate
+                // the prefs directory so the next settings write does not fail.
+                context.getDir("prefs", Context.MODE_PRIVATE)
+            } catch (exception: Exception) {
+                Log.e("ClearAppData", "Failed to clear app data", exception)
+            } finally {
+                onComplete()
             }
         }
     }
@@ -391,7 +346,7 @@ constructor(
             try {
                 val bridge = runtime.bridge()
                 val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
-                val fileSystemFonts = terminal.emulator.ui.fallbackSystemFonts()
+                val fileSystemFonts = terminal.emulator.settings.systemFonts()
                 val userFonts =
                     try {
                         val allUserFonts = mutableListOf<String>()
@@ -707,8 +662,8 @@ constructor(
                         val rgbaData = buffer.array()
                         bridge.setBackgroundImage(rgbaData, bitmapWidth, bitmapHeight)
                         bridge.setBackgroundParams(
-                            backgroundBlurRadius.value,
-                            (backgroundAlpha.value * 10).toInt(),
+                            settings.value.backgroundBlurRadius,
+                            (settings.value.backgroundAlpha * 10).toInt(),
                         )
                     }
                 } catch (e: Throwable) {
@@ -724,7 +679,7 @@ constructor(
         viewModelScope.launch(Dispatchers.IO) {
             settingsRepository.setBackgroundBlurRadius(radius)
             val bridge = runtime.bridge() ?: return@launch
-            bridge.setBackgroundParams(radius, (backgroundAlpha.value * 10).toInt())
+            bridge.setBackgroundParams(radius, (settings.value.backgroundAlpha * 10).toInt())
         }
     }
 
@@ -732,7 +687,7 @@ constructor(
         viewModelScope.launch(Dispatchers.IO) {
             settingsRepository.setBackgroundAlpha(alpha)
             val bridge = runtime.bridge() ?: return@launch
-            bridge.setBackgroundParams(backgroundBlurRadius.value, (alpha * 10).toInt())
+            bridge.setBackgroundParams(settings.value.backgroundBlurRadius, (alpha * 10).toInt())
         }
     }
 
@@ -1191,30 +1146,16 @@ constructor(
         if (!clipboard.hasPrimaryClip()) return 0
         val clipboardText = clipboard.primaryClip?.getItemAt(0)?.text ?: return 0
         val text = clipboardText.toString()
-        if (text.length > MAX_PASTE_CHARS) {
-            LogUtil.w(TAG, "pasteFromClipboard: clipboard too large (${text.length} chars), truncating to $MAX_PASTE_CHARS")
-        }
-        val normalized = text.take(MAX_PASTE_CHARS).replace("\n", "\r")
-        // Chunked write (same rationale as TerminalSurface's direct paste):
-        // one synchronous feedPty call with the full payload always exceeds
-        // the PTY kernel buffer (~64KB) and is dropped wholesale on EAGAIN.
-        // Chunks are split on code-point boundaries (never inside a
-        // surrogate pair).
+        // Shared chunking (PasteChunker): code-point-safe chunks well below
+        // the PTY kernel buffer. Counts chars queued up to the last
+        // successful chunk boundary (post-truncation); a chunk dropped by
+        // PTY backpressure (EAGAIN) is still counted — the xterm-style
+        // "accepted" count, not byte-exact delivery (round-112).
         var offset = 0
-        while (offset < normalized.length) {
-            var end = minOf(offset + PASTE_CHUNK_CHARS, normalized.length)
-            if (end < normalized.length && Character.isHighSurrogate(normalized[end - 1])) {
-                end -= 1
-            }
-            if (end <= offset) break
-            val chunk = normalized.substring(offset, end).toByteArray()
-            runtime.writeToPty(chunk)
-            offset = end
+        for (chunk in pasteChunker.chunks(text)) {
+            runtime.writeToPty(chunk.toByteArray())
+            offset += chunk.length
         }
-        // Report the chars queued up to the last successful chunk boundary
-        // (post-truncation). Note: a chunk dropped by PTY backpressure
-        // (EAGAIN) is still counted — this is the xterm-style "accepted"
-        // count, not a byte-exact delivery count (round-112).
         return offset
     }
 
@@ -1223,14 +1164,6 @@ constructor(
         if (!written) {
             LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
         }
-    }
-
-    fun setModifierKeys(keys: List<ModifierKey>) {
-        _state.update { it.copy(modifierKeys = keys) }
-    }
-
-    fun resetModifierKeys() {
-        _state.update { it.copy(modifierKeys = defaultModifierKeys) }
     }
 
     fun cycleCtrlState() {

@@ -40,21 +40,14 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import terminal.emulator.input.ModifierState
 
 private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 private const val REPEAT_TIMEOUT_MS = 500L
 private const val DWELL_GUARD_MS = 100L
 
-enum class ModifierState { Off, Once, Locked }
-
 enum class ModifierBarMode { Normal, SelectionActions }
-
-fun ModifierState.next(): ModifierState = when (this) {
-    ModifierState.Off -> ModifierState.Once
-    ModifierState.Once -> ModifierState.Locked
-    ModifierState.Locked -> ModifierState.Off
-}
 
 data class ModifierKey(
     val key: String,
@@ -329,101 +322,33 @@ private fun ConfigurableModifierBar(
     val row1 = allKeys.take(midpoint)
     val row2 = allKeys.drop(midpoint)
 
-    fun getModifierState(item: ToolbarItem): ModifierState? = when (item) {
-        is ToolbarItem.Default -> {
-            when (item.key) {
+    fun getModifierState(item: ToolbarItem): ModifierState? = (item as? ToolbarItem.Default)
+        ?.takeIf { it.key.modifier }
+        ?.let {
+            when (it.key) {
                 ToolbarKey.CTRL -> ctrlState
                 ToolbarKey.ALT -> altState
                 else -> null
             }
         }
 
-        is ToolbarItem.Custom -> {
-            null
-        }
-    }
-
-    fun getOnRepeat(item: ToolbarItem): (() -> Unit)? = when (item) {
-        is ToolbarItem.Default -> {
-            when (item.key) {
-                ToolbarKey.ARROW_UP,
-                ToolbarKey.ARROW_DOWN,
-                ToolbarKey.ARROW_LEFT,
-                ToolbarKey.ARROW_RIGHT,
-                -> {
-                    { onKeyClick(item.key.sequence) }
-                }
-
-                else -> {
-                    null
-                }
-            }
-        }
-
-        is ToolbarItem.Custom -> {
-            null
-        }
-    }
+    fun getOnRepeat(item: ToolbarItem): (() -> Unit)? = (item as? ToolbarItem.Default)
+        ?.takeIf { it.key.repeatable }
+        ?.let { { onKeyClick(it.key.sequence) } }
 
     fun getItemLabel(item: ToolbarItem): String = when (item) {
-        is ToolbarItem.Default -> {
-            val display = label(item.key.defaultLabel)
-            when (item.key) {
-                ToolbarKey.ARROW_UP -> "\u2191"
-                ToolbarKey.ARROW_DOWN -> "\u2193"
-                ToolbarKey.ARROW_LEFT -> "\u2190"
-                ToolbarKey.ARROW_RIGHT -> "\u2192"
-                ToolbarKey.DRAWER -> "\u2630"
-                else -> display
-            }
-        }
-
-        is ToolbarItem.Custom -> {
-            item.label
-        }
+        is ToolbarItem.Default -> item.key.symbol ?: label(item.key.defaultLabel)
+        is ToolbarItem.Custom -> item.label
     }
 
     fun getTestTag(item: ToolbarItem): String = when (item) {
-        is ToolbarItem.Default -> {
-            when (item.key) {
-                ToolbarKey.ARROW_UP -> "Key_\u2191"
-                ToolbarKey.ARROW_DOWN -> "Key_\u2193"
-                ToolbarKey.ARROW_LEFT -> "Key_\u2190"
-                ToolbarKey.ARROW_RIGHT -> "Key_\u2192"
-                ToolbarKey.DRAWER -> "Key_DRAWER"
-                else -> "Key_${item.key.defaultLabel}"
-            }
-        }
-
-        is ToolbarItem.Custom -> {
-            item.testTag
-        }
+        is ToolbarItem.Default -> item.key.testTag ?: "Key_${item.key.defaultLabel}"
+        is ToolbarItem.Custom -> item.testTag
     }
 
     fun getContentDescription(item: ToolbarItem): String = when (item) {
-        is ToolbarItem.Default -> {
-            when (item.key) {
-                ToolbarKey.ESC -> "Escape"
-                ToolbarKey.DRAWER -> "Open session drawer"
-                ToolbarKey.SCROLL -> "Toggle scroll"
-                ToolbarKey.HOME -> "Home"
-                ToolbarKey.ARROW_UP -> "Arrow up"
-                ToolbarKey.END -> "End"
-                ToolbarKey.PGUP -> "Page up"
-                ToolbarKey.TAB -> "Tab"
-                ToolbarKey.CTRL -> "Control toggle"
-                ToolbarKey.ALT -> "Alt toggle"
-                ToolbarKey.ARROW_LEFT -> "Arrow left"
-                ToolbarKey.ARROW_DOWN -> "Arrow down"
-                ToolbarKey.ARROW_RIGHT -> "Arrow right"
-                ToolbarKey.PGDN -> "Page down"
-                else -> item.key.defaultLabel
-            }
-        }
-
-        is ToolbarItem.Custom -> {
-            item.label
-        }
+        is ToolbarItem.Default -> item.key.contentDescription ?: item.key.defaultLabel
+        is ToolbarItem.Custom -> item.label
     }
 
     fun getKeyHandler(item: ToolbarItem): () -> Unit = when (item) {
@@ -562,34 +487,42 @@ private fun RowScope.ExtraKeyButton(
 
     val view = LocalView.current
     val gestureModifier =
-        if (onRepeat != null) {
-            Modifier.pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown()
-                    val downPos = currentEvent.changes.first().position
-                    val slop = viewConfiguration.touchSlop
-                    isPressed = true
-                    try {
-                        var gestureValid = true
-                        withTimeoutOrNull(DWELL_GUARD_MS) {
-                            while (true) {
-                                val ev = awaitPointerEvent()
-                                val ch = ev.changes.first()
-                                if (!ch.pressed) break
-                                if ((ch.position - downPos).getDistance() > slop) {
-                                    gestureValid = false
-                                    break
-                                }
+        Modifier.pointerInput(onRepeat) {
+            awaitEachGesture {
+                awaitFirstDown()
+                val downPos = currentEvent.changes.first().position
+                val slop = viewConfiguration.touchSlop
+                isPressed = true
+                try {
+                    var gestureValid = true
+                    var upConsumed = false
+                    withTimeoutOrNull(DWELL_GUARD_MS) {
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val ch = ev.changes.first()
+                            if (!ch.pressed) {
+                                upConsumed = true
+                                break
+                            }
+                            if ((ch.position - downPos).getDistance() > slop) {
+                                gestureValid = false
+                                break
                             }
                         }
-                        if (!gestureValid) {
-                            isPressed = false
-                            return@awaitEachGesture
+                    }
+                    if (!gestureValid) {
+                        isPressed = false
+                        return@awaitEachGesture
+                    }
+                    view.performHapticFeedback(
+                        android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                    )
+                    onClick()
+                    if (onRepeat == null) {
+                        if (!upConsumed) {
+                            waitForUpOrCancellation()
                         }
-                        view.performHapticFeedback(
-                            android.view.HapticFeedbackConstants.KEYBOARD_TAP,
-                        )
-                        onClick()
+                    } else {
                         while (true) {
                             try {
                                 withTimeout(REPEAT_TIMEOUT_MS) {
@@ -600,49 +533,9 @@ private fun RowScope.ExtraKeyButton(
                                 onRepeat()
                             }
                         }
-                    } finally {
-                        isPressed = false
                     }
-                }
-            }
-        } else {
-            Modifier.pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown()
-                    val downPos = currentEvent.changes.first().position
-                    val slop = viewConfiguration.touchSlop
-                    isPressed = true
-                    try {
-                        var gestureValid = true
-                        var upConsumed = false
-                        withTimeoutOrNull(DWELL_GUARD_MS) {
-                            while (true) {
-                                val ev = awaitPointerEvent()
-                                val ch = ev.changes.first()
-                                if (!ch.pressed) {
-                                    upConsumed = true
-                                    break
-                                }
-                                if ((ch.position - downPos).getDistance() > slop) {
-                                    gestureValid = false
-                                    break
-                                }
-                            }
-                        }
-                        if (!gestureValid) {
-                            isPressed = false
-                            return@awaitEachGesture
-                        }
-                        view.performHapticFeedback(
-                            android.view.HapticFeedbackConstants.KEYBOARD_TAP,
-                        )
-                        onClick()
-                        if (!upConsumed) {
-                            waitForUpOrCancellation()
-                        }
-                    } finally {
-                        isPressed = false
-                    }
+                } finally {
+                    isPressed = false
                 }
             }
         }

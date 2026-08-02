@@ -11,7 +11,6 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
-import android.view.ActionMode
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -19,10 +18,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,7 +25,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -42,6 +36,8 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.ui.SettingsScreen
 import terminal.emulator.ui.TerminalScreen
+import terminal.emulator.ui.theme.resolveAppDarkMode
+import terminal.emulator.ui.theme.resolveMaterialColorScheme
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
@@ -329,13 +325,6 @@ class MainActivity : ComponentActivity() {
                 Log.d("T", "showPaste: row=$row col=$col")
             }
         }
-
-    override fun onWindowStartingActionMode(
-        callback: ActionMode.Callback,
-        type: Int,
-    ): ActionMode? = null
-
-    override fun onWindowStartingActionMode(callback: ActionMode.Callback): ActionMode? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -692,31 +681,13 @@ private fun TerminalNavHost(viewModelReady: (TerminalViewModel) -> Unit = {}) {
     LaunchedEffect(showSettings) {
         viewModel.runtime.bridge()?.setRenderPaused(showSettings)
     }
-    val appThemeMode by viewModel.appThemeMode.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val appThemeMode = settings.appThemeMode
     val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
-    val context = LocalContext.current
 
-    val forceDark =
-        when (appThemeMode) {
-            "night" -> true
-            "day" -> false
-            else -> isDarkTheme
-        }
+    val forceDark = resolveAppDarkMode(appThemeMode, isDarkTheme)
 
-    val colorScheme =
-        when {
-            appThemeMode == "follow_system" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-                if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-            }
-
-            forceDark -> {
-                darkColorScheme()
-            }
-
-            else -> {
-                lightColorScheme()
-            }
-        }
+    val colorScheme = resolveMaterialColorScheme(appThemeMode, forceDark, isDarkTheme)
 
     Box(Modifier.semantics { testTagsAsResourceId = true }) {
         MaterialTheme(colorScheme = colorScheme) {
