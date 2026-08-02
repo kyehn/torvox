@@ -1,0 +1,29 @@
+appId: com.termux
+name: Search live session content
+tags:
+  - e2e
+---
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 20000
+- tapOn:
+    id: "Key_DRAWER"
+- extendedWaitUntil:
+    visible:
+      id: "SessionDrawer"
+    timeout: 10000
+- tapOn:
+    id: "SearchButton"
+- extendedWaitUntil:
+    visible:
+      id: "SearchTextField"
+    timeout: 10000
+- tapOn:
+    id: "SearchTextField"
+- inputText: "SEARCHMARKET"
+- waitForAnimationToEnd:
+    timeout: 8000
+- takeScreenshot: search_live_results
+- tapOn:
+    id: "SearchClose"

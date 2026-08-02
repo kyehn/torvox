@@ -1,0 +1,89 @@
+package terminal.emulator.bridge
+
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+/**
+ * Native-backed [TerminalQueryPort]: every method maps 1:1 to a JNI
+ * export (see `native/src/android/ffi.rs`, "JNI Exports:
+ * TerminalQueryPort"). Replaces [StubQueryPort] once a session is live.
+ *
+ * Contract for callers (same as the stub): null/0/empty means "no data"
+ * from the engine — never fake data. Single-row/font queries are cheap;
+ * bulk queries ([getTerminalText], [searchAllInScrollback]) are debounced
+ * by the UI.
+ */
+@Suppress("TooManyFunctions")
+class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQueryPort {
+    override fun getTitle(): String? = NativeBridge.getTitle(sessionIdProvider())
+
+    override fun getActiveSessionTitle(): String = getTitle() ?: ""
+
+    override fun setSelection(
+        startRow: Int,
+        startCol: Int,
+        endRow: Int,
+        endCol: Int,
+        hasSelection: Boolean?,
+        mode: Byte,
+    ) {
+        // Selection is rendered through the render path (SelectionRange),
+        // driven by TerminalSurface.consumeSelectionState; the query port
+        // has no stateful selection store — kept as a no-op for the seam.
+    }
+
+    override fun expandAndSetSelection(row: Int, col: Int, mode: Byte): Pair<Pair<Int, Int>, Pair<Int, Int>>? = null
+
+    override fun clearSearchHighlights() {
+        NativeBridge.clearSearchHighlights(sessionIdProvider())
+    }
+
+    override fun setSearchHighlights(data: ByteArray) {
+        NativeBridge.setSearchHighlights(sessionIdProvider(), data)
+    }
+
+    override fun scrollbackLine(row: Int): String? = NativeBridge.scrollbackLine(sessionIdProvider(), row)
+
+    override fun scrollbackLength(): Int = NativeBridge.scrollbackLength(sessionIdProvider())
+
+    override fun isCellEmpty(row: Int, col: Int): Boolean = NativeBridge.isCellEmpty(sessionIdProvider(), row, col)
+
+    override fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? = NativeBridge.searchAllInScrollback(sessionIdProvider(), query, caseSensitive, fuzzyMatch)
+        ?.let { parseSearchMatches(it) }
+
+    override fun setScrollOffset(offset: Int) {
+        // Scroll rendering is driven by TerminalSurface's render thread;
+        // no native round-trip needed for the query port.
+    }
+
+    override fun getTerminalText(): String? = NativeBridge.getTerminalText(sessionIdProvider())
+
+    override fun listFontFamilies(): List<String>? = NativeBridge.listFontFamilies()?.toList()
+
+    override fun getDefaultFontName(): String = NativeBridge.getDefaultFontName() ?: "monospace"
+
+    override fun getFontInfo(): String? = NativeBridge.getFontInfo()
+}
+
+@Serializable
+internal data class SearchMatchDto(
+    val row: Int = 0,
+    val start_col: Int = 0,
+    val end_col: Int = 0,
+)
+
+/**
+ * Parses the JSON array of `{"row":int,"start_col":int,"end_col":int}`
+ * produced by the native `searchAllInScrollback` export. Returns an empty
+ * list on malformed input (never throws) so search degrades to
+ * "no results" instead of crashing the UI.
+ */
+private val searchJson = Json { ignoreUnknownKeys = true }
+
+internal fun parseSearchMatches(json: String): List<Triple<Int, Int, Int>> = try {
+    searchJson
+        .decodeFromString<List<SearchMatchDto>>(json)
+        .map { Triple(it.row, it.start_col, it.end_col) }
+} catch (_: Exception) {
+    emptyList()
+}

@@ -597,7 +597,7 @@ needed.
 
 ## 9. Android Bridge
 
-### FR-053: ProGuard/R8 Compatibility
+### FR-051: ProGuard/R8 Compatibility
 
 **Requirement**: The system SHALL support ProGuard/R8 obfuscation with
 `-dontoptimize` to preserve direct JNI.
@@ -611,7 +611,7 @@ needed.
 
 ## 10. Configuration and Themes
 
-### FR-054: 16 Built-In Color Themes
+### FR-052: 16 Built-In Color Themes
 
 **Requirement**: The system SHALL provide 16 built-in color themes (see FR-054
 in `docs/srs.md` for the full list).
@@ -622,7 +622,7 @@ in `docs/srs.md` for the full list).
 | 2 | Each built-in theme has non-default values for all 16 ANSI color slots | `cargo test --package native -- config_drift` ([test source](native/src/terminal/ghostty_terminal/tests.rs)) |
 | 3 | Built-in themes are accessible from the Kotlin UI via the bridge | `cd android && ./gradlew connectedDebugAndroidTest` — `ThemeInstrumentedTest` ([`android/app/src/androidTest/java/terminal/emulator/ThemeInstrumentedTest.kt`](android/app/src/androidTest/java/terminal/emulator/ThemeInstrumentedTest.kt)) |
 
-### FR-055: Custom Theme via TOML
+### FR-053: Custom Theme via TOML
 
 **Requirement**: The system SHALL support custom theme definition via TOML with
 fields for name, background, foreground, cursor, selection background, and 16
@@ -634,7 +634,7 @@ ANSI color slots.
 | 2 | A TOML file with missing required fields produces a parse error | `cargo test --package native -- config_drift` ([test source](native/src/terminal/ghostty_terminal/tests.rs)) |
 | 3 | Custom themes are applied to rendering and produce correct color output | Code review: `native/src/config.rs` — `Theme::parse_custom()` and theme application path |
 
-### FR-056: Terminal Configuration
+### FR-054: Terminal Configuration
 
 **Requirement**: The system SHALL support configuration of terminal dimensions
 (rows, cols), scrollback size, shell path, font size, backspace mode, and
@@ -648,7 +648,7 @@ right-Alt mode via `TerminalConfig`.
 
 ---
 
-### FR-057: Repository Standards — Banned Binary Artifacts
+### FR-055: Repository Standards — Banned Binary Artifacts
 
 **Requirement**: The repository SHALL NOT contain golden images (reference PNG
 screenshots used for pixel-by-pixel comparison) or font file blobs (`.ttf`,

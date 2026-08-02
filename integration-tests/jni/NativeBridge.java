@@ -17,6 +17,12 @@ public class NativeBridge {
     static native void writeKey(long sessionId, String key, int mods, String text);
     static native String pollEvent();
     static native void setMcpEnabled(boolean enabled);
+    static native String getTitle(long sessionId);
+    static native int scrollbackLength(long sessionId);
+    static native String scrollbackLine(long sessionId, int row);
+    static native String getTerminalText(long sessionId);
+    static native String searchAllInScrollback(long sessionId, String query, boolean caseSensitive, boolean fuzzyMatch);
+    static native boolean isCellEmpty(long sessionId, int row, int col);
 
     // ── test harness ──
     static int passed = 0;
@@ -43,6 +49,7 @@ public class NativeBridge {
         testPollEvent();
         testMultiSession();
         testSetMcpEnabled();
+        testQueries();
 
         System.out.println();
         System.out.println("=== Results: " + passed + " passed, " + failed + " failed ===");
@@ -147,5 +154,48 @@ public class NativeBridge {
         setMcpEnabled(true);
         setMcpEnabled(false);
         // no crash = pass
+    }
+
+    static void testQueries() {
+        System.out.println("-- Query exports --");
+        // Unknown session: getTitle throws IllegalArgumentException.
+        boolean threw = false;
+        try {
+            getTitle(99999);
+        } catch (IllegalArgumentException expected) {
+            threw = true;
+        }
+        check("getTitle(unknown) throws IllegalArgumentException", threw);
+
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        check("session created for queries", sid > 0);
+        try { Thread.sleep(100); } catch (InterruptedException e) {}
+        // Live session: getters do not throw (data may be empty for a bare sh).
+        threw = false;
+        try {
+            String title = getTitle(sid);
+            int len = scrollbackLength(sid);
+            String line = scrollbackLine(sid, 0);
+            String text = getTerminalText(sid);
+            String matches = searchAllInScrollback(sid, "x", false, false);
+            boolean empty = isCellEmpty(sid, 0, 0);
+            check("live query getters do not throw", title != null);
+            check("scrollbackLength returns non-negative", len >= 0);
+            check("getTerminalText returns string", text != null);
+            check("search returns JSON array", matches != null && matches.startsWith("["));
+        } catch (RuntimeException unexpected) {
+            threw = true;
+            System.err.println("unexpected: " + unexpected);
+        }
+        check("live queries do not throw", !threw);
+        destroySession(sid);
+
+        threw = false;
+        try {
+            scrollbackLength(99999);
+        } catch (IllegalArgumentException expected) {
+            threw = true;
+        }
+        check("scrollbackLength(unknown) throws", threw);
     }
 }
