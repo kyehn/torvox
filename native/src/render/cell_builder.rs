@@ -393,3 +393,360 @@ pub fn build_instances_from_cell_data(
     }
     Some(())
 }
+
+// ── Tests ────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terminal::ghostty_terminal::CellData;
+
+    fn cell_data(row: u32, col: u32, ch: char, fg: [f32; 4], bg: [f32; 4], flags: u32) -> CellData {
+        CellData {
+            codepoint: ch as u32,
+            width: 1,
+            grapheme_extra: [0; 7],
+            fg_color: fg,
+            bg_color: bg,
+            flags,
+            row,
+            col,
+        }
+    }
+
+    fn build(
+        cells: &[CellData],
+        cursor: CellCursor,
+        selection: Option<SelectionRange>,
+        selection_bg: Option<[f32; 4]>,
+        highlights: &[SearchHighlight],
+    ) -> Vec<CellInstance> {
+        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        let mut instances = Vec::new();
+        let result = build_instances_from_cell_data(
+            cells,
+            24,
+            80,
+            cursor,
+            &mut font_pipeline,
+            1024.0,
+            1024.0,
+            selection,
+            selection_bg,
+            highlights,
+            &mut instances,
+        );
+        assert!(
+            result.is_some(),
+            "build should succeed with a font pipeline"
+        );
+        instances
+    }
+
+    /// Without reverse/selection/highlight, a plain cell keeps its colors.
+    #[test]
+    fn plain_cell_keeps_colors() {
+        let cells = vec![cell_data(
+            0,
+            0,
+            'A',
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            0,
+        )];
+        let instances = build(&cells, CellCursor::default(), None, None, &[]);
+        assert_eq!(instances.len(), 1);
+        assert_eq!(instances[0].fg_color, [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(instances[0].bg_color, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(instances[0].flags, 0.0);
+    }
+
+    /// SGR 7 reverse swaps fg and bg.
+    #[test]
+    fn reverse_swaps_fg_bg() {
+        let cells = vec![cell_data(
+            0,
+            0,
+            'A',
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            1 << REVERSE_BIT,
+        )];
+        let instances = build(&cells, CellCursor::default(), None, None, &[]);
+        assert_eq!(instances[0].fg_color, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(instances[0].bg_color, [1.0, 0.0, 0.0, 1.0]);
+    }
+
+    /// Selection without an explicit bg swaps fg/bg.
+    #[test]
+    fn selection_swaps_fg_bg() {
+        let cells = vec![cell_data(
+            1,
+            1,
+            'B',
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0, 1.0],
+            0,
+        )];
+        let selection = SelectionRange {
+            start_row: 1,
+            start_col: 1,
+            end_row: 1,
+            end_col: 1,
+            active: true,
+            mode: SelectionMode::Char,
+            ..Default::default()
+        };
+        let instances = build(&cells, CellCursor::default(), Some(selection), None, &[]);
+        assert_eq!(
+            instances[0].fg_color,
+            [0.0, 1.0, 0.0, 1.0],
+            "selection swaps fg→bg"
+        );
+        assert_eq!(instances[0].bg_color, [1.0, 0.0, 0.0, 1.0]);
+    }
+
+    /// Selection with an explicit bg color paints the background.
+    #[test]
+    fn selection_bg_paints_background() {
+        let cells = vec![cell_data(
+            0,
+            0,
+            'C',
+            [1.0, 1.0, 1.0, 1.0],
+            [0.1, 0.1, 0.1, 1.0],
+            0,
+        )];
+        let selection = SelectionRange {
+            start_row: 0,
+            start_col: 0,
+            end_row: 0,
+            end_col: 0,
+            active: true,
+            mode: SelectionMode::Char,
+            ..Default::default()
+        };
+        let instances = build(
+            &cells,
+            CellCursor::default(),
+            Some(selection),
+            Some([0.5, 0.5, 0.0, 1.0]),
+            &[],
+        );
+        assert_eq!(instances[0].bg_color, [0.5, 0.5, 0.0, 1.0]);
+        assert_eq!(
+            instances[0].fg_color,
+            [1.0, 1.0, 1.0, 1.0],
+            "fg unchanged with explicit bg"
+        );
+    }
+
+    /// Search highlight with alpha >= 128 swaps fg/bg then blends bg.
+    #[test]
+    fn search_highlight_swaps_and_blends() {
+        let cells = vec![cell_data(
+            2,
+            3,
+            'D',
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            0,
+        )];
+        let hl = SearchHighlight {
+            row: 2,
+            start_col: 3,
+            end_col_exclusive: 4,
+            color: [0xFF, 0xFF, 0x00, 0xFF], // opaque yellow
+        };
+        let instances = build(&cells, CellCursor::default(), None, None, &[hl]);
+        // Alpha >= 128 → swap fg/bg, then bg = blend(bg, yellow, alpha=1) = yellow.
+        assert_eq!(
+            instances[0].fg_color,
+            [0.0, 0.0, 1.0, 1.0],
+            "highlight swaps fg→bg"
+        );
+        assert_eq!(
+            instances[0].bg_color,
+            [1.0, 1.0, 0.0, 1.0],
+            "blend with opaque yellow"
+        );
+    }
+
+    /// Highlight alpha below 128 blends without swapping.
+    #[test]
+    fn search_highlight_blends_without_swap() {
+        let cells = vec![cell_data(
+            0,
+            0,
+            'E',
+            [0.0, 0.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0, 1.0],
+            0,
+        )];
+        let hl = SearchHighlight {
+            row: 0,
+            start_col: 0,
+            end_col_exclusive: 1,
+            color: [0xFF, 0x00, 0x00, 0x7F], // alpha ~0.5 red (below the 128 swap threshold)
+        };
+        let instances = build(&cells, CellCursor::default(), None, None, &[hl]);
+        assert_eq!(
+            instances[0].fg_color,
+            [0.0, 0.0, 0.0, 1.0],
+            "fg unchanged below alpha 128"
+        );
+        // bg = white * (1-a) + red * a with a = 0x7F/255
+        let alpha = 0x7F as f32 / 255.0;
+        let expected = 1.0 - alpha;
+        assert!(
+            (instances[0].bg_color[0] - 1.0).abs() < 1e-5,
+            "red channel keeps base white"
+        );
+        assert!((instances[0].bg_color[1] - expected).abs() < 1e-5);
+        assert!((instances[0].bg_color[2] - expected).abs() < 1e-5);
+    }
+
+    /// Block cursor replaces bg with cursor color (semi-transparent) and
+    /// keeps the original fg so the glyph stays readable.
+    #[test]
+    fn block_cursor_paints_bg_keeps_fg() {
+        let cells = vec![cell_data(
+            5,
+            5,
+            'F',
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, 1.0, 1.0],
+            0,
+        )];
+        let cursor = CellCursor {
+            row: 5,
+            col: 5,
+            visible: true,
+            style: CursorStyle::Block,
+            color: Some([0.0, 1.0, 0.0, 1.0]),
+        };
+        let instances = build(&cells, cursor, None, None, &[]);
+        assert_eq!(
+            instances[0].fg_color,
+            [1.0, 0.0, 0.0, 1.0],
+            "block cursor keeps fg"
+        );
+        assert_eq!(
+            instances[0].bg_color,
+            [0.0, 1.0, 0.0, 0.7],
+            "bg = cursor color * 0.7"
+        );
+    }
+
+    /// Bar cursor emits the glyph instance plus a thin vertical marker with
+    /// flags=0 (cell style flags must not leak into the marker).
+    #[test]
+    fn bar_cursor_emits_marker_with_zero_flags() {
+        let cells = vec![cell_data(
+            3,
+            3,
+            'G',
+            [1.0, 1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0],
+            0,
+        )];
+        let cursor = CellCursor {
+            row: 3,
+            col: 3,
+            visible: true,
+            style: CursorStyle::Bar,
+            color: Some([1.0, 0.0, 0.0, 1.0]),
+        };
+        let instances = build(&cells, cursor, None, None, &[]);
+        assert!(
+            instances.len() >= 2,
+            "glyph + bar marker expected, got {}",
+            instances.len()
+        );
+        // The marker instance has flags 0 and a thin quad width.
+        let marker = instances.last().unwrap();
+        assert_eq!(
+            marker.flags, 0.0,
+            "marker must not inherit cell style flags"
+        );
+        let glyph = &instances[0];
+        assert!(
+            marker.quad_size[0] < glyph.quad_size[0],
+            "bar marker ({}) must be thinner than the glyph quad ({})",
+            marker.quad_size[0],
+            glyph.quad_size[0],
+        );
+        assert_eq!(marker.fg_color, [1.0, 1.0, 1.0, 1.0]);
+    }
+
+    /// Empty cells (space) emit a background quad (or cursor marker), never
+    /// a glyph instance.
+    #[test]
+    fn empty_cell_emits_background_quad() {
+        let cells = vec![cell_data(
+            0,
+            0,
+            ' ',
+            [0.9, 0.9, 0.9, 1.0],
+            [0.1, 0.1, 0.1, 1.0],
+            0,
+        )];
+        let instances = build(&cells, CellCursor::default(), None, None, &[]);
+        assert_eq!(instances.len(), 1);
+        assert_eq!(
+            instances[0].atlas_size, [0.0; 2],
+            "no glyph UVs for a space"
+        );
+        assert_eq!(instances[0].bg_color, [0.1, 0.1, 0.1, 1.0]);
+    }
+
+    /// SelectionRange.contains covers Char, Line and Block modes.
+    #[test]
+    fn selection_range_contains_modes() {
+        let char_sel = SelectionRange {
+            start_row: 1,
+            start_col: 2,
+            end_row: 2,
+            end_col: 3,
+            active: true,
+            mode: SelectionMode::Char,
+            ..Default::default()
+        };
+        assert!(char_sel.contains(1, 2, 80));
+        assert!(char_sel.contains(1, 5, 80), "middle row covers all cols");
+        assert!(char_sel.contains(2, 3, 80));
+        assert!(!char_sel.contains(0, 0, 80));
+        assert!(!char_sel.contains(2, 4, 80));
+
+        let line_sel = SelectionRange {
+            start_row: 0,
+            start_col: 0,
+            end_row: 3,
+            end_col: 0,
+            active: true,
+            mode: SelectionMode::Line,
+            ..Default::default()
+        };
+        assert!(
+            line_sel.contains(2, 99, 80),
+            "Line mode covers the whole row"
+        );
+        assert!(!line_sel.contains(4, 0, 80));
+
+        let block_sel = SelectionRange {
+            start_row: 1,
+            start_col: 1,
+            end_row: 2,
+            end_col: 2,
+            active: true,
+            mode: SelectionMode::Block,
+            ..Default::default()
+        };
+        assert!(block_sel.contains(1, 1, 80));
+        assert!(block_sel.contains(2, 2, 80));
+        assert!(
+            !block_sel.contains(1, 3, 80),
+            "Block mode bounds the column"
+        );
+    }
+}

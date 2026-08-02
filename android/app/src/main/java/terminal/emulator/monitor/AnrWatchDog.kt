@@ -15,6 +15,8 @@ import java.util.concurrent.atomic.AtomicInteger
 class AnrWatchDog(
     private val logDir: File,
     private val timeoutMs: Long = ANR_TIMEOUT_MILLIS,
+    private val warmUpMillis: Long = WARM_UP_MILLIS,
+    private val onAnr: () -> Unit = { BootGuard.exit(logDir, "ANR") },
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
 
@@ -61,7 +63,7 @@ class AnrWatchDog(
         // false positive kills the process and loses every session. Skip
         // checks until the app has been running for a while.
         val startUpNanos = System.nanoTime()
-        while (System.nanoTime() - startUpNanos < WARM_UP_MILLIS * 1_000_000L) {
+        while (System.nanoTime() - startUpNanos < warmUpMillis * 1_000_000L) {
             if (!running.get() || generation.get() != myGeneration) return
             try {
                 Thread.sleep(WARM_UP_SLEEP_MILLIS)
@@ -90,7 +92,12 @@ class AnrWatchDog(
                     val elapsed = System.currentTimeMillis() - startMs
                     if (elapsed >= timeoutMs) {
                         onAnrDetected()
-                        break
+                        // ANR is terminal: either BootGuard kills the
+                        // process or killing is suppressed and the dump was
+                        // already logged. Re-arming here would re-trigger
+                        // every `timeoutMs` (filling the data partition in
+                        // the suppressed case) — stop the watcher instead.
+                        return
                     }
                     if (completed.get()) break
                     Thread.sleep(BUSY_WAIT_SLEEP_MILLIS)
@@ -155,7 +162,7 @@ class AnrWatchDog(
             Log.e("AnrWatchDog", "ANR written to ${logFile.absolutePath}")
 
             Log.e("AnrWatchDog", "Killing process due to ANR")
-            BootGuard.exit(logDir, "ANR")
+            onAnr()
         } catch (e: Exception) {
             Log.e("AnrWatchDog", "Unhandled exception in ANR handler", e)
         } finally {

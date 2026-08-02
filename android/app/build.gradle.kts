@@ -114,6 +114,17 @@ android {
     }
 }
 
+configurations {
+    // androidx.concurrent:concurrent-futures is pulled at 1.1.0 by an
+    // internal Gradle lock and at 1.2.0 by androidx.test.ext:junit — pin
+    // the newer transitive version to resolve the conflict.
+    all {
+        resolutionStrategy {
+            force("androidx.concurrent:concurrent-futures:1.2.0")
+        }
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
     implementation(composeBom)
@@ -165,7 +176,6 @@ dependencies {
     testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.70.0")
     testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.70.0")
     testImplementation("androidx.test:core:1.7.0")
-    testImplementation("com.tngtech.archunit:archunit-junit4:1.4.2")
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
