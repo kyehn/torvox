@@ -951,12 +951,19 @@ fn cjk_bearing_y_not_centered() {
 
 #[cfg(test)]
 fn setup_test_gpu_context(device: wgpu::Device, queue: wgpu::Queue) -> Renderer {
+    let gpu = crate::render::context::global_gpu_for_tests();
     let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Quad Vertex Buffer"),
         contents: bytemuck::cast_slice(QUAD_CORNERS),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let mut context = Renderer::new_inner(device, queue, quad_vertex_buffer);
+    let mut context = Renderer::new_inner(
+        gpu.instance.clone(),
+        gpu.adapter.clone(),
+        device,
+        queue,
+        quad_vertex_buffer,
+    );
     context.surface_config = Some(wgpu::SurfaceConfiguration {
         width: 50,
         height: 50,
@@ -978,12 +985,19 @@ fn setup_test_gpu_context_custom(
     width: u32,
     height: u32,
 ) -> Renderer {
+    let gpu = crate::render::context::global_gpu_for_tests();
     let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Quad Vertex Buffer"),
         contents: bytemuck::cast_slice(QUAD_CORNERS),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let mut context = Renderer::new_inner(device.clone(), queue, quad_vertex_buffer);
+    let mut context = Renderer::new_inner(
+        gpu.instance.clone(),
+        gpu.adapter.clone(),
+        device.clone(),
+        queue,
+        quad_vertex_buffer,
+    );
     context.surface_config = Some(wgpu::SurfaceConfiguration {
         width,
         height,

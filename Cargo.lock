@@ -1686,6 +1686,7 @@ dependencies = [
  "proptest",
  "quickcheck",
  "quickcheck_macros",
+ "raw-window-handle",
  "renderdoc",
  "schemars",
  "serde",
@@ -1696,6 +1697,7 @@ dependencies = [
  "tokio",
  "tower-mcp",
  "wgpu",
+ "wgpu-types",
 ]
 
 [[package]]
