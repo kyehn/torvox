@@ -66,7 +66,7 @@ pub struct GlyphInfo {
     pub allocation_id: Option<guillotiere::AllocId>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ShapedGlyphInfo {
     pub glyph_id: u16,
     pub font_id: fontdb::ID,
