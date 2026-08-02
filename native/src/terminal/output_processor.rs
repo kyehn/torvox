@@ -43,6 +43,8 @@ impl From<u8> for ShellIntegration {
 pub struct OutputSnapshot {
     /// Clipboard text set by OSC 52.
     pub clipboard: Option<String>,
+    /// OSC 52 clipboard read request: the selection name to answer.
+    pub clipboard_read: Option<String>,
     /// Working directory reported by OSC 7.
     pub cwd: Option<String>,
     /// Hyperlink URL set by OSC 8.
@@ -85,6 +87,9 @@ impl OutputProcessor {
             match event {
                 OscEvent::Clipboard(ce) => {
                     snapshot.clipboard = Some(ce.text.clone());
+                }
+                OscEvent::ClipboardRead(ce) => {
+                    snapshot.clipboard_read = Some(ce.selection.clone());
                 }
                 OscEvent::Cwd(ce) => {
                     snapshot.cwd = Some(ce.path.clone());
@@ -207,6 +212,17 @@ mod tests {
         let mut proc = OutputProcessor::new();
         let snap = proc.process(b"\x1b]133;B\x1b\\");
         assert_eq!(snap.shell_integration, ShellIntegration::PromptEnd);
+    }
+
+    #[test]
+    fn osc52_clipboard_read_forwarded() {
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"\x1b]52;c;?\x07");
+        assert_eq!(snap.clipboard_read.as_deref(), Some("c"));
+        assert!(
+            snap.filtered.is_empty(),
+            "read request must not reach the VT parser"
+        );
     }
 
     #[test]
