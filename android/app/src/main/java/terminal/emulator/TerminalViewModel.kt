@@ -1,7 +1,5 @@
 package terminal.emulator
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -37,8 +35,9 @@ import terminal.emulator.input.ModifierState
 import terminal.emulator.input.next
 import terminal.emulator.input.toKeyboardMode
 import terminal.emulator.input.toSettingsString
+import terminal.emulator.runtime.ClipboardAccess
+import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.runtime.PasteChunker
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
 import javax.inject.Inject
@@ -158,7 +157,399 @@ constructor(
     private val settingsRepository: SettingsRepository,
     val runtime: TerminalRuntime,
 ) : ViewModel() {
-    private val pasteChunker = PasteChunker(tag = "ViewModel")
+    private val clipboardAccess = ClipboardAccess(context, tag = "ViewModel")
+    private val clipboardPaster = ClipboardPaster(clipboardAccess)
+    private val selectionManager = SelectionManager()
+
+    // ── Selection forwards (implementation in SelectionManager) ────────────
+
+    fun startSelection(
+        row: Int,
+        col: Int,
+        touchClass: TouchClass = TouchClass.Unknown,
+    ) = selectionManager.startSelection(row, col, touchClass)
+
+    fun updateSelection(row: Int, col: Int) = selectionManager.updateSelection(row, col)
+
+    fun updateSelectionStart(row: Int, col: Int) = selectionManager.updateSelectionStart(row, col)
+
+    fun endSelection() = selectionManager.endSelection()
+
+    fun setSelectionMode(mode: SelectionMode) = selectionManager.setSelectionMode(mode)
+
+    fun copySelectionToClipboard() = selectionManager.copySelectionToClipboard()
+
+    fun clearSelection() = selectionManager.clearSelection()
+
+    fun showPastePopup(row: Int, col: Int) = selectionManager.showPastePopup(row, col)
+
+    fun consumePastePopupRequest(): PastePopupRequest? = selectionManager.consumePastePopupRequest()
+
+    fun shareSelection() = selectionManager.shareSelection()
+
+    fun selectAll(scrollOffset: Int = 0) = selectionManager.selectAll(scrollOffset)
+
+    fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
+    fun writeToPty(data: ByteArray) {
+        val written = runtime.writeToPty(data)
+        if (!written) {
+            LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
+        }
+    }
+
+    fun cycleCtrlState() {
+        _state.update { it.copy(ctrlState = it.ctrlState.next()) }
+    }
+
+    fun cycleAltState() {
+        _state.update { it.copy(altState = it.altState.next()) }
+    }
+
+    fun consumeOneShotModifiers() {
+        val currentState = _state.value
+        var newCtrl = currentState.ctrlState
+        var newAlt = currentState.altState
+        if (newCtrl == ModifierState.Once) newCtrl = ModifierState.Off
+        if (newAlt == ModifierState.Once) newAlt = ModifierState.Off
+        if (newCtrl != currentState.ctrlState || newAlt != currentState.altState) {
+            _state.update { current -> current.copy(ctrlState = newCtrl, altState = newAlt) }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // SECTION 3b: Selection management (extracted K5)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Owns selection state transitions: start/update/end, clipboard
+     * copy/share, select-all and the extraction heuristics (URL joining,
+     * TUI-border detection). Extracted from TerminalViewModel
+     * (kotlin-architecture-round2 K5). Inner class: accesses _state,
+     * runtime and clipboardPaster via the outer view model.
+     */
+    inner class SelectionManager {
+        fun startSelection(
+            row: Int,
+            col: Int,
+            touchClass: TouchClass = TouchClass.Unknown,
+        ) {
+            // A text-selection long-press supersedes any pending paste chip;
+            // drop it so it cannot reappear once the selection is cleared
+            // (round-105).
+            consumePastePopupRequest()
+            val anchor = SelectionAnchor(row, col)
+            // CAS (round-98): selection is touched from the main thread but
+            // _state is also written by IO coroutines; a plain RMW could lose
+            // one of their updates. mode is read inside the lambda. (The old
+            // EmptyArea override to Char mode was dead — no caller passes
+            // EmptyArea; round-99.)
+            _state.update { state ->
+                state.copy(
+                    selection =
+                    SelectionState(
+                        active = true,
+                        dragging = true,
+                        start = anchor,
+                        end = anchor,
+                        mode = state.selection.mode,
+                        touchClass = touchClass,
+                    ),
+                )
+            }
+        }
+
+        fun updateSelection(
+            row: Int,
+            col: Int,
+        ) {
+            // CAS with the active-check inside the lambda (round-98): the
+            // selection read and the write are atomic against concurrent _state
+            // updates.
+            _state.update { state ->
+                val current = state.selection
+                if (!current.active) {
+                    state
+                } else {
+                    val result = current.applyHandleDrag(draggingStart = false, targetRow = row, targetCol = col)
+                    state.copy(
+                        selection =
+                        current.copy(
+                            start = SelectionAnchor(result.startRow, result.startCol),
+                            end = SelectionAnchor(result.endRow, result.endCol),
+                        ),
+                    )
+                }
+            }
+        }
+
+        fun updateSelectionStart(
+            row: Int,
+            col: Int,
+        ) {
+            _state.update { state ->
+                val current = state.selection
+                if (!current.active) {
+                    state
+                } else {
+                    val result = current.applyHandleDrag(draggingStart = true, targetRow = row, targetCol = col)
+                    state.copy(
+                        selection =
+                        current.copy(
+                            start = SelectionAnchor(result.startRow, result.startCol),
+                            end = SelectionAnchor(result.endRow, result.endCol),
+                        ),
+                    )
+                }
+            }
+        }
+
+        fun endSelection() {
+            val current = _state.value.selection
+            if (!current.active || current.start == null || current.end == null) return
+            val text = extractSelectedText(current)
+            // Only write when the selection is unchanged since our read: a
+            // concurrent selection update must not be clobbered with stale text.
+            // CAS loop (round-101): compareAndSet retries while the state is
+            // still ours and aborts as soon as a concurrent write lands — the
+            // native boundary sync below runs only for a genuinely committed
+            // snapshot (no side-effect flag that could leak across retries).
+            // Note (round-100): extractSelectedText itself reads the bridge and
+            // cols across a snapshot — those can also go stale mid-extraction if
+            // an IO coroutine switches sessions; the result is bounded by the
+            // substring guards and is never written unless this CAS commits.
+            val updated = current.copy(dragging = false, selectedText = text)
+            while (true) {
+                val state = _state.value
+                if (state.selection != current) return
+                if (_state.compareAndSet(state, state.copy(selection = updated))) break
+            }
+            val start = current.start
+            val end = current.end
+            val loRow = minOf(start.row, end.row)
+            val hiRow = maxOf(start.row, end.row)
+            val loCol = minOf(start.col, end.col)
+            val hiCol = maxOf(start.col, end.col)
+            runtime.setSelection(loRow, loCol, hiRow, hiCol, true, current.mode.ordinal.toByte())
+        }
+
+        fun setSelectionMode(mode: SelectionMode) {
+            _state.update { it.copy(selection = it.selection.copy(mode = mode)) }
+        }
+
+        fun copySelectionToClipboard() {
+            val rawText = _state.value.selection.selectedText
+            if (rawText.isEmpty()) return
+            val text = if (rawText.length > CLIPBOARD_TEXT_MAX_LENGTH) rawText.substring(0, CLIPBOARD_TEXT_MAX_LENGTH) else rawText
+            clipboardAccess.setClipboardText(text, label = "terminal selection")
+        }
+
+        fun clearSelection() {
+            _state.update { it.copy(selection = SelectionState()) }
+            // Drop any pending paste chip: with the selection cleared it would
+            // reappear over the terminal (round-105).
+            consumePastePopupRequest()
+            syncSelectionToNative()
+        }
+
+        fun showPastePopup(
+            row: Int,
+            col: Int,
+        ) {
+            _state.update { it.copy(pastePopupRequest = PastePopupRequest(row, col)) }
+        }
+
+        fun consumePastePopupRequest(): PastePopupRequest? {
+            // Explicit CAS loop (round-102): update() would re-run its lambda on
+            // contention and leak a stale captured result to a second consumer;
+            // compareAndSet returns exactly one winner per request.
+            while (true) {
+                val state = _state.value
+                val req = state.pastePopupRequest ?: return null
+                if (_state.compareAndSet(state, state.copy(pastePopupRequest = null))) return req
+            }
+        }
+
+        private fun syncSelectionToNative() {
+            val selection = _state.value.selection
+            if (selection.active && selection.start != null && selection.end != null) {
+                val start = selection.start
+                val end = selection.end
+                val loRow = minOf(start.row, end.row)
+                val hiRow = maxOf(start.row, end.row)
+                val loCol = minOf(start.col, end.col)
+                val hiCol = maxOf(start.col, end.col)
+                runtime.setSelection(loRow, loCol, hiRow, hiCol, true, selection.mode.ordinal.toByte())
+            } else {
+                runtime.setSelection(0, 0, 0, 0, false, 0)
+            }
+        }
+
+        fun shareSelection() {
+            val text = _state.value.selection.selectedText
+            if (text.isEmpty()) return
+            val shareIntent =
+                Intent.createChooser(
+                    Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TEXT, text)
+                    },
+                    null,
+                )
+            shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(shareIntent)
+        }
+
+        fun selectAll(scrollOffset: Int = 0) {
+            val runtimeState = runtime.state.value
+            val rows = runtimeState.rows.coerceAtLeast(1)
+            val cols = runtimeState.cols.coerceAtLeast(1)
+            // Selection rows are grid rows (0 = top of scrollback). The
+            // visible viewport starts at grid row (scrollbackLength - scrollOffset).
+            val scrollbackLength = runtime.bridge()?.scrollbackLength() ?: 0
+            val viewportStart = (scrollbackLength - scrollOffset).coerceAtLeast(0)
+            val start = SelectionAnchor(row = viewportStart, col = 0)
+            val end = SelectionAnchor(row = viewportStart + rows - 1, col = cols - 1)
+            val selectionState =
+                SelectionState(
+                    active = true,
+                    dragging = false,
+                    start = start,
+                    end = end,
+                    mode = SelectionMode.Char,
+                )
+            val text = extractSelectedText(selectionState)
+            _state.update { it.copy(selection = selectionState.copy(selectedText = text)) }
+            syncSelectionToNative()
+        }
+
+        @Suppress("CyclomaticComplexMethod")
+        private fun extractSelectedText(selection: SelectionState): String {
+            val start = selection.start ?: return ""
+            val end = selection.end ?: return ""
+            val bridge = runtime.bridge() ?: return ""
+            // Selection rows are stored in grid coordinates (0 = top of
+            // scrollback), so pass them to scrollbackLine() directly — no
+            // viewport conversion here.
+            val visibleCols =
+                runtime.state.value.cols
+                    .coerceAtLeast(1)
+            val (lo, hi) =
+                if (start.row < end.row || (start.row == end.row && start.col <= end.col)) {
+                    start to end
+                } else {
+                    end to start
+                }
+            return when (selection.mode) {
+                SelectionMode.Char, SelectionMode.Word, SelectionMode.Semantic -> {
+                    if (lo.row == hi.row) {
+                        val line = bridge.scrollbackLine(lo.row) ?: ""
+                        val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
+                        visLine.substring(lo.col.coerceAtMost(visLine.length), (hi.col + 1).coerceAtMost(visLine.length))
+                    } else {
+                        val parts = mutableListOf<String>()
+                        // Cap the per-call JNI round-trips: a hostile broadcast
+                        // (partialSelectReceiver endRow clamps to 4095) could
+                        // otherwise trigger thousands of scrollbackLine() calls
+                        // on the main thread. Each call is a JNI boundary +
+                        // String allocation; the cap keeps worst case bounded.
+                        for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
+                            val line = bridge.scrollbackLine(r) ?: ""
+                            val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
+                            val startCol = if (r == lo.row) lo.col else 0
+                            val endCol = if (r == hi.row) (hi.col + 1).coerceAtMost(visLine.length) else visLine.length
+                            if (startCol < visLine.length) {
+                                parts.add(visLine.substring(startCol, endCol.coerceAtMost(visLine.length)))
+                            }
+                        }
+                        smartJoinLines(parts)
+                    }
+                }
+
+                SelectionMode.Line -> {
+                    val parts = mutableListOf<String>()
+                    for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
+                        val line = bridge.scrollbackLine(r) ?: ""
+                        val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
+                        parts.add(visLine)
+                    }
+                    parts.joinToString("\n")
+                }
+
+                SelectionMode.Block -> {
+                    val parts = mutableListOf<String>()
+                    for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
+                        val line = bridge.scrollbackLine(r) ?: ""
+                        val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
+                        var startCol = lo.col.coerceAtMost(visLine.length)
+                        var endCol = hi.col.coerceAtMost(visLine.length)
+                        // Reverse drag (start below/right of end) must not produce
+                        // startCol > endCol — substring() would throw
+                        // StringIndexOutOfBoundsException on the main thread.
+                        if (startCol > endCol) {
+                            val tmp = startCol
+                            startCol = endCol
+                            endCol = tmp
+                        }
+                        if (startCol < visLine.length) {
+                            parts.add(visLine.substring(startCol, endCol))
+                        }
+                    }
+                    parts.joinToString("\n")
+                }
+            }
+        }
+
+        private fun smartJoinLines(parts: List<String>): String {
+            if (parts.size <= 1) return parts.joinToString("")
+            val result = StringBuilder(parts[0])
+            for (index in 1 until parts.size) {
+                val previousLine = parts[index - 1]
+                val currentLine = parts[index]
+                if (isContinuationUrl(previousLine)) {
+                    result.append(currentLine)
+                } else if (isUrlStart(currentLine)) {
+                    result.append("\n").append(currentLine)
+                } else if (isPathOrProtocol(currentLine)) {
+                    result.append(currentLine)
+                } else if (isTuiBorder(currentLine)) {
+                    break
+                } else if (shouldJoinWithNewline(previousLine, currentLine)) {
+                    result.append("\n").append(currentLine)
+                } else {
+                    result.append(currentLine)
+                }
+            }
+            return result.toString()
+        }
+
+        private fun isContinuationUrl(line: String): Boolean = line.endsWith("https://") || line.endsWith("http://")
+
+        private fun isUrlStart(line: String): Boolean = line.startsWith("https://") || line.startsWith("http://")
+
+        private fun isPathOrProtocol(line: String): Boolean = line.startsWith("/") || line.startsWith("http")
+
+        private fun shouldJoinWithNewline(
+            previousLine: String,
+            currentLine: String,
+        ): Boolean {
+            if (previousLine.isBlank() || currentLine.isBlank()) return false
+            if (currentLine.startsWith(" ")) return false
+            if (previousLine.endsWith(" ")) return false
+            return true
+        }
+
+        private fun isTuiBorder(line: String): Boolean {
+            val trimmed = line.trim()
+            if (trimmed.isEmpty()) return false
+            val uniqueChars = trimmed.toSet().size
+            if (uniqueChars <= 2 && trimmed.all { it in "│─╭╮╰╯┌┐└┘┬┴├┤┼═║╗╝╚╔╠╣╦╩╬ " }) {
+                return true
+            }
+            return false
+        }
+
+        fun pasteFromClipboard(): Int = clipboardPaster.pasteTo { runtime.writeToPty(it) }
+    }
 
     companion object {
         private const val TAG = "TerminalViewModel"
@@ -814,395 +1205,6 @@ constructor(
     // SECTION 3: Selection management (extract → SelectionManager)
     // ══════════════════════════════════════════════════════════════════════
 
-    fun startSelection(
-        row: Int,
-        col: Int,
-        touchClass: TouchClass = TouchClass.Unknown,
-    ) {
-        // A text-selection long-press supersedes any pending paste chip;
-        // drop it so it cannot reappear once the selection is cleared
-        // (round-105).
-        consumePastePopupRequest()
-        val anchor = SelectionAnchor(row, col)
-        // CAS (round-98): selection is touched from the main thread but
-        // _state is also written by IO coroutines; a plain RMW could lose
-        // one of their updates. mode is read inside the lambda. (The old
-        // EmptyArea override to Char mode was dead — no caller passes
-        // EmptyArea; round-99.)
-        _state.update { state ->
-            state.copy(
-                selection =
-                SelectionState(
-                    active = true,
-                    dragging = true,
-                    start = anchor,
-                    end = anchor,
-                    mode = state.selection.mode,
-                    touchClass = touchClass,
-                ),
-            )
-        }
-    }
-
-    fun updateSelection(
-        row: Int,
-        col: Int,
-    ) {
-        // CAS with the active-check inside the lambda (round-98): the
-        // selection read and the write are atomic against concurrent _state
-        // updates.
-        _state.update { state ->
-            val current = state.selection
-            if (!current.active) {
-                state
-            } else {
-                val result = current.applyHandleDrag(draggingStart = false, targetRow = row, targetCol = col)
-                state.copy(
-                    selection =
-                    current.copy(
-                        start = SelectionAnchor(result.startRow, result.startCol),
-                        end = SelectionAnchor(result.endRow, result.endCol),
-                    ),
-                )
-            }
-        }
-    }
-
-    fun updateSelectionStart(
-        row: Int,
-        col: Int,
-    ) {
-        _state.update { state ->
-            val current = state.selection
-            if (!current.active) {
-                state
-            } else {
-                val result = current.applyHandleDrag(draggingStart = true, targetRow = row, targetCol = col)
-                state.copy(
-                    selection =
-                    current.copy(
-                        start = SelectionAnchor(result.startRow, result.startCol),
-                        end = SelectionAnchor(result.endRow, result.endCol),
-                    ),
-                )
-            }
-        }
-    }
-
-    fun endSelection() {
-        val current = _state.value.selection
-        if (!current.active || current.start == null || current.end == null) return
-        val text = extractSelectedText(current)
-        // Only write when the selection is unchanged since our read: a
-        // concurrent selection update must not be clobbered with stale text.
-        // CAS loop (round-101): compareAndSet retries while the state is
-        // still ours and aborts as soon as a concurrent write lands — the
-        // native boundary sync below runs only for a genuinely committed
-        // snapshot (no side-effect flag that could leak across retries).
-        // Note (round-100): extractSelectedText itself reads the bridge and
-        // cols across a snapshot — those can also go stale mid-extraction if
-        // an IO coroutine switches sessions; the result is bounded by the
-        // substring guards and is never written unless this CAS commits.
-        val updated = current.copy(dragging = false, selectedText = text)
-        while (true) {
-            val state = _state.value
-            if (state.selection != current) return
-            if (_state.compareAndSet(state, state.copy(selection = updated))) break
-        }
-        val start = current.start
-        val end = current.end
-        val loRow = minOf(start.row, end.row)
-        val hiRow = maxOf(start.row, end.row)
-        val loCol = minOf(start.col, end.col)
-        val hiCol = maxOf(start.col, end.col)
-        runtime.setSelection(loRow, loCol, hiRow, hiCol, true, current.mode.ordinal.toByte())
-    }
-
-    fun setSelectionMode(mode: SelectionMode) {
-        _state.update { it.copy(selection = it.selection.copy(mode = mode)) }
-    }
-
-    private fun getClipboardManager(): ClipboardManager? = (context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager).also {
-        if (it == null) {
-            Log.w(TAG, "Clipboard service not available")
-        }
-    }
-
-    fun copySelectionToClipboard() {
-        val rawText = _state.value.selection.selectedText
-        if (rawText.isEmpty()) return
-        val text = if (rawText.length > CLIPBOARD_TEXT_MAX_LENGTH) rawText.substring(0, CLIPBOARD_TEXT_MAX_LENGTH) else rawText
-        val clipboard = getClipboardManager() ?: return
-        clipboard.setPrimaryClip(ClipData.newPlainText("terminal selection", text))
-    }
-
-    fun clearSelection() {
-        _state.update { it.copy(selection = SelectionState()) }
-        // Drop any pending paste chip: with the selection cleared it would
-        // reappear over the terminal (round-105).
-        consumePastePopupRequest()
-        syncSelectionToNative()
-    }
-
-    fun showPastePopup(
-        row: Int,
-        col: Int,
-    ) {
-        _state.update { it.copy(pastePopupRequest = PastePopupRequest(row, col)) }
-    }
-
-    fun consumePastePopupRequest(): PastePopupRequest? {
-        // Explicit CAS loop (round-102): update() would re-run its lambda on
-        // contention and leak a stale captured result to a second consumer;
-        // compareAndSet returns exactly one winner per request.
-        while (true) {
-            val state = _state.value
-            val req = state.pastePopupRequest ?: return null
-            if (_state.compareAndSet(state, state.copy(pastePopupRequest = null))) return req
-        }
-    }
-
-    private fun syncSelectionToNative() {
-        val selection = _state.value.selection
-        if (selection.active && selection.start != null && selection.end != null) {
-            val start = selection.start
-            val end = selection.end
-            val loRow = minOf(start.row, end.row)
-            val hiRow = maxOf(start.row, end.row)
-            val loCol = minOf(start.col, end.col)
-            val hiCol = maxOf(start.col, end.col)
-            runtime.setSelection(loRow, loCol, hiRow, hiCol, true, selection.mode.ordinal.toByte())
-        } else {
-            runtime.setSelection(0, 0, 0, 0, false, 0)
-        }
-    }
-
-    fun shareSelection() {
-        val text = _state.value.selection.selectedText
-        if (text.isEmpty()) return
-        val shareIntent =
-            Intent.createChooser(
-                Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_TEXT, text)
-                },
-                null,
-            )
-        shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        context.startActivity(shareIntent)
-    }
-
-    fun selectAll(scrollOffset: Int = 0) {
-        val runtimeState = runtime.state.value
-        val rows = runtimeState.rows.coerceAtLeast(1)
-        val cols = runtimeState.cols.coerceAtLeast(1)
-        // Selection rows are grid rows (0 = top of scrollback). The
-        // visible viewport starts at grid row (scrollbackLength - scrollOffset).
-        val scrollbackLength = runtime.bridge()?.scrollbackLength() ?: 0
-        val viewportStart = (scrollbackLength - scrollOffset).coerceAtLeast(0)
-        val start = SelectionAnchor(row = viewportStart, col = 0)
-        val end = SelectionAnchor(row = viewportStart + rows - 1, col = cols - 1)
-        val selectionState =
-            SelectionState(
-                active = true,
-                dragging = false,
-                start = start,
-                end = end,
-                mode = SelectionMode.Char,
-            )
-        val text = extractSelectedText(selectionState)
-        _state.update { it.copy(selection = selectionState.copy(selectedText = text)) }
-        syncSelectionToNative()
-    }
-
-    @Suppress("CyclomaticComplexMethod")
-    private fun extractSelectedText(selection: SelectionState): String {
-        val start = selection.start ?: return ""
-        val end = selection.end ?: return ""
-        val bridge = runtime.bridge() ?: return ""
-        // Selection rows are stored in grid coordinates (0 = top of
-        // scrollback), so pass them to scrollbackLine() directly — no
-        // viewport conversion here.
-        val visibleCols =
-            runtime.state.value.cols
-                .coerceAtLeast(1)
-        val (lo, hi) =
-            if (start.row < end.row || (start.row == end.row && start.col <= end.col)) {
-                start to end
-            } else {
-                end to start
-            }
-        return when (selection.mode) {
-            SelectionMode.Char, SelectionMode.Word, SelectionMode.Semantic -> {
-                if (lo.row == hi.row) {
-                    val line = bridge.scrollbackLine(lo.row) ?: ""
-                    val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                    visLine.substring(lo.col.coerceAtMost(visLine.length), (hi.col + 1).coerceAtMost(visLine.length))
-                } else {
-                    val parts = mutableListOf<String>()
-                    // Cap the per-call JNI round-trips: a hostile broadcast
-                    // (partialSelectReceiver endRow clamps to 4095) could
-                    // otherwise trigger thousands of scrollbackLine() calls
-                    // on the main thread. Each call is a JNI boundary +
-                    // String allocation; the cap keeps worst case bounded.
-                    for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
-                        val line = bridge.scrollbackLine(r) ?: ""
-                        val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                        val startCol = if (r == lo.row) lo.col else 0
-                        val endCol = if (r == hi.row) (hi.col + 1).coerceAtMost(visLine.length) else visLine.length
-                        if (startCol < visLine.length) {
-                            parts.add(visLine.substring(startCol, endCol.coerceAtMost(visLine.length)))
-                        }
-                    }
-                    smartJoinLines(parts)
-                }
-            }
-
-            SelectionMode.Line -> {
-                val parts = mutableListOf<String>()
-                for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
-                    val line = bridge.scrollbackLine(r) ?: ""
-                    val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                    parts.add(visLine)
-                }
-                parts.joinToString("\n")
-            }
-
-            SelectionMode.Block -> {
-                val parts = mutableListOf<String>()
-                for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
-                    val line = bridge.scrollbackLine(r) ?: ""
-                    val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                    var startCol = lo.col.coerceAtMost(visLine.length)
-                    var endCol = hi.col.coerceAtMost(visLine.length)
-                    // Reverse drag (start below/right of end) must not produce
-                    // startCol > endCol — substring() would throw
-                    // StringIndexOutOfBoundsException on the main thread.
-                    if (startCol > endCol) {
-                        val tmp = startCol
-                        startCol = endCol
-                        endCol = tmp
-                    }
-                    if (startCol < visLine.length) {
-                        parts.add(visLine.substring(startCol, endCol))
-                    }
-                }
-                parts.joinToString("\n")
-            }
-        }
-    }
-
-    private fun smartJoinLines(parts: List<String>): String {
-        if (parts.size <= 1) return parts.joinToString("")
-        val result = StringBuilder(parts[0])
-        for (index in 1 until parts.size) {
-            val previousLine = parts[index - 1]
-            val currentLine = parts[index]
-            if (isContinuationUrl(previousLine)) {
-                result.append(currentLine)
-            } else if (isUrlStart(currentLine)) {
-                result.append("\n").append(currentLine)
-            } else if (isPathOrProtocol(currentLine)) {
-                result.append(currentLine)
-            } else if (isTuiBorder(currentLine)) {
-                break
-            } else if (shouldJoinWithNewline(previousLine, currentLine)) {
-                result.append("\n").append(currentLine)
-            } else {
-                result.append(currentLine)
-            }
-        }
-        return result.toString()
-    }
-
-    private fun isContinuationUrl(line: String): Boolean = line.endsWith("https://") || line.endsWith("http://")
-
-    private fun isUrlStart(line: String): Boolean = line.startsWith("https://") || line.startsWith("http://")
-
-    private fun isPathOrProtocol(line: String): Boolean = line.startsWith("/") || line.startsWith("http")
-
-    private fun shouldJoinWithNewline(
-        previousLine: String,
-        currentLine: String,
-    ): Boolean {
-        if (previousLine.isBlank() || currentLine.isBlank()) return false
-        if (currentLine.startsWith(" ")) return false
-        if (previousLine.endsWith(" ")) return false
-        return true
-    }
-
-    private fun isTuiBorder(line: String): Boolean {
-        val trimmed = line.trim()
-        if (trimmed.isEmpty()) return false
-        val uniqueChars = trimmed.toSet().size
-        if (uniqueChars <= 2 && trimmed.all { it in "│─╭╮╰╯┌┐└┘┬┴├┤┼═║╗╝╚╔╠╣╦╩╬ " }) {
-            return true
-        }
-        return false
-    }
-
-    fun pasteFromClipboard(): Int {
-        val clipboard = getClipboardManager() ?: return 0
-        if (!clipboard.hasPrimaryClip()) return 0
-        val clipboardText = clipboard.primaryClip?.getItemAt(0)?.text ?: return 0
-        val text = clipboardText.toString()
-        // Shared chunking (PasteChunker): code-point-safe chunks well below
-        // the PTY kernel buffer. Counts chars queued up to the last
-        // successful chunk boundary (post-truncation); a chunk dropped by
-        // PTY backpressure (EAGAIN) is still counted — the xterm-style
-        // "accepted" count, not byte-exact delivery (round-112).
-        var offset = 0
-        for (chunk in pasteChunker.chunks(text)) {
-            runtime.writeToPty(chunk.toByteArray())
-            offset += chunk.length
-        }
-        return offset
-    }
-
-    fun writeToPty(data: ByteArray) {
-        val written = runtime.writeToPty(data)
-        if (!written) {
-            LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
-        }
-    }
-
-    fun cycleCtrlState() {
-        _state.update { it.copy(ctrlState = it.ctrlState.next()) }
-    }
-
-    fun cycleAltState() {
-        _state.update { it.copy(altState = it.altState.next()) }
-    }
-
-    fun consumeOneShotModifiers() {
-        val currentState = _state.value
-        var newCtrl = currentState.ctrlState
-        var newAlt = currentState.altState
-        if (newCtrl == ModifierState.Once) newCtrl = ModifierState.Off
-        if (newAlt == ModifierState.Once) newAlt = ModifierState.Off
-        if (newCtrl != currentState.ctrlState || newAlt != currentState.altState) {
-            _state.update { current -> current.copy(ctrlState = newCtrl, altState = newAlt) }
-        }
-    }
-
-    /**
-     * Layout-aware hardware key handling: produces the correct character for the
-     * device's physical keyboard layout (e.g. Shift+2 -> '"' on German QWERTZ,
-     * AltGr+Q -> '@') instead of relying on a hardcoded US mapping.
-     *
-     * Called from [android.app.Activity.dispatchKeyEvent] for physical-keyboard
-     * [KeyEvent.ACTION_DOWN]s. Special keys (arrows, F-keys, numpad), modifier
-     * combos (Ctrl+, left-Alt+), and soft-keyboard events are left to the
-     * standard [KeyEvent] path so the Ghostty encoder handles them via key code.
-     * AltGr (right Alt) is honored as a composing character, not an ESC prefix.
-     *
-     * Modeled on Haven's `handleLayoutAwareKeyEvent`
-     * (feature/terminal/.../TerminalScreen.kt:1320-1407).
-     *
-     * @return true if the event was consumed here (so it must not also reach the
-     *   view hierarchy), false to let the default dispatch continue.
-     */
-    // ══════════════════════════════════════════════════════════════════════
     // SECTION 4: Keyboard modifier handling (extract → KeyboardHandler)
     // ══════════════════════════════════════════════════════════════════════
 

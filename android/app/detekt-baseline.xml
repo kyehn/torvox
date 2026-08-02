@@ -16,8 +16,8 @@
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime.RenderSupervisor$internal fun startRenderThread(entry: SessionEntry)</ID>
     <ID>CognitiveComplexMethod:TerminalScreen.kt$@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) @Suppress("DEPRECATION", "CyclomaticComplexMethod", "LongMethod") @Composable fun TerminalScreen( modifier: Modifier = Modifier, viewModel: TerminalViewModel = hiltViewModel(), onSettings: () -> Unit = {}, isOverlayVisible: Boolean = false, )</ID>
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$@Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth") // Acceptable — dispatches ~15 distinct gesture/intent types override fun onTouchEvent(event: MotionEvent): Boolean</ID>
-    <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection</ID>
-    <ID>CognitiveComplexMethod:TerminalViewModel.kt$TerminalViewModel$@Suppress("CyclomaticComplexMethod") private fun extractSelectedText(selection: SelectionState): String</ID>
+    <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface.ImeConnection$fun createInputConnection(outAttrs: EditorInfo): InputConnection</ID>
+    <ID>CognitiveComplexMethod:TerminalViewModel.kt$TerminalViewModel.SelectionManager$@Suppress("CyclomaticComplexMethod") private fun extractSelectedText(selection: SelectionState): String</ID>
     <ID>CyclomaticComplexMethod:BootstrapDownloader.kt$BootstrapDownloader$suspend fun download( url: String, arch: String, ): Result&lt;File></ID>
     <ID>CyclomaticComplexMethod:SettingsScreen.kt$@Composable private fun FontInfoSection( fontInfo: String, textColor: Color, secondaryText: Color, )</ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun controlByteForKeyCode(keyCode: Int): Byte?</ID>
@@ -44,6 +44,7 @@
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime.EventDispatcher$fun handle(poll: terminal.emulator.bridge.Bridge.PollResult)</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime.RenderSupervisor$internal fun startRenderThread(entry: SessionEntry)</ID>
     <ID>NestedBlockDepth:BootstrapInstaller.kt$BootstrapInstaller$private fun processZipEntries( zis: ZipInputStream, symlinks: MutableList&lt;Pair&lt;String, String>>, onEntryProcessed: (Int) -> Unit, )</ID>
     <ID>SwallowedException:Bridge.kt$Bridge$exception: RuntimeException</ID>
@@ -64,7 +65,6 @@
     <ID>TooGenericExceptionCaught:MemoryMonitor.kt$MemoryMonitor$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:SecondStageRunner.kt$SecondStageRunner$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SecondStageRunner.kt$SecondStageRunner$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:SettingsScreen.kt$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalApp.kt$TerminalApp$error: Throwable</ID>
     <ID>TooGenericExceptionCaught:TerminalApp.kt$TerminalApp$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalForegroundService.kt$TerminalForegroundService$exception: Exception</ID>
@@ -75,10 +75,12 @@
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$restoreException: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$retryException: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$serviceException: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime.EventDispatcher$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime.RenderSupervisor$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime.RenderSupervisor$replyException: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$error: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface.SelectionHandles$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:ToolbarPreferences.kt$ToolbarPreferences$e: Exception</ID>
@@ -87,6 +89,7 @@
     <ID>TooManyFunctions:TerminalRuntime.kt$TerminalRuntime</ID>
     <ID>TooManyFunctions:TerminalSurface.kt$TerminalSurface : TextureViewSurfaceTextureListener</ID>
     <ID>TooManyFunctions:TerminalViewModel.kt$TerminalViewModel : ViewModel</ID>
+    <ID>TooManyFunctions:TerminalViewModel.kt$TerminalViewModel$SelectionManager</ID>
     <ID>UnusedPrivateProperty:Bridge.kt$Bridge$unused</ID>
     <ID>UseDataClass:SettingsDataStoreProvider.kt$SettingsDataStoreProvider</ID>
     <ID>UseRequire:TerminalDocumentsProvider.kt$TerminalDocumentsProvider$throw IllegalArgumentException("Invalid document name: '$displayName'")</ID>

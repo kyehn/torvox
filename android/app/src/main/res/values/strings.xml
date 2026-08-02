@@ -127,6 +127,13 @@
     <!-- Font CJK Warning -->
     <string name="cjk_fallback_missing_warning">No CJK fallback font detected. East Asian characters may not render correctly.</string>
 
+    <!-- Background Image -->
+    <string name="bg_image_set" translatable="false">Background image set</string>
+    <string name="bg_image_none" translatable="false">No background image</string>
+    <string name="bg_image_choose" translatable="false">Choose Image</string>
+    <string name="bg_blur_label" translatable="false">Blur: %1$d</string>
+    <string name="bg_opacity_label" translatable="false">Opacity: %1$d%%</string>
+
     <!-- Cursor Settings -->
     <string name="cursor_blink">Cursor Blink</string>
     <string name="cursor_blink_desc">Toggle cursor blinking animation</string>
