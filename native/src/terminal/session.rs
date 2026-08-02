@@ -40,18 +40,17 @@
 //! - [FR-043](crate) — MCP: I/O multiplexing
 //! - [NFR-005](crate) — Session: zombie reaping
 //! - [NFR-024](crate) — Session: crash recovery
+use parking_lot::Mutex;
 use std::fs::File;
 use std::io::Read;
 use std::os::unix::io::AsRawFd;
 use std::sync::Arc;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
 
 use flume::{Receiver, bounded};
 use thiserror::Error;
 
-use crate::lock_util::lock_or_recover;
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::output_processor::OutputProcessor;
 use crate::terminal::pty::{Pty, PtyError, PtyPair};
@@ -329,17 +328,13 @@ impl Session {
             log::info!("wait thread: child exited: {result:?}");
             match result {
                 Ok(nix::sys::wait::WaitStatus::Exited(_, code)) => {
-                    if let Ok(mut ec) = exit_code.lock() {
-                        *ec = Some(code);
-                    }
+                    *exit_code.lock() = Some(code);
                 }
                 // Shell killed by a signal (Ctrl+\, kill -9): report the
                 // conventional 128 + signal code so the UI does not present
                 // a signal death as a clean exit code 0.
                 Ok(nix::sys::wait::WaitStatus::Signaled(_, signal, _)) => {
-                    if let Ok(mut ec) = exit_code.lock() {
-                        *ec = Some(128 + signal as i32);
-                    }
+                    *exit_code.lock() = Some(128 + signal as i32);
                 }
                 _ => {}
             }
@@ -484,25 +479,14 @@ impl Session {
             let snap = self.output_processor.process(&data);
 
             if let Some(text) = snap.clipboard {
-                match self.clipboard_text.lock() {
-                    Ok(mut guard) => *guard = Some(text),
-                    Err(_) => log::warn!("poll_pty_output: clipboard_text lock poisoned"),
-                }
+                *self.clipboard_text.lock() = Some(text);
             }
-            if let Some(path) = snap.cwd.as_ref()
-                && let Ok(mut guard) = self.cwd.lock()
-            {
-                *guard = Some(path.clone());
-            } else if snap.cwd.is_some() {
-                log::warn!("poll_pty_output: cwd lock poisoned");
+            if let Some(path) = snap.cwd.as_ref() {
+                *self.cwd.lock() = Some(path.clone());
             }
             if let Some((ref title, ref body)) = snap.notification {
-                match self.notification.lock() {
-                    Ok(mut guard) => {
-                        *guard = Some((title.clone(), body.clone()));
-                    }
-                    Err(_) => log::warn!("poll_pty_output: notification lock poisoned"),
-                }
+                let mut guard = self.notification.lock();
+                *guard = Some((title.clone(), body.clone()));
             }
 
             if snap.bel {
@@ -568,13 +552,13 @@ impl Session {
 
     /// Poll for clipboard text set by an OSC 52 escape sequence.
     pub fn poll_clipboard(&self) -> Option<String> {
-        let mut guard = lock_or_recover(&self.clipboard_text, "poll_clipboard");
+        let mut guard = self.clipboard_text.lock();
         guard.take()
     }
 
     /// Poll for a desktop notification set by an OSC 9 escape sequence.
     pub fn poll_notification(&self) -> Option<(String, String)> {
-        let mut guard = lock_or_recover(&self.notification, "poll_notification");
+        let mut guard = self.notification.lock();
         guard.take()
     }
 
@@ -587,7 +571,7 @@ impl Session {
     /// Non-blocking: callers that need to wait for the code poll this in a
     /// loop WITHOUT holding the session lock (see ffi::wait_exit_code).
     pub fn exit_code_now(&self) -> Option<i32> {
-        let guard = lock_or_recover(&self.exit_code, "session: exit_code_now");
+        let guard = self.exit_code.lock();
         *guard
     }
 
@@ -620,9 +604,8 @@ impl Session {
 
     /// Get the current working directory of the child process.
     pub fn cwd(&self) -> String {
-        if let Ok(guard) = self.cwd.lock()
-            && let Some(tracked) = guard.as_ref()
-        {
+        let guard = self.cwd.lock();
+        if let Some(tracked) = guard.as_ref() {
             return tracked.clone();
         }
         self.terminal.cwd()
@@ -964,12 +947,12 @@ mod tests {
         // is never duplicated. Arc<Mutex<...>> mirrors the production
         // SESSION_REGISTRY shape (Box<dyn Pty> is not Sync, so the session
         // must be shared through a mutex).
-        let session = std::sync::Arc::new(std::sync::Mutex::new(session));
+        let session = std::sync::Arc::new(parking_lot::Mutex::new(session));
         let mut handles = Vec::new();
         for _ in 0..8 {
             let session = session.clone();
             handles.push(std::thread::spawn(move || {
-                session.lock().expect("test lock").mark_exit_reported()
+                session.lock().mark_exit_reported()
             }));
         }
         let winners = handles
@@ -979,7 +962,7 @@ mod tests {
             .count();
         assert_eq!(winners, 1, "exactly one caller must report the exit");
         // Subsequent calls stay false.
-        assert!(!session.lock().expect("test lock").mark_exit_reported());
+        assert!(!session.lock().mark_exit_reported());
     }
 
     #[test]

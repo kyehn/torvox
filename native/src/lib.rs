@@ -30,12 +30,10 @@
 //! ├── render/         — wgpu pipeline, cosmic-text shaping, swash glyphs
 //! ├── android/        — JNI FFI exports, NDK bridge, logging
 //! ├── mcp/            — MCP server (feature-gated, tower-mcp)
-//! ├── lock_util       — poison recovery helpers
 //! └── screenshot_tests — included into render::tests
 //! ```
 
 pub mod event;
-mod lock_util;
 
 // ── Terminal engine (ex terminal-engine) ─────────────────────────────────
 pub mod terminal;
@@ -66,3 +64,6 @@ pub use terminal::shell_env::ShellEnv;
 
 // Re-exports from render module (matching gpu_renderer crate's public API)
 pub use render::font::*;
+
+#[cfg(test)]
+mod prop_tests;
