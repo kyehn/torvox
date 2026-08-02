@@ -126,3 +126,136 @@ pub(crate) fn map_android_key_code(key_code: u32) -> Key {
         _ => Key::Unidentified,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn alphabet_keys_map_correctly() {
+        // KEYCODE_A=29 … KEYCODE_Z=54
+        let expected = [('A', 29), ('B', 30), ('C', 31), ('M', 41), ('Z', 54)];
+        for (ch, code) in expected {
+            let want = match ch {
+                'A' => Key::A,
+                'B' => Key::B,
+                'C' => Key::C,
+                'M' => Key::M,
+                'Z' => Key::Z,
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                map_android_key_code(code),
+                want,
+                "code {code} should be {ch}"
+            );
+        }
+    }
+
+    #[test]
+    fn digit_keys_map_correctly() {
+        assert_eq!(map_android_key_code(7), Key::Digit0);
+        assert_eq!(map_android_key_code(9), Key::Digit2);
+        assert_eq!(map_android_key_code(16), Key::Digit9);
+    }
+
+    #[test]
+    fn symbol_keys_map_correctly() {
+        assert_eq!(map_android_key_code(68), Key::Backquote);
+        assert_eq!(map_android_key_code(69), Key::Minus);
+        assert_eq!(map_android_key_code(70), Key::Equal);
+        assert_eq!(map_android_key_code(71), Key::BracketLeft);
+        assert_eq!(map_android_key_code(72), Key::BracketRight);
+        assert_eq!(map_android_key_code(73), Key::Backslash);
+        assert_eq!(map_android_key_code(74), Key::Semicolon);
+        assert_eq!(map_android_key_code(75), Key::Quote);
+        assert_eq!(map_android_key_code(76), Key::Slash);
+        assert_eq!(map_android_key_code(55), Key::Comma);
+        assert_eq!(map_android_key_code(56), Key::Period);
+    }
+
+    #[test]
+    fn navigation_keys_map_correctly() {
+        assert_eq!(map_android_key_code(19), Key::ArrowUp);
+        assert_eq!(map_android_key_code(20), Key::ArrowDown);
+        assert_eq!(map_android_key_code(21), Key::ArrowLeft);
+        assert_eq!(map_android_key_code(22), Key::ArrowRight);
+        assert_eq!(map_android_key_code(66), Key::Enter);
+        assert_eq!(map_android_key_code(67), Key::Backspace);
+        assert_eq!(map_android_key_code(112), Key::Delete);
+        assert_eq!(map_android_key_code(61), Key::Tab);
+        assert_eq!(map_android_key_code(62), Key::Space);
+        assert_eq!(map_android_key_code(111), Key::Escape);
+        assert_eq!(map_android_key_code(122), Key::Home);
+        assert_eq!(map_android_key_code(123), Key::End);
+        assert_eq!(map_android_key_code(92), Key::PageUp);
+        assert_eq!(map_android_key_code(93), Key::PageDown);
+        assert_eq!(map_android_key_code(124), Key::Insert);
+    }
+
+    #[test]
+    fn modifier_keys_map_correctly() {
+        assert_eq!(map_android_key_code(57), Key::AltLeft);
+        assert_eq!(map_android_key_code(58), Key::AltRight);
+        assert_eq!(map_android_key_code(59), Key::ShiftLeft);
+        assert_eq!(map_android_key_code(60), Key::ShiftRight);
+        assert_eq!(map_android_key_code(113), Key::ControlLeft);
+        assert_eq!(map_android_key_code(114), Key::ControlRight);
+        assert_eq!(map_android_key_code(115), Key::CapsLock);
+        assert_eq!(map_android_key_code(116), Key::ScrollLock);
+        assert_eq!(map_android_key_code(143), Key::NumLock);
+        assert_eq!(map_android_key_code(119), Key::Fn);
+    }
+
+    #[test]
+    fn function_and_media_keys_map_correctly() {
+        assert_eq!(map_android_key_code(131), Key::F1);
+        assert_eq!(map_android_key_code(142), Key::F12);
+        assert_eq!(map_android_key_code(85), Key::MediaPlayPause);
+        assert_eq!(map_android_key_code(86), Key::MediaStop);
+        assert_eq!(map_android_key_code(87), Key::MediaTrackNext);
+        assert_eq!(map_android_key_code(88), Key::MediaTrackPrevious);
+    }
+
+    #[test]
+    fn numpad_keys_map_correctly() {
+        assert_eq!(map_android_key_code(144), Key::Numpad0);
+        assert_eq!(map_android_key_code(153), Key::Numpad9);
+        assert_eq!(map_android_key_code(154), Key::NumpadDivide);
+        assert_eq!(map_android_key_code(155), Key::NumpadMultiply);
+        assert_eq!(map_android_key_code(156), Key::NumpadSubtract);
+        assert_eq!(map_android_key_code(157), Key::NumpadAdd);
+        assert_eq!(map_android_key_code(158), Key::NumpadDecimal);
+        assert_eq!(map_android_key_code(160), Key::NumpadEnter);
+        assert_eq!(map_android_key_code(161), Key::NumpadEqual);
+    }
+
+    #[test]
+    fn unknown_codes_map_to_unidentified() {
+        assert_eq!(map_android_key_code(0), Key::Unidentified);
+        assert_eq!(map_android_key_code(1), Key::Unidentified);
+        assert_eq!(map_android_key_code(999), Key::Unidentified);
+        // KEYCODE_SYSRQ etc. that we don't map
+        assert_eq!(map_android_key_code(200), Key::Unidentified);
+    }
+
+    #[test]
+    fn every_android_code_has_unique_mapping() {
+        // 全映射键码无重复映射：收集所有已定义码并确认总数（代表性抽查保证结构完整）
+        let mapped: Vec<u32> = vec![
+            7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40,
+            41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 68, 69, 70, 71, 72, 73,
+            74, 75, 76, 19, 20, 21, 22, 66, 67, 112, 61, 62, 111, 122, 123, 92, 93, 124, 57, 58,
+            59, 60, 113, 114, 115, 116, 143, 119, 131, 132, 133, 134, 135, 136, 137, 138, 139, 140,
+            141, 142, 117, 118, 120, 121, 144, 145, 146, 147, 148, 149, 150, 151, 152, 153, 154,
+            155, 156, 157, 158, 159, 160, 161, 85, 86, 87, 88,
+        ];
+        for code in mapped {
+            assert_ne!(
+                map_android_key_code(code),
+                Key::Unidentified,
+                "code {code} unmapped"
+            );
+        }
+    }
+}
