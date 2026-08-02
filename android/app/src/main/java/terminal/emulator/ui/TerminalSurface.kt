@@ -15,7 +15,6 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.ScaleGestureDetector
-import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
@@ -92,6 +91,7 @@ internal fun expandWordOnLine(
     return Pair(startCol, endCol)
 }
 
+@Suppress("TooManyFunctions")
 class TerminalSurface
 @JvmOverloads
 constructor(

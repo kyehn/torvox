@@ -1,0 +1,45 @@
+appId: com.termux
+name: Search scrollback via drawer and verify result count
+tags:
+  - e2e
+  - p0
+---
+- launchApp:
+    clearState: false
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- waitForAnimationToEnd:
+    timeout: 3000
+# Open the session drawer via the ModifierBar drawer key
+- tapOn:
+    id: "Key_DRAWER"
+- extendedWaitUntil:
+    visible:
+      id: "SessionDrawer"
+    timeout: 10000
+# Press search button in drawer
+- tapOn:
+    id: "SearchButton"
+- extendedWaitUntil:
+    visible:
+      id: "SearchTextField"
+    timeout: 10000
+# Type a query (the launch typed nothing; search the shell path marker)
+- tapOn:
+    id: "SearchTextField"
+- inputText: "echo"
+- extendedWaitUntil:
+    visible:
+      id: "SearchResultCount"
+    timeout: 15000
+- takeScreenshot: search_results
+- tapOn:
+    id: "SearchClose"

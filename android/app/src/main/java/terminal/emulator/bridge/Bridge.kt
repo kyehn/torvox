@@ -86,8 +86,13 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  */
 @Suppress("TooManyFunctions")
 class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
-    /** ADR-0007: query path not wired; all queries delegate to the stub. */
-    private val queryPort: TerminalQueryPort = StubQueryPort()
+    /**
+     * ADR-0007: native query path wired — all queries delegate to
+     * [NativeQueryPort], which maps 1:1 to the JNI query exports
+     * (native/src/android/ffi.rs, "TerminalQueryPort" section). The stub
+     * only backs the no-session window (sessionId == 0, before spawn).
+     */
+    private val queryPort: TerminalQueryPort = NativeQueryPort { sessionId }
 
     @Volatile private var sessionId: Long = 0L
 
@@ -238,12 +243,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     fun setSurfaceSize(width: Int, height: Int) {
         Log.d(TAG, "setSurfaceSize($width, $height)")
     }
-
-    data class FontInfo(
-        val cellWidth: Float,
-        val cellHeight: Float,
-        val descender: Float,
-    )
 
     fun setBackgroundParams(radius: Int, alpha: Int) {
         Log.d(TAG, "setBackgroundParams(blur=$radius, alpha=$alpha)")
@@ -552,9 +551,10 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             }
             return false
         } catch (exception: RuntimeException) {
-            // Race: session destroyed between the sessionId check and this
-            // call. Keystrokes for a closed session are dropped by design.
-            Log.d(TAG, "processKeyEvent: session $sessionId already destroyed, dropping")
+            // Either the session was destroyed between the check and the
+            // call, or the native write failed. Log the actual message so
+            // the two are distinguishable (payload itself is never logged).
+            Log.d(TAG, "processKeyEvent: session $sessionId write failed: ${exception.message}")
             return false
         }
     }
@@ -596,7 +596,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun getTerminalText(): String? = queryPort.getTerminalText()
     override fun listFontFamilies(): List<String>? = queryPort.listFontFamilies()
     override fun getDefaultFontName(): String = queryPort.getDefaultFontName()
-    override fun getFontInfo(): FontInfo? = queryPort.getFontInfo()
+    override fun getFontInfo(): String? = queryPort.getFontInfo()
 
     companion object {
         private const val TAG = "Bridge"

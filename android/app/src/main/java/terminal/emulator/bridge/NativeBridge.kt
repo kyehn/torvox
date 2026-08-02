@@ -159,4 +159,59 @@ object NativeBridge {
     /** Set the log file path on the native side. */
     @JvmStatic
     external fun setLogFilePath(path: String)
+
+    // ── TerminalQueryPort (native query exports) ─────────────────────────
+
+    /** Terminal title (OSC 0/2) for a session, or null when unknown. */
+    @JvmStatic
+    external fun getTitle(sessionId: Long): String?
+
+    /** Number of scrollback rows for a session. */
+    @JvmStatic
+    external fun scrollbackLength(sessionId: Long): Int
+
+    /** Trimmed text of one row, or null for an empty row. Absolute row. */
+    @JvmStatic
+    external fun scrollbackLine(sessionId: Long, row: Int): String?
+
+    /** Visible + scrollback text joined by newlines. */
+    @JvmStatic
+    external fun getTerminalText(sessionId: Long): String?
+
+    /**
+     * Search the whole scrollback. Returns a JSON array of
+     * `{"row":int,"start_col":int,"end_col":int}` (byte-offset columns),
+     * or `[]` on timeout. Debounce from the UI thread.
+     */
+    @JvmStatic
+    external fun searchAllInScrollback(
+        sessionId: Long,
+        query: String,
+        caseSensitive: Boolean,
+        fuzzyMatch: Boolean,
+    ): String?
+
+    /** True when the cell at (row, col) has no printable codepoint. */
+    @JvmStatic
+    external fun isCellEmpty(sessionId: Long, row: Int, col: Int): Boolean
+
+    /** Monospace font families known to the pipeline. */
+    @JvmStatic
+    external fun listFontFamilies(): Array<String>?
+
+    /** Default font family name. */
+    @JvmStatic
+    external fun getDefaultFontName(): String?
+
+    /** Human-readable font information ("Active: ... / CJK fallback: ..."). */
+    @JvmStatic
+    external fun getFontInfo(): String?
+
+    /** Clear renderer search highlights. */
+    @JvmStatic
+    external fun clearSearchHighlights(sessionId: Long)
+
+    /** Set renderer search highlight ranges (byte-packed, see TerminalSurface). */
+    @JvmStatic
+    external fun setSearchHighlights(sessionId: Long, data: ByteArray)
 }
