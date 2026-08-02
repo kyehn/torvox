@@ -145,6 +145,11 @@ pub struct Session {
     exit_reported: Arc<AtomicBool>,
     bel_triggered: Arc<AtomicBool>,
     clipboard_text: Arc<Mutex<Option<String>>>,
+    /// Pending OSC 52 clipboard read request: the requested selection name.
+    /// Consumed by the JNI layer (`poll_clipboard_read`), which forwards it
+    /// to the host app and writes the answer back via
+    /// [`Session::answer_clipboard_read`].
+    clipboard_read: Arc<Mutex<Option<String>>>,
     notification: Arc<Mutex<Option<(String, String)>>>,
     cwd: Arc<Mutex<Option<String>>>,
 
@@ -358,6 +363,7 @@ impl Session {
         let exit_reported = Arc::new(AtomicBool::new(false));
         let bel_triggered = Arc::new(AtomicBool::new(false));
         let clipboard_text = Arc::new(Mutex::new(None));
+        let clipboard_read = Arc::new(Mutex::new(None));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(128);
 
         let terminal = GhosttyTerminal::new_with_theme(
@@ -383,6 +389,7 @@ impl Session {
             exit_reported,
             bel_triggered,
             clipboard_text,
+            clipboard_read,
             notification,
             cwd,
             reader_handle: None,
@@ -481,6 +488,9 @@ impl Session {
             if let Some(text) = snap.clipboard {
                 *self.clipboard_text.lock() = Some(text);
             }
+            if let Some(selection) = snap.clipboard_read {
+                *self.clipboard_read.lock() = Some(selection);
+            }
             if let Some(path) = snap.cwd.as_ref() {
                 *self.cwd.lock() = Some(path.clone());
             }
@@ -554,6 +564,39 @@ impl Session {
     pub fn poll_clipboard(&self) -> Option<String> {
         let mut guard = self.clipboard_text.lock();
         guard.take()
+    }
+
+    /// Take the pending OSC 52 clipboard read request (the selection name),
+    /// if any. The JNI layer forwards it to the host app and calls
+    /// [`Session::answer_clipboard_read`] with the result.
+    pub fn poll_clipboard_read(&self) -> Option<String> {
+        let mut guard = self.clipboard_read.lock();
+        guard.take()
+    }
+
+    /// Answer a pending OSC 52 clipboard read request by writing
+    /// `ESC ] 52 ; <selection> ; <base64> ESC \\` to the PTY (FR-036).
+    ///
+    /// An empty selection string (`c` is the conventional default) is
+    /// answered verbatim; the application decides what it means.
+    pub fn answer_clipboard_read(
+        &mut self,
+        selection: &str,
+        text: &str,
+    ) -> Result<(), SessionError> {
+        use base64::Engine;
+        let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
+        let mut response = Vec::with_capacity(selection.len() + encoded.len() + 8);
+        response.extend_from_slice(b"\x1b]52;");
+        response.extend_from_slice(selection.as_bytes());
+        response.push(b';');
+        response.extend_from_slice(encoded.as_bytes());
+        response.push(0x07); // BEL terminator (xterm-compatible)
+        if self.is_exited() {
+            return Err(SessionError::Closed);
+        }
+        self.pty.write_all(&response).map_err(SessionError::Io)?;
+        Ok(())
     }
 
     /// Poll for a desktop notification set by an OSC 9 escape sequence.
@@ -784,6 +827,48 @@ mod tests {
         // Grid unchanged (still the spawn size).
         assert_eq!(session.grid_size(), (24, 80));
         assert_eq!(session.terminal().rows(), 24);
+    }
+
+    /// OSC 52 read answer is written back to the PTY as
+    /// `ESC ] 52 ; <selection> ; <base64> BEL` (FR-036).
+    #[test]
+    fn answer_clipboard_read_writes_esc52_reply() {
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        session
+            .answer_clipboard_read("c", "Hello, 世界")
+            .expect("answer must succeed");
+        let written = handle.written();
+        assert_eq!(
+            written, b"\x1b]52;c;SGVsbG8sIOS4lueVjA==\x07",
+            "answer must be base64-encoded OSC 52 with BEL terminator"
+        );
+    }
+
+    /// An empty clipboard answer still produces a valid (empty payload)
+    /// OSC 52 reply — the xterm-compatible "empty clipboard" response.
+    #[test]
+    fn answer_clipboard_read_empty_text() {
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        session
+            .answer_clipboard_read("c", "")
+            .expect("answer must succeed");
+        assert_eq!(handle.written(), b"\x1b]52;c;\x07");
+    }
+
+    /// Writing an answer after the session exited must fail cleanly.
+    #[test]
+    fn answer_clipboard_read_after_exit_fails() {
+        let (pty, handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
+        let mut session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
+            .expect("with_pty must succeed");
+        session.exited_flag().store(true, Ordering::Release);
+        let result = session.answer_clipboard_read("c", "text");
+        assert!(result.is_err(), "exited session must reject writes");
+        assert!(handle.written().is_empty(), "nothing may reach the PTY");
     }
 
     #[test]

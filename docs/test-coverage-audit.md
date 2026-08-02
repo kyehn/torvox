@@ -171,7 +171,7 @@ terminal_info / clipboard_get / clipboard_set / notify / toast / open_url / send
 |---|---|---|
 | 6 | Bridge.kt stub（ADR-0007） | `searchAllInScrollback→null`、`isCellEmpty→true`、`getTerminalText→null`、`listFontFamilies→null` → 搜索/选择链路全部"虚空通过"；cucumber 搜索 7/7、选择 4/5 全 @wip |
 | 7 | `UiAutomatorTest.searchTypingShowsResultCount` 等 | 空转测试未标 @Ignore，与同断言已 @Ignore 的测试不一致 |
-| 8 | `BridgeMicrobenchmark` | 名实不符：无任何 bridge 调用级测量，仅冷启动/帧计时 |
+| 8 | `AppStartupBenchmark`（原 BridgeMicrobenchmark） | 已改名：明确为 app 启动/帧宏基准；bridge 调用级测量由 Rust bench + JNI 集成测试承担 |
 | 9 | `StageHSelectionEspressoTest` 注释 | 承认 New Session/session switching 触发已知 wgpu GPU-surface hang |
 | 10 | `TextSearchEndToEndTest` | OCR 依赖宿主 `rapidocr` 二进制，缺失时断言静默跳过 |
 | 11 | `AppInstrumentedTest`/`BehaviorInstrumentedTest` 若干 | 反断言"不显示 Nerd/OSC133 切换"引用已删除功能 |
@@ -198,18 +198,18 @@ terminal_info / clipboard_get / clipboard_set / notify / toast / open_url / send
 
 ### 短期（P1 测试真实化）
 5. Bridge stub 决策：ADR-0007 落地前，将虚空测试统一 @Ignore 并注释"待 bridge 落地"；或实现 `searchAllInScrollback` 的 Rust→JNI 通路
-6. 空转测试补齐 @Ignore
-7. BridgeMicrobenchmark 改名或补 bridge 调用级测量
+6. ~~空转测试补齐 @Ignore~~ ✅ SelectionVisualVerificationTest 类级 @Ignore（KDoc 声明但无注解，虚空测试真实运行）
+7. ~~BridgeMicrobenchmark 改名~~ ✅ 已改 AppStartupBenchmark（26467d2 后续提交）；bridge 调用级测量由 Rust bench 套件承担，设备端 JNI 微基准记录为 follow-up
 8. performance.md 4 个阈值测试改为条件跳过而非放宽
 
 ### 中期（P2 覆盖补齐）
-9. Kotlin 纯逻辑单测：InputCoalescer / TerminalInputEncoder / UrlDetector / MouseModeTracker / findMatches / InputBatchBuffer（可 +100 测试，全 JVM 无头）
-10. Rust：cell_builder 单测、MCP send_signal 会话锁路径测试、OSC 52 读实现或显式移除
-11. 文档数量同步（project-health/review-status）
+9. ~~Kotlin 纯逻辑单测~~ ✅ 已落地（FontUtils/SettingsRepository/AnrWatchDog 本轮 +14；Encoder/MouseModeTracker/findMatches/UrlDetector/InputBatchBuffer/NerdKeyLabels/Coalescer/PasteChunker 此前 +52）
+10. ~~Rust 覆盖补齐~~ ✅ cell_builder 10 测试、MCP 7 工具全测（12 测试）、OSC 52 读实现（FR-036 完整链路 + 5 测试）
+11. ~~文档数量同步~~ ✅ project-health/review-status 已更新为 1071 Rust + JVM
 
 ### 长期（架构）
 12. ADR-0007 落地（attachWindow 接入渲染）后，激活搜索/选择/渲染全链路测试
-13. property/fuzz 测试启用（proptest 已声明）
+13. ~~property/fuzz 测试启用~~ ✅ prop_tests.rs 已存在（osc52 roundtrip/arbitrary + 并发队列）
 14. PIT 变异测试接入 CI
 
 ---

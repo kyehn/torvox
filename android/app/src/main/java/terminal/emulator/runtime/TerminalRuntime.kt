@@ -893,6 +893,18 @@ constructor(
                                                 NativeBridge
                                                     .dialogResult(request.sessionId, request.requestId, "")
                                             }
+                                            poll.clipboardReads.forEach { request ->
+                                                try {
+                                                    val text = clipboardAccess.clipboardText().orEmpty()
+                                                    NativeBridge
+                                                        .clipboardResult(request.sessionId, request.requestId, text)
+                                                } catch (exception: Exception) {
+                                                    // Class only: exception messages can embed clipboard text (round-108).
+                                                    LogUtil.e("Runtime", "clipboard_read request dispatch failed: ${exception.javaClass.simpleName}")
+                                                    NativeBridge
+                                                        .clipboardResult(request.sessionId, request.requestId, "")
+                                                }
+                                            }
                                             poll.clipboardGets.forEach { request ->
                                                 NativeBridge
                                                     .clipboardResult(request.sessionId, request.requestId, "")
@@ -1202,6 +1214,18 @@ constructor(
                     // persistent log file unconditionally
                     // (round-103).
                     LogUtil.e("Runtime", "open_url failed: ${exception.javaClass.simpleName}")
+                }
+            }
+            poll.clipboardReads.forEach { request ->
+                try {
+                    val text = clipboardAccess.clipboardText().orEmpty()
+                    NativeBridge
+                        .clipboardResult(request.sessionId, request.requestId, text)
+                } catch (exception: Exception) {
+                    // Class only: exception messages can embed clipboard text (round-108).
+                    LogUtil.e("Runtime", "clipboard_read request dispatch failed: ${exception.javaClass.simpleName}")
+                    NativeBridge
+                        .clipboardResult(request.sessionId, request.requestId, "")
                 }
             }
             poll.clipboardGets.forEach { request ->

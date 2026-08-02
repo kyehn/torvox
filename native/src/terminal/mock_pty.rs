@@ -174,7 +174,6 @@ impl Pty for MockPty {
         Ok(())
     }
 
-    fn set_pixel_size(&mut self, _width: u16, _height: u16) {}
 
     fn spawn(
         _shell: &str,

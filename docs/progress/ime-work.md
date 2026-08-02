@@ -153,8 +153,8 @@ Actually wait, let me re-read the whole TerminalScreen composable layout to unde
 
 1. `native/src/render/cell_builder.rs` — projection_height before cache
 2. `native/src/android/surface.rs` — prev_render_height tracking
-3. `android/app/src/main/java/io/term/terminal/TerminalSurface.kt` — debounce
-4. `android/app/src/main/java/io/term/terminal/TerminalScreen.kt` — layout fixes
+3. `android/app/src/main/java/terminal/emulator/TerminalSurface.kt` — debounce
+4. `android/app/src/main/java/terminal/emulator/TerminalScreen.kt` — layout fixes
 
 ## Verification
 

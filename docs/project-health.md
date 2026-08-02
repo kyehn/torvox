@@ -9,7 +9,7 @@ As of August 2026, the history is organized into 31 thematic commits covering re
 | Dimension | Rating | Evidence |
 |-----------|--------|----------|
 | **Functionality** | ✅ Complete | VT parsing, PTY, GPU render, MCP, JNI bridge — all core features implemented |
-| **Code Quality** | ✅ Clean | Clippy zero warnings, 1046 tests, fmt clean, all unsafe blocks have SAFETY comments |
+| **Code Quality** | ✅ Clean | Clippy zero warnings, 1071 Rust tests + 60+ Kotlin JVM tests, fmt clean, all unsafe blocks have SAFETY comments |
 | **Test Coverage** | ⚠️ Adequate | Core paths covered; ~40 weak-assertion tests exist; property/fuzz testing not yet used |
 | **Performance** | ✅ Verified | 10 benchmarks with thresholds; typing 0.2ms, bulk 17MB/s, render 920+ fps, scroll 55+ snaps/s |
 | **Architecture** | ✅ Stable | Single crate, Ghostty as source of truth, JNI direct bridge, wgpu GPU, embedded MCP |
