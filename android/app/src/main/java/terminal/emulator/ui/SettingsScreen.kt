@@ -250,12 +250,12 @@ private fun AppearanceSectionContent(
         )
     }
     Spacer(modifier = Modifier.height(12.dp))
-    CursorBlinkToggle(
-        enabled = cursorBlinkEnabled,
+    SettingsSwitchRow(
+        title = stringResource(R.string.cursor_blink),
+        description = stringResource(R.string.cursor_blink_desc),
+        checked = cursorBlinkEnabled,
         onToggle = { viewModel.setCursorBlink(it) },
-        textColor = textColor,
-        accentColor = accentColor,
-        cardBackground = backgroundColor,
+        colors = SettingsColors(textColor, textColor, accentColor, backgroundColor),
     )
     if (cursorBlinkEnabled) {
         Spacer(modifier = Modifier.height(8.dp))
@@ -385,7 +385,7 @@ private fun BackgroundSection(
     SectionHeader("Background", sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         Text(
-            text = if (backgroundImagePath.isNotEmpty()) "Background image set" else "No background image",
+            text = if (backgroundImagePath.isNotEmpty()) stringResource(R.string.bg_image_set) else stringResource(R.string.bg_image_none),
             color = textColor,
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.testTag("BackgroundImageStatus"),
@@ -396,14 +396,14 @@ private fun BackgroundSection(
                 onClick = { imagePickerLauncher.launch("image/*") },
                 colors = ButtonDefaults.buttonColors(containerColor = accentColor),
                 modifier = Modifier.testTag("ChooseImageButton"),
-            ) { Text("Choose Image", color = MaterialTheme.colorScheme.onPrimary) }
+            ) { Text(stringResource(R.string.bg_image_choose), color = MaterialTheme.colorScheme.onPrimary) }
             if (backgroundImagePath.isNotEmpty()) {
                 TextButton(onClick = { viewModel.setBackgroundImagePath("") }) { Text("Clear", color = accentColor) }
             }
         }
         if (backgroundImagePath.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
-            Text("Blur: $backgroundBlurRadius", color = secondaryText, style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.bg_blur_label, backgroundBlurRadius), color = secondaryText, style = MaterialTheme.typography.bodySmall)
             Slider(
                 value = backgroundBlurRadius.toFloat(),
                 onValueChange = { viewModel.setBackgroundBlurRadius(it.toInt()) },
@@ -411,7 +411,7 @@ private fun BackgroundSection(
                 colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor),
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Opacity: ${(backgroundAlpha * 100).toInt()}%", color = secondaryText, style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(R.string.bg_opacity_label, (backgroundAlpha * 100).toInt()), color = secondaryText, style = MaterialTheme.typography.bodySmall)
             Slider(
                 value = backgroundAlpha,
                 onValueChange = { viewModel.setBackgroundAlpha(it) },
@@ -622,31 +622,15 @@ private fun SystemFontSelector(
         }
     }
 
-    val cjkFallback =
-        fontInfo
-            .lines()
-            .find { it.startsWith("CJK fallback:") }
-            ?.substringAfter("CJK fallback:")
-            ?.trim()
-            ?: ""
-    val activeFontCjk =
-        fontInfo.lines().any { line ->
-            line.startsWith("Active:") && (
-                line.contains("CJK", ignoreCase = true) ||
-                    line.contains("SC", ignoreCase = true) ||
-                    line.contains("TC", ignoreCase = true) ||
-                    line.contains("JP", ignoreCase = true) ||
-                    line.contains("KR", ignoreCase = true)
-                )
-        }
-    if (cjkFallback.isNotEmpty() && cjkFallback != "none" && cjkFallback != "skipped") {
+    val parsed = parseFontInfo(fontInfo)
+    if (hasRealCjkFallback(parsed)) {
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "CJK: $cjkFallback",
+            text = "CJK: ${parsed.cjkValue}",
             style = MaterialTheme.typography.bodySmall,
             color = textColor.copy(alpha = 0.6f),
         )
-    } else if (cjkFallback == "none" && !activeFontCjk) {
+    } else if (parsed.cjkValue == "none" && !parsed.primaryIsCjk) {
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = stringResource(R.string.cjk_fallback_missing_warning),
@@ -1213,6 +1197,38 @@ private fun ClearAppDataSection(
     }
 }
 
+/** Parsed font-info lines shared by FontInfoSection and the font picker. */
+private data class FontInfoParsed(
+    val activeLine: String?,
+    val cjkValue: String,
+    val primaryIsCjk: Boolean,
+)
+
+private fun parseFontInfo(fontInfo: String): FontInfoParsed {
+    val lines = fontInfo.lines()
+    val activeLine = lines.firstOrNull { it.startsWith("Active:") }
+    val cjkValue =
+        lines
+            .firstOrNull { it.startsWith("CJK fallback:") }
+            ?.substringAfter("CJK fallback:")
+            ?.trim()
+            ?: ""
+    val primaryIsCjk =
+        activeLine != null && (
+            activeLine.contains("CJK", ignoreCase = true) ||
+                activeLine.contains("SC", ignoreCase = true) ||
+                activeLine.contains("TC", ignoreCase = true) ||
+                activeLine.contains("JP", ignoreCase = true) ||
+                activeLine.contains("KR", ignoreCase = true)
+            )
+    return FontInfoParsed(activeLine, cjkValue, primaryIsCjk)
+}
+
+/**
+ * True when the CJK fallback line names a real font (not empty/none/skipped).
+ */
+private fun hasRealCjkFallback(parsed: FontInfoParsed): Boolean = parsed.cjkValue.isNotEmpty() && parsed.cjkValue != "none" && parsed.cjkValue != "skipped"
+
 @Composable
 private fun FontInfoSection(
     fontInfo: String,
@@ -1221,9 +1237,9 @@ private fun FontInfoSection(
 ) {
     if (fontInfo.isEmpty()) return
 
-    val lines = fontInfo.split("\n")
+    val parsed = parseFontInfo(fontInfo)
     Column(modifier = Modifier.testTag("FontInfoSection")) {
-        for (line in lines) {
+        for (line in fontInfo.lines()) {
             when {
                 line.startsWith("Active:") -> {
                     Text(
@@ -1234,22 +1250,11 @@ private fun FontInfoSection(
                 }
 
                 line.startsWith("CJK fallback:") -> {
-                    val cjkValue = line.substringAfter("CJK fallback:").trim()
-                    val primaryIsCjk =
-                        lines.any { l ->
-                            l.startsWith("Active:") && (
-                                l.contains("CJK", ignoreCase = true) ||
-                                    l.contains("SC", ignoreCase = true) ||
-                                    l.contains("TC", ignoreCase = true) ||
-                                    l.contains("JP", ignoreCase = true) ||
-                                    l.contains("KR", ignoreCase = true)
-                                )
-                        }
-                    val hasCjk = cjkValue.isNotEmpty() && cjkValue != "none" && cjkValue != "skipped"
+                    val hasCjk = hasRealCjkFallback(parsed)
                     val displayColor =
                         when {
                             hasCjk -> secondaryText
-                            primaryIsCjk -> secondaryText
+                            parsed.primaryIsCjk -> secondaryText
                             else -> WARNING_ORANGE
                         }
                     Text(
@@ -1257,7 +1262,7 @@ private fun FontInfoSection(
                         style = MaterialTheme.typography.bodySmall,
                         color = displayColor,
                     )
-                    if (!hasCjk && !primaryIsCjk) {
+                    if (!hasCjk && !parsed.primaryIsCjk) {
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = stringResource(R.string.cjk_fallback_missing_warning),
@@ -1298,53 +1303,6 @@ private fun FontInfoSection(
 private const val CURSOR_SPEED_RANGE_MIN = 100f
 private const val CURSOR_SPEED_RANGE_MAX = 1000f
 private const val CURSOR_SPEED_RANGE_STEPS = 17
-
-@Composable
-private fun CursorBlinkToggle(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-    cardBackground: Color,
-) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.cursor_blink),
-                style = MaterialTheme.typography.bodyLarge,
-                color = textColor,
-            )
-            Text(
-                text = stringResource(R.string.cursor_blink_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = textColor.copy(alpha = 0.6f),
-            )
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = if (enabled) stringResource(R.string.on) else stringResource(R.string.off),
-                style = MaterialTheme.typography.labelSmall,
-                color = if (enabled) accentColor else textColor.copy(alpha = 0.5f),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Switch(
-                checked = enabled,
-                onCheckedChange = onToggle,
-                colors =
-                SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = accentColor,
-                    uncheckedThumbColor = textColor.copy(alpha = 0.6f),
-                    uncheckedTrackColor = cardBackground,
-                ),
-            )
-        }
-    }
-}
 
 @Composable
 private fun CursorSpeedSlider(
