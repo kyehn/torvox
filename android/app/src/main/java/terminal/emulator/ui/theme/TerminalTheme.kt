@@ -1,8 +1,11 @@
 package terminal.emulator.ui.theme
 
 import android.os.Build
+import androidx.compose.material3.ColorScheme
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -496,6 +499,54 @@ object BuiltInThemes {
     val all: List<TerminalTheme> = darkThemes + lightThemes
 
     fun byName(name: String): TerminalTheme = all.firstOrNull { it.name == name } ?: catppuccinMocha
+}
+
+/**
+ * Resolve the active terminal theme name from the theme-mode setting (C8).
+ *
+ * Pure function shared by TerminalScreen's background and theme lookups so
+ * the mode switch logic lives in exactly one place.
+ */
+fun resolveTerminalThemeName(
+    mode: String,
+    fixedName: String,
+    dayName: String,
+    nightName: String,
+    isDark: Boolean,
+): String = when (mode) {
+    "fixed" -> fixedName
+    "day" -> dayName
+    "night" -> nightName
+    else -> if (isDark) nightName else dayName
+}
+
+/** Resolve app dark-mode from the app-theme-mode setting (C8). */
+fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = when (appThemeMode) {
+    "night" -> true
+    "day" -> false
+    else -> systemDark
+}
+
+/**
+ * Resolve the Material 3 color scheme from the app-theme-mode setting (C8).
+ * Dynamic colors apply only on Android 12+ when following the system.
+ */
+@Composable
+fun resolveMaterialColorScheme(
+    appThemeMode: String,
+    forceDark: Boolean,
+    isDarkTheme: Boolean,
+): ColorScheme {
+    val context = LocalContext.current
+    return when {
+        appThemeMode == "follow_system" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+            if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+
+        forceDark -> darkColorScheme()
+
+        else -> lightColorScheme()
+    }
 }
 
 enum class ThemeMode(

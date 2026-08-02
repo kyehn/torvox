@@ -1,4 +1,4 @@
-package terminal.emulator.ui
+package terminal.emulator.input
 
 import android.text.InputType
 import android.view.inputmethod.EditorInfo

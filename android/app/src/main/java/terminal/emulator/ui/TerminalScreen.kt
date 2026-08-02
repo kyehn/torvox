@@ -66,6 +66,8 @@ import terminal.emulator.SelectionAnchor
 import terminal.emulator.SelectionState
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.ui.theme.BuiltInThemes
+import terminal.emulator.ui.theme.resolveAppDarkMode
+import terminal.emulator.ui.theme.resolveTerminalThemeName
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -102,48 +104,25 @@ fun TerminalScreen(
     isOverlayVisible: Boolean = false,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val viewModelThemeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val viewModelThemeName by viewModel.themeName.collectAsStateWithLifecycle()
-    val viewModelDayThemeName by viewModel.dayThemeName.collectAsStateWithLifecycle()
-    val viewModelNightThemeName by viewModel.nightThemeName.collectAsStateWithLifecycle()
-    val useNerdFontGlyphs by viewModel.useNerdFontGlyphs.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val viewModelThemeMode = settings.themeMode
+    val viewModelThemeName = settings.themeName
+    val viewModelDayThemeName = settings.dayThemeName
+    val viewModelNightThemeName = settings.nightThemeName
+    val useNerdFontGlyphs = settings.useNerdFontGlyphs
     val runtimeState by viewModel.runtime.state.collectAsStateWithLifecycle()
-    val isSettingsDark =
-        when (viewModel.appThemeMode.collectAsStateWithLifecycle().value) {
-            "night" -> true
-            "day" -> false
-            else -> androidx.compose.foundation.isSystemInDarkTheme()
-        }
-    val terminalBg =
-        when (viewModelThemeMode) {
-            "fixed" -> {
-                BuiltInThemes.byName(viewModelThemeName).background
-            }
-
-            "day" -> {
-                BuiltInThemes.byName(viewModelDayThemeName).background
-            }
-
-            "night" -> {
-                BuiltInThemes.byName(viewModelNightThemeName).background
-            }
-
-            "follow_system" -> {
-                if (isSettingsDark) {
-                    BuiltInThemes.byName(viewModelNightThemeName).background
-                } else {
-                    BuiltInThemes.byName(viewModelDayThemeName).background
-                }
-            }
-
-            else -> {
-                if (isSettingsDark) {
-                    BuiltInThemes.byName(viewModelNightThemeName).background
-                } else {
-                    BuiltInThemes.byName(viewModelDayThemeName).background
-                }
-            }
-        }
+    val isSettingsDark = resolveAppDarkMode(settings.appThemeMode, androidx.compose.foundation.isSystemInDarkTheme())
+    val resolvedTerminalTheme =
+        BuiltInThemes.byName(
+            resolveTerminalThemeName(
+                mode = viewModelThemeMode,
+                fixedName = viewModelThemeName,
+                dayName = viewModelDayThemeName,
+                nightName = viewModelNightThemeName,
+                isDark = isSettingsDark,
+            ),
+        )
+    val terminalBg = resolvedTerminalTheme.background
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -308,17 +287,6 @@ fun TerminalScreen(
                 }
             }
 
-            val resolvedTerminalTheme =
-                BuiltInThemes.byName(
-                    when (viewModelThemeMode) {
-                        "fixed" -> viewModelThemeName
-                        "day" -> viewModelDayThemeName
-                        "night" -> viewModelNightThemeName
-                        "follow_system" -> if (isSettingsDark) viewModelNightThemeName else viewModelDayThemeName
-                        else -> if (isSettingsDark) viewModelNightThemeName else viewModelDayThemeName
-                    },
-                )
-
             Column(
                 modifier =
                 Modifier
@@ -375,7 +343,7 @@ fun TerminalScreen(
                                         }
                                     }
                                     onZoomChanged = { increase ->
-                                        val current = viewModel.fontSize.value
+                                        val current = viewModel.settings.value.fontSize
                                         val step = if (increase) 2f else -2f
                                         val newSize = (current + step).coerceIn(FONT_SIZE_MIN, FONT_SIZE_MAX)
                                         viewModel.setFontSize(newSize)
