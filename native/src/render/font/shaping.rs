@@ -77,3 +77,52 @@ impl FontPipeline {
         result
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test_fonts");
+
+    fn fixture() -> FontPipeline {
+        FontPipeline::from_fixture(512, 512, 12.0, FIXTURE_DIR)
+    }
+
+    #[test]
+    fn empty_text_shapes_to_nothing() {
+        let mut pipeline = fixture();
+        assert!(pipeline.shape_run("").is_empty());
+    }
+
+    #[test]
+    fn ascii_text_produces_glyphs() {
+        let mut pipeline = fixture();
+        let glyphs = pipeline.shape_run("Hello");
+        assert!(!glyphs.is_empty(), "ASCII 'Hello' must shape to glyphs");
+        #[allow(clippy::excessive_precision)]
+        let mut prev_x = 0.0f32;
+        for g in &glyphs {
+            assert!(g.x >= prev_x, "glyph x must not go backwards");
+            prev_x = g.x;
+        }
+    }
+
+    #[test]
+    fn shaping_results_are_cached() {
+        let mut pipeline = fixture();
+        let first = pipeline.shape_run("cache me");
+        assert!(!first.is_empty());
+        let second = pipeline.shape_run("cache me");
+        assert_eq!(first, second, "cached shape must equal first shape");
+    }
+
+    #[test]
+    fn cjk_mixed_text_shapes_without_panic() {
+        let mut pipeline = fixture();
+        // CJK triggers the fallback path; with or without CJK fonts in the
+        // fixture dir, shaping must not panic and must return glyphs for
+        // the ASCII part.
+        let glyphs = pipeline.shape_run("A中B");
+        assert!(!glyphs.is_empty(), "mixed text must produce glyphs");
+    }
+}
