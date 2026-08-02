@@ -68,7 +68,13 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  * don't touch session IDs directly. Methods without a native counterpart
  * log a warning and return a safe default.
  */
-class Bridge(private val config: TerminalConfig) {
+// Bridge is a gateway to the native side by design; the function count is
+// the JNI surface, not an interface smell.
+@Suppress("TooManyFunctions")
+class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
+    /** ADR-0007: query path not wired; all queries delegate to the stub. */
+    private val queryPort: TerminalQueryPort = StubQueryPort()
+
     @Volatile private var sessionId: Long = 0L
 
     fun ping(): String {
@@ -197,15 +203,11 @@ class Bridge(private val config: TerminalConfig) {
         Log.d(TAG, "setSurfaceSize($width, $height)")
     }
 
-    fun getDefaultFontName(): String = "monospace"
-
     data class FontInfo(
         val cellWidth: Float,
         val cellHeight: Float,
         val descender: Float,
     )
-
-    fun getFontInfo(): FontInfo? = null
 
     fun setBackgroundParams(radius: Int, alpha: Int) {
         Log.d(TAG, "setBackgroundParams(blur=$radius, alpha=$alpha)")
@@ -513,52 +515,34 @@ class Bridge(private val config: TerminalConfig) {
         }
     }
 
-    // ── Terminal queries ──────────────────────────────────────────────
-    fun getTitle(): String? = null
-    fun getActiveSessionTitle(): String = getTitle() ?: ""
+    // ── Terminal queries (delegated to TerminalQueryPort seam) ────────
+    override fun getTitle(): String? = queryPort.getTitle()
+    override fun getActiveSessionTitle(): String = queryPort.getActiveSessionTitle()
 
     // ── Selection ─────────────────────────────────────────────────────
-    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean? = null, mode: Byte = 0) {
-        Log.d(TAG, "setSelection: ($startRow,$startCol)-($endRow,$endCol)")
+    override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?, mode: Byte) {
+        queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode)
     }
-    fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair<Pair<Int, Int>, Pair<Int, Int>>? = null
+    override fun expandAndSetSelection(row: Int, col: Int, mode: Byte): Pair<Pair<Int, Int>, Pair<Int, Int>>? = queryPort.expandAndSetSelection(row, col, mode)
 
     // ── Search / scrollback ────────────────────────────────────────────
-    // ADR-0007: the native query path is not wired yet, so the grid stubs
-    // below return conservative defaults. Documented contract:
-    //   • scrollbackLine/scrollbackLength/searchAllInScrollback — null/0/empty
-    //     list: "no data". Callers must treat them as unavailable, not as
-    //     "empty content". This is a deliberate honest degradation — faking
-    //     data here would corrupt selections and search results once the
-    //     native path lands.
-    //   • isCellEmpty — true: long-press on any cell opens the paste popup
-    //     (the only long-press action usable without native data). Text
-    //     selection needs scrollbackLine and stays disabled until then.
-    fun clearSearchHighlights() {
-        Log.d(TAG, "clearSearchHighlights()")
-    }
-    fun setSearchHighlights(data: ByteArray) {
-        Log.d(TAG, "setSearchHighlights: ${data.size}B")
-    }
-    fun scrollbackLine(row: Int): String? = null
-    fun scrollbackLength(): Int = 0
-    fun isCellEmpty(row: Int, col: Int): Boolean = true
-    fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? = null
-    fun setScrollOffset(offset: Int) {
-        Log.d(TAG, "setScrollOffset($offset)")
-    }
+    // ADR-0007: the native query path is not wired yet. The contract lives
+    // in TerminalQueryPort: scrollbackLine/scrollbackLength/
+    // searchAllInScrollback return "no data" (null/0/empty), isCellEmpty
+    // returns true (long-press opens the paste popup only). When the
+    // native path lands, swap StubQueryPort for the real port.
+    override fun clearSearchHighlights() = queryPort.clearSearchHighlights()
+    override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
+    override fun scrollbackLine(row: Int): String? = queryPort.scrollbackLine(row)
+    override fun scrollbackLength(): Int = queryPort.scrollbackLength()
+    override fun isCellEmpty(row: Int, col: Int): Boolean = queryPort.isCellEmpty(row, col)
+    override fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? = queryPort.searchAllInScrollback(query, caseSensitive, fuzzyMatch)
+    override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
-    /** Return full terminal text content. */
-    fun getTerminalText(): String? {
-        Log.d(TAG, "getTerminalText() — no native export yet")
-        return null
-    }
-
-    /** List available font families from native side. */
-    fun listFontFamilies(): List<String>? {
-        Log.d(TAG, "listFontFamilies() — no native export yet")
-        return null
-    }
+    override fun getTerminalText(): String? = queryPort.getTerminalText()
+    override fun listFontFamilies(): List<String>? = queryPort.listFontFamilies()
+    override fun getDefaultFontName(): String = queryPort.getDefaultFontName()
+    override fun getFontInfo(): FontInfo? = queryPort.getFontInfo()
 
     companion object {
         private const val TAG = "Bridge"

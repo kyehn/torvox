@@ -11,12 +11,9 @@ import android.graphics.SurfaceTexture
 import android.graphics.drawable.Drawable
 import android.util.AttributeSet
 import android.util.Log
-import android.view.ActionMode
 import android.view.GestureDetector
 import android.view.InputDevice
 import android.view.KeyEvent
-import android.view.Menu
-import android.view.MenuItem
 import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.ScaleGestureDetector
@@ -34,8 +31,12 @@ import terminal.emulator.R
 import terminal.emulator.SelectionMode
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.TouchClass
+import terminal.emulator.input.KeyboardMode
+import terminal.emulator.input.ModifierState
+import terminal.emulator.input.toEditorInfo
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.PasteChunker
 
 // Approximate height reserved for the ModifierBar overlay when computing
 // the terminal grid (see applyGridResize). The bar itself is ~36dp of
@@ -157,15 +158,6 @@ constructor(
         private const val FLING_MAX_LINES = 50
         private const val SCROLL_END_DELAY_MS = 300L
 
-        // Upper bound for direct clipboard paste: keeps main-thread string
-        // copies (toString/replace/toByteArray) from OOMing on a huge
-        // clipboard. Pastes this large are streamed in chunks through
-        // InputBatchBuffer (see pasteFromClipboardDirect).
-        private const val MAX_PASTE_CHARS = 1_000_000
-
-        // Chunk size for paste streaming. Must stay well below the PTY
-        // kernel buffer (~64KB) so a chunk never fails wholesale on EAGAIN.
-        private const val MAX_PASTE_CHUNK_CHARS = 4_000
         private const val FALLBACK_CELL_WIDTH = 8f
         private const val FALLBACK_CELL_HEIGHT = 16f
         private const val BACKSPACE_BYTE = 0x08.toByte()
@@ -177,9 +169,6 @@ constructor(
 
         /** Number of Unicode code points in [text] (surrogate-pair safe). */
         private fun codePointCount(text: String): Int = text.codePointCount(0, text.length)
-        private const val MENU_COPY = 1
-        private const val MENU_PASTE = 2
-        private const val MENU_SELECT_ALL = 3
         private const val EDGE_SCROLL_INTERVAL_MS = 50L
     }
 
@@ -238,7 +227,6 @@ constructor(
             field = value
             if (value) {
                 hideSelectionHandles()
-                hideContextMenu()
             }
         }
 
@@ -251,7 +239,6 @@ constructor(
     private var startHandlePopup: PopupWindow? = null
     private var endHandlePopup: PopupWindow? = null
     private var cursorHandlePopup: PopupWindow? = null
-    private var actionMode: ActionMode? = null
     private val startHandleRect = Rect()
     private val endHandleRect = Rect()
 
@@ -372,229 +359,6 @@ constructor(
             clampedY + handleH,
         )
         rect.inset(-handleW / 4, -handleH / 4)
-    }
-
-    fun hideSelectionToolbar() {
-        try {
-            actionMode?.hide(ActionMode.DEFAULT_HIDE_DURATION.toLong())
-        } catch (exception: Exception) {
-            // The action mode may already be gone (window destroyed, mode
-            // finished while the field was stale). Hide is best-effort.
-            LogUtil.w("Surface", "hideSelectionToolbar failed", exception)
-        }
-    }
-
-    internal fun showContextMenu(
-        row: Int,
-        col: Int,
-        hasSelection: Boolean,
-        hasClipboard: Boolean,
-        selectionStartRow: Int = row,
-        selectionEndRow: Int = row,
-        selectionStartCol: Int = col,
-        selectionEndCol: Int = col,
-    ) {
-        hideContextMenu()
-        val callback: ActionMode.Callback2 =
-            object : ActionMode.Callback2() {
-                override fun onCreateActionMode(
-                    mode: ActionMode,
-                    menu: Menu,
-                ): Boolean {
-                    if (hasSelection) {
-                        menu.add(Menu.NONE, MENU_COPY, 0, android.R.string.copy)
-                        menu.add(Menu.NONE, MENU_SELECT_ALL, 1, "Select All")
-                    }
-                    if (hasClipboard) {
-                        menu.add(Menu.NONE, MENU_PASTE, 2, android.R.string.paste)
-                    }
-                    return true
-                }
-
-                override fun onPrepareActionMode(
-                    mode: ActionMode,
-                    menu: Menu,
-                ): Boolean {
-                    styleActionMode(mode)
-                    return false
-                }
-
-                override fun onActionItemClicked(
-                    mode: ActionMode,
-                    item: MenuItem,
-                ): Boolean {
-                    when (item.itemId) {
-                        MENU_COPY -> {
-                            viewModel?.copySelectionToClipboard()
-                            onCopyRequested?.invoke(getSelectedText())
-                            viewModel?.clearSelection()
-                            mode.finish()
-                            return true
-                        }
-
-                        MENU_SELECT_ALL -> {
-                            viewModel?.selectAll(scrollOffset)
-                            mode.finish()
-                            return true
-                        }
-
-                        MENU_PASTE -> {
-                            onPasteRequested?.invoke()
-                            mode.finish()
-                            return true
-                        }
-                    }
-                    return false
-                }
-
-                override fun onDestroyActionMode(mode: ActionMode) {
-                    actionMode = null
-                    viewModel?.let { viewModel ->
-                        if (viewModel.state.value.selection.active) {
-                            viewModel.clearSelection()
-                        }
-                    }
-                    hideSelectionHandles()
-                }
-
-                override fun onGetContentRect(
-                    mode: ActionMode,
-                    view: View,
-                    outRect: Rect,
-                ) {
-                    try {
-                        computeContentRect(outRect)
-                    } catch (_: IllegalArgumentException) {
-                        outRect.set(0, 0, 0, 0)
-                    }
-                }
-            }
-
-        if (!isAttachedToWindow) {
-            // A floating ActionMode on a detached view throws
-            // IllegalStateException/BadToken during rotation or activity
-            // teardown frames.
-            LogUtil.w("Surface", "showContextMenu: view not attached, ignoring")
-            return
-        }
-        actionMode = startActionMode(callback, ActionMode.TYPE_FLOATING)
-    }
-
-    private fun computeContentRect(outRect: Rect) {
-        if (width <= 0 || height <= 0) {
-            outRect.set(0, 0, width.coerceAtLeast(0), height.coerceAtLeast(0))
-            return
-        }
-
-        val selection = viewModel?.state?.value?.selection
-        if (selection?.start == null || selection?.end == null) {
-            outRect.set(0, 0, width, height)
-            return
-        }
-
-        val rawLoRow = minOf(selection.start.row, selection.end.row) - scrollOffset
-        val rawHiRow = maxOf(selection.start.row, selection.end.row) - scrollOffset
-
-        val loRow: Int
-        val hiRow: Int
-
-        if (rawHiRow < 0 || rawLoRow >= rows) {
-            loRow = rows / 2
-            hiRow = rows / 2
-        } else {
-            loRow = rawLoRow.coerceIn(0, rows - 1)
-            hiRow = rawHiRow.coerceIn(loRow, rows - 1)
-        }
-
-        val loCol = if (selection.start.row <= selection.end.row) selection.start.col else selection.end.col
-        val hiCol = if (selection.start.row <= selection.end.row) selection.end.col else selection.start.col
-
-        val imeInsetBottom =
-            rootWindowInsets?.let {
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    it
-                        .getInsets(
-                            android.view.WindowInsets.Type
-                                .ime(),
-                        ).bottom
-                } else {
-                    @Suppress("DEPRECATION")
-                    val visibleFrame = Rect()
-                    @Suppress("DEPRECATION")
-                    getWindowVisibleDisplayFrame(visibleFrame)
-                    height - visibleFrame.bottom
-                }
-            } ?: 0
-        val availableHeight = (height - imeInsetBottom).coerceAtLeast(1)
-        val safeHeight = availableHeight
-        if (safeHeight <= 0) {
-            outRect.set(0, 0, width, height)
-            return
-        }
-        val safeWidth = width.coerceAtLeast(1)
-
-        val topOfSelection = Math.round(loRow * cellHeight)
-        val bottomOfSelection = Math.round((hiRow + 1) * cellHeight)
-        val left = Math.round(loCol * cellWidth)
-        val right = Math.round((hiCol + 1) * cellWidth)
-
-        // Position the anchor rect OUTSIDE the selection so the floating
-        // ActionMode toolbar does not obscure the selected text.
-        // If selection is in the lower half, anchor above it.
-        // If in the upper half, anchor below it.
-        val midPoint = safeHeight / 2
-        if (topOfSelection > midPoint) {
-            // Selection in lower half → anchor rect above the selection
-            val anchorTop =
-                Math
-                    .round(topOfSelection - cellHeight)
-                    .coerceIn(0, safeHeight)
-            val anchorBottom = topOfSelection.coerceIn(0, safeHeight)
-            outRect.set(
-                left.coerceIn(0, safeWidth),
-                anchorTop,
-                right.coerceIn(0, safeWidth),
-                anchorBottom,
-            )
-        } else {
-            // Selection in upper half → anchor rect below the selection
-            val anchorTop = bottomOfSelection.coerceIn(0, safeHeight)
-            val anchorBottom =
-                Math
-                    .round(bottomOfSelection + cellHeight)
-                    .coerceIn(0, safeHeight)
-            outRect.set(
-                left.coerceIn(0, safeWidth),
-                anchorTop,
-                right.coerceIn(0, safeWidth),
-                anchorBottom,
-            )
-        }
-    }
-
-    fun hideContextMenu() {
-        try {
-            actionMode?.finish()
-        } catch (exception: Exception) {
-            // Same staleness window as hideSelectionToolbar: the mode may
-            // already be finished/destroyed. Best-effort.
-            LogUtil.w("Surface", "hideContextMenu failed", exception)
-        }
-        actionMode = null
-    }
-
-    private fun styleActionMode(mode: ActionMode) {
-        try {
-            val accentColor = getAccentColor()
-            for (i in 0 until mode.menu.size()) {
-                val item = mode.menu.getItem(i)
-                item.actionView?.let { view ->
-                    (view as? android.widget.TextView)?.setTextColor(accentColor)
-                }
-            }
-        } catch (exception: Exception) {
-            Log.w(TAG, "styleActionMode failed (non-critical)", exception)
-        }
     }
 
     fun showCursorHandle(
@@ -754,8 +518,6 @@ constructor(
             LogUtil.w(TAG, "hideSelectionHandles: end dismiss failed", exception)
         }
         endHandlePopup = null
-        hideSelectionToolbar()
-        hideContextMenu()
         hideCursorHandle()
     }
 
@@ -943,7 +705,6 @@ constructor(
                     }
                     return true
                 }
-                hideContextMenu()
                 viewModel?.clearSelection()
                 viewModel?.resetCursorBlink()
                 suppressUntilNanos = 0L
@@ -1187,7 +948,6 @@ constructor(
         currentInputConnection?.let { ic ->
             ic.finishComposingText()
         }
-        coalescer.clearComposing()
     }
 
     fun restoreKeyboardFocus() {
@@ -1217,7 +977,6 @@ constructor(
         viewModel?.runtime?.focusChange(hasFocus)
         if (!hasFocus) {
             isPaused = true
-            coalescer.reset()
             currentInputConnection?.let { ic ->
                 ic.finishComposingText()
             }
@@ -1354,7 +1113,8 @@ constructor(
     }
 
     private val inputBatchBuffer = InputBatchBuffer({ data -> viewModel?.writeToPty(data) })
-    private val coalescer = InputCoalescer({ data -> inputBatchBuffer.write(data) })
+
+    private val pasteChunker = PasteChunker(tag = "Surface")
     private var currentInputConnection: InputConnection? = null
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection {
@@ -1372,7 +1132,7 @@ constructor(
                     ctrlActive: Boolean,
                     altActive: Boolean,
                 ) {
-                    coalescer.send(
+                    inputBatchBuffer.write(
                         TerminalInputEncoder.encodeCommittedText(
                             text = text,
                             ctrlActive = ctrlActive,
@@ -1388,7 +1148,6 @@ constructor(
                 ): Boolean {
                     if (isPaused || System.nanoTime() < suppressUntilNanos) {
                         composingBuffer = ""
-                        coalescer.clearComposing()
                         return true
                     }
                     val newComposing = text?.toString() ?: ""
@@ -1428,13 +1187,11 @@ constructor(
                         }
                     }
                     composingBuffer = newComposing
-                    coalescer.updateComposingText(newComposing)
                     return true
                 }
 
                 override fun finishComposingText(): Boolean {
                     composingBuffer = ""
-                    coalescer.clearComposing()
                     return true
                 }
 
@@ -1444,7 +1201,6 @@ constructor(
                 ): Boolean {
                     if (isPaused || System.nanoTime() < suppressUntilNanos) {
                         composingBuffer = ""
-                        coalescer.clearComposing()
                         return true
                     }
                     val committedText = text?.toString() ?: return false
@@ -1468,7 +1224,6 @@ constructor(
                     } else {
                         encodeAndSend(committedText, ctrlActive, altActive)
                     }
-                    coalescer.clearComposing()
                     terminalViewModel?.consumeOneShotModifiers()
                     terminalViewModel?.resetCursorBlink()
                     return true
@@ -1541,30 +1296,11 @@ constructor(
         val clipboard = getClipboardManager() ?: return
         if (!clipboard.hasPrimaryClip()) return
         val clipboardText = clipboard.primaryClip?.getItemAt(0)?.text ?: return
-        // Bound the paste on the main thread: toString + replace + toByteArray
-        // each copy the payload, and a multi-megabyte clipboard would OOM the
-        // UI thread before the PTY batching limit ever sees it.
+        // Shared chunking (PasteChunker): code-point-safe chunks well below
+        // the PTY kernel buffer, flushed per frame so the shell can drain.
         val text = clipboardText.toString()
-        if (text.length > MAX_PASTE_CHARS) {
-            LogUtil.w("Surface", "pasteFromClipboardDirect: clipboard too large (${text.length} chars), truncating to $MAX_PASTE_CHARS")
-        }
-        val normalized = text.take(MAX_PASTE_CHARS).replace("\n", "\r")
-        // Chunk the paste through the InputBatchBuffer: one synchronous
-        // feedPty call with the full payload always exceeds the PTY kernel
-        // buffer (~64KB) and is dropped entirely on EAGAIN. Each chunk goes
-        // through the per-frame flush path, giving the child shell time to
-        // drain between chunks. Chunks are split on code-point boundaries
-        // (never inside a surrogate pair).
-        var offset = 0
-        while (offset < normalized.length) {
-            var end = minOf(offset + MAX_PASTE_CHUNK_CHARS, normalized.length)
-            if (end < normalized.length && Character.isHighSurrogate(normalized[end - 1])) {
-                end -= 1
-            }
-            if (end <= offset) break
-            val chunk = normalized.substring(offset, end).toByteArray()
-            inputBatchBuffer.write(chunk)
-            offset = end
+        for (chunk in pasteChunker.chunks(text)) {
+            inputBatchBuffer.write(chunk.toByteArray())
         }
     }
 
@@ -1761,7 +1497,6 @@ constructor(
                     } else {
                         viewModel?.clearSelection()
                         hideSelectionHandles()
-                        hideContextMenu()
                     }
                 }
             }
@@ -1774,8 +1509,6 @@ constructor(
                     lastDragRow = row
                     currentTouchX = event.x
                     currentTouchY = event.y
-
-                    hideSelectionToolbar()
 
                     if (event.y < cellHeight / 2) {
                         if (!edgeScrollRunning) {

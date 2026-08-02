@@ -81,6 +81,62 @@ constructor(
     val cursorStyle: Flow<String> = provider.dataStore.data.map { it[Keys.CURSOR_STYLE] ?: "block" }
     val cursorSpeed: Flow<Int> = provider.dataStore.data.map { it[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS }
 
+    /**
+     * Single merged snapshot of every persisted setting, derived from one
+     * DataStore read. UI subscribes to this one flow instead of 21 parallel
+     * per-field pipelines (C7). Field defaults mirror the per-field flows
+     * above; keep both in sync when adding a setting.
+     */
+    data class SettingsState(
+        val appThemeMode: String = DEFAULT_FOLLOW_SYSTEM,
+        val fontSize: Float = DEFAULT_FONT_SIZE,
+        val fontFamily: String = "",
+        val themeName: String = DEFAULT_THEME,
+        val dayThemeName: String = DEFAULT_DAY_THEME_NAME,
+        val nightThemeName: String = DEFAULT_THEME,
+        val themeMode: String = DEFAULT_THEME_MODE,
+        val shell: String = DEFAULT_SHELL,
+        val scrollbackLines: Int = DEFAULT_SCROLLBACK_LINES,
+        val touchBehavior: String = DEFAULT_TOUCH_BEHAVIOR,
+        val bootstrapUrl: String = "",
+        val useNerdFontGlyphs: Boolean = false,
+        val useSemanticSelection: Boolean = false,
+        val keyboardMode: String = DEFAULT_KEYBOARD_MODE,
+        val mcpServerEnabled: Boolean = false,
+        val backgroundImagePath: String = "",
+        val backgroundBlurRadius: Int = DEFAULT_BACKGROUND_BLUR_RADIUS,
+        val backgroundAlpha: Float = DEFAULT_BACKGROUND_ALPHA,
+        val cursorBlink: Boolean = true,
+        val cursorStyle: String = "block",
+        val cursorSpeed: Int = DEFAULT_CURSOR_SPEED_MS,
+    )
+
+    val settings: Flow<SettingsState> = provider.dataStore.data.map { prefs ->
+        SettingsState(
+            appThemeMode = prefs[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM,
+            fontSize = prefs[Keys.FONT_SIZE] ?: DEFAULT_FONT_SIZE,
+            fontFamily = prefs[Keys.FONT_FAMILY] ?: "",
+            themeName = prefs[Keys.THEME_NAME] ?: DEFAULT_THEME,
+            dayThemeName = prefs[Keys.DAY_THEME_NAME] ?: DEFAULT_DAY_THEME_NAME,
+            nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME,
+            themeMode = prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
+            shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
+            scrollbackLines = prefs[Keys.SCROLLBACK_LINES] ?: DEFAULT_SCROLLBACK_LINES,
+            touchBehavior = prefs[Keys.TOUCH_BEHAVIOR] ?: DEFAULT_TOUCH_BEHAVIOR,
+            bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
+            useNerdFontGlyphs = prefs[Keys.USE_NERD_FONT_GLYPHS] ?: false,
+            useSemanticSelection = prefs[Keys.USE_SEMANTIC_SELECTION] ?: false,
+            keyboardMode = prefs[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE,
+            mcpServerEnabled = prefs[Keys.MCP_SERVER_ENABLED] ?: false,
+            backgroundImagePath = prefs[Keys.BACKGROUND_IMAGE_PATH] ?: "",
+            backgroundBlurRadius = prefs[Keys.BACKGROUND_BLUR_RADIUS] ?: DEFAULT_BACKGROUND_BLUR_RADIUS,
+            backgroundAlpha = prefs[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA,
+            cursorBlink = prefs[Keys.CURSOR_BLINK] ?: true,
+            cursorStyle = prefs[Keys.CURSOR_STYLE] ?: "block",
+            cursorSpeed = prefs[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS,
+        )
+    }
+
     suspend fun setFontSize(size: Float) {
         provider.dataStore.edit { it[Keys.FONT_SIZE] = size }
     }
