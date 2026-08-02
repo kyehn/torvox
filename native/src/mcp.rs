@@ -712,10 +712,18 @@ pub async fn run_stdio() -> Result<(), tower_mcp::Error> {
 mod tests {
     use super::*;
     use serde_json::{Value, json};
+    use std::sync::Mutex as StdMutex;
     use tower_mcp::testing::TestClient;
+
+    // `global_state()` is a process-wide singleton; the tools read the
+    // handlers from it. Tests that register handlers MUST run serially or
+    // one test's handler leaks into the next. This lock is held for the
+    // whole test body.
+    static MCP_TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
     #[tokio::test]
     async fn test_list_tools() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -740,6 +748,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_terminal_info_tool() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -755,6 +764,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_clipboard_set_requires_text() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -765,7 +775,194 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_notify_tool_invokes_handler() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.set_notify_handler(move |msg| {
+            tx.send(msg).unwrap();
+        });
+        let result = client
+            .call_tool("notify", json!({"title": "T", "body": "B"}))
+            .await;
+        assert!(!result.is_error);
+        assert_eq!(
+            result.content.first().unwrap().as_text().unwrap(),
+            "Notification sent"
+        );
+        assert_eq!(rx.try_recv().unwrap(), "T\nB");
+
+        // No handler -> error
+        state.set_notify_handler(|_| {});
+        let result = client
+            .call_tool("notify", json!({"title": "T2", "body": ""}))
+            .await;
+        assert!(!result.is_error);
+    }
+
+    #[tokio::test]
+    async fn test_toast_tool_invokes_handler() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.set_toast_handler(move |text| {
+            tx.send(text).unwrap();
+        });
+        let result = client.call_tool("toast", json!({"text": "hello"})).await;
+        assert!(!result.is_error);
+        assert_eq!(rx.try_recv().unwrap(), "hello");
+    }
+
+    #[tokio::test]
+    async fn test_open_url_tool_invokes_handler() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.set_open_url_handler(move |url| {
+            tx.send(url).unwrap();
+        });
+        let result = client
+            .call_tool("open_url", json!({"url": "https://example.com"}))
+            .await;
+        assert!(!result.is_error);
+        assert_eq!(rx.try_recv().unwrap(), "https://example.com");
+    }
+
+    #[tokio::test]
+    async fn test_clipboard_get_returns_text() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+
+        state.set_clipboard_get_handler(|| {
+            let sid = 1;
+            let (req_id, tx) = crate::android::ffi::register_request(sid);
+            crate::android::ffi::answer_request(sid, req_id, "clip text".to_string());
+            (req_id, tx)
+        });
+        let result = client.call_tool("clipboard_get", json!({})).await;
+        assert!(!result.is_error, "clipboard_get failed: {:?}", result);
+        assert_eq!(
+            result.content.first().unwrap().as_text().unwrap(),
+            "clip text"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_clipboard_get_unavailable_if_no_handler() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+        state.set_clipboard_get_handler(|| {
+            // Answer with a dropped channel: the tool's timeout branch
+            // resolves immediately (Err(dropped)) and cancels the registry
+            // entry — no 300s stall.
+            let req_id = 1;
+            let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+            drop(tx);
+            crate::android::ffi::cancel_request(1, req_id);
+            (req_id, rx)
+        });
+        let result = client.call_tool("clipboard_get", json!({})).await;
+        assert!(result.is_error);
+    }
+
+    #[tokio::test]
+    async fn test_send_signal_invokes_handler() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+        state.set_active_session_id(42);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.set_send_signal_handler(move |sid, sig| {
+            tx.send((sid, sig)).unwrap();
+            format!("signal {sig} sent to {sid}")
+        });
+        let result = client.call_tool("send_signal", json!({"signal": 15})).await;
+        assert!(!result.is_error);
+        assert_eq!(
+            result.content.first().unwrap().as_text().unwrap(),
+            "signal 15 sent to 42"
+        );
+        assert_eq!(rx.try_recv().unwrap(), (42, 15));
+    }
+
+    #[tokio::test]
+    async fn test_pick_file_returns_path() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+
+        state.set_pick_file_handler(|sid, dir, pattern| {
+            let (req_id, rx) = crate::android::ffi::register_request(sid);
+            assert_eq!(dir, "/tmp");
+            assert_eq!(pattern, "*.rs");
+            // Simulate Kotlin's dialogResult answering right away.
+            crate::android::ffi::answer_request(sid, req_id, "/tmp/selected.rs".to_string());
+            (req_id, rx)
+        });
+        let result = client
+            .call_tool("pick_file", json!({"directory": "/tmp", "pattern": "*.rs"}))
+            .await;
+        assert!(!result.is_error, "pick_file failed: {:?}", result);
+        assert_eq!(
+            result.content.first().unwrap().as_text().unwrap(),
+            "/tmp/selected.rs"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_dialog_returns_answer() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+
+        state.set_dialog_handler(|sid, dtype, title, message, options| {
+            let (req_id, rx) = crate::android::ffi::register_request(sid);
+            assert_eq!(dtype, "confirm");
+            assert_eq!(title, "Question");
+            assert_eq!(message, "Really?");
+            assert!(options.is_empty());
+            // Simulate Kotlin's dialogResult answering right away.
+            crate::android::ffi::answer_request(sid, req_id, "yes".to_string());
+            (req_id, rx)
+        });
+        let result = client
+            .call_tool(
+                "dialog",
+                json!({"dialog_type": "confirm", "title": "Question", "message": "Really?"}),
+            )
+            .await;
+        assert!(!result.is_error, "dialog failed: {:?}", result);
+        assert_eq!(result.content.first().unwrap().as_text().unwrap(), "yes");
+    }
+
+    #[tokio::test]
     async fn test_method_not_found() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;

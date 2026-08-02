@@ -1649,14 +1649,20 @@ fn dialog_result_inner<'local>(
 ) {
     let session_id = session_id as u64;
     let request_id = request_id as u64;
+    let result_str: String = env
+        .get_string(&result)
+        .map(|s| s.into())
+        .unwrap_or_default();
+    answer_request(session_id, request_id, result_str);
+}
 
-    // Look up the pending request sender and send the result
+/// Answer a pending dialog/pick_file/clipboard request, resolving the
+/// MCP tool's oneshot receiver. No-op for unknown (already-answered or
+/// expired) request ids. Shared by the JNI exports and unit tests.
+#[cfg(feature = "mcp")]
+pub(crate) fn answer_request(session_id: u64, request_id: u64, result: String) {
     if let Some(tx) = REQUEST_REGISTRY.lock().remove(&(session_id, request_id)) {
-        let result_str: String = env
-            .get_string(&result)
-            .map(|s| s.into())
-            .unwrap_or_default();
-        let _ = tx.send(result_str);
+        let _ = tx.send(result);
     }
 }
 // ══════════════════════════════════════════════════════════════════════════
