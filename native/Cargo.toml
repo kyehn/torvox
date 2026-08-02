@@ -38,6 +38,8 @@ base64 = "0.23"
 
 # GPU rendering
 wgpu = { workspace = true, features = ["spirv", "gles", "vulkan"] }
+raw-window-handle = { workspace = true }
+wgpu-types = { workspace = true }
 cosmic-text = { workspace = true }
 fontdb = { workspace = true }
 swash = { workspace = true }

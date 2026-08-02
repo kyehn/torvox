@@ -6,7 +6,6 @@ package terminal.emulator.ui
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Rect
-import android.graphics.SurfaceTexture
 import android.graphics.drawable.Drawable
 import android.util.AttributeSet
 import android.util.Log
@@ -17,7 +16,8 @@ import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.ScaleGestureDetector
 import android.view.Surface
-import android.view.TextureView
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowInsets
@@ -98,8 +98,8 @@ constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0,
-) : TextureView(context, attrs, defStyleAttr),
-    TextureView.SurfaceTextureListener {
+) : SurfaceView(context, attrs, defStyleAttr),
+    SurfaceHolder.Callback {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
@@ -230,25 +230,16 @@ constructor(
             terminalViewModel: TerminalViewModel,
         ) {
             terminalViewModel.runtime.recomputeGrid(width, height)
-            val surface =
-                cachedSurface ?: (
-                    surfaceTexture?.let {
-                        Surface(it).also {
-                            cachedSurface = it
-                            terminalViewModel.currentSurface = it
-                        }
-                    }
-                    )
-            if (surface == null) {
-                Log.w(TAG, "applySurfaceResize: no cachedSurface yet, deferring")
+            val surface = holder.surface
+            if (!surface.isValid) {
+                Log.w(TAG, "applySurfaceResize: surface not valid yet, deferring")
                 return
             }
             terminalViewModel.currentSurface = surface
-            // ADR-0007: no ANativeWindow pointer crosses the bridge (the native
-            // side receives the Surface via attachWindow JNI and extracts the
-            // ANativeWindow inside Rust). updateNativeWindow must still run so
-            // the resize path below (ensureDefaultSession retry) is not skipped.
-            terminalViewModel.runtime.updateNativeWindow(0L, width, height)
+            // ADR-0007: hand the Surface to native; the renderer builds a
+            // wgpu surface from it (attachWindow JNI extracts the
+            // ANativeWindow inside Rust).
+            terminalViewModel.runtime.attachSurface(surface, width, height)
             val runtimeState = terminalViewModel.runtime.state.value
             if (runtimeState.rows > 0 && runtimeState.cols > 0) {
                 rows = runtimeState.rows
@@ -834,9 +825,6 @@ constructor(
         viewModel?.runtime?.forceRender()
     }
 
-    override fun onSurfaceTextureUpdated(surfaceTexture: SurfaceTexture) {
-    }
-
     private var magnifier: Magnifier? = null
     private var lastConfiguredWidth = 0
     private var lastConfiguredHeight = 0
@@ -1209,13 +1197,15 @@ constructor(
         }
     }
 
-    private var cachedSurface: android.view.Surface? = null
-
     private var currentTouchX = 0f
     private var currentTouchY = 0f
 
     init {
-        surfaceTextureListener = this
+        holder.addCallback(this)
+        // SurfaceView punches a hole in the window; the terminal content is
+        // drawn by the native renderer into the Surface, everything else
+        // (ModifierBar, overlays) stays in the normal view hierarchy.
+        holder.setFormat(android.graphics.PixelFormat.RGBA_8888)
         isFocusable = true
         isFocusableInTouchMode = true
         setWillNotDraw(false)
@@ -1651,7 +1641,10 @@ constructor(
         return true
     }
 
-    // ── SurfaceTextureListener ─────────────────────────────────────────
+    // ── Surface lifecycle (SurfaceHolder.Callback; the native renderer
+    // ── draws into the Surface — SurfaceView, not TextureView, because
+    // ── TextureView's SurfaceTexture is consumed by the GL compositor and
+    // ── blocks Vulkan dequeueBuffer on software emulators) ────────────────
 
     @Suppress("CyclomaticComplexMethod") // Acceptable — dispatches ~15 distinct gesture/intent types
     override fun onSizeChanged(
@@ -1664,19 +1657,15 @@ constructor(
         if (width <= 0 || height <= 0) return
         if (width == previousWidth && height == previousHeight && previousWidth != 0) return
 
-        val surfaceTextureLocal = surfaceTexture ?: return
-        surfaceTextureLocal.setDefaultBufferSize(width, height)
-
         surfaceWidthPixels = width
         surfaceHeightPixels = height
         resizeManager.recomputeRowsColsImmediate(width, height)
         // Resize the GPU swapchain synchronously and immediately so the rendered
-        // frame always matches the new view size. The TextureView scales its
-        // SurfaceTexture to the view bounds; if the wgpu/swapchain buffer stayed
-        // at the old size for even a few frames (e.g. while the IME animates),
-        // the stale buffer would be non-uniformly scaled -> the text would
-        // visibly stretch/compress. Immediate resize keeps buffer == view at all
-        // times, eliminating the artifact.
+        // frame always matches the new view size: if the wgpu/swapchain
+        // buffer stayed at the old size for even a few frames (e.g. while the
+        // IME animates), the stale buffer would be non-uniformly scaled ->
+        // the text would visibly stretch/compress. Immediate resize keeps
+        // buffer == view at all times, eliminating the artifact.
         resizeManager.applySurfaceResize(width, height)
     }
 
@@ -1691,29 +1680,21 @@ constructor(
     // SECTION 5: Surface lifecycle (ResizeManager owns grid/size)
     // ══════════════════════════════════════════════════════════════════════
 
-    override fun onSurfaceTextureAvailable(
-        surfaceTexture: SurfaceTexture,
-        width: Int,
-        height: Int,
-    ) {
-        cachedSurface?.release()
-        val textureSurface = Surface(surfaceTexture).also { cachedSurface = it }
+    override fun surfaceCreated(holder: SurfaceHolder) {
+        val surface = holder.surface
         surfaceWidthPixels = width
         surfaceHeightPixels = height
         viewModel?.let { terminalViewModel ->
             terminalViewModel.surfaceWidth = width
             terminalViewModel.surfaceHeight = height
-            terminalViewModel.currentSurface = textureSurface
+            terminalViewModel.currentSurface = surface
             val isRunning = terminalViewModel.runtime.state.value.isRunning
             if (!isRunning) {
-                terminalViewModel.startRuntime(textureSurface, width, height)
+                terminalViewModel.startRuntime(surface, width, height)
             } else {
-                // ADR-0007: no raw ANativeWindow pointer crosses the bridge;
-                // the surface resume must not be gated on one. Without
-                // this, resumeRendering() (the only call site) never runs
-                // after surface destroy/recreate and the terminal stays
-                // black.
-                terminalViewModel.runtime.updateNativeWindow(0L, width, height)
+                // ADR-0007: re-attach the (recreated) surface; the renderer
+                // rebuilds its wgpu surface from it.
+                terminalViewModel.runtime.attachSurface(surface, width, height)
                 terminalViewModel.runtime.recomputeGrid(width, height)
                 terminalViewModel.runtime.resumeRendering()
                 val runtimeState = terminalViewModel.runtime.state.value
@@ -1727,8 +1708,9 @@ constructor(
         }
     }
 
-    override fun onSurfaceTextureSizeChanged(
-        surfaceTexture: SurfaceTexture,
+    override fun surfaceChanged(
+        holder: SurfaceHolder,
+        format: Int,
         width: Int,
         height: Int,
     ) {
@@ -1743,7 +1725,7 @@ constructor(
         resizeManager.applySurfaceResize(width, height)
     }
 
-    override fun onSurfaceTextureDestroyed(surfaceTexture: SurfaceTexture): Boolean {
+    override fun surfaceDestroyed(holder: SurfaceHolder) {
         viewModel?.runtime?.onSurfaceDestroyed()
         viewModel?.runtime?.releaseAllGpuSurfaces()
         // Dismiss selection/cursor handle popups: they hold an Activity
@@ -1761,14 +1743,8 @@ constructor(
         // its join can take up to 1s per session). Releasing the ANativeWindow
         // while the render thread may still be inside native render code is a
         // use-after-free; the executor ordering guarantees the join finished.
-        val surfaceToRelease = cachedSurface
-        cachedSurface = null
-        viewModel?.runtime?.runAfterRenderThreadsStopped {
-            surfaceToRelease?.release()
-        }
         lastConfiguredWidth = 0
         lastConfiguredHeight = 0
         viewModel?.currentSurface = null
-        return true
     }
 }
