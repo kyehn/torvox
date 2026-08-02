@@ -12,21 +12,6 @@ use std::sync::mpsc::SyncSender;
 const GPU_POLL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 const ACQUIRE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn acquire_worker_is_singleton() {
-        let tx1 = acquire_worker_tx();
-        let tx2 = acquire_worker_tx();
-        assert!(
-            std::ptr::eq(tx1, tx2),
-            "acquire_worker must return the same sender each call"
-        );
-    }
-}
-
 type AcquireResult = Result<wgpu::CurrentSurfaceTexture, Box<dyn std::any::Any + Send>>;
 
 struct AcquireRequest {
@@ -468,7 +453,7 @@ impl Renderer {
         selection_bg: Option<[f32; 4]>,
         search_highlights: &[crate::render::cell_builder::SearchHighlight],
     ) -> Result<(), GpuError> {
-        let instances = crate::render::build_instances_from_cell_data(
+        let converted = crate::render::build_instances_from_cell_data(
             cell_data,
             _rows,
             _cols,
@@ -479,9 +464,18 @@ impl Renderer {
             selection,
             selection_bg,
             search_highlights,
-        )
-        .ok_or_else(|| GpuError::Surface("CellData conversion failed".into()))?;
-        self.render_frame(&instances, &[])
+            &mut self.cpu_instances,
+        );
+        if converted.is_none() {
+            return Err(GpuError::Surface("CellData conversion failed".into()));
+        }
+        // Take the buffer out of self so render_frame can borrow it
+        // without aliasing the &mut self call (NLL cannot split these
+        // borrows because both flow through the same receiver).
+        let cpu_instances = std::mem::take(&mut self.cpu_instances);
+        let result = self.render_frame(&cpu_instances, &[]);
+        self.cpu_instances = cpu_instances;
+        result
     }
 
     pub fn render_to_buffer(
@@ -773,5 +767,20 @@ impl Renderer {
         };
 
         Ok(trimmed)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn acquire_worker_is_singleton() {
+        let tx1 = acquire_worker_tx();
+        let tx2 = acquire_worker_tx();
+        assert!(
+            std::ptr::eq(tx1, tx2),
+            "acquire_worker must return the same sender each call"
+        );
     }
 }

@@ -19,8 +19,8 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.PrintWriter
 import java.io.StringWriter
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @HiltAndroidApp
@@ -135,7 +135,7 @@ open class TerminalApp : Application() {
         val logDirectory = getDir("logs", MODE_PRIVATE)
         logDirectory.mkdirs()
 
-        val timestamp = SimpleDateFormat("yyyy-MM-dd_HH-mm-ss", Locale.US).format(Date())
+        val timestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.US).format(LocalDateTime.now())
         val crashLogFile = File(logDirectory, "crash_$timestamp.log")
 
         val stackTrace = StringWriter()

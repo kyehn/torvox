@@ -7,6 +7,7 @@ use crate::render::CellInstance;
 use crate::terminal::CursorStyle;
 use crate::terminal::SelectionMode;
 
+use foldhash::fast::RandomState;
 use std::collections::HashMap;
 
 /// Bit position of reverse video (SGR 7) in CellData.flags.
@@ -94,7 +95,7 @@ pub struct SearchHighlight {
 pub(crate) fn cell_highlight<'a>(
     row: u32,
     col: u32,
-    by_row: &'a HashMap<i32, Vec<&'a SearchHighlight>>,
+    by_row: &'a HashMap<i32, Vec<&'a SearchHighlight>, RandomState>,
 ) -> Option<&'a [u8; 4]> {
     let h_list = by_row.get(&(row as i32))?;
     let highlight = h_list
@@ -148,14 +149,23 @@ pub fn build_instances_from_cell_data(
     selection: Option<SelectionRange>,
     selection_bg: Option<[f32; 4]>,
     search_highlights: &[SearchHighlight],
-) -> Option<Vec<CellInstance>> {
+    instances: &mut Vec<CellInstance>,
+) -> Option<()> {
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let ascent_pixels = font_pipeline.ascent_pixels();
     let raster_scale = font_pipeline.get_raster_scale();
-    let mut instances = Vec::with_capacity(cell_data.len());
+    // Cross-frame buffer reuse: the caller (Renderer) owns the Vec and
+    // clears it here, avoiding a ~100KB allocation per frame at 60fps
+    // (~6MB/s allocation traffic).
+    instances.clear();
+    instances.reserve(cell_data.len());
 
     let selection = selection.filter(|s| !s.is_empty);
-    let mut highlights_by_row: HashMap<i32, Vec<&SearchHighlight>> = HashMap::new();
+    // foldhash (0.2, already in the dependency tree) instead of the std
+    // SipHash13 default: this map is rebuilt and queried every frame
+    // (~1920 hashes/frame @60fps); foldhash is ~5-10x faster on i32 keys.
+    let mut highlights_by_row: HashMap<i32, Vec<&SearchHighlight>, RandomState> =
+        HashMap::with_hasher(RandomState::default());
     for h in search_highlights {
         highlights_by_row.entry(h.row).or_default().push(h);
     }
@@ -381,5 +391,5 @@ pub fn build_instances_from_cell_data(
             });
         }
     }
-    Some(instances)
+    Some(())
 }
