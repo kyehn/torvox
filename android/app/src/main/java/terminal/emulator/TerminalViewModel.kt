@@ -621,7 +621,7 @@ constructor(
                     _availableFonts.value = allFonts
                     _defaultFontName.value = bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
                     _fontInfo.value =
-                        bridge?.getFontInfo()?.let { it.toString() } ?: "Font: ${_defaultFontName.value}\n(CJK fallback info available after session starts)"
+                        bridge?.getFontInfo() ?: "Font: ${_defaultFontName.value}\n(CJK fallback info available after session starts)"
                 } catch (exception: Exception) {
                     Log.e("TerminalViewModel", "Failed to load font list", exception)
                     _availableFonts.value = emptyList()
@@ -635,7 +635,7 @@ constructor(
                 runtime.applyFontSettings()
                 val bridge = runtime.bridge()
                 if (bridge != null) {
-                    _fontInfo.value = bridge.getFontInfo()?.let { it.toString() } ?: "No font loaded"
+                    _fontInfo.value = bridge.getFontInfo() ?: "No font loaded"
                 }
             }
         }
@@ -648,7 +648,7 @@ constructor(
                     runtime.applyFontSettings()
                     val bridge = runtime.bridge()
                     val fontName = bridge?.getDefaultFontName() ?: "monospace"
-                    val fontInfo = bridge?.getFontInfo()?.let { it.toString() } ?: "No font loaded"
+                    val fontInfo = bridge?.getFontInfo() ?: "No font loaded"
                     _defaultFontName.value = fontName
                     _fontInfo.value = fontInfo
                     android.util.Log.d("Font", "Font applied: $fontName")
@@ -850,7 +850,7 @@ constructor(
                         } else {
                             val bridge = runtime.bridge()
                             _defaultFontName.value = bridge?.getDefaultFontName() ?: ""
-                            _fontInfo.value = bridge?.getFontInfo()?.let { it.toString() } ?: "No font loaded"
+                            _fontInfo.value = bridge?.getFontInfo() ?: "No font loaded"
                         }
                     }
                 } else {

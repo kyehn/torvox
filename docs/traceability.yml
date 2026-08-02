@@ -569,30 +569,10 @@ requirements:
     verification: "cargo test --package native"
 
   # ==========================================================================
-  # 3.9 Android Bridge (FR-051 — FR-053)
+  # 3.9 Android Bridge (FR-049 — FR-051)
   # ==========================================================================
 
   FR-051:
-    description: "The system SHALL use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction) via `native/src/android/ffi.rs`."
-    design:
-      - "docs/architecture.md#2.2-module-responsibilities"
-      - "native/src/android/ffi.rs"
-    api: []
-    tests: []
-    verification: "cargo test --package native"
-
-  FR-052:
-    description: "The system SHALL handle Android surface creation and destruction events, recreating the wgpu surface and render pipeline as needed."
-    design:
-      - "docs/architecture.md#6-error-handling"
-      - "native/src/render/surface.rs"
-      - "native/src/android/ffi.rs"
-    api: []
-    tests:
-      - "native/src/render/tests.rs"
-    verification: "cargo test --package native"
-
-  FR-053:
     description: "The system SHALL support ProGuard/R8 obfuscation with -dontoptimize to preserve direct JNI function names."
     design:
       - "docs/architecture.md#5-key-design-decisions"
@@ -601,10 +581,10 @@ requirements:
     verification: "cd android && ./gradlew assembleDebug"
 
   # ==========================================================================
-  # 3.10 Configuration and Themes (FR-054 — FR-057)
+  # 3.10 Configuration and Themes (FR-052 — FR-055)
   # ==========================================================================
 
-  FR-054:
+  FR-052:
     description: "The system SHALL provide 16 built-in color themes: Catppuccin Mocha, Catppuccin Latte, Dracula+, Nord, Tokyo Night, Rose Pine, Gruvbox Dark, Gruvbox Light, Everforest Dark, One Dark, One Light, Monokai, Ayu Dark, Ayu Light, Kanagawa Wave, and Night Owl."
     design:
       - "docs/architecture.md#2.2-module-responsibilities"
@@ -614,7 +594,7 @@ requirements:
       - "native/src/render/screenshot_tests.rs"
     verification: "cargo test --package native"
 
-  FR-055:
+  FR-053:
     description: "The system SHALL support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots."
     design:
       - "docs/architecture.md#2.2-module-responsibilities"
@@ -625,7 +605,7 @@ requirements:
       - "native/src/terminal/ghostty_terminal/tests.rs"
     verification: "cargo test --package native"
 
-  FR-056:
+  FR-054:
     description: "The system SHALL support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via GhosttyTerminal configuration."
     design:
       - "docs/architecture.md#2.2-module-responsibilities"
@@ -635,7 +615,7 @@ requirements:
       - "native/src/terminal/ghostty_terminal/tests.rs"
     verification: "cargo test --package native"
 
-  FR-057:
+  FR-055:
     description: "The repository SHALL NOT contain golden images or font file blobs. All rendering verification SHALL use logical assertions (pixel-coordinate checks, OCR text detection, Nix font paths) instead of image comparison or bundled binaries."
     design:
       - "docs/standards/QUALITY-GATE.md"

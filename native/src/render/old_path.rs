@@ -11,6 +11,7 @@
 
 #[cfg(any(test, feature = "test-util"))]
 use foldhash::fast::RandomState;
+#[cfg(any(test, feature = "test-util"))]
 use std::collections::HashMap;
 
 #[cfg(any(test, feature = "test-util"))]

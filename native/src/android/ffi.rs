@@ -70,8 +70,11 @@ use std::sync::atomic::Ordering;
 
 use crate::event::Event;
 use jni::JNIEnv;
+use jni::objects::JObject;
 use jni::objects::{JClass, JString};
-use jni::sys::{JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jstring};
+use jni::sys::{
+    JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jobjectArray, jsize, jstring,
+};
 
 use crate::terminal::ShellEnv;
 use crate::terminal::session::Session;
@@ -126,6 +129,12 @@ unsafe extern "C" {
         surface: JObjectPtr,
     ) -> *mut std::ffi::c_void;
     pub(crate) fn ANativeWindow_release(window: *mut std::ffi::c_void);
+    pub(crate) fn ANativeWindow_setBuffersGeometry(
+        window: *mut std::ffi::c_void,
+        width: i32,
+        height: i32,
+        format: i32,
+    ) -> i32;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -139,6 +148,56 @@ struct SessionEntry {
 
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Global render state (ADR-0007): the wgpu renderer + font pipeline used
+/// by the Android render thread. Created lazily on the first
+/// `attachWindow`, owned by the JNI render thread (Kotlin's render loop
+/// calls `render` from exactly one thread). `Renderer` is `Send + Sync`
+/// (verified by a compile-time test in render::context), so a Mutex is
+/// sound; contention is negligible (one `render` call per frame).
+static RENDER_STATE: std::sync::Mutex<Option<RenderState>> = std::sync::Mutex::new(None);
+
+/// Session id whose surface is currently attached to the (global) render
+/// state, 0 = none. `detachWindow` only drops the surface when the caller
+/// is the owning session — `switchSession` attaches the new session's
+/// surface before releasing the old one, and an unconditional detach would
+/// wipe the just-attached surface (black screen for every session after
+/// the first).
+#[cfg(target_os = "android")]
+static ATTACHED_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+struct RenderState {
+    renderer: crate::render::context::Renderer,
+    font_pipeline: crate::render::font::FontPipeline,
+    /// Search highlight ranges for the next frame. Set by
+    /// `setSearchHighlights` (byte-packed rows/cols), consumed by
+    /// `render_inner`. Only the latest input matters — the render loop
+    /// runs at ~60 fps and highlights are re-set on every keystroke.
+    /// Stored as parsed structs so `render_inner` passes them by slice.
+    /// Cleared by `clearSearchHighlights`.
+    search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
+}
+
+/// Ensure the render state exists, creating the renderer + font pipeline
+/// on first use. Panics on GPU init failure (fatal — no graceful
+/// degradation, per project policy: a terminal without rendering is
+/// broken and must not limp along).
+fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
+    let mut guard = RENDER_STATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if guard.is_none() {
+        let renderer = crate::render::context::Renderer::new_with_no_surface();
+        let font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        *guard = Some(RenderState {
+            renderer,
+            font_pipeline,
+            search_highlights: Vec::new(),
+        });
+        log::info!("render state initialized (renderer + font pipeline)");
+    }
+    guard
+}
 
 /// Lock SESSION_REGISTRY for reading, recovering from poison.
 fn rlock_session_registry() -> parking_lot::RwLockReadGuard<'static, HashMap<u64, SessionEntry>> {
@@ -630,56 +689,57 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resize(
 fn resize_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, rows: jint, cols: jint) {
     let id = session_id as u64;
     let registry = rlock_session_registry();
-    if let Some(entry) = registry.get(&id) {
-        let mut session = entry.session.lock();
-        let rows = match u32::try_from(rows) {
-            Ok(r) => r,
-            Err(_) => {
-                let _ = env.throw_new(
-                    "java/lang/IllegalArgumentException",
-                    "resize: rows must be non-negative",
-                );
-                return;
+    let Some(entry) = registry.get(&id) else {
+        let _ = env.throw_new("java/lang/RuntimeException", "resize: session not found");
+        return;
+    };
+    let mut session = entry.session.lock();
+    let rows = match u32::try_from(rows) {
+        Ok(r) => r,
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "resize: rows must be non-negative",
+            );
+            return;
+        }
+    };
+    let cols = match u32::try_from(cols) {
+        Ok(c) => c,
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "resize: cols must be non-negative",
+            );
+            return;
+        }
+    };
+    match session.resize(rows, cols) {
+        Err(e) => {
+            if let Err(e) =
+                env.throw_new("java/lang/RuntimeException", format!("resize: failed: {e}"))
+            {
+                log::error!("resize: throw_new failed: {e}");
             }
-        };
-        let cols = match u32::try_from(cols) {
-            Ok(c) => c,
-            Err(_) => {
-                let _ = env.throw_new(
-                    "java/lang/IllegalArgumentException",
-                    "resize: cols must be non-negative",
-                );
-                return;
-            }
-        };
-        match session.resize(rows, cols) {
-            Err(e) => {
-                if let Err(e) =
-                    env.throw_new("java/lang/RuntimeException", format!("resize: failed: {e}"))
-                {
-                    log::error!("resize: throw_new failed: {e}");
-                }
-            }
-            Ok(outcome) => {
-                // Only the ACTIVE session's size is reflected in the
-                // global MCP dims: background sessions may
-                // legitimately have a different grid (e.g. deferred
-                // resize), and terminal_info must report the visible
-                // one. When the grid command was dropped the PTY and
-                // grid disagree, so the dims stay at the cached (old)
-                // values — publishing the new ones would make MCP
-                // dims flip-flop between resize and switch paths
-                //
-                if matches!(outcome, crate::terminal::session::ResizeOutcome::Applied)
-                    && id == ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire)
-                {
-                    #[cfg(feature = "mcp")]
-                    crate::mcp::global_state().set_terminal_dims(rows, cols);
-                }
+        }
+        Ok(outcome) => {
+            // Only the ACTIVE session's size is reflected in the
+            // global MCP dims: background sessions may
+            // legitimately have a different grid (e.g. deferred
+            // resize), and terminal_info must report the visible
+            // one. When the grid command was dropped the PTY and
+            // grid disagree, so the dims stay at the cached (old)
+            // values — publishing the new ones would make MCP
+            // dims flip-flop between resize and switch paths
+            //
+            if matches!(outcome, crate::terminal::session::ResizeOutcome::Applied)
+                && id == ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire)
+            {
+                #[cfg(feature = "mcp")]
+                crate::mcp::global_state().set_terminal_dims(rows, cols);
             }
         }
     }
-    let _ = env.throw_new("java/lang/RuntimeException", "resize: session not found");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -765,27 +825,24 @@ fn feed_pty_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, data: jby
     };
 
     let registry = rlock_session_registry();
-    if let Some(entry) = registry.get(&id) {
-        let mut session = entry.session.lock();
-        if let Err(e) = session.write(&input) {
-            // The master fd is O_NONBLOCK (set in Session::spawn): a
-            // full PTY buffer (child not reading) surfaces as EAGAIN.
-            // Dropping the input matches xterm behaviour; surfacing it
-            // as an error would spam the log on every keystroke of a
-            // huge paste.
-            if e.is_would_block() {
-                return;
-            }
-            if let Err(e) = env.throw_new(
-                "java/lang/RuntimeException",
-                format!("feedPty: write failed: {e}"),
-            ) {
-                log::error!("feedPty: throw_new failed: {e}");
-            }
+    let Some(entry) = registry.get(&id) else {
+        let _ = env.throw_new("java/lang/RuntimeException", "feedPty: session not found");
+        return;
+    };
+    let mut session = entry.session.lock();
+    if let Err(e) = session.write(&input) {
+        // The master fd is O_NONBLOCK (set in Session::spawn): a full PTY
+        // buffer (child not reading) surfaces as EAGAIN. Dropping the
+        // input matches xterm behavior; surfacing it as an error would
+        // spam the log on every keystroke of a huge paste.
+        if e.is_would_block() {
             return;
         }
+        let _ = env.throw_new(
+            "java/lang/RuntimeException",
+            format!("feedPty: write failed: {e}"),
+        );
     }
-    let _ = env.throw_new("java/lang/RuntimeException", "feedPty: session not found");
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1203,16 +1260,149 @@ fn attach_window_inner(
 
     log::info!("FFI: attachWindow ptr={:p} {}x{}", ptr, width, height);
 
-    // NOTE: Surface lifecycle integration is pending (ADR-0007). We do not
-    // yet use the ANativeWindow pointer in the render thread. Release it
-    // immediately to avoid leaking a native window resource on every
-    // attachWindow call. When surface integration is implemented, the
-    // pointer should be wrapped in the RAII `NativeWindow` type and
-    // released after the wgpu surface that references it.
-    // SAFETY: `ptr` is a valid ANativeWindow* from `ANativeWindow_fromSurface`
-    // and has not been used elsewhere. `ANativeWindow_release` is a documented
-    // NDK function that decrements the window's reference count.
+    // ADR-0007: hand the ANativeWindow to the renderer. wgpu takes its own
+    // reference when the surface is created, so the caller-owned reference
+    // from ANativeWindow_fromSurface is released here (the wgpu surface
+    // keeps the window alive until detachWindow drops it).
+    //
+    // Explicitly match the swapchain configuration on the BufferQueue:
+    // TextureView-backed surfaces can otherwise stay at a stale/default
+    // geometry, and SwiftShader-on-emulator refuses to dequeue buffers
+    // whose format/geometry disagree with the queue (dequeueBuffer
+    // timeout). WINDOW_FORMAT_RGBA_8888 = 1.
+    // SAFETY: `ptr` is a valid ANativeWindow* (checked non-null above);
+    // ANativeWindow_setBuffersGeometry is a documented NDK function.
+    unsafe {
+        ANativeWindow_setBuffersGeometry(ptr, width, height, 1);
+    }
+    let mut state = render_state_mut();
+    let renderer = &mut state
+        .as_mut()
+        .expect("render_state_mut always initializes")
+        .renderer;
+    let session_id = _session_id as u64;
+    match renderer.attach_surface(ptr.cast(), width.max(0) as u32, height.max(0) as u32) {
+        Ok(()) => {
+            ATTACHED_SESSION_ID.store(session_id, std::sync::atomic::Ordering::Release);
+            log::info!("FFI: attachWindow surface attached (session {session_id})");
+        }
+        Err(error) => {
+            log::error!("FFI: attachWindow surface attach failed: {error}");
+        }
+    }
+    // SAFETY: `ptr` is a valid ANativeWindow* from
+    // `ANativeWindow_fromSurface`. Whether attach succeeded or failed, the
+    // caller-owned reference must be released: wgpu acquired its own
+    // reference when the surface was created (success path), and nobody
+    // adopted it otherwise (failure path). `ANativeWindow_release` is a
+    // documented NDK function that decrements the window's refcount.
     unsafe { ANativeWindow_release(ptr) };
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JN（日志行已移除）
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Render one frame for the active session. Returns:
+/// - 1 if output was available and a frame was presented,
+/// - 0 if the session had no pending cell data (idle),
+/// - -1 on error (surface missing, GPU failure, unknown session).
+///
+/// Called from Kotlin's render loop (one thread). `width`/`height` are
+/// advisory (the attached surface config owns the real dimensions) but
+/// kept so a future resize path can reconfigure the swapchain here.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    _width: jint,
+    _height: jint,
+) -> jint {
+    // A panic escaping this JNI export would abort the whole process.
+    // Convert it into a Java exception instead.
+    jni_export_guard!(&mut env, -1, { render_inner(session_id as u64) })
+}
+
+fn render_inner(session_id: u64) -> jint {
+    // Check surface readiness first (cheap lock, no session lock held):
+    // when no surface is attached there is nothing to present, and
+    // draining the CellData channel in that state would drop the latest
+    // snapshot for no benefit. Keeps the two locks disjoint.
+    {
+        let state = RENDER_STATE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let ready = state.as_ref().is_some_and(|s| s.renderer.surface.is_some());
+        if !ready {
+            return 0;
+        }
+    }
+    // Collect cell data first (session lock), then render (render-state
+    // lock) — the two locks are never held at the same time.
+    let (cells, cursor_info, rows, cols) = {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&session_id) else {
+            log::warn!("render: unknown session {session_id}");
+            return -1;
+        };
+        let session = entry.session.lock();
+        let Some((cells, cursor_info)) = session.terminal().receive_cell_data() else {
+            return 0; // idle: no pending output
+        };
+        let (rows, cols) = session.grid_size();
+        (cells, cursor_info, rows, cols)
+    };
+
+    let mut state = render_state_mut();
+    let Some(render_state) = state.as_mut() else {
+        log::error!("render: render state missing");
+        return -1;
+    };
+    if render_state.renderer.surface.is_none() {
+        // No surface attached yet (attachWindow not called / surface lost).
+        return 0;
+    }
+    // Lazy one-time pipeline creation (mirrors the test helpers): the cell
+    // pipeline is created from the attached surface's format on first render.
+    if render_state.renderer.cell_pipeline.is_none() {
+        let (w, h) = render_state
+            .renderer
+            .surface_config
+            .as_ref()
+            .map_or((0, 0), |c| (c.width, c.height));
+        if w == 0 || h == 0 {
+            return 0;
+        }
+        render_state
+            .renderer
+            .initialize_pipeline_and_bind_group(1024, 1024, w, h);
+    }
+    let cursor = crate::render::CellCursor {
+        row: cursor_info.row,
+        col: cursor_info.col,
+        visible: cursor_info.visible,
+        style: cursor_info.style,
+        color: None,
+    };
+    match render_state.renderer.render_cell_data(
+        &cells,
+        rows,
+        cols,
+        cursor,
+        &mut render_state.font_pipeline,
+        1024.0,
+        1024.0,
+        None,
+        None,
+        &render_state.search_highlights,
+    ) {
+        Ok(()) => 1,
+        Err(error) => {
+            log::error!("render: frame failed: {error}");
+            -1
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1239,8 +1429,41 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_detachWindow(
 
 #[cfg(target_os = "android")]
 fn detach_window_inner(_env: &mut JNIEnv, _class: JClass, _session_id: jlong) {
-    log::info!("FFI: detachWindow");
-    // NOTE: Surface lifecycle integration is pending (ADR-0007).
+    let session_id = _session_id as u64;
+    // Only the session that owns the attached surface may drop it:
+    // switchSession attaches the new session's surface BEFORE detaching
+    // the old one, so an unconditional detach would wipe the just-attached
+    // surface (black screen for every session after the first).
+    //
+    // The ownership check and the surface drop happen under the SAME
+    // RENDER_STATE lock (attach_window_inner also takes it): an
+    // owner-check-then-drop split would let a concurrent attach (new owner
+    // stored) slip in between and have its fresh surface dropped.
+    let Ok(mut state) = RENDER_STATE.lock() else {
+        log::error!("detachWindow: render state lock poisoned");
+        return;
+    };
+    if ATTACHED_SESSION_ID
+        .compare_exchange(
+            session_id,
+            0,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        )
+        .is_err()
+    {
+        log::debug!(
+            "detachWindow: session {session_id} does not own the attached surface, ignoring",
+        );
+        return;
+    }
+    log::info!("FFI: detachWindow (session {session_id})");
+    // ADR-0007: drop the wgpu surface; the next attachWindow recreates it.
+    // The ANativeWindow reference wgpu held is released when the Surface
+    // is dropped.
+    if let Some(render_state) = state.as_mut() {
+        render_state.renderer.release_surface();
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1462,4 +1685,407 @@ fn list_sessions_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>)
         Ok(s) => s.into_raw(),
         Err(_) => std::ptr::null_mut(),
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JN（日志行已移除）
+//
+// Native side of the Kotlin TerminalQueryPort seam (audit P1 #6). Each
+// export obeys the resize_inner pattern: registry rlock -> session lock ->
+// engine query; unknown session id throws IllegalArgumentException. Font
+// queries need no session id; they read the global RENDER_STATE.
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Returns the terminal title (OSC 0/2) for a session, or null.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "getTitle: session not found",
+            );
+            return std::ptr::null_mut();
+        };
+        let session = entry.session.lock();
+        let title = session.terminal().title();
+        drop(session);
+        drop(registry);
+        match env.new_string(&title) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Returns the number of scrollback rows for a session.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLength(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+) -> jint {
+    jni_export_guard!(&mut env, 0, {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "scrollbackLength: session not found",
+            );
+            return 0;
+        };
+        let session = entry.session.lock();
+        session.terminal().scrollback_length() as jint
+    })
+}
+
+/// Returns a single scrollback row's trimmed text, or null for an empty row.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    row: jint,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "scrollbackLine: session not found",
+            );
+            return std::ptr::null_mut();
+        };
+        let Ok(row) = u32::try_from(row) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "scrollbackLine: row must be non-negative",
+            );
+            return std::ptr::null_mut();
+        };
+        let session = entry.session.lock();
+        let text = session.terminal().read_line_text(row);
+        drop(session);
+        drop(registry);
+        match text {
+            Some(text) => match env.new_string(&text) {
+                Ok(s) => s.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            None => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Returns visible + scrollback text joined by newlines (dump_grid path).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalText<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "getTerminalText: session not found",
+            );
+            return std::ptr::null_mut();
+        };
+        let session = entry.session.lock();
+        let grid = session.terminal().dump_grid();
+        drop(session);
+        drop(registry);
+
+        let mut lines: Vec<String> =
+            Vec::with_capacity((grid.scrollback.len() + grid.rows as usize) as usize);
+        for row_cells in &grid.scrollback {
+            let line: String = row_cells
+                .iter()
+                .filter_map(|c| char::from_u32(c.codepoint).filter(|ch| *ch != '\0'))
+                .collect();
+            lines.push(line.trim_end().to_string());
+        }
+        for row in 0..grid.rows as usize {
+            let start = row * grid.cols as usize;
+            let end = start
+                .saturating_add(grid.cols as usize)
+                .min(grid.visible.len());
+            if start >= end {
+                continue;
+            }
+            let line: String = grid.visible[start..end]
+                .iter()
+                .filter_map(|c| char::from_u32(c.codepoint).filter(|&c| c != '\0'))
+                .collect::<String>()
+                .trim_end()
+                .to_string();
+            lines.push(line);
+        }
+        let text = lines.join("\n");
+        match env.new_string(&text) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Returns a JSON array of `{row,start_col,end_col}` search matches, or
+/// `[]` on timeout/disconnect. Column indices are byte offsets.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScrollback<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    query: JString<'local>,
+    case_sensitive: jboolean,
+    fuzzy: jboolean,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let id = session_id as u64;
+        let Ok(query) = env.get_string(&query) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "searchAllInScrollback: bad query string",
+            );
+            return std::ptr::null_mut();
+        };
+        let query: String = query.into();
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "searchAllInScrollback: session not found",
+            );
+            return std::ptr::null_mut();
+        };
+        let session = entry.session.lock();
+        let matches =
+            session
+                .terminal()
+                .search_all_in_scrollback(&query, case_sensitive != 0, fuzzy != 0);
+        log::info!(
+            "searchAllInScrollback: query={query:?} matches={}",
+            matches.len(),
+        );
+        drop(session);
+        drop(registry);
+
+        let json = serde_json::to_string(
+            &matches
+                .iter()
+                .map(|m| {
+                    serde_json::json!({
+                        "row": m.row,
+                        "start_col": m.start_col,
+                        "end_col": m.end_col,
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_else(|_| "[]".into());
+        match env.new_string(&json) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Returns true when the cell has no printable codepoint.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    row: jint,
+    col: jint,
+) -> jboolean {
+    jni_export_guard!(&mut env, JNI_TRUE, {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "isCellEmpty: session not found",
+            );
+            return JNI_TRUE;
+        };
+        let Ok(row) = u32::try_from(row) else {
+            return JNI_TRUE;
+        };
+        let session = entry.session.lock();
+        // resolve absolute row: scrollback + visible offset
+        let scrollback = session.terminal().scrollback_length();
+        let visible_rows = session.terminal().rows();
+        let absolute = scrollback.saturating_add(row);
+        let mut empty = true;
+        if absolute < visible_rows + scrollback {
+            if let Some(line) = session.terminal().read_line_text(absolute) {
+                let byte_col = col.max(0) as usize;
+                // read_line_text returns trimmed text; approximate empty test
+                // by checking whether the line has any content at the given
+                // column (col beyond len means empty).
+                empty = byte_col >= line.len();
+            }
+        }
+        if empty { JNI_TRUE } else { JNI_FALSE }
+    })
+}
+
+/// Returns the list of monospace font families the pipeline knows.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamilies<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jobjectArray {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let state = render_state_mut();
+        let Some(render_state) = state.as_ref() else {
+            return std::ptr::null_mut();
+        };
+        let families = render_state.font_pipeline.list_monospace_fonts();
+        drop(state);
+
+        let string_class = env.find_class("java/lang/String");
+        let Ok(string_class) = string_class else {
+            return std::ptr::null_mut();
+        };
+        let array = env.new_object_array(families.len() as jsize, string_class, JObject::null());
+        let Ok(array) = array else {
+            return std::ptr::null_mut();
+        };
+        for (i, family) in families.iter().enumerate() {
+            if let Ok(s) = env.new_string(family) {
+                let _ = env.set_object_array_element(&array, i as jsize, s);
+            }
+        }
+        array.into_raw()
+    })
+}
+
+/// Returns the default font family name.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFontName<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let state = render_state_mut();
+        let Some(render_state) = state.as_ref() else {
+            return std::ptr::null_mut();
+        };
+        let name = render_state.font_pipeline.default_font_name();
+        match env.new_string(&name) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Returns font information string (active + CJK fallback).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let state = render_state_mut();
+        let Some(render_state) = state.as_ref() else {
+            return std::ptr::null_mut();
+        };
+        let info = render_state.font_pipeline.font_information();
+        drop(state);
+        match env.new_string(&info) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Clears the renderer's search highlight ranges for the next frame.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHighlights(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+) {
+    jni_export_guard!(&mut env, (), {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.search_highlights.clear();
+        }
+    })
+}
+
+/// Set search highlight ranges. `data` is byte-packed: a 4-byte match
+/// count (i32 LE) followed by that many 16-byte records:
+///
+///   [0..4]    match count (i32 LE), authoritative
+///   [4..]     16-byte records: row(i32) start(i32) end(i32) RGBA(u8x4)
+///
+/// Kotlin's TerminalSurface packs matches this way and calls
+/// `bridge.setSearchHighlights(data.copyOf())`; the render loop consumes
+/// the parsed list on the next frame.
+#[unsafe(no_mangle)]
+// JNI exports receive raw handles (jbyteArray/jstring are pointer types)
+// whose validity is the JVM's contract, not a Rust lifetime guarantee;
+// the SAFETY comment inside documents the contract (feedPty pattern).
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighlights(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    data: jbyteArray,
+) {
+    jni_export_guard!(&mut env, (), {
+        // SAFETY: `data` is a JNI method argument, guaranteed valid by the
+        // JVM runtime for the duration of this call. `from_raw` wraps the
+        // pointer without taking ownership; the local ref is released when
+        // this native method returns (same pattern as feed_pty_inner).
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+        let Some(bytes) = env.convert_byte_array(&byte_array).ok() else {
+            return;
+        };
+        // Wire format (see Kotlin TerminalScreen.search results packing):
+        //   [0..4]   match count (i32 LE)  -- the count prefix IS the
+        //            authoritative length; trailing bytes (a last partial
+        //            16-byte record) are ignored defensively.
+        //   [4..]    16-byte records: row(i32) start(i32) end(i32) RGBA(u8x4)
+        let Some(prefix) = bytes.get(0..4) else {
+            return;
+        };
+        let count =
+            i32::from_le_bytes([prefix[0], prefix[1], prefix[2], prefix[3]]).max(0) as usize;
+        // Cap the claimed count at the number of complete records actually
+        // present: a corrupt/huge count must not force an unbounded
+        // Vec::with_capacity allocation.
+        let count = count.min(bytes.len().saturating_sub(4) / 16);
+        let mut highlights = Vec::with_capacity(count);
+        for chunk in bytes[4..].chunks_exact(16).take(count) {
+            let row = i32::from_le_bytes(chunk[0..4].try_into().unwrap());
+            let start_col = i32::from_le_bytes(chunk[4..8].try_into().unwrap());
+            let end_col_exclusive = i32::from_le_bytes(chunk[8..12].try_into().unwrap());
+            let color = [chunk[12], chunk[13], chunk[14], chunk[15]];
+            highlights.push(crate::render::cell_builder::SearchHighlight {
+                row,
+                start_col,
+                end_col_exclusive,
+                color,
+            });
+        }
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.search_highlights = highlights;
+        }
+    });
 }

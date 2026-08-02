@@ -174,7 +174,6 @@ impl Pty for MockPty {
         Ok(())
     }
 
-
     fn spawn(
         _shell: &str,
         rows: u16,

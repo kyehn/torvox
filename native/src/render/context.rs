@@ -35,15 +35,29 @@ impl FrameContext {
 }
 
 pub(crate) struct GlobalGpu {
-    device: wgpu::Device,
-    queue: wgpu::Queue,
+    pub(crate) instance: wgpu::Instance,
+    pub(crate) adapter: wgpu::Adapter,
+    pub(crate) device: wgpu::Device,
+    pub(crate) queue: wgpu::Queue,
+}
+
+/// Test-only access to the shared wgpu instance/adapter (used by
+/// render/tests.rs helpers to construct Renderers).
+#[cfg(test)]
+pub(crate) fn global_gpu_for_tests() -> &'static GlobalGpu {
+    global_gpu()
 }
 
 fn global_gpu() -> &'static GlobalGpu {
     static INSTANCE: OnceLock<GlobalGpu> = OnceLock::new();
     INSTANCE.get_or_init(|| {
         match futures::executor::block_on(crate::render::wgpu_backend::initialize_wgpu()) {
-            Ok((_instance, _adapter, device, queue)) => GlobalGpu { device, queue },
+            Ok((instance, adapter, device, queue)) => GlobalGpu {
+                instance,
+                adapter,
+                device,
+                queue,
+            },
             Err(e) => {
                 log::error!("GPU initialization failed: {e}");
                 log::error!("Solution: ensure a Vulkan-capable GPU is available.");
@@ -83,6 +97,16 @@ fn global_gpu() -> &'static GlobalGpu {
 /// its entire lifetime.  `begin_frame()` and `render_frame()` must be called
 /// from the same thread, with `&mut self`.
 pub struct Renderer {
+    /// wgpu instance — kept so surfaces can be created from native
+    /// window handles after construction (ADR-0007: `attach_surface`).
+    /// Read only on Android (attach_surface); construction sites pass it
+    /// on every platform.
+    #[allow(dead_code)]
+    pub(crate) instance: wgpu::Instance,
+    /// Adapter — kept for surface capability queries (ADR-0007
+    /// attach_surface picks the format via get_capabilities).
+    #[allow(dead_code)]
+    pub(crate) adapter: wgpu::Adapter,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
     pub(crate) surface: Option<std::sync::Arc<wgpu::Surface<'static>>>,
@@ -254,11 +278,15 @@ impl Drop for Renderer {
 impl Renderer {
     /// Shared initialization for all constructors.
     pub(crate) fn new_inner(
+        instance: wgpu::Instance,
+        adapter: wgpu::Adapter,
         device: wgpu::Device,
         queue: wgpu::Queue,
         quad_vertex_buffer: wgpu::Buffer,
     ) -> Self {
         Self {
+            instance,
+            adapter,
             device,
             queue,
             surface: None,
@@ -307,7 +335,7 @@ impl Renderer {
 
     /// Create a new Renderer with full async initialization.
     pub async fn new() -> Result<Self, GpuError> {
-        let (_instance, _adapter, device, queue) =
+        let (instance, adapter, device, queue) =
             crate::render::wgpu_backend::initialize_wgpu().await?;
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Vertex Buffer"),
@@ -315,13 +343,21 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Ok(Self::new_inner(device, queue, quad_vertex_buffer))
+        Ok(Self::new_inner(
+            instance,
+            adapter,
+            device,
+            queue,
+            quad_vertex_buffer,
+        ))
     }
 
     /// Create a Renderer sharing the global wgpu instance/adapter/device.
     /// Useful for headless contexts (e.g., tests, screenshot capture).
     pub fn new_with_no_surface() -> Self {
         let gpu = global_gpu();
+        let instance = gpu.instance.clone();
+        let adapter = gpu.adapter.clone();
         let device = gpu.device.clone();
         let queue = gpu.queue.clone();
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -330,7 +366,119 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Self::new_inner(device, queue, quad_vertex_buffer)
+        Self::new_inner(instance, adapter, device, queue, quad_vertex_buffer)
+    }
+
+    /// Attach an Android `ANativeWindow` as the render surface (ADR-0007).
+    ///
+    /// Builds a wgpu surface from the native window handle and (re)creates
+    /// the surface configuration at the given dimensions. The caller
+    /// guarantees `ptr` is a valid `ANativeWindow*` that stays alive until
+    /// [`Renderer::release_surface`] (or drop) — ownership is transferred
+    /// to wgpu, which holds its own reference via `Surface::from_...`.
+    #[cfg(target_os = "android")]
+    pub fn attach_surface(
+        &mut self,
+        ptr: *mut std::ffi::c_void,
+        width: u32,
+        height: u32,
+    ) -> Result<(), GpuError> {
+        use raw_window_handle::{AndroidNdkWindowHandle, RawWindowHandle};
+        let non_null = std::ptr::NonNull::new(ptr).ok_or_else(|| {
+            GpuError::Surface("attach_surface: null ANativeWindow pointer".into())
+        })?;
+        let handle = AndroidNdkWindowHandle::new(non_null.cast());
+        // SAFETY:
+        // - `self.instance` is a valid wgpu Instance;
+        // - the handle wraps a caller-guaranteed live ANativeWindow (JNI
+        //   attachWindow contract) that stays valid until detachWindow
+        //   drops the resulting surface — wgpu takes its own reference at
+        //   creation, and the caller releases theirs right after this call;
+        // - display handle is None on Android (no X11/Wayland display).
+        let surface = unsafe {
+            self.instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                    // Must match the instance display (wgpu_backend sets
+                    // AndroidDisplayHandle at instance creation); wgpu-core rejects
+                    // a None display when the instance carries one.
+                    raw_display_handle: Some(raw_window_handle::RawDisplayHandle::Android(
+                        raw_window_handle::AndroidDisplayHandle::new(),
+                    )),
+                    raw_window_handle: RawWindowHandle::AndroidNdk(handle),
+                })
+        }
+        .map_err(|error| {
+            GpuError::Surface(format!(
+                "attach_surface: wgpu create_surface failed: {error}"
+            ))
+        })?;
+        let surface = std::sync::Arc::new(surface);
+        // The default config picks a present mode + format the driver
+        // supports; RENDER_SCALE mirrors reconfigure_swapchain (a fixed
+        // scale used across the renderer for consistent cell metrics).
+        let scaled_width = ((width as f32 * crate::render::RENDER_SCALE) as u32).max(1);
+        let scaled_height = ((height as f32 * crate::render::RENDER_SCALE) as u32).max(1);
+        let caps = surface.get_capabilities(&self.adapter);
+        // Prefer the non-sRGB variant: Android SurfaceFlinger defaults to
+        // RGBA_8888 (non-sRGB); SwiftShader-on-emulator buffer queues fail
+        // to allocate (dequeueBuffer timeout) when the swapchain format
+        // does not match the Surface's native format.
+        let format = caps
+            .formats
+            .iter()
+            .copied()
+            .find(|f| !f.is_srgb())
+            .or_else(|| caps.formats.first().copied())
+            .ok_or_else(|| {
+                GpuError::Surface("attach_surface: no supported surface formats".into())
+            })?;
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            format,
+            width: scaled_width,
+            height: scaled_height,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Auto,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 1,
+            color_space: wgpu::SurfaceColorSpace::Srgb,
+        };
+        // wgpu 30's configure returns () (errors surface asynchronously via
+        // get_current_texture's Lost state), so there is no Result to
+        // propagate; the acquire path already reconfigure+retries on Lost.
+        surface.configure(&self.device, &config);
+        self.surface_config = Some(config);
+        // Compare against the PREVIOUS pipeline format (the field is
+        // updated below): a format change on re-attach must drop the
+        // lazily-created cell pipeline so the next render rebuilds it with
+        // the new surface's format (the lazy path in ffi.rs render_inner
+        // recreates pipeline + bind group together).
+        let previous_format = self.pipeline_format;
+        self.pipeline_format = self
+            .surface_config
+            .as_ref()
+            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
+        if previous_format != self.pipeline_format {
+            self.cell_pipeline = None;
+            self.cell_bind_group = None;
+            log::info!(
+                "attach_surface: surface format changed {previous_format:?} -> {:?}, cell pipeline scheduled for rebuild",
+                self.pipeline_format,
+            );
+        }
+        self.projection_width = scaled_width;
+        self.projection_height = scaled_height;
+        self.surface = Some(surface);
+        log::info!("attach_surface: configured {scaled_width}x{scaled_height}");
+        Ok(())
+    }
+
+    /// Drop the attached surface (Android detach path).
+    #[cfg(target_os = "android")]
+    pub fn release_surface(&mut self) {
+        self.surface = None;
+        self.surface_config = None;
+        log::info!("release_surface: surface dropped");
     }
 
     /// Set the surface configuration used by headless/off-screen tests.
@@ -788,5 +936,16 @@ impl Renderer {
             surface_width,
             surface_height,
         );
+    }
+}
+
+#[cfg(test)]
+mod send_check {
+    #[test]
+    fn renderer_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<super::Renderer>();
+        fn assert_sync<T: Sync>() {}
+        assert_sync::<super::Renderer>();
     }
 }
