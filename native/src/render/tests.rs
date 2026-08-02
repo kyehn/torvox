@@ -520,7 +520,7 @@ fn gpu_compute_blend() {
 
     // Deterministic: second run produces same bytes
     let output2 = run_compute_and_capture(&device, &queue, blend_shader());
-    assert_eq!(output1, output2, "blend: non-deterministic output",);
+    assert_eq!(output1, output2, "blend: non-deterministic output");
 }
 
 #[test]
@@ -1202,7 +1202,9 @@ fn search_highlight_contains_cell() {
         end_col_exclusive: 8,
         color: [0, 255, 0, 128],
     };
-    let by_row: HashMap<i32, Vec<&SearchHighlight>> = HashMap::from([(5, vec![&hl])]);
+    let mut by_row: HashMap<i32, Vec<&SearchHighlight>, foldhash::fast::RandomState> =
+        HashMap::with_hasher(foldhash::fast::RandomState::default());
+    by_row.insert(5, vec![&hl]);
     assert!(cell_highlight(5, 4, &by_row).is_some());
     assert!(cell_highlight(5, 3, &by_row).is_some());
     assert!(cell_highlight(5, 7, &by_row).is_some());
@@ -1398,8 +1400,11 @@ fn selection_range_char_mode() {
 
 /// Test helper: groups `SearchHighlight`s by row, just like
 /// `build_cell_instances_into` does inline.
-fn group_highlights_by_row(highlights: &[SearchHighlight]) -> HashMap<i32, Vec<&SearchHighlight>> {
-    let mut by_row: HashMap<i32, Vec<&SearchHighlight>> = HashMap::new();
+fn group_highlights_by_row(
+    highlights: &[SearchHighlight],
+) -> HashMap<i32, Vec<&SearchHighlight>, foldhash::fast::RandomState> {
+    let mut by_row: HashMap<i32, Vec<&SearchHighlight>, foldhash::fast::RandomState> =
+        HashMap::with_hasher(foldhash::fast::RandomState::default());
     for h in highlights {
         by_row.entry(h.row).or_default().push(h);
     }
@@ -2098,6 +2103,7 @@ fn bench_build_instances_from_cell_data() {
     let n = 100;
     let start = Instant::now();
     for _ in 0..n {
+        let mut instances = Vec::new();
         let result = crate::render::build_instances_from_cell_data(
             &cell_data,
             rows,
@@ -2109,8 +2115,9 @@ fn bench_build_instances_from_cell_data() {
             None,
             None,
             &[],
+            &mut instances,
         );
-        let instances = black_box(result.unwrap_or_default());
+        black_box(result);
         black_box(instances.len());
     }
     let elapsed = start.elapsed();
@@ -2137,14 +2144,14 @@ fn bench_build_instances_from_cell_data() {
 /// test creates its own wgpu device, and parallel benchmarks contend for
 /// CPU so hard throughput thresholds become flaky. The lock is held for
 /// the whole benchmark body, guaranteeing one GPU benchmark at a time.
-static GPU_BENCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static GPU_BENCH_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 /// Benchmark wgpu buffer upload throughput — the main GPU data path.
 /// Every frame writes CellInstance data to a GPU buffer via queue.write_buffer().
 /// This benchmark measures raw write speed for 24×80 instance data (1920 cells).
 #[test]
 fn bench_gpu_buffer_upload_throughput() {
-    let _serial = GPU_BENCH_LOCK.lock().unwrap();
+    let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
     use std::time::Instant;
 
@@ -2205,7 +2212,7 @@ fn bench_gpu_buffer_upload_throughput() {
 /// path that happens every frame.
 #[test]
 fn bench_gpu_command_encoding_overhead() {
-    let _serial = GPU_BENCH_LOCK.lock().unwrap();
+    let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
     use std::time::Instant;
 
@@ -2274,7 +2281,7 @@ fn bench_gpu_command_encoding_overhead() {
 /// render_frame() path without requiring a swapchain surface.
 #[test]
 fn bench_gpu_full_submit_throughput() {
-    let _serial = GPU_BENCH_LOCK.lock().unwrap();
+    let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
     use std::time::Instant;
 
@@ -2376,7 +2383,7 @@ fn bench_gpu_full_submit_throughput() {
 /// cache warmup — this happens when new glyphs are encountered.
 #[test]
 fn bench_gpu_atlas_texture_upload() {
-    let _serial = GPU_BENCH_LOCK.lock().unwrap();
+    let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
     use std::time::Instant;
 

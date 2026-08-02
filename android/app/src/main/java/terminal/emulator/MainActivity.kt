@@ -25,7 +25,6 @@ import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
@@ -45,8 +45,8 @@ import terminal.emulator.ui.TerminalScreen
 import java.io.BufferedWriter
 import java.io.File
 import java.io.FileWriter
-import java.text.SimpleDateFormat
-import java.util.Date
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import javax.inject.Inject
 
@@ -110,7 +110,7 @@ class MainActivity : ComponentActivity() {
                                 ?.groupValues
                                 ?.getOrNull(1)
                         if (tag == "TerminalSurface" || tag == "TerminalRuntime" || tag == "AndroidRuntime") {
-                            val timestamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date())
+                            val timestamp = DateTimeFormatter.ofPattern("HH:mm:ss.SSS", Locale.US).format(LocalDateTime.now())
                             synchronized(logLock) {
                                 logWriter?.write("$timestamp $line\n")
                                 logWriter?.flush()
@@ -145,7 +145,7 @@ class MainActivity : ComponentActivity() {
         try {
             val logDir = getDir("logs", Context.MODE_PRIVATE)
             logDir.mkdirs()
-            val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            val timestamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss", Locale.US).format(LocalDateTime.now())
             val logFilePath = File(logDir, "term_$timestamp.log")
             logFile = logFilePath
             logWriter = BufferedWriter(FileWriter(logFilePath, true), 8192)
@@ -692,7 +692,7 @@ private fun TerminalNavHost(viewModelReady: (TerminalViewModel) -> Unit = {}) {
     LaunchedEffect(showSettings) {
         viewModel.runtime.bridge()?.setRenderPaused(showSettings)
     }
-    val appThemeMode by viewModel.appThemeMode.collectAsState()
+    val appThemeMode by viewModel.appThemeMode.collectAsStateWithLifecycle()
     val isDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     val context = LocalContext.current
 
