@@ -1,8 +1,6 @@
 //! System font database loading and resolution.
 
 #[cfg(target_os = "android")]
-use crate::lock_util::write_or_recover;
-
 #[cfg(target_os = "android")]
 static CACHED_FONT_PATHS: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
 
@@ -14,12 +12,12 @@ static CACHED_FONT_DB: std::sync::OnceLock<fontdb::Database> = std::sync::OnceLo
 /// Written by `set_extra_font_paths()`, read by `FontPipeline::new()`
 /// via `pipeline.rs`.
 #[cfg(target_os = "android")]
-pub(crate) static EXTRA_FONT_PATHS: std::sync::RwLock<Vec<std::path::PathBuf>> =
-    std::sync::RwLock::new(Vec::new());
+pub(crate) static EXTRA_FONT_PATHS: parking_lot::RwLock<Vec<std::path::PathBuf>> =
+    parking_lot::RwLock::new(Vec::new());
 
 #[cfg(target_os = "android")]
 pub fn set_extra_font_paths(paths: Vec<std::path::PathBuf>) {
-    let mut extra = write_or_recover(&EXTRA_FONT_PATHS, "set_extra_font_paths");
+    let mut extra = EXTRA_FONT_PATHS.write();
     *extra = paths;
     log::debug!("FONT_LOAD: set {} extra font paths", extra.len());
 }

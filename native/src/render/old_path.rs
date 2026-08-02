@@ -10,6 +10,7 @@
 //! Production code uses `build_instances_from_cell_data` in `cell_builder.rs`.
 
 #[cfg(any(test, feature = "test-util"))]
+use foldhash::fast::RandomState;
 use std::collections::HashMap;
 
 #[cfg(any(test, feature = "test-util"))]
@@ -122,7 +123,8 @@ pub fn build_cell_instances_into(
     const CURSOR_BLOCK_ALPHA: f32 = 0.7;
     const CURSOR_LINE_ALPHA: f32 = 0.9;
 
-    let mut highlights_by_row: HashMap<i32, Vec<&super::SearchHighlight>> = HashMap::new();
+    let mut highlights_by_row: HashMap<i32, Vec<&super::SearchHighlight>, RandomState> =
+        HashMap::with_hasher(RandomState::default());
     for h in search_highlights {
         highlights_by_row.entry(h.row).or_default().push(h);
     }
