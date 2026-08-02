@@ -10,10 +10,10 @@
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$fun closeSession(id: Long)</ID>
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun closeDeadSession(entry: SessionEntry)</ID>
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun handleSessionExit(entry: SessionEntry, exitCode: Int)</ID>
-    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
+    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime.RenderSupervisor$internal fun startRenderThread(entry: SessionEntry)</ID>
     <ID>CognitiveComplexMethod:TerminalScreen.kt$@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class) @Suppress("DEPRECATION", "CyclomaticComplexMethod", "LongMethod") @Composable fun TerminalScreen( modifier: Modifier = Modifier, viewModel: TerminalViewModel = hiltViewModel(), onSettings: () -> Unit = {}, isOverlayVisible: Boolean = false, )</ID>
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$@Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth") // Acceptable — dispatches ~15 distinct gesture/intent types override fun onTouchEvent(event: MotionEvent): Boolean</ID>
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface$override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection</ID>
@@ -26,35 +26,25 @@
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$fun closeSession(id: Long)</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun closeDeadSession(entry: SessionEntry)</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun handleSessionExit(entry: SessionEntry, exitCode: Int)</ID>
-    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
-    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair&lt;Pair&lt;Int, Int>, Pair&lt;Int, Int>>?</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime.RenderSupervisor$internal fun startRenderThread(entry: SessionEntry)</ID>
     <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getCellHeight(): Float</ID>
     <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getCellWidth(): Float</ID>
-    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getDefaultFontName(): String</ID>
-    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getFontInfo(): FontInfo?</ID>
     <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getGridRowsColsPacked(): Long</ID>
-    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun getTitle(): String?</ID>
-    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun isCellEmpty(row: Int, col: Int): Boolean</ID>
     <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun render(shouldSkipOutput: Boolean = false): Int</ID>
-    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun scrollbackLength(): Int</ID>
-    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun scrollbackLine(row: Int): String?</ID>
-    <ID>FunctionOnlyReturningConstant:Bridge.kt$Bridge$fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List&lt;Triple&lt;Int, Int, Int>>?</ID>
     <ID>InstanceOfCheckForException:TerminalRuntime.kt$TerminalRuntime$exception is kotlinx.coroutines.CancellationException</ID>
     <ID>InstanceOfCheckForException:TerminalRuntime.kt$TerminalRuntime$serviceException is kotlinx.coroutines.CancellationException</ID>
-    <ID>LargeClass:TerminalRuntime.kt$TerminalRuntime</ID>
-    <ID>LongMethod:BootstrapDownloader.kt$BootstrapDownloader$suspend fun download( url: String, arch: String, ): Result&lt;File></ID>
     <ID>LongMethod:SessionDrawer.kt$@Composable fun SessionDrawer( viewModel: TerminalViewModel, onSettings: () -> Unit, onSearch: () -> Unit, onClose: () -> Unit, )</ID>
     <ID>LongMethod:SettingsScreen.kt$@Composable private fun SystemFontSelector( selectedFamily: String, onFamilySelected: (String) -> Unit, textColor: Color, cardBackground: Color, accentColor: Color, fonts: List&lt;String> = emptyList(), defaultFontName: String = "", fontInfo: String = "", onPickFontFile: (() -> Unit)? = null, )</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$fun closeSession(id: Long)</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun closeDeadSession(entry: SessionEntry)</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun handleSessionExit(entry: SessionEntry, exitCode: Int)</ID>
-    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun startRenderThread(entry: SessionEntry)</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime.RenderSupervisor$internal fun startRenderThread(entry: SessionEntry)</ID>
     <ID>NestedBlockDepth:BootstrapInstaller.kt$BootstrapInstaller$private fun processZipEntries( zis: ZipInputStream, symlinks: MutableList&lt;Pair&lt;String, String>>, onEntryProcessed: (Int) -> Unit, )</ID>
     <ID>SwallowedException:Bridge.kt$Bridge$exception: RuntimeException</ID>
     <ID>SwallowedException:InputBatchBuffer.kt$InputBatchBuffer$exception: java.util.concurrent.RejectedExecutionException</ID>
@@ -82,16 +72,16 @@
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$closeException: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$e: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$replyException: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$restoreException: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$retryException: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime$serviceException: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime.RenderSupervisor$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalRuntime.kt$TerminalRuntime.RenderSupervisor$replyException: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$error: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:ToolbarPreferences.kt$ToolbarPreferences$e: Exception</ID>
-    <ID>TooManyFunctions:Bridge.kt$Bridge</ID>
     <ID>TooManyFunctions:NativeBridge.kt$NativeBridge</ID>
     <ID>TooManyFunctions:SettingsRepository.kt$SettingsRepository</ID>
     <ID>TooManyFunctions:TerminalRuntime.kt$TerminalRuntime</ID>

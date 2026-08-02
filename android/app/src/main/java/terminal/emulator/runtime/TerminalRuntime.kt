@@ -56,7 +56,7 @@ data class RuntimeState(
  * renderThreadExited is set by the render thread after loop exit;
  * always read under sessionLock alongside running.
  */
-private data class SessionEntry(
+internal data class SessionEntry(
     val id: Long,
     // Invariant: bridge is never null while the entry lives (created non-
     // null in createSession, never reassigned). The scattered
@@ -144,6 +144,9 @@ constructor(
     @ApplicationContext private val context: Context,
     private val settingsRepository: SettingsRepository,
 ) {
+    /** Render-thread lifecycle supervision (C6). */
+    val renderSupervisor = RenderSupervisor()
+
     init {
         // Warm up the bell ToneGenerator off the render thread: the first
         // bell would otherwise construct it (AudioManager connect) inline
@@ -222,178 +225,6 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
     // SECTION 2: Render thread lifecycle
     // ══════════════════════════════════════════════════════════════════════
-
-    private fun startRenderMonitor() {
-        synchronized(monitorLock) {
-            if (renderMonitorJob?.isActive == true) return
-            renderMonitorJob =
-                scope.launch {
-                    while (isActive) {
-                        delay(RENDER_MONITOR_INTERVAL_MS)
-                        checkSessions()
-                    }
-                }
-        }
-    }
-
-    private fun stopRenderMonitor() {
-        synchronized(monitorLock) {
-            renderMonitorJob?.cancel()
-            renderMonitorJob = null
-        }
-    }
-
-    private fun checkSessions() {
-        val deadSessions = mutableListOf<SessionEntry>()
-        val healthySessions = mutableListOf<SessionEntry>()
-        synchronized(sessionLock) {
-            scanSessionsForDeath(deadSessions, healthySessions)
-        }
-        decayRestartCounts(healthySessions)
-        for (entry in deadSessions) {
-            scope.launch {
-                handleDeadRenderThread(entry)
-            }
-        }
-    }
-
-    private fun scanSessionsForDeath(
-        deadSessions: MutableList<SessionEntry>,
-        healthySessions: MutableList<SessionEntry>,
-    ) {
-        for (entry in sessions.values) {
-            if (!entry.running) continue
-            if (entry.bridge == null) continue
-            if (entry.renderThreadExited) {
-                deadSessions.add(entry)
-            } else {
-                val thread = entry.renderThreadRef
-                if (thread != null && !thread.isAlive) {
-                    deadSessions.add(entry)
-                }
-                if (entry.restartAttempts > 0) {
-                    healthySessions.add(entry)
-                }
-            }
-        }
-    }
-
-    private fun decayRestartCounts(healthySessions: MutableList<SessionEntry>) {
-        for (entry in healthySessions) {
-            synchronized(sessionLock) {
-                if (!entry.running || entry.renderThreadExited) continue
-                if (entry.restartAttempts > 0) {
-                    entry.restartAttempts = 0
-                    entry.nextRestartDelayMs = INITIAL_RESTART_DELAY_MS
-                }
-            }
-        }
-    }
-
-    private suspend fun handleDeadRenderThread(entry: SessionEntry) {
-        LogUtil.w(
-            "Runtime",
-            "session ${entry.id} render thread exited, restart attempt ${entry.restartAttempts + 1}",
-        )
-
-        // Phase 1 (locked): quick state checks only. Phase 2 (UNLOCKED):
-        // stopDeadRenderThreadResources joins the old thread (up to 1s) —
-        // holding sessionLock across a join blocks every session operation.
-        synchronized(sessionLock) {
-            if (!entry.running) return
-            if (!entry.renderThreadExited) {
-                val thread = entry.renderThreadRef
-                if (thread != null && thread.isAlive) return
-                entry.renderThreadExited = true
-            }
-            if (entry.bridge == null) {
-                entry.running = false
-                entry.renderThreadExited = false
-                return
-            }
-        }
-
-        // Phase 2 (UNLOCKED): the join below may block up to
-        // THREAD_JOIN_TIMEOUT_MS when the render thread is stuck in native
-        // GPU code — exactly the case that would stall every session
-        // operation if sessionLock were held. It is deliberately outside the
-        // lock.
-        stopDeadRenderThreadResources(entry)
-
-        synchronized(sessionLock) {
-            // running stays true after the join above (it is the session
-            // intent flag; only pause/stop set it false). Re-check it here so
-            // a concurrent pauseRendering() — which ran between Phase 1 and
-            // now — cancels the restart instead of starting a render thread
-            // on a destroyed surface.
-            if (!entry.running) return
-            if (entry.bridge == null || !sessions.containsKey(entry.id)) return
-            if (entry.restartScheduled) return
-            entry.restartScheduled = true
-            entry.restartAttempts++
-        }
-        // closeDeadSession runs UNLOCKED: it closes the bridge (Session::drop
-        // kills and joins threads, ~100ms+) and may start a replacement
-        // render thread (join up to THREAD_JOIN_TIMEOUT_MS). Both must never
-        // run while holding sessionLock. The attempt counter is monotonic
-        // and closeDeadSession re-checks sessions.containsKey, so a racing
-        // concurrent caller is harmless (second call returns immediately).
-        if (entry.restartAttempts > RENDER_MAX_RESTART_ATTEMPTS) {
-            closeDeadSession(entry)
-            return
-        }
-        val d =
-            synchronized(sessionLock) {
-                val next = entry.nextRestartDelayMs
-                entry.nextRestartDelayMs = (entry.nextRestartDelayMs * 2).coerceAtMost(MAX_RESTART_DELAY_MS)
-                next
-            }
-
-        delay(d)
-        restartRenderThreadAfterDelay(entry)
-        delay(GRACE_PERIOD_AFTER_RESTART_MS)
-        confirmRestartGrace(entry)
-    }
-
-    private fun stopDeadRenderThreadResources(entry: SessionEntry) {
-        entry.renderWatchDog?.stop()
-        entry.renderWatchDog = null
-        // NOTE: do NOT set entry.running = false here. running is the
-        // session-intent flag (pause/stop set it false; start/resume set it
-        // true). The dead-thread restart path relies on running staying true
-        // so the delayed restart (restartRenderThreadAfterDelay) can still
-        // run — and so a concurrent pauseRendering() (which sets running =
-        // false) correctly cancels the pending restart.
-        entry.renderThreadRef?.let { t ->
-            t.interrupt()
-            t.join(THREAD_JOIN_TIMEOUT_MS)
-            if (t.isAlive) {
-                LogUtil.w("Runtime", "Render thread did not exit within timeout, continuing anyway")
-                entry.renderThreadPossiblyAlive = true
-                entry.hungRenderThread = t
-                return
-            }
-        }
-        entry.renderThreadRef = null
-        entry.renderSignaled.set(false)
-        // A renderThreadRef join that SUCCEEDED does not prove the recorded
-        // hung thread (from an earlier join timeout) is dead too — it may
-        // still be inside native render code. Only clear the flag when no
-        // hung thread is recorded, or give the hung thread one final join
-        // first; unconditional clearing would let close paths destroy the
-        // native session under a still-alive thread (use-after-free).
-        val hung = entry.hungRenderThread
-        if (entry.renderThreadPossiblyAlive && hung != null && hung.isAlive) {
-            hung.interrupt()
-            hung.join(THREAD_JOIN_TIMEOUT_MS)
-        }
-        if (entry.renderThreadPossiblyAlive && hung != null && !hung.isAlive) {
-            entry.renderThreadPossiblyAlive = false
-            entry.hungRenderThread = null
-        }
-        // Skip releaseGpuSurface here — the new render thread will
-        // reconfigure the surface via setNativeWindow/updateNativeWindow.
-    }
 
     private fun handleSessionExit(entry: SessionEntry, exitCode: Int) {
         LogUtil.i("Runtime", "session ${entry.id} exited with code $exitCode")
@@ -544,7 +375,7 @@ constructor(
                         // Restart unconditionally (same as closeSession): a
                         // still-alive old thread is exiting; startRenderThread
                         // interrupts+joins it and forces a fresh one.
-                        startRenderThread(replacement)
+                        renderSupervisor.startRenderThread(replacement)
                         // The replacement became active while the window is
                         // focused; re-send focus-in so DECSET 1004 TUIs resume.
                         if (lastWindowFocus && !replacement.closing) {
@@ -673,7 +504,7 @@ constructor(
                         replacement.closing = true
                     } else {
                         // Restart unconditionally (same as closeSession).
-                        startRenderThread(replacement)
+                        renderSupervisor.startRenderThread(replacement)
                         // The replacement became active while the window is
                         // focused; re-send focus-in so DECSET 1004 TUIs resume.
                         if (lastWindowFocus && !replacement.closing) {
@@ -699,41 +530,6 @@ constructor(
             }
         } // synchronized(sessionLock)
         updateState()
-    }
-
-    private suspend fun restartRenderThreadAfterDelay(entry: SessionEntry) {
-        synchronized(sessionLock) {
-            // Consume the scheduling marker first: whether this restart runs
-            // or is cancelled (paused/closed), a later monitor dispatch must
-            // be able to schedule a fresh restart.
-            entry.restartScheduled = false
-            if (!sessions.containsKey(entry.id)) return
-            // Only restart when the session still intends to run. A paused
-            // session (surface destroyed) must not get a render thread — the
-            // resume path starts it when the surface returns.
-            if (!entry.running) return
-            // Another thread may already have been started (e.g. resume
-            // racing the delayed restart); do not start a second one.
-            if (entry.renderThreadRef?.isAlive == true) return
-            if (entry.bridge == null) return
-            entry.renderThreadExited = false
-            startRenderThread(entry)
-            LogUtil.d("Runtime", "session ${entry.id} render thread restarted (attempt ${entry.restartAttempts})")
-        }
-    }
-
-    private suspend fun confirmRestartGrace(entry: SessionEntry) {
-        synchronized(sessionLock) {
-            if (!sessions.containsKey(entry.id)) return
-            if (!entry.running) return
-            if (entry.renderThreadExited) return
-            val thread = entry.renderThreadRef
-            if (thread != null && thread.isAlive) {
-                entry.restartAttempts = 0
-                entry.nextRestartDelayMs = INITIAL_RESTART_DELAY_MS
-                LogUtil.d("Runtime", "session ${entry.id} render thread healthy after restart")
-            }
-        }
     }
 
     private fun startForegroundServiceIfNeeded() {
@@ -899,6 +695,684 @@ constructor(
             workingDirectory = effectiveHome,
             prefix = effectivePrefix,
         )
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // SECTION 2b: Render-thread supervision (extracted C6)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Owns render-thread lifecycle: monitor loop, dead-thread detection,
+     * restart/backoff, and thread start/stop.
+     *
+     * Extracted from TerminalRuntime (kotlin-architecture-deepening C6) so
+     * the supervision logic has one home and the orchestrator stays thin.
+     * Inner class: accesses TerminalRuntime's session registry/locks without
+     * threading them through constructors (pure code move, zero behavior
+     * change).
+     */
+    inner class RenderSupervisor {
+        internal fun startRenderMonitor() {
+            synchronized(monitorLock) {
+                if (renderMonitorJob?.isActive == true) return
+                renderMonitorJob =
+                    scope.launch {
+                        while (isActive) {
+                            delay(RENDER_MONITOR_INTERVAL_MS)
+                            checkSessions()
+                        }
+                    }
+            }
+        }
+
+        internal fun stopRenderMonitor() {
+            synchronized(monitorLock) {
+                renderMonitorJob?.cancel()
+                renderMonitorJob = null
+            }
+        }
+
+        internal fun checkSessions() {
+            val deadSessions = mutableListOf<SessionEntry>()
+            val healthySessions = mutableListOf<SessionEntry>()
+            synchronized(sessionLock) {
+                scanSessionsForDeath(deadSessions, healthySessions)
+            }
+            decayRestartCounts(healthySessions)
+            for (entry in deadSessions) {
+                scope.launch {
+                    handleDeadRenderThread(entry)
+                }
+            }
+        }
+
+        internal fun scanSessionsForDeath(
+            deadSessions: MutableList<SessionEntry>,
+            healthySessions: MutableList<SessionEntry>,
+        ) {
+            for (entry in sessions.values) {
+                if (!entry.running) continue
+                if (entry.bridge == null) continue
+                if (entry.renderThreadExited) {
+                    deadSessions.add(entry)
+                } else {
+                    val thread = entry.renderThreadRef
+                    if (thread != null && !thread.isAlive) {
+                        deadSessions.add(entry)
+                    }
+                    if (entry.restartAttempts > 0) {
+                        healthySessions.add(entry)
+                    }
+                }
+            }
+        }
+
+        internal fun decayRestartCounts(healthySessions: MutableList<SessionEntry>) {
+            for (entry in healthySessions) {
+                synchronized(sessionLock) {
+                    if (!entry.running || entry.renderThreadExited) continue
+                    if (entry.restartAttempts > 0) {
+                        entry.restartAttempts = 0
+                        entry.nextRestartDelayMs = INITIAL_RESTART_DELAY_MS
+                    }
+                }
+            }
+        }
+
+        internal suspend fun handleDeadRenderThread(entry: SessionEntry) {
+            LogUtil.w(
+                "Runtime",
+                "session ${entry.id} render thread exited, restart attempt ${entry.restartAttempts + 1}",
+            )
+
+            // Phase 1 (locked): quick state checks only. Phase 2 (UNLOCKED):
+            // stopDeadRenderThreadResources joins the old thread (up to 1s) —
+            // holding sessionLock across a join blocks every session operation.
+            synchronized(sessionLock) {
+                if (!entry.running) return
+                if (!entry.renderThreadExited) {
+                    val thread = entry.renderThreadRef
+                    if (thread != null && thread.isAlive) return
+                    entry.renderThreadExited = true
+                }
+                if (entry.bridge == null) {
+                    entry.running = false
+                    entry.renderThreadExited = false
+                    return
+                }
+            }
+
+            // Phase 2 (UNLOCKED): the join below may block up to
+            // THREAD_JOIN_TIMEOUT_MS when the render thread is stuck in native
+            // GPU code — exactly the case that would stall every session
+            // operation if sessionLock were held. It is deliberately outside the
+            // lock.
+            stopDeadRenderThreadResources(entry)
+
+            synchronized(sessionLock) {
+                // running stays true after the join above (it is the session
+                // intent flag; only pause/stop set it false). Re-check it here so
+                // a concurrent pauseRendering() — which ran between Phase 1 and
+                // now — cancels the restart instead of starting a render thread
+                // on a destroyed surface.
+                if (!entry.running) return
+                if (entry.bridge == null || !sessions.containsKey(entry.id)) return
+                if (entry.restartScheduled) return
+                entry.restartScheduled = true
+                entry.restartAttempts++
+            }
+            // closeDeadSession runs UNLOCKED: it closes the bridge (Session::drop
+            // kills and joins threads, ~100ms+) and may start a replacement
+            // render thread (join up to THREAD_JOIN_TIMEOUT_MS). Both must never
+            // run while holding sessionLock. The attempt counter is monotonic
+            // and closeDeadSession re-checks sessions.containsKey, so a racing
+            // concurrent caller is harmless (second call returns immediately).
+            if (entry.restartAttempts > RENDER_MAX_RESTART_ATTEMPTS) {
+                closeDeadSession(entry)
+                return
+            }
+            val d =
+                synchronized(sessionLock) {
+                    val next = entry.nextRestartDelayMs
+                    entry.nextRestartDelayMs = (entry.nextRestartDelayMs * 2).coerceAtMost(MAX_RESTART_DELAY_MS)
+                    next
+                }
+
+            delay(d)
+            restartRenderThreadAfterDelay(entry)
+            delay(GRACE_PERIOD_AFTER_RESTART_MS)
+            confirmRestartGrace(entry)
+        }
+
+        internal fun stopDeadRenderThreadResources(entry: SessionEntry) {
+            entry.renderWatchDog?.stop()
+            entry.renderWatchDog = null
+            // NOTE: do NOT set entry.running = false here. running is the
+            // session-intent flag (pause/stop set it false; start/resume set it
+            // true). The dead-thread restart path relies on running staying true
+            // so the delayed restart (restartRenderThreadAfterDelay) can still
+            // run — and so a concurrent pauseRendering() (which sets running =
+            // false) correctly cancels the pending restart.
+            entry.renderThreadRef?.let { t ->
+                t.interrupt()
+                t.join(THREAD_JOIN_TIMEOUT_MS)
+                if (t.isAlive) {
+                    LogUtil.w("Runtime", "Render thread did not exit within timeout, continuing anyway")
+                    entry.renderThreadPossiblyAlive = true
+                    entry.hungRenderThread = t
+                    return
+                }
+            }
+            entry.renderThreadRef = null
+            entry.renderSignaled.set(false)
+            // A renderThreadRef join that SUCCEEDED does not prove the recorded
+            // hung thread (from an earlier join timeout) is dead too — it may
+            // still be inside native render code. Only clear the flag when no
+            // hung thread is recorded, or give the hung thread one final join
+            // first; unconditional clearing would let close paths destroy the
+            // native session under a still-alive thread (use-after-free).
+            val hung = entry.hungRenderThread
+            if (entry.renderThreadPossiblyAlive && hung != null && hung.isAlive) {
+                hung.interrupt()
+                hung.join(THREAD_JOIN_TIMEOUT_MS)
+            }
+            if (entry.renderThreadPossiblyAlive && hung != null && !hung.isAlive) {
+                entry.renderThreadPossiblyAlive = false
+                entry.hungRenderThread = null
+            }
+            // Skip releaseGpuSurface here — the new render thread will
+            // reconfigure the surface via setNativeWindow/updateNativeWindow.
+        }
+
+        internal suspend fun restartRenderThreadAfterDelay(entry: SessionEntry) {
+            synchronized(sessionLock) {
+                // Consume the scheduling marker first: whether this restart runs
+                // or is cancelled (paused/closed), a later monitor dispatch must
+                // be able to schedule a fresh restart.
+                entry.restartScheduled = false
+                if (!sessions.containsKey(entry.id)) return
+                // Only restart when the session still intends to run. A paused
+                // session (surface destroyed) must not get a render thread — the
+                // resume path starts it when the surface returns.
+                if (!entry.running) return
+                // Another thread may already have been started (e.g. resume
+                // racing the delayed restart); do not start a second one.
+                if (entry.renderThreadRef?.isAlive == true) return
+                if (entry.bridge == null) return
+                entry.renderThreadExited = false
+                startRenderThread(entry)
+                LogUtil.d("Runtime", "session ${entry.id} render thread restarted (attempt ${entry.restartAttempts})")
+            }
+        }
+
+        internal suspend fun confirmRestartGrace(entry: SessionEntry) {
+            synchronized(sessionLock) {
+                if (!sessions.containsKey(entry.id)) return
+                if (!entry.running) return
+                if (entry.renderThreadExited) return
+                val thread = entry.renderThreadRef
+                if (thread != null && thread.isAlive) {
+                    entry.restartAttempts = 0
+                    entry.nextRestartDelayMs = INITIAL_RESTART_DELAY_MS
+                    LogUtil.d("Runtime", "session ${entry.id} render thread healthy after restart")
+                }
+            }
+        }
+
+        internal fun startRenderThread(entry: SessionEntry) {
+            // Refuse to start a thread for a session that is being closed:
+            // closeSession sets entry.closing under sessionLock before it
+            // starts the unlocked stop/close sequence, and every caller of
+            // this function holds sessionLock — so a closing entry can never
+            // get a fresh render thread (orphaned-thread TOCTOU, see the
+            // closing field doc). Also reset the running intent flag: callers
+            // (resumeRendering/switchSession/closeSession Phase 3) set it
+            // true BEFORE calling, and leaving it true would make
+            // closeSession's locked re-check misclassify this entry as
+            // running and skip bridge.close (native session + child process
+            // leak).
+            if (entry.closing) {
+                entry.running = false
+                LogUtil.d("Runtime", "session ${entry.id} closing — refusing to start render thread")
+                return
+            }
+            entry.renderWatchDog?.stop()
+            entry.renderWatchDog = null
+            entry.renderThreadExited = false
+            entry.running = false
+            entry.renderSignaled.set(false)
+            val oldThread = entry.renderThreadRef
+            entry.renderThreadRef = null
+            oldThread?.let { t ->
+                if (t === Thread.currentThread()) {
+                    // Self-join would time out and wrongly mark the current
+                    // thread as hung; skip (the caller is the render thread
+                    // itself, e.g. handleSessionExit replacement).
+                    LogUtil.w("Runtime", "session ${entry.id} startRenderThread called from its own render thread — skipping join")
+                } else {
+                    t.interrupt()
+                    t.join(THREAD_JOIN_TIMEOUT_MS)
+                    if (t.isAlive) {
+                        LogUtil.w(
+                            "Runtime",
+                            "session ${entry.id} previous render thread still alive after join — forcing new thread anyway",
+                        )
+                        // The old thread may still be inside native render code.
+                        // Record that so close paths skip releaseGpuSurface/close,
+                        // and keep the reference for one final join at exit time.
+                        entry.renderThreadPossiblyAlive = true
+                        entry.hungRenderThread = t
+                    } else {
+                        // Clear the flag only when the joined thread IS the recorded
+                        // hung thread (or none is recorded). A different hung thread
+                        // from an earlier GPU stall may still be alive inside native
+                        // code; clearing here would let close paths destroy the
+                        // session under it (use-after-free).
+                        if (entry.hungRenderThread == null || entry.hungRenderThread === t) {
+                            entry.renderThreadPossiblyAlive = false
+                            entry.hungRenderThread = null
+                        }
+                    }
+                }
+            }
+            val generation = renderGeneration.incrementAndGet()
+            entry.running = true
+            val renderThread =
+                Thread({
+                    var diagCount = 0
+                    var consecutiveErrors = 0
+                    var lastScrollOffset = Int.MAX_VALUE
+                    var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
+                    LogUtil.d("Runtime", "render thread started for session ${entry.id} generation=$generation")
+                    // First iteration always processes ghostty output. Subsequent
+                    // iterations skip output on blink/force-rendered frames to avoid
+                    // the ~50ms per-frame ghostty tick when there's no new PTY data.
+                    var shouldSkipOutput = false
+                    while (entry.running && renderGeneration.get() == generation) {
+                        try {
+                            val bridge = entry.bridge ?: break
+                            val selectionSnapshot = selectionState.get()
+                            if (selectionSnapshot != lastSelection) {
+                                bridge.setSelection(
+                                    selectionSnapshot.startRow,
+                                    selectionSnapshot.startCol,
+                                    selectionSnapshot.endRow,
+                                    selectionSnapshot.endCol,
+                                    selectionSnapshot.hasSelection,
+                                    selectionSnapshot.mode,
+                                )
+                                lastSelection = selectionSnapshot
+                            }
+                            val currentScrollOffset = entry.scrollOffset
+                            if (currentScrollOffset != lastScrollOffset) {
+                                bridge.setScrollOffset(currentScrollOffset)
+                                lastScrollOffset = currentScrollOffset
+                            }
+                            entry.lastRenderStart = System.nanoTime()
+                            // render() is a stub returning 0 (ADR-0007, no native
+                            // render export): the count<0 transient-error branch
+                            // below is currently unreachable. It is kept so the
+                            // loop is correct the day a real render export lands.
+                            val count = bridge.render(shouldSkipOutput)
+                            if (count < 0) {
+                                // Transient render error (surface not ready, snapshot unavailable, etc.)
+                                // These resolve on their own; don't count them toward the fatal limit.
+                                if (consecutiveErrors == 0) {
+                                    LogUtil.w("Runtime", "session ${entry.id} transient render error code=$count")
+                                }
+                                consecutiveErrors++
+                                if (consecutiveErrors > RENDER_MAX_TRANSIENT_ERRORS) {
+                                    LogUtil.e(
+                                        "Runtime",
+                                        "session ${entry.id} too many transient render errors ($consecutiveErrors), stopping render thread",
+                                    )
+                                    break
+                                }
+                                // Adaptive backoff: 50ms for first 10, then 200ms
+                                val sleepMs = if (consecutiveErrors > 10) RENDER_ERROR_BACKOFF_MS else RENDER_ERROR_SLEEP_MS
+                                Thread.sleep(sleepMs)
+                            } else {
+                                if (consecutiveErrors > 0) {
+                                    LogUtil.i(
+                                        "Runtime",
+                                        "session ${entry.id} recovered after $consecutiveErrors errors",
+                                    )
+                                }
+                                consecutiveErrors = 0
+                                try {
+                                    val poll = bridge.pollAll()
+                                    // Exit is handled FIRST, in its own branch:
+                                    // the event was already consumed from the
+                                    // native queue and cannot be replayed, so an
+                                    // exception in bell/notification/clipboard
+                                    // handling below must never skip the cleanup.
+                                    if (poll.exit) {
+                                        // Reply empty FIRST, before any cleanup:
+                                        // these MCP request events were already
+                                        // consumed from the native queue and can
+                                        // never be dispatched, so leaving them
+                                        // unanswered would hang the MCP tool call
+                                        // for 300s. Answering before
+                                        // handleSessionExit (which may close the
+                                        // bridge, ~100ms+) also minimizes the
+                                        // MCP-side latency. Each reply is guarded
+                                        // individually: a JNI failure here must
+                                        // NEVER skip the session cleanup below
+                                        // (the exit event is consumed and cannot
+                                        // be replayed — leaking the entry, the
+                                        // native session and the zombie child).
+                                        try {
+                                            poll.dialogs.forEach { request ->
+                                                NativeBridge
+                                                    .dialogResult(request.sessionId, request.requestId, "")
+                                            }
+                                            poll.pickFiles.forEach { request ->
+                                                NativeBridge
+                                                    .dialogResult(request.sessionId, request.requestId, "")
+                                            }
+                                            poll.clipboardGets.forEach { request ->
+                                                NativeBridge
+                                                    .clipboardResult(request.sessionId, request.requestId, "")
+                                            }
+                                        } catch (replyException: Exception) {
+                                            LogUtil.e(
+                                                "Runtime",
+                                                "exit branch: MCP empty-reply failed, continuing cleanup",
+                                                replyException,
+                                            )
+                                        }
+                                        if (poll.sessionId != 0L && poll.sessionId != entry.id) {
+                                            // A background (non-active) session's
+                                            // shell exited. Its render thread is
+                                            // stopped, so nobody else would ever
+                                            // reap it — the native sweep reports
+                                            // it once through this queue. Close it
+                                            // here (handleSessionExit is safe for
+                                            // non-active sessions: the replacement
+                                            // branch is gated on entry.id ==
+                                            // activeSessionId).
+                                            val exitedEntry = synchronized(sessionLock) { sessions[poll.sessionId] }
+                                            if (exitedEntry != null) {
+                                                LogUtil.i(
+                                                    "Runtime",
+                                                    "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
+                                                )
+                                                handleSessionExit(exitedEntry, poll.exitCode)
+                                            }
+                                        } else {
+                                            // Full cleanup (bridge close, session removal,
+                                            // state update) happens here; the render monitor
+                                            // skips !running entries so it would never reap
+                                            // an exited session.
+                                            handleSessionExit(entry, poll.exitCode)
+                                        }
+                                        // Shared by both branches: reap any
+                                        // ADDITIONAL sessions that exited in the
+                                        // same frame (the first one was handled
+                                        // above). Their native exit_reported
+                                        // flags are already set and never re-sent.
+                                        // Only poll.sessionId is excluded — every
+                                        // OTHER id in the list (including entry.id
+                                        // when this is the background branch) must
+                                        // be reaped or the Kotlin entry, native
+                                        // session and zombie child leak forever.
+                                        // handleSessionExit is idempotent
+                                        // (containsKey re-check).
+                                        poll.exits.forEach { exitInfo ->
+                                            if (exitInfo.sessionId != poll.sessionId) {
+                                                val extra = synchronized(sessionLock) { sessions[exitInfo.sessionId] }
+                                                if (extra != null) {
+                                                    LogUtil.i(
+                                                        "Runtime",
+                                                        "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
+                                                    )
+                                                    handleSessionExit(extra, exitInfo.exitCode)
+                                                }
+                                            }
+                                        }
+                                        break
+                                    }
+                                    if (poll.bel) {
+                                        bellToneGenerator.startTone(BEL_TONE_TYPE, BEL_TONE_DURATION_MILLIS)
+                                    }
+                                    if (poll.notification != null) {
+                                        val (title, body) = poll.notification
+                                        val toastText = if (title.isNotEmpty()) "$title: $body" else body
+                                        Handler(Looper.getMainLooper()).post {
+                                            android.widget.Toast
+                                                .makeText(context, toastText, android.widget.Toast.LENGTH_LONG)
+                                                .show()
+                                        }
+                                        terminal.emulator.ui
+                                            .TerminalNotificationHelper(context)
+                                            .showNotification(title, body)
+                                    }
+                                    if (poll.clipboard != null) {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        val clipData = ClipData.newPlainText("terminal clipboard", poll.clipboard)
+                                        clipboard.setPrimaryClip(clipData)
+                                    }
+                                    poll.dialogs.forEach { request ->
+                                        try {
+                                            LogUtil.i("Runtime", "MCP dialog request session=${request.sessionId} type=${request.dialogType}")
+                                            val handler = dialogRequestHandler
+                                            if (handler != null) {
+                                                handler(
+                                                    request.sessionId,
+                                                    request.requestId,
+                                                    request.dialogType,
+                                                    request.title,
+                                                    request.message,
+                                                    request.options,
+                                                )
+                                            } else {
+                                                // No handler (activity destroyed window):
+                                                // the event is already consumed, so reply
+                                                // with an empty result instead of leaving
+                                                // the native MCP tool call hanging.
+                                                LogUtil.w(
+                                                    "Runtime",
+                                                    "MCP dialog request dropped (no handler), replying empty",
+                                                )
+                                                NativeBridge
+                                                    .dialogResult(request.sessionId, request.requestId, "")
+                                            }
+                                        } catch (exception: Exception) {
+                                            LogUtil.e("Runtime", "dialog request dispatch failed", exception)
+                                            NativeBridge
+                                                .dialogResult(request.sessionId, request.requestId, "")
+                                        }
+                                    }
+                                    poll.pickFiles.forEach { request ->
+                                        try {
+                                            LogUtil.i("Runtime", "MCP pick_file request session=${request.sessionId}")
+                                            val handler = pickFileRequestHandler
+                                            if (handler != null) {
+                                                handler(
+                                                    request.sessionId,
+                                                    request.requestId,
+                                                    request.startingPath,
+                                                    request.filter,
+                                                )
+                                            } else {
+                                                LogUtil.w(
+                                                    "Runtime",
+                                                    "MCP pick_file request dropped (no handler), replying empty",
+                                                )
+                                                NativeBridge
+                                                    .dialogResult(request.sessionId, request.requestId, "")
+                                            }
+                                        } catch (exception: Exception) {
+                                            LogUtil.e("Runtime", "pick_file request dispatch failed", exception)
+                                            NativeBridge
+                                                .dialogResult(request.sessionId, request.requestId, "")
+                                        }
+                                    }
+                                    poll.toastText?.let { text ->
+                                        Handler(Looper.getMainLooper()).post {
+                                            android.widget.Toast
+                                                .makeText(context, text, android.widget.Toast.LENGTH_SHORT)
+                                                .show()
+                                        }
+                                    }
+                                    poll.openUrl?.let { url ->
+                                        try {
+                                            val intent =
+                                                android.content.Intent(
+                                                    android.content.Intent.ACTION_VIEW,
+                                                    android.net.Uri.parse(url),
+                                                )
+                                            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                                            context.startActivity(intent)
+                                        } catch (exception: Exception) {
+                                            // Never log the URL or the exception
+                                            // stack: both may carry token/query
+                                            // parameters and LogUtil writes the
+                                            // persistent log file unconditionally
+                                            // (round-103).
+                                            LogUtil.e("Runtime", "open_url failed: ${exception.javaClass.simpleName}")
+                                        }
+                                    }
+                                    poll.clipboardGets.forEach { request ->
+                                        try {
+                                            val clipboard =
+                                                context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            val text = clipboard.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+                                            NativeBridge
+                                                .clipboardResult(request.sessionId, request.requestId, text)
+                                        } catch (exception: Exception) {
+                                            // Class only: exception messages can embed clipboard text (round-108).
+                                            LogUtil.e("Runtime", "clipboard_get request dispatch failed: ${exception.javaClass.simpleName}")
+                                            NativeBridge
+                                                .clipboardResult(request.sessionId, request.requestId, "")
+                                        }
+                                    }
+                                } catch (exception: Exception) {
+                                    LogUtil.e(
+                                        "Runtime",
+                                        "pollAll failed for session ${entry.id}; deferred events dropped",
+                                        exception,
+                                    )
+                                }
+                                diagCount++
+                                if (diagCount == 1) {
+                                    LogUtil.d("Runtime", "session ${entry.id} first render OK")
+                                }
+                                if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
+                                    val title =
+                                        try {
+                                            bridge.getActiveSessionTitle()
+                                        } catch (exception: Exception) {
+                                            LogUtil.e("Runtime", "title query failed", exception)
+                                            ""
+                                        }
+                                    if (title.isNotEmpty() && title != _state.value.title) {
+                                        // CAS update: the collector and the IO
+                                        // session functions also write _state; a
+                                        // non-atomic read-modify-write here could
+                                        // clobber their session list.
+                                        _state.update { current -> current.copy(title = title) }
+                                    }
+                                }
+                                entry.lastRenderDone = System.nanoTime()
+                                if (!entry.forceRenderRequested) {
+                                    val idleNanos = System.nanoTime() - entry.lastSignalNanos
+                                    val timeoutNanos =
+                                        if (idleNanos > RENDER_IDLE_THRESHOLD_NANOS) {
+                                            RENDER_LATCH_IDLE_TIMEOUT_NANOS
+                                        } else {
+                                            RENDER_LATCH_TIMEOUT_NANOS
+                                        }
+                                    if (!entry.renderSignaled.get() && !entry.forceRenderRequested) {
+                                        val timeoutMs = timeoutNanos / 1_000_000L
+                                        bridge.waitOutput(timeoutMs)
+                                        if (Thread.interrupted()) throw InterruptedException()
+                                    }
+                                    shouldSkipOutput = false
+                                    entry.renderSignaled.set(false)
+                                } else {
+                                    entry.forceRenderRequested = false
+                                    shouldSkipOutput = true
+                                }
+                            }
+                        } catch (exception: InterruptedException) {
+                            // The render thread was interrupted during shutdown
+                            // (session switch / runtime stop). This is an expected
+                            // signal, not a render failure — exit the loop cleanly.
+                            Thread.currentThread().interrupt()
+                            break
+                        } catch (exception: Exception) {
+                            consecutiveErrors++
+                            if (consecutiveErrors == 1) {
+                                LogUtil.e("Runtime", "session ${entry.id} first render exception", exception)
+                            } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
+                                LogUtil.e("Runtime", "session ${entry.id} render exception (x$consecutiveErrors)", exception)
+                            }
+                            if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
+                                LogUtil.e(
+                                    "Runtime",
+                                    "session ${entry.id} too many render exceptions ($consecutiveErrors), stopping render thread",
+                                    exception,
+                                )
+                                break
+                            }
+                            Thread.sleep(RENDER_ERROR_SLEEP_MS)
+                        }
+                    }
+                    entry.renderThreadExited = true
+                    LogUtil.d("Runtime", "render thread stopped for session ${entry.id}")
+                }, "Render-${entry.id}").apply {
+                    isDaemon = true
+                }
+            entry.renderThreadRef = renderThread
+            renderThread.start()
+            entry.renderWatchDog =
+                RenderWatchDog(
+                    getStart = { entry.lastRenderStart },
+                    getDone = { entry.lastRenderDone },
+                    isRunning = { entry.running && !entry.renderThreadExited && activeSessionId == entry.id },
+                    onHangDetected = {
+                        LogUtil.e("Runtime", "session ${entry.id} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s)")
+                        LogcatFileWriter.write(
+                            "Runtime",
+                            "session ${entry.id} render hang detected — marking thread for restart",
+                        )
+                        // Mark the thread as dead. The render monitor (checkSessions)
+                        // will detect this and restart the thread with exponential backoff.
+                        // This avoids killing the entire process for a GPU hang.
+                        entry.renderThreadExited = true
+                    },
+                    hangTimeoutNanos = RENDER_HANG_TIMEOUT_NANOS,
+                ).also { it.start() }
+        }
+
+        internal fun stopRenderThread(entry: SessionEntry): Boolean {
+            entry.renderWatchDog?.stop()
+            entry.renderWatchDog = null
+            entry.running = false
+            val thread = entry.renderThreadRef
+            entry.renderThreadRef = null
+            entry.renderSignaled.set(false)
+            thread?.let { t ->
+                t.interrupt()
+                t.join(THREAD_JOIN_TIMEOUT_MS)
+                if (t.isAlive) {
+                    LogUtil.e("Runtime", "session ${entry.id} render thread still alive after join — possibly hung")
+                    entry.renderThreadPossiblyAlive = true
+                    entry.hungRenderThread = t
+                    return false
+                }
+            }
+            // Clear the possibly-alive flag only when the joined thread IS the
+            // recorded hung thread (or none is recorded); a different hung
+            // thread may still be alive inside native code, and clearing here
+            // would let close paths destroy the native session under it.
+            if (entry.hungRenderThread == null || entry.hungRenderThread === thread) {
+                entry.renderThreadPossiblyAlive = false
+                entry.hungRenderThread = null
+            }
+            return true
+        }
     }
 
     private companion object {
@@ -1309,7 +1783,7 @@ constructor(
                     // creates, so no OTHER session can exist), but cheap to
                     // honor if that invariant ever changes.
                     if (!stopped && sessions.isNotEmpty()) {
-                        startRenderMonitor()
+                        renderSupervisor.startRenderMonitor()
                     }
                     return
                 }
@@ -1346,8 +1820,8 @@ constructor(
                     // must not roll back the already-created session.
                     LogUtil.e("Runtime", "Failed to start foreground service for session $finalSessionId", serviceException)
                 }
-                startRenderThread(startedEntry)
-                startRenderMonitor()
+                renderSupervisor.startRenderThread(startedEntry)
+                renderSupervisor.startRenderMonitor()
             }
         } catch (exception: Exception) {
             if (exception is kotlinx.coroutines.CancellationException) {
@@ -1747,7 +2221,7 @@ constructor(
                 // stop would let closeSession race this entry's teardown
                 // (use-after-free on the bridge).
                 try {
-                    val stopped = stopRenderThread(current)
+                    val stopped = renderSupervisor.stopRenderThread(current)
                     if (stopped) {
                         // Release the old bridge's GPU surface before the new
                         // bridge creates its own on the same ANativeWindow.
@@ -1792,7 +2266,7 @@ constructor(
                     try {
                         previous.bridge?.setNativeWindow(windowPointer, width, height)
                         previous.bridge?.updateNativeWindow(windowPointer, width, height)
-                        startRenderThread(previous)
+                        renderSupervisor.startRenderThread(previous)
                         activeSessionId = previous.id
                     } catch (restoreException: Exception) {
                         LogUtil.e("Runtime", "switchSession: failed to restore previous session ${previous.id}", restoreException)
@@ -1860,7 +2334,7 @@ constructor(
                 val concurrent = sessions[activeSessionId]
                 if (concurrent != null && concurrent !== target) {
                     try {
-                        stopRenderThread(concurrent)
+                        renderSupervisor.stopRenderThread(concurrent)
                         LogUtil.w(
                             "Runtime",
                             "switchSession: stopped concurrent session ${concurrent.id} (active changed during first frame)",
@@ -1875,7 +2349,7 @@ constructor(
                 }
             }
             try {
-                startRenderThread(target)
+                renderSupervisor.startRenderThread(target)
                 activeSessionId = id
                 // Sync the native ACTIVE_SESSION_ID so pollEvent/process_output
                 // operate on the new session. Without this, all sessions except
@@ -1964,7 +2438,7 @@ constructor(
         // dropped when our last reference goes away).
         var renderThreadStopped = true
         if (wasRunning) {
-            renderThreadStopped = stopRenderThread(entry)
+            renderThreadStopped = renderSupervisor.stopRenderThread(entry)
         } else if (entry.renderThreadPossiblyAlive) {
             // A previous join timed out (hung GPU) while running was
             // still true; the flag survives the pause path where
@@ -2088,7 +2562,7 @@ constructor(
                         newEntry.renderThreadPossiblyAlive = false
                         newEntry.hungRenderThread = null
                     }
-                    startRenderThread(newEntry)
+                    renderSupervisor.startRenderThread(newEntry)
                     bridge.let { syncGridDimensions(it) }
                     if (newEntry.closing) {
                         // A concurrent closeSession/closeDeadSession won the
@@ -2204,7 +2678,7 @@ constructor(
      * and native sessions closed when the runtime must stop in-process.
      */
     fun stop() {
-        stopRenderMonitor()
+        renderSupervisor.stopRenderMonitor()
         synchronized(stopLock) {
             if (stopped) return
             stopped = true
@@ -2219,7 +2693,7 @@ constructor(
         // (round-88/89) — any bridge they spawned is closed, never inserted.
         synchronized(sessionLock) {
             sessions.values.forEach { entry ->
-                val threadStopped = stopRenderThread(entry)
+                val threadStopped = renderSupervisor.stopRenderThread(entry)
                 if (!threadStopped || entry.renderThreadPossiblyAlive) {
                     // Same use-after-free rule as closeSession: a hung render
                     // thread may still touch the native session, so neither
@@ -2261,7 +2735,7 @@ constructor(
             synchronized(sessionLock) {
                 sessions.values.forEach { entry ->
                     if (entry.running) {
-                        stopRenderThread(entry)
+                        renderSupervisor.stopRenderThread(entry)
                         entry.running = false
                         LogUtil.d("Runtime", "pauseRendering: session ${entry.id} stopped")
                     }
@@ -2289,7 +2763,7 @@ constructor(
                 if (activeEntry != null && !activeEntry.running && activeEntry.bridge != null) {
                     try {
                         activeEntry.running = true
-                        startRenderThread(activeEntry)
+                        renderSupervisor.startRenderThread(activeEntry)
                         LogUtil.d("Runtime", "resumeRendering: session ${activeEntry.id} restarted")
                     } catch (exception: Exception) {
                         LogUtil.e("Runtime", "resumeRendering failed for session ${activeEntry.id}", exception)
@@ -2301,7 +2775,7 @@ constructor(
                 // above) or our monitor starts before stop() and gets
                 // cancelled by it — never a monitor resurrected AFTER
                 // teardown completed.
-                startRenderMonitor()
+                renderSupervisor.startRenderMonitor()
             }
         }
     }
@@ -2400,7 +2874,7 @@ constructor(
                     // native session (use-after-free).
                     synchronized(sessionLock) {
                         if (sessions[entry.id] === entry && entry.running && entry.bridge != null) {
-                            startRenderThread(entry)
+                            renderSupervisor.startRenderThread(entry)
                         } else {
                             LogUtil.w("Runtime", "updateNativeWindow: session ${entry.id} no longer active, skipping render restart")
                         }
@@ -2446,461 +2920,6 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
     // SECTION 4: Render loop (extract target)
     // ══════════════════════════════════════════════════════════════════════
-
-    private fun startRenderThread(entry: SessionEntry) {
-        // Refuse to start a thread for a session that is being closed:
-        // closeSession sets entry.closing under sessionLock before it
-        // starts the unlocked stop/close sequence, and every caller of
-        // this function holds sessionLock — so a closing entry can never
-        // get a fresh render thread (orphaned-thread TOCTOU, see the
-        // closing field doc). Also reset the running intent flag: callers
-        // (resumeRendering/switchSession/closeSession Phase 3) set it
-        // true BEFORE calling, and leaving it true would make
-        // closeSession's locked re-check misclassify this entry as
-        // running and skip bridge.close (native session + child process
-        // leak).
-        if (entry.closing) {
-            entry.running = false
-            LogUtil.d("Runtime", "session ${entry.id} closing — refusing to start render thread")
-            return
-        }
-        entry.renderWatchDog?.stop()
-        entry.renderWatchDog = null
-        entry.renderThreadExited = false
-        entry.running = false
-        entry.renderSignaled.set(false)
-        val oldThread = entry.renderThreadRef
-        entry.renderThreadRef = null
-        oldThread?.let { t ->
-            if (t === Thread.currentThread()) {
-                // Self-join would time out and wrongly mark the current
-                // thread as hung; skip (the caller is the render thread
-                // itself, e.g. handleSessionExit replacement).
-                LogUtil.w("Runtime", "session ${entry.id} startRenderThread called from its own render thread — skipping join")
-            } else {
-                t.interrupt()
-                t.join(THREAD_JOIN_TIMEOUT_MS)
-                if (t.isAlive) {
-                    LogUtil.w(
-                        "Runtime",
-                        "session ${entry.id} previous render thread still alive after join — forcing new thread anyway",
-                    )
-                    // The old thread may still be inside native render code.
-                    // Record that so close paths skip releaseGpuSurface/close,
-                    // and keep the reference for one final join at exit time.
-                    entry.renderThreadPossiblyAlive = true
-                    entry.hungRenderThread = t
-                } else {
-                    // Clear the flag only when the joined thread IS the recorded
-                    // hung thread (or none is recorded). A different hung thread
-                    // from an earlier GPU stall may still be alive inside native
-                    // code; clearing here would let close paths destroy the
-                    // session under it (use-after-free).
-                    if (entry.hungRenderThread == null || entry.hungRenderThread === t) {
-                        entry.renderThreadPossiblyAlive = false
-                        entry.hungRenderThread = null
-                    }
-                }
-            }
-        }
-        val generation = renderGeneration.incrementAndGet()
-        entry.running = true
-        val renderThread =
-            Thread({
-                var diagCount = 0
-                var consecutiveErrors = 0
-                var lastScrollOffset = Int.MAX_VALUE
-                var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
-                LogUtil.d("Runtime", "render thread started for session ${entry.id} generation=$generation")
-                // First iteration always processes ghostty output. Subsequent
-                // iterations skip output on blink/force-rendered frames to avoid
-                // the ~50ms per-frame ghostty tick when there's no new PTY data.
-                var shouldSkipOutput = false
-                while (entry.running && renderGeneration.get() == generation) {
-                    try {
-                        val bridge = entry.bridge ?: break
-                        val selectionSnapshot = selectionState.get()
-                        if (selectionSnapshot != lastSelection) {
-                            bridge.setSelection(
-                                selectionSnapshot.startRow,
-                                selectionSnapshot.startCol,
-                                selectionSnapshot.endRow,
-                                selectionSnapshot.endCol,
-                                selectionSnapshot.hasSelection,
-                                selectionSnapshot.mode,
-                            )
-                            lastSelection = selectionSnapshot
-                        }
-                        val currentScrollOffset = entry.scrollOffset
-                        if (currentScrollOffset != lastScrollOffset) {
-                            bridge.setScrollOffset(currentScrollOffset)
-                            lastScrollOffset = currentScrollOffset
-                        }
-                        entry.lastRenderStart = System.nanoTime()
-                        // render() is a stub returning 0 (ADR-0007, no native
-                        // render export): the count<0 transient-error branch
-                        // below is currently unreachable. It is kept so the
-                        // loop is correct the day a real render export lands.
-                        val count = bridge.render(shouldSkipOutput)
-                        if (count < 0) {
-                            // Transient render error (surface not ready, snapshot unavailable, etc.)
-                            // These resolve on their own; don't count them toward the fatal limit.
-                            if (consecutiveErrors == 0) {
-                                LogUtil.w("Runtime", "session ${entry.id} transient render error code=$count")
-                            }
-                            consecutiveErrors++
-                            if (consecutiveErrors > RENDER_MAX_TRANSIENT_ERRORS) {
-                                LogUtil.e(
-                                    "Runtime",
-                                    "session ${entry.id} too many transient render errors ($consecutiveErrors), stopping render thread",
-                                )
-                                break
-                            }
-                            // Adaptive backoff: 50ms for first 10, then 200ms
-                            val sleepMs = if (consecutiveErrors > 10) RENDER_ERROR_BACKOFF_MS else RENDER_ERROR_SLEEP_MS
-                            Thread.sleep(sleepMs)
-                        } else {
-                            if (consecutiveErrors > 0) {
-                                LogUtil.i(
-                                    "Runtime",
-                                    "session ${entry.id} recovered after $consecutiveErrors errors",
-                                )
-                            }
-                            consecutiveErrors = 0
-                            try {
-                                val poll = bridge.pollAll()
-                                // Exit is handled FIRST, in its own branch:
-                                // the event was already consumed from the
-                                // native queue and cannot be replayed, so an
-                                // exception in bell/notification/clipboard
-                                // handling below must never skip the cleanup.
-                                if (poll.exit) {
-                                    // Reply empty FIRST, before any cleanup:
-                                    // these MCP request events were already
-                                    // consumed from the native queue and can
-                                    // never be dispatched, so leaving them
-                                    // unanswered would hang the MCP tool call
-                                    // for 300s. Answering before
-                                    // handleSessionExit (which may close the
-                                    // bridge, ~100ms+) also minimizes the
-                                    // MCP-side latency. Each reply is guarded
-                                    // individually: a JNI failure here must
-                                    // NEVER skip the session cleanup below
-                                    // (the exit event is consumed and cannot
-                                    // be replayed — leaking the entry, the
-                                    // native session and the zombie child).
-                                    try {
-                                        poll.dialogs.forEach { request ->
-                                            NativeBridge
-                                                .dialogResult(request.sessionId, request.requestId, "")
-                                        }
-                                        poll.pickFiles.forEach { request ->
-                                            NativeBridge
-                                                .dialogResult(request.sessionId, request.requestId, "")
-                                        }
-                                        poll.clipboardGets.forEach { request ->
-                                            NativeBridge
-                                                .clipboardResult(request.sessionId, request.requestId, "")
-                                        }
-                                    } catch (replyException: Exception) {
-                                        LogUtil.e(
-                                            "Runtime",
-                                            "exit branch: MCP empty-reply failed, continuing cleanup",
-                                            replyException,
-                                        )
-                                    }
-                                    if (poll.sessionId != 0L && poll.sessionId != entry.id) {
-                                        // A background (non-active) session's
-                                        // shell exited. Its render thread is
-                                        // stopped, so nobody else would ever
-                                        // reap it — the native sweep reports
-                                        // it once through this queue. Close it
-                                        // here (handleSessionExit is safe for
-                                        // non-active sessions: the replacement
-                                        // branch is gated on entry.id ==
-                                        // activeSessionId).
-                                        val exitedEntry = synchronized(sessionLock) { sessions[poll.sessionId] }
-                                        if (exitedEntry != null) {
-                                            LogUtil.i(
-                                                "Runtime",
-                                                "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
-                                            )
-                                            handleSessionExit(exitedEntry, poll.exitCode)
-                                        }
-                                    } else {
-                                        // Full cleanup (bridge close, session removal,
-                                        // state update) happens here; the render monitor
-                                        // skips !running entries so it would never reap
-                                        // an exited session.
-                                        handleSessionExit(entry, poll.exitCode)
-                                    }
-                                    // Shared by both branches: reap any
-                                    // ADDITIONAL sessions that exited in the
-                                    // same frame (the first one was handled
-                                    // above). Their native exit_reported
-                                    // flags are already set and never re-sent.
-                                    // Only poll.sessionId is excluded — every
-                                    // OTHER id in the list (including entry.id
-                                    // when this is the background branch) must
-                                    // be reaped or the Kotlin entry, native
-                                    // session and zombie child leak forever.
-                                    // handleSessionExit is idempotent
-                                    // (containsKey re-check).
-                                    poll.exits.forEach { exitInfo ->
-                                        if (exitInfo.sessionId != poll.sessionId) {
-                                            val extra = synchronized(sessionLock) { sessions[exitInfo.sessionId] }
-                                            if (extra != null) {
-                                                LogUtil.i(
-                                                    "Runtime",
-                                                    "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
-                                                )
-                                                handleSessionExit(extra, exitInfo.exitCode)
-                                            }
-                                        }
-                                    }
-                                    break
-                                }
-                                if (poll.bel) {
-                                    bellToneGenerator.startTone(BEL_TONE_TYPE, BEL_TONE_DURATION_MILLIS)
-                                }
-                                if (poll.notification != null) {
-                                    val (title, body) = poll.notification
-                                    val toastText = if (title.isNotEmpty()) "$title: $body" else body
-                                    Handler(Looper.getMainLooper()).post {
-                                        android.widget.Toast
-                                            .makeText(context, toastText, android.widget.Toast.LENGTH_LONG)
-                                            .show()
-                                    }
-                                    terminal.emulator.ui
-                                        .TerminalNotificationHelper(context)
-                                        .showNotification(title, body)
-                                }
-                                if (poll.clipboard != null) {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clipData = ClipData.newPlainText("terminal clipboard", poll.clipboard)
-                                    clipboard.setPrimaryClip(clipData)
-                                }
-                                poll.dialogs.forEach { request ->
-                                    try {
-                                        LogUtil.i("Runtime", "MCP dialog request session=${request.sessionId} type=${request.dialogType}")
-                                        val handler = dialogRequestHandler
-                                        if (handler != null) {
-                                            handler(
-                                                request.sessionId,
-                                                request.requestId,
-                                                request.dialogType,
-                                                request.title,
-                                                request.message,
-                                                request.options,
-                                            )
-                                        } else {
-                                            // No handler (activity destroyed window):
-                                            // the event is already consumed, so reply
-                                            // with an empty result instead of leaving
-                                            // the native MCP tool call hanging.
-                                            LogUtil.w(
-                                                "Runtime",
-                                                "MCP dialog request dropped (no handler), replying empty",
-                                            )
-                                            NativeBridge
-                                                .dialogResult(request.sessionId, request.requestId, "")
-                                        }
-                                    } catch (exception: Exception) {
-                                        LogUtil.e("Runtime", "dialog request dispatch failed", exception)
-                                        NativeBridge
-                                            .dialogResult(request.sessionId, request.requestId, "")
-                                    }
-                                }
-                                poll.pickFiles.forEach { request ->
-                                    try {
-                                        LogUtil.i("Runtime", "MCP pick_file request session=${request.sessionId}")
-                                        val handler = pickFileRequestHandler
-                                        if (handler != null) {
-                                            handler(
-                                                request.sessionId,
-                                                request.requestId,
-                                                request.startingPath,
-                                                request.filter,
-                                            )
-                                        } else {
-                                            LogUtil.w(
-                                                "Runtime",
-                                                "MCP pick_file request dropped (no handler), replying empty",
-                                            )
-                                            NativeBridge
-                                                .dialogResult(request.sessionId, request.requestId, "")
-                                        }
-                                    } catch (exception: Exception) {
-                                        LogUtil.e("Runtime", "pick_file request dispatch failed", exception)
-                                        NativeBridge
-                                            .dialogResult(request.sessionId, request.requestId, "")
-                                    }
-                                }
-                                poll.toastText?.let { text ->
-                                    Handler(Looper.getMainLooper()).post {
-                                        android.widget.Toast
-                                            .makeText(context, text, android.widget.Toast.LENGTH_SHORT)
-                                            .show()
-                                    }
-                                }
-                                poll.openUrl?.let { url ->
-                                    try {
-                                        val intent =
-                                            android.content.Intent(
-                                                android.content.Intent.ACTION_VIEW,
-                                                android.net.Uri.parse(url),
-                                            )
-                                        intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                        context.startActivity(intent)
-                                    } catch (exception: Exception) {
-                                        // Never log the URL or the exception
-                                        // stack: both may carry token/query
-                                        // parameters and LogUtil writes the
-                                        // persistent log file unconditionally
-                                        // (round-103).
-                                        LogUtil.e("Runtime", "open_url failed: ${exception.javaClass.simpleName}")
-                                    }
-                                }
-                                poll.clipboardGets.forEach { request ->
-                                    try {
-                                        val clipboard =
-                                            context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val text = clipboard.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
-                                        NativeBridge
-                                            .clipboardResult(request.sessionId, request.requestId, text)
-                                    } catch (exception: Exception) {
-                                        // Class only: exception messages can embed clipboard text (round-108).
-                                        LogUtil.e("Runtime", "clipboard_get request dispatch failed: ${exception.javaClass.simpleName}")
-                                        NativeBridge
-                                            .clipboardResult(request.sessionId, request.requestId, "")
-                                    }
-                                }
-                            } catch (exception: Exception) {
-                                LogUtil.e(
-                                    "Runtime",
-                                    "pollAll failed for session ${entry.id}; deferred events dropped",
-                                    exception,
-                                )
-                            }
-                            diagCount++
-                            if (diagCount == 1) {
-                                LogUtil.d("Runtime", "session ${entry.id} first render OK")
-                            }
-                            if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
-                                val title =
-                                    try {
-                                        bridge.getActiveSessionTitle()
-                                    } catch (exception: Exception) {
-                                        LogUtil.e("Runtime", "title query failed", exception)
-                                        ""
-                                    }
-                                if (title.isNotEmpty() && title != _state.value.title) {
-                                    // CAS update: the collector and the IO
-                                    // session functions also write _state; a
-                                    // non-atomic read-modify-write here could
-                                    // clobber their session list.
-                                    _state.update { current -> current.copy(title = title) }
-                                }
-                            }
-                            entry.lastRenderDone = System.nanoTime()
-                            if (!entry.forceRenderRequested) {
-                                val idleNanos = System.nanoTime() - entry.lastSignalNanos
-                                val timeoutNanos =
-                                    if (idleNanos > RENDER_IDLE_THRESHOLD_NANOS) {
-                                        RENDER_LATCH_IDLE_TIMEOUT_NANOS
-                                    } else {
-                                        RENDER_LATCH_TIMEOUT_NANOS
-                                    }
-                                if (!entry.renderSignaled.get() && !entry.forceRenderRequested) {
-                                    val timeoutMs = timeoutNanos / 1_000_000L
-                                    bridge.waitOutput(timeoutMs)
-                                    if (Thread.interrupted()) throw InterruptedException()
-                                }
-                                shouldSkipOutput = false
-                                entry.renderSignaled.set(false)
-                            } else {
-                                entry.forceRenderRequested = false
-                                shouldSkipOutput = true
-                            }
-                        }
-                    } catch (exception: InterruptedException) {
-                        // The render thread was interrupted during shutdown
-                        // (session switch / runtime stop). This is an expected
-                        // signal, not a render failure — exit the loop cleanly.
-                        Thread.currentThread().interrupt()
-                        break
-                    } catch (exception: Exception) {
-                        consecutiveErrors++
-                        if (consecutiveErrors == 1) {
-                            LogUtil.e("Runtime", "session ${entry.id} first render exception", exception)
-                        } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
-                            LogUtil.e("Runtime", "session ${entry.id} render exception (x$consecutiveErrors)", exception)
-                        }
-                        if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
-                            LogUtil.e(
-                                "Runtime",
-                                "session ${entry.id} too many render exceptions ($consecutiveErrors), stopping render thread",
-                                exception,
-                            )
-                            break
-                        }
-                        Thread.sleep(RENDER_ERROR_SLEEP_MS)
-                    }
-                }
-                entry.renderThreadExited = true
-                LogUtil.d("Runtime", "render thread stopped for session ${entry.id}")
-            }, "Render-${entry.id}").apply {
-                isDaemon = true
-            }
-        entry.renderThreadRef = renderThread
-        renderThread.start()
-        entry.renderWatchDog =
-            RenderWatchDog(
-                getStart = { entry.lastRenderStart },
-                getDone = { entry.lastRenderDone },
-                isRunning = { entry.running && !entry.renderThreadExited && activeSessionId == entry.id },
-                onHangDetected = {
-                    LogUtil.e("Runtime", "session ${entry.id} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s)")
-                    LogcatFileWriter.write(
-                        "Runtime",
-                        "session ${entry.id} render hang detected — marking thread for restart",
-                    )
-                    // Mark the thread as dead. The render monitor (checkSessions)
-                    // will detect this and restart the thread with exponential backoff.
-                    // This avoids killing the entire process for a GPU hang.
-                    entry.renderThreadExited = true
-                },
-                hangTimeoutNanos = RENDER_HANG_TIMEOUT_NANOS,
-            ).also { it.start() }
-    }
-
-    private fun stopRenderThread(entry: SessionEntry): Boolean {
-        entry.renderWatchDog?.stop()
-        entry.renderWatchDog = null
-        entry.running = false
-        val thread = entry.renderThreadRef
-        entry.renderThreadRef = null
-        entry.renderSignaled.set(false)
-        thread?.let { t ->
-            t.interrupt()
-            t.join(THREAD_JOIN_TIMEOUT_MS)
-            if (t.isAlive) {
-                LogUtil.e("Runtime", "session ${entry.id} render thread still alive after join — possibly hung")
-                entry.renderThreadPossiblyAlive = true
-                entry.hungRenderThread = t
-                return false
-            }
-        }
-        // Clear the possibly-alive flag only when the joined thread IS the
-        // recorded hung thread (or none is recorded); a different hung
-        // thread may still be alive inside native code, and clearing here
-        // would let close paths destroy the native session under it.
-        if (entry.hungRenderThread == null || entry.hungRenderThread === thread) {
-            entry.renderThreadPossiblyAlive = false
-            entry.hungRenderThread = null
-        }
-        return true
-    }
 
     private fun updateState() {
         val currentTitle = sessions[activeSessionId]?.bridge?.getActiveSessionTitle() ?: _state.value.title

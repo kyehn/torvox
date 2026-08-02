@@ -1,8 +1,6 @@
 package terminal.emulator.ui
 
-import android.content.Context
 import android.net.Uri
-import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -52,7 +50,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -67,14 +64,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.ui.theme.TerminalTheme
 
-private const val SMALL_SCREEN_WIDTH_DP = 400
 private const val FONT_SIZE_RANGE_MIN = 8f
 private const val FONT_SIZE_RANGE_MAX = 48f
 private const val FONT_SIZE_RANGE_STEPS = 23
@@ -168,7 +163,7 @@ fun SettingsScreen(
                         isSmallScreen,
                     )
                 }
-                item { ClearAppDataSectionItem(textColor, cardBackground, sectionTitleColor, isSmallScreen) }
+                item { ClearAppDataSectionItem(viewModel, textColor, cardBackground, sectionTitleColor, isSmallScreen) }
                 item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
@@ -212,11 +207,12 @@ private fun AppearanceSectionContent(
     accentColor: Color,
     backgroundColor: Color,
 ) {
-    val fontSize by viewModel.fontSize.collectAsStateWithLifecycle()
-    val fontFamily by viewModel.fontFamily.collectAsStateWithLifecycle()
-    val cursorBlinkEnabled by viewModel.cursorBlink.collectAsStateWithLifecycle()
-    val cursorSpeedMs by viewModel.cursorSpeed.collectAsStateWithLifecycle()
-    val cursorStyleValue by viewModel.cursorStyle.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val fontSize = settings.fontSize
+    val fontFamily = settings.fontFamily
+    val cursorBlinkEnabled = settings.cursorBlink
+    val cursorSpeedMs = settings.cursorSpeed
+    val cursorStyleValue = settings.cursorStyle
     val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
     val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
     val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
@@ -290,7 +286,8 @@ private fun AppThemeSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val appThemeMode by viewModel.appThemeMode.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val appThemeMode = settings.appThemeMode
     SectionHeader(stringResource(R.string.software_theme), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         AppThemeSelector(
@@ -312,10 +309,11 @@ private fun TerminalThemeSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val themeMode by viewModel.themeMode.collectAsStateWithLifecycle()
-    val dayThemeName by viewModel.dayThemeName.collectAsStateWithLifecycle()
-    val nightThemeName by viewModel.nightThemeName.collectAsStateWithLifecycle()
-    val themeName by viewModel.themeName.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val themeMode = settings.themeMode
+    val dayThemeName = settings.dayThemeName
+    val nightThemeName = settings.nightThemeName
+    val themeName = settings.themeName
     SectionHeader(stringResource(R.string.theme), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         TerminalThemeModeSelector(
@@ -376,9 +374,10 @@ private fun BackgroundSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val backgroundImagePath by viewModel.backgroundImagePath.collectAsStateWithLifecycle()
-    val backgroundBlurRadius by viewModel.backgroundBlurRadius.collectAsStateWithLifecycle()
-    val backgroundAlpha by viewModel.backgroundAlpha.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val backgroundImagePath = settings.backgroundImagePath
+    val backgroundBlurRadius = settings.backgroundBlurRadius
+    val backgroundAlpha = settings.backgroundAlpha
     val imagePickerLauncher =
         rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
             uri?.let { viewModel.setBackgroundImagePath(it.toString()) }
@@ -435,8 +434,9 @@ private fun TerminalConfigSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val selectedShell by viewModel.shell.collectAsStateWithLifecycle()
-    val scrollbackLines by viewModel.scrollbackLines.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val selectedShell = settings.shell
+    val scrollbackLines = settings.scrollbackLines
     SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         ShellInput(shellPath = selectedShell, onShellChanged = { viewModel.setShell(it) }, textColor = textColor, accentColor = accentColor)
@@ -450,7 +450,7 @@ private fun TerminalConfigSection(
         )
         Spacer(modifier = Modifier.height(8.dp))
         McpServerToggle(
-            enabled = viewModel.mcpServerEnabled.collectAsStateWithLifecycle().value,
+            enabled = settings.mcpServerEnabled,
             onToggle = { viewModel.setMcpServerEnabled(it) },
             textColor = textColor,
             accentColor = accentColor,
@@ -469,7 +469,8 @@ private fun BootstrapSectionFromSettings(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val bootstrapUrl by viewModel.bootstrapUrl.collectAsStateWithLifecycle()
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val bootstrapUrl = settings.bootstrapUrl
     val bootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
     val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
     val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsStateWithLifecycle()
@@ -491,6 +492,7 @@ private fun BootstrapSectionFromSettings(
 
 @Composable
 private fun ClearAppDataSectionItem(
+    viewModel: TerminalViewModel,
     textColor: Color,
     cardBackground: Color,
     sectionTitleColor: Color,
@@ -498,7 +500,7 @@ private fun ClearAppDataSectionItem(
 ) {
     SectionHeader(stringResource(R.string.clear_app_data), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
-        ClearAppDataSection(textColor = textColor)
+        ClearAppDataSection(viewModel = viewModel, textColor = textColor)
     }
 }
 
@@ -546,39 +548,15 @@ private fun FontSizeSlider(
     secondaryText: Color,
     accentColor: Color,
 ) {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmallScreen = screenWidthDp < SMALL_SCREEN_WIDTH_DP
-    val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-    val valueStyle = if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
-    Column(modifier = modifier) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                stringResource(R.string.font_size),
-                style = labelStyle,
-                color = textColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "%.0f".format(value),
-                style = valueStyle,
-                color = secondaryText,
-            )
-        }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = FONT_SIZE_RANGE_MIN..FONT_SIZE_RANGE_MAX,
-            steps = FONT_SIZE_RANGE_STEPS,
-            colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor),
-        )
-    }
+    SettingsSliderRow(
+        title = stringResource(R.string.font_size),
+        value = value,
+        valueRange = FONT_SIZE_RANGE_MIN..FONT_SIZE_RANGE_MAX,
+        steps = FONT_SIZE_RANGE_STEPS,
+        colors = SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
+        onValueChange = onValueChange,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -882,46 +860,19 @@ private fun ScrollbackSlider(
     secondaryText: Color,
     accentColor: Color,
 ) {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmallScreen = screenWidthDp < SMALL_SCREEN_WIDTH_DP
-    val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-    val valueStyle = if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                stringResource(R.string.scrollback_lines),
-                style = labelStyle,
-                color = textColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text =
-                value.toInt().let {
-                    if (it >= 1000) {
-                        "${it / 1000}K"
-                    } else {
-                        "$it"
-                    }
-                },
-                style = valueStyle,
-                color = secondaryText,
-            )
-        }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = SCROLLBACK_RANGE_MIN..SCROLLBACK_RANGE_MAX,
-            steps = SCROLLBACK_RANGE_STEPS,
-            colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor),
-        )
-    }
+    SettingsSliderRow(
+        title = stringResource(R.string.scrollback_lines),
+        value = value,
+        valueRange = SCROLLBACK_RANGE_MIN..SCROLLBACK_RANGE_MAX,
+        steps = SCROLLBACK_RANGE_STEPS,
+        colors = SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
+        onValueChange = onValueChange,
+        valueFormatter = { value ->
+            value.toInt().let {
+                if (it >= 1000) "${it / 1000}K" else "$it"
+            }
+        },
+    )
 }
 
 @Composable
@@ -1173,85 +1124,6 @@ private fun BootstrapPresetItem(
     }
 }
 
-internal fun fallbackSystemFonts(): List<String> {
-    val fonts = mutableListOf<String>()
-    val seen = mutableSetOf<String>()
-
-    // Scan well-known system font directories
-    val fontDirectories =
-        listOf(
-            "/system/fonts/",
-            "/product/fonts/",
-            "/vendor/fonts/",
-        )
-    for (dirPath in fontDirectories) {
-        val directory = java.io.File(dirPath)
-        if (directory.isDirectory) {
-            directory
-                .listFiles()
-                ?.filter { it.name.endsWith(".ttf", true) || it.name.endsWith(".otf", true) }
-                ?.forEach { file ->
-                    val name =
-                        file.nameWithoutExtension
-                            .replace('_', ' ')
-                            .replace('-', ' ')
-                            .trim()
-                    if (name.isNotEmpty() && seen.add(name.lowercase())) {
-                        fonts.add(name)
-                    }
-                }
-        }
-    }
-
-    // If no fonts found via directory scan, use Typeface to check known system families
-    if (fonts.isEmpty()) {
-        val knownFamilies =
-            listOf(
-                "sans-serif",
-                "serif",
-                "monospace",
-                "sans-serif-light",
-                "sans-serif-medium",
-                "sans-serif-condensed",
-            )
-        for (family in knownFamilies) {
-            try {
-                android.graphics.Typeface.create(family, android.graphics.Typeface.NORMAL)
-                seen.add(family.lowercase())
-                fonts.add(family)
-            } catch (_: RuntimeException) {
-                // Not running on Android (unit test with stubs)
-            }
-        }
-    }
-
-    for (
-    known in
-    listOf(
-        "JetBrainsMono Nerd Font",
-        "Droid Sans Mono",
-        "Noto Sans Mono",
-        "Noto Sans SC",
-        "Noto Sans CJK SC",
-        "Noto Sans TC",
-        "Noto Sans CJK TC",
-        "Noto Sans JP",
-        "Noto Sans KR",
-        "DroidSansFallback",
-        "Roboto Mono",
-        "Source Code Pro",
-        "Fira Code",
-        "Ubuntu Mono",
-    )
-    ) {
-        if (seen.add(known.lowercase())) {
-            fonts.add(known)
-        }
-    }
-    fonts.sort()
-    return fonts
-}
-
 @Composable
 private fun McpServerToggle(
     enabled: Boolean,
@@ -1260,46 +1132,26 @@ private fun McpServerToggle(
     accentColor: Color,
     cardBackground: Color,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = stringResource(R.string.mcp_server),
-                style = MaterialTheme.typography.bodyLarge,
-                color = textColor,
-            )
-            Text(
-                text = stringResource(R.string.mcp_server_desc),
-                style = MaterialTheme.typography.bodySmall,
-                color = textColor.copy(alpha = 0.6f),
-            )
-        }
-        Switch(
-            checked = enabled,
-            onCheckedChange = onToggle,
-            colors =
-            SwitchDefaults.colors(
-                checkedThumbColor = Color.White,
-                checkedTrackColor = accentColor,
-                uncheckedThumbColor = textColor.copy(alpha = 0.6f),
-                uncheckedTrackColor = cardBackground,
-            ),
-        )
-    }
+    SettingsSwitchRow(
+        title = stringResource(R.string.mcp_server),
+        description = stringResource(R.string.mcp_server_desc),
+        checked = enabled,
+        onToggle = onToggle,
+        colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
+    )
 }
 
 @Composable
-private fun ClearAppDataSection(textColor: Color) {
+private fun ClearAppDataSection(
+    viewModel: TerminalViewModel,
+    textColor: Color,
+) {
     val context = LocalContext.current
     // Resolve once in composable scope: LocalContext-based resource reads
     // are not configuration-aware (lint LocalContextGetResourceValueCall),
     // and stringResource() cannot be called inside the onClick lambda.
     val clearAppDataDone = stringResource(R.string.clear_app_data_done)
     var showConfirmDialog by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
 
     if (showConfirmDialog) {
         AlertDialog(
@@ -1310,33 +1162,16 @@ private fun ClearAppDataSection(textColor: Color) {
                 TextButton(
                     onClick = {
                         showConfirmDialog = false
-                        scope.launch(Dispatchers.IO) {
-                            try {
-                                context.getDir("prefs", Context.MODE_PRIVATE).deleteRecursively()
-                                context.getDir("sessions", Context.MODE_PRIVATE).deleteRecursively()
-                                context.getDir("logs", Context.MODE_PRIVATE).deleteRecursively()
-                                context.getDir("logs_root", Context.MODE_PRIVATE).deleteRecursively()
-                                context.getDir("bin", Context.MODE_PRIVATE).deleteRecursively()
-                                context.cacheDir.listFiles()?.forEach { it.delete() }
-                                // The process-wide DataStore singleton keeps
-                                // running: recreate the prefs directory so
-                                // the next settings write does not fail with
-                                // an uncaught IOException (which kills the
-                                // process via the crash handler).
-                                context.getDir("prefs", Context.MODE_PRIVATE)
-                                // In-process StateFlows still hold the old
-                                // values; a restart is required for a full
-                                // reset.
-                                android.widget.Toast
-                                    .makeText(
-                                        context,
-                                        clearAppDataDone,
-                                        android.widget.Toast.LENGTH_LONG,
-                                    )
-                                    .show()
-                            } catch (exception: Exception) {
-                                Log.e("ClearAppData", "Failed to clear app data", exception)
-                            }
+                        viewModel.clearAppData {
+                            // In-process StateFlows still hold the old
+                            // values; a restart is required for a full reset.
+                            android.widget.Toast
+                                .makeText(
+                                    context,
+                                    clearAppDataDone,
+                                    android.widget.Toast.LENGTH_LONG,
+                                )
+                                .show()
                         }
                     },
                     colors = ButtonDefaults.textButtonColors(contentColor = Color.Red),
@@ -1519,39 +1354,15 @@ private fun CursorSpeedSlider(
     secondaryText: Color,
     accentColor: Color,
 ) {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmallScreen = screenWidthDp < SMALL_SCREEN_WIDTH_DP
-    val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-    val valueStyle = if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium
-    Column {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                stringResource(R.string.cursor_speed),
-                style = labelStyle,
-                color = textColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = "${value.toInt()}ms",
-                style = valueStyle,
-                color = secondaryText,
-            )
-        }
-        Slider(
-            value = value,
-            onValueChange = onValueChange,
-            valueRange = CURSOR_SPEED_RANGE_MIN..CURSOR_SPEED_RANGE_MAX,
-            steps = CURSOR_SPEED_RANGE_STEPS,
-            colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor),
-        )
-    }
+    SettingsSliderRow(
+        title = stringResource(R.string.cursor_speed),
+        value = value,
+        valueRange = CURSOR_SPEED_RANGE_MIN..CURSOR_SPEED_RANGE_MAX,
+        steps = CURSOR_SPEED_RANGE_STEPS,
+        colors = SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
+        onValueChange = onValueChange,
+        valueFormatter = { "${it.toInt()}ms" },
+    )
 }
 
 @Composable
@@ -1562,46 +1373,19 @@ private fun CursorStyleSelector(
     accentColor: Color,
     cardBackground: Color,
 ) {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmallScreen = screenWidthDp < SMALL_SCREEN_WIDTH_DP
-    val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
     val styles =
         listOf(
             "block" to "Block",
             "bar" to "Bar",
             "underline" to "Underline",
         )
-    Column(modifier = Modifier.testTag("CursorStyleSelector")) {
-        Text(
-            text = stringResource(R.string.cursor_style_label),
-            style = labelStyle,
-            color = textColor,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            styles.forEach { (key, label) ->
-                val isSelected = selectedStyle == key
-                Box(
-                    modifier =
-                    Modifier
-                        .testTag("CursorStyle_$key")
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isSelected) accentColor else cardBackground)
-                        .clickable { onStyleSelected(key) }
-                        .padding(vertical = 10.dp, horizontal = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = label,
-                        color = if (isSelected) Color.White else textColor,
-                        style = if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            }
-        }
-    }
+    SettingsSelectorRow(
+        title = stringResource(R.string.cursor_style_label),
+        selectedKey = selectedStyle,
+        options = styles,
+        colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
+        onOptionSelected = onStyleSelected,
+        testTag = "CursorStyleSelector",
+        optionTestTagPrefix = "CursorStyle",
+    )
 }
