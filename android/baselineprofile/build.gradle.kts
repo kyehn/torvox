@@ -30,5 +30,4 @@ dependencies {
 baselineProfile {
     automaticGenerationDuringBuild = false
     saveInSrc = true
-
 }

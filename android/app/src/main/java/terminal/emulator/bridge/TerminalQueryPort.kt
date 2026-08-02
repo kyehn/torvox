@@ -43,7 +43,7 @@ interface TerminalQueryPort {
     fun getTerminalText(): String?
     fun listFontFamilies(): List<String>?
     fun getDefaultFontName(): String
-    fun getFontInfo(): Bridge.FontInfo?
+    fun getFontInfo(): String?
 }
 
 /** Query port returning conservative defaults until ADR-0007 lands. */
@@ -72,5 +72,5 @@ class StubQueryPort : TerminalQueryPort {
     override fun getTerminalText(): String? = null
     override fun listFontFamilies(): List<String>? = null
     override fun getDefaultFontName(): String = "monospace"
-    override fun getFontInfo(): Bridge.FontInfo? = null
+    override fun getFontInfo(): String? = null
 }
