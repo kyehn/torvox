@@ -1,7 +1,5 @@
 package terminal.emulator.runtime
 
-import android.content.ClipData
-import android.content.ClipboardManager
 import android.content.Context
 import android.media.AudioManager
 import android.media.ToneGenerator
@@ -146,6 +144,10 @@ constructor(
 ) {
     /** Render-thread lifecycle supervision (C6). */
     val renderSupervisor = RenderSupervisor()
+
+    private val clipboardAccess = ClipboardAccess(context, tag = "Runtime")
+
+    private val eventDispatcher = EventDispatcher()
 
     init {
         // Warm up the bell ToneGenerator off the render thread: the first
@@ -1132,121 +1134,7 @@ constructor(
                                         }
                                         break
                                     }
-                                    if (poll.bel) {
-                                        bellToneGenerator.startTone(BEL_TONE_TYPE, BEL_TONE_DURATION_MILLIS)
-                                    }
-                                    if (poll.notification != null) {
-                                        val (title, body) = poll.notification
-                                        val toastText = if (title.isNotEmpty()) "$title: $body" else body
-                                        Handler(Looper.getMainLooper()).post {
-                                            android.widget.Toast
-                                                .makeText(context, toastText, android.widget.Toast.LENGTH_LONG)
-                                                .show()
-                                        }
-                                        terminal.emulator.ui
-                                            .TerminalNotificationHelper(context)
-                                            .showNotification(title, body)
-                                    }
-                                    if (poll.clipboard != null) {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clipData = ClipData.newPlainText("terminal clipboard", poll.clipboard)
-                                        clipboard.setPrimaryClip(clipData)
-                                    }
-                                    poll.dialogs.forEach { request ->
-                                        try {
-                                            LogUtil.i("Runtime", "MCP dialog request session=${request.sessionId} type=${request.dialogType}")
-                                            val handler = dialogRequestHandler
-                                            if (handler != null) {
-                                                handler(
-                                                    request.sessionId,
-                                                    request.requestId,
-                                                    request.dialogType,
-                                                    request.title,
-                                                    request.message,
-                                                    request.options,
-                                                )
-                                            } else {
-                                                // No handler (activity destroyed window):
-                                                // the event is already consumed, so reply
-                                                // with an empty result instead of leaving
-                                                // the native MCP tool call hanging.
-                                                LogUtil.w(
-                                                    "Runtime",
-                                                    "MCP dialog request dropped (no handler), replying empty",
-                                                )
-                                                NativeBridge
-                                                    .dialogResult(request.sessionId, request.requestId, "")
-                                            }
-                                        } catch (exception: Exception) {
-                                            LogUtil.e("Runtime", "dialog request dispatch failed", exception)
-                                            NativeBridge
-                                                .dialogResult(request.sessionId, request.requestId, "")
-                                        }
-                                    }
-                                    poll.pickFiles.forEach { request ->
-                                        try {
-                                            LogUtil.i("Runtime", "MCP pick_file request session=${request.sessionId}")
-                                            val handler = pickFileRequestHandler
-                                            if (handler != null) {
-                                                handler(
-                                                    request.sessionId,
-                                                    request.requestId,
-                                                    request.startingPath,
-                                                    request.filter,
-                                                )
-                                            } else {
-                                                LogUtil.w(
-                                                    "Runtime",
-                                                    "MCP pick_file request dropped (no handler), replying empty",
-                                                )
-                                                NativeBridge
-                                                    .dialogResult(request.sessionId, request.requestId, "")
-                                            }
-                                        } catch (exception: Exception) {
-                                            LogUtil.e("Runtime", "pick_file request dispatch failed", exception)
-                                            NativeBridge
-                                                .dialogResult(request.sessionId, request.requestId, "")
-                                        }
-                                    }
-                                    poll.toastText?.let { text ->
-                                        Handler(Looper.getMainLooper()).post {
-                                            android.widget.Toast
-                                                .makeText(context, text, android.widget.Toast.LENGTH_SHORT)
-                                                .show()
-                                        }
-                                    }
-                                    poll.openUrl?.let { url ->
-                                        try {
-                                            val intent =
-                                                android.content.Intent(
-                                                    android.content.Intent.ACTION_VIEW,
-                                                    android.net.Uri.parse(url),
-                                                )
-                                            intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                                            context.startActivity(intent)
-                                        } catch (exception: Exception) {
-                                            // Never log the URL or the exception
-                                            // stack: both may carry token/query
-                                            // parameters and LogUtil writes the
-                                            // persistent log file unconditionally
-                                            // (round-103).
-                                            LogUtil.e("Runtime", "open_url failed: ${exception.javaClass.simpleName}")
-                                        }
-                                    }
-                                    poll.clipboardGets.forEach { request ->
-                                        try {
-                                            val clipboard =
-                                                context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            val text = clipboard.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
-                                            NativeBridge
-                                                .clipboardResult(request.sessionId, request.requestId, text)
-                                        } catch (exception: Exception) {
-                                            // Class only: exception messages can embed clipboard text (round-108).
-                                            LogUtil.e("Runtime", "clipboard_get request dispatch failed: ${exception.javaClass.simpleName}")
-                                            NativeBridge
-                                                .clipboardResult(request.sessionId, request.requestId, "")
-                                        }
-                                    }
+                                    eventDispatcher.handle(poll)
                                 } catch (exception: Exception) {
                                     LogUtil.e(
                                         "Runtime",
@@ -1372,6 +1260,141 @@ constructor(
                 entry.hungRenderThread = null
             }
             return true
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // SECTION 4b: Event dispatch (extracted K3)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Dispatches non-exit poll events (bell, notification, clipboard,
+     * MCP dialogs/pick-file, toast, open-url, clipboard_get replies).
+     *
+     * Extracted from the render loop (kotlin-architecture-round2 K3) so the
+     * loop body stays a tight poll → handle → wait cycle. Inner class:
+     * accesses TerminalRuntime's handlers/context/clipboard without
+     * threading them through constructors. Exit reaping stays in the loop
+     * (it owns the break/cleanup control flow).
+     */
+    inner class EventDispatcher {
+        /**
+         * Handle all non-exit events in [poll]. Called from the render loop
+         * after exit handling. Exceptions here must never skip the loop's
+         * per-frame bookkeeping (caller wraps us in the outer try).
+         */
+        fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
+            if (poll.bel) {
+                bellToneGenerator.startTone(BEL_TONE_TYPE, BEL_TONE_DURATION_MILLIS)
+            }
+            if (poll.notification != null) {
+                val (title, body) = poll.notification
+                val toastText = if (title.isNotEmpty()) "$title: $body" else body
+                Handler(Looper.getMainLooper()).post {
+                    android.widget.Toast
+                        .makeText(context, toastText, android.widget.Toast.LENGTH_LONG)
+                        .show()
+                }
+                terminal.emulator.ui
+                    .TerminalNotificationHelper(context)
+                    .showNotification(title, body)
+            }
+            if (poll.clipboard != null) {
+                clipboardAccess.setClipboardText(poll.clipboard)
+            }
+            poll.dialogs.forEach { request ->
+                try {
+                    LogUtil.i("Runtime", "MCP dialog request session=${request.sessionId} type=${request.dialogType}")
+                    val handler = dialogRequestHandler
+                    if (handler != null) {
+                        handler(
+                            request.sessionId,
+                            request.requestId,
+                            request.dialogType,
+                            request.title,
+                            request.message,
+                            request.options,
+                        )
+                    } else {
+                        // No handler (activity destroyed window):
+                        // the event is already consumed, so reply
+                        // with an empty result instead of leaving
+                        // the native MCP tool call hanging.
+                        LogUtil.w(
+                            "Runtime",
+                            "MCP dialog request dropped (no handler), replying empty",
+                        )
+                        NativeBridge
+                            .dialogResult(request.sessionId, request.requestId, "")
+                    }
+                } catch (exception: Exception) {
+                    LogUtil.e("Runtime", "dialog request dispatch failed", exception)
+                    NativeBridge
+                        .dialogResult(request.sessionId, request.requestId, "")
+                }
+            }
+            poll.pickFiles.forEach { request ->
+                try {
+                    LogUtil.i("Runtime", "MCP pick_file request session=${request.sessionId}")
+                    val handler = pickFileRequestHandler
+                    if (handler != null) {
+                        handler(
+                            request.sessionId,
+                            request.requestId,
+                            request.startingPath,
+                            request.filter,
+                        )
+                    } else {
+                        LogUtil.w(
+                            "Runtime",
+                            "MCP pick_file request dropped (no handler), replying empty",
+                        )
+                        NativeBridge
+                            .dialogResult(request.sessionId, request.requestId, "")
+                    }
+                } catch (exception: Exception) {
+                    LogUtil.e("Runtime", "pick_file request dispatch failed", exception)
+                    NativeBridge
+                        .dialogResult(request.sessionId, request.requestId, "")
+                }
+            }
+            poll.toastText?.let { text ->
+                Handler(Looper.getMainLooper()).post {
+                    android.widget.Toast
+                        .makeText(context, text, android.widget.Toast.LENGTH_SHORT)
+                        .show()
+                }
+            }
+            poll.openUrl?.let { url ->
+                try {
+                    val intent =
+                        android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(url),
+                        )
+                    intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    context.startActivity(intent)
+                } catch (exception: Exception) {
+                    // Never log the URL or the exception
+                    // stack: both may carry token/query
+                    // parameters and LogUtil writes the
+                    // persistent log file unconditionally
+                    // (round-103).
+                    LogUtil.e("Runtime", "open_url failed: ${exception.javaClass.simpleName}")
+                }
+            }
+            poll.clipboardGets.forEach { request ->
+                try {
+                    val text = clipboardAccess.clipboardText().orEmpty()
+                    NativeBridge
+                        .clipboardResult(request.sessionId, request.requestId, text)
+                } catch (exception: Exception) {
+                    // Class only: exception messages can embed clipboard text (round-108).
+                    LogUtil.e("Runtime", "clipboard_get request dispatch failed: ${exception.javaClass.simpleName}")
+                    NativeBridge
+                        .clipboardResult(request.sessionId, request.requestId, "")
+                }
+            }
         }
     }
 

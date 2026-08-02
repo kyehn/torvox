@@ -67,9 +67,22 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  * Each [Bridge] holds a session ID and manages session lifecycle so callers
  * don't touch session IDs directly. Methods without a native counterpart
  * log a warning and return a safe default.
+ *
+ * Bridge is a gateway to the native side by design; the function count
+ * is the JNI surface, not an interface smell.
+ *
+ * # ADR-0007 placeholder methods
+ *
+ * Surface integration is deferred (ADR-0007): rendering-related methods
+ * (render/setNativeWindow/setSurfaceSize/setBackgroundParams/
+ * setCursorBlink/setCursorBlinkSpeedMs/setBackgroundImage/setTheme/
+ * setSystemLocale/setFontFamily/setFontSize/loadFontFile/
+ * getCellWidth/getCellHeight/recomputeGrid/setSelection) are
+ * no-op stubs that only log. They are deliberately grouped under the
+ * "Rendering" and "Theme / appearance" sections so that implementing
+ * ADR-0007 means filling in exactly those two blocks — every other method
+ * in this class talks to the real native session.
  */
-// Bridge is a gateway to the native side by design; the function count is
-// the JNI surface, not an interface smell.
 @Suppress("TooManyFunctions")
 class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     /** ADR-0007: query path not wired; all queries delegate to the stub. */
@@ -152,6 +165,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     fun getCellHeight(): Float = 0f
 
     // ── Rendering ─────────────────────────────────────────────────────
+    // ADR-0007: all methods in this section are placeholder stubs (log-only
+    // or constant returns). Implementing surface integration replaces this
+    // whole section; callers are already wired and unchanged.
 
     /** Render a frame. Returns >0 if output was available, 0 if idle, -1 on error. */
     fun render(shouldSkipOutput: Boolean = false): Int {
@@ -403,6 +419,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── Theme / appearance ────────────────────────────────────────────
+    // ADR-0007: placeholder stubs like the Rendering section — the native
+    // side has no theme/font JNI exports yet; OSC 10/11/4 color handling
+    // lives in the terminal engine and is applied via the palette API.
     fun setTheme(theme: BridgeTheme) {
         Log.d(TAG, "setTheme: ${theme.name}")
         // Rust GhosttyTerminal::set_theme is implemented (try_send); the
