@@ -1,5 +1,6 @@
 package terminal.emulator.settings
 
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
@@ -137,87 +138,52 @@ constructor(
         )
     }
 
-    suspend fun setFontSize(size: Float) {
-        provider.dataStore.edit { it[Keys.FONT_SIZE] = size }
-    }
+    suspend fun setFontSize(size: Float) = put(Keys.FONT_SIZE, size)
 
-    suspend fun setFontFamily(family: String) {
-        provider.dataStore.edit { it[Keys.FONT_FAMILY] = family }
-    }
+    suspend fun setFontFamily(family: String) = put(Keys.FONT_FAMILY, family)
 
-    suspend fun setThemeName(name: String) {
-        provider.dataStore.edit { it[Keys.THEME_NAME] = name }
-    }
+    suspend fun setThemeName(name: String) = put(Keys.THEME_NAME, name)
 
-    suspend fun setDayThemeName(name: String) {
-        provider.dataStore.edit { it[Keys.DAY_THEME_NAME] = name }
-    }
+    suspend fun setDayThemeName(name: String) = put(Keys.DAY_THEME_NAME, name)
 
-    suspend fun setNightThemeName(name: String) {
-        provider.dataStore.edit { it[Keys.NIGHT_THEME_NAME] = name }
-    }
+    suspend fun setNightThemeName(name: String) = put(Keys.NIGHT_THEME_NAME, name)
 
-    suspend fun setThemeMode(mode: String) {
-        provider.dataStore.edit { it[Keys.THEME_MODE] = mode }
-    }
+    suspend fun setThemeMode(mode: String) = put(Keys.THEME_MODE, mode)
 
-    suspend fun setAppThemeMode(mode: String) {
-        provider.dataStore.edit { it[Keys.APP_THEME_MODE] = mode }
-    }
+    suspend fun setAppThemeMode(mode: String) = put(Keys.APP_THEME_MODE, mode)
 
-    suspend fun setShell(shell: String) {
-        provider.dataStore.edit { it[Keys.SHELL] = shell }
-    }
+    suspend fun setShell(shell: String) = put(Keys.SHELL, shell)
 
-    suspend fun setScrollbackLines(lines: Int) {
-        provider.dataStore.edit { it[Keys.SCROLLBACK_LINES] = lines }
-    }
+    suspend fun setScrollbackLines(lines: Int) = put(Keys.SCROLLBACK_LINES, lines)
 
-    suspend fun setTouchBehavior(behavior: String) {
-        provider.dataStore.edit { it[Keys.TOUCH_BEHAVIOR] = behavior }
-    }
+    suspend fun setTouchBehavior(behavior: String) = put(Keys.TOUCH_BEHAVIOR, behavior)
 
-    suspend fun setBootstrapUrl(url: String) {
-        provider.dataStore.edit { it[Keys.BOOTSTRAP_URL] = url }
-    }
+    suspend fun setBootstrapUrl(url: String) = put(Keys.BOOTSTRAP_URL, url)
 
-    suspend fun setUseNerdFontGlyphs(enabled: Boolean) {
-        provider.dataStore.edit { it[Keys.USE_NERD_FONT_GLYPHS] = enabled }
-    }
+    suspend fun setUseNerdFontGlyphs(enabled: Boolean) = put(Keys.USE_NERD_FONT_GLYPHS, enabled)
 
-    suspend fun setUseSemanticSelection(enabled: Boolean) {
-        provider.dataStore.edit { it[Keys.USE_SEMANTIC_SELECTION] = enabled }
-    }
+    suspend fun setUseSemanticSelection(enabled: Boolean) = put(Keys.USE_SEMANTIC_SELECTION, enabled)
 
-    suspend fun setKeyboardMode(mode: String) {
-        provider.dataStore.edit { it[Keys.KEYBOARD_MODE] = mode }
-    }
+    suspend fun setKeyboardMode(mode: String) = put(Keys.KEYBOARD_MODE, mode)
 
-    suspend fun setMcpServerEnabled(enabled: Boolean) {
-        provider.dataStore.edit { it[Keys.MCP_SERVER_ENABLED] = enabled }
-    }
+    suspend fun setMcpServerEnabled(enabled: Boolean) = put(Keys.MCP_SERVER_ENABLED, enabled)
 
-    suspend fun setBackgroundImagePath(path: String) {
-        provider.dataStore.edit { it[Keys.BACKGROUND_IMAGE_PATH] = path }
-    }
+    suspend fun setBackgroundImagePath(path: String) = put(Keys.BACKGROUND_IMAGE_PATH, path)
 
-    suspend fun setBackgroundBlurRadius(radius: Int) {
-        provider.dataStore.edit { it[Keys.BACKGROUND_BLUR_RADIUS] = radius }
-    }
+    suspend fun setBackgroundBlurRadius(radius: Int) = put(Keys.BACKGROUND_BLUR_RADIUS, radius)
 
-    suspend fun setBackgroundAlpha(alpha: Float) {
-        provider.dataStore.edit { it[Keys.BACKGROUND_ALPHA] = alpha }
-    }
+    suspend fun setBackgroundAlpha(alpha: Float) = put(Keys.BACKGROUND_ALPHA, alpha)
 
-    suspend fun setCursorBlink(enabled: Boolean) {
-        provider.dataStore.edit { it[Keys.CURSOR_BLINK] = enabled }
-    }
+    suspend fun setCursorBlink(enabled: Boolean) = put(Keys.CURSOR_BLINK, enabled)
 
-    suspend fun setCursorStyle(style: String) {
-        provider.dataStore.edit { it[Keys.CURSOR_STYLE] = style }
-    }
+    suspend fun setCursorStyle(style: String) = put(Keys.CURSOR_STYLE, style)
 
-    suspend fun setCursorSpeed(speedMs: Int) {
-        provider.dataStore.edit { it[Keys.CURSOR_SPEED] = speedMs }
+    suspend fun setCursorSpeed(speedMs: Int) = put(Keys.CURSOR_SPEED, speedMs)
+
+    private suspend fun <T> put(
+        key: Preferences.Key<T>,
+        value: T,
+    ) {
+        provider.dataStore.edit { it[key] = value }
     }
 }
