@@ -4,12 +4,10 @@
   <CurrentIssues>
     <ID>CognitiveComplexMethod:BootstrapDownloader.kt$BootstrapDownloader$suspend fun download( url: String, arch: String, ): Result&lt;File></ID>
     <ID>CognitiveComplexMethod:BootstrapInstaller.kt$BootstrapInstaller$private fun processZipEntries( zis: ZipInputStream, symlinks: MutableList&lt;Pair&lt;String, String>>, onEntryProcessed: (Int) -> Unit, )</ID>
+    <ID>CognitiveComplexMethod:LogcatDumpWriter.kt$LogcatDumpWriter$private fun startLogcatThread()</ID>
     <ID>CognitiveComplexMethod:ModifierBar.kt$@Suppress("LongParameterList", "CyclomaticComplexMethod") @Composable private fun ConfigurableModifierBar( toolbarLayout: List&lt;ToolbarItem>, onKeyClick: (String) -> Unit, onDrawerClick: () -> Unit, onScrollClick: () -> Unit, ctrlState: ModifierState, altState: ModifierState, onToggleCtrl: () -> Unit, onToggleAlt: () -> Unit, textColor: Color, backgroundColor: Color, modifier: Modifier, label: (String) -> String, )</ID>
     <ID>CognitiveComplexMethod:ModifierBar.kt$@Suppress("LongParameterList", "CyclomaticComplexMethod", "LongMethod") @Composable private fun RowScope.ExtraKeyButton( text: String, onClick: () -> Unit, textColor: androidx.compose.ui.graphics.Color, isActive: Boolean = false, modifierState: ModifierState? = null, testTag: String = "", contentDescription: String? = null, onRepeat: (() -> Unit)? = null, )</ID>
     <ID>CognitiveComplexMethod:SettingsScreen.kt$@Composable internal fun AppThemeSelector( selectedMode: String, onModeSelected: (String) -> Unit, textColor: Color, cardBackground: Color, accentColor: Color, )</ID>
-    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$fun closeSession(id: Long)</ID>
-    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun closeDeadSession(entry: SessionEntry)</ID>
-    <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun handleSessionExit(entry: SessionEntry, exitCode: Int)</ID>
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
     <ID>CognitiveComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
@@ -19,13 +17,10 @@
     <ID>CognitiveComplexMethod:TerminalSurface.kt$TerminalSurface.ImeConnection$fun createInputConnection(outAttrs: EditorInfo): InputConnection</ID>
     <ID>CognitiveComplexMethod:TerminalViewModel.kt$TerminalViewModel.SelectionManager$@Suppress("CyclomaticComplexMethod") private fun extractSelectedText(selection: SelectionState): String</ID>
     <ID>CyclomaticComplexMethod:BootstrapDownloader.kt$BootstrapDownloader$suspend fun download( url: String, arch: String, ): Result&lt;File></ID>
-    <ID>CyclomaticComplexMethod:SettingsScreen.kt$@Composable private fun FontInfoSection( fontInfo: String, textColor: Color, secondaryText: Color, )</ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun controlByteForKeyCode(keyCode: Int): Byte?</ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun csiSequenceWithModifier( keyCode: Int, ctrlActive: Boolean, altActive: Boolean, ): String?</ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun escapeSequenceForKeyCode( keyCode: Int, ctrlActive: Boolean, altActive: Boolean, ): String?</ID>
-    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$fun closeSession(id: Long)</ID>
-    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun closeDeadSession(entry: SessionEntry)</ID>
-    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun handleSessionExit(entry: SessionEntry, exitCode: Int)</ID>
+    <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun activateReplacementSession( newId: Long, caller: String, markRunning: Boolean, withRetry: Boolean, syncGrid: Boolean, )</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
@@ -37,10 +32,7 @@
     <ID>InstanceOfCheckForException:TerminalRuntime.kt$TerminalRuntime$exception is kotlinx.coroutines.CancellationException</ID>
     <ID>InstanceOfCheckForException:TerminalRuntime.kt$TerminalRuntime$serviceException is kotlinx.coroutines.CancellationException</ID>
     <ID>LongMethod:SessionDrawer.kt$@Composable fun SessionDrawer( viewModel: TerminalViewModel, onSettings: () -> Unit, onSearch: () -> Unit, onClose: () -> Unit, )</ID>
-    <ID>LongMethod:SettingsScreen.kt$@Composable private fun SystemFontSelector( selectedFamily: String, onFamilySelected: (String) -> Unit, textColor: Color, cardBackground: Color, accentColor: Color, fonts: List&lt;String> = emptyList(), defaultFontName: String = "", fontInfo: String = "", onPickFontFile: (() -> Unit)? = null, )</ID>
-    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$fun closeSession(id: Long)</ID>
-    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun closeDeadSession(entry: SessionEntry)</ID>
-    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun handleSessionExit(entry: SessionEntry, exitCode: Int)</ID>
+    <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun activateReplacementSession( newId: Long, caller: String, markRunning: Boolean, withRetry: Boolean, syncGrid: Boolean, )</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>
     <ID>LongMethod:TerminalRuntime.kt$TerminalRuntime$suspend fun start( surface: Surface?, width: Int, height: Int, )</ID>
@@ -57,11 +49,11 @@
     <ID>TooGenericExceptionCaught:Bridge.kt$Bridge$exception: RuntimeException</ID>
     <ID>TooGenericExceptionCaught:Bridge.kt$Bridge$exception: Throwable</ID>
     <ID>TooGenericExceptionCaught:InputBatchBuffer.kt$InputBatchBuffer$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:LogcatDumpWriter.kt$LogcatDumpWriter$e: Exception</ID>
+    <ID>TooGenericExceptionCaught:LogcatDumpWriter.kt$LogcatDumpWriter$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:LogcatFileWriter.kt$LogcatFileWriter$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$e: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$serviceException: Exception</ID>
-    <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity.&lt;no name provided>$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:MemoryMonitor.kt$MemoryMonitor$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:SecondStageRunner.kt$SecondStageRunner$e: Exception</ID>
     <ID>TooGenericExceptionCaught:SecondStageRunner.kt$SecondStageRunner$exception: Exception</ID>
@@ -83,6 +75,7 @@
     <ID>TooGenericExceptionCaught:TerminalSurface.kt$TerminalSurface.SelectionHandles$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$e: Throwable</ID>
     <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel$exception: Exception</ID>
+    <ID>TooGenericExceptionCaught:TerminalViewModel.kt$TerminalViewModel.FontManager$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:ToolbarPreferences.kt$ToolbarPreferences$e: Exception</ID>
     <ID>TooManyFunctions:NativeBridge.kt$NativeBridge</ID>
     <ID>TooManyFunctions:SettingsRepository.kt$SettingsRepository</ID>

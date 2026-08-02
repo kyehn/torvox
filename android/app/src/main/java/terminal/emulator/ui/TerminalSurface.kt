@@ -30,6 +30,7 @@ import terminal.emulator.R
 import terminal.emulator.SelectionMode
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.TouchClass
+import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.toEditorInfo
@@ -1210,12 +1211,8 @@ constructor(
 
     private var cachedSurface: android.view.Surface? = null
 
-    private var lastTouchX = 0f
-    private var lastTouchY = 0f
     private var currentTouchX = 0f
     private var currentTouchY = 0f
-    private var lastDragCol = 0
-    private var lastDragRow = 0
 
     init {
         surfaceTextureListener = this
@@ -1368,11 +1365,6 @@ constructor(
         }
     }
 
-    fun setScrollOffset(offset: Int) {
-        this.scrollOffset = offset.coerceIn(0, currentScrollbackLength())
-        onScrollChanged?.invoke(this.scrollOffset)
-    }
-
     fun scrollToRow(row: Int) {
         val scrollbackLen = currentScrollbackLength()
         val targetOffset = (scrollbackLen - row).coerceIn(0, scrollbackLen)
@@ -1392,8 +1384,6 @@ constructor(
     fun getRows(): Int = rows
 
     fun getCols(): Int = cols
-
-    fun isCurrentlyScrolling(): Boolean = isScrolling
 
     private val inputBatchBuffer = InputBatchBuffer({ data -> viewModel?.writeToPty(data) })
 
@@ -1454,16 +1444,7 @@ constructor(
 
     private fun modifierBitmask(event: KeyEvent): Byte {
         val state = viewModel?.state?.value
-        var mask = 0
-        if (event.isShiftPressed) mask = mask or 1
-        if (event.isAltPressed || state?.altState == ModifierState.Locked || state?.altState == ModifierState.Once) {
-            mask = mask or 2
-        }
-        if (event.isCtrlPressed || state?.ctrlState == ModifierState.Locked || state?.ctrlState == ModifierState.Once) {
-            mask = mask or 4
-        }
-        if (event.isMetaPressed) mask = mask or 8
-        return mask.toByte()
+        return KeyModifiers.fromKeyEvent(event, state?.ctrlState ?: ModifierState.Off, state?.altState ?: ModifierState.Off)
     }
 
     override fun onKeyDown(
@@ -1520,8 +1501,6 @@ constructor(
             return false
         }
         if (event.action == MotionEvent.ACTION_DOWN) {
-            lastTouchX = event.x
-            lastTouchY = event.y
             parent?.requestDisallowInterceptTouchEvent(true)
         }
         if (drawerOpen && event.x < drawerWidthPixels) {
@@ -1582,8 +1561,6 @@ constructor(
                 if (isSelectingText && handleDragState != HandleDrag.NONE) {
                     val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
                     val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
-                    lastDragCol = col
-                    lastDragRow = row
                     currentTouchX = event.x
                     currentTouchY = event.y
 
@@ -1711,7 +1688,7 @@ constructor(
      */
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 5: Surface lifecycle (extract → ResizeManager)
+    // SECTION 5: Surface lifecycle (ResizeManager owns grid/size)
     // ══════════════════════════════════════════════════════════════════════
 
     override fun onSurfaceTextureAvailable(

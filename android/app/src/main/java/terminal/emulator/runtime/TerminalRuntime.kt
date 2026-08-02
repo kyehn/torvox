@@ -50,7 +50,7 @@ data class RuntimeState(
  * Session state is encoded in two booleans:
  * - running=true, renderThreadExited=false  → alive
  * - running=true, renderThreadExited=true   → dead (needs cleanup)
- * - running=false, renderThreadExited=*     → stopped (flag is stale; skip)
+ * - running=false, renderThreadExited=*     → stopped (stale entry; skip)
  * renderThreadExited is set by the render thread after loop exit;
  * always read under sessionLock alongside running.
  */
@@ -195,10 +195,7 @@ constructor(
 
     @Volatile private var activeSessionId: Long = 0L
 
-    @Volatile private var stopped = false
-
     @Volatile private var starting = false
-    private val stopLock = Any()
     private val sessionLock = Any()
 
     /**
@@ -296,109 +293,13 @@ constructor(
             if (!sessions.containsKey(entry.id)) return
             sessions.remove(entry.id)
             if (entry.id == activeSessionId) {
-                activeSessionId = sessions.keys.sorted().lastOrNull() ?: 0L
                 // The foreground session just disappeared; the replacement
                 // session has no render thread (only the active session
                 // renders) so its output/events would never be polled and
-                // the terminal would appear frozen. Restart its render
-                // thread immediately.
-                sessions[activeSessionId]?.let { replacement ->
-                    // Final join of any hung thread, same as closeSession:
-                    // if it exited meanwhile, clear the flag so a later
-                    // close() destroys the native session (no leak).
-                    // Guard against joining ourselves: this function runs on
-                    // a render thread (poll.exit), and with background-session
-                    // reaping (round-61) ANY session's render thread can end
-                    // up here — including the replacement's own, if it was
-                    // previously recorded as hung. Joining self always times
-                    // out and would freeze every session operation for the
-                    // full timeout.
-                    val hung = replacement.hungRenderThread
-                    if (
-                        replacement.renderThreadPossiblyAlive &&
-                        hung != null &&
-                        hung !== Thread.currentThread() &&
-                        hung.isAlive
-                    ) {
-                        hung.interrupt()
-                        hung.join(THREAD_JOIN_TIMEOUT_MS)
-                    }
-                    if (
-                        replacement.renderThreadPossiblyAlive &&
-                        hung != null &&
-                        hung !== Thread.currentThread() &&
-                        !hung.isAlive
-                    ) {
-                        replacement.renderThreadPossiblyAlive = false
-                        replacement.hungRenderThread = null
-                    }
-                    // Sync the native ACTIVE_SESSION_ID so pollEvent/
-                    // process_output drive the replacement session.
-                    // destroySession only clears the native active id to
-                    // 0; without an explicit switchSession the replacement
-                    // would never be polled and output stays frozen.
-                    // NOTE: this runs even when the old render thread is
-                    // still alive (it is exiting: running=false makes the
-                    // loop end) — skipping would leave native active=0 and
-                    // freeze the replacement.
-                    var nativeSwitched =
-                        try {
-                            NativeBridge.switchSession(activeSessionId)
-                        } catch (exception: Exception) {
-                            LogUtil.e("Runtime", "handleSessionExit: native switchSession failed", exception)
-                            // One retry: a transient JNI failure leaves the
-                            // native active id stale and the replacement
-                            // degraded to the background sweep rate
-                            // (2 chunks/frame).
-                            try {
-                                val retried = NativeBridge.switchSession(activeSessionId)
-                                if (retried) {
-                                    LogUtil.w("Runtime", "handleSessionExit: native switchSession recovered on retry")
-                                }
-                                retried
-                            } catch (retryException: Exception) {
-                                LogUtil.e("Runtime", "handleSessionExit: native switchSession retry failed", retryException)
-                                false
-                            }
-                        }
-                    if (!nativeSwitched) {
-                        // Same guard as closeSession: the native session is
-                        // already gone (concurrent close destroyed it).
-                        // Starting a render thread would error-loop against
-                        // a missing native session; the entry is being
-                        // removed by that close path anyway.
-                        LogUtil.w(
-                            "Runtime",
-                            "handleSessionExit: native switchSession returned false for session $activeSessionId — skipping render start",
-                        )
-                        replacement.running = false
-                        replacement.closing = true
-                    } else {
-                        // Restart unconditionally (same as closeSession): a
-                        // still-alive old thread is exiting; startRenderThread
-                        // interrupts+joins it and forces a fresh one.
-                        renderSupervisor.startRenderThread(replacement)
-                        // The replacement became active while the window is
-                        // focused; re-send focus-in so DECSET 1004 TUIs resume.
-                        if (lastWindowFocus && !replacement.closing) {
-                            replacement.bridge?.focusEvent(true)
-                        }
-                        if (replacement.closing) {
-                            // A concurrent closeSession/closeDeadSession won the
-                            // race for the replacement; startRenderThread refused
-                            // (closing flag) and reset running=false. The entry
-                            // will be removed by that close path.
-                            LogUtil.d(
-                                "Runtime",
-                                "handleSessionExit: replacement session $activeSessionId is closing — render start skipped",
-                            )
-                        } else {
-                            LogUtil.d(
-                                "Runtime",
-                                "handleSessionExit: restarted render for new active session $activeSessionId",
-                            )
-                        }
-                    }
+                // the terminal would appear frozen. Activate it now.
+                activeSessionId = sessions.keys.sorted().lastOrNull() ?: 0L
+                if (activeSessionId != 0L) {
+                    activateReplacementSession(activeSessionId, "handleSessionExit", markRunning = false, withRetry = true, syncGrid = false)
                 }
             }
             updateForegroundSessionCount(sessions.size)
@@ -441,93 +342,13 @@ constructor(
             // stale notification.
             updateForegroundSessionCount(sessions.size)
             if (entry.id == activeSessionId) {
-                val remaining = sessions.keys.sorted()
-                activeSessionId = remaining.lastOrNull() ?: 0L
                 // Same as handleSessionExit: the replacement session needs a
                 // render thread or its output/events are never polled and the
                 // terminal appears frozen.
-                sessions[activeSessionId]?.let { replacement ->
-                    // Final join of any hung thread, same as closeSession.
-                    // Guard against joining ourselves, symmetric with
-                    // handleSessionExit: this function can be called from a
-                    // render thread context in the future.
-                    val hung = replacement.hungRenderThread
-                    if (
-                        replacement.renderThreadPossiblyAlive &&
-                        hung != null &&
-                        hung !== Thread.currentThread() &&
-                        hung.isAlive
-                    ) {
-                        hung.interrupt()
-                        hung.join(THREAD_JOIN_TIMEOUT_MS)
-                    }
-                    if (
-                        replacement.renderThreadPossiblyAlive &&
-                        hung != null &&
-                        hung !== Thread.currentThread() &&
-                        !hung.isAlive
-                    ) {
-                        replacement.renderThreadPossiblyAlive = false
-                        replacement.hungRenderThread = null
-                    }
-                    // Sync the native active id so pollEvent drives the
-                    // replacement — unconditionally, even when its old thread is
-                    // still alive (it is exiting); see handleSessionExit.
-                    var nativeSwitched =
-                        try {
-                            NativeBridge.switchSession(activeSessionId)
-                        } catch (exception: Exception) {
-                            LogUtil.e("Runtime", "closeDeadSession: native switchSession failed", exception)
-                            // One retry, same rationale as handleSessionExit: a
-                            // transient JNI failure leaves the native active id
-                            // stale and the replacement degraded to the
-                            // background sweep rate (2 chunks/frame).
-                            try {
-                                val retried = NativeBridge.switchSession(activeSessionId)
-                                if (retried) {
-                                    LogUtil.w("Runtime", "closeDeadSession: native switchSession recovered on retry")
-                                }
-                                retried
-                            } catch (retryException: Exception) {
-                                LogUtil.e("Runtime", "closeDeadSession: native switchSession retry failed", retryException)
-                                false
-                            }
-                        }
-                    if (!nativeSwitched) {
-                        // Same guard as closeSession/handleSessionExit: the
-                        // native session is already gone. Skip the render
-                        // start; the entry is being removed by that close
-                        // path anyway.
-                        LogUtil.w(
-                            "Runtime",
-                            "closeDeadSession: native switchSession returned false for session $activeSessionId — skipping render start",
-                        )
-                        replacement.running = false
-                        replacement.closing = true
-                    } else {
-                        // Restart unconditionally (same as closeSession).
-                        renderSupervisor.startRenderThread(replacement)
-                        // The replacement became active while the window is
-                        // focused; re-send focus-in so DECSET 1004 TUIs resume.
-                        if (lastWindowFocus && !replacement.closing) {
-                            replacement.bridge?.focusEvent(true)
-                        }
-                        if (replacement.closing) {
-                            // A concurrent closeSession/closeDeadSession won the
-                            // race for the replacement; startRenderThread refused
-                            // (closing flag). The entry will be removed by that
-                            // close path.
-                            LogUtil.d(
-                                "Runtime",
-                                "closeDeadSession: replacement session $activeSessionId is closing — render start skipped",
-                            )
-                        } else {
-                            LogUtil.d(
-                                "Runtime",
-                                "closeDeadSession: restarted render for new active session $activeSessionId",
-                            )
-                        }
-                    }
+                val remaining = sessions.keys.sorted()
+                activeSessionId = remaining.lastOrNull() ?: 0L
+                if (activeSessionId != 0L) {
+                    activateReplacementSession(activeSessionId, "closeDeadSession", markRunning = false, withRetry = true, syncGrid = false)
                 }
             }
         } // synchronized(sessionLock)
@@ -1523,8 +1344,7 @@ constructor(
         height: Int,
     ) {
         synchronized(sessionLock) {
-            if ((!stopped && sessions.isNotEmpty()) || starting) return
-            stopped = false
+            if (sessions.isNotEmpty() || starting) return
             starting = true
         }
         // LogUtil.d already mirrors to LogcatFileWriter — no duplicate write.
@@ -1726,17 +1546,7 @@ constructor(
             var entry: SessionEntry? = null
             var abandonedReason: String? = null
             synchronized(sessionLock) {
-                if (stopped) {
-                    // stop() can run while the bootstrap download + spawn
-                    // above were in flight (it takes only stopLock+sessionLock
-                    // and we spawn outside any lock). It already cleared the
-                    // session map and stopped the foreground service;
-                    // inserting now would resurrect the service underneath
-                    // teardown and leave an orphan native session.
-                    LogUtil.w("Runtime", "start: runtime stopped during bootstrap, aborting insertion")
-                    starting = false
-                    abandonedReason = "stopped-runtime"
-                } else if (sessions.isNotEmpty()) {
+                if (sessions.isNotEmpty()) {
                     // A session was created (or start() re-entered) while the
                     // bootstrap download above was running. Inserting a second
                     // active entry would start a second render thread on the
@@ -1783,29 +1593,27 @@ constructor(
             startedEntry.forceRenderRequested = true
             // Start the render thread, publish the UI state, and start the
             // foreground service + monitor under ONE sessionLock critical
-            // section: stop() (which also takes sessionLock for its state
-            // reset + stopForegroundService) then serializes with this whole
-            // block, and the last writer wins. A check-then-publish split
-            // leaves a window where stop() completes and start() still
-            // publishes a ghost RuntimeState / resurrects the service.
+            // section: the last writer wins against concurrent close
+            // paths. A check-then-publish split leaves a window where a
+            // close completes and start() still publishes a ghost
+            // RuntimeState / resurrects the service.
             synchronized(sessionLock) {
-                val stillActive = !stopped && sessions[finalSessionId] === startedEntry
+                val stillActive = sessions[finalSessionId] === startedEntry
                 if (!stillActive) {
-                    // stop() or a concurrent close landed after our
-                    // insertion: the entry is already being cleaned up
-                    // (stop() clears the map and closes the bridge;
-                    // closeSession removed the entry). Publishing a
-                    // RuntimeState or starting the foreground service now
-                    // would resurrect a ghost UI state and the notification
-                    // underneath teardown.
+                    // A concurrent close landed after our insertion: the
+                    // entry is already being cleaned up (closeSession
+                    // removed the entry). Publishing a RuntimeState or
+                    // starting the foreground service now would resurrect a
+                    // ghost UI state and the notification underneath
+                    // teardown.
                     LogUtil.w("Runtime", "start: session $finalSessionId closed/stopped during startup, skipping render start")
                     // Defensive: keep the monitor alive for surviving
                     // sessions when this was a concurrent close rather than
-                    // a stop(). Unreachable today (start() only inserts
+                    // a full stop. Unreachable today (start() only inserts
                     // into an empty map and starting=true blocks concurrent
                     // creates, so no OTHER session can exist), but cheap to
                     // honor if that invariant ever changes.
-                    if (!stopped && sessions.isNotEmpty()) {
+                    if (sessions.isNotEmpty()) {
                         renderSupervisor.startRenderMonitor()
                     }
                     return
@@ -1921,14 +1729,6 @@ constructor(
         width: Int,
         height: Int,
     ): Long {
-        if (stopped) {
-            // start() and switchSessionInternal already guard, but a direct
-            // UI-path createSession (settings/quick-launch) must not spawn a
-            // session after stop(): the process is tearing down and the
-            // foreground service would be stopped underneath it.
-            LogUtil.e("Runtime", "createSession: runtime is stopped, aborting")
-            return -1L
-        }
         if (starting) {
             LogUtil.w("Runtime", "createSession: start() in progress (bootstrap), refusing concurrent creation")
             return -1L
@@ -2003,7 +1803,6 @@ constructor(
 
             val entry: SessionEntry
             val abandonedByStart: Boolean
-            val abandonedByStop: Boolean
             synchronized(sessionLock) {
                 if (starting) {
                     // start() (bootstrap slow path) may have begun after our
@@ -2016,18 +1815,6 @@ constructor(
                     // start() once bootstrap completes.
                     LogUtil.w("Runtime", "createSession: start() began during spawn, abandoning insertion")
                     abandonedByStart = true
-                    abandonedByStop = false
-                } else if (stopped) {
-                    // stop() may have run between our lock-free check and the
-                    // spawn (it only takes stopLock+sessionLock, and the
-                    // spawn happens outside any lock). It already cleared the
-                    // session map and stopped the foreground service;
-                    // inserting now would resurrect the service underneath
-                    // teardown and leave an orphan native session. Mirror the
-                    // abandonedByStart path: close the bridge, return -1.
-                    LogUtil.w("Runtime", "createSession: runtime stopped during spawn, abandoning insertion")
-                    abandonedByStart = false
-                    abandonedByStop = true
                 } else {
                     entry =
                         SessionEntry(
@@ -2038,10 +1825,9 @@ constructor(
                         )
                     sessions[nextId] = entry
                     abandonedByStart = false
-                    abandonedByStop = false
                 }
             }
-            if (abandonedByStart || abandonedByStop) {
+            if (abandonedByStart) {
                 // Close the bridge outside the lock (Session::drop joins the
                 // PTY reader thread) so the just-spawned native session and
                 // its shell child are not leaked.
@@ -2096,20 +1882,19 @@ constructor(
             // and without it there is no foreground notification and no
             // PARTIAL_WAKE_LOCK — background sessions can be killed.
             // Service start + liveness re-check happen in ONE sessionLock
-            // section (round-93, symmetric with start()): stop() serializes
-            // with the whole block, so it can neither land between the
-            // service start and the re-check (resurrecting the notification
-            // underneath teardown) nor clear the map mid-block (ghost id).
+            // section (round-93, symmetric with start()): serializes with
+            // concurrent close paths, so a close can neither land between
+            // the service start and the re-check (resurrecting the
+            // notification underneath teardown) nor clear the map
+            // mid-block (ghost id).
             // Guarded individually: a ForegroundServiceStartNotAllowedException
             // (API 31+ background start) or ROM SecurityException here must
             // NOT leak the already-inserted session through the generic
             // catch below (which would skip the bridge close and return -1
             // for a live session).
             val stillPresent: Boolean
-            val stoppedAfterInsertion: Boolean
             synchronized(sessionLock) {
-                stoppedAfterInsertion = stopped
-                stillPresent = !stoppedAfterInsertion && sessions.containsKey(nextId)
+                stillPresent = sessions.containsKey(nextId)
                 if (stillPresent) {
                     try {
                         startForegroundServiceIfNeeded()
@@ -2126,14 +1911,10 @@ constructor(
                 }
             }
             if (!stillPresent) {
-                if (stoppedAfterInsertion) {
-                    LogUtil.w("Runtime", "createSession: runtime stopped after insertion, rolling back session $nextId")
-                } else {
-                    LogUtil.w(
-                        "Runtime",
-                        "createSession: session $nextId removed concurrently (exit/close), rolling back",
-                    )
-                }
+                LogUtil.w(
+                    "Runtime",
+                    "createSession: session $nextId removed concurrently (exit/close), rolling back",
+                )
                 // NOTE: this close may race the lock-outside close of the
                 // path that removed the entry (handleSessionExit /
                 // closeSession). Safe by construction: Bridge.close() is
@@ -2214,10 +1995,6 @@ constructor(
             // previous session if the switch/spawn fails.
             previousActiveId = activeSessionId
             if (id == activeSessionId) return
-            if (stopped) {
-                LogUtil.e("Runtime", "switchSession: runtime is stopped, aborting")
-                return
-            }
             // ADR-0007: surface integration deferred — no ANativeWindow
             // pointer is consumed by the native side yet; setNativeWindow is
             // a stub. Previously getNativeWindowPtr() (missing JNI symbol)
@@ -2263,10 +2040,6 @@ constructor(
             }
 
             try {
-                if (stopped) {
-                    LogUtil.e("Runtime", "switchSessionInternal: runtime stopped, aborting")
-                    return
-                }
                 target.bridge?.setNativeWindow(windowPointer, width, height)
                 // Always update the GPU surface after setNativeWindow.
                 // If releaseGpuSurface was called on this bridge during a
@@ -2518,91 +2291,7 @@ constructor(
                 if (remaining.isNotEmpty()) {
                     val newId = remaining.last()
                     activeSessionId = newId
-                    val newEntry =
-                        sessions[newId] ?: run {
-                            LogUtil.w("Runtime", "closeSession: new active session $newId already removed")
-                            activeSessionId = 0L
-                            updateState()
-                            return
-                        }
-                    newEntry.running = true
-                    val bridge =
-                        newEntry.bridge ?: run {
-                            LogUtil.w("Runtime", "closeSession: new active session $newId has no bridge")
-                            activeSessionId = 0L
-                            updateState()
-                            return
-                        }
-                    // ADR-0007: surface integration deferred — setNativeWindow/
-                    // updateNativeWindow are stubs and the raw ANativeWindow
-                    // pointer is not consumed by the native side. The render
-                    // thread restart below is what actually resumes output.
-                    val nativeSwitched =
-                        try {
-                            // Sync the native ACTIVE_SESSION_ID so pollEvent/
-                            // process_output drive the replacement session.
-                            NativeBridge.switchSession(newId)
-                        } catch (exception: Exception) {
-                            LogUtil.e("Runtime", "closeSession: native switchSession failed for session $newId", exception)
-                            false
-                        }
-                    if (!nativeSwitched) {
-                        // The native session is already gone (concurrent
-                        // closeSession destroyed it before this switch).
-                        // Starting a render thread would error-loop against
-                        // a missing native session for ~2.5s; the entry is
-                        // being removed by that close path anyway. Reset the
-                        // intent flags we set above (running=true) and
-                        // refresh the UI state so nothing observes a
-                        // running-but-dead replacement in the meantime.
-                        // closing=true is defensive: if the native-side
-                        // semantics ever change (new destroy paths), the
-                        // entry cannot become a frozen zombie that the
-                        // monitor skips forever.
-                        LogUtil.w(
-                            "Runtime",
-                            "closeSession: native switchSession returned false for session $newId — skipping render start",
-                        )
-                        newEntry.running = false
-                        newEntry.closing = true
-                        updateState()
-                        return
-                    }
-                    // The replacement session may carry a hung render thread
-                    // from an earlier GPU stall (stopRenderThread's join
-                    // timed out: renderThreadRef was nulled but the old
-                    // thread may still be alive inside native code).
-                    // startRenderThread only joins renderThreadRef, so give
-                    // the hung thread one final join here: if it exited in
-                    // the meantime, clear the possibly-alive flag so a later
-                    // close() actually destroys the native session (no leak).
-                    val hungThread = newEntry.hungRenderThread
-                    if (newEntry.renderThreadPossiblyAlive && hungThread != null && hungThread.isAlive) {
-                        hungThread.interrupt()
-                        hungThread.join(THREAD_JOIN_TIMEOUT_MS)
-                    }
-                    if (newEntry.renderThreadPossiblyAlive && hungThread != null && !hungThread.isAlive) {
-                        newEntry.renderThreadPossiblyAlive = false
-                        newEntry.hungRenderThread = null
-                    }
-                    renderSupervisor.startRenderThread(newEntry)
-                    bridge.let { syncGridDimensions(it) }
-                    if (newEntry.closing) {
-                        // A concurrent closeSession/closeDeadSession won the
-                        // race for the replacement: startRenderThread refused
-                        // (closing flag) and reset running=false. The entry
-                        // will be removed by that close path.
-                        LogUtil.d("Runtime", "closeSession: replacement session $newId is closing — render start skipped")
-                    } else {
-                        // The replacement became active while the window is
-                        // focused; re-send focus-in so DECSET 1004 TUIs
-                        // resume (symmetric with handleSessionExit and
-                        // closeDeadSession replacement paths).
-                        if (lastWindowFocus) {
-                            bridge.focusEvent(true)
-                        }
-                        LogUtil.d("Runtime", "closeSession: restarted render for session $newId")
-                    }
+                    activateReplacementSession(newId, "closeSession", markRunning = true, withRetry = false, syncGrid = true)
                 } else {
                     activeSessionId = 0L
                 }
@@ -2693,51 +2382,6 @@ constructor(
         entry.bridge?.focusEvent(focused)
     }
 
-    /**
-     * Tear down every session and the render monitor. Currently unused by
-     * the app (sessions intentionally outlive the Activity; the process
-     * reaping handles final cleanup), but kept as the canonical shutdown
-     * path: it is the only place that guarantees render threads are joined
-     * and native sessions closed when the runtime must stop in-process.
-     */
-    fun stop() {
-        renderSupervisor.stopRenderMonitor()
-        synchronized(stopLock) {
-            if (stopped) return
-            stopped = true
-        }
-        // NOTE: unlike closeSession, stop() joins each render thread and
-        // closes every bridge WHILE holding sessionLock (up to ~1s per
-        // session). This is an accepted exception to the lock-outside-join
-        // rule: stop() is the process-teardown path, the `stopped` flag
-        // makes every concurrent session operation bail out, and the
-        // lock-free spawn windows that could still be in flight have been
-        // closed by the stopped re-checks in start() and createSessionInner
-        // (round-88/89) — any bridge they spawned is closed, never inserted.
-        synchronized(sessionLock) {
-            sessions.values.forEach { entry ->
-                val threadStopped = renderSupervisor.stopRenderThread(entry)
-                if (!threadStopped || entry.renderThreadPossiblyAlive) {
-                    // Same use-after-free rule as closeSession: a hung render
-                    // thread may still touch the native session, so neither
-                    // releaseGpuSurface nor bridge.close() may run.
-                    LogUtil.e("Runtime", "stop(): session ${entry.id} render thread hung — skipping surface release AND bridge close")
-                } else {
-                    entry.bridge?.releaseGpuSurface()
-                    entry.bridge?.close()
-                }
-            }
-            sessions.clear()
-            activeSessionId = 0L
-            // State reset + service stop inside the SAME lock as start()'s
-            // publish+start block: the two serialize, last writer wins, and
-            // no interleaving can leave a ghost RuntimeState published after
-            // teardown completed (round-91).
-            _state.value = RuntimeState()
-            stopForegroundService()
-        }
-    }
-
     fun pauseRendering() {
         // stopRenderThread joins the render thread (up to 1s per session);
         // on the main thread (surface destroy) with 3+ sessions this can
@@ -2770,13 +2414,6 @@ constructor(
     fun resumeRendering() {
         surfaceTransitionExecutor.execute {
             synchronized(sessionLock) {
-                if (stopped) {
-                    // stop() won the race (its teardown ran between our
-                    // surface-destroy pause and this resume); restarting the
-                    // render thread or the monitor now would resurrect work
-                    // underneath process teardown.
-                    return@execute
-                }
                 // Only the active session renders (see switchSessionInternal);
                 // starting threads for every session would create multiple
                 // consumers of the single global native event queue, and an
@@ -2792,12 +2429,10 @@ constructor(
                         LogUtil.e("Runtime", "resumeRendering failed for session ${activeEntry.id}", exception)
                     }
                 }
-                // Inside the lock (round-93): stop()'s stopRenderMonitor runs
-                // in its own stopLock+sessionLock teardown; serializing here
-                // means either stop() ran first (stopped==true, we bailed
-                // above) or our monitor starts before stop() and gets
-                // cancelled by it — never a monitor resurrected AFTER
-                // teardown completed.
+                // Inside the lock (round-93): serializing here means the
+                // monitor starts before any concurrent close path's
+                // stopRenderMonitor and gets cancelled by it — never a
+                // monitor resurrected after teardown completed.
                 renderSupervisor.startRenderMonitor()
             }
         }
@@ -2913,6 +2548,148 @@ constructor(
         }
     }
 
+    /**
+     * Activate [newId] as the foreground session after its predecessor
+     * closed: final hung-thread join, native ACTIVE_SESSION_ID sync
+     * (switchSession), render-thread restart and focus re-send.
+     *
+     * Shared by handleSessionExit, closeDeadSession and closeSession
+     * (kotlin-architecture-round3 R1) so this lock-held sequence lives in
+     * exactly one place instead of three drifting copies.
+     *
+     * Must be called with sessionLock held; the caller already removed the
+     * closing entry and set activeSessionId = [newId].
+     *
+     * @param caller log prefix (e.g. "handleSessionExit")
+     * @param markRunning set replacement.running = true first (closeSession
+     *   needs it; the exit paths already run with the session running)
+     * @param withRetry retry switchSession once on JNI failure (exit paths;
+     *   a user close skips the retry to keep latency bounded)
+     * @param syncGrid call syncGridDimensions on the replacement after the
+     *   render start (closeSession only)
+     */
+    private fun activateReplacementSession(
+        newId: Long,
+        caller: String,
+        markRunning: Boolean,
+        withRetry: Boolean,
+        syncGrid: Boolean,
+    ) {
+        val replacement =
+            sessions[newId] ?: run {
+                LogUtil.w("Runtime", "$caller: new active session $newId already removed")
+                activeSessionId = 0L
+                updateState()
+                return
+            }
+        if (markRunning) {
+            replacement.running = true
+        }
+        val bridge =
+            replacement.bridge ?: run {
+                LogUtil.w("Runtime", "$caller: new active session $newId has no bridge")
+                activeSessionId = 0L
+                updateState()
+                return
+            }
+        // Final join of any hung thread: if it exited meanwhile, clear the
+        // flag so a later close() destroys the native session (no leak).
+        // Guard against joining ourselves: the exit paths run on a render
+        // thread (poll.exit), and with background-session reaping (round-61)
+        // ANY session's render thread can end up here — including the
+        // replacement's own, if it was previously recorded as hung. Joining
+        // self always times out and would freeze every session operation
+        // for the full timeout.
+        val hung = replacement.hungRenderThread
+        if (
+            replacement.renderThreadPossiblyAlive &&
+            hung != null &&
+            hung !== Thread.currentThread() &&
+            hung.isAlive
+        ) {
+            hung.interrupt()
+            hung.join(THREAD_JOIN_TIMEOUT_MS)
+        }
+        if (
+            replacement.renderThreadPossiblyAlive &&
+            hung != null &&
+            hung !== Thread.currentThread() &&
+            !hung.isAlive
+        ) {
+            replacement.renderThreadPossiblyAlive = false
+            replacement.hungRenderThread = null
+        }
+        // Sync the native ACTIVE_SESSION_ID so pollEvent/process_output
+        // drive the replacement session. destroySession only clears the
+        // native active id to 0; without an explicit switchSession the
+        // replacement would never be polled and output stays frozen.
+        // NOTE: this runs even when the old render thread is still alive
+        // (it is exiting: running=false makes the loop end) — skipping
+        // would leave native active=0 and freeze the replacement.
+        var nativeSwitched =
+            try {
+                NativeBridge.switchSession(newId)
+            } catch (exception: Exception) {
+                LogUtil.e("Runtime", "$caller: native switchSession failed", exception)
+                if (withRetry) {
+                    // One retry: a transient JNI failure leaves the native
+                    // active id stale and the replacement degraded to the
+                    // background sweep rate (2 chunks/frame).
+                    try {
+                        val retried = NativeBridge.switchSession(newId)
+                        if (retried) {
+                            LogUtil.w("Runtime", "$caller: native switchSession recovered on retry")
+                        }
+                        retried
+                    } catch (retryException: Exception) {
+                        LogUtil.e("Runtime", "$caller: native switchSession retry failed", retryException)
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
+        if (!nativeSwitched) {
+            // Same guard on all three paths: the native session is already
+            // gone (concurrent close destroyed it). Starting a render thread
+            // would error-loop against a missing native session; the entry
+            // is being removed by that close path anyway. Reset the intent
+            // flags and refresh the UI state so nothing observes a
+            // running-but-dead replacement in the meantime. closing=true is
+            // defensive: if the native-side semantics ever change (new
+            // destroy paths), the entry cannot become a frozen zombie that
+            // the monitor skips forever.
+            LogUtil.w(
+                "Runtime",
+                "$caller: native switchSession returned false for session $newId — skipping render start",
+            )
+            replacement.running = false
+            replacement.closing = true
+            updateState()
+            return
+        }
+        // Restart unconditionally: a still-alive old thread is exiting;
+        // startRenderThread interrupts+joins it and forces a fresh one.
+        renderSupervisor.startRenderThread(replacement)
+        if (syncGrid) {
+            bridge.let { syncGridDimensions(it) }
+        }
+        // The replacement became active while the window is focused;
+        // re-send focus-in so DECSET 1004 TUIs resume.
+        if (lastWindowFocus && !replacement.closing) {
+            bridge.focusEvent(true)
+        }
+        if (replacement.closing) {
+            // A concurrent closeSession/closeDeadSession won the race for
+            // the replacement; startRenderThread refused (closing flag) and
+            // reset running=false. The entry will be removed by that close
+            // path.
+            LogUtil.d("Runtime", "$caller: replacement session $newId is closing — render start skipped")
+        } else {
+            LogUtil.d("Runtime", "$caller: restarted render for new active session $newId")
+        }
+    }
+
     private fun syncGridDimensions(bridge: Bridge) {
         val packed = bridge.getGridRowsColsPacked()
         val rows = (packed shr 32).toInt()
@@ -2941,7 +2718,7 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 4: Render loop (extract target)
+    // SECTION 4: State & surface lifecycle
     // ══════════════════════════════════════════════════════════════════════
 
     private fun updateState() {

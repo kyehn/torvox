@@ -1,10 +1,6 @@
 package terminal.emulator
 
 import android.annotation.SuppressLint
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
@@ -33,214 +29,27 @@ import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.LogcatDumpWriter
 import terminal.emulator.runtime.TerminalRuntime
+import terminal.emulator.runtime.TestBackdoorReceivers
 import terminal.emulator.ui.SettingsScreen
 import terminal.emulator.ui.TerminalScreen
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveMaterialColorScheme
-import java.io.BufferedWriter
 import java.io.File
-import java.io.FileWriter
-import java.time.LocalDateTime
-import java.time.format.DateTimeFormatter
-import java.util.Locale
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
-        private const val LOGCAT_RETRY_DELAY_MS = 5_000
-
-        /**
-         * Matches the tag column of `logcat -v time` output:
-         * `MM-DD HH:MM:SS.mmm  PID  TID T TagName: message`
-         */
-        private val LOG_TAG_PATTERN =
-            Regex("""\s+[A-Z]\s+([^:]+):""")
     }
 
     @Inject
     @Suppress("LateinitUsage") // Dagger injection
     lateinit var runtime: TerminalRuntime
 
-    private var logFile: File? = null
-    private var logWriter: BufferedWriter? = null
-
-    @Volatile private var logcatThread: Thread? = null
-
-    @Volatile private var logcatProcess: Process? = null
-    private fun startLogcatThread() {
-        if (logcatThread?.isAlive == true) return
-        logcatThread = Thread({
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                Log.w(
-                    "T",
-                    "Logcat capture not supported on Android 11+ — READ_LOGS permission unavailable; this path is expected to fail",
-                )
-                return@Thread
-            }
-            while (!Thread.currentThread().isInterrupted) {
-                try {
-                    val process = Runtime.getRuntime().exec(arrayOf("logcat", "-v", "time", "*:D"))
-                    synchronized(logLock) {
-                        // stopFileLogging() may have run between exec() and
-                        // this assignment (activity rotation): the new logcat
-                        // process must be destroyed, not leaked.
-                        if (logcatThread?.isAlive != true || Thread.currentThread().isInterrupted) {
-                            process.destroy()
-                            return@Thread
-                        }
-                        logcatProcess = process
-                    }
-                    val reader = process.inputStream.bufferedReader()
-                    for (line in reader.lineSequence()) {
-                        // Match the logcat tag column (`... 12345 12345 T TagName: message`)
-                        // for the tags we care about. Only the exact tag
-                        // column is matched — a substring check would match
-                        // message bodies and persist unrelated (possibly
-                        // sensitive) lines.
-                        val tag =
-                            LOG_TAG_PATTERN
-                                .find(line)
-                                ?.groupValues
-                                ?.getOrNull(1)
-                        if (tag == "TerminalSurface" || tag == "TerminalRuntime" || tag == "AndroidRuntime") {
-                            val timestamp = DateTimeFormatter.ofPattern("HH:mm:ss.SSS", Locale.US).format(LocalDateTime.now())
-                            synchronized(logLock) {
-                                logWriter?.write("$timestamp $line\n")
-                                logWriter?.flush()
-                            }
-                        }
-                    }
-                    Log.w("T", "Logcat stream ended, restarting in 5s")
-                    Thread.sleep(LOGCAT_RETRY_DELAY_MS.toLong())
-                } catch (e: InterruptedException) {
-                    Log.w("T", "Logcat thread interrupted, stopping")
-                    Thread.currentThread().interrupt()
-                    break
-                } catch (e: Exception) {
-                    Log.e("T", "Logcat capture failed, retrying in 5s: ${e.message}")
-                    try {
-                        Thread.sleep(LOGCAT_RETRY_DELAY_MS.toLong())
-                    } catch (e: InterruptedException) {
-                        Log.w("T", "Logcat sleep interrupted, stopping")
-                        Thread.currentThread().interrupt()
-                        break
-                    }
-                }
-            }
-        }, "FileLog").apply {
-            isDaemon = true
-        }.also { it.start() }
-    }
-
-    private val logLock = Any()
-
-    private fun initFileLogging() {
-        try {
-            val logDir = getDir("logs", Context.MODE_PRIVATE)
-            logDir.mkdirs()
-            val timestamp = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss", Locale.US).format(LocalDateTime.now())
-            val logFilePath = File(logDir, "term_$timestamp.log")
-            logFile = logFilePath
-            logWriter = BufferedWriter(FileWriter(logFilePath, true), 8192)
-            startLogcatThread()
-            Log.d("T", "File logging: ${logFilePath.absolutePath}")
-        } catch (exception: Exception) {
-            Log.e("T", "Failed to init file logging", exception)
-        }
-    }
-
-    private fun stopFileLogging() {
-        try {
-            synchronized(logLock) {
-                // destroy() closes the process's stdin/stdout/stderr, which
-                // unblocks readLine() — interrupt() alone cannot interrupt a
-                // thread blocked on stream IO, so without this the old logcat
-                // process leaks on every activity recreation (rotation).
-                logcatProcess?.destroy()
-                logcatProcess = null
-                logcatThread?.interrupt()
-                logcatThread = null
-                logWriter?.close()
-                logWriter = null
-            }
-        } catch (exception: Exception) {
-            Log.w(TAG, "stopFileLogging failed", exception)
-        }
-    }
-
-    private fun tryUnregisterReceiver(
-        receiver: BroadcastReceiver,
-        name: String,
-    ) {
-        try {
-            unregisterReceiver(receiver)
-        } catch (exception: IllegalArgumentException) {
-            Log.w(TAG, "$name not registered", exception)
-        }
-    }
-
-    private val terminalDumpReceiver =
-        object : BroadcastReceiver() {
-            override fun onReceive(
-                context: Context,
-                intent: Intent,
-            ) {
-                Thread {
-                    try {
-                        val bridge = runtime.bridge()
-                        val text =
-                            if (bridge != null) {
-                                bridge.getTerminalText() ?: "(empty)"
-                            } else {
-                                "(no active session)"
-                            }
-                        val file = java.io.File(context.cacheDir, "terminal_dump.txt")
-                        file.writeText(text)
-                        Log.d("T", "Terminal dump: ${file.absolutePath} (${text.length} chars)")
-                    } catch (exception: Exception) {
-                        Log.e("T", "Terminal dump failed", exception)
-                    }
-                }.apply {
-                    isDaemon = true
-                    start()
-                }
-            }
-        }
-
-    private val inputReceiver =
-        object : BroadcastReceiver() {
-            override fun onReceive(
-                context: Context,
-                intent: Intent,
-            ) {
-                val text = intent.getStringExtra("text") ?: return
-                terminalViewModel.clearSelection()
-                Thread {
-                    try {
-                        // Never log the input payload: it may contain
-                        // passwords/tokens and lands in the persisted logcat
-                        // dump (term_*.log). Length only.
-                        Log.d("T", "Input received (len=${text.length})")
-                        val processed =
-                            text
-                                .replace("\\n", "\n")
-                                .replace("\\r", "\r")
-                                .replace("\\t", "\t")
-                        val data = (processed + "\n").byteInputStream().readBytes()
-                        runtime.writeToPty(data)
-                        Log.d("T", "Input sent: ${data.size} bytes")
-                    } catch (exception: Exception) {
-                        Log.e("T", "Input failed", exception)
-                    }
-                }.apply {
-                    isDaemon = true
-                    start()
-                }
-            }
-        }
+    private val logcatDumpWriter = LogcatDumpWriter(this)
 
     private var previousNightMode: Int? = null
 
@@ -272,59 +81,69 @@ class MainActivity : ComponentActivity() {
 
     internal val terminalViewModel: terminal.emulator.TerminalViewModel by viewModels()
 
-    private val selectAllReceiver =
-        object : BroadcastReceiver() {
-            override fun onReceive(
-                context: Context,
-                intent: Intent,
-            ) {
-                val viewModel = terminalViewModel
-                viewModel.selectAll()
-                Log.d("T", "selectAll called via broadcast, active=${viewModel.state.value.selection.active}")
-            }
-        }
-
-    private val partialSelectReceiver =
-        object : BroadcastReceiver() {
-            override fun onReceive(
-                context: Context,
-                intent: Intent,
-            ) {
-                val viewModel = terminalViewModel
-                // Clamp: the receiver is NOT_EXPORTED, but instrumentation
-                // (same-uid) can still broadcast; a hostile broadcast could
-                // otherwise carry Int.MAX and trigger a multi-billion-
-                // iteration main-thread loop (ANR). A generous upper bound
-                // is enough since terminal grids are small (tens of rows /
-                // hundreds of cols).
-                val startRow = intent.getIntExtra("startRow", 0).coerceIn(0, 4095)
-                val startCol = intent.getIntExtra("startCol", 0).coerceIn(0, 4095)
-                val endRow = intent.getIntExtra("endRow", 2).coerceIn(0, 4095)
-                val endCol = intent.getIntExtra("endCol", 10).coerceIn(0, 4095)
-                viewModel.startSelection(startRow, startCol)
-                viewModel.updateSelection(endRow, endCol)
-                viewModel.endSelection()
+    private val testBackdoorReceivers =
+        TestBackdoorReceivers(
+            context = this,
+            onDumpTerminal = { ctx ->
+                Thread {
+                    try {
+                        val bridge = runtime.bridge()
+                        val text =
+                            if (bridge != null) {
+                                bridge.getTerminalText() ?: "(empty)"
+                            } else {
+                                "(no active session)"
+                            }
+                        val file = java.io.File(ctx.cacheDir, "terminal_dump.txt")
+                        file.writeText(text)
+                        Log.d("T", "Terminal dump: ${file.absolutePath} (${text.length} chars)")
+                    } catch (exception: Exception) {
+                        Log.e("T", "Terminal dump failed", exception)
+                    }
+                }.apply {
+                    isDaemon = true
+                    start()
+                }
+            },
+            onInput = { text ->
+                terminalViewModel.clearSelection()
+                Thread {
+                    try {
+                        // Never log the input payload: it may contain
+                        // passwords/tokens and lands in the persisted logcat
+                        // dump (term_*.log). Length only.
+                        Log.d("T", "Input received (len=${text.length})")
+                        val processed =
+                            text
+                                .replace("\\n", "\n")
+                                .replace("\\r", "\r")
+                                .replace("\\t", "\t")
+                        val data = (processed + "\n").byteInputStream().readBytes()
+                        runtime.writeToPty(data)
+                        Log.d("T", "Input sent: ${data.size} bytes")
+                    } catch (exception: Exception) {
+                        Log.e("T", "Input failed", exception)
+                    }
+                }.apply {
+                    isDaemon = true
+                    start()
+                }
+            },
+            onSelectAll = {
+                terminalViewModel.selectAll()
+                Log.d("T", "selectAll called via broadcast, active=${terminalViewModel.state.value.selection.active}")
+            },
+            onPartialSelect = { startRow, startCol, endRow, endCol ->
+                terminalViewModel.startSelection(startRow, startCol)
+                terminalViewModel.updateSelection(endRow, endCol)
+                terminalViewModel.endSelection()
                 Log.d("T", "partialSelect: ($startRow,$startCol)->($endRow,$endCol)")
-            }
-        }
-
-    private val showPasteReceiver =
-        object : BroadcastReceiver() {
-            override fun onReceive(
-                context: Context,
-                intent: Intent,
-            ) {
-                val viewModel = terminalViewModel
-                // Clamp defensively: the receiver is registered with
-                // RECEIVER_NOT_EXPORTED (round-98) so only in-process
-                // broadcasts can reach it, but clamping stays as cheap
-                // defense against a buggy sender.
-                val row = intent.getIntExtra("row", 10).coerceIn(0, 4095)
-                val col = intent.getIntExtra("col", 0).coerceIn(0, 4095)
-                viewModel.showPastePopup(row, col)
+            },
+            onShowPaste = { row, col ->
+                terminalViewModel.showPastePopup(row, col)
                 Log.d("T", "showPaste: row=$row col=$col")
-            }
-        }
+            },
+        )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -335,35 +154,8 @@ class MainActivity : ComponentActivity() {
             .setDecorFitsSystemWindows(window, false)
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.setFormat(PixelFormat.TRANSPARENT)
-        initFileLogging()
-        registerReceiver(
-            terminalDumpReceiver,
-            IntentFilter("terminal.emulator.DUMP_TERMINAL"),
-            Context.RECEIVER_NOT_EXPORTED,
-        )
-        registerReceiver(
-            inputReceiver,
-            IntentFilter("terminal.emulator.INPUT"),
-            Context.RECEIVER_NOT_EXPORTED,
-        )
-        registerReceiver(
-            selectAllReceiver,
-            IntentFilter("terminal.emulator.SELECT_ALL"),
-            // Test backdoors must not be triggerable by third-party apps;
-            // same-process (instrumentation) broadcasters still reach a
-            // NOT_EXPORTED receiver.
-            Context.RECEIVER_NOT_EXPORTED,
-        )
-        registerReceiver(
-            partialSelectReceiver,
-            IntentFilter("terminal.emulator.PARTIAL_SELECT"),
-            Context.RECEIVER_NOT_EXPORTED,
-        )
-        registerReceiver(
-            showPasteReceiver,
-            IntentFilter("terminal.emulator.SHOW_PASTE"),
-            Context.RECEIVER_NOT_EXPORTED,
-        )
+        logcatDumpWriter.start()
+        testBackdoorReceivers.register()
         try {
             terminal.emulator.service.TerminalForegroundService
                 .start(this)
@@ -629,7 +421,8 @@ class MainActivity : ComponentActivity() {
         }
         pendingDialogRequest = null
         super.onDestroy()
-        stopFileLogging()
+        testBackdoorReceivers.unregister()
+        logcatDumpWriter.stop()
         // Stop the foreground service when no session is running. Without
         // this, the service (and its PARTIAL_WAKE_LOCK) stays alive forever
         // after the user leaves the app, draining the battery and pinning a
@@ -637,11 +430,6 @@ class MainActivity : ComponentActivity() {
         // The runtime re-checks under its session lock: a background session
         // created on the IO thread may have raced the (older) state snapshot.
         runtime.stopForegroundServiceIfIdle()
-        tryUnregisterReceiver(terminalDumpReceiver, "terminalDumpReceiver")
-        tryUnregisterReceiver(inputReceiver, "inputReceiver")
-        tryUnregisterReceiver(selectAllReceiver, "selectAllReceiver")
-        tryUnregisterReceiver(partialSelectReceiver, "partialSelectReceiver")
-        tryUnregisterReceiver(showPasteReceiver, "showPasteReceiver")
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {

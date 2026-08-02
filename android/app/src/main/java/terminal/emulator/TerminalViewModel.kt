@@ -30,6 +30,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.next
@@ -160,6 +161,15 @@ constructor(
     private val clipboardAccess = ClipboardAccess(context, tag = "ViewModel")
     private val clipboardPaster = ClipboardPaster(clipboardAccess)
     private val selectionManager = SelectionManager()
+    private val fontManager = FontManager()
+
+    // ── Font forwards (implementation in FontManager) ─────────────────────
+
+    fun setFontSize(size: Float) = fontManager.setFontSize(size)
+
+    fun setFontFamily(family: String) = fontManager.setFontFamily(family)
+
+    fun installFontFile(uri: Uri) = fontManager.installFontFile(uri)
 
     // ── Selection forwards (implementation in SelectionManager) ────────────
 
@@ -551,6 +561,198 @@ constructor(
         fun pasteFromClipboard(): Int = clipboardPaster.pasteTo { runtime.writeToPty(it) }
     }
 
+    // ══════════════════════════════════════════════════════════════════════
+    // SECTION 2b: Font management (extracted R4)
+    // ══════════════════════════════════════════════════════════════════════
+
+    /**
+     * Owns font loading, size/family settings and font-file installation.
+     * Extracted from TerminalViewModel (kotlin-architecture-round3 R4).
+     * Inner class: accesses the font StateFlows, runtime, settingsRepository
+     * and context via the outer view model. loadFonts() refreshes the flows
+     * after install.
+     */
+    inner class FontManager {
+        fun loadFonts() {
+            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                try {
+                    val bridge = runtime.bridge()
+                    val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
+                    val fileSystemFonts = terminal.emulator.settings.systemFonts()
+                    val userFonts =
+                        try {
+                            val allUserFonts = mutableListOf<String>()
+                            val filesDir = context.filesDir.resolve("fonts")
+                            if (filesDir.isDirectory) {
+                                allUserFonts.addAll(
+                                    filesDir
+                                        .listFiles()
+                                        ?.filter { it.isFile && (it.extension == "ttf" || it.extension == "otf") }
+                                        ?.map { it.nameWithoutExtension }
+                                        ?: emptyList(),
+                                )
+                            }
+                            val cacheDir = context.cacheDir.resolve("fonts")
+                            if (cacheDir.isDirectory) {
+                                cacheDir
+                                    .listFiles()
+                                    ?.filter { it.isFile && (it.extension == "ttf" || it.extension == "otf") }
+                                    ?.forEach { cachedFile ->
+                                        val destFile = java.io.File(filesDir, cachedFile.name)
+                                        if (!destFile.exists()) {
+                                            cachedFile.copyTo(destFile)
+                                        }
+                                        cachedFile.delete()
+                                        allUserFonts.add(cachedFile.nameWithoutExtension)
+                                    }
+                                if (cacheDir.listFiles().isNullOrEmpty()) {
+                                    cacheDir.delete()
+                                }
+                            }
+                            allUserFonts.distinct()
+                        } catch (exception: Exception) {
+                            Log.e(TAG, "Failed to load user fonts", exception)
+                            emptyList()
+                        }
+                    val allFonts =
+                        (rustFontFamilies + fileSystemFonts + userFonts)
+                            .distinct()
+                            .sorted()
+                    _availableFonts.value = allFonts
+                    _defaultFontName.value = bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
+                    _fontInfo.value =
+                        bridge?.getFontInfo()?.let { it.toString() } ?: "Font: ${_defaultFontName.value}\n(CJK fallback info available after session starts)"
+                } catch (exception: Exception) {
+                    Log.e("TerminalViewModel", "Failed to load font list", exception)
+                    _availableFonts.value = emptyList()
+                }
+            }
+        }
+
+        fun setFontSize(size: Float) {
+            viewModelScope.launch(Dispatchers.IO) {
+                settingsRepository.setFontSize(size)
+                runtime.applyFontSettings()
+                val bridge = runtime.bridge()
+                if (bridge != null) {
+                    _fontInfo.value = bridge.getFontInfo()?.let { it.toString() } ?: "No font loaded"
+                }
+            }
+        }
+
+        fun setFontFamily(family: String) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    android.util.Log.d("Font", "Setting font family: $family")
+                    settingsRepository.setFontFamily(family)
+                    runtime.applyFontSettings()
+                    val bridge = runtime.bridge()
+                    val fontName = bridge?.getDefaultFontName() ?: "monospace"
+                    val fontInfo = bridge?.getFontInfo()?.let { it.toString() } ?: "No font loaded"
+                    _defaultFontName.value = fontName
+                    _fontInfo.value = fontInfo
+                    android.util.Log.d("Font", "Font applied: $fontName")
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        android.widget.Toast
+                            .makeText(context, "Font applied: $fontName", android.widget.Toast.LENGTH_SHORT)
+                            .show()
+                    }
+                } catch (exception: Exception) {
+                    android.util.Log.e("Font", "setFontFamily failed for $family", exception)
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        android.widget.Toast
+                            .makeText(
+                                context,
+                                "Font apply failed: ${exception.message}",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                    }
+                }
+            }
+        }
+
+        fun installFontFile(uri: Uri) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    val rawName = getFileNameFromUri(uri) ?: uri.lastPathSegment ?: "custom_font.ttf"
+                    // Sanitize: DISPLAY_NAME from a content provider may contain
+                    // path separators or "..", which would escape fontsDir and
+                    // overwrite app-private files.
+                    val fileName = sanitizeFontFileName(rawName)
+                    val fontsDir =
+                        context.filesDir.resolve("fonts").also { dir ->
+                            if (!dir.mkdirs()) {
+                                Log.w("TerminalViewModel", "Failed to create fonts directory: $dir")
+                            }
+                        }
+                    val destFile = java.io.File(fontsDir, fileName)
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        destFile.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    } ?: run {
+                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                            android.widget.Toast
+                                .makeText(context, "Failed to read font file", android.widget.Toast.LENGTH_SHORT)
+                                .show()
+                        }
+                        return@launch
+                    }
+
+                    android.util.Log.d("Font", "Font file copied: ${destFile.absolutePath} (${destFile.length()} bytes)")
+
+                    val familyName = runtime.loadFontFile(destFile.absolutePath)
+                    if (familyName != null) {
+                        android.util.Log.d("Font", "Font loaded: family=$familyName")
+                        settingsRepository.setFontFamily(familyName)
+                        runtime.applyFontSettings()
+                        loadFonts()
+                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                            android.widget.Toast
+                                .makeText(context, "Font installed: $familyName", android.widget.Toast.LENGTH_SHORT)
+                                .show()
+                        }
+                    } else {
+                        android.util.Log.e("Font", "Font load failed: null family from ${destFile.absolutePath}")
+                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                            android.widget.Toast
+                                .makeText(context, "Font not supported or corrupted", android.widget.Toast.LENGTH_SHORT)
+                                .show()
+                        }
+                    }
+                } catch (exception: Exception) {
+                    android.util.Log.e("TerminalViewModel", "installFontFile failed", exception)
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        android.widget.Toast
+                            .makeText(
+                                context,
+                                "Font installation failed: ${exception.message}",
+                                android.widget.Toast.LENGTH_SHORT,
+                            ).show()
+                    }
+                }
+            }
+        }
+
+        fun getFileNameFromUri(uri: Uri): String? {
+            val cursor = context.contentResolver.query(uri, null, null, null, null)
+            return cursor?.use {
+                if (it.moveToFirst()) {
+                    val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (index >= 0) it.getString(index) else null
+                } else {
+                    null
+                }
+            }
+        }
+
+        fun sanitizeFontFileName(name: String): String {
+            val base = name.substringAfterLast('/').substringAfterLast('\\')
+            if (base.isEmpty() || base == "." || base == "..") return "custom_font.ttf"
+            return base
+        }
+    }
+
     companion object {
         private const val TAG = "TerminalViewModel"
         private const val STOP_TIMEOUT_MILLIS = 5000L
@@ -644,7 +846,7 @@ constructor(
                             .isNotEmpty()
                     ) {
                         if (_availableFonts.value.isEmpty()) {
-                            loadFonts()
+                            fontManager.loadFonts()
                         } else {
                             val bridge = runtime.bridge()
                             _defaultFontName.value = bridge?.getDefaultFontName() ?: ""
@@ -729,64 +931,8 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 2: Font management (extract → FontManager)
+    // SECTION 2: Session orchestration & settings setters
     // ══════════════════════════════════════════════════════════════════════
-
-    private fun loadFonts() {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            try {
-                val bridge = runtime.bridge()
-                val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
-                val fileSystemFonts = terminal.emulator.settings.systemFonts()
-                val userFonts =
-                    try {
-                        val allUserFonts = mutableListOf<String>()
-                        val filesDir = context.filesDir.resolve("fonts")
-                        if (filesDir.isDirectory) {
-                            allUserFonts.addAll(
-                                filesDir
-                                    .listFiles()
-                                    ?.filter { it.isFile && (it.extension == "ttf" || it.extension == "otf") }
-                                    ?.map { it.nameWithoutExtension }
-                                    ?: emptyList(),
-                            )
-                        }
-                        val cacheDir = context.cacheDir.resolve("fonts")
-                        if (cacheDir.isDirectory) {
-                            cacheDir
-                                .listFiles()
-                                ?.filter { it.isFile && (it.extension == "ttf" || it.extension == "otf") }
-                                ?.forEach { cachedFile ->
-                                    val destFile = java.io.File(filesDir, cachedFile.name)
-                                    if (!destFile.exists()) {
-                                        cachedFile.copyTo(destFile)
-                                    }
-                                    cachedFile.delete()
-                                    allUserFonts.add(cachedFile.nameWithoutExtension)
-                                }
-                            if (cacheDir.listFiles().isNullOrEmpty()) {
-                                cacheDir.delete()
-                            }
-                        }
-                        allUserFonts.distinct()
-                    } catch (exception: Exception) {
-                        Log.e(TAG, "Failed to load user fonts", exception)
-                        emptyList()
-                    }
-                val allFonts =
-                    (rustFontFamilies + fileSystemFonts + userFonts)
-                        .distinct()
-                        .sorted()
-                _availableFonts.value = allFonts
-                _defaultFontName.value = bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
-                _fontInfo.value =
-                    bridge?.getFontInfo()?.let { it.toString() } ?: "Font: ${_defaultFontName.value}\n(CJK fallback info available after session starts)"
-            } catch (exception: Exception) {
-                Log.e("TerminalViewModel", "Failed to load font list", exception)
-                _availableFonts.value = emptyList()
-            }
-        }
-    }
 
     fun ensureDefaultSession() {
         if (!shouldCreateDefaultSession(
@@ -801,111 +947,6 @@ constructor(
         }
         android.util.Log.d("TerminalViewModel", "ensureDefaultSession: creating default session")
         createSession()
-    }
-
-    fun setFontSize(size: Float) {
-        viewModelScope.launch(Dispatchers.IO) {
-            settingsRepository.setFontSize(size)
-            runtime.applyFontSettings()
-            val bridge = runtime.bridge()
-            if (bridge != null) {
-                _fontInfo.value = bridge.getFontInfo()?.let { it.toString() } ?: "No font loaded"
-            }
-        }
-    }
-
-    fun setFontFamily(family: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                android.util.Log.d("Font", "Setting font family: $family")
-                settingsRepository.setFontFamily(family)
-                runtime.applyFontSettings()
-                val bridge = runtime.bridge()
-                val fontName = bridge?.getDefaultFontName() ?: "monospace"
-                val fontInfo = bridge?.getFontInfo()?.let { it.toString() } ?: "No font loaded"
-                _defaultFontName.value = fontName
-                _fontInfo.value = fontInfo
-                android.util.Log.d("Font", "Font applied: $fontName")
-                kotlinx.coroutines.withContext(Dispatchers.Main) {
-                    android.widget.Toast
-                        .makeText(context, "Font applied: $fontName", android.widget.Toast.LENGTH_SHORT)
-                        .show()
-                }
-            } catch (exception: Exception) {
-                android.util.Log.e("Font", "setFontFamily failed for $family", exception)
-                kotlinx.coroutines.withContext(Dispatchers.Main) {
-                    android.widget.Toast
-                        .makeText(
-                            context,
-                            "Font apply failed: ${exception.message}",
-                            android.widget.Toast.LENGTH_SHORT,
-                        ).show()
-                }
-            }
-        }
-    }
-
-    fun installFontFile(uri: Uri) {
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val rawName = getFileNameFromUri(uri) ?: uri.lastPathSegment ?: "custom_font.ttf"
-                // Sanitize: DISPLAY_NAME from a content provider may contain
-                // path separators or "..", which would escape fontsDir and
-                // overwrite app-private files.
-                val fileName = sanitizeFontFileName(rawName)
-                val fontsDir =
-                    context.filesDir.resolve("fonts").also { dir ->
-                        if (!dir.mkdirs()) {
-                            Log.w("TerminalViewModel", "Failed to create fonts directory: $dir")
-                        }
-                    }
-                val destFile = java.io.File(fontsDir, fileName)
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    destFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                } ?: run {
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        android.widget.Toast
-                            .makeText(context, "Failed to read font file", android.widget.Toast.LENGTH_SHORT)
-                            .show()
-                    }
-                    return@launch
-                }
-
-                android.util.Log.d("Font", "Font file copied: ${destFile.absolutePath} (${destFile.length()} bytes)")
-
-                val familyName = runtime.loadFontFile(destFile.absolutePath)
-                if (familyName != null) {
-                    android.util.Log.d("Font", "Font loaded: family=$familyName")
-                    settingsRepository.setFontFamily(familyName)
-                    runtime.applyFontSettings()
-                    loadFonts()
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        android.widget.Toast
-                            .makeText(context, "Font installed: $familyName", android.widget.Toast.LENGTH_SHORT)
-                            .show()
-                    }
-                } else {
-                    android.util.Log.e("Font", "Font load failed: null family from ${destFile.absolutePath}")
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        android.widget.Toast
-                            .makeText(context, "Font not supported or corrupted", android.widget.Toast.LENGTH_SHORT)
-                            .show()
-                    }
-                }
-            } catch (exception: Exception) {
-                android.util.Log.e("TerminalViewModel", "installFontFile failed", exception)
-                kotlinx.coroutines.withContext(Dispatchers.Main) {
-                    android.widget.Toast
-                        .makeText(
-                            context,
-                            "Font installation failed: ${exception.message}",
-                            android.widget.Toast.LENGTH_SHORT,
-                        ).show()
-                }
-            }
-        }
     }
 
     fun setTouchBehavior(behavior: String) {
@@ -1082,86 +1123,57 @@ constructor(
         }
     }
 
-    fun setCursorBlink(enabled: Boolean) {
+    fun setCursorBlink(enabled: Boolean) = applyCursorSetting({ settingsRepository.setCursorBlink(enabled) }) { bridge ->
+        bridge.setCursorBlinkEnabled(enabled)
+    }
+
+    fun setCursorSpeed(speedMs: Int) = applyCursorSetting({ settingsRepository.setCursorSpeed(speedMs) }) { bridge ->
+        bridge.setCursorBlinkSpeedMs(speedMs.coerceIn(100, 1000))
+    }
+
+    fun setCursorStyle(style: String) = applyCursorSetting({ settingsRepository.setCursorStyle(style) }) { bridge ->
+        bridge.setCursorStyle(style)
+    }
+
+    /**
+     * Persist a cursor setting then push it to the bridge and force a
+     * render. Shared by the three cursor setters (R10: round-3
+     * architecture).
+     */
+    private fun applyCursorSetting(
+        persist: suspend () -> Unit,
+        applyToBridge: (terminal.emulator.bridge.Bridge) -> Unit,
+    ) {
         viewModelScope.launch {
-            settingsRepository.setCursorBlink(enabled)
+            persist()
             val bridge = runtime.bridge() ?: return@launch
-            bridge.setCursorBlinkEnabled(enabled)
+            applyToBridge(bridge)
             runtime.forceRender()
         }
     }
 
-    fun setCursorSpeed(speedMs: Int) {
-        viewModelScope.launch {
-            settingsRepository.setCursorSpeed(speedMs)
-            val bridge = runtime.bridge() ?: return@launch
-            bridge.setCursorBlinkSpeedMs(speedMs.coerceIn(100, 1000))
-            runtime.forceRender()
-        }
-    }
+    fun setThemeName(name: String) = applyThemeSettings { settingsRepository.setThemeName(name) }
 
-    fun setCursorStyle(style: String) {
-        viewModelScope.launch {
-            settingsRepository.setCursorStyle(style)
-            val bridge = runtime.bridge() ?: return@launch
-            bridge.setCursorStyle(style)
-            runtime.forceRender()
-        }
-    }
+    fun setDayThemeName(name: String) = applyThemeSettings { settingsRepository.setDayThemeName(name) }
 
-    fun setThemeName(name: String) {
+    fun setNightThemeName(name: String) = applyThemeSettings { settingsRepository.setNightThemeName(name) }
+
+    fun setThemeMode(mode: String) = applyThemeSettings { settingsRepository.setThemeMode(mode) }
+
+    fun setAppThemeMode(mode: String) = applyThemeSettings { settingsRepository.setAppThemeMode(mode) }
+
+    /**
+     * Persist a theme setting then re-apply the whole theme to the bridge.
+     * Shared by the five theme setters (R10: round-3 architecture).
+     */
+    private fun applyThemeSettings(persist: suspend () -> Unit) {
         viewModelScope.launch {
-            settingsRepository.setThemeName(name)
+            persist()
             runtime.applySettings()
-        }
-    }
-
-    fun setDayThemeName(name: String) {
-        viewModelScope.launch {
-            settingsRepository.setDayThemeName(name)
-            runtime.applySettings()
-        }
-    }
-
-    fun setNightThemeName(name: String) {
-        viewModelScope.launch {
-            settingsRepository.setNightThemeName(name)
-            runtime.applySettings()
-        }
-    }
-
-    fun setThemeMode(mode: String) {
-        viewModelScope.launch {
-            settingsRepository.setThemeMode(mode)
-            runtime.applySettings()
-        }
-    }
-
-    fun setAppThemeMode(mode: String) {
-        viewModelScope.launch {
-            settingsRepository.setAppThemeMode(mode)
-            runtime.applySettings()
-        }
-    }
-
-    fun getFileNameFromUri(uri: Uri): String? {
-        val cursor = context.contentResolver.query(uri, null, null, null, null)
-        return cursor?.use {
-            if (it.moveToFirst()) {
-                val index = it.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                if (index >= 0) it.getString(index) else null
-            } else {
-                null
-            }
         }
     }
 
     /** Keep only the final path segment and reject any traversal. */
-    private fun sanitizeFontFileName(name: String): String {
-        val base = name.substringAfterLast('/').substringAfterLast('\\')
-        if (base.isEmpty() || base == "." || base == "..") return "custom_font.ttf"
-        return base
-    }
 
     private val shellTextDebounce = MutableStateFlow("")
     private val bootstrapUrlDebounce = MutableStateFlow("")
@@ -1202,11 +1214,7 @@ constructor(
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    // SECTION 3: Selection management (extract → SelectionManager)
-    // ══════════════════════════════════════════════════════════════════════
-
-    // SECTION 4: Keyboard modifier handling (extract → KeyboardHandler)
-    // ══════════════════════════════════════════════════════════════════════
+    // SECTION 4: Keyboard & hardware-key handling
 
     fun handleLayoutAwareHardwareKey(event: KeyEvent): Boolean {
         if (event.action != KeyEvent.ACTION_DOWN) return false
@@ -1252,13 +1260,7 @@ constructor(
         // Build the modifier mask from the sticky toolbar state only. Shift is
         // already baked into the produced character by getUnicodeChar.
         val state = _state.value
-        var mask = 0
-        if (state.ctrlState == ModifierState.Locked || state.ctrlState == ModifierState.Once) {
-            mask = mask or 4
-        }
-        if (state.altState == ModifierState.Locked || state.altState == ModifierState.Once) {
-            mask = mask or 2
-        }
+        val mask = KeyModifiers.fromStickyStates(state.ctrlState, state.altState)
 
         // The unshifted codepoint is the base key with no modifiers applied:
         // recompute the character with SHIFT removed so the encoder can detect a
@@ -1280,10 +1282,6 @@ constructor(
             )
         }
         return success
-    }
-
-    fun setScrollActive(active: Boolean) {
-        _state.update { it.copy(scrollActive = active) }
     }
 
     fun toggleScrollMode() {
