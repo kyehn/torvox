@@ -1,6 +1,7 @@
 package terminal.emulator.bridge
 
 import android.util.Log
+import terminal.emulator.runtime.LogUtil
 
 /**
  * Shell configuration for a terminal session.
@@ -90,6 +91,10 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     @Volatile private var sessionId: Long = 0L
 
+    @Volatile private var lastSurfaceWidth: Int = 0
+
+    @Volatile private var lastSurfaceHeight: Int = 0
+
     fun ping(): String {
         if (!NativeBridge.isNativeLoaded()) throw RuntimeException("native library not loaded")
         return "native library OK, sessions=${NativeBridge.getSessionCount()}"
@@ -171,11 +176,26 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     /** Render a frame. Returns >0 if output was available, 0 if idle, -1 on error. */
     fun render(shouldSkipOutput: Boolean = false): Int {
-        // No per-frame log: this runs at 60fps on the render thread and
-        // would spam logcat. Debug via logcat tag filtering if needed.
-        // WARNING: no native JNI export for render() — the render loop
-        // currently calls pollEvent() in a tight loop instead.
-        return 0
+        if (sessionId == 0L) return 0
+        return try {
+            NativeBridge.render(sessionId, lastSurfaceWidth, lastSurfaceHeight)
+        } catch (exception: RuntimeException) {
+            // Class only: exception messages can embed session data (round-108).
+            LogUtil.e("Bridge", "render failed: ${exception.javaClass.simpleName}")
+            -1
+        }
+    }
+
+    /** Attach the Android Surface for GPU rendering (ADR-0007). */
+    fun attachSurface(surface: Any, width: Int, height: Int) {
+        if (sessionId == 0L) return
+        lastSurfaceWidth = width
+        lastSurfaceHeight = height
+        try {
+            NativeBridge.attachWindow(sessionId, surface, width, height)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "attachWindow failed: ${exception.javaClass.simpleName}")
+        }
     }
 
     /**

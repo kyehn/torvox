@@ -29,7 +29,8 @@ impl FontPipeline {
         let mut db = font_db::load_font_database();
 
         #[cfg(target_os = "android")]
-        if let Ok(extra) = font_db::EXTRA_FONT_PATHS.read() {
+        {
+            let extra = font_db::EXTRA_FONT_PATHS.read();
             for path in extra.iter() {
                 if path.is_file() {
                     if let Err(error) = db.load_font_file(path) {

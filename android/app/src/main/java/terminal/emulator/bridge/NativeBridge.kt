@@ -131,6 +131,13 @@ object NativeBridge {
     @JvmStatic
     external fun detachWindow(sessionId: Long)
 
+    /**
+     * Render one frame for the session from the CellData fast path
+     * (ADR-0007). Returns 1 if output was presented, 0 if idle, -1 on error.
+     */
+    @JvmStatic
+    external fun render(sessionId: Long, width: Int, height: Int): Int
+
     // ── MCP server ──────────────────────────────────────────────────────
 
     /** Enable or disable the MCP server. Starts/stops as needed. */

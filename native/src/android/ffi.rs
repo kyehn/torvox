@@ -126,6 +126,12 @@ unsafe extern "C" {
         surface: JObjectPtr,
     ) -> *mut std::ffi::c_void;
     pub(crate) fn ANativeWindow_release(window: *mut std::ffi::c_void);
+    pub(crate) fn ANativeWindow_setBuffersGeometry(
+        window: *mut std::ffi::c_void,
+        width: i32,
+        height: i32,
+        format: i32,
+    ) -> i32;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -139,6 +145,48 @@ struct SessionEntry {
 
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Global render state (ADR-0007): the wgpu renderer + font pipeline used
+/// by the Android render thread. Created lazily on the first
+/// `attachWindow`, owned by the JNI render thread (Kotlin's render loop
+/// calls `render` from exactly one thread). `Renderer` is `Send + Sync`
+/// (verified by a compile-time test in render::context), so a Mutex is
+/// sound; contention is negligible (one `render` call per frame).
+static RENDER_STATE: std::sync::Mutex<Option<RenderState>> = std::sync::Mutex::new(None);
+
+/// Session id whose surface is currently attached to the (global) render
+/// state, 0 = none. `detachWindow` only drops the surface when the caller
+/// is the owning session — `switchSession` attaches the new session's
+/// surface before releasing the old one, and an unconditional detach would
+/// wipe the just-attached surface (black screen for every session after
+/// the first).
+#[cfg(target_os = "android")]
+static ATTACHED_SESSION_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+struct RenderState {
+    renderer: crate::render::context::Renderer,
+    font_pipeline: crate::render::font::FontPipeline,
+}
+
+/// Ensure the render state exists, creating the renderer + font pipeline
+/// on first use. Panics on GPU init failure (fatal — no graceful
+/// degradation, per project policy: a terminal without rendering is
+/// broken and must not limp along).
+fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
+    let mut guard = RENDER_STATE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if guard.is_none() {
+        let renderer = crate::render::context::Renderer::new_with_no_surface();
+        let font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        *guard = Some(RenderState {
+            renderer,
+            font_pipeline,
+        });
+        log::info!("render state initialized (renderer + font pipeline)");
+    }
+    guard
+}
 
 /// Lock SESSION_REGISTRY for reading, recovering from poison.
 fn rlock_session_registry() -> parking_lot::RwLockReadGuard<'static, HashMap<u64, SessionEntry>> {
@@ -1203,16 +1251,149 @@ fn attach_window_inner(
 
     log::info!("FFI: attachWindow ptr={:p} {}x{}", ptr, width, height);
 
-    // NOTE: Surface lifecycle integration is pending (ADR-0007). We do not
-    // yet use the ANativeWindow pointer in the render thread. Release it
-    // immediately to avoid leaking a native window resource on every
-    // attachWindow call. When surface integration is implemented, the
-    // pointer should be wrapped in the RAII `NativeWindow` type and
-    // released after the wgpu surface that references it.
-    // SAFETY: `ptr` is a valid ANativeWindow* from `ANativeWindow_fromSurface`
-    // and has not been used elsewhere. `ANativeWindow_release` is a documented
-    // NDK function that decrements the window's reference count.
+    // ADR-0007: hand the ANativeWindow to the renderer. wgpu takes its own
+    // reference when the surface is created, so the caller-owned reference
+    // from ANativeWindow_fromSurface is released here (the wgpu surface
+    // keeps the window alive until detachWindow drops it).
+    //
+    // Explicitly match the swapchain configuration on the BufferQueue:
+    // TextureView-backed surfaces can otherwise stay at a stale/default
+    // geometry, and SwiftShader-on-emulator refuses to dequeue buffers
+    // whose format/geometry disagree with the queue (dequeueBuffer
+    // timeout). WINDOW_FORMAT_RGBA_8888 = 1.
+    // SAFETY: `ptr` is a valid ANativeWindow* (checked non-null above);
+    // ANativeWindow_setBuffersGeometry is a documented NDK function.
+    unsafe {
+        ANativeWindow_setBuffersGeometry(ptr, width, height, 1);
+    }
+    let mut state = render_state_mut();
+    let renderer = &mut state
+        .as_mut()
+        .expect("render_state_mut always initializes")
+        .renderer;
+    let session_id = _session_id as u64;
+    match renderer.attach_surface(ptr.cast(), width.max(0) as u32, height.max(0) as u32) {
+        Ok(()) => {
+            ATTACHED_SESSION_ID.store(session_id, std::sync::atomic::Ordering::Release);
+            log::info!("FFI: attachWindow surface attached (session {session_id})");
+        }
+        Err(error) => {
+            log::error!("FFI: attachWindow surface attach failed: {error}");
+        }
+    }
+    // SAFETY: `ptr` is a valid ANativeWindow* from
+    // `ANativeWindow_fromSurface`. Whether attach succeeded or failed, the
+    // caller-owned reference must be released: wgpu acquired its own
+    // reference when the surface was created (success path), and nobody
+    // adopted it otherwise (failure path). `ANativeWindow_release` is a
+    // documented NDK function that decrements the window's refcount.
     unsafe { ANativeWindow_release(ptr) };
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: render — render one frame from the CellData fast path
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Render one frame for the active session. Returns:
+/// - 1 if output was available and a frame was presented,
+/// - 0 if the session had no pending cell data (idle),
+/// - -1 on error (surface missing, GPU failure, unknown session).
+///
+/// Called from Kotlin's render loop (one thread). `width`/`height` are
+/// advisory (the attached surface config owns the real dimensions) but
+/// kept so a future resize path can reconfigure the swapchain here.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    _width: jint,
+    _height: jint,
+) -> jint {
+    // A panic escaping this JNI export would abort the whole process.
+    // Convert it into a Java exception instead.
+    jni_export_guard!(&mut env, -1, { render_inner(session_id as u64) })
+}
+
+fn render_inner(session_id: u64) -> jint {
+    // Check surface readiness first (cheap lock, no session lock held):
+    // when no surface is attached there is nothing to present, and
+    // draining the CellData channel in that state would drop the latest
+    // snapshot for no benefit. Keeps the two locks disjoint.
+    {
+        let state = RENDER_STATE
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let ready = state.as_ref().is_some_and(|s| s.renderer.surface.is_some());
+        if !ready {
+            return 0;
+        }
+    }
+    // Collect cell data first (session lock), then render (render-state
+    // lock) — the two locks are never held at the same time.
+    let (cells, cursor_info, rows, cols) = {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&session_id) else {
+            log::warn!("render: unknown session {session_id}");
+            return -1;
+        };
+        let session = entry.session.lock();
+        let Some((cells, cursor_info)) = session.terminal().receive_cell_data() else {
+            return 0; // idle: no pending output
+        };
+        let (rows, cols) = session.grid_size();
+        (cells, cursor_info, rows, cols)
+    };
+
+    let mut state = render_state_mut();
+    let Some(render_state) = state.as_mut() else {
+        log::error!("render: render state missing");
+        return -1;
+    };
+    if render_state.renderer.surface.is_none() {
+        // No surface attached yet (attachWindow not called / surface lost).
+        return 0;
+    }
+    // Lazy one-time pipeline creation (mirrors the test helpers): the cell
+    // pipeline is created from the attached surface's format on first render.
+    if render_state.renderer.cell_pipeline.is_none() {
+        let (w, h) = render_state
+            .renderer
+            .surface_config
+            .as_ref()
+            .map_or((0, 0), |c| (c.width, c.height));
+        if w == 0 || h == 0 {
+            return 0;
+        }
+        render_state
+            .renderer
+            .initialize_pipeline_and_bind_group(1024, 1024, w, h);
+    }
+    let cursor = crate::render::CellCursor {
+        row: cursor_info.row,
+        col: cursor_info.col,
+        visible: cursor_info.visible,
+        style: cursor_info.style,
+        color: None,
+    };
+    match render_state.renderer.render_cell_data(
+        &cells,
+        rows,
+        cols,
+        cursor,
+        &mut render_state.font_pipeline,
+        1024.0,
+        1024.0,
+        None,
+        None,
+        &[],
+    ) {
+        Ok(()) => 1,
+        Err(error) => {
+            log::error!("render: frame failed: {error}");
+            -1
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1239,8 +1420,41 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_detachWindow(
 
 #[cfg(target_os = "android")]
 fn detach_window_inner(_env: &mut JNIEnv, _class: JClass, _session_id: jlong) {
-    log::info!("FFI: detachWindow");
-    // NOTE: Surface lifecycle integration is pending (ADR-0007).
+    let session_id = _session_id as u64;
+    // Only the session that owns the attached surface may drop it:
+    // switchSession attaches the new session's surface BEFORE detaching
+    // the old one, so an unconditional detach would wipe the just-attached
+    // surface (black screen for every session after the first).
+    //
+    // The ownership check and the surface drop happen under the SAME
+    // RENDER_STATE lock (attach_window_inner also takes it): an
+    // owner-check-then-drop split would let a concurrent attach (new owner
+    // stored) slip in between and have its fresh surface dropped.
+    let Ok(mut state) = RENDER_STATE.lock() else {
+        log::error!("detachWindow: render state lock poisoned");
+        return;
+    };
+    if ATTACHED_SESSION_ID
+        .compare_exchange(
+            session_id,
+            0,
+            std::sync::atomic::Ordering::AcqRel,
+            std::sync::atomic::Ordering::Acquire,
+        )
+        .is_err()
+    {
+        log::debug!(
+            "detachWindow: session {session_id} does not own the attached surface, ignoring",
+        );
+        return;
+    }
+    log::info!("FFI: detachWindow (session {session_id})");
+    // ADR-0007: drop the wgpu surface; the next attachWindow recreates it.
+    // The ANativeWindow reference wgpu held is released when the Surface
+    // is dropped.
+    if let Some(render_state) = state.as_mut() {
+        render_state.renderer.release_surface();
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════

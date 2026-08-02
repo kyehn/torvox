@@ -23,6 +23,8 @@ serde = { version = "1", default-features = false, features = [
 ] }
 thiserror = { version = "2", default-features = false }
 wgpu = "30"
+wgpu-types = "30"
+raw-window-handle = "0.6"
 bytemuck = { version = "1", features = ["derive"] }
 cosmic-text = "0.19"
 fontdb = "0.23"
