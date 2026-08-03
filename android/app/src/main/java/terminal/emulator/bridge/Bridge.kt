@@ -72,17 +72,15 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  * Bridge is a gateway to the native side by design; the function count
  * is the JNI surface, not an interface smell.
  *
- * # ADR-0007 placeholder methods
+ * # ADR-0007 surface integration (implemented)
  *
- * Surface integration is deferred (ADR-0007): rendering-related methods
- * (render/setNativeWindow/setSurfaceSize/setBackgroundParams/
- * setCursorBlink/setCursorBlinkSpeedMs/setBackgroundImage/setTheme/
- * setSystemLocale/setFontFamily/setFontSize/loadFontFile/
- * getCellWidth/getCellHeight/recomputeGrid/setSelection) are
- * no-op stubs that only log. They are deliberately grouped under the
- * "Rendering" and "Theme / appearance" sections so that implementing
- * ADR-0007 means filling in exactly those two blocks — every other method
- * in this class talks to the real native session.
+ * The rendering path is live: `render`/`attachSurface`/`releaseGpuSurface`
+ * map to the wgpu renderer via JNI, and the background-image, cursor-blink
+ * and render-pause settings are wired end-to-end (rounds 202-204). The
+ * remaining log-only helpers (`recomputeGrid`, `getCellWidth/Height`,
+ * `loadFontFile`, `setSystemLocale`, ...) are either superseded by other
+ * channels (attachSurface carries the size; events carry grid dims) or are
+ * query-path stubs backed by [NativeQueryPort].
  */
 @Suppress("TooManyFunctions")
 class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
@@ -158,26 +156,51 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
-    /** Recompute grid from pixel dimensions (rows/cols derived by native side). */
+    /**
+     * Recompute the grid from pixel dimensions. The cell-size calculation
+     * lives in Rust: the renderer derives cell metrics from the font
+     * pipeline, and [TerminalRuntime.syncGridDimensions] pulls the real
+     * grid via [getGridRowsColsPacked] after a resize. This method only
+     * logs (round-204: the native side resolves rows/cols from events).
+     */
     fun recomputeGrid(width: Int, height: Int) {
-        // Currently native resize expects rows/cols, not pixels.
-        // This is a placeholder — the actual cell-size calculation lives in Rust.
         Log.d(TAG, "recomputeGrid($width,$height) — native resolves rows/cols from events")
     }
 
-    fun getGridRowsColsPacked(): Long = // Placeholder — real values arrive via pollEvent(). 0 means
-        // "unknown": callers must not overwrite real dimensions with it
-        // (a fixed 24x80 here would later shrink a running PTY through a
-        // resize() triggered by the settings path).
-        0L
+    fun getGridRowsColsPacked(): Long {
+        if (sessionId == 0L) return 0L
+        return try {
+            NativeBridge.getGridRowsColsPacked(sessionId)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "getGridRowsColsPacked failed: ${exception.javaClass.simpleName}")
+            0L
+        }
+    }
 
-    fun getCellWidth(): Float = 0f
-    fun getCellHeight(): Float = 0f
+    fun getCellWidth(): Float {
+        if (sessionId == 0L) return 0f
+        return try {
+            NativeBridge.getCellWidth(sessionId)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "getCellWidth failed: ${exception.javaClass.simpleName}")
+            0f
+        }
+    }
+
+    fun getCellHeight(): Float {
+        if (sessionId == 0L) return 0f
+        return try {
+            NativeBridge.getCellHeight(sessionId)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "getCellHeight failed: ${exception.javaClass.simpleName}")
+            0f
+        }
+    }
 
     // ── Rendering ─────────────────────────────────────────────────────
-    // ADR-0007: all methods in this section are placeholder stubs (log-only
-    // or constant returns). Implementing surface integration replaces this
-    // whole section; callers are already wired and unchanged.
+    // ADR-0007 surface integration is implemented (rounds 202-204):
+    // render/attachSurface/releaseGpuSurface/setRenderPaused map to the
+    // wgpu renderer via JNI.
 
     /** Render a frame. Returns >0 if output was available, 0 if idle, -1 on error. */
     fun render(): Int {
@@ -224,12 +247,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         return !Thread.currentThread().isInterrupted
     }
 
-    fun setNativeWindow(windowPointer: Long, width: Int, height: Int) {
-        Log.d(TAG, "setNativeWindow($windowPointer, $width, $height)")
-    }
-
-    fun updateNativeWindow(windowPointer: Long, width: Int, height: Int) = setNativeWindow(windowPointer, width, height)
-
     fun releaseGpuSurface() {
         Log.d(TAG, "releaseGpuSurface()")
         if (sessionId != 0L) NativeBridge.detachWindow(sessionId)
@@ -237,11 +254,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     fun setRenderPaused(paused: Boolean) {
         Log.d(TAG, "setRenderPaused($paused)")
-    }
-
-    /** Notify native renderer of new surface dimensions. */
-    fun setSurfaceSize(width: Int, height: Int) {
-        Log.d(TAG, "setSurfaceSize($width, $height)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setRenderPaused(sessionId, paused)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setRenderPaused failed: ${exception.javaClass.simpleName}")
+        }
     }
 
     fun setBackgroundParams(radius: Int, alpha: Int) {
@@ -254,16 +272,39 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
+    @Volatile private var cursorBlinkEnabled = true
+    @Volatile private var cursorBlinkSpeedMs = 600
+
     fun setCursorBlinkEnabled(enabled: Boolean) {
-        Log.d(TAG, "setCursorBlink($enabled)")
+        cursorBlinkEnabled = enabled
+        Log.d(TAG, "setCursorBlink($enabled, speed=$cursorBlinkSpeedMs)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setCursorBlink(sessionId, enabled, cursorBlinkSpeedMs)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setCursorBlinkEnabled failed: ${exception.javaClass.simpleName}")
+        }
     }
 
     fun setCursorBlinkSpeedMs(ms: Int) {
-        Log.d(TAG, "setCursorBlinkSpeedMs(${ms}ms)")
+        cursorBlinkSpeedMs = ms.coerceIn(100, 1000)
+        Log.d(TAG, "setCursorBlinkSpeedMs(${cursorBlinkSpeedMs}ms)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setCursorBlink(sessionId, cursorBlinkEnabled, cursorBlinkSpeedMs)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setCursorBlinkSpeedMs failed: ${exception.javaClass.simpleName}")
+        }
     }
 
     fun resetCursorBlink() {
         Log.d(TAG, "resetCursorBlink()")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.resetCursorBlink(sessionId)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "resetCursorBlink failed: ${exception.javaClass.simpleName}")
+        }
     }
 
     fun setBackgroundImage(rgbaData: ByteArray, width: Int, height: Int) {
@@ -470,8 +511,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── Theme / appearance ────────────────────────────────────────────
-    // ADR-0007: placeholder stubs like the Rendering section — the native
-    // side has no theme/font JNI exports yet; OSC 10/11/4 color handling
+    // Wired end-to-end (rounds 202-204): setTheme packs 54 bytes
+    // (bg3 fg3 ansi48) for the native palette; OSC 10/11/4 color handling
     // lives in the terminal engine and is applied via the palette API.
     fun setTheme(theme: BridgeTheme) {
         Log.d(TAG, "setTheme: ${theme.name}")
@@ -491,35 +532,79 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             theme.ansi12, theme.ansi13, theme.ansi14, theme.ansi15,
         )
         ansi.forEachIndexed { i, c -> packColor(6 + i * 3, c) }
-        NativeBridge.setTheme(sessionId, data)
+        try {
+            NativeBridge.setTheme(sessionId, data)
+        } catch (exception: RuntimeException) {
+            // Race: session destroyed between the check and the call.
+            Log.d(TAG, "setTheme: session $sessionId already destroyed, dropping")
+        }
     }
 
     fun setSystemLocale(locale: String) {
         Log.d(TAG, "setSystemLocale($locale)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setSystemLocale(sessionId, locale)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setSystemLocale failed: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    fun setExtraFontPaths(paths: List<String>) {
+        Log.d(TAG, "setExtraFontPaths($paths)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setExtraFontPaths(sessionId, paths.toTypedArray())
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setExtraFontPaths failed: ${exception.javaClass.simpleName}")
+        }
     }
     fun setFontFamily(family: String) {
         Log.d(TAG, "setFontFamily($family)")
-    }
-    fun setFontSize(sizeTenths: Int) {
-        Log.d(TAG, "setFontSize($sizeTenths)")
-    }
-    fun setFontSizeInPlace(sizeTenths: Int) {
-        Log.d(TAG, "setFontSizeInPlace($sizeTenths)")
-    }
-    fun setCursorStyle(style: String) {
-        Log.d(TAG, "setCursorStyle($style)")
-    }
-    fun setExtraFontPaths(paths: List<String>) {
-        Log.d(TAG, "setExtraFontPaths($paths)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setFontFamily(sessionId, family)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setFontFamily failed: ${exception.javaClass.simpleName}")
+        }
     }
 
-    // ADR-0007 stub: font parsing lives in the native font pipeline, which is
-    // not wired yet. Returning null makes the installer report the font as
-    // unsupported — a deliberate honest failure (per project preference, do
-    // not pretend success when the feature is unavailable).
+    fun setFontSize(sizeTenths: Int) {
+        Log.d(TAG, "setFontSize($sizeTenths)")
+        setFontSizeInPlace(sizeTenths)
+    }
+
+    fun setFontSizeInPlace(sizeTenths: Int) {
+        Log.d(TAG, "setFontSizeInPlace($sizeTenths)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setFontSizeInPlace(sessionId, sizeTenths)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setFontSizeInPlace failed: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    fun setCursorStyle(style: String) {
+        Log.d(TAG, "setCursorStyle($style)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setCursorStyle(sessionId, style)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setCursorStyle failed: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    // Custom font loading probes the file in native code (fontdb), registers
+    // it with the renderer and returns the family name; null on failure.
     fun loadFontFile(path: String): String? {
         Log.d(TAG, "loadFontFile($path)")
-        return null
+        if (sessionId == 0L) return null
+        return try {
+            NativeBridge.loadFontFile(sessionId, path)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "loadFontFile failed: ${exception.javaClass.simpleName}")
+            null
+        }
     }
 
     // ── Input ─────────────────────────────────────────────────────────

@@ -73,7 +73,7 @@ use jni::JNIEnv;
 use jni::objects::JObject;
 use jni::objects::{JClass, JString};
 use jni::sys::{
-    JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jint, jlong, jobjectArray, jsize, jstring,
+    JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jfloat, jint, jlong, jobjectArray, jsize, jstring,
 };
 
 use crate::terminal::ShellEnv;
@@ -184,6 +184,35 @@ struct RenderState {
     pending_bg_image: Option<(Vec<u8>, u32, u32)>,
     /// Set by `clearBackgroundImage`; consumed by the render thread.
     pending_bg_image_clear: bool,
+    /// App-level cursor blink (user setting, distinct from the VT cursor
+    /// visibility the terminal itself controls). `enabled` + `speed_ms`
+    /// come from `setCursorBlink`; `phase_reset_ms` is updated by
+    /// `resetCursorBlink` so a user interaction restarts the blink phase
+    /// with the cursor visible (round-204).
+    cursor_blink_enabled: bool,
+    cursor_blink_speed_ms: u64,
+    cursor_blink_phase_reset_ms: u64,
+    /// Last rendered frame (cells + cursor + dims). Needed for app-level
+    /// cursor blink: `render()` only draws when the terminal produced new
+    /// CellData, so an idle terminal would never repaint the cursor phase.
+    /// When blink is enabled and the phase flips, the cached frame is
+    /// redrawn with the cursor visibility toggled (round-204).
+    last_frame: Option<(
+        Vec<crate::terminal::ghostty_terminal::CellData>,
+        crate::terminal::ghostty_terminal::CursorInfo,
+        u32,
+        u32,
+    )>,
+    /// Blink phase (0 = visible half, 1 = hidden half) of the last drawn
+    /// frame; used to detect phase flips while idle.
+    last_blink_phase: Option<u64>,
+    /// App-level cursor style override (user setting), applied on top of
+    /// the terminal's own cursor style. `None` = follow the terminal.
+    cursor_style_override: Option<crate::terminal::CursorStyle>,
+    /// Bumped by `setCursorStyle`; idle repaint happens when it changes
+    /// (same gate as the blink phase).
+    cursor_style_version: u64,
+    last_drawn_style_version: u64,
 }
 
 /// Ensure the render state exists, creating the renderer + font pipeline
@@ -203,6 +232,14 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             search_highlights: Vec::new(),
             pending_bg_image: None,
             pending_bg_image_clear: false,
+            cursor_blink_enabled: true,
+            cursor_blink_speed_ms: 600,
+            cursor_blink_phase_reset_ms: 0,
+            last_frame: None,
+            last_blink_phase: None,
+            cursor_style_override: None,
+            cursor_style_version: 0,
+            last_drawn_style_version: 0,
         });
         log::info!("render state initialized (renderer + font pipeline)");
     }
@@ -1410,19 +1447,41 @@ fn render_inner(session_id: u64) -> jint {
         }
     }
     // Collect cell data (session lock), then render (render-state lock) —
-    // the two locks are never held at the same time.
-    let (cells, cursor_info, rows, cols) = {
+    // the two locks are never held at the same time. When the terminal has
+    // no new output (idle), fall back to the cached frame if the cursor
+    // blink phase flipped — an idle terminal must still repaint the cursor.
+    let (cells, cursor_info, rows, cols, is_new_data) = {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&session_id) else {
             log::warn!("render: unknown session {session_id}");
             return -1;
         };
         let session = entry.session.lock();
-        let Some((cells, cursor_info)) = session.terminal().receive_cell_data() else {
-            return 0; // idle: no pending output
-        };
-        let (rows, cols) = session.grid_size();
-        (cells, cursor_info, rows, cols)
+        match session.terminal().receive_cell_data() {
+            Some((cells, cursor_info)) => {
+                let (rows, cols) = session.grid_size();
+                (cells, cursor_info, rows, cols, true)
+            }
+            None => {
+                // Idle. Blink repaint decision is made below under the
+                // render-state lock; here we only need to know whether a
+                // cached frame exists (checked there).
+                let state = render_state_mut();
+                let Some(render_state) = (*state).as_ref() else {
+                    return 0;
+                };
+                match &render_state.last_frame {
+                    Some((cached_cells, cached_cursor, cached_rows, cached_cols)) => (
+                        cached_cells.clone(),
+                        *cached_cursor,
+                        *cached_rows,
+                        *cached_cols,
+                        false,
+                    ),
+                    None => return 0,
+                }
+            }
+        }
     };
 
     let mut state = render_state_mut();
@@ -1434,14 +1493,46 @@ fn render_inner(session_id: u64) -> jint {
         // No surface attached yet (attachWindow not called / surface lost).
         return 0;
     }
-    let cursor = crate::render::CellCursor {
+    let mut cursor = crate::render::CellCursor {
         row: cursor_info.row,
         col: cursor_info.col,
         visible: cursor_info.visible,
-        style: cursor_info.style,
+        style: render_state
+            .cursor_style_override
+            .unwrap_or(cursor_info.style),
         color: None,
     };
-    match render_state.renderer.render_cell_data(
+    // App-level cursor blink (user setting): when enabled, hide the
+    // cursor during the second half of each blink cycle, measured from
+    // the last phase reset. The terminal's own cursor visibility still
+    // gates it (`cursor_info.visible`).
+    let mut blink_phase = 0u64;
+    if render_state.cursor_blink_enabled {
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_millis() as u64);
+        let speed = render_state.cursor_blink_speed_ms.max(50);
+        let phase = now_ms.saturating_sub(render_state.cursor_blink_phase_reset_ms);
+        blink_phase = (phase / speed) % 2;
+        if blink_phase == 1 {
+            cursor.visible = false;
+        }
+    }
+    // Idle repaint gate: only redraw the cached frame when the blink
+    // phase actually flipped (otherwise every render() call would repaint
+    // at full rate and burn CPU on an idle terminal).
+    if !is_new_data {
+        let phase_changed = render_state.last_blink_phase != Some(blink_phase);
+        let style_changed =
+            render_state.last_drawn_style_version != render_state.cursor_style_version;
+        if !render_state.cursor_blink_enabled && !style_changed {
+            return 0;
+        }
+        if render_state.cursor_blink_enabled && !phase_changed && !style_changed {
+            return 0;
+        }
+    }
+    let result = render_state.renderer.render_cell_data(
         &cells,
         rows,
         cols,
@@ -1452,7 +1543,13 @@ fn render_inner(session_id: u64) -> jint {
         None,
         None,
         &render_state.search_highlights,
-    ) {
+    );
+    if result.is_ok() {
+        render_state.last_frame = Some((cells, cursor_info, rows, cols));
+        render_state.last_blink_phase = Some(blink_phase);
+        render_state.last_drawn_style_version = render_state.cursor_style_version;
+    }
+    match result {
         Ok(()) => 1,
         Err(error) => {
             log::error!("render: frame failed: {error}");
@@ -2328,5 +2425,332 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundP
             render_state.renderer.set_background_params(blur, alpha);
             log::info!("setBackgroundParams: blur={blur} alpha={alpha}");
         }
+    })
+}
+
+/// Set the app-level cursor blink (user setting). `enabled=false` forces
+/// the cursor to follow only the terminal's own visibility; `enabled=true`
+/// blinks at `speed_ms` (clamped 50..=2000) from the last phase reset.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorBlink(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    enabled: jboolean,
+    speed_ms: jint,
+) {
+    jni_export_guard!(&mut env, (), {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.cursor_blink_enabled = enabled != 0;
+            render_state.cursor_blink_speed_ms = (speed_ms as u64).clamp(50, 2000);
+            log::info!(
+                "setCursorBlink: enabled={} speed={}ms",
+                render_state.cursor_blink_enabled,
+                render_state.cursor_blink_speed_ms
+            );
+        }
+    })
+}
+
+/// Restart the app-level blink phase with the cursor visible (called on
+/// user interaction so the cursor reappears immediately).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetCursorBlink(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+) {
+    jni_export_guard!(&mut env, (), {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.cursor_blink_phase_reset_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis() as u64);
+            log::info!("resetCursorBlink: phase reset");
+        }
+    })
+}
+
+/// Pause/resume the renderer (e.g. while the settings screen is open or
+/// the surface is destroyed). The Rust renderer already checks
+/// `render_paused` in render_frame; this JNI export is the missing wire.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPaused(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    paused: jboolean,
+) {
+    jni_export_guard!(&mut env, (), {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.renderer.set_render_paused(paused != 0);
+            log::info!("setRenderPaused: paused={}", paused != 0);
+        }
+    })
+}
+
+/// App-level cursor style override ("block" | "bar" | "underline").
+/// Any other value clears the override (follow the terminal).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    style: JString,
+) {
+    jni_export_guard!(&mut env, (), {
+        let style_str = match env.get_string(&style) {
+            Ok(s) => s.to_string_lossy().into_owned(),
+            Err(_) => return,
+        };
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.cursor_style_override = match style_str.as_str() {
+                "block" => Some(crate::terminal::CursorStyle::Block),
+                "bar" => Some(crate::terminal::CursorStyle::Bar),
+                "underline" => Some(crate::terminal::CursorStyle::Underline),
+                _ => None,
+            };
+            render_state.cursor_style_version = render_state.cursor_style_version.wrapping_add(1);
+            log::info!("setCursorStyle: {style_str}");
+        }
+    })
+}
+
+/// Set the font family of the renderer's font pipeline. Returns true if
+/// the family was found.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    family: JString,
+) -> jboolean {
+    jni_export_guard!(&mut env, JNI_FALSE, {
+        let family_str = match env.get_string(&family) {
+            Ok(s) => s.to_string_lossy().into_owned(),
+            Err(_) => return JNI_FALSE,
+        };
+        let mut state = render_state_mut();
+        let Some(render_state) = state.as_mut() else {
+            return JNI_FALSE;
+        };
+        let found = render_state.font_pipeline.set_font_family(&family_str);
+        log::info!("setFontFamily: {family_str} found={found}");
+        if found { JNI_TRUE } else { JNI_FALSE }
+    })
+}
+
+/// Set the font size (in tenths of a pixel, matching the Kotlin slider).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInPlace(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    size_tenths: jint,
+) {
+    jni_export_guard!(&mut env, (), {
+        let size = (size_tenths as f32) / 10.0;
+        if !(4.0..=100.0).contains(&size) {
+            return;
+        }
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            let (cw, ch) = render_state.font_pipeline.set_font_size_in_place(size);
+            log::info!(
+                "setFontSizeInPlace: {} -> cell {cw:.1}x{ch:.1}",
+                size_tenths
+            );
+        }
+    })
+}
+
+/// Load a custom font file into the renderer's font database. Returns the
+/// first family name from the file, or null on failure.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    _session_id: jlong,
+    path: JString<'local>,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let path_str = match env.get_string(&path) {
+            Ok(s) => s.to_string_lossy().into_owned(),
+            Err(_) => return std::ptr::null_mut(),
+        };
+        // Custom font loading is an Android feature (the font database
+        // with extra paths is android-only; the desktop build uses system
+        // fonts). Reject the load on other targets.
+        #[cfg(target_os = "android")]
+        let family = {
+            // Probe the file with a fresh fontdb to discover the family name.
+            let mut db = crate::render::font::font_db::load_font_database();
+            let ids =
+                db.load_font_source(fontdb::Source::File(std::path::PathBuf::from(&path_str)));
+            let Some(family) = ids
+                .iter()
+                .filter_map(|id| db.face(*id))
+                .filter_map(|face| face.families.first().map(|(name, _)| name.clone()))
+                .next()
+            else {
+                log::warn!("loadFontFile: no family name in {path_str}");
+                return std::ptr::null_mut();
+            };
+            // Register the file with the renderer and rebuild its pipeline
+            // so the new family is selectable.
+            crate::render::font::font_db::set_extra_font_paths(vec![std::path::PathBuf::from(
+                &path_str,
+            )]);
+            let mut state = render_state_mut();
+            if let Some(render_state) = state.as_mut() {
+                let (aw, ah) = render_state.font_pipeline.atlas_dimensions();
+                let font_size = render_state.font_pipeline.font_size();
+                let (aw, ah) = (aw as i32, ah as i32);
+                render_state.font_pipeline =
+                    crate::render::font::FontPipeline::new(aw, ah, font_size);
+                let _ = render_state.font_pipeline.set_font_family(&family);
+            }
+            family
+        };
+        #[cfg(not(target_os = "android"))]
+        let family: String = {
+            log::warn!("loadFontFile: unsupported on this target");
+            String::new()
+        };
+        if family.is_empty() {
+            return std::ptr::null_mut();
+        }
+        log::info!("loadFontFile: {} -> family {family}", path_str);
+        match env.new_string(&family) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Set the renderer's system locale (used for font fallback ordering).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocale(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    locale: JString,
+) {
+    jni_export_guard!(&mut env, (), {
+        let locale_str = match env.get_string(&locale) {
+            Ok(s) => s.to_string_lossy().into_owned(),
+            Err(_) => return,
+        };
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.font_pipeline.set_system_locale(&locale_str);
+            log::info!("setSystemLocale: {locale_str}");
+        }
+    })
+}
+
+/// Register extra font directories/files (the app-private fonts dir).
+/// The renderer's pipeline reads these when created; if it already
+/// exists it is rebuilt so the new fonts become selectable.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPaths(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    paths: jobjectArray,
+) {
+    jni_export_guard!(&mut env, (), {
+        #[cfg(target_os = "android")]
+        {
+            // Parse a String[] from Java.
+            let mut path_list: Vec<std::path::PathBuf> = Vec::new();
+            // SAFETY: `paths` is a JNI method argument, guaranteed valid by
+            // the JVM runtime for the duration of this call (same pattern
+            // as feed_pty_inner / setBackgroundImage).
+            let array = unsafe { jni::objects::JObjectArray::from_raw(paths) };
+            let len = env.get_array_length(&array).unwrap_or(0);
+            for i in 0..len {
+                let item = env.get_object_array_element(&array, i).ok();
+                if let Some(item) = item {
+                    let s = JString::from(item);
+                    if let Ok(s) = env.get_string(&s) {
+                        path_list.push(std::path::PathBuf::from(s.to_string_lossy().into_owned()));
+                    }
+                }
+            }
+            crate::render::font::font_db::set_extra_font_paths(path_list);
+            // Rebuild the pipeline if it already exists so the fonts are
+            // immediately selectable.
+            let mut state = render_state_mut();
+            if let Some(render_state) = state.as_mut() {
+                let (aw, ah) = render_state.font_pipeline.atlas_dimensions();
+                let font_size = render_state.font_pipeline.font_size();
+                let (aw, ah) = (aw as i32, ah as i32);
+                render_state.font_pipeline =
+                    crate::render::font::FontPipeline::new(aw, ah, font_size);
+            }
+            log::info!("setExtraFontPaths: registered extra font paths");
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (&mut env, paths);
+            log::warn!("setExtraFontPaths: unsupported on this target");
+        }
+    })
+}
+
+/// Current cell width in pixels (from the renderer's font pipeline).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+) -> jfloat {
+    jni_export_guard!(&mut env, 0.0, {
+        let state = render_state_mut();
+        let Some(render_state) = state.as_ref() else {
+            return 0.0;
+        };
+        render_state.font_pipeline.cell_metrics().0
+    })
+}
+
+/// Current cell height in pixels (from the renderer's font pipeline).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellHeight(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+) -> jfloat {
+    jni_export_guard!(&mut env, 0.0, {
+        let state = render_state_mut();
+        let Some(render_state) = state.as_ref() else {
+            return 0.0;
+        };
+        render_state.font_pipeline.cell_metrics().1
+    })
+}
+
+/// Current grid dimensions as (rows << 32) | cols, or 0 when the session
+/// is unknown. Backs `Bridge.getGridRowsColsPacked` (round-204: the
+/// Kotlin stub returned 0 forever, so syncGridDimensions could never
+/// converge on the native grid after a dropped resize).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsColsPacked(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+) -> jlong {
+    jni_export_guard!(&mut env, 0, {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&(_session_id as u64)) else {
+            return 0;
+        };
+        let session = entry.session.lock();
+        let (rows, cols) = session.grid_size();
+        ((rows as i64) << 32) | (cols as i64)
     })
 }

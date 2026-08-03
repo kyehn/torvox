@@ -220,7 +220,8 @@ constructor(
             terminalViewModel.surfaceWidth = width
             terminalViewModel.surfaceHeight = height
 
-            terminalViewModel.runtime.bridge()?.setSurfaceSize(width, height)
+            // Size is handed to native via attachSurface below; there is
+            // no separate surface-size channel (round-204).
             applyResizeNormal(width, height, terminalViewModel)
         }
 
