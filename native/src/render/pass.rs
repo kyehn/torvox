@@ -188,15 +188,6 @@ impl Renderer {
             self.cell_bind_group.is_some(),
         );
 
-        log::debug!(
-            "RENDER_FRAME: config={}x{} tex={}x{} instances={}",
-            frame_ctx.cfg_width,
-            frame_ctx.cfg_height,
-            frame_ctx.texture.texture.size().width,
-            frame_ctx.texture.texture.size().height,
-            instances.len(),
-        );
-
         let cfg_width = frame_ctx.cfg_width;
         let cfg_height = frame_ctx.cfg_height;
         let view = &frame_ctx.view;
@@ -393,15 +384,6 @@ impl Renderer {
             render_pass.set_viewport(0.0, 0.0, viewport_width, viewport_height, 0.0, 1.0);
             render_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
 
-            let has_bind_group = self.cell_bind_group.is_some();
-            let has_instance_buffer = self.instance_buffer.is_some();
-            log::debug!(
-                "DIAG_DRAW: bind_group={} instances={} instance_buffer={}",
-                has_bind_group,
-                instances.len(),
-                has_instance_buffer,
-            );
-
             if let Some(bind_group) = &self.cell_bind_group {
                 render_pass.set_pipeline(pipeline);
                 render_pass.set_bind_group(0, bind_group, &[]);
@@ -453,10 +435,29 @@ impl Renderer {
         selection_bg: Option<[f32; 4]>,
         search_highlights: &[crate::render::cell_builder::SearchHighlight],
     ) -> Result<(), GpuError> {
+        // Grid cell dimensions from the attached surface: quads must cover
+        // the full grid (surface_w/cols x surface_h/rows), not the font
+        // cell metrics — otherwise rows show gaps of the clear color.
+        let (surface_w, surface_h) = self
+            .surface_config
+            .as_ref()
+            .map_or((0.0, 0.0), |c| (c.width as f32, c.height as f32));
+        let grid_cell_w = if _cols > 0 {
+            surface_w / _cols as f32
+        } else {
+            0.0
+        };
+        let grid_cell_h = if _rows > 0 {
+            surface_h / _rows as f32
+        } else {
+            0.0
+        };
         let converted = crate::render::build_instances_from_cell_data(
             cell_data,
             _rows,
             _cols,
+            grid_cell_w,
+            grid_cell_h,
             cursor,
             font_pipeline,
             atlas_width,

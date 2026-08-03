@@ -1284,10 +1284,16 @@ impl super::GhosttyTerminal {
                             let window = &search_line[start..end];
                             let dist = Self::levenshtein_distance(&search_query, window);
                             if dist <= max_distance {
+                                // Convert byte offsets to character columns:
+                                // rendering highlights by CellData.col (char
+                                // index), not byte offset — CJK/emoji rows
+                                // would misalign otherwise.
+                                let start_col = search_line[..start].chars().count() as u32;
+                                let end_col = search_line[..end].chars().count() as u32;
                                 results.push(SearchMatch {
                                     row,
-                                    start_col: start as u32,
-                                    end_col: end as u32,
+                                    start_col,
+                                    end_col,
                                 });
                             }
                         }
@@ -1296,10 +1302,14 @@ impl super::GhosttyTerminal {
                     let mut start = 0;
                     while let Some(col) = search_line[start..].find(&search_query) {
                         let abs_col = start + col;
+                        // Byte offset -> character column (see above).
+                        let match_start_col = search_line[..abs_col].chars().count() as u32;
+                        let match_end = abs_col + search_query.len();
+                        let match_end_col = search_line[..match_end].chars().count() as u32;
                         results.push(SearchMatch {
                             row,
-                            start_col: abs_col as u32,
-                            end_col: (abs_col + search_query.len()) as u32,
+                            start_col: match_start_col,
+                            end_col: match_end_col,
                         });
                         // Advance past this match to its end (always a char
                         // boundary), then step to the next boundary so

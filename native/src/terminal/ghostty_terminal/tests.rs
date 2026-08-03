@@ -8377,6 +8377,8 @@ fn bench_end_to_end_cpu_pipeline_latency() {
             &cells,
             24,
             80,
+            1024.0 / 80.0,
+            1024.0 / 24.0,
             cursor,
             &mut font_pipeline,
             1024.0,

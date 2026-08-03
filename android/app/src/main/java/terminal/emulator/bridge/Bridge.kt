@@ -180,7 +180,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     // whole section; callers are already wired and unchanged.
 
     /** Render a frame. Returns >0 if output was available, 0 if idle, -1 on error. */
-    fun render(shouldSkipOutput: Boolean = false): Int {
+    fun render(): Int {
         if (sessionId == 0L) return 0
         return try {
             NativeBridge.render(sessionId, lastSurfaceWidth, lastSurfaceHeight)
@@ -458,9 +458,23 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     // lives in the terminal engine and is applied via the palette API.
     fun setTheme(theme: BridgeTheme) {
         Log.d(TAG, "setTheme: ${theme.name}")
-        // Rust GhosttyTerminal::set_theme is implemented (try_send); the
-        // missing piece is a JNI export + external fun. Deferred with the
-        // rest of ADR-0007 surface work (round-115).
+        if (sessionId == 0L) return
+        val data = ByteArray(54)
+        fun packColor(dst: Int, argb: Int) {
+            data[dst] = (argb shr 16 and 0xFF).toByte()
+            data[dst + 1] = (argb shr 8 and 0xFF).toByte()
+            data[dst + 2] = (argb and 0xFF).toByte()
+        }
+        packColor(0, theme.bg)
+        packColor(3, theme.fg)
+        val ansi = listOf(
+            theme.ansi0, theme.ansi1, theme.ansi2, theme.ansi3,
+            theme.ansi4, theme.ansi5, theme.ansi6, theme.ansi7,
+            theme.ansi8, theme.ansi9, theme.ansi10, theme.ansi11,
+            theme.ansi12, theme.ansi13, theme.ansi14, theme.ansi15,
+        )
+        ansi.forEachIndexed { i, c -> packColor(6 + i * 3, c) }
+        NativeBridge.setTheme(sessionId, data)
     }
 
     fun setSystemLocale(locale: String) {
@@ -580,23 +594,26 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun expandAndSetSelection(row: Int, col: Int, mode: Byte): Pair<Pair<Int, Int>, Pair<Int, Int>>? = queryPort.expandAndSetSelection(row, col, mode)
 
     // ── Search / scrollback ────────────────────────────────────────────
-    // ADR-0007: the native query path is not wired yet. The contract lives
-    // in TerminalQueryPort: scrollbackLine/scrollbackLength/
-    // searchAllInScrollback return "no data" (null/0/empty), isCellEmpty
-    // returns true (long-press opens the paste popup only). When the
-    // native path lands, swap StubQueryPort for the real port.
+    // Query methods delegate to the real native JNI path via
+    // NativeQueryPort. Native exports throw IllegalArgumentException for
+    // unknown sessions (e.g. the window between bridge.close() and
+    // session-map removal); catch it here so UI/触摸 paths never crash.
     override fun clearSearchHighlights() = queryPort.clearSearchHighlights()
     override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
-    override fun scrollbackLine(row: Int): String? = queryPort.scrollbackLine(row)
-    override fun scrollbackLength(): Int = queryPort.scrollbackLength()
-    override fun isCellEmpty(row: Int, col: Int): Boolean = queryPort.isCellEmpty(row, col)
-    override fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? = queryPort.searchAllInScrollback(query, caseSensitive, fuzzyMatch)
+    override fun scrollbackLine(row: Int): String? =
+        runCatching { queryPort.scrollbackLine(row) }.getOrNull()
+    override fun scrollbackLength(): Int =
+        runCatching { queryPort.scrollbackLength() }.getOrDefault(0)
+    override fun isCellEmpty(row: Int, col: Int): Boolean =
+        runCatching { queryPort.isCellEmpty(row, col) }.getOrDefault(true)
+    override fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? =
+        runCatching { queryPort.searchAllInScrollback(query, caseSensitive, fuzzyMatch) }.getOrNull()
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
-    override fun getTerminalText(): String? = queryPort.getTerminalText()
-    override fun listFontFamilies(): List<String>? = queryPort.listFontFamilies()
-    override fun getDefaultFontName(): String = queryPort.getDefaultFontName()
-    override fun getFontInfo(): String? = queryPort.getFontInfo()
+    override fun getTerminalText(): String? = runCatching { queryPort.getTerminalText() }.getOrNull()
+    override fun listFontFamilies(): List<String>? = runCatching { queryPort.listFontFamilies() }.getOrNull()
+    override fun getDefaultFontName(): String = runCatching { queryPort.getDefaultFontName() }.getOrDefault("monospace")
+    override fun getFontInfo(): String? = runCatching { queryPort.getFontInfo() }.getOrNull()
 
     companion object {
         private const val TAG = "Bridge"
