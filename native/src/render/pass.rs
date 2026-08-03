@@ -243,17 +243,28 @@ impl Renderer {
 
         #[cfg(debug_assertions)]
         encoder.push_debug_group("Draw Background");
-        if let (Some(bg_bind_group), Some(blur_h), Some(blur_v)) = (
+        if let (
+            Some(bg_bind_group),
+            Some(blur_h),
+            Some(blur_v),
+            Some(blur_view),
+            Some(blur_v_bind_group),
+        ) = (
             self.bg_bind_group.as_ref(),
             self.blur_h_pipeline.as_ref(),
             self.blur_v_pipeline.as_ref(),
+            self.bg_blur_texture_view.as_ref(),
+            self.bg_blur_bind_group.as_ref(),
         ) && self.bg_blur_radius >= 0.5
         {
             {
+                // H pass renders the horizontal blur into the intermediate
+                // texture (round-203: it previously wrote the surface and
+                // was immediately overwritten by the V pass).
                 let mut h_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Blur H Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view,
+                        view: blur_view,
                         resolve_target: None,
                         ops: wgpu::Operations {
                             load: wgpu::LoadOp::Clear(self.bg_color),
@@ -272,13 +283,15 @@ impl Renderer {
                 h_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
             }
             {
+                // V pass samples the H-pass output and composites onto the
+                // surface with the configured alpha.
                 let mut v_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Blur V Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view,
                         resolve_target: None,
                         ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
+                            load: wgpu::LoadOp::Clear(self.bg_color),
                             store: wgpu::StoreOp::Store,
                         },
                         depth_slice: None,
@@ -287,7 +300,7 @@ impl Renderer {
                     ..Default::default()
                 });
                 v_pass.set_pipeline(blur_v);
-                v_pass.set_bind_group(0, bg_bind_group, &[]);
+                v_pass.set_bind_group(0, blur_v_bind_group, &[]);
                 v_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
                 v_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
                 v_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
@@ -296,7 +309,10 @@ impl Renderer {
         } else if let (Some(bg_pipeline), Some(bg_bind_group)) =
             (&self.bg_pipeline, &self.bg_bind_group)
         {
-            log::debug!("render_frame: drawing bg image (blur={})", self.blur_h_pipeline.is_some());
+            log::debug!(
+                "render_frame: drawing bg image (blur={})",
+                self.blur_h_pipeline.is_some()
+            );
             {
                 let mut bg_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Background Render Pass"),

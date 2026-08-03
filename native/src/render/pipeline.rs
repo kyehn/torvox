@@ -215,7 +215,25 @@ impl Renderer {
                 entry_point: Some("fs_direct"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    // Alpha blend so `uniforms.alpha` (background opacity
+                    // setting) actually composites the wallpaper over the
+                    // cleared bg_color. Was REPLACE: the alpha channel was
+                    // written but the RGB never mixed, so the opacity
+                    // slider had zero visual effect (round-204,
+                    // emulator-verified: alpha 0.1 vs 0.8 produced
+                    // byte-identical pixels).
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -412,7 +430,22 @@ impl Renderer {
                         entry_point: Some("fs_blur_v"),
                         targets: &[Some(wgpu::ColorTargetState {
                             format,
-                            blend: Some(wgpu::BlendState::REPLACE),
+                            // Alpha blend: fs_blur_v outputs
+                            // alpha = uniforms.alpha, so the opacity
+                            // setting composites the blurred wallpaper
+                            // over the cleared bg_color (round-204).
+                            blend: Some(wgpu::BlendState {
+                                color: wgpu::BlendComponent {
+                                    src_factor: wgpu::BlendFactor::SrcAlpha,
+                                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                    operation: wgpu::BlendOperation::Add,
+                                },
+                                alpha: wgpu::BlendComponent {
+                                    src_factor: wgpu::BlendFactor::One,
+                                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                                    operation: wgpu::BlendOperation::Add,
+                                },
+                            }),
                             write_mask: wgpu::ColorWrites::ALL,
                         })],
                         compilation_options: wgpu::PipelineCompilationOptions::default(),
@@ -521,6 +554,67 @@ impl Renderer {
                     },
                 ],
             }));
+        }
+
+        // Two-pass blur intermediate: the H pass renders into this texture
+        // and the V pass samples it (previously both passes wrote the
+        // surface, so the H result was overwritten — round-203). Created
+        // lazily and recreated when the surface size changes.
+        if self.bg_blur_radius >= 0.5 {
+            let needs_texture = match &self.bg_blur_texture {
+                Some(t) => t.width() != surface_width || t.height() != surface_height,
+                None => true,
+            };
+            if needs_texture {
+                self.bg_blur_texture = Some(self.device.create_texture(&wgpu::TextureDescriptor {
+                    label: Some("Background Blur Intermediate"),
+                    size: wgpu::Extent3d {
+                        width: surface_width.max(1),
+                        height: surface_height.max(1),
+                        depth_or_array_layers: 1,
+                    },
+                    mip_level_count: 1,
+                    sample_count: 1,
+                    dimension: wgpu::TextureDimension::D2,
+                    format,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    view_formats: &[],
+                }));
+                self.bg_blur_texture_view = self
+                    .bg_blur_texture
+                    .as_ref()
+                    .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
+                self.bg_blur_bind_group = None;
+            }
+            if self.bg_blur_bind_group.is_none()
+                && let (Some(blur_view), Some(blur_sampler)) =
+                    (self.bg_blur_texture_view.as_ref(), self.bg_sampler.as_ref())
+            {
+                self.bg_blur_bind_group =
+                    Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("Background Blur V Bind Group"),
+                        layout: &layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: buf.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::TextureView(blur_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::Sampler(blur_sampler),
+                            },
+                        ],
+                    }));
+            }
+        } else {
+            self.bg_blur_texture = None;
+            self.bg_blur_texture_view = None;
+            self.bg_blur_bind_group = None;
         }
     }
 

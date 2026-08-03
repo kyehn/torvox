@@ -1342,11 +1342,9 @@ fn render_inner(session_id: u64) -> jint {
     {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            let mut bg_changed = false;
             if render_state.pending_bg_image_clear {
                 render_state.renderer.clear_bg_image();
                 render_state.pending_bg_image_clear = false;
-                bg_changed = true;
             }
             if let Some((data, w, h)) = render_state.pending_bg_image.take() {
                 render_state.renderer.set_bg_image(&data, w, h);
@@ -1354,25 +1352,6 @@ fn render_inner(session_id: u64) -> jint {
                     "render_inner: consumed bg image {w}x{h}, view={}",
                     render_state.renderer.bg_image_view.is_some()
                 );
-                bg_changed = true;
-            }
-            // The cell shader reads `image_active` from the cell uniforms
-            // to make default-background cells transparent (wallpaper
-            // shows through). `set_bg_image` invalidates the bg bind
-            // group; rewrite the cell uniforms so the flag flips to 1.
-            // `update_bind_group` has no other caller (round-202, root
-            // cause found via emulator pixel diff: bg pass drew every
-            // frame but cells painted opaque background on top).
-            if bg_changed {
-                if let Some(cfg) = render_state.renderer.surface_config.as_ref() {
-                    let (w, h) = (cfg.width as f32, cfg.height as f32);
-                    let (aw, ah) = render_state
-                        .renderer
-                        .atlas_texture
-                        .as_ref()
-                        .map_or((0.0, 0.0), |t| (t.width() as f32, t.height() as f32));
-                    render_state.renderer.update_bind_group(aw, ah, w, h);
-                }
             }
         }
     }
@@ -2230,6 +2209,21 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         };
         let session = entry.session.lock();
         session.terminal().set_theme(background, foreground, ansi);
+        // The cell shader's Fix F transparency check compares each cell's
+        // background against `uniforms.default_bg`, which is sourced from
+        // `Renderer::bg_color`. Without syncing it here, the terminal
+        // theme (e.g. #151515) never matches the renderer default
+        // (#1E1E2E Catppuccin), `is_default_bg` stays false, and the
+        // wallpaper is hidden behind opaque cell backgrounds
+        // (emulator-verified, round-203: checkerboard probe proved the bg
+        // pass and cell transparency both work; only the default_bg
+        // comparison failed).
+        {
+            let mut state = render_state_mut();
+            if let Some(render_state) = state.as_mut() {
+                render_state.renderer.set_bg_color(background);
+            }
+        }
         log::info!("setTheme: session {id} bg={background:02X?} fg={foreground:02X?}");
     })
 }
@@ -2311,5 +2305,28 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearBackgroun
             render_state.pending_bg_image_clear = true;
         }
         log::info!("clearBackgroundImage: queued for render thread");
+    })
+}
+
+/// Set the background-image blur radius and opacity. Deferred to the
+/// render thread state (the renderer is owned by RENDER_STATE); the next
+/// `begin_frame` picks up the new values. `alpha` arrives scaled by 10
+/// from Kotlin (`settings.backgroundAlpha * 10`), so it is divided here.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundParams(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    blur_radius: jint,
+    alpha_tenths: jint,
+) {
+    jni_export_guard!(&mut env, (), {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            let blur = blur_radius as f32;
+            let alpha = alpha_tenths as f32 / 10.0;
+            render_state.renderer.set_background_params(blur, alpha);
+            log::info!("setBackgroundParams: blur={blur} alpha={alpha}");
+        }
     })
 }

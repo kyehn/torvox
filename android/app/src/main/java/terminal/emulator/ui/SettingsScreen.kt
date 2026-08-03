@@ -68,6 +68,7 @@ import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.installer.BootstrapProgress
+import terminal.emulator.runtime.LogUtil
 import terminal.emulator.ui.theme.TerminalTheme
 
 private const val FONT_SIZE_RANGE_MIN = 8f
@@ -378,9 +379,26 @@ private fun BackgroundSection(
     val backgroundImagePath = settings.backgroundImagePath
     val backgroundBlurRadius = settings.backgroundBlurRadius
     val backgroundAlpha = settings.backgroundAlpha
+    val context = LocalContext.current
+    // ACTION_OPEN_DOCUMENT (not GetContent) so the picked URI can be
+    // persisted: without FLAG_GRANT_PERSISTABLE_URI_PERMISSION +
+    // takePersistableUriPermission the read permission is lost on app
+    // restart and the wallpaper silently disappears (emulator-verified,
+    // round-203: `consumed bg image` never logged after a relaunch).
     val imagePickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
-            uri?.let { viewModel.setBackgroundImagePath(it.toString()) }
+        rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) { result ->
+            val uri = result.data?.data
+            uri?.let {
+                try {
+                    context.contentResolver.takePersistableUriPermission(
+                        it,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                    )
+                } catch (e: SecurityException) {
+                    LogUtil.e("Settings", "takePersistableUriPermission failed", e)
+                }
+                viewModel.setBackgroundImagePath(it.toString())
+            }
         }
     SectionHeader("Background", sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
@@ -393,7 +411,17 @@ private fun BackgroundSection(
         Spacer(modifier = Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = { imagePickerLauncher.launch("image/*") },
+                onClick = {
+                    val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+                        addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                        type = "image/*"
+                        addFlags(
+                            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                        )
+                    }
+                    imagePickerLauncher.launch(intent)
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = accentColor),
                 modifier = Modifier.testTag("ChooseImageButton"),
             ) { Text(stringResource(R.string.bg_image_choose), color = MaterialTheme.colorScheme.onPrimary) }

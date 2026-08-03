@@ -18,6 +18,7 @@ import coil3.request.allowHardware
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +26,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -871,12 +873,19 @@ constructor(
             if (savedPath.isNotEmpty()) {
                 applyBackgroundImageFromPath(savedPath)
             }
+            // Same cold-start race as applyBackgroundImageFromPath: the
+            // bridge may not exist yet, and dropping the params here would
+            // leave blur/alpha at their defaults until the user touches
+            // the sliders (round-203, emulator-verified).
+            val bridge = withTimeoutOrNull(15_000) {
+                while (runtime.bridge() == null) {
+                    delay(100)
+                }
+                runtime.bridge()
+            }
             settingsRepository.backgroundBlurRadius.first().let { radius ->
                 settingsRepository.backgroundAlpha.first().let { alpha ->
-                    val bridge = runtime.bridge()
-                    if (bridge != null) {
-                        bridge.setBackgroundParams(radius, (alpha * 10).toInt())
-                    }
+                    bridge?.setBackgroundParams(radius, (alpha * 10).toInt())
                 }
             }
         }
@@ -1071,7 +1080,18 @@ constructor(
 
     private fun applyBackgroundImageFromPath(path: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val bridge = runtime.bridge() ?: return@launch
+            // The first session may still be spawning (bootstrap install,
+            // shell start) when this runs after a cold start — `bridge()`
+            // is null then and the wallpaper would be silently dropped.
+            // Wait up to 15s for a bridge (emulator-verified, round-203:
+            // after relaunch the DataStore path survived but the image was
+            // never applied because the bridge was not ready yet).
+            val bridge = withTimeoutOrNull(15_000) {
+                while (runtime.bridge() == null) {
+                    delay(100)
+                }
+                runtime.bridge()
+            } ?: return@launch
             if (path.isNotEmpty()) {
                 try {
                     val uri = android.net.Uri.parse(path)
