@@ -1,6 +1,5 @@
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/Cargo.toml patches/libghostty-vt/Cargo.toml
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/Cargo.toml	2026-07-30 10:24:42.780407206 +0000
-+++ patches/libghostty-vt/Cargo.toml	2026-07-30 09:32:14.750731518 +0000
+--- libghostty-vt/Cargo.toml	2026-08-03 14:37:52.990237722 +0000
++++ libghostty-vt/Cargo.toml	2026-08-03 19:03:08.598575069 +0000
 @@ -1,11 +1,11 @@
  [package]
  name = "libghostty-vt"
@@ -27,18 +26,16 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/Cargo.toml patches/li
  int-enum = "1.2.0"
  png = { version = "0.18.1", optional = true }
  log = { version = "0.4.29", optional = true }
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/README.md patches/libghostty-vt/README.md
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/README.md	2026-07-30 10:24:42.780594843 +0000
-+++ patches/libghostty-vt/README.md	1970-01-01 00:00:00.000000000 +0000
+--- libghostty-vt/README.md	2026-08-03 14:37:52.990477428 +0000
++++ libghostty-vt/README.md	1970-01-01 00:00:00.000000000 +0000
 @@ -1,5 +0,0 @@
 -# libghostty-vt
 -
 -Safe Rust API over `libghostty-vt-sys`.
 -
 -Handle types (`Terminal`, `RenderState`, `KeyEncoder`, etc.) are `!Send + !Sync` by design. Callers should drive all operations from a single thread.
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/alloc.rs patches/libghostty-vt/src/alloc.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/alloc.rs	2026-07-30 10:24:42.780594843 +0000
-+++ patches/libghostty-vt/src/alloc.rs	2026-07-30 09:32:14.750871327 +0000
+--- libghostty-vt/src/alloc.rs	2026-08-03 14:37:52.990477428 +0000
++++ libghostty-vt/src/alloc.rs	2026-08-03 19:03:08.598835854 +0000
 @@ -34,6 +34,11 @@
      pub(crate) fn to_raw(&self) -> *const ffi::Allocator {
          std::ptr::from_ref(&self.inner)
@@ -91,9 +88,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/alloc.rs patches/
          unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
      }
  }
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/key.rs patches/libghostty-vt/src/key.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/key.rs	2026-07-30 10:24:42.780685134 +0000
-+++ patches/libghostty-vt/src/key.rs	2026-07-30 09:32:14.750940244 +0000
+--- libghostty-vt/src/key.rs	2026-08-03 14:37:52.990606458 +0000
++++ libghostty-vt/src/key.rs	2026-08-03 19:03:08.599037409 +0000
 @@ -367,9 +367,10 @@
      #[must_use]
      pub fn unshifted_codepoint(&self) -> char {
@@ -108,9 +104,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/key.rs patches/li
          }
      }
  }
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/kitty/graphics.rs patches/libghostty-vt/src/kitty/graphics.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/kitty/graphics.rs	2026-07-30 10:24:42.780685134 +0000
-+++ patches/libghostty-vt/src/kitty/graphics.rs	2026-07-30 09:32:14.750940244 +0000
+--- libghostty-vt/src/kitty/graphics.rs	2026-08-03 14:37:52.990606458 +0000
++++ libghostty-vt/src/kitty/graphics.rs	2026-08-03 19:03:08.599255154 +0000
 @@ -190,9 +190,7 @@
  
  use std::{
@@ -269,9 +264,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/kitty/graphics.rs
              let alloc = unsafe { Allocator::from_raw(allocator) };
              let data = unsafe { std::slice::from_raw_parts(data, data_len) };
  
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/lib.rs patches/libghostty-vt/src/lib.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/lib.rs	2026-07-30 10:24:42.780685134 +0000
-+++ patches/libghostty-vt/src/lib.rs	2026-07-30 09:32:14.750940244 +0000
+--- libghostty-vt/src/lib.rs	2026-08-03 14:37:52.990606458 +0000
++++ libghostty-vt/src/lib.rs	2026-08-03 19:03:08.599538090 +0000
 @@ -109,7 +109,6 @@
  pub mod selection;
  pub mod sgr;
@@ -280,9 +274,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/lib.rs patches/li
  
  #[doc(inline)]
  pub use crate::{
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/render.rs patches/libghostty-vt/src/render.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/render.rs	2026-07-30 10:24:42.780685134 +0000
-+++ patches/libghostty-vt/src/render.rs	2026-07-30 09:32:14.750940244 +0000
+--- libghostty-vt/src/render.rs	2026-08-03 14:37:52.990606458 +0000
++++ libghostty-vt/src/render.rs	2026-08-03 19:03:08.599726200 +0000
 @@ -76,32 +76,6 @@
  /// assert!(render_state.update(&terminal).is_ok());
  /// ```
@@ -426,9 +419,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/render.rs patches
          unsafe {
              std::ptr::write(buf, String::from_raw_parts(cbuf.ptr, cbuf.len, cbuf.cap));
          }
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/selection.rs patches/libghostty-vt/src/selection.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/selection.rs	2026-07-30 10:24:42.781407199 +0000
-+++ patches/libghostty-vt/src/selection.rs	2026-07-30 09:32:14.750940244 +0000
+--- libghostty-vt/src/selection.rs	2026-08-03 14:37:52.991082862 +0000
++++ libghostty-vt/src/selection.rs	2026-08-03 19:03:08.599965996 +0000
 @@ -198,21 +198,6 @@
  
  /// Methods related to [selections](crate::selection).
@@ -451,9 +443,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/selection.rs patc
      /// Set the active screen selection.
      ///
      /// The selection's grid references must be valid for this terminal's
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/style.rs patches/libghostty-vt/src/style.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/style.rs	2026-07-30 10:24:42.781407199 +0000
-+++ patches/libghostty-vt/src/style.rs	2026-07-30 09:32:14.750940244 +0000
+--- libghostty-vt/src/style.rs	2026-08-03 14:37:52.991082862 +0000
++++ libghostty-vt/src/style.rs	2026-08-03 19:03:08.600241729 +0000
 @@ -3,7 +3,7 @@
  //! A style describes the visual attributes of a terminal cell, including
  //! foreground, background, and underline colors, as well as flags for bold,
@@ -784,9 +775,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/style.rs patches/
 -        color: entry.color.into(),
 -    }
 -}
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/terminal.rs patches/libghostty-vt/src/terminal.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/terminal.rs	2026-07-30 10:24:42.781407199 +0000
-+++ patches/libghostty-vt/src/terminal.rs	2026-07-30 09:32:14.750940244 +0000
+--- libghostty-vt/src/terminal.rs	2026-08-03 18:45:25.165019732 +0000
++++ libghostty-vt/src/terminal.rs	2026-08-03 19:03:30.847716852 +0000
 @@ -1,14 +1,14 @@
  //! Types and functions around terminal state management.
  
@@ -1034,7 +1024,31 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/terminal.rs patch
          Ok(self)
      }
  
-@@ -881,8 +795,6 @@
+@@ -768,6 +682,23 @@
+         Ok(self)
+     }
+ 
++    /// Set the maximum scrollback allocation in bytes (round-205: the C
++    /// `terminal_new` ABI has no scrollback parameter and the vendor
++    /// default (bytes = 0) disables scrollback entirely; this flips the
++    /// page list's `no_scrollback` flag).
++    pub fn set_max_scrollback_bytes(&mut self, max: Option<usize>) -> Result<&mut Self> {
++        self.set_optional(ffi::TerminalOption::SCROLLBACK_MAX_BYTES, max.as_ref())?;
++        Ok(self)
++    }
++
++    /// Set the maximum number of physical scrollback rows (round-205:
++    /// caps the row count once scrollback is enabled via
++    /// [set_max_scrollback_bytes]).
++    pub fn set_max_scrollback_lines(&mut self, max: Option<usize>) -> Result<&mut Self> {
++        self.set_optional(ffi::TerminalOption::SCROLLBACK_MAX_LINES, max.as_ref())?;
++        Ok(self)
++    }
++
+     /// Enable or disable Glyph Protocol APC handling.
+     ///
+     /// Disabling the protocol makes the terminal ignore Glyph Protocol APC
+@@ -881,8 +812,6 @@
      Bottom,
      /// Scroll by a delta amount (up is negative).
      Delta(isize),
@@ -1043,7 +1057,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/terminal.rs patch
  }
  impl From<ScrollViewport> for ffi::TerminalScrollViewport {
      fn from(value: ScrollViewport) -> Self {
-@@ -903,14 +815,6 @@
+@@ -903,14 +832,6 @@
                      v
                  },
              },
@@ -1058,7 +1072,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/terminal.rs patch
          }
      }
  }
-@@ -1201,202 +1105,6 @@
+@@ -1201,202 +1122,6 @@
      Dark = ffi::ColorScheme::DARK,
  }
  
@@ -1261,7 +1275,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/terminal.rs patch
  //---------------------------------------
  // Callbacks
  //---------------------------------------
-@@ -1674,7 +1382,7 @@
+@@ -1674,7 +1399,7 @@
      ) |term, func| {
          if let Some(size) = func(&term) {
              // SAFETY: Out pointer is assumed to be valid.
@@ -1270,7 +1284,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/terminal.rs patch
              true
          } else {
              false
-@@ -1700,30 +1408,6 @@
+@@ -1700,30 +1425,6 @@
              false
          }
      }
@@ -1301,9 +1315,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/terminal.rs patch
  }
  
  #[cfg(test)]
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/unicode.rs patches/libghostty-vt/src/unicode.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt/src/unicode.rs	2026-07-30 10:24:42.781407199 +0000
-+++ patches/libghostty-vt/src/unicode.rs	1970-01-01 00:00:00.000000000 +0000
+--- libghostty-vt/src/unicode.rs	2026-08-03 14:37:52.991082862 +0000
++++ libghostty-vt/src/unicode.rs	1970-01-01 00:00:00.000000000 +0000
 @@ -1,54 +0,0 @@
 -//! Unicode terminal-width helpers.
 -

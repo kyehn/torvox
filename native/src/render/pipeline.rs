@@ -322,7 +322,12 @@ impl Renderer {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    // Round-210 P2-3: kitty graphics protocol images may
+                    // carry alpha (semi-transparent PNG); REPLACE painted
+                    // the image RGB over the background, producing black
+                    // fringes on transparent areas. SrcAlpha blend lets
+                    // opacity apply correctly.
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),

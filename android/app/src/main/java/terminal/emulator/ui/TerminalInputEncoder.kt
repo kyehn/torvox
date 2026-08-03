@@ -100,30 +100,74 @@ object TerminalInputEncoder {
             if (csiSeq != null) return csiSeq
         }
         return when (keyCode) {
-            KeyEvent.KEYCODE_TAB -> "\t"
+            KeyEvent.KEYCODE_TAB ->
+                when {
+                    // Round-210 P2-9: with Alt held, xterm sends ESC TAB
+                    // (Meta prefix), not a bare tab; with Ctrl held it
+                    // sends CSI 9;mod~ (xterm/kitty convention).
+                    ctrlActive || altActive -> {
+                        val modParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
+                        "\u001b[9;$modParam~"
+                    }
+
+                    else -> "\t"
+                }
+
+            KeyEvent.KEYCODE_ENTER ->
+                if (ctrlActive || altActive) {
+                    // Enter with modifiers: xterm reports via CSI 13;mod~.
+                    val modParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
+                    "\u001b[13;$modParam~"
+                } else {
+                    "\n"
+                }
+
             KeyEvent.KEYCODE_ESCAPE -> "\u001b"
+
             KeyEvent.KEYCODE_FORWARD_DEL -> "\u001b[3~"
+
             KeyEvent.KEYCODE_INSERT -> "\u001b[2~"
+
             KeyEvent.KEYCODE_F1 -> "\u001bOP"
+
             KeyEvent.KEYCODE_F2 -> "\u001bOQ"
+
             KeyEvent.KEYCODE_F3 -> "\u001bOR"
+
             KeyEvent.KEYCODE_F4 -> "\u001bOS"
+
             KeyEvent.KEYCODE_F5 -> "\u001b[15~"
+
             KeyEvent.KEYCODE_F6 -> "\u001b[17~"
+
             KeyEvent.KEYCODE_F7 -> "\u001b[18~"
+
             KeyEvent.KEYCODE_F8 -> "\u001b[19~"
+
             KeyEvent.KEYCODE_F9 -> "\u001b[20~"
+
             KeyEvent.KEYCODE_F10 -> "\u001b[21~"
+
             KeyEvent.KEYCODE_F11 -> "\u001b[23~"
+
             KeyEvent.KEYCODE_F12 -> "\u001b[24~"
+
             KeyEvent.KEYCODE_DPAD_UP -> "\u001b[A"
+
             KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[B"
+
             KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[C"
+
             KeyEvent.KEYCODE_DPAD_LEFT -> "\u001b[D"
+
             KeyEvent.KEYCODE_MOVE_HOME -> "\u001b[H"
+
             KeyEvent.KEYCODE_MOVE_END -> "\u001b[F"
+
             KeyEvent.KEYCODE_PAGE_UP -> "\u001b[5~"
+
             KeyEvent.KEYCODE_PAGE_DOWN -> "\u001b[6~"
+
             else -> null
         }
     }

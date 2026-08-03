@@ -73,6 +73,12 @@ pub enum Event {
     /// answer via `clipboardResult()` JNI.
     #[cfg(feature = "mcp")]
     GetClipboard { session_id: u64, request_id: u64 },
+    /// MCP dialog/pick_file timed out (round-210 P2-14): the native tool
+    /// call gives up after 300s and cancels the registry entry; Kotlin
+    /// receives this event so the still-visible dialog is dismissed
+    /// instead of hanging on screen unresponsive.
+    #[cfg(feature = "mcp")]
+    DialogCancel { session_id: u64, request_id: u64 },
     /// OSC 52 clipboard read request (`ESC ] 52 ; c ; ?`): the host app
     /// reads the system clipboard and answers via `clipboardResult()` JNI;
     /// Rust writes the reply back to the PTY (FR-036). Mirrors

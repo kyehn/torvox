@@ -1,8 +1,8 @@
 diff --git a/src/terminal/Screen.zig b/src/terminal/Screen.zig
-index 8ee700252..b7313356c 100644
+index 8cc2787..2ee014c 100644
 --- a/src/terminal/Screen.zig
 +++ b/src/terminal/Screen.zig
-@@ -193,6 +193,7 @@ pub const SavedCursor = struct {
+@@ -202,6 +202,7 @@ pub const SavedCursor = struct {
      pending_wrap: bool,
      origin: bool,
      charset: CharsetState,
@@ -11,10 +11,10 @@ index 8ee700252..b7313356c 100644
  
  /// State required for all charset operations.
 diff --git a/src/terminal/Terminal.zig b/src/terminal/Terminal.zig
-index d41e47501..6b496c5a5 100644
+index b73b0a5..8a702d6 100644
 --- a/src/terminal/Terminal.zig
 +++ b/src/terminal/Terminal.zig
-@@ -682,7 +682,10 @@ pub fn print(self: *Terminal, c: u21) !void {
+@@ -1472,7 +1472,10 @@ pub fn print(self: *Terminal, c: u21) !void {
      // If we're at the column limit, then we need to wrap the next time.
      // In this case, we don't move the cursor.
      if (self.screens.active.cursor.x == right_limit - 1) {
@@ -26,7 +26,7 @@ index d41e47501..6b496c5a5 100644
          return;
      }
  
-@@ -1112,6 +1115,7 @@ pub fn saveCursor(self: *Terminal) void {
+@@ -1902,6 +1905,7 @@ pub fn saveCursor(self: *Terminal) void {
          .pending_wrap = self.screens.active.cursor.pending_wrap,
          .origin = self.modes.get(.origin),
          .charset = self.screens.active.charset,
@@ -34,7 +34,7 @@ index d41e47501..6b496c5a5 100644
      };
  }
  
-@@ -1128,6 +1132,7 @@ pub fn restoreCursor(self: *Terminal) void {
+@@ -1918,6 +1922,7 @@ pub fn restoreCursor(self: *Terminal) void {
          .pending_wrap = false,
          .origin = false,
          .charset = .{},
@@ -42,7 +42,7 @@ index d41e47501..6b496c5a5 100644
      };
  
      // Set the style first because it can fail
-@@ -1145,6 +1150,7 @@ pub fn restoreCursor(self: *Terminal) void {
+@@ -1935,6 +1940,7 @@ pub fn restoreCursor(self: *Terminal) void {
  
      self.screens.active.charset = saved.charset;
      self.modes.set(.origin, saved.origin);
@@ -50,7 +50,7 @@ index d41e47501..6b496c5a5 100644
      self.screens.active.cursor.pending_wrap = saved.pending_wrap;
      self.screens.active.cursor.protected = saved.protected;
      self.screens.active.cursorAbsolute(
-@@ -1669,7 +1675,7 @@ pub fn scrollDown(self: *Terminal, count: usize) void {
+@@ -2435,7 +2441,7 @@ pub fn scrollDown(self: *Terminal, count: usize) void {
  
      // Move to the top of the scroll region
      self.screens.active.cursorAbsolute(self.scrolling_region.left, self.scrolling_region.top);
@@ -59,7 +59,7 @@ index d41e47501..6b496c5a5 100644
  }
  
  /// Removes amount lines from the top of the scroll region. The remaining lines
-@@ -1702,7 +1708,7 @@ pub fn scrollUp(self: *Terminal, count: usize) !void {
+@@ -2476,7 +2482,7 @@ pub fn scrollUp(self: *Terminal, count: usize) !void {
  
          // Clamp count to the scroll region height.
          const region_height = self.scrolling_region.bottom + 1;
@@ -68,3 +68,19 @@ index d41e47501..6b496c5a5 100644
  
          // TODO: Create an optimized version that can scroll N times
          // This isn't critical because in most cases, scrollUp is used
+diff --git a/src/terminal/snapshot/screen.zig b/src/terminal/snapshot/screen.zig
+index 0b477ee..2173fa1 100644
+--- a/src/terminal/snapshot/screen.zig
++++ b/src/terminal/snapshot/screen.zig
+@@ -827,6 +827,11 @@ pub const SavedCursor = struct {
+             .pending_wrap = self.flags.pending_wrap and x == cols - 1,
+             .origin = self.flags.origin,
+             .charset = self.charset,
++            // The fixed-size snapshot encoding (len == 23) predates the
++            // cursor_style field on SavedCursor (added by the torvox
++            // correctness patch); the snapshot format has no slot for it,
++            // so a restored cursor falls back to the default style.
++            .cursor_style = .block,
+         };
+     }
+ 

@@ -6,12 +6,12 @@ import kotlinx.serialization.json.Json
 /**
  * Native-backed [TerminalQueryPort]: every method maps 1:1 to a JNI
  * export (see `native/src/android/ffi.rs`, "JNI Exports:
- * TerminalQueryPort"). Replaces [StubQueryPort] once a session is live.
+ * TerminalQueryPort"). Used by [Bridge] for the live session; there is
+ * no stub anymore (round-205).
  *
- * Contract for callers (same as the stub): null/0/empty means "no data"
- * from the engine — never fake data. Single-row/font queries are cheap;
- * bulk queries ([getTerminalText], [searchAllInScrollback]) are debounced
- * by the UI.
+ * Contract for callers: null/0/empty means "no data" from the engine —
+ * never fake data. Single-row/font queries are cheap; bulk queries
+ * ([getTerminalText], [searchAllInScrollback]) are debounced by the UI.
  */
 @Suppress("TooManyFunctions")
 class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQueryPort {
@@ -52,8 +52,11 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         ?.let { parseSearchMatches(it) }
 
     override fun setScrollOffset(offset: Int) {
-        // Scroll rendering is driven by TerminalSurface's render thread;
-        // no native round-trip needed for the query port.
+        // Round-205: the native side applies the delta on the VT thread
+        // via scroll_viewport, so the next CellData push carries the
+        // scrolled view. Previously a no-op — scrollback browsing did
+        // nothing.
+        NativeBridge.setScrollOffset(sessionIdProvider(), offset)
     }
 
     override fun getTerminalText(): String? = NativeBridge.getTerminalText(sessionIdProvider())

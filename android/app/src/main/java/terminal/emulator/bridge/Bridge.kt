@@ -82,7 +82,8 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  * channels (attachSurface carries the size; events carry grid dims) or are
  * query-path stubs backed by [NativeQueryPort].
  */
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LongMethod") // parseEvent is a straight
+// when-dispatch over the PollEvent sealed class — one branch per variant.
 class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     /**
      * ADR-0007: native query path wired — all queries delegate to
@@ -273,6 +274,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     @Volatile private var cursorBlinkEnabled = true
+
     @Volatile private var cursorBlinkSpeedMs = 600
 
     fun setCursorBlinkEnabled(enabled: Boolean) {
@@ -336,6 +338,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val sessionId: Long = 0L,
         val dialogs: List<DialogRequest> = emptyList(),
         val pickFiles: List<PickFileRequest> = emptyList(),
+        val dialogCancels: List<Pair<Long, Long>> = emptyList(),
         val toastText: String? = null,
         val openUrl: String? = null,
         val clipboardGets: List<ClipboardRequest> = emptyList(),
@@ -365,6 +368,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             // slot would silently drop concurrent MCP requests).
             dialogs = dialogs + later.dialogs,
             pickFiles = pickFiles + later.pickFiles,
+            dialogCancels = dialogCancels + later.dialogCancels,
             toastText = later.toastText ?: toastText,
             openUrl = later.openUrl ?: openUrl,
             clipboardGets = clipboardGets + later.clipboardGets,
@@ -479,6 +483,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                         startingPath = event.startingPath,
                         filter = event.filter,
                     ),
+                ),
+            )
+
+        is PollEvent.DialogCancel ->
+            PollResult(
+                dialogCancels =
+                listOf(
+                    event.sessionId to event.requestId,
                 ),
             )
 

@@ -235,3 +235,28 @@ terminal_info / clipboard_get / clipboard_set / notify / toast / open_url / send
 - 最近提交：`c694056`（fix: emulator E2E）
 - 工作区干净，与 `origin/main` 同步
 - 作者/提交者统一 `jane <jane@computer.local>`
+
+## 模拟器动态验证记录（round-208 补充）
+
+### 滚动方向修复验证（8545cbb）
+- **bug**：`setScrollOffset` 的 delta 未取反——libghostty-vt `scroll_viewport` 语义为负=看历史、正=回底部；Kotlin scrollOffset 增长=看历史。修复：`scroll_viewport(-(delta as isize))`。
+- **验证**：host 探针（read_line_text 视口文本 17→16 行）决定性证明语义；模拟器 OCR 双向验证（上滑→历史 echo_S2；下滑→底部 ROW_11 与基线一致）。
+
+### scrollback 启用（f97eb1a）
+- `set_max_scrollback_bytes`（bytes=0 禁用 scrollback 的标志位）+ `set_max_scrollback_lines` 双限设置。
+- 模拟器：30 行输出后滚动查询返回 41 行；强制重编译 Zig 库排除旧 .so 假设。
+
+### ModifierBar 动画/交互验证
+- CTRL/ALT 为 toggle 键（isToggle=true），按下保持高亮 = 正确 sticky 行为（x=250@y2300 落在 CTRL）。
+- 非 toggle 键按下/松开视觉恢复：bar 区 pressed vs after 总差异 0。
+- **环境限制**：swiftshader 模拟器 screenrecord ~2fps，无法逐帧捕捉 <300ms ripple 动画；像素级动画验证在真机/硬件加速模拟器进行。
+
+### TAB 键（KEYCODE_TAB）验证
+- 终端层：47 处测试覆盖（tab stops 每 8 列、DECST 清除等），全绿。
+- Kotlin 编码器：TAB→`\t`（TerminalInputEncoderTest）。
+- native writeKey：encode_modifiers 透传 0x09 无过滤。
+- 模拟器 shell 层无显示 = readline 补全消费（shell 行为，非终端 bug）。
+
+### 测试环境已知现象（非产品 bug）
+- IME 启用时 `adb input text` 注入被 IME 视图拦截；禁用 IME 后注入正常。真实触摸 IME 路径不受影响。
+- 快速 `input text` 循环（30 条）偶发 shell 退出（force-stop 重启竞态），分步输入稳定。

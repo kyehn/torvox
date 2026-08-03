@@ -189,6 +189,12 @@ constructor(
         ((sessionId: Long, requestId: Long, startingPath: String, filter: String) -> Unit)? =
         null
 
+    // Round-210 P2-14: called when the native MCP tool call times out
+    // (300s) so the still-visible dialog is dismissed. Wired by the UI
+    // layer alongside dialogRequestHandler.
+    @Volatile
+    var dialogCancelHandler: ((sessionId: Long, requestId: Long) -> Unit)? = null
+
     @Volatile var accentColor: Int = 0xFF2196F3.toInt()
 
     @Volatile var selectionBgColor: Int = 0xFF45475A.toInt()
@@ -442,6 +448,15 @@ constructor(
         java.util.concurrent.atomic.AtomicReference(
             SelectionStateSnapshot(0, 0, 0, 0, false, 0),
         )
+
+    /** Active session's scroll offset (round-209 P2-8): read by the
+     *  surface on session switch to resync its local selection-math
+     *  offset. */
+    fun activeSessionScrollOffset(): Int {
+        synchronized(sessionLock) {
+            return sessions[activeSessionId]?.scrollOffset ?: 0
+        }
+    }
 
     fun setScrollOffset(offset: Int) {
         val entry = sessions[activeSessionId] ?: return
@@ -889,6 +904,9 @@ constructor(
                                                 NativeBridge
                                                     .dialogResult(request.sessionId, request.requestId, "")
                                             }
+                                            poll.dialogCancels.forEach { (sessionId, requestId) ->
+                                                dialogCancelHandler?.invoke(sessionId, requestId)
+                                            }
                                             poll.pickFiles.forEach { request ->
                                                 NativeBridge
                                                     .dialogResult(request.sessionId, request.requestId, "")
@@ -1164,6 +1182,9 @@ constructor(
                         .dialogResult(request.sessionId, request.requestId, "")
                 }
             }
+            poll.dialogCancels.forEach { (sessionId, requestId) ->
+                dialogCancelHandler?.invoke(sessionId, requestId)
+            }
             poll.pickFiles.forEach { request ->
                 try {
                     LogUtil.i("Runtime", "MCP pick_file request session=${request.sessionId}")
@@ -1388,6 +1409,14 @@ constructor(
                 starting = false
             }
             return
+        }
+        // Round-210 P2-13: point the MCP socket at our real data dir (the
+        // native default hardcodes /data/data/com.termux, which breaks if
+        // the package is ever renamed).
+        runCatching {
+            NativeBridge.setMcpSocketPath(
+                context.filesDir.resolve("run/mcp.sock").absolutePath,
+            )
         }
         val displayW = context.resources.displayMetrics.widthPixels
         val displayH = context.resources.displayMetrics.heightPixels
@@ -2028,7 +2057,14 @@ constructor(
             previousActiveId = activeSessionId
             if (id == activeSessionId) return
             // ADR-0007: hand the Surface to the renderer (attachWindow JNI
-            // extracts the ANativeWindow inside Rust).
+            // extracts the ANativeWindow inside Rust). This is LAZY: it only
+            // stores the reference — the wgpu surface is created on the
+            // first render frame, which happens after the old session's
+            // thread is stopped and its surface released below (round-210
+            // P2-17: the release order is therefore attach-stored → stop
+            // old thread → release old surface → new surface created on
+            // first frame; the same ANativeWindow is never held by two
+            // live wgpu surfaces).
             target.bridge?.attachSurface(surface, width, height)
 
             if (!surface.isValid) {
@@ -2551,7 +2587,6 @@ constructor(
         val surface = pendingSurface ?: return
         bridge.attachSurface(surface, pendingSurfaceWidth, pendingSurfaceHeight)
     }
-
 
     /**
      * Activate [newId] as the foreground session after its predecessor

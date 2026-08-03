@@ -26,12 +26,12 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
@@ -1119,6 +1119,13 @@ constructor(
                         val buffer = java.nio.ByteBuffer.allocate(bitmapWidth * bitmapHeight * 4)
                         bitmap.copyPixelsToBuffer(buffer)
                         val rgbaData = buffer.array()
+                        // Byte order note (round-211, emulator-verified):
+                        // Coil 3 with .allowHardware(false) returns a bitmap
+                        // whose copyPixelsToBuffer() output is already RGBA
+                        // byte order on this pipeline. The earlier BGRA→RGBA
+                        // swap (round-210) double-swapped and rendered the
+                        // wallpaper with red/blue exchanged (quadrant-color
+                        // pixel checks). No swap is applied here.
                         bridge.setBackgroundImage(rgbaData, bitmapWidth, bitmapHeight)
                         bridge.setBackgroundParams(
                             settings.value.backgroundBlurRadius,

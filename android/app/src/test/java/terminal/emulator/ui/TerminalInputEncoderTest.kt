@@ -91,4 +91,84 @@ class TerminalInputEncoderTest {
     fun `encodeKeyEvent unknown key with no char returns null`() {
         assertNull(TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_UNKNOWN, 0, false, false))
     }
+
+    @Test
+    fun `encodeKeyEvent tab produces tab byte`() {
+        assertArrayEquals(
+            bytes(0x09),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_TAB, 0, false, false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent alt tab produces csi 9 mod`() {
+        assertArrayEquals(
+            bytes(0x1B, 0x5B, 0x39, 0x3B, 0x33, 0x7E), // ESC [ 9 ; 3 ~
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_TAB, 0, false, true),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent ctrl tab produces csi 9 mod`() {
+        assertArrayEquals(
+            bytes(0x1B, 0x5B, 0x39, 0x3B, 0x35, 0x7E), // ESC [ 9 ; 5 ~
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_TAB, 0, true, false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent alt enter produces csi 13 mod`() {
+        assertArrayEquals(
+            bytes(0x1B, 0x5B, 0x31, 0x33, 0x3B, 0x33, 0x7E), // ESC [ 1 3 ; 3 ~
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_ENTER, 0, false, true),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent backspace produces del byte`() {
+        assertArrayEquals(
+            bytes(0x7F),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DEL, 0, false, false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent escape produces esc byte`() {
+        assertArrayEquals(
+            bytes(0x1B),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_ESCAPE, 0, false, false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent home produces csi h`() {
+        assertArrayEquals(
+            bytes(0x1B, 0x5B, 0x48),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_MOVE_HOME, 0, false, false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent end produces csi f`() {
+        assertArrayEquals(
+            bytes(0x1B, 0x5B, 0x46),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_MOVE_END, 0, false, false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent page up produces csi 5 tilde`() {
+        assertArrayEquals(
+            bytes(0x1B, 0x5B, 0x35, 0x7E),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_PAGE_UP, 0, false, false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent f1 produces ss3 p`() {
+        assertArrayEquals(
+            bytes(0x1B, 0x4F, 0x50),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F1, 0, false, false),
+        )
+    }
 }

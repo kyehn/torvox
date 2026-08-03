@@ -249,6 +249,17 @@ impl super::GhosttyTerminal {
     /// A `false` result means the grid was NOT resized (PTY may still have
     /// been updated by the caller's `pty.resize`); the caller must not cache
     /// the new size so the next resize event retries (round-112).
+    /// Scroll the terminal viewport by a delta (up is negative). The
+    /// delta is applied on the VT thread via `scroll_viewport`; the next
+    /// CellData push carries the scrolled view (round-205).
+    pub fn scroll_viewport(&self, delta: isize) -> bool {
+        if let Err(error) = self.cmd_tx.try_send(Command::ScrollViewport(delta)) {
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for scroll: {error}");
+            return false;
+        }
+        true
+    }
+
     pub fn resize(&mut self, rows: u32, cols: u32) -> bool {
         // try_send, not send: a wedged VT thread must not block the caller
         // (switchSession holds the Kotlin sessionLock across this call).

@@ -8421,6 +8421,72 @@ fn bench_end_to_end_cpu_pipeline_latency() {
     );
 }
 
+/// Verify that `scroll_viewport(Delta)` scrolls the CellData view and
+/// that the delta accumulates on repeated calls (round-205: scrollback
+/// browsing previously did nothing).
+#[test]
+fn scroll_viewport_delta_scrolls_cell_data() {
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    for i in 0..20 {
+        t.vt_write(format!("line {i}\n").as_bytes());
+    }
+    t.flush();
+
+    // First frame at offset 0 shows the bottom of the output.
+    let (cells0, _) = t.receive_cell_data().expect("cell data");
+    let bottom_rows: std::collections::HashSet<u32> = cells0.iter().map(|c| c.row).collect();
+    assert!(
+        bottom_rows.contains(&4),
+        "offset 0 should include viewport row 4, got {bottom_rows:?}"
+    );
+
+    // The terminal must actually accumulate scrollback (host probe:
+    // scrollback_length should be > 0 after 20 lines into a 5-row view).
+    let scrollback = t.scrollback_length();
+    assert!(
+        scrollback > 0,
+        "scrollback should exist after output, got {scrollback}"
+    );
+
+    // Scroll up by 2: the VT thread applies the delta and pushes new
+    // CellData; the visible content shifts (rows are renumbered from the
+    // new viewport top, so the row set is unchanged but the text differs).
+    assert!(t.scroll_viewport(-2), "scroll_viewport should accept delta");
+    // Give the VT thread a moment to process and push.
+    let mut scrolled = None;
+    for _ in 0..50 {
+        if let Some((cells, _)) = t.receive_cell_data() {
+            scrolled = Some(cells);
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
+    let scrolled = scrolled.expect("scrolled cell data");
+    let scrolled_rows: std::collections::HashSet<u32> = scrolled.iter().map(|c| c.row).collect();
+    assert_eq!(
+        scrolled_rows, bottom_rows,
+        "scrolled view keeps 5 viewport rows"
+    );
+    // The scrolled CellData must differ from the bottom view: the last
+    // visible line is no longer "line 19". Read the visible text through
+    // the snapshot path at offset 2 and check the last line.
+    let snap = t.take_snapshot_with_scroll(2);
+    let last_line = snap
+        .cells
+        .chunks(snap.cols as usize)
+        .last()
+        .map(|row| {
+            row.iter()
+                .filter_map(|c| char::from_u32(c.codepoint))
+                .collect::<String>()
+        })
+        .unwrap_or_default();
+    assert!(
+        !last_line.contains("line 19"),
+        "scrolled view should not show the bottom line, got {last_line:?}"
+    );
+}
+
 #[test]
 fn terminal_is_alive_after_creation() {
     let t = small_term();

@@ -79,6 +79,10 @@ class MainActivity : ComponentActivity() {
     // hang forever — onDestroy replies with an empty result.
     private var pendingDialogRequest: Pair<Long, Long>? = null
 
+    // Round-210 P2-14: the visible AlertDialog instance, held so a native
+    // MCP timeout (DialogCancel event) can dismiss it.
+    private var activeDialog: android.app.AlertDialog? = null
+
     internal val terminalViewModel: terminal.emulator.TerminalViewModel by viewModels()
 
     private val testBackdoorReceivers =
@@ -231,13 +235,25 @@ class MainActivity : ComponentActivity() {
                                 builder.setPositiveButton(android.R.string.ok) { _, _ -> reply("") }
                             }
                         }
-                        builder.show()
+                        activeDialog = builder.show()
                     } catch (exception: Exception) {
                         Log.e(TAG, "MCP dialog display failed", exception)
                         // The request event was already consumed; without a
                         // reply the native MCP tool call hangs forever.
                         pendingDialogRequest = null
                         terminal.emulator.bridge.NativeBridge.dialogResult(sessionId, requestId, "")
+                    }
+                }
+            }
+        runtime.dialogCancelHandler =
+            { sessionId, requestId ->
+                runOnUiThread {
+                    // The native MCP tool call gave up (300s timeout);
+                    // dismiss the dialog if it matches the pending request.
+                    if (pendingDialogRequest == sessionId to requestId) {
+                        pendingDialogRequest = null
+                        activeDialog?.dismiss()
+                        activeDialog = null
                     }
                 }
             }
@@ -420,6 +436,8 @@ class MainActivity : ComponentActivity() {
             terminal.emulator.bridge.NativeBridge.dialogResult(sessionId, requestId, "")
         }
         pendingDialogRequest = null
+        activeDialog?.dismiss()
+        activeDialog = null
         super.onDestroy()
         testBackdoorReceivers.unregister()
         logcatDumpWriter.stop()

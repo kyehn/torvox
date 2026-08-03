@@ -46,7 +46,7 @@ def main [] {
     for patch_file in [($patch_dir | path join "libghostty-vt-sys.patch") ($patch_dir | path join "libghostty-vt.patch")] {
         if ($patch_file | path exists) {
             print $"Applying ($patch_file)..."
-            ^patch --directory $output_dir --strip 1 --forward --input $patch_file
+            ^patch --directory $output_dir --strip 0 --forward --input $patch_file
         }
     }
 

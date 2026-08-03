@@ -173,10 +173,14 @@ pub fn build_instances_from_cell_data(
     // foldhash (0.2, already in the dependency tree) instead of the std
     // SipHash13 default: this map is rebuilt and queried every frame
     // (~1920 hashes/frame @60fps); foldhash is ~5-10x faster on i32 keys.
+    // Round-210 P2-6: skip the per-frame HashMap rebuild when there are
+    // no highlights (the common case) — ~1920 hashes/frame saved.
     let mut highlights_by_row: HashMap<i32, Vec<&SearchHighlight>, RandomState> =
         HashMap::with_hasher(RandomState::default());
-    for h in search_highlights {
-        highlights_by_row.entry(h.row).or_default().push(h);
+    if !search_highlights.is_empty() {
+        for h in search_highlights {
+            highlights_by_row.entry(h.row).or_default().push(h);
+        }
     }
 
     for cd in cell_data {

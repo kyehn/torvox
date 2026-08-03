@@ -206,6 +206,28 @@ impl super::GhosttyTerminal {
             log::error!("ghostty_terminal: Terminal::new failed — thread exiting");
             return;
         };
+        // The C `terminal_new` ABI has no scrollback parameter and the
+        // vendor default disables scrollback entirely (Screen.Options
+        // max_scrollback_bytes = 0). Enable it explicitly after
+        // construction, otherwise scrollback browsing and
+        // scrollback_length() always return 0 (round-205,
+        // emulator-verified: scrollback_rows query returned 0 with
+        // content on screen). Both limits must be set: `setMaxBytes`
+        // flips the page list's `no_scrollback` flag (bytes == 0
+        // disables scrollback entirely), while `setMaxLines` only caps
+        // the physical row count.
+        if let Err(error) = terminal.set_max_scrollback_bytes(Some(
+            (config.scrollback_lines as usize)
+                .saturating_mul(256)
+                .max(1 << 20),
+        )) {
+            log::error!("ghostty_terminal: set_max_scrollback_bytes failed: {error}");
+        }
+        if let Err(error) =
+            terminal.set_max_scrollback_lines(Some(config.scrollback_lines as usize))
+        {
+            log::error!("ghostty_terminal: set_max_scrollback_lines failed: {error}");
+        }
 
         // Initialize Kitty Graphics Protocol (KGP) support
         if let Err(error) = terminal.set_kitty_image_storage_limit(KGP_STORAGE_LIMIT) {
@@ -312,11 +334,10 @@ impl super::GhosttyTerminal {
                     }
                     // ── Auto-push CellData (also sent on each state change above) ──
                     #[allow(clippy::collapsible_if)]
-                    if let Some(tx) = config.cell_data_tx.as_ref() {
-                        if let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
-                        {
-                            let _ = tx.try_send(data);
-                        }
+                    if let Some(tx) = config.cell_data_tx.as_ref()
+                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                    {
+                        let _ = tx.try_send(data);
                     }
                     continue;
                 }
@@ -330,11 +351,10 @@ impl super::GhosttyTerminal {
                     terminal.vt_write(&data);
                     grid_dirty = true;
                     #[allow(clippy::collapsible_if)]
-                    if let Some(tx) = config.cell_data_tx.as_ref() {
-                        if let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
-                        {
-                            let _ = tx.try_send(data);
-                        }
+                    if let Some(tx) = config.cell_data_tx.as_ref()
+                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                    {
+                        let _ = tx.try_send(data);
                     }
                 }
                 Command::FlushAck(tx) => {
@@ -383,11 +403,10 @@ impl super::GhosttyTerminal {
                     }
                     grid_dirty = true;
                     #[allow(clippy::collapsible_if)]
-                    if let Some(tx) = config.cell_data_tx.as_ref() {
-                        if let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
-                        {
-                            let _ = tx.try_send(data);
-                        }
+                    if let Some(tx) = config.cell_data_tx.as_ref()
+                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                    {
+                        let _ = tx.try_send(data);
                     }
                 }
                 Command::Resize { rows, cols } => {
@@ -407,11 +426,24 @@ impl super::GhosttyTerminal {
                     }
                     grid_dirty = true;
                     #[allow(clippy::collapsible_if)]
-                    if let Some(tx) = config.cell_data_tx.as_ref() {
-                        if let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
-                        {
-                            let _ = tx.try_send(data);
-                        }
+                    if let Some(tx) = config.cell_data_tx.as_ref()
+                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                    {
+                        let _ = tx.try_send(data);
+                    }
+                }
+                Command::ScrollViewport(delta) => {
+                    // C ABI returns void; viewport failures surface as a
+                    // no-op (grid unchanged) and the retry logic in
+                    // setScrollOffset re-sends on the next offset change.
+                    terminal.scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
+                    grid_dirty = true;
+                    // Rebuild + repush CellData so the renderer draws the
+                    // scrolled view immediately.
+                    if let Some(tx) = config.cell_data_tx.as_ref()
+                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                    {
+                        let _ = tx.try_send(data);
                     }
                 }
                 Command::TakeSnapshot { tx, scroll_offset } => {
@@ -1002,8 +1034,11 @@ impl super::GhosttyTerminal {
         _palette: &[[u8; 3]; 16],
         scroll_offset: u32,
     ) -> GridSnapshot {
-        // Fallback path: when scrolled into history, use legacy per-cell
-        // grid_ref() approach. (RenderState doesn't expose scrollback.)
+        // NOTE (round-209): a scrolled snapshot returns an EMPTY fallback
+        // grid — the CellData path does not expose scrollback content, and
+        // `take_snapshot_with_scroll` is only exercised by tests. Any
+        // future query/MCP caller passing a non-zero offset will get an
+        // empty grid; implement history snapshots there if needed.
         if scroll_offset > 0 {
             return GridSnapshot::fallback(
                 terminal.rows().unwrap_or(24) as u32,

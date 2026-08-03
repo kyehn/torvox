@@ -20,7 +20,10 @@ struct VertexOutput {
 fn vs_main(@location(0) pos: vec2<f32>) -> VertexOutput {
     var out: VertexOutput;
     out.position = vec4<f32>(pos, 0.0, 1.0);
-    out.uv = pos * 0.5 + vec2<f32>(0.5);
+    // NDC y=+1 is the top of the screen; texture v=0 is the first (top)
+    // row. Flipping v keeps the wallpaper upright (round-211, verified by
+    // quadrant-color pixel checks on the emulator).
+    out.uv = vec2<f32>(pos.x * 0.5 + 0.5, 0.5 - pos.y * 0.5);
     return out;
 }
 
