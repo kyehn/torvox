@@ -7,6 +7,10 @@ def main [] {
     cargo clippy --all -- --deny warnings
     cargo test -p integration-tests --test tool_lint -- --test-threads 1
     cargo test --workspace
-    # Shader validation tests removed — crate was merged into native/.
+    # Performance benchmarks are #[ignore]d in the full-suite run above:
+    # parallel CPU contention (software Vulkan benches + tokio tests) makes
+    # their wall-clock measurements flaky. They are verified here serially,
+    # which gives stable single-run numbers (round-204).
+    cargo test -p native --lib --features test-util -- --ignored bench --test-threads 1
     print "Check completed successfully."
 }

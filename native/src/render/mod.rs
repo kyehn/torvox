@@ -47,6 +47,17 @@ pub(crate) use old_path::{
 pub(crate) use pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
 pub use pipeline::{GpuUniforms, image_active_value};
 
+/// Serialises GPU/CPU benchmarks: under software Vulkan (Mesa Lavapipe)
+/// each test creates its own wgpu device, and parallel benchmarks contend
+/// for CPU so hard throughput thresholds become flaky. The lock is held
+/// for the whole benchmark body, guaranteeing one benchmark at a time
+/// (round-204: scroll bench joined the lock for the same reason).
+#[cfg(any(test, feature = "test-util"))]
+// Only referenced from #[cfg(test)] benches; the lib build with
+// `--features test-util` (clippy) has no callers.
+#[allow(dead_code)]
+pub(crate) static GPU_BENCH_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
+
 // ── Public Constants ─────────────────────────────────────────────────────
 pub const RENDER_SCALE: f32 = 1.0;
 

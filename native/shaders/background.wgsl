@@ -25,6 +25,12 @@ fn vs_main(@location(0) pos: vec2<f32>) -> VertexOutput {
 }
 
 fn gaussian(x: f32, sigma: f32) -> f32 {
+    // sigma = 0 (blur_radius = 0) must degenerate to a pure center sample:
+    // exp(-0.5*x*x/0) is NaN in WGSL, which makes the whole blur output
+    // undefined (wallpaper invisible — emulator-verified, round-203).
+    if (sigma < 0.001) {
+        return select(0.0, 1.0, abs(x) < 0.5);
+    }
     return exp(-0.5 * x * x / (sigma * sigma));
 }
 
@@ -32,7 +38,7 @@ fn gaussian(x: f32, sigma: f32) -> f32 {
 @fragment
 fn fs_blur_h(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let r = uniforms.blur_radius;
-    let sigma = r * 0.5;
+    let sigma = max(r * 0.5, 0.001);
     let half_kernel = i32(ceil(r));
     var color_sum = vec3<f32>(0.0);
     var weight_sum = 0.0;
@@ -51,7 +57,7 @@ fn fs_blur_h(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
 @fragment
 fn fs_blur_v(@location(0) uv: vec2<f32>) -> @location(0) vec4<f32> {
     let r = uniforms.blur_radius;
-    let sigma = r * 0.5;
+    let sigma = max(r * 0.5, 0.001);
     let half_kernel = i32(ceil(r));
     var color_sum = vec3<f32>(0.0);
     var weight_sum = 0.0;

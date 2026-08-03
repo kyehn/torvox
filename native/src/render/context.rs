@@ -137,6 +137,15 @@ pub struct Renderer {
     pub(crate) bg_sampler: Option<wgpu::Sampler>,
     pub(crate) bg_blur_radius: f32,
     pub(crate) bg_alpha: f32,
+    /// Intermediate texture for the two-pass blur: the H pass renders into
+    /// it, the V pass samples it (round-203: previously both passes wrote
+    /// the surface and the V pass sampled the original image, so the H
+    /// pass was overwritten — blur was effectively vertical-only).
+    pub(crate) bg_blur_texture: Option<wgpu::Texture>,
+    pub(crate) bg_blur_texture_view: Option<wgpu::TextureView>,
+    /// Bind group for the V pass: same uniforms/sampler, but binding 1
+    /// points at the H-pass intermediate texture instead of the source.
+    pub(crate) bg_blur_bind_group: Option<wgpu::BindGroup>,
     pub(crate) kgp_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) kgp_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub(crate) kgp_bind_group: Option<wgpu::BindGroup>,
@@ -193,35 +202,20 @@ impl Renderer {
                 };
                 surface.configure(&self.device, &new_config);
                 self.surface_config = Some(new_config);
-
-                let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
-                let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
-                let proj = crate::render::orthographic_projection(
-                    tex_size.width as f32,
-                    tex_size.height as f32,
-                );
-                let uniforms = crate::render::pipeline::GpuUniforms {
-                    projection: proj,
-                    atlas_size: [aw as f32, ah as f32],
-                    raster_scale: self.raster_scale,
-                    image_active: crate::render::pipeline::image_active_value(
-                        self.bg_bind_group.is_some(),
-                    ),
-                    default_bg: [
-                        self.bg_color.r as f32,
-                        self.bg_color.g as f32,
-                        self.bg_color.b as f32,
-                        1.0,
-                    ],
-                };
-                if let Some(buf) = &self.cell_uniform_buffer {
-                    self.queue
-                        .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
-                }
                 (tex_size.width, tex_size.height)
             } else {
                 (cfg_width, cfg_height)
             };
+
+        // Every frame, sync the cell uniforms' `image_active` flag with the
+        // current bg bind group: `ensure_bg_pipeline` above may have just
+        // (re)built it after setBackgroundImage/clearBackgroundImage, and
+        // the cell shader must know whether default-background cells should
+        // be transparent so the wallpaper shows through. Only the uniform
+        // buffer content is rewritten — the bind group is bound by object
+        // identity and stays valid (round-203, emulator-verified: wallpaper
+        // was drawn every frame but opaque cell backgrounds covered it).
+        self.refresh_cell_uniforms(cfg_width as f32, cfg_height as f32);
 
         let view = output
             .texture
@@ -253,6 +247,9 @@ impl Drop for Renderer {
         self.bg_uniform_buffer = None;
         self.bg_bind_group = None;
         self.bg_sampler = None;
+        self.bg_blur_texture = None;
+        self.bg_blur_texture_view = None;
+        self.bg_blur_bind_group = None;
         self.blur_h_pipeline = None;
         self.blur_v_pipeline = None;
         self.bg_pipeline = None;
@@ -315,6 +312,9 @@ impl Renderer {
             bg_sampler: None,
             bg_blur_radius: 0.0,
             bg_alpha: DEFAULT_BG_ALPHA,
+            bg_blur_texture: None,
+            bg_blur_texture_view: None,
+            bg_blur_bind_group: None,
             kgp_pipeline: None,
             kgp_bind_group_layout: None,
             kgp_bind_group: None,
@@ -779,6 +779,36 @@ impl Renderer {
                 },
             ],
         }));
+    }
+
+    /// Lightweight per-frame sync of the cell uniform buffer contents only.
+    /// Unlike `write_uniforms`, it never recreates the bind group: the cell
+    /// bind group is bound by buffer object identity, and wgpu reads the
+    /// buffer contents at draw time, so rewriting the bytes is sufficient
+    /// to flip `image_active` (wallpaper visibility) and the projection.
+    fn refresh_cell_uniforms(&mut self, projection_width: f32, projection_height: f32) {
+        let Some(buf) = self.cell_uniform_buffer.as_ref() else {
+            return;
+        };
+        let (aw, ah) = self
+            .atlas_texture
+            .as_ref()
+            .map_or((0.0, 0.0), |t| (t.width() as f32, t.height() as f32));
+        let proj = crate::render::orthographic_projection(projection_width, projection_height);
+        let uniforms = crate::render::pipeline::GpuUniforms {
+            projection: proj,
+            atlas_size: [aw, ah],
+            raster_scale: self.raster_scale,
+            image_active: crate::render::pipeline::image_active_value(self.bg_bind_group.is_some()),
+            default_bg: [
+                self.bg_color.r as f32,
+                self.bg_color.g as f32,
+                self.bg_color.b as f32,
+                1.0,
+            ],
+        };
+        self.queue
+            .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
     }
 
     pub fn update_bind_group(
