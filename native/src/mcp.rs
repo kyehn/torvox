@@ -721,7 +721,7 @@ mod tests {
     // whole test body.
     static MCP_TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_list_tools() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -746,7 +746,7 @@ mod tests {
         assert_eq!(names.len(), 9);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_terminal_info_tool() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -762,7 +762,7 @@ mod tests {
         assert!(info["columns"].is_number());
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_clipboard_set_requires_text() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -774,7 +774,7 @@ mod tests {
         assert!(result.is_error);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_notify_tool_invokes_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -804,7 +804,7 @@ mod tests {
         assert!(!result.is_error);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_toast_tool_invokes_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -821,7 +821,7 @@ mod tests {
         assert_eq!(rx.try_recv().unwrap(), "hello");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_open_url_tool_invokes_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -840,7 +840,7 @@ mod tests {
         assert_eq!(rx.try_recv().unwrap(), "https://example.com");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_clipboard_get_returns_text() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -862,7 +862,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_clipboard_get_unavailable_if_no_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -883,7 +883,7 @@ mod tests {
         assert!(result.is_error);
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_send_signal_invokes_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -906,7 +906,7 @@ mod tests {
         assert_eq!(rx.try_recv().unwrap(), (42, 15));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_pick_file_returns_path() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -932,7 +932,7 @@ mod tests {
         );
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_dialog_returns_answer() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();
@@ -960,7 +960,7 @@ mod tests {
         assert_eq!(result.content.first().unwrap().as_text().unwrap(), "yes");
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn test_method_not_found() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         let router = build_router();

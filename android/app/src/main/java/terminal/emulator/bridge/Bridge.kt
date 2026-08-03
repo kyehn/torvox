@@ -246,6 +246,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     fun setBackgroundParams(radius: Int, alpha: Int) {
         Log.d(TAG, "setBackgroundParams(blur=$radius, alpha=$alpha)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setBackgroundParams(sessionId, radius, alpha)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setBackgroundParams failed: ${exception.javaClass.simpleName}")
+        }
     }
 
     fun setCursorBlinkEnabled(enabled: Boolean) {
