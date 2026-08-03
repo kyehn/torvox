@@ -215,4 +215,13 @@ object NativeBridge {
     @JvmStatic
     external fun setSearchHighlights(sessionId: Long, data: ByteArray)
     external fun setTheme(sessionId: Long, data: ByteArray)
+
+    external fun setBackgroundImage(
+        sessionId: Long,
+        data: ByteArray,
+        width: Int,
+        height: Int,
+    )
+
+    external fun clearBackgroundImage(sessionId: Long)
 }

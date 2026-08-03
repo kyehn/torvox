@@ -172,7 +172,6 @@ class TextSearchEndToEndTest {
     // ── Test 2: Search finds and highlights text ──
 
     @Test
-
     fun test02_searchFindsAndHighlightsMatches() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge()!!
@@ -211,7 +210,6 @@ class TextSearchEndToEndTest {
     // ── Test 3: Search navigation (previous/next) with scrolling ──
 
     @Test
-
     fun test03_searchNavigatesWithScroll() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge()!!
@@ -238,7 +236,6 @@ class TextSearchEndToEndTest {
     // ── Test 4: Smart case toggle ──
 
     @Test
-
     fun test04_smartCaseToggle() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge()!!
@@ -295,7 +292,6 @@ class TextSearchEndToEndTest {
     // ── Test 6: Multi-line text with multiple matches ──
 
     @Test
-
     fun test06_multiLineSearch() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge()!!
@@ -393,7 +389,6 @@ class TextSearchEndToEndTest {
     // ── Test 10: Search highlights use theme-based inverted colors ──
 
     @Test
-
     fun test10_searchHighlightColors() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge()!!

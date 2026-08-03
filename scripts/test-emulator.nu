@@ -53,7 +53,13 @@ def main [] {
 
     print "=== Running benchmarks ==="
     try { ^./gradlew "benchmark:lockClocks" } catch {|e| print $"WARNING: lockClocks failed: ($e)" }
+    # Run each interaction benchmark as its own instrumentation
+    # invocation: the software-rendered emulator exhausts itself during
+    # a combined run and the UTP output plugin dies with "Writing local
+    # file failed!" on the last test method.
     try { ^./gradlew ":benchmark:connectedReleaseAndroidTest" } catch {|e| print $"WARNING: Benchmark tests failed: ($e)" }
+    try { ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#modifierKeyPressAnimation } catch {|e| print $"WARNING: modifierKeyPressAnimation failed: ($e)" }
+    try { ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#imeShowAnimation } catch {|e| print $"WARNING: imeShowAnimation failed: ($e)" }
     try { ^./gradlew ":baselineprofile:generateBaselineProfile" } catch {|e| print $"WARNING: Baseline profile generation failed: ($e)" }
 
     cd $repo_dir
