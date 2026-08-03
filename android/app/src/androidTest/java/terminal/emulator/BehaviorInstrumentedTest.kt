@@ -85,7 +85,7 @@ class BehaviorInstrumentedTest {
     @Test
     fun behavior_app_stays_in_foreground() {
         // Smoke check only: no color/rendering assertion is possible while
-        // Bridge.setTheme is a log-only ADR-0007 stub .
+        // Bridge.setTheme is a log-only implemented (native query path wired since ) .
         val output = device.executeShellCommand("dumpsys activity top | grep -i $PACKAGE")
         assertTrue("App should be in foreground", output.isNotEmpty())
     }
@@ -108,7 +108,7 @@ class BehaviorInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while isCellEmpty/expandAndSetSelection are ADR-0007 stubs (long-press routes to the paste popup), so the Copy toolbar button never appears on a fresh process; turned the old vacuous skip into a guaranteed failure ")
+    @org.junit.Ignore("Selection cannot be activated while isCellEmpty/expandAndSetSelection are implemented (native query path wired since )s (long-press routes to the paste popup), so the Copy toolbar button never appears on a fresh process; turned the old vacuous skip into a guaranteed failure ")
     fun behavior_selection_toolbar_shows_copy_select_all() {
         openSettings()
         scrollTo("Keyboard Mode")

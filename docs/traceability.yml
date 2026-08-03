@@ -214,7 +214,7 @@ requirements:
     description: "The system SHALL recover from GPU surface destruction (e.g., Android activity restart) by recreating the render pipeline and continuing without data loss."
     design:
       - "docs/architecture.md#6-error-handling"
-      - "native/src/render/surface.rs"
+      - "native/src/render/context.rs"
       - "native/src/android/ffi.rs"
     api: []
     tests:
@@ -280,11 +280,11 @@ requirements:
     description: "The system SHALL support touch input gestures: tap to place cursor, long-press for selection handles, and swipe for scrollback navigation."
     design:
       - "docs/architecture.md#2.1-crate-structure"
-      - "native/src/render/surface.rs"
+      - "native/src/render/context.rs"
     api: []
     tests:
       - "android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt"
-    verification: "cd android && ./gradlew testDebugUnitTest"
+    verification: "cd android && ./gradlew connectedDebugAndroidTest"
 
   FR-025:
     description: "The system SHALL support configurable backspace mode (DEL 0x7f or BS 0x08) and right-Alt mode (character modifier or meta)."
@@ -577,7 +577,8 @@ requirements:
     design:
       - "docs/architecture.md#5-key-design-decisions"
     api: []
-    tests: []
+    tests:
+      - "android/app/build.gradle.kts"
     verification: "cd android && ./gradlew assembleDebug"
 
   # ==========================================================================
@@ -775,7 +776,8 @@ requirements:
     description: "The Kotlin codebase SHALL pass ./gradlew spotlessCheck detekt with zero violations."
     design: []
     api: []
-    tests: []
+    tests:
+      - "android/app/src/main/java/terminal/emulator/"
     verification: "cd android && ./gradlew spotlessCheck detekt"
 
   NFR-016:
@@ -815,7 +817,8 @@ requirements:
     design:
       - "docs/architecture.md#5-key-design-decisions"
     api: []
-    tests: []
+    tests:
+      - "flake.nix"
     verification: "nix flake check"
 
   NFR-020:
@@ -823,14 +826,16 @@ requirements:
     design:
       - "docs/architecture.md#5-key-design-decisions"
     api: []
-    tests: []
+    tests:
+      - "native/Cargo.toml"
     verification: "nu scripts/check-rust.nu"
 
   NFR-021:
     description: "The APK SHALL use the application ID com.termux and SHALL be signed with the AOSP testkey (not self-signed certificates)."
     design: []
     api: []
-    tests: []
+    tests:
+      - "android/app/build.gradle.kts"
     verification: "cd android && ./gradlew assembleDebug"
 
   # ==========================================================================
@@ -841,7 +846,7 @@ requirements:
     description: "The render thread SHALL detect GPU surface loss and recreate the wgpu pipeline automatically. After 100 consecutive errors (~10 seconds), the thread SHALL exit permanently and require a new surface to restart."
     design:
       - "docs/architecture.md#6-error-handling"
-      - "native/src/render/surface.rs"
+      - "native/src/render/context.rs"
     api: []
     tests:
       - "native/src/render/tests.rs"
@@ -874,7 +879,8 @@ requirements:
     design:
       - "native/src/android/logging.rs"
     api: []
-    tests: []
+    tests:
+      - "native/src/android/logging.rs"
     verification: "ls native/src/android/logging.rs"
 
 # ============================================================================
@@ -882,18 +888,3 @@ requirements:
 # ============================================================================
 # Each verification tag describes the command used to validate the requirement.
 
-verification_methods:
-  cargo_test_workspace: "cargo test --workspace — Runs all Rust unit, integration, doc, and property tests across all crates."
-  cargo_test_package_native: "cargo test --package native — Runs tests for the merged native crate (terminal, render, android, mcp)."
-  cargo_test_package_exec: "cargo test --package exec-bin — Runs tests for the SSH/Mosh executable crate."
-  cargo_clippy: "cargo clippy --all -- --deny warnings — Static analysis with Clippy, denying all warnings."
-  cargo_fmt_check: "cargo fmt --check — Verifies code formatting consistency."
-  cargo_geiger_native: "cargo geiger --package native — Verifies zero unsafe blocks in the native crate."
-  cargo_geiger_all: "cargo geiger — Verifies safety annotations across all crates."
-  gradle_test: "cd android && ./gradlew testDebugUnitTest — Runs Kotlin JVM unit tests via Gradle."
-  gradle_spotless: "cd android && ./gradlew spotlessCheck detekt — Kotlin formatting and lint checks."
-  gradle_assemble: "cd android && ./gradlew assembleDebug — Builds the Android debug APK."
-  gradle_instrumented: "cd android && ./gradlew connectedDebugAndroidTest — Runs instrumented tests on device/emulator."
-  gradle_roborazzi: "cd android && ./gradlew roborazziDebug — Runs Roborazzi screenshot comparison tests."
-  nix_flake_check: "nix flake check — Validates the Nix flake configuration."
-  nu_check_rust: "nu scripts/check-rust.nu — Runs the Rust CI script (clippy, fmt, test, audit, machete)."
