@@ -712,7 +712,7 @@ constructor(
                 entry.hungRenderThread = null
             }
             // Skip releaseGpuSurface here — the new render thread will
-            // reconfigure the surface via setNativeWindow/updateNativeWindow.
+            // reconfigure the surface via attachSurface.
         }
 
         internal suspend fun restartRenderThreadAfterDelay(entry: SessionEntry) {
@@ -1416,7 +1416,6 @@ constructor(
             return
         }
 
-        var windowPointer = 0L
         // Hoisted so the failure path can close it; stays null when
         // start() bails out before createBridge().
         var startedBridge: terminal.emulator.bridge.Bridge? = null
@@ -1528,9 +1527,6 @@ constructor(
                 starting = false
                 return
             }
-
-            bridge.setNativeWindow(windowPointer, width, height)
-            LogUtil.d("Runtime", "setNativeWindow OK: width=$width height=$height")
 
             val spawnStartNs = System.nanoTime()
             val spawnResult = bridge.spawnTerminal(config.rows, config.cols, bridge.shellPath())
@@ -1697,7 +1693,7 @@ constructor(
             // Deliberate duplicate: the file copy includes the full stack
             // trace (LogUtil truncates it) and a stable FAILED grep anchor.
             LogcatFileWriter.write("Runtime", "FAILED to start terminal: ${exception.message}\n${exception.stackTraceToString()}")
-            // Any failure after createBridge() (settings, setNativeWindow,
+            // Any failure after createBridge() (settings, attachSurface,
             // spawnTerminal throwing instead of returning 0) would otherwise
             // leak the native session and its PTY child forever.
             try {
@@ -2034,7 +2030,6 @@ constructor(
             // ADR-0007: hand the Surface to the renderer (attachWindow JNI
             // extracts the ANativeWindow inside Rust).
             target.bridge?.attachSurface(surface, width, height)
-            val windowPointer = 0L
 
             if (!surface.isValid) {
                 LogUtil.e("Runtime", "switchSession: surface is no longer valid, aborting")
@@ -2074,15 +2069,11 @@ constructor(
             }
 
             try {
-                target.bridge?.setNativeWindow(windowPointer, width, height)
-                // Always update the GPU surface after setNativeWindow.
-                // If releaseGpuSurface was called on this bridge during a
-                // previous session switch, the wgpu surface is gone and must
-                // be recreated from the current ANativeWindow via updateNativeWindow.
-                target.bridge?.updateNativeWindow(windowPointer, width, height)
+                // ADR-0007: the surface is handed to the renderer via
+                // attachSurface above; nothing else is needed here.
                 target.running = true
             } catch (exception: Exception) {
-                LogUtil.e("Runtime", "switchSession: setNativeWindow failed for session $id", exception)
+                LogUtil.e("Runtime", "switchSession: attachSurface failed for session $id", exception)
                 // Spawn failure: the previous active session was stopped and
                 // its GPU surface released above. Restore it so the terminal
                 // is not left frozen (running=false, no render thread, and
@@ -2094,8 +2085,6 @@ constructor(
                     previous.renderThreadExited = false
                     previous.restartAttempts = 0
                     try {
-                        previous.bridge?.setNativeWindow(windowPointer, width, height)
-                        previous.bridge?.updateNativeWindow(windowPointer, width, height)
                         renderSupervisor.startRenderThread(previous)
                         activeSessionId = previous.id
                     } catch (restoreException: Exception) {
@@ -2121,7 +2110,7 @@ constructor(
         // indefinitely on a GPU fault (Mali-G57 get_current_texture).
         try {
             // The GPU surface may not be fully configured immediately after
-            // spawnTerminal/setNativeWindow (a transient race on shared
+            // spawnTerminal/attachSurface (a transient race on shared
             // ANativeWindow). Retry the first synchronous render a few times
             // with a short delay so we present real content instead of
             // starting a render thread on a not-yet-ready surface (which would
@@ -2563,44 +2552,6 @@ constructor(
         bridge.attachSurface(surface, pendingSurfaceWidth, pendingSurfaceHeight)
     }
 
-    fun updateNativeWindow(
-        windowPointer: Long,
-        width: Int,
-        height: Int,
-    ) {
-        val entry = sessions[activeSessionId] ?: return
-        try {
-            entry.bridge?.updateNativeWindow(windowPointer, width, height)
-            entry.bridge?.let { syncGridDimensions(it) }
-            // Route restarts through the same single-thread executor as
-            // pause/resume so startRenderThread can never race a concurrent
-            // pauseRendering() (which would leave two render loops or a
-            // black screen).
-            if (entry.renderThreadRef?.isAlive != true) {
-                LogUtil.d("Runtime", "updateNativeWindow: render thread dead, restarting for session ${entry.id}")
-                surfaceTransitionExecutor.execute {
-                    // Re-check membership: the session may have been closed
-                    // between the enqueue and the executor running (close
-                    // happens on the IO thread). Starting a render thread
-                    // for a removed session would render into a destroyed
-                    // native session (use-after-free).
-                    synchronized(sessionLock) {
-                        if (sessions[entry.id] === entry && entry.running && entry.bridge != null) {
-                            renderSupervisor.startRenderThread(entry)
-                        } else {
-                            LogUtil.w("Runtime", "updateNativeWindow: session ${entry.id} no longer active, skipping render restart")
-                        }
-                    }
-                }
-            } else {
-                entry.forceRenderRequested = true
-                java.util.concurrent.locks.LockSupport
-                    .unpark(entry.renderThreadRef)
-            }
-        } catch (exception: Exception) {
-            LogUtil.e("Runtime", "updateNativeWindow failed", exception)
-        }
-    }
 
     /**
      * Activate [newId] as the foreground session after its predecessor
