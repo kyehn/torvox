@@ -296,6 +296,7 @@ impl Renderer {
         } else if let (Some(bg_pipeline), Some(bg_bind_group)) =
             (&self.bg_pipeline, &self.bg_bind_group)
         {
+            log::debug!("render_frame: drawing bg image (blur={})", self.blur_h_pipeline.is_some());
             {
                 let mut bg_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Background Render Pass"),
