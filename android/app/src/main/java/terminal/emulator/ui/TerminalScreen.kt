@@ -55,7 +55,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -228,6 +227,11 @@ fun TerminalScreen(
                 showTextSearch = false
                 searchState = SearchState()
                 surfaceRef.value?.searchActive = false
+                // Round-209 P2-8: the surface keeps a private scrollOffset
+                // used for selection coordinate math; it must follow the
+                // session's own offset on switch, otherwise the first
+                // gesture after a switch computes wrong grid rows.
+                surfaceRef.value?.resetScrollOffset()
             }
 
             fun scrollToMatchIfNeeded(match: SearchResult) {

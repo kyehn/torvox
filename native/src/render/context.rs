@@ -510,7 +510,9 @@ impl Renderer {
     }
 
     pub fn set_background_params(&mut self, blur_radius: f32, alpha: f32) {
-        self.bg_blur_radius = blur_radius.clamp(0.0, 20.0);
+        // Cap at 10 (round-210 P1-3): kernel taps = 2*ceil(r)+1 per pass;
+        // 20 → 82 taps/frame is not interactive on Mali-class GPUs.
+        self.bg_blur_radius = blur_radius.clamp(0.0, 10.0);
         self.bg_alpha = alpha.clamp(0.0, 1.0);
     }
 

@@ -776,6 +776,7 @@ constructor(
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
         private const val FLING_MAX_LINES = 50
         private const val SCROLL_END_DELAY_MS = 300L
+        private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
 
         private const val FALLBACK_CELL_WIDTH = 8f
         private const val FALLBACK_CELL_HEIGHT = 16f
@@ -784,7 +785,11 @@ constructor(
 
         // Upper bound for deleteSurroundingText arguments (untrusted IME
         // input). One line is more than any real IME requests at once.
-        private const val MAX_SURROUNDING_DELETES = 256
+        // Upper bound for deleteSurroundingText arguments (untrusted
+        // IME input). 4096 covers select-all delete of a large committed
+        // block (round-210 P2-10: 256 left >256-char selections
+        // half-deleted) while still bounding the PTY write size.
+        private const val MAX_SURROUNDING_DELETES = 4096
 
         /** Number of Unicode code points in [text] (surrogate-pair safe). */
         private fun codePointCount(text: String): Int = text.codePointCount(0, text.length)
@@ -801,6 +806,14 @@ constructor(
     private var isScrolling: Boolean = false
     private var scrollOffset: Int = 0
     private var lastImeBottom: Int = 0
+
+    // Scrollback-length cache (round-209, P1-3): `scrollbackLength()` is a
+    // synchronous JNI query that can block up to 500 ms when the VT thread
+    // is busy parsing a large write. The gesture path calls it on every
+    // MotionEvent, so it is throttled to ~10 Hz and the cached value is
+    // used in between — prevents UI-thread jank / ANR during scroll.
+    @Volatile private var cachedScrollbackLength: Int = 0
+    private var lastScrollbackQueryNanos: Long = 0L
 
     var touchEnabled: Boolean = true
         set(value) {
@@ -982,7 +995,15 @@ constructor(
                     return true
                 }
 
-                val flingAmount = (velocityY / FLING_VELOCITY_DIVISOR).toInt().coerceIn(-FLING_MAX_LINES, FLING_MAX_LINES)
+                // velocityY is positive when the finger moves DOWN
+                // (standard gesture coordinates), which must scroll toward
+                // the newest content (offset decreases); onScroll's
+                // distanceY has the opposite sign convention (positive =
+                // finger moved UP = older content). Negate here so fling
+                // and drag scroll in the same direction (round-211,
+                // emulator-verified: fast downward flings jumped to older
+                // history while slow drags scrolled correctly).
+                val flingAmount = (-velocityY / FLING_VELOCITY_DIVISOR).toInt().coerceIn(-FLING_MAX_LINES, FLING_MAX_LINES)
                 val newOffset = (scrollOffset + flingAmount).coerceIn(0, scrollbackLen)
                 if (newOffset != scrollOffset) {
                     scrollOffset = newOffset
@@ -1346,14 +1367,21 @@ constructor(
     }
 
     private fun currentScrollbackLength(): Int {
-        val viewModel = viewModel ?: return 0
-        val bridge = viewModel.runtime.bridge() ?: return 0
-        return try {
-            bridge.scrollbackLength()
-        } catch (error: Exception) {
-            LogUtil.e(TAG, "scrollbackLength query failed", error)
-            0
+        val now = System.nanoTime()
+        if (now - lastScrollbackQueryNanos < SCROLLBACK_QUERY_THROTTLE_NANOS) {
+            return cachedScrollbackLength
         }
+        lastScrollbackQueryNanos = now
+        val viewModel = viewModel ?: return cachedScrollbackLength
+        val bridge = viewModel.runtime.bridge() ?: return cachedScrollbackLength
+        cachedScrollbackLength =
+            try {
+                bridge.scrollbackLength()
+            } catch (error: Exception) {
+                LogUtil.e(TAG, "scrollbackLength query failed", error)
+                cachedScrollbackLength
+            }
+        return cachedScrollbackLength
     }
 
     fun scrollToRow(row: Int) {
@@ -1365,6 +1393,16 @@ constructor(
             // Signal the render thread (vsync-paced) instead of blocking the UI
             // thread with a synchronous GPU render on every scroll event.
             viewModel?.runtime?.forceRender()
+        }
+    }
+
+    /** Reset the local scroll offset to the session's offset (round-209
+     *  P2-8): called on session switch so selection coordinate math does
+     *  not use the previous session's offset. */
+    fun resetScrollOffset() {
+        val sessionOffset = viewModel?.runtime?.activeSessionScrollOffset() ?: 0
+        if (scrollOffset != sessionOffset) {
+            scrollOffset = sessionOffset
         }
     }
 

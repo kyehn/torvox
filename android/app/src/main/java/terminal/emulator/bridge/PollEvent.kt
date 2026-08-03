@@ -81,6 +81,13 @@ sealed class PollEvent {
     ) : PollEvent()
 
     @Serializable
+    @SerialName("dialog_cancel")
+    data class DialogCancel(
+        @SerialName("session_id") val sessionId: Long = 0,
+        @SerialName("request_id") val requestId: Long = 0,
+    ) : PollEvent()
+
+    @Serializable
     @SerialName("toast")
     data class Toast(val text: String = "") : PollEvent()
 

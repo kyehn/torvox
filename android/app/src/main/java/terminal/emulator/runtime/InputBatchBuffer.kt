@@ -95,6 +95,19 @@ class InputBatchBuffer(
      * TerminalSurface instance).
      */
     fun close() {
+        // Round-210 P2-11: flush buffered bytes BEFORE shutting down —
+        // otherwise keystrokes typed in the final frame before detach are
+        // silently dropped (the buffer is drained only by the frame
+        // callback or an explicit flush).
+        val pending = synchronized(lock) { drainLocked() }
+        if (pending.isNotEmpty()) {
+            try {
+                sender.execute { flushSink(pending) }
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                // Shutdown raced the enqueue; dropping is acceptable at
+                // detach (the view is gone).
+            }
+        }
         sender.shutdown()
     }
 

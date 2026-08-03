@@ -144,6 +144,11 @@ unsafe extern "C" {
 /// A registered session with its ID and thread-safe handle.
 struct SessionEntry {
     session: Arc<Mutex<Session>>,
+    /// Last scroll offset applied for THIS session (round-209: previously
+    /// the delta was computed against a single global value, so switching
+    /// sessions could move the old session's viewport when its render
+    /// thread resumed with the other session's offset).
+    last_scroll_offset: i64,
 }
 
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
@@ -354,6 +359,13 @@ pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::R
 #[cfg(feature = "mcp")]
 pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
     REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
+    // Round-210 P2-14: tell Kotlin to dismiss the still-visible dialog
+    // (the MCP tool call has given up; without this the dialog hangs on
+    // screen unresponsive until the process dies).
+    push_event(crate::event::Event::DialogCancel {
+        session_id,
+        request_id,
+    });
 }
 
 /// Current active session id (0 = none). Read helper for MCP event
@@ -533,6 +545,7 @@ fn init_session_inner(
             let id = next_session_id();
             let entry = SessionEntry {
                 session: Arc::new(Mutex::new(session)),
+                last_scroll_offset: 0,
             };
 
             let mut registry = wlock_session_registry();
@@ -1446,10 +1459,14 @@ fn render_inner(session_id: u64) -> jint {
             );
         }
     }
-    // Collect cell data (session lock), then render (render-state lock) —
-    // the two locks are never held at the same time. When the terminal has
-    // no new output (idle), fall back to the cached frame if the cursor
-    // blink phase flipped — an idle terminal must still repaint the cursor.
+    // Collect cell data (session lock), then render (render-state lock).
+    // NOTE (round-209, P2-4): the idle branch below DOES hold the session
+    // lock while touching render state — the lock order is strictly
+    // SESSION_REGISTRY → session → render_state everywhere (never the
+    // reverse), so there is no deadlock cycle, but the session lock's
+    // critical section is widened by the cached-frame clone. This is
+    // accepted: the clone is a bounded 80-byte-per-cell Vec and the
+    // render-state lock is never contended by another lock holder.
     let (cells, cursor_info, rows, cols, is_new_data) = {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&session_id) else {
@@ -1623,6 +1640,26 @@ fn detach_window_inner(_env: &mut JNIEnv, _class: JClass, _session_id: jlong) {
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: setMcpEnabled
 // ══════════════════════════════════════════════════════════════════════════
+
+/// Override the MCP Unix socket path (round-210 P2-13). Kotlin derives it
+/// from `context.filesDir` so it follows the real `applicationId` instead
+/// of the hardcoded `/data/data/com.termux` default.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setMcpSocketPath(
+    mut env: JNIEnv,
+    _class: JClass,
+    path: JString,
+) {
+    jni_export_guard!(&mut env, (), {
+        #[cfg(feature = "mcp")]
+        {
+            if let Ok(s) = env.get_string(&path) {
+                crate::mcp::set_socket_path(s.into());
+                log::info!("setMcpSocketPath: {}", crate::mcp::socket_path());
+            }
+        }
+    })
+}
 
 /// Enable or disable the MCP server (starts/stops it as needed).
 #[unsafe(no_mangle)]
@@ -2096,11 +2133,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
         let mut empty = true;
         if absolute < visible_rows + scrollback {
             if let Some(line) = session.terminal().read_line_text(absolute) {
-                let byte_col = col.max(0) as usize;
-                // read_line_text returns trimmed text; approximate empty test
-                // by checking whether the line has any content at the given
-                // column (col beyond len means empty).
-                empty = byte_col >= line.len();
+                // Round-209 P2-5: `col` is a CHARACTER column, but the raw
+                // line is UTF-8 — comparing against line.len() (bytes)
+                // misjudged multi-byte cells (CJK/emoji) as empty. Count
+                // code points instead.
+                let char_col = col.max(0) as usize;
+                let char_len = line.chars().count();
+                empty = char_col >= char_len;
             }
         }
         if empty { JNI_TRUE } else { JNI_FALSE }
@@ -2752,5 +2791,52 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsCol
         let session = entry.session.lock();
         let (rows, cols) = session.grid_size();
         ((rows as i64) << 32) | (cols as i64)
+    })
+}
+
+/// Set the viewport scroll offset (rows into scrollback; 0 = active
+/// screen). The difference from the previous offset is applied on the VT
+/// thread via `scroll_viewport(Delta)`, so the next CellData push carries
+/// the scrolled view (round-205: previously a Kotlin-side no-op).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffset(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    offset: jint,
+) {
+    jni_export_guard!(&mut env, (), {
+        let target = offset.max(0) as i64;
+        let mut registry = wlock_session_registry();
+        let Some(entry) = registry.get_mut(&(_session_id as u64)) else {
+            return;
+        };
+        // Per-session delta (round-209): the previous code computed the
+        // delta against a single global `render_state.scroll_offset`, so
+        // switching sessions polluted the resumed session's viewport.
+        let delta = target - entry.last_scroll_offset;
+        if delta == 0 {
+            return;
+        }
+        let session = entry.session.lock();
+        // scroll_viewport delta semantics (verified on host + emulator):
+        // NEGATIVE = scroll up into history, POSITIVE = back toward the
+        // bottom. Kotlin's scrollOffset grows when the user swipes up
+        // (into history), so the delta must be negated here (round-207:
+        // previously the sign was wrong — swiping down to the bottom sent
+        // a negative delta that scrolled INTO history instead).
+        if session.terminal().scroll_viewport(-(delta as isize)) {
+            entry.last_scroll_offset = target;
+            log::debug!("setScrollOffset: target={target} delta={delta}");
+        } else {
+            // Command channel full or VT thread gone: do NOT advance
+            // last_scroll_offset, so the next call with the same target
+            // retries the delta instead of silently dropping it (round-209,
+            // P1-2: previously the global offset was advanced first and a
+            // failed send left the viewport permanently stale).
+            log::warn!(
+                "setScrollOffset: scroll_viewport send failed (target={target} delta={delta}); will retry"
+            );
+        }
     })
 }

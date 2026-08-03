@@ -1,6 +1,5 @@
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/Cargo.toml patches/libghostty-vt-sys/Cargo.toml
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/Cargo.toml	2026-07-30 10:24:42.779346392 +0000
-+++ patches/libghostty-vt-sys/Cargo.toml	2026-07-30 09:32:14.749802873 +0000
+--- libghostty-vt-sys/Cargo.toml	2026-08-03 14:37:52.989468841 +0000
++++ libghostty-vt-sys/Cargo.toml	2026-08-03 19:03:08.593333438 +0000
 @@ -1,14 +1,18 @@
  [package]
  name = "libghostty-vt-sys"
@@ -25,9 +24,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/Cargo.toml patche
  [lib]
  doctest = false
  
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/build.rs patches/libghostty-vt-sys/build.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/build.rs	2026-07-30 10:24:42.779379683 +0000
-+++ patches/libghostty-vt-sys/build.rs	2026-07-30 09:32:14.749875557 +0000
+--- libghostty-vt-sys/build.rs	2026-08-03 14:37:52.989535765 +0000
++++ libghostty-vt-sys/build.rs	2026-08-03 19:03:08.593569126 +0000
 @@ -4,7 +4,7 @@
  
  /// Pinned ghostty commit. Update this to pull a newer version.
@@ -46,9 +44,8 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/build.rs patches/
  
      // An explicit source override should stay authoritative even when the
      // pkg-config feature is enabled, so local Ghostty checkouts remain easy to
-diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/src/bindings.rs patches/libghostty-vt-sys/src/bindings.rs
---- /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/src/bindings.rs	2026-07-30 10:24:42.779407213 +0000
-+++ patches/libghostty-vt-sys/src/bindings.rs	2026-07-30 09:32:14.749875557 +0000
+--- libghostty-vt-sys/src/bindings.rs	2026-08-03 18:57:24.236032465 +0000
++++ libghostty-vt-sys/src/bindings.rs	2026-08-03 19:03:08.594113890 +0000
 @@ -446,108 +446,9 @@
  };
  #[doc = " Palette color index (0-255).\n"]
@@ -423,18 +420,22 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/src/bindings.rs p
      pub const KITTY_IMAGE_MEDIUM_TEMP_FILE: Type = 17;
      #[doc = " Enable or disable Kitty image loading via the shared memory medium.\n\n A NULL value pointer is a no-op. Has no effect when Kitty graphics\n are disabled at build time.\n\n Input type: bool*"]
      pub const KITTY_IMAGE_MEDIUM_SHARED_MEM: Type = 18;
-@@ -2390,9 +2128,7 @@
+@@ -2390,9 +2128,11 @@
      pub const GLYPH_PROTOCOL: Type = 24;
      #[doc = " Callback invoked when the terminal pwd changes via escape\n sequences (OSC 7, OSC 9, or OSC 1337 CurrentDir). Set to NULL\n to ignore pwd change events.\n\n Input type: GhosttyTerminalPwdChangedFn"]
      pub const PWD_CHANGED: Type = 25;
 -    #[doc = " Callback invoked when the running program performs a clipboard write.\n OSC 52 and iTerm2 OSC 1337 Copy writes are normalized to an atomic set\n of decoded MIME representations. Set to NULL to ignore clipboard writes.\n Clipboard read requests are always ignored; see\n GhosttyTerminalClipboardWriteFn.\n\n Input type: GhosttyTerminalClipboardWriteFn"]
 -    pub const CLIPBOARD_WRITE: Type = 26;
 -    #[doc = " Callback invoked when the running program performs a clipboard write.\n OSC 52 and iTerm2 OSC 1337 Copy writes are normalized to an atomic set\n of decoded MIME representations. Set to NULL to ignore clipboard writes.\n Clipboard read requests are always ignored; see\n GhosttyTerminalClipboardWriteFn.\n\n Input type: GhosttyTerminalClipboardWriteFn"]
++    #[doc = " Maximum scrollback size in bytes. Input type: ?usize (null = unlimited)."]
++    pub const SCROLLBACK_MAX_BYTES: Type = 27;
++    #[doc = " Maximum number of physical scrollback rows. Input type: ?usize (null = unlimited)."]
++    pub const SCROLLBACK_MAX_LINES: Type = 28;
 +    #[doc = " Callback invoked when the terminal pwd changes via escape\n sequences (OSC 7, OSC 9, or OSC 1337 CurrentDir). Set to NULL\n to ignore pwd change events.\n\n Input type: GhosttyTerminalPwdChangedFn"]
      pub const MAX_VALUE: Type = 2147483647;
  }
  pub mod TerminalData {
-@@ -2416,7 +2152,7 @@
+@@ -2416,7 +2156,7 @@
      pub const CURSOR_VISIBLE: Type = 7;
      #[doc = " Current Kitty keyboard protocol flags.\n\n Output type: GhosttyKittyKeyFlags * (uint8_t *)"]
      pub const KITTY_KEYBOARD_FLAGS: Type = 8;
@@ -443,7 +444,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/src/bindings.rs p
      pub const SCROLLBAR: Type = 9;
      #[doc = " The current SGR style of the cursor.\n\n This is the style that will be applied to newly printed characters.\n\n Output type: GhosttyStyle *"]
      pub const CURSOR_STYLE: Type = 10;
-@@ -2454,7 +2190,7 @@
+@@ -2454,7 +2194,7 @@
      pub const KITTY_IMAGE_STORAGE_LIMIT: Type = 26;
      #[doc = " Whether the file medium is enabled for Kitty image loading on the\n active screen.\n\n Returns GHOSTTY_NO_VALUE when Kitty graphics are disabled at build time.\n\n Output type: bool *"]
      pub const KITTY_IMAGE_MEDIUM_FILE: Type = 27;
@@ -452,7 +453,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/src/bindings.rs p
      pub const KITTY_IMAGE_MEDIUM_TEMP_FILE: Type = 28;
      #[doc = " Whether the shared memory medium is enabled for Kitty image loading\n on the active screen.\n\n Returns GHOSTTY_NO_VALUE when Kitty graphics are disabled at build time.\n\n Output type: bool *"]
      pub const KITTY_IMAGE_MEDIUM_SHARED_MEM: Type = 29;
-@@ -2464,9 +2200,7 @@
+@@ -2464,9 +2204,7 @@
      pub const SELECTION: Type = 31;
      #[doc = " Whether the viewport is currently pinned to the active area.\n\n This is true when the viewport is following the active terminal area,\n and false when the user has scrolled into history.\n\n Output type: bool *"]
      pub const VIEWPORT_ACTIVE: Type = 32;
@@ -463,7 +464,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/src/bindings.rs p
      pub const MAX_VALUE: Type = 2147483647;
  }
  unsafe extern "C" {
-@@ -2474,7 +2208,8 @@
+@@ -2474,7 +2212,8 @@
      pub fn ghostty_terminal_new(
          allocator: *const Allocator,
          terminal: *mut Terminal,
@@ -473,7 +474,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/src/bindings.rs p
      ) -> Result::Type;
  }
  unsafe extern "C" {
-@@ -2508,25 +2243,10 @@
+@@ -2508,25 +2247,10 @@
      pub fn ghostty_terminal_vt_write(terminal: Terminal, data: *const u8, len: usize);
  }
  unsafe extern "C" {
@@ -500,7 +501,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/src/bindings.rs p
      #[doc = " Get the current value of a terminal mode.\n\n Returns the value of the mode identified by the given mode.\n\n             if it is reset\n         is NULL or the mode does not correspond to a known mode\n"]
      pub fn ghostty_terminal_mode_get(
          terminal: Terminal,
-@@ -2916,21 +2636,10 @@
+@@ -2916,21 +2640,10 @@
      pub fn ghostty_render_state_free(state: RenderState);
  }
  unsafe extern "C" {
@@ -523,7 +524,7 @@ diff -ruN /tmp/libghostty-rs-upstream/crates/libghostty-vt-sys/src/bindings.rs p
      #[doc = " Get a value from a render state.\n\n The `out` pointer must point to a value of the type corresponding to the\n requested data kind (see GhosttyRenderStateData).\n\n         NULL or `data` is not a recognized enum value\n"]
      pub fn ghostty_render_state_get(
          state: RenderState,
-@@ -4061,11 +3770,3 @@
+@@ -4061,11 +3774,3 @@
          out_written: *mut usize,
      ) -> Result::Type;
  }

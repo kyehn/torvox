@@ -435,7 +435,11 @@ private fun BackgroundSection(
             Slider(
                 value = backgroundBlurRadius.toFloat(),
                 onValueChange = { viewModel.setBackgroundBlurRadius(it.toInt()) },
-                valueRange = 0f..20f,
+                // Round-210 P1-3: kernel taps scale linearly with radius
+                // (2*ceil(r)+1 per pass); 20 was 82 taps/frame on a
+                // Mali-G57 — capped at 10 (42 taps) for interactive
+                // framerates. Downsampled blur is a future optimization.
+                valueRange = 0f..10f,
                 colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor),
             )
             Spacer(modifier = Modifier.height(8.dp))

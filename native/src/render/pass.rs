@@ -517,8 +517,14 @@ impl Renderer {
             height: h,
             depth_or_array_layers: 1,
         };
+        // Round-210 P2-2: the readback texture must match the pipeline
+        // format (the cell/bg/kgp pipelines are created against the surface
+        // format, which is usually Bgra8Unorm on Android) — a hardcoded
+        // Rgba8Unorm triggered a wgpu validation error when used as the
+        // render attachment for those pipelines.
+        let pipeline_format = self.pipeline_format;
         let needs_new = match &self.readback_texture {
-            Some(t) => t.width() != w || t.height() != h,
+            Some(t) => t.width() != w || t.height() != h || t.format() != pipeline_format,
             None => true,
         };
         if needs_new {
@@ -528,7 +534,7 @@ impl Renderer {
                 mip_level_count: 1,
                 sample_count: 1,
                 dimension: wgpu::TextureDimension::D2,
-                format: wgpu::TextureFormat::Rgba8Unorm,
+                format: pipeline_format,
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                 view_formats: &[],
             }));
