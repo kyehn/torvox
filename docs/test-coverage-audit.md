@@ -22,6 +22,22 @@
 - terminalOutputTiming：median **381.5ms**
 - 注：模拟器不支持 GPU clock lock（`Failed to set property 'ctl.interface_restart'`），数值方差大属预期。
 
+交互动画帧级基线（`InteractionAnimationBenchmark`，FrameTimingMetric，2026-08-03）：
+- modifierKeyPressAnimation（CTRL 键 spring 按压动画）：frameCount median **12**（11-13）
+- imeShowAnimation（键盘弹出，底栏 220ms tween 上移）：frameCount median **4**（3-4）
+- 修复前基线：imeShow frameCount median **0**（`imePadding` 瞬跳，无动画帧）
+- 像素级验证（screenrecord 29 帧）：底栏顶边 y **2090→1790→1600→1530→1500**（4 个中间过渡位，
+  moved=590px），证明动画逐帧渐进而非瞬跳
+- imeHideAnimation 已从 benchmark 移除：系统 `IME_INSETS_HIDE_ANIMATION` 在软件渲染模拟器上
+  掉帧超时（FrameTracker force finish），损坏 perfetto trace 导致 UTP 输出插件 EOF；该动画
+  帧证据见上方像素级数据（back 键收起时底栏回落同样渐进）
+
+帧耗时指标（同产物，**仅作相对信号**——软件渲染模拟器绝对帧耗时无意义）：
+- imeShowAnimation：frameDurationCpuMs P50=**249ms**、P90=744ms；frameOverrunMs P50=283ms
+- modifierKeyPressAnimation：frameDurationCpuMs P50=71.5ms、P99=997ms
+- 模拟器软件渲染（SwiftShader，2 核）下这些数值不代表真机性能；真机（Mali/Adreno 硬件 GPU）
+  帧耗时预期 <16ms。回归检测用 frameCount（动画有无），不用帧耗时绝对值。
+
 ---
 
 ## 2. Rust 端功能清单（32 文件，生产 ≈14.6k 行 + 测试 ≈18.2k 行）

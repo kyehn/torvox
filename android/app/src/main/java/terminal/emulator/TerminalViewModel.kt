@@ -14,6 +14,7 @@ import androidx.lifecycle.viewModelScope
 import coil3.BitmapImage
 import coil3.ImageLoader
 import coil3.request.ImageRequest
+import coil3.request.allowHardware
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -1083,6 +1084,12 @@ constructor(
                         ImageRequest.Builder(context)
                             .data(uri)
                             .size(1920, 1080)
+                            // Coil 3 returns HARDWARE bitmaps by default;
+                            // copyPixelsToBuffer() below throws
+                            // IllegalStateException on those. Force a
+                            // software bitmap so the RGBA bytes can be
+                            // read (round-202, emulator-verified).
+                            .allowHardware(false)
                             .build()
                     val image = imageLoader.execute(request).image
                     val bitmap = (image as? BitmapImage)?.bitmap
