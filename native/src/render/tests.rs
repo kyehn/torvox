@@ -2122,6 +2122,8 @@ fn bench_build_instances_from_cell_data() {
             &cell_data,
             rows,
             cols,
+            1024.0 / cols as f32,
+            1024.0 / rows as f32,
             cursor,
             &mut font_pipeline,
             1024.0,

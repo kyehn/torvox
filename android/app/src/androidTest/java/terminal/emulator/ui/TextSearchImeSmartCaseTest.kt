@@ -77,7 +77,7 @@ class TextSearchImeSmartCaseTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an ADR-0007 stub (no real results; assertions only check UI presence) (round-108)")
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path wired since round-130) (no real results; assertions only check UI presence) (round-108)")
     fun smartCase_uppercaseSearch_returnsDifferentResults() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")

@@ -54,7 +54,7 @@ class TextSearchUiAutomatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an ADR-0007 stub (no real results; assertions only check UI presence) (round-108)")
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path wired since round-130) (no real results; assertions only check UI presence) (round-108)")
     fun searchNavigatesResults() {
         openSearchBar()
         assertTrue("Search bar must open", waitForSearchBar())
@@ -113,7 +113,7 @@ class TextSearchUiAutomatorTest {
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an ADR-0007 stub returning zero results — the count text is vacuous (same policy as TextSearchInstrumentedTest)")
+    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path wired since round-130) returning zero results — the count text is vacuous (same policy as TextSearchInstrumentedTest)")
     fun searchResultCountVisible() {
         openSearchBar()
         assertTrue("Search bar must open", waitForSearchBar())

@@ -37,7 +37,7 @@ import java.io.FileOutputStream
  *
  * @Ignore (round-106): these tests require the native data path — selection
  * cannot be activated while Bridge.isCellEmpty/expandAndSetSelection are
- * ADR-0007 stubs (long-press always routes to the paste popup), and the OCR
+ * implemented (native query path wired since round-130)s (long-press always routes to the paste popup), and the OCR
  * tests require the rapidocr binary. Re-enable when rendering lands.
  *
  * Tests:

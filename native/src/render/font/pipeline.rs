@@ -326,6 +326,7 @@ impl FontPipeline {
             ));
             self.atlas_bitmap.fill(0);
             self.atlas_generation = self.atlas_generation.wrapping_add(1);
+            self.reset_dirty_rect_full();
             self.cjk_fallback_ids.clear();
             let system_locale = self.system_locale.clone();
             self.find_cjk_fallback_fonts(&system_locale);
@@ -356,6 +357,7 @@ impl FontPipeline {
             ));
             self.atlas_bitmap.fill(0);
             self.atlas_generation = self.atlas_generation.wrapping_add(1);
+            self.reset_dirty_rect_full();
             self.cjk_fallback_ids.clear();
             let system_locale = self.system_locale.clone();
             self.find_cjk_fallback_fonts(&system_locale);
@@ -389,6 +391,7 @@ impl FontPipeline {
         ));
         self.atlas_bitmap.fill(0);
         self.atlas_generation = self.atlas_generation.wrapping_add(1);
+        self.reset_dirty_rect_full();
         self.rasterize_ascii();
         let (cw, ch) = self.cell_metrics();
         log::debug!(
@@ -418,6 +421,7 @@ impl FontPipeline {
         ));
         self.atlas_bitmap.fill(0);
         self.atlas_generation = self.atlas_generation.wrapping_add(1);
+        self.reset_dirty_rect_full();
         self.rasterize_ascii();
         log::debug!("RASTER_SCALE: scale={:.3}", scale);
     }

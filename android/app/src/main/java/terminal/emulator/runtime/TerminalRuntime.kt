@@ -815,10 +815,6 @@ constructor(
                     var lastScrollOffset = Int.MAX_VALUE
                     var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
                     LogUtil.d("Runtime", "render thread started for session ${entry.id} generation=$generation")
-                    // First iteration always processes ghostty output. Subsequent
-                    // iterations skip output on blink/force-rendered frames to avoid
-                    // the ~50ms per-frame ghostty tick when there's no new PTY data.
-                    var shouldSkipOutput = false
                     while (entry.running && renderGeneration.get() == generation) {
                         try {
                             val bridge = entry.bridge ?: break
@@ -840,11 +836,7 @@ constructor(
                                 lastScrollOffset = currentScrollOffset
                             }
                             entry.lastRenderStart = System.nanoTime()
-                            // render() is a stub returning 0 (ADR-0007, no native
-                            // render export): the count<0 transient-error branch
-                            // below is currently unreachable. It is kept so the
-                            // loop is correct the day a real render export lands.
-                            val count = bridge.render(shouldSkipOutput)
+                            val count = bridge.render()
                             if (count < 0) {
                                 // Transient render error (surface not ready, snapshot unavailable, etc.)
                                 // These resolve on their own; don't count them toward the fatal limit.
@@ -1017,11 +1009,9 @@ constructor(
                                         bridge.waitOutput(timeoutMs)
                                         if (Thread.interrupted()) throw InterruptedException()
                                     }
-                                    shouldSkipOutput = false
                                     entry.renderSignaled.set(false)
                                 } else {
                                     entry.forceRenderRequested = false
-                                    shouldSkipOutput = true
                                 }
                             }
                         } catch (exception: InterruptedException) {
@@ -1812,7 +1802,6 @@ constructor(
                 val initialFontFamily = settingsRepository.fontFamily.first()
                 val effectiveFont = terminal.emulator.resolveEffectiveFontFamily(initialFontFamily)
                 bridge.setFontFamily(effectiveFont)
-                bridge.setTheme(config.theme)
                 val cursorStyle = settingsRepository.cursorStyle.first()
                 bridge.setCursorStyle(cursorStyle)
                 val cursorBlinkEnabled = settingsRepository.cursorBlink.first()
@@ -1841,6 +1830,12 @@ constructor(
                 throw RuntimeException("native spawn failed (result=$spawnResult)")
             }
             nextId = spawnResult
+
+            // Apply the theme AFTER spawn: Bridge.setTheme no-ops while
+            // sessionId == 0, and calling it before spawnTerminal would
+            // silently drop the user's theme (the native session would
+            // keep the default palette). Mirrors the start() ordering.
+            bridge.setTheme(config.theme)
 
             val entry: SessionEntry
             val abandonedByStart: Boolean

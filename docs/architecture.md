@@ -39,7 +39,7 @@ native/                          ← single cdylib + lib crate
 │   │   ├── pipeline.rs          ← wgpu shader pipelines (WGSL)
 │   │   ├── pass.rs              ← per-frame render pass
 │   │   ├── cell_builder.rs      ← CellData → CellInstance → GPU instance construction
-│   │   └── surface.rs           ← ANativeWindow surface management
+│   │   └── context.rs          ← ANativeWindow surface management (surface.rs inlined)
 │   ├── android/                 ← JNI FFI exports (no boltffi)
 │   ├── mcp.rs                   ← tower-mcp server (Unix socket + stdio)
 │   └── lock_util.rs             ← poison recovery
@@ -141,7 +141,7 @@ Each terminal session creates 4 threads:
 | **PTY Reader** | `terminal/ghostty_terminal/` | Session | Polls PTY with `poll()` (100ms timeout), reads output, feeds GhosttyTerminal; VT parser runs inline on same thread |
 | **Input Writer** | `terminal/ghostty_terminal/` | Session | Writes keyboard input to PTY master (separate write path avoids reader contention) |
 | **Process Waiter** | `terminal/ghostty_terminal/` | Until child exits | `waitpid()` on child process; exits after child terminates |
-| **Render Thread** | `render/surface.rs` | While surface alive | flume-channel woken loop: receives CellData, shapes, rasterizes, submits GPU frame |
+| **Render Thread** | `render/context.rs` (surface inlined) | While surface alive | flume-channel woken loop: receives CellData, shapes, rasterizes, submits GPU frame |
 
 The **MCP Listener** is a per-server thread (not per-session) that accepts Unix
 socket or stdio connections via axum+tokio.

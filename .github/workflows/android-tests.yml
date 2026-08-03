@@ -46,4 +46,3 @@ jobs:
           path: |
             android/app/build/reports/
             android/app/build/test-results/
-            android/app/src/test/resources/roborazzi/

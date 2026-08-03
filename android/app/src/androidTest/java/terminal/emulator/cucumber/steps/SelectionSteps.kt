@@ -91,7 +91,7 @@ constructor(
     fun userTriggersCopy() {
         // Route through the selection menu's Copy item, which calls
         // viewModel.copySelectionToClipboard() (the TerminalSurface
-        // getSelectedText accessor was removed with the ADR-0007 stubs).
+        // getSelectedText accessor was removed with the implemented (native query path wired since round-130)s).
         composeRuleHolder.composeRule
             .onNodeWithText("Copy", useUnmergedTree = true)
             .performClick()

@@ -211,12 +211,10 @@ check(File(workingDirForCargo, "Cargo.toml").exists()) {
 }
 
 tasks.withType<Test>().matching { it.name == "testDebugUnitTest" }.configureEach {
-    // No unit tests exist in src/test (only an android.util.Log stub); the
-    // 10 exclude rules that previously lived here referenced test classes
-    // that have never existed in this tree and were dead configuration
-    // (round-114). Gradle 9.6 fails the task when no tests are discovered,
-    // so the failure is disabled while the Log shadow remains the only
-    // src/test content.
+    // src/test hosts 7 JVM test classes (encoder, mouse-mode, url detector,
+    // search, nerd-key labels, batch buffer, coalescer) plus robolectric
+    // config; Gradle 9.6 fails the task when no tests are discovered, so
+    // the failure is disabled as a safety net.
     jvmArgs("-Djava.library.path=")
     failOnNoDiscoveredTests = false
 }

@@ -9,7 +9,7 @@ As of August 2026, the history is organized into 31 thematic commits covering re
 | Dimension | Rating | Evidence |
 |-----------|--------|----------|
 | **Functionality** | ✅ Complete | VT parsing, PTY, GPU render, MCP, JNI bridge — all core features implemented |
-| **Code Quality** | ✅ Clean | Clippy zero warnings, 1071 Rust tests + 60+ Kotlin JVM tests, fmt clean, all unsafe blocks have SAFETY comments |
+| **Code Quality** | ✅ Clean | Clippy zero warnings, 1093 Rust tests + 60+ Kotlin JVM tests, fmt clean, all unsafe blocks have SAFETY comments |
 | **Test Coverage** | ⚠️ Adequate | Core paths covered; ~40 weak-assertion tests exist; property/fuzz testing not yet used |
 | **Performance** | ✅ Verified | 10 benchmarks with thresholds; typing 0.2ms, bulk 17MB/s, render 920+ fps, scroll 55+ snaps/s |
 | **Architecture** | ✅ Stable | Single crate, Ghostty as source of truth, JNI direct bridge, wgpu GPU, embedded MCP |
@@ -44,7 +44,7 @@ These gaps exist but require infrastructure investment (not quick fixes):
 | **process_output path** | No direct unit test for VT output channel processing | Indirect coverage via integration tests |
 | **save_session/restore_session** | No persistence round-trip tests | Small scope; format controlled by Ghostty |
 | **MCP tool functionality** | Only 4 tools tested (list_tools, terminal_info, clipboard_set, method_not_found) | Manual verification via CLI |
-| **GPU pipeline creation** | pipeline.rs + context.rs have zero unit tests | GPU integration tests cover end-to-end rendering |
+| **GPU pipeline creation** | pipeline.rs has zero unit tests; context.rs has 1 (Send/Sync); cell_builder has 10 | GPU integration tests cover end-to-end rendering |
 
 ---
 

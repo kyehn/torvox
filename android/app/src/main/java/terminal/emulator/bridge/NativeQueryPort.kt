@@ -77,12 +77,17 @@ internal data class SearchMatchDto(
  * produced by the native `searchAllInScrollback` export. Returns an empty
  * list on malformed input (never throws) so search degrades to
  * "no results" instead of crashing the UI.
+ *
+ * Results with impossible ranges (negative, end <= start) are dropped —
+ * a missing field would otherwise silently produce a bogus row=0 match
+ * that highlights the wrong line.
  */
 private val searchJson = Json { ignoreUnknownKeys = true }
 
 internal fun parseSearchMatches(json: String): List<Triple<Int, Int, Int>> = try {
     searchJson
         .decodeFromString<List<SearchMatchDto>>(json)
+        .filter { it.row >= 0 && it.start_col >= 0 && it.end_col > it.start_col }
         .map { Triple(it.row, it.start_col, it.end_col) }
 } catch (_: Exception) {
     emptyList()

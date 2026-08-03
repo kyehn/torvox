@@ -25,7 +25,6 @@ All Rust code lives in the single `native` crate, with tests inside each module:
 | `native/src/render/` | `tests.rs` — GPU headless, font, shader validation, OCR, screenshot | — |
 | `native/src/android/` | (tests guarded by `#[cfg(target_os = "android")]`) | — |
 | `native/src/mcp.rs` | Inline tests — tool listing, tool calls | — |
-| native crate | — | `native/tests/` (if any) |
 | `exec-bin` | — | `tests/basic.rs` |
 
 ### Property and Fuzz Testing
@@ -38,7 +37,6 @@ All testing now uses Rust unit tests (`cargo test`) and integration tests (`carg
 
 ```bash
 cd android && ./gradlew testDebugUnitTest            # unit tests
-cd android && ./gradlew roborazziDebug                # screenshot tests
 cd android && ./gradlew connectedDebugAndroidTest     # instrumented
 ```
 
@@ -50,19 +48,18 @@ right type for the behavior under test — do not collapse them into one.
 | # | Type | Location | What it covers |
 |---|------|----------|----------------|
 | 1 | **Unit** (Rust) | `native/src/terminal/`, `native/src/render/`, `native/src/mcp.rs` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, MCP. Runs on host via `cargo nextest`. |
-| 2 | **Roborazzi** (screenshot) | `android/app/src/test/java/terminal/emulator/screenshot/*ScreenshotTest.kt`; goldens in `android/app/src/test/resources/roborazzi/` | Pixel-exact Compose/UI rendering under Robolectric. |
-| 3 | **Compose UI** | `android/app/src/test/java/terminal/emulator/ui/*ComposeTest.kt` (Robolectric) and `android/app/src/androidTest/java/terminal/emulator/ui/*ComposeTest.kt` (instrumented) | Compose widget state/interaction (theme switch, selection handles). |
+| 2 | **Compose UI** (instrumented) | `android/app/src/androidTest/java/terminal/emulator/ui/*ComposeTest.kt` (e.g. `TerminalScreenComposeTest`) | Compose widget state/interaction on-device. |
+| 3 | **OCR screenshot** (emulator) | `native/src/render/tests.rs` + `scripts/test-emulator.nu` (rapidocr) | End-to-end terminal-text visibility on the emulator. |
 | 4 | **Maestro** | `android/app/src/androidTest/java/terminal/emulator/ui/*.yaml` flow files (e.g. `SelectionMaestroTest.yaml`) | End-to-end on-device flows driven by Maestro YAML. |
 | 5 | **Android UI testing framework** | `android/app/src/androidTest/java/terminal/emulator/ui/*UiAutomatorTest.kt` (e.g. `TerminalUiAutomatorTest`, `SelectionUiAutomatorTest`, `TextSearchUiAutomatorTest`) | Cross-app / system-level interaction via UiAutomator. |
 | 6 | **Espresso** | `android/app/src/androidTest/java/terminal/emulator/ui/*EspressoTest.kt` (e.g. `TerminalActivityEspressoTest`, `SelectionEspressoTest`, `TextSearchEspressoTest`) | In-app View-level interaction via Espresso. |
 
-### Roborazzi Golden Management
+### Screenshot / OCR verification
 
-Golden images live in `android/app/src/test/resources/roborazzi/` and are committed to git.
-
-- **Script runner**: `nu scripts/test-android-gradle.nu`
-
-CI fails on golden mismatch. Download `gradle-reports` artifact from the failed run
+Pixel-exact Compose goldens (Roborazzi) are intentionally NOT used: FR-055
+bans committed PNG artifacts. Terminal-text visibility is verified
+end-to-end on the emulator: `scripts/test-emulator.nu` captures screenshots
+and OCR-verifies the text with `rapidocr` (available in the dev shell).
 
 ### RapidOCR Text Verification
 
@@ -96,7 +93,7 @@ maintained in `docs/traceability.yml`.
 | **fuzz** | Fuzz target | (removed — see fuzz/ deletion) |
 | **lint** | Lint/static analysis check | `cargo clippy --all -- --deny warnings` |
 | **android-unit** | Android unit test (Robolectric) | `./gradlew testDebugUnitTest` |
-| **screenshot** | Roborazzi screenshot test | `./gradlew roborazziDebug` |
+| **ocr-screenshot** | Emulator screenshot + OCR | `nu scripts/test-emulator.nu` (rapidocr) |
 | **instrumented** | Android instrumented test | `./gradlew connectedDebugAndroidTest` |
 | **maestro** | Maestro E2E flow | `maestro test <flow.yaml>` |
 | **ui-automator** | UiAutomator cross-app test | Via instrumented test suite |

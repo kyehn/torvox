@@ -36,7 +36,7 @@ class SelectionUiAutomatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Requires the native data path: isCellEmpty is an ADR-0007 stub so long-press always routes to the paste popup and the selection menu never appears; also needs a >=400ms hold to be a real long-press (round-107)")
+    @org.junit.Ignore("Requires the native data path: isCellEmpty is an implemented (native query path wired since round-130) so long-press always routes to the paste popup and the selection menu never appears; also needs a >=400ms hold to be a real long-press (round-107)")
     fun longPressShowsMenuAndInvertedCellNearTap() {
         val longPressX = 200
         val longPressY = 300
