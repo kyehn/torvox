@@ -1338,8 +1338,49 @@ fn render_inner(session_id: u64) -> jint {
             return 0;
         }
     }
-    // Collect cell data first (session lock), then render (render-state
-    // lock) — the two locks are never held at the same time.
+    // Upload glyph atlas dirty regions first, unconditionally (even on
+    // idle frames): glyph rasterization happens inside render_cell_data,
+    // so its dirty rect must be consumed on the NEXT render call. If we
+    // returned early on idle frames without uploading, a newly rasterized
+    // glyph would never reach the GPU texture until more output arrives.
+    {
+        let mut state = render_state_mut();
+        let Some(render_state) = state.as_mut() else {
+            log::error!("render: render state missing");
+            return -1;
+        };
+        if render_state.renderer.surface.is_none() {
+            // No surface attached yet (attachWindow not called / surface lost).
+            return 0;
+        }
+        // Lazy one-time pipeline creation (mirrors the test helpers): the
+        // cell pipeline is created from the attached surface's format on
+        // first render.
+        if render_state.renderer.cell_pipeline.is_none() {
+            let (w, h) = render_state
+                .renderer
+                .surface_config
+                .as_ref()
+                .map_or((0, 0), |c| (c.width, c.height));
+            if w == 0 || h == 0 {
+                return 0;
+            }
+            render_state
+                .renderer
+                .initialize_pipeline_and_bind_group(ATLAS_SIZE, ATLAS_SIZE, w, h);
+        }
+        if let Some(rect) = render_state.font_pipeline.take_dirty_rect() {
+            let (aw, ah) = render_state.font_pipeline.atlas_dimensions();
+            render_state.renderer.upload_atlas(
+                render_state.font_pipeline.atlas_bitmap(),
+                aw,
+                ah,
+                Some(rect),
+            );
+        }
+    }
+    // Collect cell data (session lock), then render (render-state lock) —
+    // the two locks are never held at the same time.
     let (cells, cursor_info, rows, cols) = {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&session_id) else {
@@ -1363,21 +1404,6 @@ fn render_inner(session_id: u64) -> jint {
         // No surface attached yet (attachWindow not called / surface lost).
         return 0;
     }
-    // Lazy one-time pipeline creation (mirrors the test helpers): the cell
-    // pipeline is created from the attached surface's format on first render.
-    if render_state.renderer.cell_pipeline.is_none() {
-        let (w, h) = render_state
-            .renderer
-            .surface_config
-            .as_ref()
-            .map_or((0, 0), |c| (c.width, c.height));
-        if w == 0 || h == 0 {
-            return 0;
-        }
-        render_state
-            .renderer
-            .initialize_pipeline_and_bind_group(1024, 1024, w, h);
-    }
     let cursor = crate::render::CellCursor {
         row: cursor_info.row,
         col: cursor_info.col,
@@ -1391,8 +1417,8 @@ fn render_inner(session_id: u64) -> jint {
         cols,
         cursor,
         &mut render_state.font_pipeline,
-        1024.0,
-        1024.0,
+        ATLAS_SIZE as f32,
+        ATLAS_SIZE as f32,
         None,
         None,
         &render_state.search_highlights,
@@ -1411,8 +1437,9 @@ fn render_inner(session_id: u64) -> jint {
 
 /// Detach the current surface — Android only.
 ///
-/// NOTE: kept as an ADR-0007 placeholder (currently a log-only no-op),
-/// symmetric with attachWindow.
+/// Real implementation: owner-checked (ATTACHED_SESSION_ID CAS) release
+/// of the wgpu surface; the session's RenderState is torn down so the
+/// next attach recreates it.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_detachWindow(
@@ -1693,6 +1720,11 @@ fn list_sessions_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>)
     }
 }
 
+/// Atlas size shared by pipeline init, render_cell_data and the font
+/// pipeline. Kept in one place: changing it requires all three call sites
+/// to agree or glyph UVs misalign.
+const ATLAS_SIZE: u32 = 1024;
+
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Exports: TerminalQueryPort (search/scrollback/text/font)
 //
@@ -1847,7 +1879,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
 }
 
 /// Returns a JSON array of `{row,start_col,end_col}` search matches, or
-/// `[]` on timeout/disconnect. Column indices are byte offsets.
+/// `[]` on timeout/disconnect. Column indices are character columns.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScrollback<'local>(
     mut env: JNIEnv<'local>,
@@ -2094,4 +2126,59 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
             render_state.search_highlights = highlights;
         }
     });
+}
+
+/// Apply a theme: 54 bytes = background RGB (3) + foreground RGB (3) +
+/// 16 ANSI palette colors (48). Mirrors `GhosttyTerminal::set_theme`.
+#[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // JNI signatures contain raw pointers by design
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    data: jbyteArray,
+) {
+    jni_export_guard!(&mut env, (), {
+        let id = session_id as u64;
+        // SAFETY: `data` is the JNI `jbyteArray` argument validated by the
+        // JVM before this export is called; the jni crate's `from_raw` only
+        // wraps the pointer, and `convert_byte_array` performs the bounds
+        // checks against the actual array length.
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+        let bytes = match env.convert_byte_array(&byte_array) {
+            Ok(bytes) => bytes,
+            Err(_) => {
+                let _ = env.throw_new(
+                    "java/lang/IllegalArgumentException",
+                    "setTheme: cannot read byte array",
+                );
+                return;
+            }
+        };
+        if bytes.len() != 54 {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "setTheme: expected exactly 54 bytes (bg3 fg3 ansi48)",
+            );
+            return;
+        }
+        let background = [bytes[0], bytes[1], bytes[2]];
+        let foreground = [bytes[3], bytes[4], bytes[5]];
+        let mut ansi = [[0u8; 3]; 16];
+        for (i, color) in ansi.iter_mut().enumerate() {
+            let base = 6 + i * 3;
+            *color = [bytes[base], bytes[base + 1], bytes[base + 2]];
+        }
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "setTheme: session not found",
+            );
+            return;
+        };
+        let session = entry.session.lock();
+        session.terminal().set_theme(background, foreground, ansi);
+        log::info!("setTheme: session {id} bg={background:02X?} fg={foreground:02X?}");
+    })
 }

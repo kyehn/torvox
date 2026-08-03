@@ -45,7 +45,7 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an ADR-0007 stub (no real results; assertions only check UI presence) ")
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path wired since ) (no real results; assertions only check UI presence) ")
     fun search_result_count_displayed_after_input() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -95,7 +95,7 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an ADR-0007 stub (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node ")
+    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path wired since ) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node ")
     fun search_previous_clickable() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -108,7 +108,7 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an ADR-0007 stub (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node ")
+    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path wired since ) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node ")
     fun search_next_clickable() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()

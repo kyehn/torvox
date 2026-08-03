@@ -434,3 +434,29 @@ fn search_all_in_scrollback_cjk_no_panic() {
         "case-insensitive query must find the match on row 0"
     );
 }
+
+#[test]
+fn search_returns_character_columns_not_byte_offsets() {
+    // "你" is 3 UTF-8 bytes but 1 character column. A match after it must
+    // report character columns so the renderer's CellData.col highlight
+    // aligns (byte offsets would be wider and shifted on CJK rows).
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    t.vt_write("你hello\n".as_bytes());
+    t.flush();
+    let results = t.search_all_in_scrollback("hello", true, false);
+    assert_eq!(results.len(), 1, "must find ASCII query after CJK char");
+    let m = &results[0];
+    // Ghostty reads wide-char rows with an interleaved fill space
+    // ("你 hello"), so character-column counting ("你"=1 char + 1 fill
+    // space = 2) matches the grid column where 'h' starts.
+    assert_eq!(
+        m.start_col, 2,
+        "start_col must be char column, got {}",
+        m.start_col
+    );
+    assert_eq!(
+        m.end_col, 7,
+        "end_col must be char column, got {}",
+        m.end_col
+    );
+}

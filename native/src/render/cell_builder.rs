@@ -140,8 +140,10 @@ pub(crate) fn apply_search_highlight(fg: &mut [f32; 4], bg: &mut [f32; 4], hl: [
 #[allow(clippy::too_many_arguments)]
 pub fn build_instances_from_cell_data(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
-    _rows: u32,
+    rows: u32,
     cols: u32,
+    grid_cell_w: f32,
+    grid_cell_h: f32,
     cursor: CellCursor,
     font_pipeline: &mut crate::render::font::FontPipeline,
     atlas_width: f32,
@@ -151,7 +153,14 @@ pub fn build_instances_from_cell_data(
     search_highlights: &[SearchHighlight],
     instances: &mut Vec<CellInstance>,
 ) -> Option<()> {
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    // Quad geometry uses GRID cell dimensions (surface/rows, surface/cols),
+    // not font metrics: font cell height (~20px) is smaller than the grid
+    // row height (~92px on a 2209px surface / 24 rows), so quads sized by
+    // font metrics left visible gaps between rows. The shader positions
+    // glyphs inside the grid quad via bearing + ascent (glyph_h > cell_h
+    // is then never true, so glyphs use the raw bearing path).
+    let (cell_w, cell_h) = (grid_cell_w, grid_cell_h);
+    let _ = (rows, cols); // used by callers for projection; quad grid covers all
     let ascent_pixels = font_pipeline.ascent_pixels();
     let raster_scale = font_pipeline.get_raster_scale();
     // Cross-frame buffer reuse: the caller (Renderer) owns the Vec and
@@ -427,6 +436,8 @@ mod tests {
             cells,
             24,
             80,
+            1024.0 / 80.0,
+            1024.0 / 24.0,
             cursor,
             &mut font_pipeline,
             1024.0,

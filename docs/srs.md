@@ -193,7 +193,7 @@ The primary users are:
 | FR-015 | The system SHALL render text selection highlights (character, word, line, block modes) as colored overlays on the affected cells. | `native/src/render/pass.rs` |
 | FR-016 | The system SHALL support font configuration: family, size, line spacing, and fallback to preferred monospace fonts (Roboto Mono, JetBrains Mono, etc.). | `native/src/render/font/font_db.rs` |
 | FR-017 | The system SHALL render the terminal background, foreground, and 16-color ANSI palette from the active theme configuration. | `native/src/render/pass.rs` |
-| FR-018 | The system SHALL recover from GPU surface destruction (e.g., Android activity restart) by recreating the render pipeline and continuing without data loss. | `AGENTS.md` (Pitfall #13), `native/src/render/surface.rs` |
+| FR-018 | The system SHALL recover from GPU surface destruction (e.g., Android activity restart) by recreating the render pipeline and continuing without data loss. | `AGENTS.md` (Pitfall #13), `native/src/render/context.rs` |
 | FR-019 | The system SHALL support the Kitty Graphics Protocol (KGP) for rendering inline images as textured quads. | `native/src/render/pass.rs` |
 
 ### 3.3 Input Handling
@@ -204,7 +204,7 @@ The primary users are:
 | FR-021 | The system SHALL support IME (Input Method Editor) text input for composing CJK and other complex characters, with `Composing` state management. | `native/src/terminal/ghostty_terminal/internal.rs` |
 | FR-022 | The system SHALL support terminal selection in four modes: character (`Char`), word (`Word`), line (`Line`), and block (`Block`). | `native/src/terminal/ghostty_terminal/types.rs` |
 | FR-023 | The system SHALL automatically expand word-mode selections to word boundaries and detect URLs (`http://`, `https://`, `ftp://`, `www.`) for URL-aware selection expansion. | `native/src/terminal/ghostty_terminal/public_api.rs` |
-| FR-024 | The system SHALL support touch input gestures: tap to place cursor, long-press for selection handles, and swipe for scrollback navigation. | `native/src/render/surface.rs` |
+| FR-024 | The system SHALL support touch input gestures: tap to place cursor, long-press for selection handles, and swipe for scrollback navigation. | `native/src/render/context.rs` |
 | FR-025 | The system SHALL support configurable backspace mode (DEL `0x7f` or BS `0x08`) and right-Alt mode (character modifier or meta). | `native/src/terminal/ghostty_terminal/types.rs` |
 
 ### 3.4 Session Management
@@ -259,8 +259,8 @@ The primary users are:
 
 | ID | Requirement | Source |
 |----|-------------|--------|
-| FR-049 | The system SHALL use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction) via `jni_bridge.rs`. | `native/src/android/jni_bridge.rs` |
-| FR-050 | The system SHALL handle Android surface creation and destruction events, recreating the wgpu surface and render pipeline as needed. | `native/src/render/surface.rs` |
+| FR-049 | The system SHALL use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction) via `ffi.rs`. | `native/src/android/ffi.rs` |
+| FR-050 | The system SHALL handle Android surface creation and destruction events, recreating the wgpu surface and render pipeline as needed. | `native/src/render/context.rs` |
 | FR-051 | The system SHALL support ProGuard/R8 obfuscation with `-dontoptimize` to preserve direct JNI (no JNA). | `AGENTS.md` (Pitfall #14) |
 
 ### 3.10 Configuration and Themes
@@ -321,7 +321,7 @@ The primary users are:
 
 | ID | Requirement | Source |
 |----|-------------|--------|
-| NFR-022 | The render thread SHALL detect GPU surface loss (Android configuration change, activity restart) and recreate the wgpu pipeline automatically. After 100 consecutive errors (~10 seconds), the thread SHALL exit permanently and require a new surface to restart. | `AGENTS.md` (Pitfall #13), `native/src/render/surface.rs` |
+| NFR-022 | The render thread SHALL detect GPU surface loss (Android configuration change, activity restart) and recreate the wgpu pipeline automatically. After 100 consecutive errors (~10 seconds), the thread SHALL exit permanently and require a new surface to restart. | `AGENTS.md` (Pitfall #13), `native/src/render/context.rs` |
 | NFR-023 | The OSC handler SHALL cap payload size at 1 MB (`MAX_PAYLOAD_BYTES`) to prevent denial-of-service via oversized OSC sequences. | `native/src/terminal/osc_handler.rs` |
 | NFR-024 | The system SHALL recover from PTY read errors without crashing the session. The reader thread SHALL log errors and continue reading. | `native/src/terminal/session.rs` |
 | NFR-025 | The system SHALL provide unified logging infrastructure that writes to both logcat and a rotating file, with log levels configurable independently for each output. | `native/src/android/logging.rs` |
@@ -399,7 +399,7 @@ per-pixel rendering.
 | `native/src/terminal/action_parser.rs` | Tab stops, other control actions |
 | `native/src/render/context.rs` | GpuContext, wgpu state |
 | `native/src/render/pass.rs` | Per-frame rendering (cursor, selection, kgp) |
-| `native/src/render/surface.rs` | Android surface lifecycle management |
+| `native/src/render/context.rs` | Android surface lifecycle management |
 | `native/src/render/atlas.rs` | Glyph atlas (guillotiere packing) |
 | `native/src/render/font/font_db.rs` | Font configuration and theme definitions |
 | `native/src/render/font/shaping.rs` | cosmic-text shaping |
