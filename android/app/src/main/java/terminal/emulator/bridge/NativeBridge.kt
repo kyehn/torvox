@@ -144,6 +144,8 @@ object NativeBridge {
     @JvmStatic
     external fun setMcpEnabled(enabled: Boolean)
 
+    external fun setMcpSocketPath(path: String)
+
     // ── User input callbacks ────────────────────────────────────────────
 
     /** Called after showing a dialog or file picker to the user. */
@@ -250,4 +252,6 @@ object NativeBridge {
     external fun getCellHeight(sessionId: Long): Float
 
     external fun getGridRowsColsPacked(sessionId: Long): Long
+
+    external fun setScrollOffset(sessionId: Long, offset: Int)
 }

@@ -59,4 +59,17 @@ class InputBatchBufferTest {
         assertEquals(0, sent.size)
         buffer.close()
     }
+
+    @Test
+    fun `close flushes buffered bytes before shutdown`() {
+        val sent = mutableListOf<ByteArray>()
+        val buffer = InputBatchBuffer.forTest({ sent.add(it) }, capacity = 16)
+        buffer.write(byteArrayOf(1, 2, 3))
+        // No flush yet — the Choreographer callback never fires in tests
+        // (useChoreographer=false), so the bytes are still buffered.
+        buffer.close()
+        awaitSize(sent, 1)
+        val flushed = sent.flatMap { it.toList() }.toByteArray()
+        assertArrayEquals(byteArrayOf(1, 2, 3), flushed)
+    }
 }
