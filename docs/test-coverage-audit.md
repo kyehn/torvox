@@ -121,8 +121,8 @@ terminal_info / clipboard_get / clipboard_set / notify / toast / open_url / send
 
 | 功能 | 状态 |
 |---|---|
-| MCP 其余 7 工具（clipboard_get/notify/toast/open_url/send_signal/pick_file/dialog） | **零覆盖**（mcp.rs 仅 4 个测试：list_tools/terminal_info/clipboard_set/method_not_found；send_signal 会话锁路径纯 Rust 可测，dialog/pick_file 需 JNI 回调桥） |
-| render/context.rs、pipeline.rs（KGP shader）、font/pipeline.rs、atlas.rs、cjk.rs、cell_builder.rs | **0 单测**（多数需 GPU 或字体，但 cell_builder 纯逻辑可测） |
+| ~~MCP 其余 7 工具~~ | ✅ 已解决（mcp.rs 12 个测试覆盖全部 9 工具，见 §7 #10） |
+| render/context.rs、pipeline.rs、font/pipeline.rs、atlas.rs、cjk.rs | 0 单测（cell_builder 已有 10 个纯逻辑测试；pipeline/atlas/cjk 需 GPU/字体） |
 | android/ffi.rs | 0 单测（仅 jni_bridge_test 间接验证符号） |
 | process_output 通道路径 | 无直接单测（project-health 自认） |
 | property/fuzz 测试 | 依赖已声明、**零使用**（proptest/quickcheck/shuttle） |

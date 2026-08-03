@@ -129,7 +129,7 @@ as the sole graphics backend. OpenGL and CPU software paths are not supported.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | wgpu instance and surface create successfully on a Vulkan-capable device | `cargo test -p native --features test-util --lib -- render` (Lavapipe headless; no surface swap — ADR-0007 deferred) ([test source](native/src/render/tests.rs)) |
+| 1 | wgpu instance and surface create successfully on a Vulkan-capable device | `cargo test -p native --features test-util --lib -- render` (Lavapipe headless; surface swap covered on emulator via `scripts/test-emulator.nu`) ([test source](native/src/render/tests.rs)) |
 | 2 | Headless wgpu rendering produces correct pixel output (OCR-confirmed) | `cargo test --package native -- text_ocr_test` ([test source](native/src/render/screenshot_tests.rs)) |
 | 3 | No OpenGL or CPU rendering dependencies present in `Cargo.toml` | Code review: no `opengl`, `glutin`, or `Canvas.drawText` references in production code |
 
@@ -578,7 +578,7 @@ text (AI agent automation).
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | JNI functions match the native method signatures in Kotlin | `cargo test -p integration-tests --test jni_bridge_test` (JDK-based symbol resolution + call round-trip, [test source](integration-tests/jni/NativeBridge.java)) |
-| 2 | `ANativeWindow_fromSurface` and `ANativeWindow_release` are paired in the lifecycle | Code review: `native/src/android/ffi.rs` — `attachWindow` is an ADR-0007 stub (surface integration deferred); pairing lands with the real render path |
+| 2 | `ANativeWindow_fromSurface` and `ANativeWindow_release` are paired in the lifecycle | Code review: `native/src/android/ffi.rs` — `attachWindow` (ADR-0007, implemented) extracts the window on the JNI thread and hands it to the render path; verified on emulator via `scripts/test-emulator.nu` |
 
 ---
 
@@ -590,7 +590,7 @@ needed.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Surface attach/detach events recreate the wgpu surface | Code review: `native/src/render/context.rs` — `reconfigure_swapchain` (Android-only); ADR-0007 deferred — no on-device path yet |
+| 1 | Surface attach/detach events recreate the wgpu surface | Code review: `native/src/render/context.rs` — `reconfigure_swapchain` (Android-only, ADR-0007 implemented); emulator run renders 1920 instances/frame |
 | 2 | Render pipeline survives surface recreation | `cargo test -p native --features test-util --lib -- render` ([test source](native/src/render/tests.rs)) — Lavapipe headless, no surface swap |
 
 ---
@@ -914,7 +914,7 @@ thread SHALL exit permanently and require a new surface to restart.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Surface recreation is triggered on `wgpu::SurfaceError::Lost` and completes without crash | `cargo test --package native -- gpu_noop_tests` ([test source](native/src/render/tests.rs)) |
+| 1 | Surface recreation is triggered on `wgpu::SurfaceError::Lost` and completes without crash | Code review: `native/src/render/context.rs` error-recovery path (Lavapipe has no surface-loss injection; emulator path covered by `scripts/test-emulator.nu`) |
 | 2 | After 100 consecutive render errors, the render thread exits with a terminal error | Code review: `native/src/render/` — error counter and thread exit logic |
 
 ### NFR-023: OSC Payload Size Limit

@@ -1,5 +1,7 @@
 /// A single match from search_all_in_scrollback.
-/// Row and column positions are byte offsets in the line text.
+/// Row is a scrollback row; start_col/end_col are character columns in the
+/// line (NOT byte offsets) — they align with CellData.col used by the
+/// renderer's highlight pass.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SearchMatch {
     pub row: u32,
