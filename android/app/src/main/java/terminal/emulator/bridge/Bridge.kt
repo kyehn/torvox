@@ -261,11 +261,22 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     fun setBackgroundImage(rgbaData: ByteArray, width: Int, height: Int) {
-        Log.d(TAG, "setBackgroundImage(${rgbaData.size}B, ${width}x$height)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setBackgroundImage(sessionId, rgbaData, width, height)
+        } catch (exception: RuntimeException) {
+            // Class only: exception messages can embed session data (round-108).
+            LogUtil.e("Bridge", "setBackgroundImage failed: ${exception.javaClass.simpleName}")
+        }
     }
 
     fun clearBackgroundImage() {
-        Log.d(TAG, "clearBackgroundImage()")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.clearBackgroundImage(sessionId)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "clearBackgroundImage failed: ${exception.javaClass.simpleName}")
+        }
     }
 
     // ── Events ────────────────────────────────────────────────────────
@@ -600,14 +611,10 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     // session-map removal); catch it here so UI/触摸 paths never crash.
     override fun clearSearchHighlights() = queryPort.clearSearchHighlights()
     override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
-    override fun scrollbackLine(row: Int): String? =
-        runCatching { queryPort.scrollbackLine(row) }.getOrNull()
-    override fun scrollbackLength(): Int =
-        runCatching { queryPort.scrollbackLength() }.getOrDefault(0)
-    override fun isCellEmpty(row: Int, col: Int): Boolean =
-        runCatching { queryPort.isCellEmpty(row, col) }.getOrDefault(true)
-    override fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? =
-        runCatching { queryPort.searchAllInScrollback(query, caseSensitive, fuzzyMatch) }.getOrNull()
+    override fun scrollbackLine(row: Int): String? = runCatching { queryPort.scrollbackLine(row) }.getOrNull()
+    override fun scrollbackLength(): Int = runCatching { queryPort.scrollbackLength() }.getOrDefault(0)
+    override fun isCellEmpty(row: Int, col: Int): Boolean = runCatching { queryPort.isCellEmpty(row, col) }.getOrDefault(true)
+    override fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? = runCatching { queryPort.searchAllInScrollback(query, caseSensitive, fuzzyMatch) }.getOrNull()
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
     override fun getTerminalText(): String? = runCatching { queryPort.getTerminalText() }.getOrNull()

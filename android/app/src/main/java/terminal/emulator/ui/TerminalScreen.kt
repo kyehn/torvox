@@ -7,6 +7,8 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -17,9 +19,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -52,6 +55,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -535,14 +539,24 @@ fun TerminalScreen(
                 // END OF COLUMN — no bottom bar inside Column
             } // close Column
 
-            // Floating overlay for bottom bar — sits above IME
+            // Floating overlay for bottom bar — sits above IME.
+            // IME padding is animated manually (animateImePadding was
+            // removed from foundation 1.11): WindowInsets.ime drives a
+            // 220ms tween so the bar glides up when the keyboard opens
+            // instead of jumping.
+            val imeBottomPx = WindowInsets.ime.getBottom(LocalDensity.current)
+            val animatedImeBottom by animateDpAsState(
+                targetValue = with(LocalDensity.current) { imeBottomPx.toDp() },
+                animationSpec = tween(durationMillis = 220),
+                label = "imeBarOffset",
+            )
             Box(
                 modifier =
                 Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
                     .navigationBarsPadding()
-                    .imePadding()
+                    .padding(bottom = animatedImeBottom)
                     .background(resolvedTerminalTheme.background)
                     .testTag("ModifierBarOverlay"),
             ) {

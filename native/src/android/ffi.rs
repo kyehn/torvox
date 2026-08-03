@@ -176,6 +176,14 @@ struct RenderState {
     /// Stored as parsed structs so `render_inner` passes them by slice.
     /// Cleared by `clearSearchHighlights`.
     search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
+    /// Background image pending upload, set by `setBackgroundImage` from
+    /// any thread and consumed by the render thread at the start of the
+    /// next `render_inner` (same deferred-consume pattern as
+    /// `search_highlights`; wgpu texture creation happens on the render
+    /// thread). `None` = no pending change.
+    pending_bg_image: Option<(Vec<u8>, u32, u32)>,
+    /// Set by `clearBackgroundImage`; consumed by the render thread.
+    pending_bg_image_clear: bool,
 }
 
 /// Ensure the render state exists, creating the renderer + font pipeline
@@ -193,6 +201,8 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             renderer,
             font_pipeline,
             search_highlights: Vec::new(),
+            pending_bg_image: None,
+            pending_bg_image_clear: false,
         });
         log::info!("render state initialized (renderer + font pipeline)");
     }
@@ -1325,6 +1335,47 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>
 }
 
 fn render_inner(session_id: u64) -> jint {
+    // Consume any pending background-image change before rendering:
+    // `setBackgroundImage`/`clearBackgroundImage` JNI calls store their
+    // payload here (any thread); the wgpu texture upload happens on the
+    // render thread where `Renderer` is used.
+    {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            let mut bg_changed = false;
+            if render_state.pending_bg_image_clear {
+                render_state.renderer.clear_bg_image();
+                render_state.pending_bg_image_clear = false;
+                bg_changed = true;
+            }
+            if let Some((data, w, h)) = render_state.pending_bg_image.take() {
+                render_state.renderer.set_bg_image(&data, w, h);
+                log::info!(
+                    "render_inner: consumed bg image {w}x{h}, view={}",
+                    render_state.renderer.bg_image_view.is_some()
+                );
+                bg_changed = true;
+            }
+            // The cell shader reads `image_active` from the cell uniforms
+            // to make default-background cells transparent (wallpaper
+            // shows through). `set_bg_image` invalidates the bg bind
+            // group; rewrite the cell uniforms so the flag flips to 1.
+            // `update_bind_group` has no other caller (round-202, root
+            // cause found via emulator pixel diff: bg pass drew every
+            // frame but cells painted opaque background on top).
+            if bg_changed {
+                if let Some(cfg) = render_state.renderer.surface_config.as_ref() {
+                    let (w, h) = (cfg.width as f32, cfg.height as f32);
+                    let (aw, ah) = render_state
+                        .renderer
+                        .atlas_texture
+                        .as_ref()
+                        .map_or((0.0, 0.0), |t| (t.width() as f32, t.height() as f32));
+                    render_state.renderer.update_bind_group(aw, ah, w, h);
+                }
+            }
+        }
+    }
     // Check surface readiness first (cheap lock, no session lock held):
     // when no surface is attached there is nothing to present, and
     // draining the CellData channel in that state would drop the latest
@@ -2180,5 +2231,85 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         let session = entry.session.lock();
         session.terminal().set_theme(background, foreground, ansi);
         log::info!("setTheme: session {id} bg={background:02X?} fg={foreground:02X?}");
+    })
+}
+
+/// Set the terminal background image. RGBA bytes, decoded on the Kotlin
+/// side (TerminalViewModel). The upload is deferred to the render thread
+/// via `RenderState::pending_bg_image` — the same pattern as
+/// `setSearchHighlights` — so wgpu texture creation happens where the
+/// renderer is used.
+#[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // JNI signatures contain raw pointers by design
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundImage(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    data: jbyteArray,
+    width: jint,
+    height: jint,
+) {
+    jni_export_guard!(&mut env, (), {
+        let (Some(w), Some(h)) = (u32::try_from(width).ok(), u32::try_from(height).ok()) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "setBackgroundImage: width/height must be non-negative",
+            );
+            return;
+        };
+        if w == 0 || h == 0 {
+            // Zero-sized image: treat as clear. Avoids a degenerate
+            // 0-byte texture below.
+            let mut state = render_state_mut();
+            if let Some(render_state) = state.as_mut() {
+                render_state.pending_bg_image_clear = true;
+            }
+            return;
+        }
+        // SAFETY: `data` is a JNI method argument, guaranteed valid by the
+        // JVM runtime for the duration of this call (same pattern as
+        // feed_pty_inner).
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+        let Some(bytes) = env.convert_byte_array(&byte_array).ok() else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "setBackgroundImage: cannot read byte array",
+            );
+            return;
+        };
+        let expected = w as usize * h as usize * 4;
+        if bytes.len() < expected {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                format!(
+                    "setBackgroundImage: expected {expected} bytes (RGBA {w}x{h}), got {}",
+                    bytes.len()
+                ),
+            );
+            return;
+        }
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.pending_bg_image = Some((bytes, w, h));
+        }
+        log::info!("setBackgroundImage: {w}x{h} queued for render thread");
+    })
+}
+
+/// Clear the terminal background image. Deferred to the render thread
+/// like `setBackgroundImage`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearBackgroundImage(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+) {
+    jni_export_guard!(&mut env, (), {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.pending_bg_image = None;
+            render_state.pending_bg_image_clear = true;
+        }
+        log::info!("clearBackgroundImage: queued for render thread");
     })
 }
