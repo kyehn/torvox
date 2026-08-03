@@ -226,4 +226,28 @@ object NativeBridge {
     external fun clearBackgroundImage(sessionId: Long)
 
     external fun setBackgroundParams(sessionId: Long, blurRadius: Int, alphaTenths: Int)
+
+    external fun setCursorBlink(sessionId: Long, enabled: Boolean, speedMs: Int)
+
+    external fun resetCursorBlink(sessionId: Long)
+
+    external fun setRenderPaused(sessionId: Long, paused: Boolean)
+
+    external fun setCursorStyle(sessionId: Long, style: String)
+
+    external fun setFontFamily(sessionId: Long, family: String): Boolean
+
+    external fun setFontSizeInPlace(sessionId: Long, sizeTenths: Int)
+
+    external fun loadFontFile(sessionId: Long, path: String): String?
+
+    external fun setSystemLocale(sessionId: Long, locale: String)
+
+    external fun setExtraFontPaths(sessionId: Long, paths: Array<String>)
+
+    external fun getCellWidth(sessionId: Long): Float
+
+    external fun getCellHeight(sessionId: Long): Float
+
+    external fun getGridRowsColsPacked(sessionId: Long): Long
 }
