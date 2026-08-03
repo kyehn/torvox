@@ -242,7 +242,7 @@ constructor(
     }
 
     // NOTE : these four steps assert only the result counter
-    // while Bridge.searchAllInScrollback is an ADR-0007 stub (no real
+    // while Bridge.searchAllInScrollback is an implemented (native query path wired since ) (no real
     // highlights exist to inspect). They live in @wip scenarios today; the
     // assertions MUST be strengthened (pixel/semantics highlight checks)
     // before those scenarios are un-wipped.

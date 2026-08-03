@@ -214,4 +214,5 @@ object NativeBridge {
     /** Set renderer search highlight ranges (byte-packed, see TerminalSurface). */
     @JvmStatic
     external fun setSearchHighlights(sessionId: Long, data: ByteArray)
+    external fun setTheme(sessionId: Long, data: ByteArray)
 }
