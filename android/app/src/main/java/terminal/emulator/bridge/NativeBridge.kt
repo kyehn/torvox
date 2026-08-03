@@ -224,4 +224,6 @@ object NativeBridge {
     )
 
     external fun clearBackgroundImage(sessionId: Long)
+
+    external fun setBackgroundParams(sessionId: Long, blurRadius: Int, alphaTenths: Int)
 }
