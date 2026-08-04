@@ -188,23 +188,26 @@ impl PtyPair {
                         libc::_exit(2);
                     }
                 }
-                // Kill the child when the app process dies (OOM kill, force
-                // stop, crash). Without PDEATHSIG the shell and its process
-                // tree become orphans that keep running after the terminal
-                // is gone. PR_SET_PDEATHSIG is a per-process prctl (no
-                // allocation, async-signal-safe).
-                // SAFETY: prctl is a plain syscall wrapper; valid constants
-                // and pointer-free arguments. Safe in the single-threaded
-                // child after fork.
-                let pdeathsig_ok =
-                    unsafe { libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL) } == 0;
-                // Classic PDEATHSIG race: if the parent died between fork()
-                // and prctl(), the signal was never armed and the child is
-                // already an orphan. Detect it via getppid() == 1 (reparented
-                // to init) and exit instead of leaking a permanent orphan.
+                // Detect a fork-time orphan: if the app process died between
+                // fork() and this check, the child was reparented to init
+                // (PPid == 1). Exit instead of leaking a permanent orphan.
+                // NOTE (round-213): PR_SET_PDEATHSIG is deliberately NOT
+                // used. It binds to the fork thread (a Kotlin
+                // Dispatchers.IO worker), and when that thread times out
+                // and exits after ~60s of idle (kotlinx KEEP_ALIVE), the
+                // shell is killed by the parent-death signal — observed on
+                // the emulator (Android 15 GKI 6.6): every session died
+                // ~60s after startup, and disabling PDEATHSIG made shells
+                // survive indefinitely. (Whether this is the standard
+                // thread-group semantics or an Android kernel nuance is
+                // not asserted here; the empirical result is what matters.)
+                // App-death cleanup is covered by Android's cgroup.kill
+                // (AMS/lmkd kill the app's process group on force-stop,
+                // crash and OOM — verified on-device: force-stop reaps the
+                // shell), so PDEATHSIG is redundant as well as harmful.
                 // SAFETY: getppid is a plain syscall; safe after fork.
                 let orphaned = unsafe { libc::getppid() } == 1;
-                if !pdeathsig_ok || orphaned {
+                if orphaned {
                     // nosemgrep: semgrep.no-process-exit — child after fork
                     unsafe {
                         libc::_exit(1);

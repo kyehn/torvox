@@ -82,8 +82,8 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  * channels (attachSurface carries the size; events carry grid dims) or are
  * query-path stubs backed by [NativeQueryPort].
  */
-@Suppress("TooManyFunctions", "LongMethod") // parseEvent is a straight
 // when-dispatch over the PollEvent sealed class — one branch per variant.
+@Suppress("TooManyFunctions", "LongMethod") // parseEvent is a straight
 class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     /**
      * ADR-0007: native query path wired — all queries delegate to
