@@ -596,6 +596,15 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
+    fun setRasterScale(scale: Float) {
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setRasterScale(sessionId, scale)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setRasterScale failed: ${exception.javaClass.simpleName}")
+        }
+    }
+
     fun setCursorStyle(style: String) {
         Log.d(TAG, "setCursorStyle($style)")
         if (sessionId == 0L) return
@@ -677,6 +686,21 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 NativeBridge.writeKey(sessionId, ch, modifierBits, null)
                 return true
             }
+            // Round-216: some IMEs (Gboard under InputType.TYPE_NULL) emit
+            // key events with unicodeChar == 0 even though the key is a
+            // printable letter. Derive the character from the virtual
+            // keyboard's key character map as a fallback so those key
+            // presses still reach the PTY.
+            if (!ctrlActive && keyCode in android.view.KeyEvent.KEYCODE_A..android.view.KeyEvent.KEYCODE_Z) {
+                val derived =
+                    android.view.KeyCharacterMap
+                        .load(android.view.KeyCharacterMap.VIRTUAL_KEYBOARD)
+                        .get(keyCode, 0)
+                if (derived > 0) {
+                    NativeBridge.writeKey(sessionId, derived.toChar().toString(), modifierBits, null)
+                    return true
+                }
+            }
             return false
         } catch (exception: RuntimeException) {
             // Either the session was destroyed between the check and the
@@ -702,8 +726,16 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun getActiveSessionTitle(): String = queryPort.getActiveSessionTitle()
 
     // ── Selection ─────────────────────────────────────────────────────
-    override fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean?, mode: Byte) {
-        queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode)
+    override fun setSelection(
+        startRow: Int,
+        startCol: Int,
+        endRow: Int,
+        endCol: Int,
+        hasSelection: Boolean?,
+        mode: Byte,
+        selectionBgArgb: Int,
+    ) {
+        queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBgArgb)
     }
     override fun expandAndSetSelection(row: Int, col: Int, mode: Byte): Pair<Pair<Int, Int>, Pair<Int, Int>>? = queryPort.expandAndSetSelection(row, col, mode)
 

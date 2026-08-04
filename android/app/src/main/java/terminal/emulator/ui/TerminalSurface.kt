@@ -24,7 +24,9 @@ import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.widget.Magnifier
+import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.TextView
 import terminal.emulator.R
 import terminal.emulator.SelectionMode
 import terminal.emulator.TerminalViewModel
@@ -126,6 +128,7 @@ constructor(
         // surface destruction (Compose replaces the view during
         // recomposition).
         selectionHandles.hideSelectionHandles()
+        hideSelectionMenu()
         try {
             magnifier?.dismiss()
         } catch (exception: Exception) {
@@ -158,6 +161,24 @@ constructor(
     /** Forward: selection handle popups live in [SelectionHandles]. */
     fun hideSelectionHandles() = selectionHandles.hideSelectionHandles()
 
+    private val selectionMenuPopup = SelectionMenuPopup()
+
+    /** Forward: the selection context menu is a [SelectionMenuPopup]. */
+    fun showSelectionMenu(
+        menuX: Int,
+        menuY: Int,
+        menuW: Int,
+        menuH: Int,
+        pasteOnly: Boolean,
+        fgColor: Int,
+        bgColor: Int,
+    ) {
+        selectionMenuPopup.showSelectionMenu(menuX, menuY, menuW, menuH, pasteOnly, fgColor, bgColor)
+    }
+
+    /** Forward: dismiss the selection context menu popup. */
+    fun hideSelectionMenu() = selectionMenuPopup.hideSelectionMenu()
+
     // ══════════════════════════════════════════════════════════════════════
     // SECTION 5b: Resize/grid computation (extracted K4)
     // ══════════════════════════════════════════════════════════════════════
@@ -181,6 +202,11 @@ constructor(
             if (availableHeight <= 0) return
             val newCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
             val newRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
+            Log.d(
+                "TerminalSurface",
+                "applyGridResize: $width x $height ime=$imeBottom cell=($cellWidth,$cellHeight) " +
+                    "-> ${newRows}x$newCols (was ${rows}x$cols)",
+            )
             if (newRows != rows || newCols != cols) {
                 viewModel?.runtime?.resize(newRows, newCols)
                 rows = newRows
@@ -490,6 +516,12 @@ constructor(
             endCol: Int,
             themeFgColor: Int,
         ) {
+            Log.d(
+                "Selection",
+                "showSelectionHandles: ($startRow,$startCol)-($endRow,$endCol) " +
+                    "startPopup=${startHandlePopup != null} endPopup=${endHandlePopup != null} " +
+                    "cursorPopup=${cursorHandlePopup != null}",
+            )
             selectionHandles.hideSelectionHandles()
             if (startRow < 0 || startCol < 0 || endRow < 0 || endCol < 0) return
             // showAtLocation requires a window token; during activity-finish
@@ -746,6 +778,10 @@ constructor(
         }
 
         fun hideSelectionHandles() {
+            Log.d(
+                "Selection",
+                "hideSelectionHandles: start=${startHandlePopup != null} end=${endHandlePopup != null}",
+            )
             try {
                 startHandlePopup?.dismiss()
             } catch (exception: Exception) {
@@ -762,6 +798,113 @@ constructor(
         }
     }
 
+    /**
+     * Selection context menu as a [PopupWindow].
+     *
+     * Round-217: the previous Compose-drawn menu lived inside the same
+     * window as the terminal SurfaceView, so the SurfaceView's surface
+     * (which punches a hole over the whole terminal area) covered it —
+     * the menu was invisible on device. PopupWindows are separate system
+     * windows that always render above the SurfaceView and the
+     * ModifierBar, exactly like the selection handles.
+     */
+    inner class SelectionMenuPopup {
+        private var menuPopup: PopupWindow? = null
+
+        fun showSelectionMenu(
+            menuX: Int,
+            menuY: Int,
+            menuW: Int,
+            menuH: Int,
+            pasteOnly: Boolean,
+            fgColor: Int,
+            bgColor: Int,
+        ) {
+            hideSelectionMenu()
+            if (!isAttachedToWindow) return
+            val loc = IntArray(2)
+            getLocationInWindow(loc)
+            val density = resources.displayMetrics.density
+            val contentView =
+                LinearLayout(context).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    setPadding((4 * density).toInt(), (2 * density).toInt(), (4 * density).toInt(), (2 * density).toInt())
+                    background =
+                        android.graphics.drawable.GradientDrawable().apply {
+                            setColor(bgColor)
+                            cornerRadius = (8 * density).toInt().toFloat()
+                            setStroke((1 * density).toInt(), fgColor)
+                        }
+                    if (pasteOnly) {
+                        addView(
+                            menuButton("Paste", fgColor) {
+                                viewModel?.pasteFromClipboard()
+                                viewModel?.clearSelection()
+                            },
+                        )
+                    } else {
+                        addView(
+                            menuButton("Copy", fgColor) {
+                                viewModel?.copySelectionToClipboard()
+                                viewModel?.clearSelection()
+                            },
+                        )
+                        addView(
+                            menuButton("Select All", fgColor) {
+                                viewModel?.selectAll()
+                            },
+                        )
+                        addView(
+                            menuButton("Paste", fgColor) {
+                                viewModel?.pasteFromClipboard()
+                                viewModel?.clearSelection()
+                            },
+                        )
+                    }
+                }
+            menuPopup =
+                PopupWindow(contentView, menuW, menuH).apply {
+                    isFocusable = false
+                    isOutsideTouchable = true
+                    isTouchable = true
+                    try {
+                        showAtLocation(this@TerminalSurface, 0, loc[0] + menuX, loc[1] + menuY)
+                    } catch (exception: Exception) {
+                        // WindowManager.BadTokenException: detached between the
+                        // isAttachedToWindow check and showAtLocation.
+                        LogUtil.w(TAG, "showSelectionMenu: popup show failed", exception)
+                        menuPopup = null
+                    }
+                }
+        }
+
+        fun hideSelectionMenu() {
+            try {
+                menuPopup?.dismiss()
+            } catch (exception: Exception) {
+                LogUtil.w(TAG, "hideSelectionMenu: dismiss failed", exception)
+            }
+            menuPopup = null
+        }
+
+        private fun menuButton(
+            text: String,
+            fgColor: Int,
+            onClick: () -> Unit,
+        ): TextView =
+            TextView(context).apply {
+                this.text = text
+                setTextColor(fgColor)
+                textSize = 14f
+                gravity = android.view.Gravity.CENTER
+                val density = resources.displayMetrics.density
+                setPadding((10 * density).toInt(), (6 * density).toInt(), (10 * density).toInt(), (6 * density).toInt())
+                isClickable = true
+                isFocusable = true
+                setOnClickListener { onClick() }
+            }
+    }
+
     companion object {
         private const val TAG = "TerminalSurface"
         private const val SWIPE_THRESHOLD_PIXELS = 500f
@@ -774,6 +917,7 @@ constructor(
 
         private const val FLING_VELOCITY_DIVISOR = 100f
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
+        private const val DRAWER_CLOSE_TAP_GRACE_NANOS = 350_000_000L // 350ms close animation
         private const val FLING_MAX_LINES = 50
         private const val SCROLL_END_DELAY_MS = 300L
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
@@ -856,6 +1000,15 @@ constructor(
             field = value
             if (value) {
                 selectionHandles.hideSelectionHandles()
+            } else {
+                // Round-215: ModalNavigationDrawer's scrim click closes the
+                // drawer, but during the close animation the tap can fall
+                // through to the TerminalSurface — a terminal tap clears
+                // the selection, so closing the drawer would silently wipe
+                // an active text selection. Suppress tap-to-clear for the
+                // drawer close animation duration (300ms) so the selection
+                // survives the drawer's own close gesture.
+                suppressUntilNanos = System.nanoTime() + DRAWER_CLOSE_TAP_GRACE_NANOS
             }
         }
 
@@ -872,6 +1025,15 @@ constructor(
 
     val cellWidth: Float
         get() {
+            // Actual rendered cell width = surface size / grid cols: the
+            // renderer stretches the grid across the attached surface, so
+            // hit-testing must use the same ratio (round-214 — the
+            // font-metric fallback 8px/16px made long-press land on the
+            // wrong cells, e.g. row 17 instead of row 3).
+            if (lastConfiguredWidth > 0 && cols > 0) {
+                cachedCellWidth = lastConfiguredWidth.toFloat() / cols
+                return cachedCellWidth
+            }
             val viewModelCellWidth = viewModel?.runtime?.cellWidth ?: 0f
             if (viewModelCellWidth > 0f) {
                 cachedCellWidth = viewModelCellWidth
@@ -882,6 +1044,10 @@ constructor(
 
     val cellHeight: Float
         get() {
+            if (lastConfiguredHeight > 0 && rows > 0) {
+                cachedCellHeight = lastConfiguredHeight.toFloat() / rows
+                return cachedCellHeight
+            }
             val viewModelCellHeight = viewModel?.runtime?.cellHeight ?: 0f
             if (viewModelCellHeight > 0f) {
                 cachedCellHeight = viewModelCellHeight
@@ -1022,6 +1188,12 @@ constructor(
                 if (isAfterLongPress) {
                     isAfterLongPress = false
                     longPressDragging = false
+                    return true
+                }
+                // Round-215: the drawer close animation lets a scrim tap
+                // fall through to the surface; do not treat it as a
+                // terminal tap (which would clear the selection).
+                if (System.nanoTime() < suppressUntilNanos) {
                     return true
                 }
                 if (isScrolling) {
@@ -1621,6 +1793,7 @@ constructor(
                     val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
                     val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
                     val gridRow = currentScrollbackLength() - scrollOffset + row
+                    Log.d("Selection", "MOVE longPressDragging: row=$gridRow col=$col")
                     viewModel?.updateSelection(gridRow, col)
                     val sel = viewModel?.state?.value?.selection
                     if (sel?.start != null && sel?.end != null) {
@@ -1642,7 +1815,13 @@ constructor(
                     val sel = viewModel?.state?.value?.selection
                     if (sel?.start != null && sel?.end != null) {
                         viewModel?.endSelection()
-                        selectionHandles.showSelectionHandles(sel.start.row, sel.start.col, sel.end.row, sel.end.col, getAccentColor())
+                        // Paste-only selections (empty-cell / whitespace
+                        // long-press) must NOT get drag handles: the handle
+                        // PopupWindows would overlap the paste menu and eat
+                        // its taps (round-214).
+                        if (!sel.pasteOnly) {
+                            selectionHandles.showSelectionHandles(sel.start.row, sel.start.col, sel.end.row, sel.end.col, getAccentColor())
+                        }
                     }
                 }
                 edgeScrollRunning = false
@@ -1660,8 +1839,8 @@ constructor(
                             selection.end.col,
                             getAccentColor(),
                         )
-                        // The selection menu is rendered by the Compose
-                        // SelectionMenuOverlay, driven by the view-model state.
+                        // The selection menu is rendered as a PopupWindow
+                        // (SelectionMenuPopup), driven by the view-model state.
                     }
                     // Flush the new selection state to the Rust renderer so it
                     // paints the selection highlight at the correct position.

@@ -54,7 +54,12 @@ class BootstrapInstaller(
         } catch (exception: Exception) {
             // Log the class only, consistent with BootstrapDownloader: the
             // exception message can embed user-supplied paths (round-104).
-            Log.e("BootstrapInstaller", "Install failed: ${exception.javaClass.simpleName}")
+            // TEMP-DEBUG (round-215): include the message truncated to
+            // diagnose the emulator IOException.
+            Log.e(
+                "BootstrapInstaller",
+                "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.take(300)}",
+            )
             // Discard the partially extracted staging dir: it can be
             // hundreds of MB and the system never clears filesDir, so a
             // failed install would leak disk until the next retry.
@@ -164,6 +169,29 @@ class BootstrapInstaller(
 
     internal val symlinkSeparator = Regex("""\s*(?:->|←|→|↔)\s*""")
 
+    /** Resolve `.`/`..` segments without touching the filesystem. */
+    internal fun normalizePath(path: String): String {
+        val absolute = path.startsWith("/")
+        val stack = ArrayDeque<String>()
+        for (part in path.split('/')) {
+            when (part) {
+                "", "." -> {}
+
+                ".." -> {
+                    if (stack.isNotEmpty() && stack.last() != "..") {
+                        stack.removeLast()
+                    } else {
+                        stack.addLast("..")
+                    }
+                }
+
+                else -> stack.addLast(part)
+            }
+        }
+        val joined = stack.joinToString("/")
+        return if (absolute) "/$joined" else joined
+    }
+
     internal fun parseSymlinks(content: String): List<Pair<String, String>> = content.lines().filter { it.isNotBlank() }.mapNotNull { line ->
         val parts = line.split(symlinkSeparator)
         if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
@@ -185,11 +213,42 @@ class BootstrapInstaller(
             // staging tree — otherwise the recursive delete() below
             // (staging cleanup / backup removal) would follow the link
             // and wipe arbitrary directories.
-            val normalizedTarget = File(target).path
-            if (target.startsWith("/") || normalizedTarget == ".." ||
-                normalizedTarget.startsWith("../") || normalizedTarget.contains("/../")
-            ) {
-                throw java.io.IOException("Unsafe symlink target: $target")
+            // Two legitimate Termux SYMLINKS.txt shapes exist:
+            //  1. relative targets resolved against the LINK's parent dir
+            //     (`../term_entry.h` from `include/ncurses/` resolves to
+            //     `include/term_entry.h`, inside staging) — the naive
+            //     startsWith("../") check wrongly rejected those
+            //     (round-215);
+            //  2. ABSOLUTE targets into the final prefix
+            //     (`/data/data/com.termux/files/usr/share/...`), which are
+            //     broken during staging but become valid once the staging
+            //     dir is atomically renamed to `files/usr`. Only allow
+            //     absolute targets that resolve inside the canonical
+            //     prefix path.
+            if (target.startsWith("/")) {
+                val canonicalPrefix = prefixDir.canonicalPath
+                val resolvedAbsolute =
+                    try {
+                        File(target).canonicalPath
+                    } catch (exception: Exception) {
+                        throw java.io.IOException("Unsafe symlink target: $target")
+                    }
+                if (resolvedAbsolute != canonicalPrefix &&
+                    !resolvedAbsolute.startsWith("$canonicalPrefix/")
+                ) {
+                    throw java.io.IOException("Unsafe symlink target: $target")
+                }
+            } else {
+                val linkParent = File(linkPath).parent
+                val resolvedTarget =
+                    if (linkParent != null) File(linkParent, target).path else target
+                // Java File.path does NOT normalize ".." segments
+                // (File("a/../b").path == "a/../b"), so resolve them manually
+                // before the escape check.
+                val normalizedResolved = normalizePath(resolvedTarget)
+                if (normalizedResolved.startsWith("../") || normalizedResolved == "..") {
+                    throw java.io.IOException("Unsafe symlink target: $target")
+                }
             }
             val linkFile = File(stagingDir, linkPath)
             linkFile.parentFile?.mkdirs()

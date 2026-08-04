@@ -216,6 +216,23 @@ object NativeBridge {
     /** Set renderer search highlight ranges (byte-packed, see TerminalSurface). */
     @JvmStatic
     external fun setSearchHighlights(sessionId: Long, data: ByteArray)
+
+    /**
+     * Set active text selection (visible-grid rows/cols).
+     * mode: 0=Char 1=Word 2=Line 3=Semantic 4=Block (see SelectionMode).
+     * selectionBgArgb: theme selection background color, ARGB packed.
+     */
+    @JvmStatic
+    external fun setSelection(
+        sessionId: Long,
+        startRow: Int,
+        startCol: Int,
+        endRow: Int,
+        endCol: Int,
+        hasSelection: Boolean,
+        mode: Byte,
+        selectionBgArgb: Int,
+    )
     external fun setTheme(sessionId: Long, data: ByteArray)
 
     external fun setBackgroundImage(
@@ -240,6 +257,9 @@ object NativeBridge {
     external fun setFontFamily(sessionId: Long, family: String): Boolean
 
     external fun setFontSizeInPlace(sessionId: Long, sizeTenths: Int)
+
+    /** Set glyph rasterization scale (device pixel density) for crisp text. */
+    external fun setRasterScale(sessionId: Long, scale: Float)
 
     external fun loadFontFile(sessionId: Long, path: String): String?
 

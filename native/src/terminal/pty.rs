@@ -137,9 +137,47 @@ impl PtyPair {
 
         // Pre-allocate argument and environment arrays before fork.
         // After fork, the child must NOT call any allocation functions.
+        // Round-215: Android 15+ SELinux denies `execute_no_trans` on
+        // app_data_file for untrusted_app, so execve() of Termux binaries
+        // under $PREFIX fails with EACCES. The Termux solution: exec the
+        // system linker with the ELF path as its argument
+        // (`/system/bin/linker64 $PREFIX/bin/bash`) — the linker runs in
+        // system_linker_exec domain and loads app-data ELFs fine. The
+        // child also gets LD_PRELOAD=$PREFIX/lib/libtermux-exec.so so
+        // *its own* execve() calls (running `ls`, `apt`, ...) go through
+        // the same linker indirection.
+        let prefix = env.prefix.as_deref().unwrap_or("");
+        let use_linker =
+            !prefix.is_empty() && shell.starts_with(&format!("{prefix}/")) && !shell.contains('\0');
+        if use_linker {
+            log::info!("SPAWN_LINKER: shell={shell} prefix={prefix}");
+        } else {
+            log::info!("SPAWN_DIRECT: shell={shell} prefix={prefix:?}");
+        }
+        let linker_cstr = if use_linker {
+            let linker = if cfg!(any(target_arch = "aarch64", target_arch = "x86_64")) {
+                "/system/bin/linker64"
+            } else {
+                "/system/bin/linker"
+            };
+            Some(
+                std::ffi::CString::new(linker)
+                    .map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?,
+            )
+        } else {
+            None
+        };
         let shell_ptr = shell_cstr.as_ptr();
+        // execve()'s FIRST argument is the executable PATH; argv[0] is
+        // passed separately in args_ptrs. With the linker, the path is
+        // /system/bin/linker64 and argv = [linker64, bash].
+        let exec_path_ptr = linker_cstr.as_ref().map_or(shell_ptr, |c| c.as_ptr());
         let working_directory_ptr = working_directory_cstr.as_ptr();
-        let args_ptrs: Vec<*const libc::c_char> = vec![shell_ptr, std::ptr::null()];
+        let args_ptrs: Vec<*const libc::c_char> = if let Some(linker_cstr) = &linker_cstr {
+            vec![linker_cstr.as_ptr(), shell_ptr, std::ptr::null()]
+        } else {
+            vec![shell_ptr, std::ptr::null()]
+        };
         let env_ptrs: Vec<*const libc::c_char> = env_cstrings
             .iter()
             .map(|s| s.as_ptr())
@@ -275,15 +313,49 @@ impl PtyPair {
                 // and CString::as_ptr() before fork(), guaranteeing valid pointers.
                 // nix::unistd::execve allocates internally via collect(), which is unsafe
                 // after fork in a multithreaded process — hence the direct libc call.
+                // SAFETY: execve with pre-allocated arrays (see above).
+                // exec_path_ptr is the linker when use_linker, else shell.
                 unsafe {
-                    libc::execve(shell_ptr, args_ptrs.as_ptr(), env_ptrs.as_ptr());
+                    libc::execve(exec_path_ptr, args_ptrs.as_ptr(), env_ptrs.as_ptr());
                 }
-                // execve only returns on failure. Use _exit (not exit) to avoid running
-                // atexit handlers from the parent process.
-                // SAFETY: _exit(4) is safe; it terminates the child immediately without
-                // running cleanup handlers. Only called when execve fails.
+                // execve only returns on failure. Write the errno to the PTY
+                // (async-signal-safe: static buffer + manual itoa) so a
+                // failing shell path is diagnosable on-device, then _exit
+                // (not exit) to avoid running atexit handlers from the
+                // parent process (round-215: bash exited 4 with no output).
                 unsafe {
-                    libc::_exit(4);
+                    // nix::errno::errno() reads the thread-local errno
+                    // (no allocation); platform-specific underneath.
+                    let errno = nix::errno::Errno::last_raw();
+                    let mut buf = [0u8; 64];
+                    let prefix = b"execve failed: errno=";
+                    buf[..prefix.len()].copy_from_slice(prefix);
+                    let mut i = prefix.len();
+                    let mut e = errno as u32;
+                    let mut digits = [0u8; 10];
+                    let mut d = 0;
+                    if e == 0 {
+                        digits[d] = b'0';
+                        d += 1;
+                    }
+                    while e > 0 {
+                        digits[d] = b'0' + (e % 10) as u8;
+                        e /= 10;
+                        d += 1;
+                    }
+                    while d > 0 {
+                        d -= 1;
+                        buf[i] = digits[d];
+                        i += 1;
+                    }
+                    buf[i] = b'\n';
+                    i += 1;
+                    let _ = libc::write(2, buf.as_ptr() as *const libc::c_void, i);
+                    // Encode errno in the exit code (>= 100) so the parent's
+                    // wait thread can log the exact failure cause even when
+                    // the PTY output is lost to a destroy race (round-215).
+                    let code = 100 + (errno as i32).min(155);
+                    libc::_exit(code);
                 }
             }
         }
@@ -457,28 +529,15 @@ fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     //     kernel interprets Ctrl+S / Ctrl+Q and freezes/resumes output, which
     //     makes the terminal appear hung. Clearing both keeps Ctrl+S/Ctrl+Q
     //     usable by the application running in the PTY.
-    //   * IXON is already disabled by the raw-mode mask above; we also clear
-    //     IXOFF.
-    termios.c_iflag &= !(libc::IGNBRK
-        | libc::BRKINT
-        | libc::PARMRK
-        | libc::ISTRIP
-        | libc::INLCR
-        | libc::IGNCR
-        | libc::ICRNL
-        | libc::IXON
-        | libc::IXOFF);
-    // IUTF8: tell the kernel the input is UTF-8 so it correctly handles
-    // erase/word-erase and character width on Android (mirrors termux.c, which
-    // enables IUTF8 on the slave so the line discipline respects multibyte
-    // input). Non-fatal but important for correct editing of UTF-8 text.
+    //   * IUTF8: tell the kernel the input is UTF-8 so it correctly handles
+    //     erase/word-erase and character width on Android.
+    // NOTE (round-217): we deliberately do NOT clear ECHO/ICANON/ISIG here.
+    // Termux leaves the line discipline canonical with echo on; bash readline
+    // (which re-configures the tty itself on startup) then echoes typed
+    // characters. A full raw mask breaks readline echo (see
+    // configure_raw_mode_child for the full analysis).
+    termios.c_iflag &= !(libc::IXON | libc::IXOFF);
     termios.c_iflag |= libc::IUTF8;
-    termios.c_oflag &= !(libc::OPOST);
-    termios.c_lflag &= !(libc::ECHO | libc::ECHONL | libc::ICANON | libc::ISIG | libc::IEXTEN);
-    termios.c_cflag &= !(libc::CSIZE | libc::PARENB);
-    termios.c_cflag |= libc::CS8;
-    termios.c_cc[libc::VMIN] = 1;
-    termios.c_cc[libc::VTIME] = 0;
     log::debug!(
         "configuring PTY termios: IUTF8 set={}, IXON disabled={}, IXOFF disabled={}",
         (termios.c_iflag & libc::IUTF8) != 0,
@@ -493,8 +552,20 @@ fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     Ok(())
 }
 
-/// Async-signal-safe version of `configure_raw_mode` for use in the child after fork.
-/// Does NOT allocate, does NOT call log::warn!. Silently ignores errors (non-fatal).
+/// Terminal-mode setup for the child after fork, matching Termux's
+/// termux.c (terminal-emulator/src/main/jni/termux.c): the PTY keeps the
+/// kernel line discipline (ECHO+ICANON on) so the shell's own line editor
+/// (bash readline) performs echo, and interactive full-screen programs
+/// (vim, less) put the tty into raw mode themselves when they start.
+///
+/// A full cfmakeraw() here (ECHO|ICANON|ISIG off) breaks bash readline:
+/// round-217 observed typed characters reaching the shell (commands
+/// executed) with zero echo — readline does not re-enable echo when the
+/// termios it inherits already has ECHO cleared, and with ISIG off it
+/// skips its signal setup. Termux intentionally avoids this.
+///
+/// Async-signal-safe: does NOT allocate, does NOT call log::warn!.
+/// Silently ignores errors (non-fatal).
 fn configure_raw_mode_child(fd: std::os::unix::io::RawFd) {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
     // SAFETY: tcgetattr is a syscall wrapper, safe in single-threaded child after fork.
@@ -503,22 +574,11 @@ fn configure_raw_mode_child(fd: std::os::unix::io::RawFd) {
     }
     // SAFETY: assume_init() after successful tcgetattr.
     let mut termios = unsafe { termios.assume_init() };
-    termios.c_iflag &= !(libc::IGNBRK
-        | libc::BRKINT
-        | libc::PARMRK
-        | libc::ISTRIP
-        | libc::INLCR
-        | libc::IGNCR
-        | libc::ICRNL
-        | libc::IXON
-        | libc::IXOFF);
+    // Match termux.c: enable UTF-8 mode, disable flow control so Ctrl+S
+    // cannot lock the display. Everything else (ECHO, ICANON, ISIG, OPOST)
+    // stays at the kernel default.
     termios.c_iflag |= libc::IUTF8;
-    termios.c_oflag &= !(libc::OPOST);
-    termios.c_lflag &= !(libc::ECHO | libc::ECHONL | libc::ICANON | libc::ISIG | libc::IEXTEN);
-    termios.c_cflag &= !(libc::CSIZE | libc::PARENB);
-    termios.c_cflag |= libc::CS8;
-    termios.c_cc[libc::VMIN] = 1;
-    termios.c_cc[libc::VTIME] = 0;
+    termios.c_iflag &= !(libc::IXON | libc::IXOFF);
     // SAFETY: tcsetattr is a syscall wrapper, safe in child.
     let _ = unsafe { libc::tcsetattr(fd, libc::TCSANOW, &termios) };
 }
@@ -608,6 +668,16 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
 pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<(String, String)> {
     let prefix_str = env.prefix.as_deref();
     let mut result = base_env(prefix_str);
+    // Round-215: LD_PRELOAD libtermux-exec.so for $PREFIX shells — it
+    // wraps execve() so child processes of the shell (ls, apt, ...) are
+    // executed via the system linker, which Android 15+ SELinux allows
+    // (direct execute_no_trans of app_data_file is denied).
+    if let Some(p) = prefix_str {
+        result.push((
+            "LD_PRELOAD".to_string(),
+            format!("{p}/lib/libtermux-exec.so"),
+        ));
+    }
     result.push(("HOME".to_string(), env.home.clone()));
     result.push(("USER".to_string(), env.user.clone()));
     result.push(("SHELL".to_string(), shell_path.to_string()));
@@ -996,6 +1066,47 @@ mod tests {
         assert!(
             text.contains('a') || text.contains('b'),
             "output must contain echoed text"
+        );
+    }
+}
+
+#[cfg(test)]
+mod round215_tests {
+    use super::*;
+
+    #[test]
+    fn build_env_adds_ld_preload_for_prefixed_shell() {
+        let env = ShellEnv {
+            home: "/data/user/0/com.termux/files/home".to_string(),
+            user: "shell".to_string(),
+            path: "/data/user/0/com.termux/files/usr/bin:/system/bin".to_string(),
+            working_directory: "/data/user/0/com.termux/files/home".to_string(),
+            prefix: Some("/data/user/0/com.termux/files/usr".to_string()),
+            extra: vec![],
+        };
+        let result = build_env(&env, "/data/user/0/com.termux/files/usr/bin/bash", 24, 80);
+        assert!(
+            result.iter().any(|(k, v)| {
+                k == "LD_PRELOAD" && v == "/data/user/0/com.termux/files/usr/lib/libtermux-exec.so"
+            }),
+            "LD_PRELOAD must point at libtermux-exec.so for prefixed shells"
+        );
+    }
+
+    #[test]
+    fn build_env_no_ld_preload_without_prefix() {
+        let env = ShellEnv {
+            home: "/tmp/test_home".to_string(),
+            user: "testuser".to_string(),
+            path: "/usr/bin:/bin".to_string(),
+            working_directory: "/tmp/test_home".to_string(),
+            prefix: None,
+            extra: vec![],
+        };
+        let result = build_env(&env, "/system/bin/sh", 24, 80);
+        assert!(
+            !result.iter().any(|(k, _)| k == "LD_PRELOAD"),
+            "no LD_PRELOAD for system shells"
         );
     }
 }

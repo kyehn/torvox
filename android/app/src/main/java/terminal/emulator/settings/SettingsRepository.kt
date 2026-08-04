@@ -49,7 +49,7 @@ constructor(
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
         const val DEFAULT_THEME_MODE = "fixed"
         const val DEFAULT_TOUCH_BEHAVIOR = "right_click"
-        const val DEFAULT_KEYBOARD_MODE = "raw"
+        const val DEFAULT_KEYBOARD_MODE = "secure"
         const val DEFAULT_SHELL = "/system/bin/sh"
         const val DEFAULT_BACKGROUND_BLUR_RADIUS = 0
         const val DEFAULT_BACKGROUND_ALPHA = 0.8f

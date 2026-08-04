@@ -93,4 +93,53 @@ class DocumentsProviderTest {
             }
         }
     }
+
+    private fun rootDir(): java.io.File = java.io.File(org.robolectric.RuntimeEnvironment.getApplication().filesDir, "home").apply { mkdirs() }
+
+    private fun ensureProvider(): TerminalDocumentsProvider {
+        if (!::provider.isInitialized) {
+            provider = org.robolectric.Robolectric.setupContentProvider(TerminalDocumentsProvider::class.java)
+        }
+        return provider
+    }
+
+    @Test
+    fun renameDocument_renames_file_inside_root() {
+        val rootDir = rootDir()
+        val original = java.io.File(rootDir, "rename-me.txt")
+        original.writeText("content")
+        val docId = TerminalDocumentsProvider.encodeDocId(original, rootDir)!!
+
+        val newDocId = ensureProvider().renameDocument(docId, "renamed.txt")
+        assertTrue("original must be gone", !original.exists())
+        val renamed = java.io.File(rootDir, "renamed.txt")
+        assertTrue("renamed must exist", renamed.exists())
+        assertEquals("content", renamed.readText())
+        assertEquals("docId must encode the new path", TerminalDocumentsProvider.encodeDocId(renamed, rootDir), newDocId)
+    }
+
+    @Test
+    fun renameDocument_sanitizes_escape_names() {
+        // ".." and "/" in the requested name are sanitized (never allowed
+        // to escape the root), so the rename succeeds with a safe name.
+        val rootDir = rootDir()
+        val original = java.io.File(rootDir, "escape-me.txt")
+        original.writeText("x")
+        val docId = TerminalDocumentsProvider.encodeDocId(original, rootDir)!!
+        val newDocId = ensureProvider().renameDocument(docId, "../escaped.txt")
+        assertTrue("original must be gone", !original.exists())
+        val renamed = java.io.File(rootDir, newDocId)
+        assertTrue("renamed file must exist inside root", renamed.exists())
+        assertTrue("no path separators allowed", !newDocId.contains("/") && !newDocId.contains("\\"))
+    }
+
+    @Test
+    fun renameDocument_rejects_root() {
+        try {
+            ensureProvider().renameDocument("terminal_home", "x")
+            throw AssertionError("root rename must fail")
+        } catch (expected: java.io.FileNotFoundException) {
+            // expected
+        }
+    }
 }

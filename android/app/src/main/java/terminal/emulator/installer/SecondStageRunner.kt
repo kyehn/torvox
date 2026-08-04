@@ -82,6 +82,11 @@ class SecondStageRunner(
                 val packageName = script.name.removeSuffix(".postinst")
                 try {
                     Os.chmod(script.absolutePath, BootstrapInstaller.EXECUTABLE_FILE_MODE)
+                    // Patch postinst: replace bare `update-alternatives` with
+                    // linker-wrapped invocation so SELinux allows execution from
+                    // untrusted_app domain. The script uses the bare name, which
+                    // triggers a direct execve of app_data_file (denied by SELinux).
+                    patchPostinstForLinker(script)
                     val environment =
                         mapOf(
                             "DPKG_MAINTSCRIPT_PACKAGE" to packageName,
@@ -96,11 +101,26 @@ class SecondStageRunner(
                             "HOME" to homeDir.absolutePath,
                             "PATH" to "${File(prefixDir, "bin").absolutePath}:/system/bin:/system/xbin",
                             "PREFIX" to prefixDir.absolutePath,
+                            "LD_PRELOAD" to File(prefixDir, "lib/libtermux-exec.so").absolutePath,
                         )
+                    // Round-215: postinst scripts start with
+                    // `#!/data/data/com.termux/files/usr/bin/sh`, and Android
+                    // 15+ SELinux denies execute_no_trans of app_data_file —
+                    // direct exec of the script fails EACCES even when the
+                    // shell itself works. Run the interpreter through the
+                    // system linker (system_linker_exec domain) exactly like
+                    // the PTY spawn path.
+                    val command = postinstCommand(script)
+                    val envArray = environment.map { "${it.key}=${it.value}" }.toTypedArray()
+                    // Log command and LD_PRELOAD for diagnosis
+                    val ldPreload = environment["LD_PRELOAD"]
+                    val path = environment["PATH"]
+                    Log.w("SecondStageRunner", "postinst exec cmd=${command.toList()}")
+                    Log.w("SecondStageRunner", "postinst env PATH=$path LD_PRELOAD=$ldPreload")
                     val proc =
                         Runtime.getRuntime().exec(
-                            arrayOf(script.absolutePath, "configure"),
-                            environment.map { "${it.key}=${it.value}" }.toTypedArray(),
+                            command,
+                            envArray,
                             File("/"),
                         )
                     proc.outputStream.close()
@@ -112,10 +132,11 @@ class SecondStageRunner(
                         Thread { proc.inputStream.bufferedReader().readText() }.apply {
                             isDaemon = true
                         }
+                    val stderrBox = StringBuilder()
                     val stderrThread =
-                        Thread { proc.errorStream.bufferedReader().readText() }.apply {
-                            isDaemon = true
-                        }
+                        Thread {
+                            stderrBox.append(proc.errorStream.bufferedReader().readText())
+                        }.apply { isDaemon = true }
                     stdoutThread.start()
                     stderrThread.start()
                     val exited = proc.waitFor(30, TimeUnit.SECONDS)
@@ -136,7 +157,11 @@ class SecondStageRunner(
                     stderrThread.join(THREAD_JOIN_TIMEOUT_MS)
                     val exitCode = proc.exitValue()
                     if (exitCode != 0) {
-                        errors.add("$packageName postinst exited with code $exitCode")
+                        val detail = stderrBox.toString().trim().take(400)
+                        errors.add(
+                            "$packageName postinst exited with code $exitCode" +
+                                if (detail.isEmpty()) "" else " (stderr: $detail)",
+                        )
                     }
                 } catch (exception: Exception) {
                     errors.add("$packageName postinst error [${exception.javaClass.simpleName}]: ${exception.message}")
@@ -151,7 +176,12 @@ class SecondStageRunner(
     private fun detectDpkgVersion(): String? {
         var proc: Process? = null
         return try {
-            proc = Runtime.getRuntime().exec(arrayOf(File(prefixDir, "bin/dpkg").absolutePath, "--version"))
+            proc =
+                Runtime.getRuntime().exec(
+                    prefixExecutableCommand(File(prefixDir, "bin/dpkg"), listOf("--version")),
+                    prefixEnvironment().map { "${it.key}=${it.value}" }.toTypedArray(),
+                    File("/"),
+                )
             proc.outputStream.close()
             // Consume stderr on a daemon thread: a corrupt dpkg binary that
             // floods stderr past the 64KB pipe buffer would otherwise block
@@ -179,6 +209,109 @@ class SecondStageRunner(
     }
 
     private fun detectAbi(): String = terminal.emulator.detectArchFromAbi()
+
+    /** The system linker used to exec app-data ELFs (SELinux workaround). */
+    internal fun systemLinker(): String =
+        if (terminal.emulator.is64BitAbi()) "/system/bin/linker64" else "/system/bin/linker"
+
+    /** Base env for prefix executables: PREFIX + termux-exec preload. */
+    internal fun prefixEnvironment(): Map<String, String> =
+        mapOf(
+            "HOME" to homeDir.absolutePath,
+            "PATH" to "${File(prefixDir, "bin").absolutePath}:/system/bin:/system/xbin",
+            "PREFIX" to prefixDir.absolutePath,
+            "TMPDIR" to File(prefixDir, "tmp").absolutePath,
+            "LD_PRELOAD" to File(prefixDir, "lib/libtermux-exec.so").absolutePath,
+        )
+
+    /**
+     * Build the exec argv for a prefix ELF binary. Direct execve fails with
+     * EACCES on Android 15+ (SELinux execute_no_trans on app_data_file), so
+     * run it through the system linker which lives in system_linker_exec.
+     */
+    internal fun prefixExecutableCommand(executable: File, args: List<String>): Array<String> =
+        arrayOf(systemLinker(), executable.absolutePath) + args
+
+    /**
+     * Build the exec argv for a postinst shell script. The script's shebang
+     * points at $PREFIX/bin/sh (a symlink to bash); exec the interpreter via
+     * the system linker so SELinux permits it, with the script + args passed
+     * through (bash <script> configure -> $0=script, $1=configure).
+     */
+    internal fun postinstCommand(script: File): Array<String> {
+        val shebang = readShebang(script)
+        val interpreter =
+            if (shebang != null) {
+                File(shebang)
+            } else {
+                File(prefixDir, "bin/sh")
+            }
+        val interpreterPath =
+            if (interpreter.isAbsolute) {
+                interpreter.path
+            } else {
+                File(prefixDir, interpreter.path).path
+            }
+        // /bin/sh (system) scripts run directly; prefix scripts need the
+        // linker. Compare canonical paths: Termux packages hardcode the
+        // shebang as /data/data/com.termux/files/usr/bin/sh, which is the
+        // same inode as /data/user/0/com.termux/files/usr/bin/sh — a plain
+        // string prefix check would send prefix scripts down the direct
+        // exec path and die with SELinux EACCES.
+        val canonicalInterpreter = File(interpreterPath).canonicalPath
+        val canonicalPrefix = prefixDir.canonicalPath
+        return if (canonicalInterpreter.startsWith(canonicalPrefix)) {
+            // Scripts are patched (patchPostinstForLinker) to route prefix
+            // ELF calls through /system/bin/linker64. The interpreter itself
+            // is invoked via the linker so the script can load correctly.
+            arrayOf(systemLinker(), canonicalInterpreter, script.absolutePath, "configure")
+        } else {
+            arrayOf(canonicalInterpreter, script.absolutePath, "configure")
+        }
+    }
+
+    /**
+     * Patch a postinst script to route `update-alternatives` through the
+     * system linker. On Android 15+, SELinux denies direct exec of
+     * app_data_file from the untrusted_app domain. The linker runs in
+     * system_linker_exec domain which is allowed. We replace bare
+     * `update-alternatives` invocations with a linker-wrapped form.
+     */
+    private fun patchPostinstForLinker(script: File) {
+        try {
+            val linker = systemLinker()
+            val uaPath = File(prefixDir, "bin/update-alternatives").absolutePath
+            val content = script.readText()
+            // Replace bare "update-alternatives" that are NOT already
+            // preceded by a path (to avoid double-patching). Match at
+            // word boundary: start of line, space, tab, or semicolon.
+            val patched = content.replace(
+                Regex("""(?<![/\w])update-alternatives\b"""),
+                "$linker $uaPath",
+            )
+            if (patched != content) {
+                script.writeText(patched)
+            }
+        } catch (exception: Exception) {
+            Log.w("SecondStageRunner", "patchPostinstForLinker failed for ${script.name}", exception)
+        }
+    }
+
+    /** Read the `#!` interpreter from a script, or null if absent. */
+    private fun readShebang(script: File): String? =
+        try {
+            script.bufferedReader().use { reader ->
+                val firstLine = reader.readLine() ?: return null
+                if (firstLine.startsWith("#!")) {
+                    firstLine.removePrefix("#!").trim().substringBefore(' ')
+                } else {
+                    null
+                }
+            }
+        } catch (exception: Exception) {
+            Log.w("SecondStageRunner", "readShebang failed for ${script.name}", exception)
+            null
+        }
 
     private fun writeTermuxEnv() {
         val envFile = File(prefixDir, "etc/termux/termux.env")

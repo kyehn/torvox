@@ -26,13 +26,34 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         endCol: Int,
         hasSelection: Boolean?,
         mode: Byte,
+        selectionBgArgb: Int,
     ) {
         // Selection is rendered through the render path (SelectionRange),
-        // driven by TerminalSurface.consumeSelectionState; the query port
-        // has no stateful selection store — kept as a no-op for the seam.
+        // driven by TerminalSurface.consumeSelectionState. Forward to the
+        // native render state so the GPU shader swaps the background
+        // color of the selected cells (round-214).
+        val active = hasSelection ?: true
+        NativeBridge.setSelection(
+            sessionIdProvider(),
+            startRow,
+            startCol,
+            endRow,
+            endCol,
+            active,
+            mode,
+            selectionBgArgb,
+        )
     }
 
-    override fun expandAndSetSelection(row: Int, col: Int, mode: Byte): Pair<Pair<Int, Int>, Pair<Int, Int>>? = null
+    override fun expandAndSetSelection(row: Int, col: Int, mode: Byte): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
+        // Smart word/URL boundary detection on the visible line: fetch the
+        // line text from native, expand bounds in pure Kotlin (testable),
+        // then apply the expanded range through setSelection.
+        val line = scrollbackLine(row) ?: return null
+        val (startCol, endCol) = SelectionExpander.expandBounds(line, col)
+        setSelection(row, startCol, row, endCol, true, mode)
+        return (row to startCol) to (row to endCol)
+    }
 
     override fun clearSearchHighlights() {
         NativeBridge.clearSearchHighlights(sessionIdProvider())

@@ -90,7 +90,10 @@ class BootstrapOrchestrator(
                 // (round-107).
                 val messages = mutableListOf("Bootstrap installed successfully")
                 if (secondStageResult.errors.isNotEmpty()) {
+                    // Include up to 3 failure details for diagnosis (each
+                    // already capped at 400 chars of stderr).
                     messages.add("${secondStageResult.errors.size} postinst scripts had errors")
+                    secondStageResult.errors.take(3).forEach { messages.add("  - $it") }
                 }
                 onProgress?.onProgress(BootstrapProgress.Complete)
                 state.set(Status.INSTALLED)

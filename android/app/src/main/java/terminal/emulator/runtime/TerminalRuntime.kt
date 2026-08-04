@@ -501,7 +501,7 @@ constructor(
         val bridgeTheme = makeBridgeTheme(resolvedTheme)
         accentColor = bridgeTheme.ansi5
         selectionBgColor = bridgeTheme.selectionBg
-        val prefixDir = java.io.File(context.filesDir, "bootstrap/usr").absolutePath
+        val prefixDir = java.io.File(context.filesDir, "usr").absolutePath
         val homeDir = java.io.File(context.filesDir, "home").absolutePath
         val bashFile = java.io.File("$prefixDir/bin/bash")
         val bashComplete =
@@ -842,6 +842,7 @@ constructor(
                                     selectionSnapshot.endCol,
                                     selectionSnapshot.hasSelection,
                                     selectionSnapshot.mode,
+                                    selectionBgColor,
                                 )
                                 lastSelection = selectionSnapshot
                             }
@@ -1264,6 +1265,9 @@ constructor(
 
     private companion object {
         private const val TENTHS_PER_UNIT = 10
+
+        /** ModifierBar overlay height reserved when recomputing the grid from font metrics (round-214). */
+        private const val MODIFIER_BAR_HEIGHT_DP = 80f
         private const val FONT_SIZE_DISPLAY_RATIO = 0.6f
         private const val FONT_SIZE_MIN_PX = 300
         private const val FONT_SIZE_MAX_PX = 600
@@ -1481,7 +1485,25 @@ constructor(
             // Allow test override via system property (no DataStore dependency)
             val testUrl = System.getProperty("test.bootstrapUrl")
             val bootstrapUrl = if (testUrl != null) testUrl else settingsRepository.bootstrapUrl.first()
-            if (bootstrapUrl.isNotEmpty()) {
+            // Round-215: install when NOT installed even with an empty
+            // configured URL — the orchestrator falls back to the default
+            // Termux bootstrap URL. Previously the whole install flow was
+            // skipped unless the user typed a URL, so a fresh app could
+            // never bootstrap (shell showed "not accessible" errors).
+            val orchestrator =
+                terminal.emulator.installer.BootstrapOrchestrator(
+                    terminal.emulator.installer.BootstrapDownloader(context),
+                    terminal.emulator.installer.BootstrapInstaller(
+                        prefixDir = java.io.File(context.filesDir, "usr"),
+                        homeDir = java.io.File(context.filesDir, "home"),
+                        stagingDir = java.io.File(context.filesDir, "usr-staging"),
+                    ),
+                    terminal.emulator.installer.SecondStageRunner(
+                        prefixDir = java.io.File(context.filesDir, "usr"),
+                        homeDir = java.io.File(context.filesDir, "home"),
+                    ),
+                )
+            if (bootstrapUrl.isNotEmpty() || orchestrator.getInstallStatus() != terminal.emulator.installer.BootstrapOrchestrator.Status.INSTALLED) {
                 // Log only the origin (scheme://host), never the full URL:
                 // private bootstrap URLs can carry token/query parameters,
                 // and LogUtil writes the persistent log file unconditionally
@@ -1498,20 +1520,20 @@ constructor(
                 val downloader = terminal.emulator.installer.BootstrapDownloader(context)
                 val installer =
                     terminal.emulator.installer.BootstrapInstaller(
-                        prefixDir = java.io.File(context.filesDir, "bootstrap/usr"),
+                        prefixDir = java.io.File(context.filesDir, "usr"),
                         homeDir = java.io.File(context.filesDir, "home"),
-                        stagingDir = java.io.File(context.filesDir, "bootstrap/usr-staging"),
+                        stagingDir = java.io.File(context.filesDir, "usr-staging"),
                     )
                 val secondStage =
                     terminal.emulator.installer.SecondStageRunner(
-                        prefixDir = java.io.File(context.filesDir, "bootstrap/usr"),
+                        prefixDir = java.io.File(context.filesDir, "usr"),
                         homeDir = java.io.File(context.filesDir, "home"),
                     )
-                val orchestrator = terminal.emulator.installer.BootstrapOrchestrator(downloader, installer, secondStage)
-                when (orchestrator.getInstallStatus()) {
+                val installOrchestrator = terminal.emulator.installer.BootstrapOrchestrator(downloader, installer, secondStage)
+                when (installOrchestrator.getInstallStatus()) {
                     terminal.emulator.installer.BootstrapOrchestrator.Status.NOT_INSTALLED -> {
                         LogUtil.d("Runtime", "Bootstrap not installed, starting install...")
-                        val result = orchestrator.ensureBootstrap(bootstrapUrl)
+                        val result = installOrchestrator.ensureBootstrap(bootstrapUrl)
                         // Result message may embed the full bootstrap URL on
                         // failure (downloader exceptions include it); log only
                         // the outcome class — the persistent log file must not
@@ -1594,6 +1616,16 @@ constructor(
                 val initialFontFamily = settingsRepository.fontFamily.first()
                 val effectiveFont = terminal.emulator.resolveEffectiveFontFamily(initialFontFamily)
                 bridge.setFontFamily(effectiveFont)
+                // Round-214: the native renderer starts with a hardcoded
+                // 14.0px font; without this the user's font-size setting
+                // never reached the GPU path — glyphs stayed tiny and
+                // "setting did nothing / got worse after restart".
+                bridge.setFontSizeInPlace(config.font_size_tenths)
+                // Round-215: rasterize glyphs at device density so text is
+                // crisp on high-density screens (swash bitmaps are scaled by
+                // raster_scale; the shader samples the atlas at that scale).
+                val density = context.resources.displayMetrics.density
+                bridge.setRasterScale(density.coerceIn(0.5f, 4f))
                 bridge.setTheme(config.theme)
                 val cursorStyle = settingsRepository.cursorStyle.first()
                 bridge.setCursorStyle(cursorStyle)
@@ -1603,7 +1635,7 @@ constructor(
                 bridge.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
                 LogUtil.d(
                     "Runtime",
-                    "settings applied: fontFamily=$effectiveFont theme=${config.theme.name} cursorStyle=$cursorStyle cursorBlink=$cursorBlinkEnabled cursorSpeed=$cursorBlinkSpeedMs",
+                    "settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.font_size_tenths} theme=${config.theme.name} cursorStyle=$cursorStyle cursorBlink=$cursorBlinkEnabled cursorSpeed=$cursorBlinkSpeedMs",
                 )
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
@@ -1727,6 +1759,16 @@ constructor(
                 }
                 renderSupervisor.startRenderThread(startedEntry)
                 renderSupervisor.startRenderMonitor()
+            }
+            // Round-214: recompute the grid AFTER the session is registered
+            // — the earlier attempt (pre-insertion) was a silent no-op, so
+            // the 24x80 startup grid stayed even though the native font was
+            // 47px, leaving huge vertical gaps (92px rows vs 36px glyphs).
+            try {
+                startedEntry.bridge?.let { syncGridDimensions(it) }
+                recomputeGridFromFontMetrics()
+            } catch (exception: Exception) {
+                LogUtil.e("Runtime", "initial grid recompute failed", exception)
             }
         } catch (exception: Exception) {
             if (exception is kotlinx.coroutines.CancellationException) {
@@ -2402,10 +2444,42 @@ constructor(
             entry.bridge?.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
             entry.notifyRender()
         }
+        // Round-214: font metrics changed -> the grid must be recomputed.
+        // Keeping the old fixed 24x80 while the native cell height changed
+        // left huge vertical gaps between lines (92px rows vs ~35px glyphs).
+        recomputeGridFromFontMetrics()
+    }
+
+    /**
+     * Recompute the active session's grid from the CURRENT native font
+     * metrics: rows = (surface - ModifierBar) / cell_height, cols =
+     * surface / cell_width. No-op when the surface size or metrics aren't
+     * known yet (fonts applied pre-attach). Called after every font-size
+     * change and after the initial font application (round-214).
+     */
+    private fun recomputeGridFromFontMetrics() {
+        val density = context.resources.displayMetrics.density
+        val barHeightPx = (MODIFIER_BAR_HEIGHT_DP * density + 0.5f).toInt()
+        // Surface size: the pending surface (set by startRuntime) is the
+        // authoritative source before the first attachSurface lands.
+        val surfaceW = pendingSurfaceWidth
+        val surfaceH = pendingSurfaceHeight
+        val currentRows = _state.value.rows.coerceAtLeast(1)
+        val currentCols = _state.value.cols.coerceAtLeast(1)
+        if (surfaceW <= 0 || surfaceH <= 0 || cellWidth <= 0f || cellHeight <= 0f) return
+        val newCols = (surfaceW / cellWidth).toInt().coerceAtLeast(1)
+        val newRows = ((surfaceH - barHeightPx) / cellHeight).toInt().coerceAtLeast(1)
+        if (newRows == currentRows && newCols == currentCols) return
+        LogUtil.d(
+            "Runtime",
+            "recomputeGridFromFontMetrics: ${currentRows}x$currentCols -> ${newRows}x$newCols " +
+                "(cell ${cellWidth}x$cellHeight, surface ${surfaceW}x$surfaceH)",
+        )
         // Resize only the active session: background sessions keep their own
-        // grid dimensions; resizing every session with the active one's
-        // size would fire spurious SIGWINCH + reflow on them (round-108).
-        sessions[activeSessionId]?.bridge?.resize(currentRows, currentCols)
+        // grid dimensions; resizing every session with the active one's size
+        // would fire spurious SIGWINCH + reflow on them (round-108).
+        sessions[activeSessionId]?.bridge?.resize(newRows, newCols)
+        _state.update { it.copy(rows = newRows, cols = newCols) }
     }
 
     suspend fun applyFontSettings() {
@@ -2522,11 +2596,12 @@ constructor(
         endCol: Int,
         hasSelection: Boolean,
         mode: Byte = 0,
+        selectionBgArgb: Int = selectionBgColor,
     ) {
         LogUtil.d("Runtime", "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection mode=$mode")
         selectionState.set(SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection, mode))
         val entry = sessions[activeSessionId]
-        entry?.bridge?.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode)
+        entry?.bridge?.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBgArgb)
         entry?.notifyRender()
     }
 
@@ -2755,8 +2830,13 @@ constructor(
         // Only overwrite cell metrics with valid values: the current bridge
         // returns 0f/0 (ADR-0007 stubs) and writing those would clobber the
         // real metrics computed from the surface.
-        val newCellWidth = bridge.getCellWidth()
-        val newCellHeight = bridge.getCellHeight()
+        // Native metrics are in LOGICAL pixels (font pipeline units);
+        // touch/anchor math in TerminalSurface works in physical pixels, so
+        // scale by density here (round-214 — fixes long-press hit-testing
+        // landing on wrong cells and the font-size mismatch reports).
+        val density = context.resources.displayMetrics.density
+        val newCellWidth = bridge.getCellWidth() * density
+        val newCellHeight = bridge.getCellHeight() * density
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
         // CAS with the size check INSIDE the lambda (round-94): the old code

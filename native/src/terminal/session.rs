@@ -330,6 +330,15 @@ impl Session {
         let wait_handle = std::thread::spawn(move || {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
+            if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result
+                && code >= 100
+            {
+                // Round-215: codes >= 100 encode execve errno + 100.
+                log::error!(
+                    "wait thread: child execve FAILED errno={} (exit code {code})",
+                    code - 100
+                );
+            }
             log::info!("wait thread: child exited: {result:?}");
             match result {
                 Ok(nix::sys::wait::WaitStatus::Exited(_, code)) => {
