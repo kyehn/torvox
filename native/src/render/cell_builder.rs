@@ -160,6 +160,10 @@ pub fn build_instances_from_cell_data(
     // glyphs inside the grid quad via bearing + ascent (glyph_h > cell_h
     // is then never true, so glyphs use the raw bearing path).
     let (cell_w, cell_h) = (grid_cell_w, grid_cell_h);
+    log::info!(
+        "cell_builder: grid {rows}x{cols} cell {cell_w:.1}x{cell_h:.1} cells={}",
+        cell_data.len()
+    );
     let _ = (rows, cols); // used by callers for projection; quad grid covers all
     let ascent_pixels = font_pipeline.ascent_pixels();
     let raster_scale = font_pipeline.get_raster_scale();
@@ -271,7 +275,6 @@ pub fn build_instances_from_cell_data(
         // by Bar/Underline cursor marker size).
         let glyph_quad_size = [cell_w * cell_span, cell_h];
         let glyph_quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
-
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
             // Empty cell: emit cursor marker (if any) but NOT the background
             // quad — cursor marker itself serves as the background.

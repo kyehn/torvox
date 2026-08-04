@@ -176,3 +176,40 @@ class BootstrapInstallerTest {
         assertEquals("one postinst run per sequential run()", 2, runs)
     }
 }
+
+class BootstrapInstallerNormalizePathTest {
+    private val installer = BootstrapInstaller(
+        prefixDir = File("/tmp/t-prefix"),
+        homeDir = File("/tmp/t-home"),
+        stagingDir = File("/tmp/t-staging"),
+    )
+
+    @org.junit.Test
+    fun normalizePath_removes_dot_segments() {
+        assertEquals("include/term_entry.h", installer.normalizePath("./include/ncurses/../term_entry.h"))
+        assertEquals("bin/bash", installer.normalizePath("bin/./bash"))
+        assertEquals("a/b", installer.normalizePath("a//b"))
+    }
+
+    @org.junit.Test
+    fun normalizePath_keeps_leading_escape() {
+        // Multiple leading ".." segments are preserved (they escape staging).
+        assertEquals("../../escape", installer.normalizePath("../../escape"))
+        // a/../../b resolves to ../b (one level escapes after consuming a).
+        assertEquals("../b", installer.normalizePath("a/../../b"))
+    }
+
+    @org.junit.Test
+    fun normalizePath_absolute_stays_absolute() {
+        assertEquals("/etc/passwd", installer.normalizePath("/etc/passwd"))
+        assertEquals("/etc/passwd", installer.normalizePath("/etc/../etc/passwd"))
+    }
+
+    @org.junit.Test
+    fun termux_style_target_resolves_inside_staging() {
+        // link=./include/ncurses/term_entry.h target=../term_entry.h
+        val resolved = installer.normalizePath("./include/ncurses/../term_entry.h")
+        assertEquals("include/term_entry.h", resolved)
+        assertFalse("resolved target escapes staging", resolved.startsWith("../"))
+    }
+}
