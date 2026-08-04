@@ -108,6 +108,14 @@ sealed class PollEvent {
 @OptIn(ExperimentalSerializationApi::class)
 val pollEventJson: Json =
     Json {
+        // Rust serialises Event with `#[serde(tag = "event")]` (internal
+        // tagging); kotlinx default discriminator is "type", which would
+        // reject every event with "Class discriminator was missing" and
+        // silently drop bell/clipboard/exit/notification — the exit event
+        // never reached Kotlin, so a dead shell left the terminal frozen
+        // with the render thread running forever (round-213, emulator-
+        // verified via `kill -9 <shell>`).
+        classDiscriminator = "event"
         ignoreUnknownKeys = true
         coerceInputValues = true
         exceptionsWithDebugInfo = false

@@ -642,6 +642,7 @@ pub fn start() {
     // "already running" with a dead handle).
     let runtime = match tokio::runtime::Builder::new_current_thread()
         .enable_io()
+        .enable_time()
         .build()
     {
         Ok(r) => r,
@@ -1048,6 +1049,7 @@ mod tests {
         // axum::serve returns.
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_io()
+            .enable_time()
             .build()
             .expect("runtime");
         let shutdown = std::sync::Arc::new(tokio::sync::Notify::new());

@@ -1418,6 +1418,24 @@ constructor(
                 context.filesDir.resolve("run/mcp.sock").absolutePath,
             )
         }
+        // Round-213: restore the persisted MCP server toggle. The switch in
+        // SettingsScreen only writes the DataStore flag; nothing replayed it
+        // on startup, so the server never came back after an app restart
+        // even though the setting said enabled (emulator-verified: socket
+        // absent after force-stop/relaunch). Read the first value from the
+        // DataStore-backed Flow (first emission requires an async disk read;
+        // a failure here must not abort startup — it degrades to the
+        // pre-fix behavior of a stopped server) and mirror it to the native
+        // side, which is idempotent (start() no-ops when running).
+        runCatching {
+            val enabled = settingsRepository.mcpServerEnabled.first()
+            NativeBridge.setMcpEnabled(enabled)
+            LogUtil.d("Runtime", "start: restored MCP server enabled=$enabled")
+        }.onFailure { error ->
+            // Restore failure means MCP is silently unavailable — exactly the
+            // bug this code fixes — so it must be visible in logcat.
+            LogUtil.e("Runtime", "start: failed to restore MCP server toggle", error)
+        }
         val displayW = context.resources.displayMetrics.widthPixels
         val displayH = context.resources.displayMetrics.heightPixels
         val density = context.resources.displayMetrics.density

@@ -412,6 +412,19 @@ impl Renderer {
                 "attach_surface: wgpu create_surface failed: {error}"
             ))
         })?;
+        // Release the previous surface BEFORE creating the new one: on
+        // Android both wgpu surfaces wrap the same ANativeWindow, and the
+        // GL backend (SwiftShader-on-emulator, ADR-0007) cannot create a
+        // second EGLSurface on a window whose previous surface is still
+        // live — get_current_texture then fails with "Surface is not
+        // configured for presentation" forever (round-212, emulator-
+        // verified: every session after the first rendered black; the
+        // first attach worked only because no surface existed yet).
+        // Callers guarantee no render thread is mid-frame (switchSession
+        // stops the old thread before/around this), so dropping here is
+        // safe.
+        self.surface = None;
+        self.surface_config = None;
         let surface = std::sync::Arc::new(surface);
         // The default config picks a present mode + format the driver
         // supports; RENDER_SCALE mirrors reconfigure_swapchain (a fixed
