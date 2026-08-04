@@ -7,8 +7,9 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -79,6 +80,9 @@ private const val FONT_SIZE_MIN = 8f
 private const val FONT_SIZE_MAX = 48f
 private const val SEARCH_MATCH_ALPHA = 0.25f
 
+/** Selection drag-handle drawable width (Material `text_select_handle_*`, 48dp). */
+private const val SELECTION_HANDLE_WIDTH_DP = 48f
+
 /**
  * Consolidated search state for text search within the terminal.
  * Replaces 6 independent remember variables.
@@ -108,6 +112,12 @@ fun TerminalScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val settings by viewModel.settings.collectAsStateWithLifecycle()
+    // Height of the terminal content Box (below: the context menu
+    // positions itself with an offset relative to this Box — the menu must
+    // be placed against the BOX height, not the full screen height, or a
+    // Select-All selection (selBottom == box height)
+    // pushes the menu off-screen below the ModifierBar).
+    var terminalBoxSize by remember { mutableStateOf(IntSize(0, 0)) }
     val viewModelThemeMode = settings.themeMode
     val viewModelThemeName = settings.themeName
     val viewModelDayThemeName = settings.dayThemeName
@@ -307,7 +317,8 @@ fun TerminalScreen(
                     modifier =
                     Modifier
                         .fillMaxWidth()
-                        .weight(1f),
+                        .weight(1f)
+                        .onSizeChanged { terminalBoxSize = it },
                 ) {
                     AndroidView(
                         factory = { context ->
@@ -443,31 +454,71 @@ fun TerminalScreen(
                         }
                     }
 
-                    // ── Selection context menu (Compose overlay) ──
-                    // Primary selection menu. Driven entirely by the view-model
-                    // selection state so it stays in sync with the GPU-inverted
-                    // selection and the drag handles. Hidden while dragging and
-                    // re-shown (re-placed) when the drag ends.
+                    // ── Selection context menu (PopupWindow) ──
+                    // Round-217: the menu must be a PopupWindow, not a
+                    // Compose overlay — the terminal is a SurfaceView whose
+                    // surface punches a hole over the whole terminal area,
+                    // hiding any in-window Compose drawing. PopupWindows are
+                    // separate system windows that render above it.
                     val menuSurface = surfaceRef.value
                     if (menuSurface != null && selectionActive && !selection.dragging) {
                         val configuration = LocalConfiguration.current
                         val density = LocalDensity.current
                         val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-                        val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-                        SelectionMenuOverlay(
-                            selection = selection,
-                            cellWidth = menuSurface.cellWidth,
-                            cellHeight = menuSurface.cellHeight,
-                            scrollOffset = menuSurface.getScrollOffset(),
-                            screenWidthPx = screenWidthPx,
-                            screenHeightPx = screenHeightPx,
-                            onCopy = {
-                                viewModel.copySelectionToClipboard()
-                                viewModel.consumePastePopupRequest()
-                            },
-                            onSelectAll = { viewModel.selectAll(menuSurface.getScrollOffset()) },
-                            onPaste = { viewModel.pasteFromClipboard() },
-                        )
+                        val boxHeightPx = terminalBoxSize.height.takeIf { it > 0 }?.toFloat()
+                            ?: with(density) { configuration.screenHeightDp.dp.toPx() }
+                        val pos =
+                            computeMenuPosition(
+                                start = selection.start,
+                                end = selection.end,
+                                cellWidth = menuSurface.cellWidth,
+                                cellHeight = menuSurface.cellHeight,
+                                scrollOffset = menuSurface.getScrollOffset(),
+                                screenWidthPx = screenWidthPx,
+                                screenHeightPx = boxHeightPx,
+                                handleWidthPx = with(density) { SELECTION_HANDLE_WIDTH_DP.dp.toPx() },
+                                pasteOnly = selection.pasteOnly,
+                            )
+                        val menuVisible = !selection.menuDismissed
+                        if (menuVisible) {
+                            val themeAccentArgb =
+                                if (state.selectionAccent != 0) {
+                                    Color(state.selectionAccent)
+                                } else {
+                                    resolvedTerminalTheme.foreground
+                                }.let { color ->
+                                    android.graphics.Color.argb(
+                                        (color.alpha * 255).toInt(),
+                                        (color.red * 255).toInt(),
+                                        (color.green * 255).toInt(),
+                                        (color.blue * 255).toInt(),
+                                    )
+                                }
+                            LaunchedEffect(pos.menuX, pos.menuY, pos.menuW, selection.pasteOnly, selection.menuDismissed) {
+                                menuSurface.showSelectionMenu(
+                                    menuX = pos.menuX.roundToInt(),
+                                    menuY = pos.menuY.roundToInt(),
+                                    menuW = pos.menuW.roundToInt(),
+                                    menuH = pos.menuH.roundToInt(),
+                                    pasteOnly = selection.pasteOnly,
+                                    fgColor = themeAccentArgb,
+                                    bgColor = Color(state.selectionBg).let { color ->
+                                        android.graphics.Color.argb(
+                                            (color.alpha * 255).toInt(),
+                                            (color.red * 255).toInt(),
+                                            (color.green * 255).toInt(),
+                                            (color.blue * 255).toInt(),
+                                        )
+                                    },
+                                )
+                            }
+                        } else {
+                            LaunchedEffect(Unit) { menuSurface.hideSelectionMenu() }
+                        }
+                    } else {
+                        LaunchedEffect(selectionActive) {
+                            menuSurface?.hideSelectionMenu()
+                        }
                     }
 
                     // Search-highlight painting must run as a side effect,
@@ -546,12 +597,24 @@ fun TerminalScreen(
             // Floating overlay for bottom bar — sits above IME.
             // IME padding is animated manually (animateImePadding was
             // removed from foundation 1.11): WindowInsets.ime drives a
-            // 220ms tween so the bar glides up when the keyboard opens
+            // spring so the bar glides up when the keyboard opens
             // instead of jumping.
             val imeBottomPx = WindowInsets.ime.getBottom(LocalDensity.current)
             val animatedImeBottom by animateDpAsState(
                 targetValue = with(LocalDensity.current) { imeBottomPx.toDp() },
-                animationSpec = tween(durationMillis = 220),
+                // Round-215: a fixed 220ms tween restarts on EVERY inset
+                // change, and the IME reports its height in steps (measured
+                // 380->850->881->883dp, ~270ms apart on this device). Each
+                // restart + slow frame pacing made the bar jump in big
+                // steps (2-3 animation frames total) — the reported "IME
+                // animation jank". A spring does NOT restart on target
+                // changes: velocity carries over, so stepped targets
+                // produce one continuous smooth motion.
+                animationSpec =
+                spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow,
+                ),
                 label = "imeBarOffset",
             )
             Box(
@@ -618,7 +681,13 @@ fun TerminalScreen(
                         modifier = Modifier.testTag("TextSearchBar"),
                     )
                 } else {
-                    val barMode = if (selectionActive) terminal.emulator.ui.ModifierBarMode.SelectionActions else terminal.emulator.ui.ModifierBarMode.Normal
+                    // Keep the ModifierBar in Normal mode during selection:
+                    // the floating selection context menu (near the selection,
+                    // never covering it, rendered as a PopupWindow) already
+                    // offers Copy/Select All/Paste. Switching the whole bar
+                    // to SelectionActions rendered a SECOND, redundant menu
+                    // at the bottom (round-214).
+                    val barMode = terminal.emulator.ui.ModifierBarMode.Normal
                     val clipboardManager =
                         context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
                             as? android.content.ClipboardManager
@@ -704,89 +773,6 @@ fun TerminalScreen(
     }
 }
 
-/**
- * Compose overlay that renders the selection context menu near the inverted
- * selection. Placement rules (mirrors Termux/Haven ergonomics):
- *  1. Prefer below the selection baseline.
- *  2. If that would run off the bottom of the screen, flip above.
- *  3. Clamp horizontally to the screen edges.
- *  4. The menu must NEVER cover the selected text — [coversSelection] is
- *     computed and logged so the OCR / video verification can assert it.
- *
- * Colors come exclusively from [MaterialTheme.colorScheme] (the active theme);
- * no hardcoded hex. Hidden during a drag ([SelectionState.dragging]) via
- * [AnimatedVisibility] and re-shown (re-placed) when the drag ends.
- */
-@Composable
-@Suppress("LongParameterList")
-fun SelectionMenuOverlay(
-    selection: SelectionState,
-    cellWidth: Float,
-    cellHeight: Float,
-    scrollOffset: Int,
-    screenWidthPx: Float,
-    screenHeightPx: Float,
-    onCopy: () -> Unit,
-    onSelectAll: () -> Unit,
-    onPaste: () -> Unit,
-) {
-    if (!selection.active) return
-    val start = selection.start ?: return
-    val end = selection.end ?: return
-
-    val pos =
-        remember(selection, cellWidth, cellHeight, scrollOffset, screenWidthPx, screenHeightPx) {
-            computeMenuPosition(
-                start,
-                end,
-                cellWidth,
-                cellHeight,
-                scrollOffset,
-                screenWidthPx,
-                screenHeightPx,
-            )
-        }
-
-    Log.d(
-        "Selection",
-        "MENU placement selRect=(${pos.selLeft.toInt()},${pos.selTop.toInt()}," +
-            "${pos.selRight.toInt()},${pos.selBottom.toInt()}) menuPos=(${pos.menuX.toInt()}," +
-            "${pos.menuY.toInt()}) menuW=${pos.menuW.toInt()} menuH=${pos.menuH.toInt()} " +
-            "flipAbove=${pos.flipAbove} coversSelection=${pos.coversSelection} pasteOnly=${selection.pasteOnly}",
-    )
-
-    var menuSize by remember { mutableStateOf(IntSize(0, 0)) }
-    AnimatedVisibility(
-        visible = !selection.dragging,
-        enter = fadeIn() + slideInVertically { it / 2 },
-        exit = fadeOut() + slideOutVertically { it / 2 },
-    ) {
-        Box(
-            modifier =
-            Modifier
-                .testTag("SelectionMenuOverlay")
-                .offset { IntOffset(pos.menuX.roundToInt(), pos.menuY.roundToInt()) }
-                .onSizeChanged { menuSize = it }
-                .clip(RoundedCornerShape(8.dp))
-                .graphicsLayer {
-                    shadowElevation = 4.dp.value
-                    shape = RoundedCornerShape(8.dp)
-                    clip = false
-                }.background(MaterialTheme.colorScheme.surface, RoundedCornerShape(8.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)),
-        ) {
-            Row(modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)) {
-                if (selection.pasteOnly) {
-                    SelectionMenuItem(text = "Paste", onClick = onPaste)
-                } else {
-                    SelectionMenuItem(text = "Copy", onClick = onCopy)
-                    SelectionMenuItem(text = "Select All", onClick = onSelectAll)
-                    SelectionMenuItem(text = "Paste", onClick = onPaste)
-                }
-            }
-        }
-    }
-}
 
 @VisibleForTesting
 internal data class MenuPosition(
@@ -811,6 +797,8 @@ internal fun computeMenuPosition(
     scrollOffset: Int,
     screenWidthPx: Float,
     screenHeightPx: Float,
+    handleWidthPx: Float,
+    pasteOnly: Boolean = false,
 ): MenuPosition {
     val loCol = min(start.col, end.col)
     val hiCol = max(start.col, end.col)
@@ -823,11 +811,21 @@ internal fun computeMenuPosition(
     val selBottom = (visibleHiRow + 1) * cellHeight
     val selRect = RectF(selLeft, selTop, selRight, selBottom)
 
-    val menuW = 260f
+    val menuW =
+        // Round-215: adapt to narrow screens — a fixed 260px menu occupies
+        // more than half of a 480px (360dp) display. Three buttons
+        // (Copy/Select All/Paste) at ~76px each plus padding fit in 240px;
+        // clamp to the screen so the clamp math below never goes negative.
+        260f.coerceAtMost((screenWidthPx - 16f).coerceAtLeast(120f))
     val menuH = 48f
     val selMidX = (selLeft + selRight) / 2f
     var menuX = (selMidX - menuW / 2f).coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
-    var menuY = selBottom + 8f
+    // Place the menu BELOW the drag handles (which sit at the bottom edge
+    // of the selection, ~handleWidthPx tall): a menu at selBottom+8 was
+    // covered by the start-handle PopupWindow, so taps on Copy/Select All
+    // dragged the handle instead (round-214). Paste-only popups have no
+    // handles, so they hug the selection directly.
+    var menuY = selBottom + 8f + if (pasteOnly) 0f else handleWidthPx
     val flipAbove = menuY + menuH > screenHeightPx && (selTop - menuH - 8f) >= 0f
     if (flipAbove) menuY = selTop - menuH - 8f
     menuY = menuY.coerceIn(0f, (screenHeightPx - menuH).coerceAtLeast(0f))

@@ -67,3 +67,6 @@ mutants.out/
 mutants.out.old/
 generated-patches/
 .cache/
+
+# round-214: user-mandated test artifacts (screenshots/video for selection verification)
+!test-artifacts/

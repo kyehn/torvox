@@ -73,7 +73,8 @@ use jni::JNIEnv;
 use jni::objects::JObject;
 use jni::objects::{JClass, JString};
 use jni::sys::{
-    JNI_FALSE, JNI_TRUE, jboolean, jbyteArray, jfloat, jint, jlong, jobjectArray, jsize, jstring,
+    JNI_FALSE, JNI_TRUE, jboolean, jbyte, jbyteArray, jfloat, jint, jlong, jobjectArray, jsize,
+    jstring,
 };
 
 use crate::terminal::ShellEnv;
@@ -197,6 +198,13 @@ struct RenderState {
     cursor_blink_enabled: bool,
     cursor_blink_speed_ms: u64,
     cursor_blink_phase_reset_ms: u64,
+    /// Active text selection for the next frame. Set by `setSelection`
+    /// (row/col bounds in visible-grid coordinates), consumed by
+    /// `render_inner`; same deferred-consume pattern as
+    /// `search_highlights`. `selection_bg` is the theme's selection
+    /// background color (ARGB from Kotlin, converted to linear f32).
+    selection: Option<crate::render::cell_builder::SelectionRange>,
+    selection_bg: Option<[f32; 4]>,
     /// Last rendered frame (cells + cursor + dims). Needed for app-level
     /// cursor blink: `render()` only draws when the terminal produced new
     /// CellData, so an idle terminal would never repaint the cursor phase.
@@ -235,6 +243,8 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             renderer,
             font_pipeline,
             search_highlights: Vec::new(),
+            selection: None,
+            selection_bg: None,
             pending_bg_image: None,
             pending_bg_image_clear: false,
             cursor_blink_enabled: true,
@@ -537,7 +547,11 @@ fn init_session_inner(
         } else {
             Some(prefix)
         },
-        extra: vec![],
+        // Round-217: without TERM, bash's readline treats the terminal as
+        // "dumb" and disables input echo entirely — typed characters reach
+        // the shell (commands execute) but are never shown. xterm-256color
+        // is the standard value for terminal emulators (Termux uses it).
+        extra: vec![("TERM".to_string(), "xterm-256color".to_string())],
     };
 
     match Session::spawn(&shell_path, rows, cols, &shell_env) {
@@ -1557,8 +1571,8 @@ fn render_inner(session_id: u64) -> jint {
         &mut render_state.font_pipeline,
         ATLAS_SIZE as f32,
         ATLAS_SIZE as f32,
-        None,
-        None,
+        render_state.selection,
+        render_state.selection_bg,
         &render_state.search_highlights,
     );
     if result.is_ok() {
@@ -2139,8 +2153,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
                 // code points instead.
                 let char_col = col.max(0) as usize;
                 let char_len = line.chars().count();
+                log::debug!(
+                    "isCellEmpty({row},{col}): scrollback={scrollback} rows={visible_rows} absolute={absolute} line={line:?} char_len={char_len}"
+                );
                 empty = char_col >= char_len;
+            } else {
+                log::debug!("isCellEmpty({row},{col}): read_line_text({absolute}) returned None (scrollback={scrollback})");
             }
+        } else {
+            log::debug!("isCellEmpty({row},{col}): absolute={absolute} out of range rows+scrollback={}", visible_rows + scrollback);
         }
         if empty { JNI_TRUE } else { JNI_FALSE }
     })
@@ -2290,6 +2311,75 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.search_highlights = highlights;
+        }
+    });
+}
+
+/// Set the active text selection for the next rendered frame.
+///
+/// Coordinates are visible-grid rows/cols (as produced by `build_cell_data`
+/// — row 0 is the top visible line), which is what Kotlin's long-press /
+/// drag handle logic works in. `hasSelection=false` clears the selection.
+/// `mode` follows the Kotlin `SelectionMode` ordinal (Char=0, Word=1,
+/// Line=2, Block=3, Semantic=4 — note Block/Semantic are swapped relative
+/// to the Rust enum, mapped below). `selectionBgArgb` is the theme's
+/// selection background color (ARGB packed, e.g. 0xFF45475A), converted
+/// to linear f32 for the shader.
+#[unsafe(no_mangle)]
+// JNI exports receive raw handles (jstring/jbyteArray are pointer types)
+// whose validity is the JVM's contract, not a Rust lifetime guarantee.
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    start_row: jint,
+    start_col: jint,
+    end_row: jint,
+    end_col: jint,
+    has_selection: jboolean,
+    mode: jbyte,
+    selection_bg_argb: jint,
+) {
+    jni_export_guard!(&mut env, (), {
+        // Kotlin SelectionMode ordinal → Rust SelectionMode.
+        let mode = match mode {
+            0 => crate::terminal::SelectionMode::Char,
+            1 => crate::terminal::SelectionMode::Word,
+            2 => crate::terminal::SelectionMode::Line,
+            3 => crate::terminal::SelectionMode::Block,
+            4 => crate::terminal::SelectionMode::Semantic,
+            _ => crate::terminal::SelectionMode::Char,
+        };
+        let argb = selection_bg_argb as u32;
+        let selection_bg = [
+            ((argb >> 16) & 0xFF) as f32 / 255.0,
+            ((argb >> 8) & 0xFF) as f32 / 255.0,
+            (argb & 0xFF) as f32 / 255.0,
+            ((argb >> 24) & 0xFF) as f32 / 255.0,
+        ];
+        let selection = if has_selection == jni::sys::JNI_TRUE {
+            Some(crate::render::cell_builder::SelectionRange {
+                start_row,
+                start_col,
+                end_row,
+                end_col,
+                active: true,
+                mode,
+                origin: None,
+                is_empty: false,
+            })
+        } else {
+            None
+        };
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.selection = selection;
+            render_state.selection_bg = if selection.is_some() {
+                Some(selection_bg)
+            } else {
+                None
+            };
         }
     });
 }
@@ -2602,6 +2692,34 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
                 "setFontSizeInPlace: {} -> cell {cw:.1}x{ch:.1}",
                 size_tenths
             );
+        }
+    })
+}
+
+/// Set the font rasterization scale (device pixel density). Glyph bitmaps
+/// are rasterized at font_size * raster_scale so text stays crisp on
+/// high-density screens (round-215).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    scale: jfloat,
+) {
+    jni_export_guard!(&mut env, (), {
+        if !(0.5..=8.0).contains(&scale) {
+            return;
+        }
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            // Round-215: BOTH pipelines must agree on raster_scale — the
+            // font pipeline rasterizes glyph bitmaps at font_size*scale,
+            // while the renderer feeds the same scale to the cell shader
+            // uniform. Desync made the shader sample glyph bitmaps at 1x
+            // while cell_builder computed bearings at Nx, drawing glyphs
+            // as distorted corner triangles.
+            render_state.font_pipeline.set_raster_scale(scale);
+            render_state.renderer.set_raster_scale(scale);
         }
     })
 }

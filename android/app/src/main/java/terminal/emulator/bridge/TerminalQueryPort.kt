@@ -23,7 +23,15 @@ interface TerminalQueryPort {
     fun getTitle(): String?
     fun getActiveSessionTitle(): String = getTitle() ?: ""
 
-    fun setSelection(startRow: Int, startCol: Int, endRow: Int, endCol: Int, hasSelection: Boolean? = null, mode: Byte = 0)
+    fun setSelection(
+        startRow: Int,
+        startCol: Int,
+        endRow: Int,
+        endCol: Int,
+        hasSelection: Boolean? = null,
+        mode: Byte = 0,
+        selectionBgArgb: Int = 0xFF45475A.toInt(),
+    )
     fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair<Pair<Int, Int>, Pair<Int, Int>>?
 
     fun clearSearchHighlights()

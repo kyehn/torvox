@@ -32,7 +32,12 @@ impl FontPipeline {
                 .scaler_context
                 .builder(font_ref)
                 .size(raster_size)
-                .hint(false)
+                // Hinting aligns TrueType stems to the pixel grid. With a
+                // raster_scale > 1 (device density) the bitmap is large
+                // enough that hinting is unnecessary and can distort the
+                // glyph shapes (round-215: emulator OCR failed on hinted
+                // 124px bitmaps); hint only when rendering at 1:1.
+                .hint(self.raster_scale <= 1.01)
                 .build();
             let image = Render::new(&[Source::Outline]).render(&mut scaler, glyph_id);
             let upem = font_ref.metrics(&[]).units_per_em as f32;

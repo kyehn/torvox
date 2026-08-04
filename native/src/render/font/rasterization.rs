@@ -9,6 +9,14 @@ pub(super) const DESCENT_FALLBACK_RATIO: f32 = 0.2;
 pub(super) const CELL_WIDTH_FALLBACK_RATIO: f32 = 0.6;
 pub(super) const CELL_HEIGHT_FALLBACK_RATIO: f32 = 1.2;
 
+/// Cap the line-gap contribution to a cell so pathological font `leading`
+/// values (Droid Sans Mono on Android ships a very large one) cannot inflate
+/// the cell height far beyond the glyph metrics. Maximum 25% of
+/// ascent+descent, mirroring Termux/Ghostty row-height behavior.
+pub(super) fn capped_line_gap(line_gap_px: f32, ascent_px: f32, descent_px: f32) -> f32 {
+    line_gap_px.min((ascent_px + descent_px) * 0.25)
+}
+
 impl FontPipeline {
     pub fn rasterize_ascii(&mut self) {
         let before = self.cache_length();
@@ -77,7 +85,7 @@ impl FontPipeline {
                 let scale = self.font_size / upem;
                 let ascent = metrics.ascent * scale;
                 let descent = metrics.descent.abs() * scale;
-                let line_gap = metrics.leading.max(0.0) * scale;
+                let line_gap = capped_line_gap(metrics.leading.max(0.0) * scale, ascent, descent);
                 let cell_height = ascent + descent + line_gap;
 
                 let charmap = font_ref.charmap();
@@ -122,5 +130,28 @@ impl FontPipeline {
             self.font_size * CELL_WIDTH_FALLBACK_RATIO,
             (self.font_size * CELL_HEIGHT_FALLBACK_RATIO).ceil(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::capped_line_gap;
+
+    #[test]
+    fn line_gap_normal_passes_through() {
+        // A normal 10% line gap is untouched by the cap.
+        assert_eq!(capped_line_gap(10.0, 100.0, 20.0), 10.0);
+    }
+
+    #[test]
+    fn line_gap_huge_is_capped() {
+        // Droid-Sans-Mono-style huge leading is capped to 25% of body.
+        assert_eq!(capped_line_gap(500.0, 100.0, 20.0), 30.0);
+    }
+
+    #[test]
+    fn line_gap_negative_is_not_capped() {
+        // Negative leading (tight fonts) stays negative.
+        assert_eq!(capped_line_gap(-5.0, 100.0, 20.0), -5.0);
     }
 }

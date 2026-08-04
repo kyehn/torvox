@@ -77,6 +77,10 @@ data class SelectionState(
     val mode: SelectionMode = SelectionMode.Char,
     val selectedText: String = "",
     val touchClass: TouchClass = TouchClass.Unknown,
+    // Set when a menu action (Copy/Select All/Share) was taken: the
+    // floating menu closes while the selection highlight stays (round-214).
+    // Reset on the next long-press or drag-handle move.
+    val menuDismissed: Boolean = false,
 ) {
     val pasteOnly: Boolean
         get() = touchClass == TouchClass.EmptyArea || touchClass == TouchClass.Whitespace
@@ -132,7 +136,7 @@ data class TerminalState(
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
     val pastePopupRequest: PastePopupRequest? = null,
-    val keyboardMode: KeyboardMode = KeyboardMode.Raw,
+    val keyboardMode: KeyboardMode = KeyboardMode.Secure,
     val selectionBg: Int = 0,
     val selectionAccent: Int = 0,
 )
@@ -266,6 +270,7 @@ constructor(
                         end = anchor,
                         mode = state.selection.mode,
                         touchClass = touchClass,
+                        menuDismissed = false,
                     ),
                 )
             }
@@ -277,10 +282,12 @@ constructor(
         ) {
             // CAS with the active-check inside the lambda (round-98): the
             // selection read and the write are atomic against concurrent _state
-            // updates.
+            // updates. Paste-only selections (empty-cell/whitespace long-press)
+            // are immutable — a finger micro-move during the long-press must
+            // not drift the single cell (round-214).
             _state.update { state ->
                 val current = state.selection
-                if (!current.active) {
+                if (!current.active || current.pasteOnly) {
                     state
                 } else {
                     val result = current.applyHandleDrag(draggingStart = false, targetRow = row, targetCol = col)
@@ -289,6 +296,7 @@ constructor(
                         current.copy(
                             start = SelectionAnchor(result.startRow, result.startCol),
                             end = SelectionAnchor(result.endRow, result.endCol),
+                            menuDismissed = false,
                         ),
                     )
                 }
@@ -301,7 +309,7 @@ constructor(
         ) {
             _state.update { state ->
                 val current = state.selection
-                if (!current.active) {
+                if (!current.active || current.pasteOnly) {
                     state
                 } else {
                     val result = current.applyHandleDrag(draggingStart = true, targetRow = row, targetCol = col)
@@ -310,6 +318,7 @@ constructor(
                         current.copy(
                             start = SelectionAnchor(result.startRow, result.startCol),
                             end = SelectionAnchor(result.endRow, result.endCol),
+                            menuDismissed = false,
                         ),
                     )
                 }
@@ -354,6 +363,8 @@ constructor(
             if (rawText.isEmpty()) return
             val text = if (rawText.length > CLIPBOARD_TEXT_MAX_LENGTH) rawText.substring(0, CLIPBOARD_TEXT_MAX_LENGTH) else rawText
             clipboardAccess.setClipboardText(text, label = "terminal selection")
+            // Close the floating menu after the action; keep the highlight.
+            _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
         }
 
         fun clearSelection() {
@@ -368,7 +379,25 @@ constructor(
             row: Int,
             col: Int,
         ) {
-            _state.update { it.copy(pastePopupRequest = PastePopupRequest(row, col)) }
+            // Round-214: an empty-cell long-press now creates a single-cell
+            // selection (inverted background via the GPU path) with a
+            // paste-only floating menu — matching the text-selection UX
+            // instead of a detached chip with no highlight.
+            _state.update { state ->
+                state.copy(
+                    selection =
+                    SelectionState(
+                        active = true,
+                        dragging = false,
+                        start = SelectionAnchor(row, col),
+                        end = SelectionAnchor(row, col),
+                        mode = SelectionMode.Char,
+                        touchClass = TouchClass.EmptyArea,
+                    ),
+                    pastePopupRequest = null,
+                )
+            }
+            syncSelectionToNative()
         }
 
         fun consumePastePopupRequest(): PastePopupRequest? {
@@ -410,6 +439,8 @@ constructor(
                 )
             shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(shareIntent)
+            // Close the floating menu after the action (round-214).
+            _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
         }
 
         fun selectAll(scrollOffset: Int = 0) {
@@ -561,7 +592,13 @@ constructor(
             return false
         }
 
-        fun pasteFromClipboard(): Int = clipboardPaster.pasteTo { runtime.writeToPty(it) }
+        fun pasteFromClipboard(): Int {
+            val written = clipboardPaster.pasteTo { runtime.writeToPty(it) }
+            // Close the floating menu after the action (round-214); the
+            // selection highlight stays until the next tap.
+            _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
+            return written
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -999,14 +1036,14 @@ constructor(
                     )
                 val installer =
                     terminal.emulator.installer.BootstrapInstaller(
-                        prefixDir = java.io.File(context.filesDir, "bootstrap/usr"),
+                        prefixDir = java.io.File(context.filesDir, "usr"),
                         homeDir = java.io.File(context.filesDir, "home"),
-                        stagingDir = java.io.File(context.filesDir, "bootstrap/usr-staging"),
+                        stagingDir = java.io.File(context.filesDir, "usr-staging"),
                         onProgress = onProgress,
                     )
                 val secondStage =
                     terminal.emulator.installer.SecondStageRunner(
-                        prefixDir = java.io.File(context.filesDir, "bootstrap/usr"),
+                        prefixDir = java.io.File(context.filesDir, "usr"),
                         homeDir = java.io.File(context.filesDir, "home"),
                         onProgress = onProgress,
                     )

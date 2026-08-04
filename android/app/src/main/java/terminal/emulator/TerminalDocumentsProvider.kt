@@ -233,6 +233,36 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             ?: throw java.io.IOException("Failed to encode docId for '$safeName'")
     }
 
+    override fun renameDocument(
+        documentId: String,
+        displayName: String,
+    ): String {
+        val rootDir = getRootDir()
+        if (documentId == ROOT_ID) {
+            throw java.io.FileNotFoundException("Refusing to rename the root document")
+        }
+        val file = decodeDocId(documentId, rootDir)
+        requireInsideRoot(file, rootDir)
+        val safeName =
+            displayName
+                .replace(Regex("[/\\\\]"), "_")
+                .replace("..", "_")
+                .trim()
+        if (safeName.isEmpty() || safeName == ".") {
+            throw IllegalArgumentException("Invalid document name: '$displayName'")
+        }
+        val parent = file.parentFile ?: throw java.io.FileNotFoundException("Invalid document id: $documentId")
+        val target = File(parent, safeName)
+        if (target.exists()) {
+            throw java.io.IOException("Target '$safeName' already exists")
+        }
+        if (!file.renameTo(target)) {
+            throw java.io.IOException("Failed to rename '$displayName'")
+        }
+        return encodeDocId(target, rootDir)
+            ?: throw java.io.IOException("Failed to encode docId for '$safeName'")
+    }
+
     override fun deleteDocument(documentId: String) {
         val rootDir = getRootDir()
         if (documentId == ROOT_ID) {

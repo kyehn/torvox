@@ -45,7 +45,13 @@ android {
     defaultConfig {
         applicationId = "com.termux"
         minSdk = 33
-        targetSdk = 36
+        // Round-215: targetSdk 35+ puts the app in the untrusted_app_35
+        // SELinux domain, which REMOVED execute_no_trans on app_data_file
+        // (Android 15 hardening). Termux binaries (usr/bin/bash etc.) can
+        // then not be execve()d at all (errno 13). Termux itself ships
+        // targetSdk 28 for the same reason. 34 keeps the modern permission
+        // model while retaining untrusted_app_30's execute_no_trans.
+        targetSdk = 34
         versionCode = 2000
         versionName = "0.1.0"
         signingConfig = signingConfigs.getByName("testkey")

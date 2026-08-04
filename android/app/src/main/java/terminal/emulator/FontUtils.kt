@@ -23,3 +23,9 @@ fun detectArchFromAbi(): String = when (
     "x86" -> "i686"
     else -> DEFAULT_ARCH_FALLBACK
 }
+
+/** True when the primary ABI is 64-bit (determines linker32/64). */
+fun is64BitAbi(): Boolean =
+    android.os.Build.SUPPORTED_ABIS
+        .firstOrNull()
+        ?.let { it.contains("64") } ?: false
