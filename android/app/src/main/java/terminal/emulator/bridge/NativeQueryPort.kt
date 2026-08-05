@@ -49,7 +49,12 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         // Smart word/URL boundary detection on the visible line: fetch the
         // line text from native, expand bounds in pure Kotlin (testable),
         // then apply the expanded range through setSelection.
-        val line = scrollbackLine(row) ?: return null
+        val line = scrollbackLine(row)
+        if (line == null) {
+            // Blank line: caller falls back to single-cell selection +
+            // paste menu (long-press on whitespace). Not an error.
+            return null
+        }
         val (startCol, endCol) = SelectionExpander.expandBounds(line, col)
         setSelection(row, startCol, row, endCol, true, mode)
         return (row to startCol) to (row to endCol)
