@@ -13,6 +13,11 @@ pub(super) const CELL_HEIGHT_FALLBACK_RATIO: f32 = 1.2;
 /// values (Droid Sans Mono on Android ships a very large one) cannot inflate
 /// the cell height far beyond the glyph metrics. Maximum 25% of
 /// ascent+descent, mirroring Termux/Ghostty row-height behavior.
+///
+/// Round-216: no longer used in the cell-height computation (row height is
+/// now ascent+descent exactly, like Termux/Ghostty/Kitty); retained for the
+/// unit tests that pin the cap semantics.
+#[cfg(test)]
 pub(super) fn capped_line_gap(line_gap_px: f32, ascent_px: f32, descent_px: f32) -> f32 {
     line_gap_px.min((ascent_px + descent_px) * 0.25)
 }
@@ -85,8 +90,15 @@ impl FontPipeline {
                 let scale = self.font_size / upem;
                 let ascent = metrics.ascent * scale;
                 let descent = metrics.descent.abs() * scale;
-                let line_gap = capped_line_gap(metrics.leading.max(0.0) * scale, ascent, descent);
-                let cell_height = ascent + descent + line_gap;
+                // Round-216: standard terminal row height is ascent+descent
+                // WITHOUT the font's line gap. Droid Sans Mono ships a huge
+                // leading (~2000 units); even capped at 25% it inflated the
+                // cell to 1.465em, leaving ~2x the glyph height of empty
+                // space between rows (reported as "row spacing way too
+                // large"). Termux/Ghostty/Kitty all use (ascent+descent)
+                // as the row height; the line gap belongs between paragraphs,
+                // not inside every terminal row.
+                let cell_height = ascent + descent;
 
                 let charmap = font_ref.charmap();
                 let glyph_metrics = font_ref.glyph_metrics(&[]);

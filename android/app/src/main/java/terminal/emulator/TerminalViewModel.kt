@@ -296,7 +296,10 @@ constructor(
                         current.copy(
                             start = SelectionAnchor(result.startRow, result.startCol),
                             end = SelectionAnchor(result.endRow, result.endCol),
-                            menuDismissed = false,
+                            // Hide the floating menu while dragging; it
+                            // reappears at the new position on ACTION_UP
+                            // (endSelection restores menuDismissed=false).
+                            menuDismissed = true,
                         ),
                     )
                 }
@@ -318,7 +321,10 @@ constructor(
                         current.copy(
                             start = SelectionAnchor(result.startRow, result.startCol),
                             end = SelectionAnchor(result.endRow, result.endCol),
-                            menuDismissed = false,
+                            // Hide the floating menu while dragging; it
+                            // reappears at the new position on ACTION_UP
+                            // (endSelection restores menuDismissed=false).
+                            menuDismissed = true,
                         ),
                     )
                 }
@@ -339,7 +345,7 @@ constructor(
             // cols across a snapshot — those can also go stale mid-extraction if
             // an IO coroutine switches sessions; the result is bounded by the
             // substring guards and is never written unless this CAS commits.
-            val updated = current.copy(dragging = false, selectedText = text)
+            val updated = current.copy(dragging = false, selectedText = text, menuDismissed = false)
             while (true) {
                 val state = _state.value
                 if (state.selection != current) return

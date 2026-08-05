@@ -455,20 +455,19 @@ impl Renderer {
         // Grid cell dimensions from the attached surface: quads must cover
         // the full grid (surface_w/cols x surface_h/rows), not the font
         // cell metrics — otherwise rows show gaps of the clear color.
-        let (surface_w, surface_h) = self
-            .surface_config
-            .as_ref()
-            .map_or((0.0, 0.0), |c| (c.width as f32, c.height as f32));
-        let grid_cell_w = if _cols > 0 {
-            surface_w / _cols as f32
-        } else {
-            0.0
-        };
-        let grid_cell_h = if _rows > 0 {
-            surface_h / _rows as f32
-        } else {
-            0.0
-        };
+        // Round-216: quad geometry uses the FONT cell size (logical cell
+        // metrics × raster_scale, i.e. the same physical values the Kotlin
+        // side computes as cellWidth/cellHeight), NOT surface/rows. The
+        // Kotlin grid derives rows from the CONTENT area (surface minus IME
+        // and ModifierBar), so surface/rows would stretch each quad to the
+        // full surface height whenever the IME is open (2209/14 = 157.8px
+        // around 66px glyphs — reported as "row spacing way too large" and
+        // "content overflows without scrolling"). With font-cell quads the
+        // glyph fills the quad regardless of how many rows fit on screen.
+        let (font_w, font_h) = font_pipeline.cell_metrics();
+        let scale = font_pipeline.get_raster_scale();
+        let grid_cell_w = if font_w > 0.0 { font_w * scale } else { 0.0 };
+        let grid_cell_h = if font_h > 0.0 { font_h * scale } else { 0.0 };
         let converted = crate::render::build_instances_from_cell_data(
             cell_data,
             _rows,

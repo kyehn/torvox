@@ -76,13 +76,16 @@ fn fs_main(
     // default-background cell can show only the glyph over the wallpaper.
     var glyph_coverage: f32 = 0.0;
     if has_glyph > 0.5 {
-        // World-space cell pixel coordinates scaled into the glyph atlas pixel
-        // space (rasterized at font_size * raster_scale). This keeps glyph
-        // bitmaps 1:1 with the physical surface so text is crisp (fix D).
-        let cell_px = cell_uv * quad_size * uniforms.raster_scale;
-        // X: scale glyph width to match cell width (Termux canvas.scale equivalent).
-        // Narrow glyphs (advance_w < cell_w) are stretched; wide glyphs compressed.
-        let scaled_x = cell_px.x * glyph_advance_w / quad_size.x;
+        // World-space cell pixel coordinates in PHYSICAL surface pixels:
+        // quad_size is already physical (surface/rows), so multiplying by
+        // raster_scale again would shrink the glyph to font_size logical
+        // pixels (round-216: glyphs rendered 25px instead of 66px at 420dpi).
+        let cell_px = cell_uv * quad_size;
+        // X: glyph advance width is in logical pixels; convert to physical
+        // (× raster_scale) so scaled_x spans the full rasterized bitmap
+        // width (font_size × raster_scale), keeping the glyph 1:1.
+        let glyph_adv_px = glyph_advance_w * uniforms.raster_scale;
+        let scaled_x = cell_px.x * glyph_adv_px / quad_size.x;
         // Y: use natural font metrics. bearing.y positions the glyph relative to
         // the cell top (ascent_px - placement.top). For CJK fallback glyphs where
         // placement.top > ascent_px, bearing.y is negative — the glyph extends

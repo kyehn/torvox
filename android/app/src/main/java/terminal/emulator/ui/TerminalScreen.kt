@@ -17,6 +17,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -494,23 +495,17 @@ fun TerminalScreen(
                                         (color.blue * 255).toInt(),
                                     )
                                 }
-                            LaunchedEffect(pos.menuX, pos.menuY, pos.menuW, selection.pasteOnly, selection.menuDismissed) {
-                                menuSurface.showSelectionMenu(
-                                    menuX = pos.menuX.roundToInt(),
-                                    menuY = pos.menuY.roundToInt(),
-                                    menuW = pos.menuW.roundToInt(),
-                                    menuH = pos.menuH.roundToInt(),
-                                    pasteOnly = selection.pasteOnly,
-                                    fgColor = themeAccentArgb,
-                                    bgColor = Color(state.selectionBg).let { color ->
-                                        android.graphics.Color.argb(
-                                            (color.alpha * 255).toInt(),
-                                            (color.red * 255).toInt(),
-                                            (color.green * 255).toInt(),
-                                            (color.blue * 255).toInt(),
-                                        )
-                                    },
-                                )
+                            // Round-216: the selection menu is the system
+                            // ActionMode toolbar (like Termux): the system
+                            // positions it, colors it from the theme, and
+                            // handles item layout — no custom popup, no
+                            // accent-colored text, no dividers.
+                            LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {
+                                if (selection.menuDismissed) {
+                                    menuSurface.hideSelectionMenu()
+                                } else {
+                                    menuSurface.showSelectionMenu(selection.pasteOnly)
+                                }
                             }
                         } else {
                             LaunchedEffect(Unit) { menuSurface.hideSelectionMenu() }
@@ -622,9 +617,14 @@ fun TerminalScreen(
                 Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
+                    // Round-216: the background must be applied BEFORE the
+                    // IME padding so it covers the animated inset area —
+                    // with background after padding, the spring-animated
+                    // gap between the ModifierBar and the keyboard showed
+                    // the window's black backdrop while the IME slid in/out.
+                    .background(resolvedTerminalTheme.background)
                     .navigationBarsPadding()
                     .padding(bottom = animatedImeBottom)
-                    .background(resolvedTerminalTheme.background)
                     .testTag("ModifierBarOverlay"),
             ) {
                 // Bottom bar — below terminal, above IME
@@ -833,6 +833,7 @@ internal fun computeMenuPosition(
     var menuRect = RectF(menuX, menuY, menuX + menuW, menuY + menuH)
     var coversSelection = RectF.intersects(selRect, menuRect)
     if (coversSelection) {
+        // Try right of selection
         val rightX = (selRight + 8f).coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
         val rightRect = RectF(rightX, menuY, rightX + menuW, menuY + menuH)
         if (!RectF.intersects(selRect, rightRect)) {
@@ -840,6 +841,7 @@ internal fun computeMenuPosition(
             menuRect = rightRect
             coversSelection = false
         } else {
+            // Try left of selection
             val leftX = (selLeft - menuW - 8f).coerceIn(0f, (screenWidthPx - menuW).coerceAtLeast(0f))
             val leftRect = RectF(leftX, menuY, leftX + menuW, menuY + menuH)
             if (!RectF.intersects(selRect, leftRect)) {
@@ -847,7 +849,14 @@ internal fun computeMenuPosition(
                 menuRect = leftRect
                 coversSelection = false
             } else {
-                coversSelection = RectF.intersects(selRect, menuRect)
+                // Try below selection (even if off-screen, coerce to bottom)
+                val belowY = (screenHeightPx - menuH - 8f).coerceAtLeast(0f)
+                if (belowY >= selBottom + handleWidthPx + 8f) {
+                    menuY = belowY
+                    menuRect = RectF(menuX, menuY, menuX + menuW, menuY + menuH)
+                    coversSelection = RectF.intersects(selRect, menuRect)
+                }
+                // If still overlapping, accept (menu is small relative to huge selection)
             }
         }
     }
