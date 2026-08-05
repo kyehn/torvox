@@ -203,6 +203,12 @@ constructor(
 
     @Volatile var cellHeight: Float = 0f
 
+    // Logical pixel cell dimensions (for grid row/col computation).
+    // These are the raw native values WITHOUT density scaling.
+    @Volatile var logicalCellWidth: Float = 0f
+
+    @Volatile var logicalCellHeight: Float = 0f
+
     private val renderGeneration =
         java.util.concurrent.atomic
             .AtomicInteger(0)
@@ -1766,7 +1772,8 @@ constructor(
             // 47px, leaving huge vertical gaps (92px rows vs 36px glyphs).
             try {
                 startedEntry.bridge?.let { syncGridDimensions(it) }
-                recomputeGridFromFontMetrics()
+                // Grid stays at initial 24x80 — font metrics don't determine
+                // grid dimensions; the terminal scrolls when content overflows.
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "initial grid recompute failed", exception)
             }
@@ -2444,10 +2451,8 @@ constructor(
             entry.bridge?.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
             entry.notifyRender()
         }
-        // Round-214: font metrics changed -> the grid must be recomputed.
-        // Keeping the old fixed 24x80 while the native cell height changed
-        // left huge vertical gaps between lines (92px rows vs ~35px glyphs).
-        recomputeGridFromFontMetrics()
+        // Font metrics changed — but grid dimensions stay fixed.
+        // The terminal scrolls when content overflows the visible area.
     }
 
     /**
@@ -2467,6 +2472,8 @@ constructor(
         val currentRows = _state.value.rows.coerceAtLeast(1)
         val currentCols = _state.value.cols.coerceAtLeast(1)
         if (surfaceW <= 0 || surfaceH <= 0 || cellWidth <= 0f || cellHeight <= 0f) return
+        // Compute grid dimensions from physical surface / physical cell metrics.
+        // Both surface and cell are in physical pixels (density-scaled).
         val newCols = (surfaceW / cellWidth).toInt().coerceAtLeast(1)
         val newRows = ((surfaceH - barHeightPx) / cellHeight).toInt().coerceAtLeast(1)
         if (newRows == currentRows && newCols == currentCols) return
@@ -2496,6 +2503,14 @@ constructor(
                 LogUtil.d("Runtime", "setFontFamily result: $familyResult")
                 entry.bridge?.setFontSizeInPlace(fontSizeTenths)
                 entry.bridge?.let { syncGridDimensions(it) }
+                // Round-215: the grid must follow the font. syncGridDimensions
+                // only reads the existing native grid (still the default
+                // 80x24 after a restart); without recomputing rows/cols from
+                // the surface and the new font metrics the renderer lays the
+                // grid at surface/80 x surface/24 (13.5x92) while glyphs are
+                // rasterized for 41.2x81.4 cells — fonts look huge and rows
+                // overlap. Recompute and resize the active session.
+                recomputeGridFromFontMetrics()
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "applyFontSettings failed for session", exception)
             }
@@ -2679,6 +2694,16 @@ constructor(
     private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
         val surface = pendingSurface ?: return
         bridge.attachSurface(surface, pendingSurfaceWidth, pendingSurfaceHeight)
+        // Round-215: the grid must match the font cell metrics against the
+        // real surface. attachSurface makes the surface size authoritative;
+        // syncGridDimensions pulls the native font cell metrics, then
+        // recomputeGridFromFontMetrics resizes the grid so the renderer's
+        // quads (surface/rows x surface/cols) match the glyph raster size
+        // (font cell x density). Without this the grid stays at the default
+        // 80x24 while glyphs are rasterized for the configured font size —
+        // fonts look huge and rows overlap after every restart.
+        syncGridDimensions(bridge)
+        recomputeGridFromFontMetrics()
     }
 
     /**
@@ -2835,8 +2860,14 @@ constructor(
         // scale by density here (round-214 — fixes long-press hit-testing
         // landing on wrong cells and the font-size mismatch reports).
         val density = context.resources.displayMetrics.density
-        val newCellWidth = bridge.getCellWidth() * density
-        val newCellHeight = bridge.getCellHeight() * density
+        val rawCellWidth = bridge.getCellWidth()
+        val rawCellHeight = bridge.getCellHeight()
+        // Logical pixel dimensions (for grid computation): raw native values
+        if (rawCellWidth > 0f) logicalCellWidth = rawCellWidth
+        if (rawCellHeight > 0f) logicalCellHeight = rawCellHeight
+        // Physical pixel dimensions (for rendering/touch): density-scaled
+        val newCellWidth = rawCellWidth * density
+        val newCellHeight = rawCellHeight * density
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
         // CAS with the size check INSIDE the lambda (round-94): the old code

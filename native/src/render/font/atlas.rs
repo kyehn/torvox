@@ -158,8 +158,11 @@ impl FontPipeline {
                             break;
                         }
                         let dst_idx = (dst_y * atlas_w + dst_x) * 4;
-                        if dst_idx < self.atlas_bitmap.len() {
+                        if dst_idx + 3 < self.atlas_bitmap.len() {
                             self.atlas_bitmap[dst_idx] = alpha;
+                            self.atlas_bitmap[dst_idx + 1] = alpha;
+                            self.atlas_bitmap[dst_idx + 2] = alpha;
+                            self.atlas_bitmap[dst_idx + 3] = alpha;
                         }
                     }
                 }
@@ -180,8 +183,12 @@ impl FontPipeline {
                         }
                         let src_idx = (y * width as usize + x) * bpp;
                         let dst_idx = (dst_y * atlas_w + dst_x) * 4;
-                        if dst_idx < self.atlas_bitmap.len() && src_idx + 3 < image.data.len() {
-                            self.atlas_bitmap[dst_idx] = image.data[src_idx + 3];
+                        if dst_idx + 3 < self.atlas_bitmap.len() && src_idx + 3 < image.data.len() {
+                            let alpha = image.data[src_idx + 3];
+                            self.atlas_bitmap[dst_idx] = alpha;
+                            self.atlas_bitmap[dst_idx + 1] = alpha;
+                            self.atlas_bitmap[dst_idx + 2] = alpha;
+                            self.atlas_bitmap[dst_idx + 3] = 255;
                         }
                     }
                 }

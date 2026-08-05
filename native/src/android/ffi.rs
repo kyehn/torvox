@@ -219,6 +219,9 @@ struct RenderState {
     /// Blink phase (0 = visible half, 1 = hidden half) of the last drawn
     /// frame; used to detect phase flips while idle.
     last_blink_phase: Option<u64>,
+    /// Selection state at last draw — used by the idle repaint gate to
+    /// detect selection changes and force a redraw.
+    last_drawn_selection: Option<crate::render::cell_builder::SelectionRange>,
     /// App-level cursor style override (user setting), applied on top of
     /// the terminal's own cursor style. `None` = follow the terminal.
     cursor_style_override: Option<crate::terminal::CursorStyle>,
@@ -252,6 +255,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             cursor_blink_phase_reset_ms: 0,
             last_frame: None,
             last_blink_phase: None,
+            last_drawn_selection: None,
             cursor_style_override: None,
             cursor_style_version: 0,
             last_drawn_style_version: 0,
@@ -1481,17 +1485,18 @@ fn render_inner(session_id: u64) -> jint {
     // critical section is widened by the cached-frame clone. This is
     // accepted: the clone is a bounded 80-byte-per-cell Vec and the
     // render-state lock is never contended by another lock holder.
-    let (cells, cursor_info, rows, cols, is_new_data) = {
+    let (cells, cursor_info, rows, cols, is_new_data, scrollback) = {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&session_id) else {
             log::warn!("render: unknown session {session_id}");
             return -1;
         };
         let session = entry.session.lock();
+        let scrollback = session.terminal().scrollback_length();
         match session.terminal().receive_cell_data() {
             Some((cells, cursor_info)) => {
                 let (rows, cols) = session.grid_size();
-                (cells, cursor_info, rows, cols, true)
+                (cells, cursor_info, rows, cols, true, scrollback)
             }
             None => {
                 // Idle. Blink repaint decision is made below under the
@@ -1508,6 +1513,7 @@ fn render_inner(session_id: u64) -> jint {
                         *cached_rows,
                         *cached_cols,
                         false,
+                        scrollback,
                     ),
                     None => return 0,
                 }
@@ -1556,13 +1562,29 @@ fn render_inner(session_id: u64) -> jint {
         let phase_changed = render_state.last_blink_phase != Some(blink_phase);
         let style_changed =
             render_state.last_drawn_style_version != render_state.cursor_style_version;
-        if !render_state.cursor_blink_enabled && !style_changed {
+        let selection_changed = render_state.selection != render_state.last_drawn_selection;
+        if !render_state.cursor_blink_enabled && !style_changed && !selection_changed {
             return 0;
         }
-        if render_state.cursor_blink_enabled && !phase_changed && !style_changed {
+        if render_state.cursor_blink_enabled
+            && !phase_changed
+            && !style_changed
+            && !selection_changed
+        {
             return 0;
         }
     }
+    // Round-216: selection rows are stored in GRID coordinates (the Kotlin
+    // side uses scrollbackLine(gridRow)), but CellData rows are VISIBLE
+    // rows (0..rows-1 of the viewport). Translate here each frame so the
+    // highlight follows the text as the user scrolls. Done under the
+    // render-state lock only (scrollback was captured under the session
+    // lock above, preserving SESSION_REGISTRY → session → render_state).
+    let render_selection = render_state.selection.map(|mut sel| {
+        sel.start_row -= scrollback as i32;
+        sel.end_row -= scrollback as i32;
+        sel
+    });
     let result = render_state.renderer.render_cell_data(
         &cells,
         rows,
@@ -1571,13 +1593,14 @@ fn render_inner(session_id: u64) -> jint {
         &mut render_state.font_pipeline,
         ATLAS_SIZE as f32,
         ATLAS_SIZE as f32,
-        render_state.selection,
+        render_selection,
         render_state.selection_bg,
         &render_state.search_highlights,
     );
     if result.is_ok() {
         render_state.last_frame = Some((cells, cursor_info, rows, cols));
         render_state.last_blink_phase = Some(blink_phase);
+        render_state.last_drawn_selection = render_state.selection;
         render_state.last_drawn_style_version = render_state.cursor_style_version;
     }
     match result {
@@ -2140,13 +2163,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
             return JNI_TRUE;
         };
         let session = entry.session.lock();
-        // resolve absolute row: scrollback + visible offset
-        let scrollback = session.terminal().scrollback_length();
+        // gridRow from Kotlin is already an absolute row number
+        // (scrollback + visibleOffset - scrollOffset). Do NOT add
+        // scrollback again — that would double-count it.
+        let absolute = row as usize;
         let visible_rows = session.terminal().rows();
-        let absolute = scrollback.saturating_add(row);
+        let scrollback = session.terminal().scrollback_length();
         let mut empty = true;
-        if absolute < visible_rows + scrollback {
-            if let Some(line) = session.terminal().read_line_text(absolute) {
+        if (absolute as u32) < visible_rows + scrollback {
+            if let Some(line) = session.terminal().read_line_text(row) {
                 // Round-209 P2-5: `col` is a CHARACTER column, but the raw
                 // line is UTF-8 — comparing against line.len() (bytes)
                 // misjudged multi-byte cells (CJK/emoji) as empty. Count
@@ -2158,10 +2183,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
                 );
                 empty = char_col >= char_len;
             } else {
-                log::debug!("isCellEmpty({row},{col}): read_line_text({absolute}) returned None (scrollback={scrollback})");
+                log::debug!(
+                    "isCellEmpty({row},{col}): read_line_text({absolute}) returned None (scrollback={scrollback})"
+                );
             }
         } else {
-            log::debug!("isCellEmpty({row},{col}): absolute={absolute} out of range rows+scrollback={}", visible_rows + scrollback);
+            log::debug!(
+                "isCellEmpty({row},{col}): absolute={absolute} out of range rows+scrollback={}",
+                visible_rows + scrollback
+            );
         }
         if empty { JNI_TRUE } else { JNI_FALSE }
     })

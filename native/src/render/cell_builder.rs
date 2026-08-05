@@ -27,7 +27,7 @@ pub struct CellCursor {
 /// A selected range of characters to highlight with a background color.
 ///
 /// Supports Char/Word/Semantic (box), Line (full rows), and Block modes.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct SelectionRange {
     pub start_row: i32,
     pub start_col: i32,
@@ -149,7 +149,9 @@ pub fn build_instances_from_cell_data(
     atlas_width: f32,
     atlas_height: f32,
     selection: Option<SelectionRange>,
-    selection_bg: Option<[f32; 4]>,
+    // Round-216: no longer applied — classic inverse video (fg<->bg swap)
+    // renders the highlight; the parameter is kept for API stability.
+    _selection_bg: Option<[f32; 4]>,
     search_highlights: &[SearchHighlight],
     instances: &mut Vec<CellInstance>,
 ) -> Option<()> {
@@ -207,13 +209,17 @@ pub fn build_instances_from_cell_data(
             std::mem::swap(&mut fg_color, &mut bg_color);
         }
 
-        // Selection highlight: swap fg/bg or apply selection_bg color
+        // Selection highlight: classic terminal inverse video — the selected
+        // cell shows the background color as its text color and the
+        // foreground color as its background (fg<->bg swap), so the text
+        // visibly inverts instead of just getting a background tint
+        // (round-216, reported as "text does not change color when
+        // selected"). selection_bg is deliberately not applied here: on a
+        // dark theme it would keep the text dark on a dark highlight and
+        // break readability; the swap uses the terminal's own fg/bg which
+        // are already theme-derived.
         if selection.unwrap_or_default().contains(cd.row, cd.col, cols) {
-            if let Some(sbg) = selection_bg {
-                bg_color = sbg;
-            } else {
-                std::mem::swap(&mut fg_color, &mut bg_color);
-            }
+            std::mem::swap(&mut fg_color, &mut bg_color);
         }
         // Search highlight overlay (applied on top of selection)
         if let Some(hl) = cell_highlight(cd.row, cd.col, &highlights_by_row) {
@@ -225,6 +231,10 @@ pub fn build_instances_from_cell_data(
         let mut cursor_marker: Option<([f32; 2], [f32; 2], [f32; 4])> = None;
         // Default quad size (used for Block cursor and empty cells)
         let quad_size = [cell_w * cell_span, cell_h];
+        // Round-216: Block cursor height tracks the glyph (ascent+descent in
+        // physical pixels), not the full grid cell — a cell-high block at
+        // 420dpi looks like a giant filled rectangle around a ~66px glyph in
+        // a 79px cell.
 
         if is_cursor {
             let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
@@ -291,13 +301,29 @@ pub fn build_instances_from_cell_data(
                     glyph_advance_width: 0.0,
                 });
             } else {
+                let mut origin = quad_origin;
+                let mut size = quad_size;
+                // Block cursor on an empty cell: height = ascent+descent
+                // (physical), top aligned with where a glyph would sit —
+                // the glyph top edge in the cell is at
+                // (ascent - glyph_top) × raster_scale; for an empty cell we
+                // approximate with the ascent bearing of the default glyph.
+                if is_cursor && matches!(cursor.style, CursorStyle::Block | CursorStyle::Default) {
+                    let cursor_h =
+                        ((ascent_pixels + font_pipeline.descent_pixels()) * raster_scale).max(1.0);
+                    // Top of the em box: ascent × raster_scale. This matches
+                    // where the glyph top lands (glyphs are drawn from the
+                    // ascent line down), keeping cursor and text aligned.
+                    origin[1] += ascent_pixels * raster_scale;
+                    size[1] = cursor_h;
+                }
                 instances.push(CellInstance {
-                    quad_origin,
+                    quad_origin: origin,
                     atlas_offset: [0.0; 2],
                     atlas_size: [0.0; 2],
                     fg_color: effective_fg,
                     bg_color: effective_bg,
-                    quad_size,
+                    quad_size: size,
                     flags: cd.flags as f32,
                     bearing: [0.0; 2],
                     glyph_advance_width: 0.0,
@@ -316,21 +342,39 @@ pub fn build_instances_from_cell_data(
             let uv_w = info.width as f32 / atlas_width;
             let uv_h = info.height as f32 / atlas_height;
             let bearing_x = info.placement.left as f32;
-            let glyph_h = info.height as f32 / raster_scale;
+            // info.height is the rasterized bitmap height in PHYSICAL pixels
+            // (already × raster_scale). Compare against the physical grid
+            // cell height; the centering fallback is then in physical
+            // pixels too (round-216: units must not mix).
+            let glyph_h_px = info.height as f32;
             let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-            let bearing_y = if glyph_h > cell_h {
-                (cell_h - glyph_h) / 2.0 * raster_scale
+            let bearing_y = if glyph_h_px > cell_h {
+                (cell_h - glyph_h_px) / 2.0
             } else {
                 raw_bearing_y
             };
+            let mut origin = glyph_quad_origin;
+            let mut size = glyph_quad_size;
+            // Round-216: Block cursor quad tracks the glyph bitmap: same
+            // height AND top edge as the glyph. Centering the cursor in the
+            // cell misaligned it with the text because the glyph sits on the
+            // font baseline, not at the cell center (reported as "input
+            // pointer not vertically aligned with the text"). The glyph's
+            // top edge inside the cell is exactly raw_bearing_y, so the
+            // cursor quad starts there and keeps the glyph's bearing.
+            if is_cursor && matches!(cursor.style, CursorStyle::Block | CursorStyle::Default) {
+                let cursor_h = glyph_h_px.max(1.0);
+                origin[1] += raw_bearing_y;
+                size[1] = cursor_h;
+            }
 
             instances.push(CellInstance {
-                quad_origin: glyph_quad_origin,
+                quad_origin: origin,
                 atlas_offset: [uv_x, uv_y],
                 atlas_size: [uv_w, uv_h],
                 fg_color: effective_fg,
                 bg_color: effective_bg,
-                quad_size: glyph_quad_size,
+                quad_size: size,
                 flags: cd.flags as f32,
                 bearing: [bearing_x, bearing_y],
                 glyph_advance_width: info.advance_width,
@@ -524,9 +568,12 @@ mod tests {
         assert_eq!(instances[0].bg_color, [1.0, 0.0, 0.0, 1.0]);
     }
 
-    /// Selection with an explicit bg color paints the background.
+    /// Selection with an explicit bg color still uses classic inverse video
+    /// (round-216): the explicit selection bg no longer overrides the swap —
+    /// the terminal's own fg/bg are theme-derived, so the swap keeps the
+    /// selected text readable on both light and dark themes.
     #[test]
-    fn selection_bg_paints_background() {
+    fn selection_bg_does_not_override_inverse_video() {
         let cells = vec![cell_data(
             0,
             0,
@@ -551,12 +598,9 @@ mod tests {
             Some([0.5, 0.5, 0.0, 1.0]),
             &[],
         );
-        assert_eq!(instances[0].bg_color, [0.5, 0.5, 0.0, 1.0]);
-        assert_eq!(
-            instances[0].fg_color,
-            [1.0, 1.0, 1.0, 1.0],
-            "fg unchanged with explicit bg"
-        );
+        // Inverse video: fg<->bg swapped (selection_bg arg ignored).
+        assert_eq!(instances[0].bg_color, [1.0, 1.0, 1.0, 1.0]);
+        assert_eq!(instances[0].fg_color, [0.1, 0.1, 0.1, 1.0]);
     }
 
     /// Search highlight with alpha >= 128 swaps fg/bg then blends bg.
