@@ -42,7 +42,7 @@ constructor(
     }
 
     companion object {
-        const val DEFAULT_FONT_SIZE = 18f
+        const val DEFAULT_FONT_SIZE = 10f
         const val DEFAULT_SCROLLBACK_LINES = 50_000
         private const val DEFAULT_THEME = "Dracula Plus"
         const val DEFAULT_DAY_THEME_NAME = "Catppuccin Latte"
