@@ -838,6 +838,14 @@ constructor(
                     LogUtil.d("Runtime", "render thread started for session ${entry.id} generation=$generation")
                     while (entry.running && renderGeneration.get() == generation) {
                         try {
+                            // Render loop pacing reference (warp-mobile §14.3):
+                            // the terminal-optimal pattern is SurfaceView +
+                            // Choreographer vsync + dirty-cell incremental push.
+                            // torvox currently polls on a render thread; if the
+                            // emulator frame rate becomes a bottleneck, switch
+                            // the Kotlin side to Choreographer callbacks that
+                            // wake this loop only on vsync (see
+                            // docs/reference-projects.md §14.3/§15.2).
                             val bridge = entry.bridge ?: break
                             val selectionSnapshot = selectionState.get()
                             if (selectionSnapshot != lastSelection) {
