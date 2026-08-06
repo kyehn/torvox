@@ -480,6 +480,21 @@ constructor(
             // Selection rows are stored in grid coordinates (0 = top of
             // scrollback), so pass them to scrollbackLine() directly — no
             // viewport conversion here.
+            //
+            // Line-join semantics reference (moke repo §14.2): getSelectedText
+            // must distinguish soft-wrapped rows (concatenate without '\n')
+            // from hard line breaks. torvox uses scrollbackLine() per row and
+            // inserts '\n' between rows — soft-wrap detection is a known gap
+            // vs moke's row-flag approach.
+            //
+            // Known gap vs termux-app (TerminalBuffer.java:52-106): its
+            // getSelectedText is wrap-aware (softWrapped rows join without
+            // newline) and TerminalRow.findStartOfColumn (:92-120) converts
+            // wide-char columns to char indices so CJK rows substring(col)
+            // never splits a surrogate/wide glyph. torvox's per-row
+            // scrollbackLine + '\n' join mis-renders wrapped long lines and
+            // can cut CJK columns at byte boundaries — see
+            // docs/reference/research-termux-app-extra.md §9 (P0 gaps 1-2).
             val visibleCols =
                 runtime.state.value.cols
                     .coerceAtLeast(1)

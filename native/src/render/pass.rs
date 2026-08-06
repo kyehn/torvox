@@ -107,7 +107,17 @@ impl Renderer {
     ) -> Option<wgpu::SurfaceTexture> {
         // Mali-G57 (Unisoc SoCs) can hang vkAcquireNextImageKHR indefinitely when
         // SURFACE_VIEW_FORMATS is missing. Use a persistent worker thread with a
-        // timeout to prevent blocking the render thread forever. The worker thread
+        // timeout to prevent blocking the render thread forever.
+        //
+        // Reference (wgpu-in-app app-surface/src/lib.rs:210-235): acquire retry
+        // pattern — Outdated/Lost → surface.configure → retry once.  Our worker
+        // thread handles Lost inline; wgpu-in-app also handles Timeout/Outdated
+        // but we currently treat those as permanent failures (Mali-G57-specific).
+        //
+        // Reference (zelland WGPU_FIXES.md Fix 1): atlas format must equal
+        // surface format; wgpu-in-app notes Android view_formats must be
+        // vec![format] (downlevel SURFACE_VIEW_FORMATS not supported).
+        // The worker thread
         // is created once (via OnceLock) and reused across all frames, avoiding the
         // ~1ms per-frame overhead of std::thread::spawn on Android.
         let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel::<AcquireResult>(1);

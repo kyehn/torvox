@@ -15,6 +15,12 @@ class BootstrapInstaller(
     private val stagingDir: File,
     private val onProgress: BootstrapProgressCallback? = null,
 ) {
+    // Atomic-install reference: warp-mobile-android crates/android-host/src/bootstrap.rs:1-48
+    // — extract to usr.tmp/ then write a .bootstrap-version.json marker whose
+    // value is the bootstrap zip's sha256, so a kill-mid-extract can never look
+    // "installed" and a corrupted zip is detected on next launch. torvox stages
+    // into stagingDir then renames (see installBootstrap); adding the sha256
+    // sidecar is a P0 hardening item (docs/reference/research-warp.md §3).
     companion object {
         const val COPY_BUFFER_SIZE = 8096
         const val MAX_SYMLINKS_BYTES = 1024 * 1024
@@ -76,6 +82,8 @@ class BootstrapInstaller(
         // Only clear the staging area. The existing prefix must survive until the
         // new bootstrap is fully extracted and atomically swapped in (see atomicRename),
         // otherwise a failed install would leave the user with no working bootstrap.
+        // This staging + atomic-swap design matches termux TermuxInstaller.java:137-257
+        // (staging dir + SYMLINKS.txt + renameTo atomic switch + rollback).
         delete(stagingDir)
     }
 

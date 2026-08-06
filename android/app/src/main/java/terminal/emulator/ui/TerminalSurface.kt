@@ -9,6 +9,7 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.util.AttributeSet
 import android.util.Log
+import android.view.ActionMode
 import android.view.GestureDetector
 import android.view.InputDevice
 import android.view.KeyEvent
@@ -164,8 +165,23 @@ constructor(
 
     private var selectionActionMode: android.view.ActionMode? = null
 
-    private val selectionActionModeCallback =
-        object : android.view.ActionMode.Callback {
+    /**
+     * System selection toolbar (ActionMode).
+     *
+     * Reference: ghostty-android TerminalView.java:1423-1505 and termux-app
+     * TextSelectionCursorController.java:110-215. Both use
+     * ActionMode.TYPE_FLOATING so the toolbar floats near the selection
+     * instead of pinning to the top. The full anchoring (Callback2 +
+     * onGetContentRect — exact selection rect, single-line narrowing,
+     * handle-height offset) is deferred: Kotlin requires
+     * `object : ActionMode.Callback2()` (constructor parens — Callback2 is an
+     * abstract class, not an interface) and the system positions TYPE_FLOATING
+     * reasonably even without it. Menu order/content mirrors termux
+     * (COPY/SELECT_ALL/PASTE; PASTE enabled only when the clipboard has text —
+     * ghostty-android clipboardHasText() metadata check avoids the clipboard
+     * access toast).
+     */
+    private inner class SelectionActionCallback : android.view.ActionMode.Callback {
             override fun onCreateActionMode(
                 mode: android.view.ActionMode,
                 menu: android.view.Menu,
@@ -237,6 +253,7 @@ constructor(
             override fun onDestroyActionMode(mode: android.view.ActionMode) {
                 selectionActionMode = null
             }
+
         }
 
     /**
@@ -248,10 +265,10 @@ constructor(
     fun showSelectionMenu(pasteOnly: Boolean) {
         hideSelectionMenu()
         if (!isAttachedToWindow) return
-        // ActionMode menu content is built from the current selection state
-        // in onCreateActionMode.
+        // TYPE_FLOATING positions the toolbar near onGetContentRect instead of
+        // at the top — the key pattern from ghostty-android and termux.
         @Suppress("DEPRECATION")
-        selectionActionMode = startActionMode(selectionActionModeCallback)
+        selectionActionMode = startActionMode(SelectionActionCallback(), ActionMode.TYPE_FLOATING)
     }
 
     /** Dismiss the system selection toolbar. */
@@ -1075,6 +1092,12 @@ constructor(
     // the drag started (grid coordinates). Drag deltas are computed relative
     // to this anchor because the handle window hangs below its anchor cell —
     // raw touch pixels would resolve to the row below the boundary.
+    //
+    // Reference: termlib applyHandleDrag (Terminal.kt:1899-1935) uses the same
+    // anchor semantics plus a CROSSING FLIP — when the dragged handle crosses
+    // the stationary one, ownership swaps and the stationary handle returns to
+    // its pre-cross position. torvox currently only coerceIn-clamps (no flip);
+    // mirrored as P1 gap (round-217, research-termlib.md deep-v4).
     private var dragAnchorRow = 0
     private var dragAnchorCol = 0
 
@@ -1338,6 +1361,14 @@ constructor(
         x: Float,
         y: Float,
     ) {
+        // Reference (ghostty-android TerminalView.java:1085-1100):
+        // ghostty-android uses tapCount (double-tap = word, triple-tap = line)
+        // instead of long-press for word selection.  Our long-press → word
+        // selection via SelectionExpander is equivalent but different UX.
+        // ghostty-android also disables GestureDetector's built-in double-tap
+        // detection (setOnDoubleTapListener(null)) so onSingleTapUp fires for
+        // every tap and handleTap() counts them — more responsive than the
+        // default 300ms+ double-tap timeout.
         if (scaleFactor < ZOOM_THRESHOLD_LOW || scaleFactor > ZOOM_THRESHOLD_HIGH) return
         isAfterLongPress = true
 

@@ -49,6 +49,12 @@ pub async fn initialize_wgpu()
     // The GLES backend (EGL window surface) is the mature gfxstream path and
     // renders correctly on both emulators and physical devices. Physical
     // devices support both; prefer GL for consistency.
+    //
+    // Reference: shashlik-map app-surface/src/android.rs:25-37 — same
+    // is_emulator ? Backends::GL : Backends::VULKAN split, plus a GL
+    // fallback retry after Vulkan adapter failure (wgpu#2384 GL backend
+    // quirks). torvox hardcodes GL on Android instead; revisit if physical
+    // devices show GLES perf issues.
     #[cfg(target_os = "android")]
     let backends = wgpu::Backends::GL;
     #[cfg(not(target_os = "android"))]

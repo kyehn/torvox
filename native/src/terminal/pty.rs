@@ -98,6 +98,14 @@ impl PtyPair {
     ///
     /// **DO NOT add `log::debug!`, `format!`, or any allocation in the
     /// child branch after `fork()`.**
+    ///
+    /// Reference: warp-mobile-android crates/android-host/src/pty.rs:106-160
+    /// — identical AS-safe discipline (pre-built CStrings, setsid +
+    /// TIOCSCTTY, 24x80 TIOCSWINSZ seed, errno via write(2) on execve
+    /// failure). torvox encodes the execve errno in the exit code
+    /// (100 + errno) decoded by the wait thread; warp writes it directly
+    /// to stderr. Both are correct; the write(2) variant is more
+    /// immediately visible in logcat.
     pub fn spawn(shell: &str, rows: u16, cols: u16, env: &ShellEnv) -> Result<Self, PtyError> {
         let winsize = nix::pty::Winsize {
             ws_row: rows,
@@ -652,6 +660,41 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
         ),
         ("LANG".to_string(), DEFAULT_LANG.to_string()),
     ];
+    // Round-217 (recheck round-3): passthrough of Android system env vars.
+    // Reference (termux-kotlin AndroidShellEnvironment.kt:19-66,
+    // https://github.com/reapercanuk39/termux-kotlin-app):
+    //   ANDROID_ASSETS/ANDROID_DATA/ANDROID_ROOT/ANDROID_STORAGE/
+    //   EXTERNAL_STORAGE/ASEC_MOUNTPOINT/LOOP_MOUNTPOINT/
+    //   ANDROID_RUNTIME_ROOT/ANDROID_ART_ROOT/ANDROID_I18N_ROOT/
+    //   ANDROID_TZDATA_ROOT/BOOTCLASSPATH/DEX2OATBOOTCLASSPATH/
+    //   SYSTEMSERVERCLASSPATH
+    // EXTERNAL_STORAGE is required for /system/bin/am to work on at
+    // least Samsung S7 (termux-kotlin comment); a Termux-bootstrap shell
+    // that invokes `am`/`content` needs these. Only vars present in the
+    // host process env are forwarded (values differ per device/Android
+    // version — hardcoding like the old ANDROID_ROOT=/system would be
+    // wrong on API 26+ where ANDROID_ROOT may be /system or /system_ext).
+    const ANDROID_ENV_VARS: &[&str] = &[
+        "ANDROID_ASSETS",
+        "ANDROID_DATA",
+        "ANDROID_ROOT",
+        "ANDROID_STORAGE",
+        "EXTERNAL_STORAGE",
+        "ASEC_MOUNTPOINT",
+        "LOOP_MOUNTPOINT",
+        "ANDROID_RUNTIME_ROOT",
+        "ANDROID_ART_ROOT",
+        "ANDROID_I18N_ROOT",
+        "ANDROID_TZDATA_ROOT",
+        "BOOTCLASSPATH",
+        "DEX2OATBOOTCLASSPATH",
+        "SYSTEMSERVERCLASSPATH",
+    ];
+    for key in ANDROID_ENV_VARS {
+        if let Ok(value) = std::env::var(key) {
+            result.push((key.to_string(), value));
+        }
+    }
     if let Some(p) = prefix {
         result.push(("PREFIX".to_string(), p.to_string()));
         result.push(("TMPDIR".to_string(), format!("{p}/tmp")));
@@ -685,8 +728,21 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     result.push(("PWD".to_string(), env.working_directory.clone()));
     result.push(("LINES".to_string(), rows.to_string()));
     result.push(("COLUMNS".to_string(), cols.to_string()));
-    // Remove keys that extras will override, then append extras.
-    // This deduplicates by keeping the last value (OS convention for execve).
+    // Reference (zed-android-port adapters/bootstrap.rs env_for_terminal
+    // :386-434, https://github.com/GeneralKaos666/zed-android-port):
+    // a Termux-bootstrap PTY also needs TERMUX__ROOTFS / TERMUX__PREFIX /
+    // TERMUX__HOME / TERMUX_APP__PACKAGE_NAME / HOME=$termux_home and,
+    // when $PREFIX/etc/tls/cert.pem exists, SSL_CERT_FILE + CURL_CA_BUNDLE
+    // so cargo/npm/curl don't fail with "unable to get local issuer
+    // certificate". torvox currently sets only LD_PRELOAD + HOME/USER/... ;
+    // the Termux-var block + cert vars are a P0 bootstrap-env gap.
+    // Reference (std::env overlay): terminal.rs insert_zed_terminal_env
+    // :123-161 copies HOME/PATH/SHELL/TMPDIR/LANG then applies the overlay.
+    // Kill-chain reference: terminal.rs kill_active_task (:2276-2288)
+    // calls pty_info.rs kill_current_process (:144-149, tcgetpgrp ->
+    // killpg SIGKILL on the foreground process GROUP) then
+    // kill_child_process (:156-158, single-pid SIGKILL); torvox
+    // session.rs send_signal() only kills the direct child pid.
     for (key, _) in &env.extra {
         result.retain(|(k, _)| k != key);
     }
@@ -866,6 +922,52 @@ mod tests {
                 .iter()
                 .any(|(k, v)| k == "ANDROID_ROOT" && v == "/system")
         );
+    }
+
+    #[test]
+    fn base_env_passthrough_android_vars_from_host() {
+        // Round-217: Android system env vars present in the host process
+        // env must be forwarded (termux-kotlin AndroidShellEnvironment
+        // pattern). Set one and verify it appears; unset others stay absent.
+        unsafe {
+            std::env::set_var("ANDROID_ROOT", "/system_ext");
+        }
+        unsafe {
+            std::env::set_var("EXTERNAL_STORAGE", "/sdcard");
+        }
+        let result = base_env(None);
+        assert!(
+            result
+                .iter()
+                .any(|(k, v)| k == "ANDROID_ROOT" && v == "/system_ext"),
+            "host ANDROID_ROOT must be forwarded as-is, not hardcoded"
+        );
+        assert!(
+            result
+                .iter()
+                .any(|(k, v)| k == "EXTERNAL_STORAGE" && v == "/sdcard")
+        );
+        // Cleanup: unset so other tests are not polluted.
+        unsafe {
+            std::env::remove_var("ANDROID_ROOT");
+            std::env::remove_var("EXTERNAL_STORAGE");
+        }
+    }
+
+    #[test]
+    fn base_env_does_not_invent_android_vars() {
+        // Vars absent from the host env must NOT be fabricated (no
+        // hardcoded /system default — values differ per Android version).
+        unsafe {
+            std::env::remove_var("ANDROID_ROOT");
+            std::env::remove_var("BOOTCLASSPATH");
+        }
+        let result = base_env(None);
+        assert!(
+            !result.iter().any(|(k, _)| k == "ANDROID_ROOT"),
+            "absent host var must stay absent"
+        );
+        assert!(!result.iter().any(|(k, _)| k == "BOOTCLASSPATH"));
     }
 
     #[test]
