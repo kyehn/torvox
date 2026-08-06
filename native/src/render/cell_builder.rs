@@ -205,6 +205,9 @@ pub fn build_instances_from_cell_data(
         // SGR 7 reverse video: swap foreground and background colors
         // Check reverse attribute (bit 2 in new layout matching old path's
         // `cell.reverse` bit position used by pack_style_flags → shader).
+        // Matches termux TerminalRenderer.java:182-187 (selection &
+        // reverseVideo fold into the same fg/bg swap) and Ghostty's
+        // renderer inverse-video handling.
         if (cd.flags >> REVERSE_BIT) & 1 == 1 {
             std::mem::swap(&mut fg_color, &mut bg_color);
         }

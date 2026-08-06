@@ -376,6 +376,12 @@ impl Renderer {
     /// guarantees `ptr` is a valid `ANativeWindow*` that stays alive until
     /// [`Renderer::release_surface`] (or drop) — ownership is transferred
     /// to wgpu, which holds its own reference via `Surface::from_...`.
+    ///
+    /// Reference (zelland + wgpu-in-app): the surface lifecycle is driven by
+    /// the Android SurfaceHolder.Callback (attach/release here), never by the
+    /// Activity lifecycle; sizes are re-queried every frame; after attach the
+    /// renderer must render immediately (zelland WGPU_FIXES.md Fix 2), and
+    /// acquire failures (Timeout/Outdated/Lost) must reconfigure + retry.
     #[cfg(target_os = "android")]
     pub fn attach_surface(
         &mut self,
@@ -547,6 +553,13 @@ impl Renderer {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
+            // Textures sampled in shaders are independent of the render-target
+            // (swapchain) format, so a fixed Rgba8Unorm is fine for both the
+            // background image and the glyph atlas. Reference: zelland
+            // WGPU_FIXES.md Fix 1 documents that glyphon's TextAtlas must
+            // match the surface format ONLY because glyphon renders into its
+            // atlas with the pipeline's render-pass format; direct shader
+            // sampling (our path) has no such constraint.
             format: wgpu::TextureFormat::Rgba8Unorm,
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             view_formats: &[],
@@ -640,6 +653,10 @@ pub const MIN_ATLAS_BUFFER_SIZE: u64 = 64;
 
 impl Renderer {
     pub fn create_atlas_texture(&mut self, width: u32, height: u32) {
+        // NOTE: atlas size must be clamped to the adapter's
+        // max_texture_dimension_2d limit (some GPUs report only 2048;
+        // zelland WGPU_FIXES.md pitfall #9). Callers currently pass a fixed
+        // 1024x1024 atlas, which is safe; if this ever grows, clamp here.
         let texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("Atlas Texture"),
             size: wgpu::Extent3d {
