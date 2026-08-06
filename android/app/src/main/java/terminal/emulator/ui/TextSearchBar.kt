@@ -82,6 +82,14 @@ fun findMatches(
     matchCase: Boolean = false,
 ): List<SearchResult> {
     if (query.isEmpty()) return emptyList()
+    // Reference: GNOME Console kgx-tab.c:191-250 — when the user narrows a
+    // query (backspace), the highlighted match must stay on the current hit
+    // instead of jumping to an earlier one ("baz" → "ba" must not re-match
+    // "bar"). Console detects narrowing via g_strrstr(last_search, search)
+    // and reorders set-regex/find. torvox recomputes all matches here; the
+    // caller (TextSearchBar) should keep the current index pinned when the
+    // new query is a prefix of the previous one — see
+    // docs/reference/research-gnome-console.md §2.
     val lines = text.split("\n")
     val results = mutableListOf<SearchResult>()
     for ((lineIndex, line) in lines.withIndex()) {
