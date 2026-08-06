@@ -629,6 +629,16 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── Input ─────────────────────────────────────────────────────────
+    // Command-safety reference (sushi-ssh CommandSafety.kt:1-220,
+    // https://github.com/hlan-net/sushi-ssh-client): three-level shell
+    // command classifier — SAFE (read-only, auto-exec) / CONFIRM (write,
+    // ask user) / BLOCKED (never: shutdown, rm -rf /, fork-bomb, `curl |
+    // bash` via shell-interpreter pipe/chain detection). torvox has no
+    // MCP run_command tool today; if one is added (e.g. an agent reading
+    // the terminal writes commands), classify first with a port of this
+    // classifier plus a visible CONFIRM surface, never execute a
+    // BLOCKED pattern. Same idea also protects any future "tap to run a
+    // suggested command" affordance.
     fun writeToPty(data: ByteArray): Boolean {
         if (sessionId == 0L) return false
         try {

@@ -6,6 +6,18 @@ package terminal.emulator.bridge
  *
  * Pure Kotlin so the boundary rules are unit-testable without the native
  * engine (round-214). Used by [NativeQueryPort.expandAndSetSelection].
+ *
+ * References:
+ *  - termux-app TextSelectionCursorController.setInitialTextSelectionPosition
+ *    (:93-108): whitespace stops expansion, non-blank expands to the token.
+ *  - Haven SelectionToolbar.expandSelectionToWord (:40-90) + expandAcrossUrlWrap
+ *    (:120-214): non-whitespace token + wrapped-URL continuation across rows —
+ *    the multi-row URL case is NOT handled here yet (single-line only).
+ *  - termlib SelectionManager.adjustSelectionForMode (:288-320): mode switch
+ *    re-expands the range (WORD → word boundaries) — not yet mirrored here.
+ *  - termlib UrlDetection.trimDetectedUrl (:12-35): trailing-punctuation trim
+ *    (`,.;:!`) + bracket-pair counting for `)`/`]` — NOT yet mirrored:
+ *    `https://x.com/a).` currently selects the trailing `).` (P0 gap, round-217).
  */
 object SelectionExpander {
 
