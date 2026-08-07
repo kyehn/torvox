@@ -1327,10 +1327,14 @@ constructor(
     )
 
     internal suspend fun computeFontSizeTenths(): Int {
+        // fontSize is in sp (SettingsRepository default 10f). fontSizeTenths
+        // is the same value in tenths of a sp (native font pipeline consumes
+        // sp directly — the raster scale applies the density). Multiplying
+        // by density here double-scaled the font (10sp → 225 tenths = 22.5sp)
+        // and made the Settings slider disagree with the rendered size
+        // (round-218: "font size setting vs actual mismatch").
         val userFontSize = settingsRepository.fontSize.first()
-        val density = context.resources.displayMetrics.density
-        val cellHeightPixels = userFontSize * density
-        return (cellHeightPixels * TENTHS_PER_UNIT.toFloat()).toInt()
+        return (userFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
     }
 
     internal suspend fun resolveThemeName(): String {

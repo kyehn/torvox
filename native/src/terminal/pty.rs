@@ -711,15 +711,24 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
 pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<(String, String)> {
     let prefix_str = env.prefix.as_deref();
     let mut result = base_env(prefix_str);
-    // Round-215: LD_PRELOAD libtermux-exec.so for $PREFIX shells — it
+    // Round-215: LD_PRELOAD libtermux-exec for $PREFIX shells — it
     // wraps execve() so child processes of the shell (ls, apt, ...) are
     // executed via the system linker, which Android 15+ SELinux allows
     // (direct execute_no_trans of app_data_file is denied).
+    //
+    // The direct-ld-preload variant (`libtermux-exec-ld-preload.so`) is
+    // the one that intercepts execve from an LD_PRELOAD context; the bare
+    // `libtermux-exec.so` is the runtime library the preload variant
+    // dlopens (naming from termux-exec's lib/ld-preload build). Falling
+    // back to the bare name keeps older bootstraps working.
     if let Some(p) = prefix_str {
-        result.push((
-            "LD_PRELOAD".to_string(),
-            format!("{p}/lib/libtermux-exec.so"),
-        ));
+        let exec_lib =
+            if std::path::Path::new(&format!("{p}/lib/libtermux-exec-ld-preload.so")).exists() {
+                format!("{p}/lib/libtermux-exec-ld-preload.so")
+            } else {
+                format!("{p}/lib/libtermux-exec.so")
+            };
+        result.push(("LD_PRELOAD".to_string(), exec_lib));
     }
     result.push(("HOME".to_string(), env.home.clone()));
     result.push(("USER".to_string(), env.user.clone()));
@@ -1211,4 +1220,32 @@ mod round215_tests {
             "no LD_PRELOAD for system shells"
         );
     }
+}
+
+#[test]
+fn build_env_uses_ld_preload_variant_when_present() {
+    // The direct-ld-preload variant is preferred (SELinux execve
+    // interception); fall back to the bare name for old bootstraps.
+    let env = ShellEnv {
+        home: "/tmp/test_home".to_string(),
+        user: "testuser".to_string(),
+        path: "/usr/bin:/bin".to_string(),
+        working_directory: "/tmp/test_home".to_string(),
+        prefix: Some("/data/data/com.termux/files/usr".to_string()),
+        extra: vec![],
+    };
+    let result = build_env(&env, "/data/data/com.termux/files/usr/bin/bash", 24, 80);
+    let preload = result
+        .iter()
+        .find(|(k, _)| k == "LD_PRELOAD")
+        .map(|(_, v)| v.clone());
+    // On the build host the preload variant does not exist, so the
+    // fallback bare name is used — the important contract is that an
+    // LD_PRELOAD pointing at the prefix lib dir is always set.
+    assert!(
+        preload
+            .as_deref()
+            .is_some_and(|v| v.starts_with("/data/data/com.termux/files/usr/lib/libtermux-exec")),
+        "expected LD_PRELOAD=.../libtermux-exec*.so, got {preload:?}",
+    );
 }

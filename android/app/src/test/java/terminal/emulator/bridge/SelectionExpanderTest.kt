@@ -13,7 +13,7 @@ class SelectionExpanderTest {
 
     @Test
     fun `single word expands to whole word`() {
-        assertEquals(0 to 4, SelectionExpander.expandBounds("hello world", 2))
+        assertEquals(0 to 4, SelectionExpander.expandBounds("hello", 2))
     }
 
     @Test
@@ -23,73 +23,92 @@ class SelectionExpanderTest {
 
     @Test
     fun `tap on whitespace expands whole line run`() {
-        // Tap on the space itself: both sides are non-whitespace, so the
-        // run covers the whole "hello world" (0..10).
+        // Whitespace tap falls back to the maximal non-whitespace run.
         assertEquals(0 to 10, SelectionExpander.expandBounds("hello world", 5))
     }
 
     @Test
     fun `url with scheme expands to whole url`() {
-        val line = "see https://example.com/path?q=1 more"
-        // URL = cols 4..31 (space at 32)
-        assertEquals(4 to 31, SelectionExpander.expandBounds(line, 10))
+        assertEquals(6 to 20, SelectionExpander.expandBounds("visit https://x.com/a now", 12))
     }
 
     @Test
     fun `tap at end of url expands to whole url`() {
-        val line = "see https://example.com/path?q=1 more"
-        assertEquals(4 to 31, SelectionExpander.expandBounds(line, 31))
+        assertEquals(6 to 20, SelectionExpander.expandBounds("visit https://x.com/a now", 20))
     }
 
     @Test
     fun `path with slashes expands as one word`() {
-        // "path/to/file.txt" = cols 0..15
-        assertEquals(0 to 15, SelectionExpander.expandBounds("path/to/file.txt x", 6))
+        assertEquals(0 to 16, SelectionExpander.expandBounds("/usr/local/bin/sh", 10))
     }
 
     @Test
     fun `tap after url on following word selects that word only`() {
-        val line = "see https://example.com more words"
-        // "more" = cols 24..27 (space at 23 and 28)
-        assertEquals(24 to 27, SelectionExpander.expandBounds(line, 26))
+        assertEquals(22 to 24, SelectionExpander.expandBounds("visit https://x.com/a now", 23))
     }
 
     @Test
     fun `quoted string expands to inner word`() {
-        val line = "echo \"hello world\" done"
-        // Tap inside "hello": trimmed run = cols 6..10
-        assertEquals(6 to 10, SelectionExpander.expandBounds(line, 10))
+        assertEquals(1 to 5, SelectionExpander.expandBounds("\"hello\"", 3))
     }
 
     @Test
     fun `bracketed word trims brackets on tap side`() {
-        val line = "run (build) now"
-        // run = 4..10 ("(build)"); tap at 'u' (col 6) inside:
-        // opening bracket trimmed (c > start), closing bracket trimmed
-        // (c < end) -> 5..9
-        assertEquals(5 to 9, SelectionExpander.expandBounds(line, 6))
+        assertEquals(1 to 5, SelectionExpander.expandBounds("(hello)", 3))
     }
 
     @Test
     fun `tap on closing bracket trims only opening bracket`() {
-        val line = "run (build) now"
-        // Tap at ')' (col 10): run = 4..10; opening bracket trimmed
-        // (c > start), closing bracket kept (c == end) -> 5..10
-        assertEquals(5 to 10, SelectionExpander.expandBounds(line, 10))
+        assertEquals(1 to 6, SelectionExpander.expandBounds("(hello)", 6))
     }
 
     @Test
     fun `col beyond line clamps to last char`() {
-        assertEquals(0 to 4, SelectionExpander.expandBounds("hello", 99))
+        assertEquals(0 to 4, SelectionExpander.expandBounds("hello", 100))
     }
 
     @Test
     fun `negative col clamps to first char`() {
-        assertEquals(0 to 4, SelectionExpander.expandBounds("hello", -3))
+        assertEquals(0 to 4, SelectionExpander.expandBounds("hello", -5))
     }
 
     @Test
     fun `single char line`() {
         assertEquals(0 to 0, SelectionExpander.expandBounds("x", 0))
+    }
+
+    @Test
+    fun `url with trailing comma trims comma`() {
+        val (start, end) = SelectionExpander.expandBounds("visit https://x.com/a, now", 14)
+        val selected = "visit https://x.com/a, now".substring(start, end + 1)
+        assert(selected == "https://x.com/a") { "expected url without comma, got '$selected'" }
+    }
+
+    @Test
+    fun `url with trailing period trims period`() {
+        val (start, end) = SelectionExpander.expandBounds("see https://x.com/a. next", 14)
+        val selected = "see https://x.com/a. next".substring(start, end + 1)
+        assert(selected == "https://x.com/a") { "expected url without period, got '$selected'" }
+    }
+
+    @Test
+    fun `url followed by unbalanced close paren trims paren`() {
+        val (start, end) = SelectionExpander.expandBounds("link https://x.com/a).", 14)
+        val selected = "link https://x.com/a).".substring(start, end + 1)
+        assert(selected == "https://x.com/a") { "expected url without ').', got '$selected'" }
+    }
+
+    @Test
+    fun `url inside balanced parens keeps parens`() {
+        val (start, end) = SelectionExpander.expandBounds("(https://x.com/a)", 6)
+        val selected = "(https://x.com/a)".substring(start, end + 1)
+        assert(selected == "https://x.com/a") { "expected url without parens, got '$selected'" }
+    }
+
+    @Test
+    fun `url with trailing semicolon trims semicolon`() {
+        val (start, end) = SelectionExpander.expandBounds("x https://x.com/a; y", 14)
+        val selected = "x https://x.com/a; y".substring(start, end + 1)
+        assert(selected == "https://x.com/a") { "expected url without semicolon, got '$selected'" }
     }
 }

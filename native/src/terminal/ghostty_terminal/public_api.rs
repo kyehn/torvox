@@ -466,6 +466,39 @@ impl super::GhosttyTerminal {
             .ok()
     }
 
+    /// Encode a mouse event (pixel position, action, button) into terminal
+    /// escape sequences using the Ghostty mouse encoder. `cell_w`/`cell_h`
+    /// are the renderer's live cell dimensions so the pixel→cell mapping
+    /// matches what is displayed (zelland `get_cell_size()` pattern).
+    ///
+    /// Returns an empty Vec when mouse reporting is disabled (no DECSET
+    /// 1000/1002/1003) or encoding fails — the caller drops the event.
+    pub fn encode_mouse_event(
+        &self,
+        position: (f32, f32),
+        action: u8,
+        button: u8,
+        cell_w: f32,
+        cell_h: f32,
+    ) -> Option<Vec<u8>> {
+        let (tx, rx) = bounded(1);
+        if let Err(error) = self.cmd_tx.try_send(Command::EncodeMouseEvent {
+            position,
+            action,
+            button,
+            cell_w,
+            cell_h,
+            tx,
+        }) {
+            log::warn!(
+                "ghostty_terminal: cmd_tx full/dropped failed for EncodeMouseEvent: {error}"
+            );
+            return None;
+        }
+        rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS))
+            .ok()
+    }
+
     /// Submit a key for encoding and return a receiver for the result.
     /// The caller should NOT hold any session lock while waiting on the returned receiver.
     pub fn key_encode_submit(
