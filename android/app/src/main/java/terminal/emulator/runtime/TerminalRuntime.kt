@@ -1147,9 +1147,34 @@ constructor(
          * after exit handling. Exceptions here must never skip the loop's
          * per-frame bookkeeping (caller wraps us in the outer try).
          */
+        fun announceAccessibility(content: String) {
+            // termlib AccessibilityOverlay live-region pattern: announce
+            // via the platform accessibility manager so TalkBack reads
+            // events (bell, notifications) even though the terminal is a
+            // self-drawn SurfaceView with no text nodes.
+            try {
+                val am =
+                    context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE)
+                        as? android.view.accessibility.AccessibilityManager
+                if (am != null && am.isEnabled) {
+                    @Suppress("DEPRECATION")
+                    val event =
+                        android.view.accessibility.AccessibilityEvent
+                            .obtain(android.view.accessibility.AccessibilityEvent.TYPE_ANNOUNCEMENT)
+                    event.text.add(content)
+                    am.sendAccessibilityEvent(event)
+                }
+            } catch (exception: Exception) {
+                LogUtil.w("Runtime", "announceAccessibility failed", exception)
+            }
+        }
+
         fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
             if (poll.bel) {
                 bellToneGenerator.startTone(BEL_TONE_TYPE, BEL_TONE_DURATION_MILLIS)
+                // Accessibility (termlib AccessibilityOverlay live-region
+                // pattern): announce the bell so TalkBack users hear it.
+                announceAccessibility("Bell")
             }
             if (poll.notification != null) {
                 val (title, body) = poll.notification
@@ -1162,6 +1187,7 @@ constructor(
                 terminal.emulator.ui
                     .TerminalNotificationHelper(context)
                     .showNotification(title, body)
+                announceAccessibility(if (title.isNotEmpty()) title else body)
             }
             if (poll.clipboard != null) {
                 clipboardAccess.setClipboardText(poll.clipboard)
@@ -2543,6 +2569,12 @@ constructor(
         }
         LogUtil.w("Runtime", "writeToPty: no active running session to receive write")
         return false
+    }
+
+    /** Feed bytes directly to the VT parser (test path for escape sequences). */
+    fun feedTerminal(data: ByteArray): Boolean {
+        val entry = sessions[activeSessionId] ?: return false
+        return entry.bridge?.feedTerminal(data) ?: false
     }
 
     fun bridge(): Bridge? = sessions[activeSessionId]?.bridge

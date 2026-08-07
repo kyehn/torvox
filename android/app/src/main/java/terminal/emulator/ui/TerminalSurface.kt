@@ -1160,8 +1160,39 @@ constructor(
     private var dragAnchorRow = 0
     private var dragAnchorCol = 0
 
-    private fun dragTargetFromTouch(touchX: Float, touchY: Float): Pair<Int, Int> {
-        val anchorLocalY = (dragAnchorRow + 1) * cellHeight
+    /**
+     * Opens an OSC 8 hyperlink at viewport pixel (px, py), if any.
+     * Mirrors termux TerminalView.openLinkAt: pixel→cell mapping through
+     * cellWidth/cellHeight, then queries the native hyperlink URI and
+     * launches the system handler. Returns true when a link was opened.
+     */
+    private fun openLinkAt(px: Float, py: Float): Boolean {
+        if (cellWidth <= 0f || cellHeight <= 0f) return false
+        val col = (px / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
+        val row = (py / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+        val gridRow = currentScrollbackLength() - scrollOffset + row
+        val bridge = viewModel?.runtime?.bridge() ?: return false
+        val url = bridge.hyperlinkAt(gridRow, col) ?: return false
+        if (url.isBlank()) return false
+        val uri = try {
+            android.net.Uri.parse(url.trim())
+        } catch (e: Exception) {
+            LogUtil.w(TAG, "openLinkAt: bad URI", e)
+            return false
+        }
+        return try {
+            val intent =
+                android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            true
+        } catch (e: Exception) {
+            LogUtil.w(TAG, "openLinkAt: no handler for $uri", e)
+            false
+        }
+    }
+
+    private fun dragTargetFromTouch(touchX: Float, touchY: Float): Pair<Int, Int> {        val anchorLocalY = (dragAnchorRow + 1) * cellHeight
         val deltaRows = ((touchY - anchorLocalY) / cellHeight).roundToInt()
         val row = (dragAnchorRow + deltaRows).coerceIn(0, (rows - 1).coerceAtLeast(0))
         val anchorLocalX =
@@ -1312,6 +1343,12 @@ constructor(
                     // making scrollback feel unusable ("scrolling doesn't work").
                     isScrolling = false
                     onScrollingStateChanged?.invoke(false)
+                    return true
+                }
+                // OSC 8 hyperlink tap (termux TerminalView.openLinkAt
+                // pattern): a tap on a hyperlink cell opens the URI instead
+                // of raising the keyboard.
+                if (openLinkAt(event.x, event.y)) {
                     return true
                 }
                 if (isSelectingText) {
@@ -1839,6 +1876,35 @@ constructor(
         val fromMouse = event.isFromSource(InputDevice.SOURCE_MOUSE)
 
         if (fromMouse) {
+            // Mouse-mode reporting (DECSET 1000/1002/1003): route mouse
+            // events to the terminal via the Ghostty mouse encoder (zelland
+            // src-tauri/src/terminal.rs encode_mouse_event pattern). The
+            // encoder returns an empty sequence when the application has not
+            // enabled mouse reporting, in which case the event falls through
+            // to the app gestures below (right-click word-select,
+            // middle-click paste).
+            val runtime = viewModel?.runtime
+            val bridge = runtime?.bridge()
+            if (bridge != null) {
+                val cellW = runtime.cellWidth
+                val cellH = runtime.cellHeight
+                val button =
+                    when {
+                        event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) -> 1
+                        event.isButtonPressed(MotionEvent.BUTTON_TERTIARY) -> 2
+                        else -> 0
+                    }
+                val action =
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> 1
+                        MotionEvent.ACTION_MOVE -> 2
+                        else -> 0
+                    }
+                if (bridge.encodeMouseEvent(event.x, event.y, action, button, cellW, cellH)) {
+                    return true
+                }
+            }
+
             when {
                 event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) -> {
                     if (event.action == MotionEvent.ACTION_DOWN) {
@@ -1983,6 +2049,32 @@ constructor(
             }
         }
         return true
+    }
+
+    /**
+     * Mouse wheel events (external mouse / trackpad). When the application
+     * has mouse reporting enabled (DECSET 1000/1002/1003), wheel events are
+     * encoded as buttons 4/5 by the Ghostty mouse encoder and written to the
+     * PTY (zelland src-tauri/src/terminal.rs: scroll_up/scroll_down → button
+     * FOUR/FIVE). The encoder returns an empty sequence when reporting is
+     * off — the event is then ignored (there is no scrollback wheel
+     * handling; touch scrolling covers that).
+     */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_SCROLL && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            val runtime = viewModel?.runtime
+            val bridge = runtime?.bridge()
+            if (bridge != null) {
+                val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                val button = if (delta > 0f) 3 else 4 // wheel-up=3, wheel-down=4 (Rust mapping)
+                if (bridge.encodeMouseEvent(event.x, event.y, 0, button, runtime.cellWidth, runtime.cellHeight)) {
+                    // Wheel release completes the scroll gesture.
+                    bridge.encodeMouseEvent(event.x, event.y, 1, button, runtime.cellWidth, runtime.cellHeight)
+                    return true
+                }
+            }
+        }
+        return super.onGenericMotionEvent(event)
     }
 
     // ── Surface lifecycle (SurfaceHolder.Callback; the native renderer

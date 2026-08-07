@@ -44,6 +44,9 @@ import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
+import terminal.emulator.ui.theme.BuiltInThemes
+import terminal.emulator.ui.theme.UserThemeStore
+import terminal.emulator.ui.theme.resolveTerminalThemeName
 import javax.inject.Inject
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
@@ -169,6 +172,11 @@ constructor(
     private val clipboardPaster = ClipboardPaster(clipboardAccess)
     private val selectionManager = SelectionManager()
     private val fontManager = FontManager()
+    private val userThemeStore = UserThemeStore(context)
+    // Hot StateFlow mirror of the DataStore (cold flow + recomposition would
+    // resubscribe per frame and miss updates; stateIn keeps one collector).
+    private val _userThemes = kotlinx.coroutines.flow.MutableStateFlow<List<terminal.emulator.ui.theme.TerminalTheme>>(emptyList())
+    val userThemes: kotlinx.coroutines.flow.StateFlow<List<terminal.emulator.ui.theme.TerminalTheme>> = _userThemes.asStateFlow()
 
     // ── Font forwards (implementation in FontManager) ─────────────────────
 
@@ -212,6 +220,11 @@ constructor(
         if (!written) {
             LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
         }
+    }
+
+    /** Feed bytes directly to the VT parser (test path for escape sequences). */
+    fun feedTerminal(data: ByteArray) {
+        runtime.feedTerminal(data)
     }
 
     fun cycleCtrlState() {
@@ -480,90 +493,44 @@ constructor(
             val end = selection.end ?: return ""
             val bridge = runtime.bridge() ?: return ""
             // Selection rows are stored in grid coordinates (0 = top of
-            // scrollback), so pass them to scrollbackLine() directly — no
-            // viewport conversion here.
+            // scrollback), matching the Ghostty formatter's grid rows.
             //
-            // Line-join semantics reference (moke repo §14.2): getSelectedText
-            // must distinguish soft-wrapped rows (concatenate without '\n')
-            // from hard line breaks. torvox uses scrollbackLine() per row and
-            // inserts '\n' between rows — soft-wrap detection is a known gap
-            // vs moke's row-flag approach.
-            //
-            // Known gap vs termux-app (TerminalBuffer.java:52-106): its
-            // getSelectedText is wrap-aware (softWrapped rows join without
-            // newline) and TerminalRow.findStartOfColumn (:92-120) converts
-            // wide-char columns to char indices so CJK rows substring(col)
-            // never splits a surrogate/wide glyph. torvox's per-row
-            // scrollbackLine + '\n' join mis-renders wrapped long lines and
-            // can cut CJK columns at byte boundaries — see
-            // docs/reference/research-termux-app-extra.md §9 (P0 gaps 1-2).
-            val visibleCols =
-                runtime.state.value.cols
-                    .coerceAtLeast(1)
+            // Wrap-aware extraction (termux TerminalBuffer.getSelectedText
+            // semantics, round-218): soft-wrapped rows are joined without
+            // '\n' (unwrap) and trailing whitespace is trimmed, and the
+            // formatter maps grid columns to char indices internally so CJK
+            // wide glyphs are never split (TerminalRow.findStartOfColumn
+            // equivalent). The old per-row scrollbackLine + '\n' join could
+            // not detect wraps and could cut surrogate pairs.
             val (lo, hi) =
                 if (start.row < end.row || (start.row == end.row && start.col <= end.col)) {
                     start to end
                 } else {
                     end to start
                 }
-            return when (selection.mode) {
-                SelectionMode.Char, SelectionMode.Word, SelectionMode.Semantic -> {
-                    if (lo.row == hi.row) {
-                        val line = bridge.scrollbackLine(lo.row) ?: ""
-                        val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                        visLine.substring(lo.col.coerceAtMost(visLine.length), (hi.col + 1).coerceAtMost(visLine.length))
-                    } else {
-                        val parts = mutableListOf<String>()
-                        // Cap the per-call JNI round-trips: a hostile broadcast
-                        // (partialSelectReceiver endRow clamps to 4095) could
-                        // otherwise trigger thousands of scrollbackLine() calls
-                        // on the main thread. Each call is a JNI boundary +
-                        // String allocation; the cap keeps worst case bounded.
-                        for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
-                            val line = bridge.scrollbackLine(r) ?: ""
-                            val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                            val startCol = if (r == lo.row) lo.col else 0
-                            val endCol = if (r == hi.row) (hi.col + 1).coerceAtMost(visLine.length) else visLine.length
-                            if (startCol < visLine.length) {
-                                parts.add(visLine.substring(startCol, endCol.coerceAtMost(visLine.length)))
-                            }
-                        }
-                        smartJoinLines(parts)
+            if (selection.mode == SelectionMode.Block) {
+                // Block selection keeps its own rectangle semantics; the
+                // formatter rectangle mode would pad lines, so extract
+                // per-row substrings here (same as before).
+                val visibleCols = runtime.state.value.cols.coerceAtLeast(1)
+                val parts = mutableListOf<String>()
+                for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
+                    val line = bridge.scrollbackLine(r) ?: ""
+                    val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
+                    var startCol = lo.col.coerceAtMost(visLine.length)
+                    var endCol = hi.col.coerceAtMost(visLine.length)
+                    if (startCol > endCol) {
+                        val tmp = startCol
+                        startCol = endCol
+                        endCol = tmp
+                    }
+                    if (startCol < visLine.length) {
+                        parts.add(visLine.substring(startCol, endCol))
                     }
                 }
-
-                SelectionMode.Line -> {
-                    val parts = mutableListOf<String>()
-                    for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
-                        val line = bridge.scrollbackLine(r) ?: ""
-                        val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                        parts.add(visLine)
-                    }
-                    parts.joinToString("\n")
-                }
-
-                SelectionMode.Block -> {
-                    val parts = mutableListOf<String>()
-                    for (r in lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)) {
-                        val line = bridge.scrollbackLine(r) ?: ""
-                        val visLine = if (line.length > visibleCols) line.substring(0, visibleCols) else line
-                        var startCol = lo.col.coerceAtMost(visLine.length)
-                        var endCol = hi.col.coerceAtMost(visLine.length)
-                        // Reverse drag (start below/right of end) must not produce
-                        // startCol > endCol — substring() would throw
-                        // StringIndexOutOfBoundsException on the main thread.
-                        if (startCol > endCol) {
-                            val tmp = startCol
-                            startCol = endCol
-                            endCol = tmp
-                        }
-                        if (startCol < visLine.length) {
-                            parts.add(visLine.substring(startCol, endCol))
-                        }
-                    }
-                    parts.joinToString("\n")
-                }
+                return parts.joinToString("\n")
             }
+            return bridge.selectionText(lo.row, lo.col, hi.row, hi.col, rectangle = false) ?: ""
         }
 
         private fun smartJoinLines(parts: List<String>): String {
@@ -1133,8 +1100,34 @@ constructor(
 
     fun setBackgroundImagePath(path: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            settingsRepository.setBackgroundImagePath(path)
-            applyBackgroundImageFromPath(path)
+            // ghostty-android BackgroundImageStore pattern: copy the picked
+            // image into app-private storage so later reads never depend on
+            // a content-provider grant (SAF persistable permissions can be
+            // revoked; the private copy survives). The stored path points at
+            // the private file; a missing file is treated as "no wallpaper"
+            // on restore (self-heal, see applyBackgroundImageFromPath).
+            var effectivePath = path
+            if (path.startsWith("content://")) {
+                try {
+                    val dst = java.io.File(context.filesDir, "terminal_background")
+                    context.contentResolver.openInputStream(android.net.Uri.parse(path))?.use { input ->
+                        java.io.FileOutputStream(dst).use { output ->
+                            val buf = ByteArray(64 * 1024)
+                            while (true) {
+                                val n = input.read(buf)
+                                if (n <= 0) break
+                                output.write(buf, 0, n)
+                            }
+                        }
+                    }
+                    effectivePath = dst.absolutePath
+                    LogUtil.d(TAG, "background image copied to private storage: $effectivePath")
+                } catch (e: Throwable) {
+                    LogUtil.e(TAG, "background image private copy failed, keeping original path", e)
+                }
+            }
+            settingsRepository.setBackgroundImagePath(effectivePath)
+            applyBackgroundImageFromPath(effectivePath)
         }
     }
 
@@ -1193,7 +1186,18 @@ constructor(
                         )
                     }
                 } catch (e: Throwable) {
+                    // Self-heal (ghostty-android BackgroundImageStore decode()
+                    // returns null for a missing/undecodable file): if the
+                    // stored image is gone, clear the setting so the UI shows
+                    // "no wallpaper" and the solid theme background renders.
                     Log.e(TAG, "setBackgroundImagePath failed", e)
+                    if (path.startsWith(context.filesDir.absolutePath)) {
+                        val file = java.io.File(path)
+                        if (!file.exists()) {
+                            LogUtil.w(TAG, "background image file missing — clearing setting (self-heal)")
+                            settingsRepository.setBackgroundImagePath("")
+                        }
+                    }
                 }
             } else {
                 bridge.clearBackgroundImage()
@@ -1247,6 +1251,44 @@ constructor(
     }
 
     fun setThemeName(name: String) = applyThemeSettings { settingsRepository.setThemeName(name) }
+
+    /**
+     * User-created themes (ghostty-android ThemeStore pattern): save the
+     * current resolved theme under a new name, or delete a saved user theme.
+     * Persisted in DataStore via [UserThemeStore]; a name collision replaces
+     * the existing entry.
+     */
+    init {
+        viewModelScope.launch {
+            userThemeStore.userThemes.collect { _userThemes.value = it }
+        }
+    }
+
+    fun saveCurrentThemeAs(name: String, isDark: Boolean) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            val mode = settingsRepository.themeMode.first()
+            val resolved =
+                resolveTerminalThemeName(
+                    mode,
+                    settingsRepository.themeName.first(),
+                    settingsRepository.dayThemeName.first(),
+                    settingsRepository.nightThemeName.first(),
+                    isDark,
+                )
+            val current = BuiltInThemes.byName(resolved)
+            userThemeStore.save(current.copy(name = name.trim()))
+        }
+    }
+
+    fun deleteUserTheme(name: String) {
+        viewModelScope.launch {
+            userThemeStore.delete(name)
+            // If the deleted theme was selected, fall back to the default.
+            val current = settingsRepository.themeName.first()
+            if (current == name) settingsRepository.setThemeName("Dracula Plus")
+        }
+    }
 
     fun setDayThemeName(name: String) = applyThemeSettings { settingsRepository.setDayThemeName(name) }
 
