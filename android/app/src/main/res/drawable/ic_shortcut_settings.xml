@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- app shortcut: settings (gear) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,8.6 A3.4,3.4 0 1,1 12,15.4 A3.4,3.4 0 1,1 12,8.6 Z"
+        android:fillColor="#1B1B1F" />
+    <path
+        android:pathData="M12,2.8 L12.5,5 C12.8,5.2 13.1,5.4 13.4,5.6 L15.5,4.9 L16.8,6.6 L15.1,8.1 C15.2,8.4 15.3,8.7 15.3,9.1 L17.5,9.5 V11.5 L15.3,11.9 C15.3,12.2 15.2,12.6 15.1,12.9 L16.8,14.4 L15.5,16.1 L13.4,15.4 C13.1,15.6 12.8,15.8 12.5,16 L12,18.2 H10 L9.5,16 C9.2,15.8 8.9,15.6 8.6,15.4 L6.5,16.1 L5.2,14.4 L6.9,12.9 C6.8,12.6 6.7,12.2 6.7,11.9 L4.5,11.5 V9.5 L6.7,9.1 C6.7,8.7 6.8,8.4 6.9,8.1 L5.2,6.6 L6.5,4.9 L8.6,5.6 C8.9,5.4 9.2,5.2 9.5,5 L10,2.8 Z"
+        android:fillColor="#4FC3F7" />
+</vector>

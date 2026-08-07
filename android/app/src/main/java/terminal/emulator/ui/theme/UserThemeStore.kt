@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import terminal.emulator.runtime.LogUtil
 
 /**
  * User-created terminal themes, persisted in DataStore as JSON.
@@ -34,26 +35,24 @@ data class UserThemeDto(
     val selectionBgValue: ULong,
     val ansiValue: List<ULong>,
 ) {
-    fun toTerminalTheme(): TerminalTheme =
-        TerminalTheme(
-            name = name,
-            background = Color(backgroundValue),
-            foreground = Color(foregroundValue),
-            cursor = Color(cursorValue),
-            selectionBg = Color(selectionBgValue),
-            ansi = ansiValue.map { Color(it) },
-        )
+    fun toTerminalTheme(): TerminalTheme = TerminalTheme(
+        name = name,
+        background = Color(backgroundValue),
+        foreground = Color(foregroundValue),
+        cursor = Color(cursorValue),
+        selectionBg = Color(selectionBgValue),
+        ansi = ansiValue.map { Color(it) },
+    )
 
     companion object {
-        fun fromTerminalTheme(theme: TerminalTheme): UserThemeDto =
-            UserThemeDto(
-                name = theme.name,
-                backgroundValue = theme.background.value,
-                foregroundValue = theme.foreground.value,
-                cursorValue = theme.cursor.value,
-                selectionBgValue = theme.selectionBg.value,
-                ansiValue = theme.ansi.map { it.value },
-            )
+        fun fromTerminalTheme(theme: TerminalTheme): UserThemeDto = UserThemeDto(
+            name = theme.name,
+            backgroundValue = theme.background.value,
+            foregroundValue = theme.foreground.value,
+            cursorValue = theme.cursor.value,
+            selectionBgValue = theme.selectionBg.value,
+            ansiValue = theme.ansi.map { it.value },
+        )
     }
 }
 
@@ -62,8 +61,12 @@ class UserThemeStore(
     private val context: Context,
     private val storeName: String = "user_themes",
 ) {
+    companion object {
+        private const val TAG = "UserThemeStore"
+    }
     private val key = stringPreferencesKey("user_themes")
     private val json = Json { ignoreUnknownKeys = true }
+
     // Runtime-parameterized DataStore (the preferencesDataStore delegate is
     // per-property; a factory lets tests isolate per-test store names).
     private val dataStore: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences> by lazy {
@@ -80,6 +83,7 @@ class UserThemeStore(
             } catch (e: Exception) {
                 // Self-heal: a corrupt blob is treated as no user themes
                 // (ghostty-android ThemeStore.userThemes() JSONException path).
+                LogUtil.w(TAG, "Failed to decode user themes, treating as empty", e)
                 emptyList()
             }
         }
@@ -90,6 +94,7 @@ class UserThemeStore(
                 try {
                     prefs[key]?.let { json.decodeFromString<List<UserThemeDto>>(it) } ?: emptyList()
                 } catch (e: Exception) {
+                    LogUtil.w(TAG, "Failed to decode user themes, treating as empty", e)
                     emptyList()
                 }
             val withoutSameName = current.filter { it.name != theme.name }
@@ -104,6 +109,7 @@ class UserThemeStore(
                 try {
                     prefs[key]?.let { json.decodeFromString<List<UserThemeDto>>(it) } ?: emptyList()
                 } catch (e: Exception) {
+                    LogUtil.w(TAG, "Failed to decode user themes, treating as empty", e)
                     emptyList()
                 }
             prefs[key] = json.encodeToString(current.filter { it.name != name })

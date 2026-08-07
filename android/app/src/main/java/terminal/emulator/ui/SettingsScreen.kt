@@ -49,8 +49,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,7 +70,9 @@ import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.isElf
 import terminal.emulator.ui.theme.TerminalTheme
+import java.io.File
 
 private const val FONT_SIZE_RANGE_MIN = 8f
 private const val FONT_SIZE_RANGE_MAX = 48f
@@ -527,6 +529,8 @@ private fun TerminalConfigSection(
     val scrollbackLines = settings.scrollbackLines
     SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
+        PrefixShellStatus(secondaryText = secondaryText)
+        Spacer(modifier = Modifier.height(4.dp))
         ShellInput(shellPath = selectedShell, onShellChanged = { viewModel.setShell(it) }, textColor = textColor, accentColor = accentColor)
         Spacer(modifier = Modifier.height(12.dp))
         ScrollbackSlider(
@@ -886,6 +890,36 @@ internal fun TerminalThemeModeSelector(
             ),
         )
     }
+}
+
+@Composable
+private fun PrefixShellStatus(secondaryText: Color) {
+    // Show what the runtime actually resolves as the launch location:
+    // the prefix bootstrap (nix-on-droid bin/login or termux bin/bash) or
+    // the system fallback. Mirrors TerminalRuntime prefixShell resolution.
+    val context = LocalContext.current
+    val prefixDir = File(context.filesDir, "usr")
+    // Pure logic first (no resource access inside remember — lint
+    // LocalContextGetResourceValueCall): pick the string resource id.
+    val (statusResId, prefixArg) =
+        remember(prefixDir) {
+            val login = File(prefixDir, "bin/login")
+            val bash = File(prefixDir, "bin/bash")
+            // Only real ELF binaries count: termux ships bin/login as a
+            // shebang script (motd), nix-on-droid as a static ELF.
+            val loginIsNix = login.isFile && isElf(login)
+            when {
+                loginIsNix ->
+                    R.string.launch_location_status_nix to prefixDir.absolutePath
+
+                bash.exists() ->
+                    R.string.launch_location_status_termux to prefixDir.absolutePath
+
+                else -> R.string.launch_location_status_none to ""
+            }
+        }
+    val status = stringResource(statusResId, prefixArg)
+    Text(status, style = MaterialTheme.typography.bodySmall, color = secondaryText)
 }
 
 @Composable

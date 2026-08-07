@@ -173,6 +173,7 @@ constructor(
     private val selectionManager = SelectionManager()
     private val fontManager = FontManager()
     private val userThemeStore = UserThemeStore(context)
+
     // Hot StateFlow mirror of the DataStore (cold flow + recomposition would
     // resubscribe per frame and miss updates; stateIn keeps one collector).
     private val _userThemes = kotlinx.coroutines.flow.MutableStateFlow<List<terminal.emulator.ui.theme.TerminalTheme>>(emptyList())
@@ -1252,12 +1253,10 @@ constructor(
 
     fun setThemeName(name: String) = applyThemeSettings { settingsRepository.setThemeName(name) }
 
-    /**
-     * User-created themes (ghostty-android ThemeStore pattern): save the
-     * current resolved theme under a new name, or delete a saved user theme.
-     * Persisted in DataStore via [UserThemeStore]; a name collision replaces
-     * the existing entry.
-     */
+    // User-created themes (ghostty-android ThemeStore pattern): save the
+    // current resolved theme under a new name, or delete a saved user theme.
+    // Persisted in DataStore via [UserThemeStore]; a name collision replaces
+    // the existing entry.
     init {
         viewModelScope.launch {
             userThemeStore.userThemes.collect { _userThemes.value = it }

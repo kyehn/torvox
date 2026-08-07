@@ -125,6 +125,84 @@ class BootstrapInstallerTest {
         assertFalse("prefix must not be reported installed on failure", installer.isInstalled())
     }
 
+    /**
+     * nix-on-droid bootstrap-aarch64.zip compatibility: its SYMLINKS.txt
+     * uses absolute `/nix/store/...` targets that only resolve inside the
+     * proot environment. The installer must accept them (they are inert
+     * outside proot and delete() never follows links).
+     */
+    @Test
+    fun install_acceptsNixAbsoluteStoreTargets() {
+        ZipOutputStream(zipFile.outputStream()).use { zos ->
+            fun add(name: String, content: ByteArray) {
+                zos.putNextEntry(ZipEntry(name))
+                zos.write(content)
+                zos.closeEntry()
+            }
+            // ELF magic prefix: needsInstall/isInstalled require a real ELF
+            // shell binary (termux's bin/login is a shebang script and must
+            // not count — nix's is a static ELF).
+            val elfHeader = byteArrayOf(0x7f, 0x45, 0x4c, 0x46) + "login-binary".toByteArray()
+            add("bin/login", elfHeader)
+            add("bin/proot.new", "proot-binary".toByteArray())
+            add("etc/group", "root:x:0:\n".toByteArray())
+            add("nix/store/abc123-system-path/bin/login", "store-login".toByteArray())
+            add("SYMLINKS.txt", "/nix/store/abc123-system-path/bin/login←bin/login\n".toByteArray())
+        }
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+
+        val result = runBlocking { installer.install(zipFile) }
+
+        assertTrue("nix bootstrap install must succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
+        assertTrue("bin/login must exist after nix install", File(prefixDir, "bin/login").exists())
+        // needsInstall must recognize the nix layout (no bin/bash).
+        assertFalse("needsInstall must be false with bin/login present", installer.needsInstall())
+        // The second stage (no dpkg dir in nix bootstraps) still writes
+        // termux.env; only then is the install reported complete.
+        val secondStage = SecondStageRunner(prefixDir, homeDir)
+        val stageResult = runBlocking { secondStage.run() }
+        assertTrue("nix second stage must succeed: ${stageResult.errors}", stageResult.success)
+        assertTrue("isInstalled must be true after second stage (login branch)", installer.isInstalled())
+    }
+
+    /** The archive's EXECUTABLES.txt is parsed and chmod failures are tolerated. */
+    @Test
+    fun install_parsesExecutablesTxt() {
+        ZipOutputStream(zipFile.outputStream()).use { zos ->
+            fun add(name: String, content: String = "x") {
+                zos.putNextEntry(ZipEntry(name))
+                zos.write(content.toByteArray())
+                zos.closeEntry()
+            }
+            add("bin/bash", "#!/bin/sh\n")
+            add("usr/bin/env", "env-binary")
+            add("lib/libfoo.so", "libfoo")
+            add("etc/termux/termux.env", "PREFIX=placeholder\n")
+            add("SYMLINKS.txt", "bin/bash←usr/bin/bash\n")
+            add("EXECUTABLES.txt", "usr/bin/env\nbin/bash\n")
+        }
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+
+        val result = runBlocking { installer.install(zipFile) }
+
+        assertTrue("install with EXECUTABLES.txt must succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
+        assertTrue("usr/bin/env must exist", File(prefixDir, "usr/bin/env").exists())
+    }
+
+    /** parseSymlinks keeps the nix `target←linkPath` direction for absolute store paths. */
+    @Test
+    fun parseSymlinks_keepsNixStoreDirection() {
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+        val parsed =
+            installer.parseSymlinks(
+                "/nix/store/abc-system-path/bin/login←bin/login\n" +
+                    "/nix/store/def-bash/bin/sh←bin/bash\n",
+            )
+        assertEquals(2, parsed.size)
+        assertEquals("/nix/store/abc-system-path/bin/login", parsed[0].first)
+        assertEquals("bin/login", parsed[0].second)
+    }
+
     @Test
     fun secondStageRunner_executesPostinstScript() {
         // Seed a minimal prefix with a post-install script that writes a marker file.

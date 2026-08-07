@@ -24,10 +24,9 @@ import android.view.WindowInsets
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
-import android.widget.Magnifier
 import android.widget.LinearLayout
+import android.widget.Magnifier
 import android.widget.PopupWindow
-import kotlin.math.roundToInt
 import android.widget.TextView
 import terminal.emulator.R
 import terminal.emulator.SelectionMode
@@ -41,6 +40,7 @@ import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
+import kotlin.math.roundToInt
 
 // Approximate height reserved for the ModifierBar overlay when computing
 // the terminal grid (see applyGridResize). The bar itself is ~36dp of
@@ -182,126 +182,125 @@ constructor(
      * access toast).
      */
     private inner class SelectionActionCallback : android.view.ActionMode.Callback2() {
-            override fun onCreateActionMode(
-                mode: android.view.ActionMode,
-                menu: android.view.Menu,
-            ): Boolean {
-                val selection = viewModel?.state?.value?.selection ?: return false
-                val pasteOnly = selection.pasteOnly
-                if (pasteOnly) {
-                    menu.add(
-                        android.view.Menu.NONE,
-                        MENU_ACTION_PASTE,
-                        0,
-                        R.string.paste,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
-                } else {
-                    menu.add(
-                        android.view.Menu.NONE,
-                        MENU_ACTION_COPY,
-                        0,
-                        R.string.copy,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
-                    menu.add(
-                        android.view.Menu.NONE,
-                        MENU_ACTION_SELECT_ALL,
-                        1,
-                        R.string.select_all,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
-                    menu.add(
-                        android.view.Menu.NONE,
-                        MENU_ACTION_PASTE,
-                        2,
-                        R.string.paste,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
-                }
-                return true
+        override fun onCreateActionMode(
+            mode: android.view.ActionMode,
+            menu: android.view.Menu,
+        ): Boolean {
+            val selection = viewModel?.state?.value?.selection ?: return false
+            val pasteOnly = selection.pasteOnly
+            if (pasteOnly) {
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_PASTE,
+                    0,
+                    R.string.paste,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+            } else {
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_COPY,
+                    0,
+                    R.string.copy,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_SELECT_ALL,
+                    1,
+                    R.string.select_all,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_PASTE,
+                    2,
+                    R.string.paste,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
             }
-
-            override fun onPrepareActionMode(
-                mode: android.view.ActionMode,
-                menu: android.view.Menu,
-            ): Boolean = false
-
-            /**
-             * Anchor the floating toolbar exactly over the selection
-             * (termux-app TextSelectionCursorController.java:194-213).
-             *
-             * Out-rect = selection rect expanded one cell each side
-             * vertically (so the toolbar never covers the selected text)
-             * and offset by the handle height. Bottom-clamped to the view.
-             */
-            override fun onGetContentRect(
-                mode: android.view.ActionMode,
-                view: android.view.View,
-                outRect: android.graphics.Rect,
-            ) {
-                val selection = viewModel?.state?.value?.selection
-                val start = selection?.start
-                val end = selection?.end
-                val cw = viewModel?.runtime?.cellWidth ?: 0f
-                val ch = viewModel?.runtime?.cellHeight ?: 0f
-                if (start == null || end == null || cw <= 0f || ch <= 0f) {
-                    // No geometry: default to the whole view (system default).
-                    outRect.set(0, 0, view.width, view.height)
-                    return
-                }
-                val (topRow, bottomRow) =
-                    if (start.row <= end.row) start.row to end.row else end.row to start.row
-                val (leftCol, rightCol) =
-                    if (start.row < end.row || start.col <= end.col) start.col to end.col else end.col to start.col
-                // Selection rows are grid coordinates (scrollback rows).
-                // Viewport top grid row = scrollbackLength - scrollOffset,
-                // so the visible row = gridRow - (scrollbackLength - scrollOffset).
-                val viewportTopGrid = (viewModel?.runtime?.bridge()?.scrollbackLength() ?: 0) - scrollOffset
-                val visibleTop = (topRow - viewportTopGrid) * ch
-                val visibleBottom = ((bottomRow + 1) - viewportTopGrid) * ch
-                val left = leftCol * cw
-                val right = (rightCol + 1) * cw
-                // One cell of breathing room above/below + handle-height
-                // offset (termux :203-206).
-                val top = (visibleTop - ch) + HANDLE_HEIGHT_OFFSET
-                val bottom = visibleBottom + ch + HANDLE_HEIGHT_OFFSET
-                outRect.set(
-                    left.toInt(),
-                    top.toInt().coerceAtLeast(0),
-                    right.toInt(),
-                    bottom.toInt().coerceAtMost(view.height),
-                )
-            }
-
-            override fun onActionItemClicked(
-                mode: android.view.ActionMode,
-                item: android.view.MenuItem,
-            ): Boolean {
-                when (item.itemId) {
-                    MENU_ACTION_COPY -> {
-                        viewModel?.copySelectionToClipboard()
-                        viewModel?.clearSelection()
-                        mode.finish()
-                    }
-
-                    MENU_ACTION_SELECT_ALL -> {
-                        viewModel?.selectAll()
-                        mode.finish()
-                    }
-
-                    MENU_ACTION_PASTE -> {
-                        viewModel?.pasteFromClipboard()
-                        viewModel?.clearSelection()
-                        mode.finish()
-                    }
-
-                    else -> return false
-                }
-                return true
-            }
-
-            override fun onDestroyActionMode(mode: android.view.ActionMode) {
-                selectionActionMode = null
-            }
-
+            return true
         }
+
+        override fun onPrepareActionMode(
+            mode: android.view.ActionMode,
+            menu: android.view.Menu,
+        ): Boolean = false
+
+        /**
+         * Anchor the floating toolbar exactly over the selection
+         * (termux-app TextSelectionCursorController.java:194-213).
+         *
+         * Out-rect = selection rect expanded one cell each side
+         * vertically (so the toolbar never covers the selected text)
+         * and offset by the handle height. Bottom-clamped to the view.
+         */
+        override fun onGetContentRect(
+            mode: android.view.ActionMode,
+            view: android.view.View,
+            outRect: android.graphics.Rect,
+        ) {
+            val selection = viewModel?.state?.value?.selection
+            val start = selection?.start
+            val end = selection?.end
+            val cw = viewModel?.runtime?.cellWidth ?: 0f
+            val ch = viewModel?.runtime?.cellHeight ?: 0f
+            if (start == null || end == null || cw <= 0f || ch <= 0f) {
+                // No geometry: default to the whole view (system default).
+                outRect.set(0, 0, view.width, view.height)
+                return
+            }
+            val (topRow, bottomRow) =
+                if (start.row <= end.row) start.row to end.row else end.row to start.row
+            val (leftCol, rightCol) =
+                if (start.row < end.row || start.col <= end.col) start.col to end.col else end.col to start.col
+            // Selection rows are grid coordinates (scrollback rows).
+            // Viewport top grid row = scrollbackLength - scrollOffset,
+            // so the visible row = gridRow - (scrollbackLength - scrollOffset).
+            val viewportTopGrid = (viewModel?.runtime?.bridge()?.scrollbackLength() ?: 0) - scrollOffset
+            val visibleTop = (topRow - viewportTopGrid) * ch
+            val visibleBottom = ((bottomRow + 1) - viewportTopGrid) * ch
+            val left = leftCol * cw
+            val right = (rightCol + 1) * cw
+            // One cell of breathing room above/below + handle-height
+            // offset (termux :203-206).
+            val top = (visibleTop - ch) + HANDLE_HEIGHT_OFFSET
+            val bottom = visibleBottom + ch + HANDLE_HEIGHT_OFFSET
+            outRect.set(
+                left.toInt(),
+                top.toInt().coerceAtLeast(0),
+                right.toInt(),
+                bottom.toInt().coerceAtMost(view.height),
+            )
+        }
+
+        override fun onActionItemClicked(
+            mode: android.view.ActionMode,
+            item: android.view.MenuItem,
+        ): Boolean {
+            when (item.itemId) {
+                MENU_ACTION_COPY -> {
+                    viewModel?.copySelectionToClipboard()
+                    viewModel?.clearSelection()
+                    mode.finish()
+                }
+
+                MENU_ACTION_SELECT_ALL -> {
+                    viewModel?.selectAll()
+                    mode.finish()
+                }
+
+                MENU_ACTION_PASTE -> {
+                    viewModel?.pasteFromClipboard()
+                    viewModel?.clearSelection()
+                    mode.finish()
+                }
+
+                else -> return false
+            }
+            return true
+        }
+
+        override fun onDestroyActionMode(mode: android.view.ActionMode) {
+            selectionActionMode = null
+        }
+    }
 
     /**
      * Show the selection context menu as the system [android.view.ActionMode]
@@ -976,6 +975,7 @@ constructor(
         private const val MENU_ACTION_COPY = 1
         private const val MENU_ACTION_SELECT_ALL = 2
         private const val MENU_ACTION_PASTE = 3
+
         // Floating toolbar anchor offset below the selection top (termux
         // TextSelectionCursorController uses the handle height; a fixed
         // cell-fraction keeps the toolbar clear of the selected line).
@@ -1176,7 +1176,7 @@ constructor(
         if (url.isBlank()) return false
         val uri = try {
             android.net.Uri.parse(url.trim())
-        } catch (e: Exception) {
+        } catch (e: IllegalArgumentException) {
             LogUtil.w(TAG, "openLinkAt: bad URI", e)
             return false
         }
@@ -1186,13 +1186,17 @@ constructor(
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(intent)
             true
-        } catch (e: Exception) {
+        } catch (e: android.content.ActivityNotFoundException) {
             LogUtil.w(TAG, "openLinkAt: no handler for $uri", e)
+            false
+        } catch (e: SecurityException) {
+            LogUtil.w(TAG, "openLinkAt: blocked for $uri", e)
             false
         }
     }
 
-    private fun dragTargetFromTouch(touchX: Float, touchY: Float): Pair<Int, Int> {        val anchorLocalY = (dragAnchorRow + 1) * cellHeight
+    private fun dragTargetFromTouch(touchX: Float, touchY: Float): Pair<Int, Int> {
+        val anchorLocalY = (dragAnchorRow + 1) * cellHeight
         val deltaRows = ((touchY - anchorLocalY) / cellHeight).roundToInt()
         val row = (dragAnchorRow + deltaRows).coerceIn(0, (rows - 1).coerceAtLeast(0))
         val anchorLocalX =

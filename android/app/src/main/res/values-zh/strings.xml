@@ -61,7 +61,14 @@
     <!-- Terminal -->
     <string name="terminal">终端</string>
     <string name="shell">壳</string>
+    <string name="action_new_session">New session</string>
+    <string name="action_new_session_failsafe">New session (Failsafe)</string>
+    <string name="action_open_settings">Settings</string>
     <string name="shell_placeholder">/system/bin/sh</string>
+    <string name="launch_location_status_nix">Launch: nix-on-droid (%1$s/bin/login)</string>
+    <string name="launch_location_status_termux">Launch: Termux (%1$s/bin/bash)</string>
+    <string name="launch_location_status_none">No bootstrap detected, using system shell (/system/bin/sh)</string>
+    <string name="launch_location_reset">Reset to detected default</string>
     <string name="scrollback_lines">回滚行数</string>
 
     <!-- Session -->
@@ -123,4 +130,7 @@
     <string name="cursor_blink_desc">切换光标闪烁动画</string>
     <string name="cursor_speed">闪烁速度</string>
     <string name="cursor_style_label">光标样式</string>
+    <string name="save">保存</string>
+    <string name="delete">删除</string>
+    <string name="user_themes">用户主题</string>
 </resources>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- app shortcut: failsafe session (shield) -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,2 L20,5.5 V11 C20,16.2 16.6,20.4 12,22 C7.4,20.4 4,16.2 4,11 V5.5 Z"
+        android:fillColor="#1B1B1F" />
+    <path
+        android:pathData="M12,5.2 L17.2,7.6 V11 C17.2,14.6 15,17.7 12,19 C9,17.7 6.8,14.6 6.8,11 V7.6 Z"
+        android:fillColor="#FFB74D" />
+    <path
+        android:pathData="M11,9.5 H13 V14.2 H11 Z"
+        android:fillColor="#1B1B1F" />
+    <path
+        android:pathData="M11,14.8 H13 V16.2 H11 Z"
+        android:fillColor="#1B1B1F" />
+</vector>
