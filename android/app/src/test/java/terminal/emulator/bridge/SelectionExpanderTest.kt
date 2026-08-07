@@ -1,6 +1,7 @@
 package terminal.emulator.bridge
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /** Boundary rules for smart text selection (round-214). */
@@ -110,5 +111,66 @@ class SelectionExpanderTest {
         val (start, end) = SelectionExpander.expandBounds("x https://x.com/a; y", 14)
         val selected = "x https://x.com/a; y".substring(start, end + 1)
         assert(selected == "https://x.com/a") { "expected url without semicolon, got '$selected'" }
+    }
+
+    // ─── Round-225: expandAcrossUrlWrap (Haven SelectionToolbar:120-214) ───
+
+    @Test
+    fun `url wrapped forward across rows expands`() {
+        val lines = listOf("https://example.com/very/", "long/path")
+        // row 0 line length 25 → last col 24; word = whole line.
+        val span = SelectionExpander.expandAcrossUrlWrap(lines, row = 0, wordStartCol = 0, wordEndCol = 24)
+        assertEquals(0, span?.startRow)
+        assertEquals(0, span?.startCol)
+        assertEquals(1, span?.endRow)
+        assertEquals("long/path".length - 1, span?.endCol)
+    }
+
+    @Test
+    fun `url wrapped backward across rows expands`() {
+        val lines = listOf("https://example.com/very/", "long/path")
+        // tap in row 1, word = "long/path" starts at col 0
+        val span = SelectionExpander.expandAcrossUrlWrap(lines, row = 1, wordStartCol = 0, wordEndCol = 8)
+        assertEquals(0, span?.startRow)
+        assertEquals(0, span?.startCol)
+        assertEquals(1, span?.endRow)
+    }
+
+    @Test
+    fun `indented prose is not a wrap tail`() {
+        val lines = listOf("https://example.com/", "    long prose text here")
+        val span = SelectionExpander.expandAcrossUrlWrap(lines, row = 0, wordStartCol = 0, wordEndCol = 19)
+        assertNull("indented prose must not expand", span)
+    }
+
+    @Test
+    fun `hanging-indent wrap tail is accepted`() {
+        // One short run on an otherwise-blank line = hanging-indent shape.
+        val lines = listOf("https://example.com/very/", "        tail")
+        val span = SelectionExpander.expandAcrossUrlWrap(lines, row = 0, wordStartCol = 0, wordEndCol = 24)
+        assertEquals(1, span?.endRow)
+    }
+
+    @Test
+    fun `single row word stays single row`() {
+        val lines = listOf("https://example.com/abc")
+        val span = SelectionExpander.expandAcrossUrlWrap(lines, row = 0, wordStartCol = 0, wordEndCol = 22)
+        assertNull("single-row word must not expand", span)
+    }
+
+    @Test
+    fun `non url joined text is not expanded`() {
+        val lines = listOf("ordinary text", "more text")
+        // "ordinary" + "more" wouldn't form a URL — must stay null.
+        val span = SelectionExpander.expandAcrossUrlWrap(lines, row = 0, wordStartCol = 0, wordEndCol = 8)
+        assertNull("non-URL joined text must not expand", span)
+    }
+
+    @Test
+    fun `looksLikeFullUrl gates scheme and www`() {
+        assert(SelectionExpander.looksLikeFullUrl("https://example.com/path"))
+        assert(SelectionExpander.looksLikeFullUrl("www.example.com/path"))
+        assert(!SelectionExpander.looksLikeFullUrl("ordinary text"))
+        assert(!SelectionExpander.looksLikeFullUrl("not-a-url"))
     }
 }

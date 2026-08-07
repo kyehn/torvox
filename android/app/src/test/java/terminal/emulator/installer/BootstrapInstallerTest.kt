@@ -234,7 +234,7 @@ class BootstrapInstallerTest {
         script.writeText(
             """
             #!/bin/sh
-            echo ran >> "${marker.absolutePath}"
+            echo "configure" > "${marker.absolutePath}"
             exit 0
             """.trimIndent(),
         )
@@ -243,18 +243,78 @@ class BootstrapInstallerTest {
         val runner = SecondStageRunner(prefixDir, homeDir)
         val first = runBlocking { runner.run() }
         val second = runBlocking { runner.run() }
+        assertTrue("first run must succeed: ${first.errors}", first.success)
+        assertTrue("second run must succeed: ${second.errors}", second.success)
+        // The lock is deleted in finally — a second run proves it was released.
+        assertFalse(
+            "lock file must not remain",
+            File(prefixDir, "bin/termux-bootstrap-second-stage.sh.lock").exists(),
+        )
+    }
 
-        assertTrue(first.success)
-        assertTrue(second.success)
-        // Sequential runs each execute the postinst script (the lock is a
-        // process-local concurrency guard, released in finally): the marker
-        // must contain one line per run, i.e. 2 lines in total.
-        assertTrue("postinst must have executed twice", marker.exists())
-        val runs = marker.readText().count { it == '\n' }
-        assertEquals("one postinst run per sequential run()", 2, runs)
+    // ── Round-224: sha256 version-pin sidecar (warp bootstrap.rs) ────────
+
+    @Test
+    fun install_writes_version_pin_with_zip_sha256() {
+        val zip = buildFakeBootstrapZip(withSymlinks = true)
+        val expectedSha = BootstrapInstaller.sha256Of(zip)
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+
+        val result = runBlocking { installer.install(zip) }
+
+        assertTrue("install must succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
+        val marker = File(prefixDir, BootstrapInstaller.VERSION_PIN_FILENAME)
+        assertTrue("version pin must exist after install", marker.isFile)
+        val pinned = BootstrapInstaller.readVersionPin(prefixDir)
+        assertEquals("pin sha256 must match zip", expectedSha, pinned)
+        assertFalse("needsInstall(same sha) must be false", installer.needsInstall(expectedSha))
+        assertTrue("needsInstall(mismatched sha) must be true", installer.needsInstall("deadbeef"))
+    }
+
+    @Test
+    fun install_failure_leaves_no_version_pin() {
+        val zip = buildFakeBootstrapZip(withSymlinks = true)
+        // Corrupt the zip: truncate it so extraction fails.
+        zip.writeBytes(zip.readBytes().copyOf(200))
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+
+        val result = runBlocking { installer.install(zip) }
+
+        assertTrue("corrupted zip install must fail", result.isFailure)
+        assertFalse(
+            "no version pin on failure",
+            File(prefixDir, BootstrapInstaller.VERSION_PIN_FILENAME).exists(),
+        )
+        // needsInstall with any hash is true (no marker).
+        assertTrue(installer.needsInstall("abc"))
+        assertTrue(installer.needsInstall(null))
+    }
+
+    @Test
+    fun needsInstall_detects_marker_mismatch_and_missing_marker() {
+        // No marker at all → needsInstall true even with a shell binary.
+        File(prefixDir, "bin").mkdirs()
+        File(prefixDir, "bin/login").writeBytes(byteArrayOf(0x7f, 0x45, 0x4c, 0x46) + "x".toByteArray())
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+        assertTrue("no marker must need install", installer.needsInstall("abc"))
+
+        // Matching marker → false.
+        BootstrapInstaller.writeVersionPin(prefixDir, "abc")
+        assertFalse("matching marker must not need install", installer.needsInstall("abc"))
+        assertTrue("different zip sha must need install", installer.needsInstall("def"))
+    }
+
+    @Test
+    fun version_pin_survives_atomic_write() {
+        prefixDir.mkdirs()
+        BootstrapInstaller.writeVersionPin(prefixDir, "0123456789abcdef")
+        assertEquals("0123456789abcdef", BootstrapInstaller.readVersionPin(prefixDir))
+        // No .tmp leftover.
+        assertFalse(File(prefixDir, "${BootstrapInstaller.VERSION_PIN_FILENAME}.tmp").exists())
     }
 }
 
+/** Pure-path tests: no Android/Os dependencies, no context needed. */
 class BootstrapInstallerNormalizePathTest {
     private val installer = BootstrapInstaller(
         prefixDir = File("/tmp/t-prefix"),
@@ -262,14 +322,14 @@ class BootstrapInstallerNormalizePathTest {
         stagingDir = File("/tmp/t-staging"),
     )
 
-    @org.junit.Test
+    @Test
     fun normalizePath_removes_dot_segments() {
         assertEquals("include/term_entry.h", installer.normalizePath("./include/ncurses/../term_entry.h"))
         assertEquals("bin/bash", installer.normalizePath("bin/./bash"))
         assertEquals("a/b", installer.normalizePath("a//b"))
     }
 
-    @org.junit.Test
+    @Test
     fun normalizePath_keeps_leading_escape() {
         // Multiple leading ".." segments are preserved (they escape staging).
         assertEquals("../../escape", installer.normalizePath("../../escape"))
@@ -277,13 +337,13 @@ class BootstrapInstallerNormalizePathTest {
         assertEquals("../b", installer.normalizePath("a/../../b"))
     }
 
-    @org.junit.Test
+    @Test
     fun normalizePath_absolute_stays_absolute() {
         assertEquals("/etc/passwd", installer.normalizePath("/etc/passwd"))
         assertEquals("/etc/passwd", installer.normalizePath("/etc/../etc/passwd"))
     }
 
-    @org.junit.Test
+    @Test
     fun termux_style_target_resolves_inside_staging() {
         // link=./include/ncurses/term_entry.h target=../term_entry.h
         val resolved = installer.normalizePath("./include/ncurses/../term_entry.h")

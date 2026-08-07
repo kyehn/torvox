@@ -74,18 +74,18 @@
 
 ## 5. Supply Chain
 
-- **Upstream libghostty-rs**: Pinned via git commit URL in `Cargo.toml` `[workspace.dependencies]` (lines 50–51):
+- **Upstream libghostty-rs**: crates.io releases pinned in `Cargo.toml` `[workspace.dependencies]` (lines 47–49):
   ```toml
-  libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs.git", package = "libghostty-vt" }
-  libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs.git", package = "libghostty-vt-sys" }
+  libghostty-vt = "0.2.1"
+  libghostty-vt-sys = "0.2.1"
   ```
-  The exact commit is locked in `Cargo.lock` for reproducible builds.
+  Exact versions are locked in `Cargo.lock` for reproducible builds. The
+  `libghostty-vt-sys` build script fetches the pinned Ghostty source commit
+  (`GHOSTTY_COMMIT` in its `build.rs`) into its `OUT_DIR` cache — no local
+  checkout or patching is involved.
 
-- **Zig correctness patches**: Applied via `scripts/bootstrap-libghostty.nu`:
-  1. Clones Ghostty source to `vendor/ghostty` (if not already present)
-  2. Applies `patches/libghostty-vt-correctness.patch` (cursor_style save/restore, DECAWM wraparound, scroll N=0→1 fixes)
-  3. Uses `--forward` flag so already-applied hunks are skipped (idempotent)
-
-- **No vendored crates in tree**: The `vendor/` directory is reserved exclusively for build-time source clones (e.g., Ghostty source for patching) — it is not a crate vendoring directory.
+- **No vendored crates in tree**: The `vendor/` directory is not used; Ghostty
+  source is fetched by the `libghostty-vt-sys` build script into the cargo
+  build output directory.
 
 - **Nix flake pinning**: `flake.lock` pins all Nix inputs (`nixpkgs`, `flake-parts`, `fenix`) to specific revisions, providing reproducible development environments across machines.

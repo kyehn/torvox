@@ -140,6 +140,11 @@ impl Pty for MockPty {
         Ok(())
     }
 
+    fn get_winsize(&self) -> Result<(u16, u16), PtyError> {
+        let inner = self.inner.lock().expect("mock mutex poisoned");
+        Ok((inner.rows, inner.cols))
+    }
+
     fn child_pid(&self) -> nix::unistd::Pid {
         // Return a pid above PID_MAX_LIMIT (2²² = 4,194,304 on Linux) so that
         // kill(pid, signal) returns ESRCH ("no such process") instead of

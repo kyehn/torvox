@@ -5,6 +5,7 @@ import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.view.Surface
 import androidx.compose.ui.graphics.Color
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -34,6 +35,7 @@ import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -91,6 +93,25 @@ internal data class SessionEntry(
     // thread polling a destroyed native session (global event queue
     // double-consumer, native UAF risk).
     @Volatile var closing: Boolean = false,
+    // Round-224 fast-death recovery (warp WarpTerminalService.kt:906-915):
+    // spawn timestamp (elapsedRealtime) so a shell that dies within
+    // FAST_DEATH_THRESHOLD_MS can be detected and retried with
+    // /system/bin/sh. Reset on every (re)spawn.
+    @Volatile var spawnedAtRealtimeMs: Long = SystemClock.elapsedRealtime(),
+    // Consecutive fast-death retries for this session (bounded by
+    // MAX_FAST_DEATH_RETRIES; never reset — a session that fast-dies
+    // repeatedly stays dead after the budget is exhausted).
+    @Volatile var fastDeathCount: Int = 0,
+    // True once the user typed anything into this session; a fast exit
+    // AFTER user input is a legitimate quick exit (e.g. `exit`), not a
+    // broken shell, so fast-death recovery is skipped.
+    @Volatile var userTypedSinceSpawn: Boolean = false,
+    // True between the fast-death detection and the respawn completing.
+    // The render monitor must NOT restart the render thread in this
+    // window: the old thread's exit event is consumed, polling the dead
+    // session would re-trigger fast-death (double respawn race) — the
+    // respawn thread restarts the render thread itself.
+    @Volatile var fastDeathRetryScheduled: Boolean = false,
 ) {
     // renderSignaled replaced a per-frame `CountDownLatch`, which had a
     // lost-wakeup race: after `bridge.render()` the loop published a fresh
@@ -262,7 +283,23 @@ constructor(
     // SECTION 2: Render thread lifecycle
     // ══════════════════════════════════════════════════════════════════════
 
-    private fun handleSessionExit(entry: SessionEntry, exitCode: Int) {
+    private fun handleSessionExit(
+        entry: SessionEntry,
+        exitCode: Int,
+        // Round-224: native-measured child lifetime (ms); 0 when the
+        // event predates the field (or is a sweep). Fast-death uses this
+        // instead of Kotlin event-latency timing.
+        aliveMs: Long,
+    ) {
+        // Round-224 fast-death recovery (warp WarpTerminalService.kt:906-915):
+        // a shell that dies within FAST_DEATH_THRESHOLD_MS of spawn with no
+        // user input is almost certainly a broken bootstrap/prefix shell
+        // (or a misconfigured login binary). Retry with /system/bin/sh and
+        // exponential backoff before surfacing the exit. The respawn runs
+        // on a separate thread so the backoff delay never blocks the render
+        // thread (which owns this call site). Extracted to
+        // [tryFastDeathRecovery] for the detekt complexity limit.
+        if (tryFastDeathRecovery(entry, exitCode, aliveMs)) return
         LogUtil.i("Runtime", "session ${entry.id} exited with code $exitCode")
         // Phase 1 (locked): capture the possibly-hung thread; the actual
         // join runs UNLOCKED below (up to THREAD_JOIN_TIMEOUT_MS) so a hung
@@ -341,6 +378,112 @@ constructor(
             }
             updateForegroundSessionCount(sessions.size)
             updateState()
+        }
+    }
+
+    /**
+     * Round-224 fast-death detection: when the child's native lifetime is
+     * within [FAST_DEATH_THRESHOLD_MS], the user typed nothing, and the
+     * retry budget is not exhausted, log + schedule the /system/bin/sh
+     * respawn and return true (the exit is consumed). Extracted from
+     * handleSessionExit for the detekt complexity limit.
+     */
+    private fun tryFastDeathRecovery(
+        entry: SessionEntry,
+        exitCode: Int,
+        aliveMs: Long,
+    ): Boolean {
+        val effectiveAliveMs =
+            if (aliveMs > 0) {
+                aliveMs
+            } else {
+                // Event predates the native alive_ms field: fall back to
+                // Kotlin-side timing (best effort).
+                SystemClock.elapsedRealtime() - entry.spawnedAtRealtimeMs
+            }
+        if (!shouldRetryFastDeath(effectiveAliveMs, entry.userTypedSinceSpawn, entry.fastDeathCount)) {
+            return false
+        }
+        val attempt: Int
+        synchronized(sessionLock) {
+            if (entry.closing || entry.fastDeathCount >= MAX_FAST_DEATH_RETRIES) return false
+            entry.fastDeathCount++
+            attempt = entry.fastDeathCount
+            entry.renderWatchDog?.stop()
+            entry.renderWatchDog = null
+            // Block the render monitor from restarting the render
+            // thread while the respawn is pending (see field doc).
+            entry.fastDeathRetryScheduled = true
+        }
+        val backoffMs = fastDeathBackoffMs(attempt)
+        LogUtil.w(
+            "Runtime",
+            "Fast death detected for session ${entry.id} (attempt $attempt/$MAX_FAST_DEATH_RETRIES, alive ${effectiveAliveMs}ms, exitCode $exitCode); retrying in ${backoffMs}ms with /system/bin/sh",
+        )
+        scheduleFastDeathRetry(entry, backoffMs)
+        return true
+    }
+
+    /**
+     * Round-224 fast-death recovery (warp WarpTerminalService.kt:906-915):
+     * after the backoff delay, clear the grid, kill the dead child, respawn
+     * with /system/bin/sh and restart the render thread. Runs on its own
+     * thread so the delay never blocks the render/poll loop. On respawn
+     * failure the session is removed exactly like a normal exit.
+     */
+    private fun scheduleFastDeathRetry(entry: SessionEntry, backoffMs: Long) {
+        Thread(
+            {
+                try {
+                    Thread.sleep(backoffMs)
+                    synchronized(sessionLock) {
+                        if (!sessions.containsKey(entry.id) || entry.closing) return@Thread
+                    }
+                    // Clear the grid so the failed shell's stderr diagnostic
+                    // does not bleed into the fallback session (warp clears
+                    // with the same ESC[2J ESC[H sequence).
+                    entry.bridge?.feedTerminal("\u001b[2J\u001b[H".toByteArray())
+                    val bridge = entry.bridge ?: return@Thread
+                    val grid = bridge.getGridRowsColsPacked()
+                    val rows = ((grid shr 32) and 0xFFFF).toInt().coerceAtLeast(1)
+                    val cols = (grid and 0xFFFF).toInt().coerceAtLeast(1)
+                    // Close the dead child's native session first: the PTY
+                    // child already exited, so this is fast; without it
+                    // initSession would leak the old native Session.
+                    try {
+                        bridge.close()
+                    } catch (closeException: Exception) {
+                        LogUtil.e("Runtime", "fast-death: bridge close failed for session ${entry.id}", closeException)
+                    }
+                    val respawned = bridge.spawnTerminal(rows, cols, "/system/bin/sh")
+                    if (respawned <= 0L) {
+                        LogUtil.e("Runtime", "fast-death respawn failed for session ${entry.id}, surfacing exit")
+                        synchronized(sessionLock) {
+                            sessions.remove(entry.id)
+                            entry.fastDeathRetryScheduled = false
+                            updateForegroundSessionCount(sessions.size)
+                            updateState()
+                        }
+                        return@Thread
+                    }
+                    synchronized(sessionLock) {
+                        if (entry.closing) return@synchronized
+                        entry.running = true
+                        entry.renderThreadExited = false
+                        entry.spawnedAtRealtimeMs = SystemClock.elapsedRealtime()
+                        entry.userTypedSinceSpawn = false
+                        entry.fastDeathRetryScheduled = false
+                        renderSupervisor.startRenderThread(entry)
+                    }
+                    LogUtil.w("Runtime", "fast-death respawn OK for session ${entry.id} (/system/bin/sh rows=$rows cols=$cols)")
+                } catch (exception: Exception) {
+                    LogUtil.e("Runtime", "fast-death retry failed for session ${entry.id}", exception)
+                }
+            },
+            "FastDeath-${entry.id}",
+        ).apply {
+            isDaemon = true
+            start()
         }
     }
 
@@ -717,6 +860,11 @@ constructor(
             // holding sessionLock across a join blocks every session operation.
             synchronized(sessionLock) {
                 if (!entry.running) return
+                // Round-224: while a fast-death respawn is pending the
+                // render thread must stay dead — the respawn thread starts
+                // it with the fresh /system/bin/sh session. Restarting now
+                // would poll the consumed-exit session and double-respawn.
+                if (entry.fastDeathRetryScheduled) return
                 if (!entry.renderThreadExited) {
                     val thread = entry.renderThreadRef
                     if (thread != null && thread.isAlive) return
@@ -1040,14 +1188,14 @@ constructor(
                                                     "Runtime",
                                                     "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
                                                 )
-                                                handleSessionExit(exitedEntry, poll.exitCode)
+                                                handleSessionExit(exitedEntry, poll.exitCode, poll.exitAliveMs)
                                             }
                                         } else {
                                             // Full cleanup (bridge close, session removal,
                                             // state update) happens here; the render monitor
                                             // skips !running entries so it would never reap
                                             // an exited session.
-                                            handleSessionExit(entry, poll.exitCode)
+                                            handleSessionExit(entry, poll.exitCode, poll.exitAliveMs)
                                         }
                                         // Shared by both branches: reap any
                                         // ADDITIONAL sessions that exited in the
@@ -1069,7 +1217,7 @@ constructor(
                                                         "Runtime",
                                                         "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
                                                     )
-                                                    handleSessionExit(extra, exitInfo.exitCode)
+                                                    handleSessionExit(extra, exitInfo.exitCode, exitInfo.exitAliveMs)
                                                 }
                                             }
                                         }
@@ -1321,7 +1469,88 @@ constructor(
                         .clipboardResult(request.sessionId, request.requestId, "")
                 }
             }
+            poll.runCommands.forEach { request -> dispatchRunCommandRequest(request) }
         }
+    }
+
+    /**
+     * Dispatch one MCP `run_command` request (round-226 D1). The raw
+     * command string is tokenized to argv with [ArgumentTokenizer] (no
+     * shell, no metacharacter interpretation) and executed in the app's
+     * process. The captured stdout/stderr and exit code are returned to
+     * the native MCP tool via `NativeBridge.runCommandResult`.
+     *
+     * Executed on the polling coroutine (IO dispatcher): a single command
+     * may take up to 30 s, and concurrent MCP calls are routed to
+     * independent request ids, so blocking here is safe.
+     */
+    private fun dispatchRunCommandRequest(request: terminal.emulator.bridge.Bridge.RunCommandRequest) {
+        // Reply with an error payload instead of leaving the native
+        // oneshot unresolved when anything below fails.
+        fun fail(detail: String) {
+            LogUtil.e("Runtime", "run_command request dispatch failed: $detail")
+            val payload =
+                "{\"exit_code\":-1,\"stdout\":\"\",\"stderr\":\"${
+                    detail.replace("\"", "\\\"").replace("\n", "\\n")
+                }\"}"
+            NativeBridge.runCommandResult(request.sessionId, request.requestId, payload)
+        }
+        try {
+            if (request.command.isBlank()) {
+                fail("empty command")
+                return
+            }
+            val argv = ArgumentTokenizer.tokenize(request.command)
+            if (argv.isEmpty()) {
+                fail("no argv produced")
+                return
+            }
+            LogUtil.i("Runtime", "run_command argv=${argv.joinToString(" ")}")
+            val process = ProcessBuilder(argv).redirectErrorStream(false).start()
+            var stdout: String
+            var stderr: String
+            var exitCode: Int
+            try {
+                val stdoutJob =
+                    kotlinx.coroutines.GlobalScope.async {
+                        process.inputStream.bufferedReader().readText()
+                    }
+                val stderrJob =
+                    kotlinx.coroutines.GlobalScope.async {
+                        process.errorStream.bufferedReader().readText()
+                    }
+                if (process.waitFor(RUN_COMMAND_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+                    exitCode = process.exitValue()
+                } else {
+                    process.destroyForcibly()
+                    exitCode = -1
+                }
+                stdout = stdoutJob.get()
+                stderr = stderrJob.get()
+            } finally {
+                process.destroy()
+            }
+            val payload =
+                "{\"exit_code\":$exitCode,\"stdout\":${
+                    jsonString(stdout)
+                },\"stderr\":${
+                    jsonString(stderr)
+                }}"
+            NativeBridge.runCommandResult(request.sessionId, request.requestId, payload)
+        } catch (exception: Exception) {
+            fail("${exception.javaClass.simpleName}: ${exception.message}")
+        }
+    }
+
+    private fun jsonString(value: String): String {
+        val escaped =
+            value
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+                .replace("\t", "\\t")
+        return "\"$escaped\""
     }
 
     /**
@@ -1400,6 +1629,8 @@ constructor(
         private const val FONT_SIZE_HEIGHT_MIN_PX = 250
         private const val FONT_SIZE_HEIGHT_MAX_PX = 500
         private const val RENDER_ERROR_LOG_FREQUENCY = 60
+        /** MCP run_command process timeout (round-226 D1). */
+        private const val RUN_COMMAND_TIMEOUT_MS = 30_000L
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
         private const val RENDER_MAX_TRANSIENT_ERRORS = 50 // ~2.5s of transient errors before thread exit
         private const val RENDER_ERROR_SLEEP_MS = 50L
@@ -1825,6 +2056,14 @@ constructor(
             // real render thread once it starts.
             // ADR-0007: attach the surface now that the bridge exists.
             attachPendingSurface(bridge)
+            // Round-224 (warp WarpTerminalService.kt:797-808): the first
+            // resize with grid dims must be issued right after spawn —
+            // attachPendingSurface → recomputeGridFromFontMetrics does it;
+            // anchor the grid dims in the spawn sequence for verification.
+            LogUtil.d(
+                "Runtime",
+                "first resize after spawn: grid=${_state.value.rows}x${_state.value.cols}",
+            )
             startedEntry.forceRenderRequested = true
             // Start the render thread, publish the UI state, and start the
             // foreground service + monitor under ONE sessionLock critical
@@ -2648,6 +2887,10 @@ constructor(
     fun writeToPty(data: ByteArray): Boolean {
         val entry = sessions[activeSessionId]
         if (entry != null && entry.running) {
+            // Round-224: any user input marks the session as interactive —
+            // a later fast exit is a legitimate quick exit (e.g. `exit`),
+            // so fast-death recovery must NOT fire for it.
+            entry.userTypedSinceSpawn = true
             val written = entry.bridge?.writeToPty(data) ?: false
             entry.notifyRender()
             return written
@@ -3092,3 +3335,30 @@ internal fun isElf(file: java.io.File): Boolean = try {
 } catch (_: Exception) {
     false
 }
+
+// Round-224 fast-death recovery (warp WarpTerminalService.kt:906-915).
+// Top-level (not on the private companion) so the unit tests can reach
+// the pure decision/backoff logic.
+
+/** A shell exiting within this window after spawn with no user input is treated as broken. */
+internal const val FAST_DEATH_THRESHOLD_MS = 1500L
+
+/** Bounded fast-death retries per session; exhausted → the exit is surfaced. */
+internal const val MAX_FAST_DEATH_RETRIES = 3
+
+/**
+ * Fast-death decision (pure, unit-tested): the shell exited within
+ * [FAST_DEATH_THRESHOLD_MS] of spawn, the user typed nothing, and the
+ * retry budget is not exhausted.
+ */
+internal fun shouldRetryFastDeath(
+    aliveMs: Long,
+    userTypedSinceSpawn: Boolean,
+    fastDeathCount: Int,
+): Boolean = aliveMs <= FAST_DEATH_THRESHOLD_MS && !userTypedSinceSpawn && fastDeathCount < MAX_FAST_DEATH_RETRIES
+
+/**
+ * Exponential backoff for retry [attempt] (1-based):
+ * 500ms << (attempt-1), capped at 5000ms (warp's formula).
+ */
+internal fun fastDeathBackoffMs(attempt: Int): Long = minOf(500L shl (attempt - 1), 5000L)

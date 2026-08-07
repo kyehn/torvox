@@ -43,6 +43,8 @@ sealed class PollEvent {
     data class Exit(
         @SerialName("session_id") val sessionId: Long = 0,
         val code: Int = 0,
+        // Round-224: child lifetime (ms, fork → waitpid) measured natively.
+        @SerialName("alive_ms") val aliveMs: Long = 0,
     ) : PollEvent()
 
     @Serializable
@@ -94,6 +96,14 @@ sealed class PollEvent {
     @Serializable
     @SerialName("open_url")
     data class OpenUrl(val url: String = "") : PollEvent()
+
+    @Serializable
+    @SerialName("run_command")
+    data class RunCommand(
+        @SerialName("session_id") val sessionId: Long = 0,
+        @SerialName("request_id") val requestId: Long = 0,
+        val command: String = "",
+    ) : PollEvent()
 }
 
 /**

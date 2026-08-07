@@ -77,6 +77,9 @@ class NixBootstrapInstrumentedTest {
         Assert.assertTrue("install must succeed: $result", result.startsWith("OK "))
         Assert.assertTrue("login shell must be selected: $result", result.contains("shell=bin/login"))
         Assert.assertTrue("isInstalled must be true: $result", result.contains("installed=true"))
+        // Round-224: the sha256 version-pin sidecar must round-trip.
+        Assert.assertTrue("version pin must match: $result", result.contains("pinned=true"))
+        Assert.assertTrue("needsInstall must be false with matching pin: $result", result.contains("needsInstall=false"))
 
         // Verify the store tree and ELF binary from the shell side.
         val loginHead = shell("od -An -tx1 -N4 /data/user/0/com.termux/files/usr-nix-test/bin/login")

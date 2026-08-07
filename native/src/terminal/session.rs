@@ -160,6 +160,12 @@ pub struct Session {
     // ── Runtime state ────────────────────────────────────────────────
     /// Exit code captured from waitpid, `None` while process runs.
     pub(crate) exit_code: Arc<Mutex<Option<i32>>>,
+    /// Round-224: child alive duration (ms, fork → waitpid), written by
+    /// the wait thread on exit. Consumed by ffi::poll_event for the
+    /// fast-death Exit event payload.
+    pub(crate) exit_alive_ms: Arc<Mutex<Option<u64>>>,
+    /// Round-224: fork timestamp, the start point for [Self::exit_alive_ms].
+    spawned_at: std::time::Instant,
 
     // ── Cached grid size ─────────────────────────────────────────────
     /// Last known terminal grid size, updated on spawn and successful
@@ -326,10 +332,16 @@ impl Session {
         });
 
         let exit_code = session.exit_code.clone();
+        let exit_alive_ms = session.exit_alive_ms.clone();
+        let spawned_at = session.spawned_at;
         let exited_wait = exited.clone();
         let wait_handle = std::thread::spawn(move || {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
+            // Round-224: record the child's real lifetime (fork → waitpid)
+            // for the fast-death Exit event — Kotlin event handling latency
+            // must not skew the fast-death decision.
+            *exit_alive_ms.lock() = Some(spawned_at.elapsed().as_millis() as u64);
             if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result
                 && code >= 100
             {
@@ -404,6 +416,8 @@ impl Session {
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(None)),
+            exit_alive_ms: Arc::new(Mutex::new(None)),
+            spawned_at: std::time::Instant::now(),
             terminal_rows: AtomicU32::new(rows),
             terminal_cols: AtomicU32::new(cols),
             grid_dirty: AtomicBool::new(false),

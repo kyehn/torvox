@@ -2370,7 +2370,9 @@ fn bug_cup_zero_params_treated_as_one() {
     assert_eq!(t.cursor_x(), 0, "CUP(0,0): col 0 (1-idx 1)");
 }
 
-/// SU with count=0: per ECMA-48, N=0 uses default (N=1), so Row1 scrolls out.
+/// SU with count=0: upstream Ghostty treats N=0 as a no-op (xterm-compatible),
+/// unlike the ECMA-48 default-parameter rule (0 → 1). libghostty-vt 0.2.1
+/// ships this upstream behavior, so Row1 stays on screen.
 #[test]
 fn bug_su_zero_scroll() {
     let mut t = sized_term(5, 20, 100);
@@ -2386,8 +2388,8 @@ fn bug_su_zero_scroll() {
         .collect();
     assert_eq!(
         r0.trim(),
-        "Row2",
-        "SU N=0 treated as N=1 per ECMA-48, Row1 scrolled out"
+        "Row1",
+        "SU N=0 is a no-op in upstream Ghostty (xterm-compatible)"
     );
 }
 
