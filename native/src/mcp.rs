@@ -142,6 +142,8 @@ type CallbackDialog = Box<
 type CallbackPickFile =
     Box<dyn Fn(u64, String, String) -> (u64, tokio::sync::oneshot::Receiver<String>) + Send + Sync>;
 type CallbackSendSignal = Box<dyn Fn(u64, i32) -> String + Send + Sync>;
+type CallbackRunCommand =
+    Box<dyn Fn(u64, String) -> (u64, tokio::sync::oneshot::Receiver<String>) + Send + Sync>;
 
 /// Thread-safe state shared between JNI bridge and MCP tools.
 #[derive(Clone)]
@@ -156,6 +158,7 @@ struct McpStateInner {
     on_show_dialog: Mutex<Option<CallbackDialog>>,
     on_pick_file: Mutex<Option<CallbackPickFile>>,
     on_send_signal: Mutex<Option<CallbackSendSignal>>,
+    on_run_command: Mutex<Option<CallbackRunCommand>>,
     terminal_rows: AtomicU32,
     terminal_cols: AtomicU32,
     active_session_id: AtomicU64,
@@ -172,6 +175,7 @@ impl McpState {
             on_show_dialog: Mutex::new(None),
             on_pick_file: Mutex::new(None),
             on_send_signal: Mutex::new(None),
+            on_run_command: Mutex::new(None),
             terminal_rows: AtomicU32::new(24),
             terminal_cols: AtomicU32::new(80),
             active_session_id: AtomicU64::new(0),
@@ -256,6 +260,16 @@ impl McpState {
         F: Fn(u64, i32) -> String + Send + Sync + 'static,
     {
         *self.0.on_send_signal.lock() = Some(Box::new(f));
+    }
+
+    /// Set the handler for MCP `run_command`. The handler receives the
+    /// active session id and the raw command string, and returns a oneshot
+    /// receiver that resolves when Kotlin replies via `runCommandResult()`.
+    pub fn set_run_command_handler<F>(&self, f: F)
+    where
+        F: Fn(u64, String) -> (u64, tokio::sync::oneshot::Receiver<String>) + Send + Sync + 'static,
+    {
+        *self.0.on_run_command.lock() = Some(Box::new(f));
     }
 }
 
@@ -561,6 +575,53 @@ fn dialog_tool() -> Tool {
 
 // ── Router construction ──────────────────────────────────────────────────
 
+fn run_command_tool() -> Tool {
+    #[derive(Deserialize, JsonSchema)]
+    struct RunCommandInput {
+        /// Raw command line, e.g. `echo "hello world" | wc -c`. Tokenized
+        /// into argv by the Kotlin host with ArgumentTokenizer (DrJava
+        /// 4-state machine) — NEVER passed through `sh -c`, so shell
+        /// metacharacters (`;`, `|`, `&&`, redirection, globbing) are
+        /// inert data, not syntax.
+        command: String,
+    }
+
+    ToolBuilder::new("run_command")
+        .title("Run a command in the terminal session")
+        .description(
+            "Execute a raw command string safely (no sh -c): the string is \
+             tokenized to argv with quote/backslash rules and executed with \
+             the app's environment. Returns the exit code plus captured \
+             stdout/stderr. Shell metacharacters are NOT interpreted.",
+        )
+        .handler(|input: RunCommandInput| async move {
+            let (session_id, rx) = {
+                let state = global_state();
+                let guard = state.0.on_run_command.lock();
+                let session_id = state.0.active_session_id.load(Ordering::Acquire);
+                (
+                    session_id,
+                    guard
+                        .as_ref()
+                        .map(|callback| callback(session_id, input.command.clone())),
+                )
+            }; // guard + state drop before await
+            match rx {
+                Some((request_id, rx)) => {
+                    match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                        Ok(Ok(result)) => Ok(CallToolResult::text(result)),
+                        _ => {
+                            crate::android::ffi::cancel_request(session_id, request_id);
+                            Ok(CallToolResult::error("run_command cancelled or timed out"))
+                        }
+                    }
+                }
+                None => Ok(CallToolResult::error("run_command not available")),
+            }
+        })
+        .build()
+}
+
 fn build_router() -> McpRouter {
     McpRouter::new()
         .server_info("terminal", env!("CARGO_PKG_VERSION"))
@@ -573,6 +634,7 @@ fn build_router() -> McpRouter {
         .tool(send_signal_tool())
         .tool(pick_file_tool())
         .tool(dialog_tool())
+        .tool(run_command_tool())
 }
 
 // ── Server lifecycle ─────────────────────────────────────────────────────
@@ -767,9 +829,27 @@ mod tests {
     // whole test body.
     static MCP_TEST_LOCK: StdMutex<()> = StdMutex::new(());
 
+    /// Clear every handler and the active session id so a freshly built
+    /// router sees pristine global state. Must be called while holding
+    /// MCP_TEST_LOCK (i.e. right after `let _guard = ...`).
+    fn reset_global_state() {
+        let state = global_state();
+        *state.0.on_notify.lock() = None;
+        *state.0.on_toast.lock() = None;
+        *state.0.on_open_url.lock() = None;
+        *state.0.on_clipboard_get.lock() = None;
+        *state.0.on_clipboard_set.lock() = None;
+        *state.0.on_show_dialog.lock() = None;
+        *state.0.on_pick_file.lock() = None;
+        *state.0.on_send_signal.lock() = None;
+        *state.0.on_run_command.lock() = None;
+        state.set_active_session_id(0);
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn test_list_tools() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -789,12 +869,13 @@ mod tests {
         assert!(names.contains(&"send_signal"));
         assert!(names.contains(&"pick_file"));
         assert!(names.contains(&"dialog"));
-        assert_eq!(names.len(), 9);
+        assert_eq!(names.len(), 10);
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_terminal_info_tool() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -811,6 +892,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_clipboard_set_requires_text() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -823,6 +905,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_notify_tool_invokes_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -853,6 +936,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_toast_tool_invokes_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -870,6 +954,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_open_url_tool_invokes_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -889,6 +974,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_clipboard_get_returns_text() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -911,6 +997,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_clipboard_get_unavailable_if_no_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -932,6 +1019,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_send_signal_invokes_handler() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -953,8 +1041,69 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn test_run_command_invokes_handler() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+        state.set_active_session_id(7);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.set_run_command_handler(move |sid, command| {
+            tx.send((sid, command.clone())).unwrap();
+            let (req_id, resp_rx) = crate::android::ffi::register_request(sid);
+            // Simulate Kotlin answering via runCommandResult right away.
+            let payload = serde_json::json!({
+                "exit_code": 0,
+                "stdout": command,
+                "stderr": "",
+            })
+            .to_string();
+            crate::android::ffi::answer_request(sid, req_id, payload);
+            (req_id, resp_rx)
+        });
+        let result = client
+            .call_tool("run_command", json!({"command": "echo \"hi\""}))
+            .await;
+        assert!(!result.is_error);
+        assert_eq!(
+            result.content.first().unwrap().as_text().unwrap(),
+            r#"{"exit_code":0,"stderr":"","stdout":"echo \"hi\""}"#
+        );
+        assert_eq!(rx.try_recv().unwrap(), (7u64, "echo \"hi\"".to_string()));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_run_command_unavailable_without_handler() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+        state.set_active_session_id(7);
+        // No handler registered → the tool reports "not available".
+        let result = client
+            .call_tool("run_command", json!({"command": "echo hi"}))
+            .await;
+        assert!(result.is_error);
+        assert!(
+            result
+                .content
+                .first()
+                .unwrap()
+                .as_text()
+                .unwrap()
+                .contains("not available")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn test_pick_file_returns_path() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -981,6 +1130,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_dialog_returns_answer() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;
@@ -1009,6 +1159,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn test_method_not_found() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
         client.initialize().await;

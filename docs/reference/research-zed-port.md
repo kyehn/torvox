@@ -115,7 +115,7 @@ pub fn insert_zed_terminal_env(env: &mut HashMap<String, String>, version: &impl
 
 #### 事件类型（165-219 行）
 
-- `Event`（向上，165）：TitleChanged、BreadcrumbsChanged、CloseTerminal、Wakeup、SelectionsChanged、ProcessOutputAvaliable 等 UI 层事件。
+- `Event`（向上，165）：TitleChanged、BreadcrumbsChanged、CloseTerminal、Wakeup、SelectionsChanged、ProcessOutputAvailable 等 UI 层事件。
 - `InternalEvent`（197）：`Resize(TerminalBounds, bool)`（bool=是否同步 PTY，dock 拖拽的像素级 resize 不同步）、`Clear`、`Scroll(AlacScroll)`、`ScrollToAlacPoint`、`SetSelection`、`UpdateSelection(Point<Pixels>)`、`FindHyperlink(Point<Pixels>, bool)`、`ProcessHyperlink((String, bool, Match), bool)`、`Copy(Option<bool>)`、`ToggleViMode`、`ViMotion(ViMotion)`、`MoveViCursorToAlacPoint`。
 
 #### `ZedListener`（223-230）

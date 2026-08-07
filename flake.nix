@@ -179,8 +179,9 @@
             };
             shellHook = ''
               set -e
-              export PATH="${pkgs.lib.makeBinPath [ pkgs.zig_0_16 ]}:$PATH"
-              export GHOSTTY_SOURCE_DIR="$(nu scripts/bootstrap-libghostty.nu | tail -1)"
+              # libghostty-vt-sys 0.2.1 pins ghostty a887df42, whose build.zig
+              # requires Zig 0.15.2 — nixpkgs `zig_0_15` is exactly that.
+              export PATH="${pkgs.lib.makeBinPath [ pkgs.zig_0_15 ]}:$PATH"
               nu scripts/fetch-aosp-testkey.nu
               nu scripts/download-rapidocr-models.nu
             '';

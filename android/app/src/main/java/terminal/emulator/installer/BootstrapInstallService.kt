@@ -72,12 +72,16 @@ class BootstrapInstallService : Service() {
             } else {
                 val stage = SecondStageRunner(prefixDir, homeDir).run()
                 if (stage.success) {
+                    // needsInstall(zipSha256) verifies the marker round-trip.
+                    val zipSha256 = BootstrapInstaller.sha256Of(File(zipPath))
                     "OK prefix=$prefixDir shell=" +
                         (
                             listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
                                 .firstOrNull { isElf(File(prefixDir, it)) } ?: "none"
                             ) +
-                        " installed=${installer.isInstalled()}"
+                        " installed=${installer.isInstalled()}" +
+                        " pinned=${BootstrapInstaller.readVersionPin(prefixDir) == zipSha256}" +
+                        " needsInstall=${installer.needsInstall(zipSha256)}"
                 } else {
                     "SECOND_STAGE_FAILED: ${stage.errors}"
                 }

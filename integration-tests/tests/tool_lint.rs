@@ -414,7 +414,6 @@ fn nu_scripts_are_valid() {
     let scripts_dir = std::path::Path::new(WORKSPACE).join("scripts");
     let allowed: std::collections::HashSet<&str> = [
         "auto-commit.nu",
-        "bootstrap-libghostty.nu",
         "build-android-libs.nu",
         "build-apk.nu",
         "check-rust.nu",
