@@ -294,6 +294,7 @@ constructor(
                     state.copy(
                         selection =
                         current.copy(
+                            dragging = true,
                             start = SelectionAnchor(result.startRow, result.startCol),
                             end = SelectionAnchor(result.endRow, result.endCol),
                             // Hide the floating menu while dragging; it
@@ -319,6 +320,7 @@ constructor(
                     state.copy(
                         selection =
                         current.copy(
+                            dragging = true,
                             start = SelectionAnchor(result.startRow, result.startCol),
                             end = SelectionAnchor(result.endRow, result.endCol),
                             // Hide the floating menu while dragging; it

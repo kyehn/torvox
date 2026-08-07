@@ -142,4 +142,44 @@ class DocumentsProviderTest {
             // expected
         }
     }
+
+    @Test
+    fun createDocument_creates_file_and_deleteDocument_removes_it() {
+        val provider = ensureProvider()
+        val docId = provider.createDocument("terminal_home", "text/plain", "newfile.txt")
+        val file = java.io.File(rootDir(), "newfile.txt")
+        assert(file.exists()) { "createDocument must create the file" }
+        assert(file.isFile) { "created document must be a file" }
+        // Query it back (round-trip).
+        val cursor = provider.queryDocument(docId, null)
+        assert(cursor.moveToFirst()) { "created doc must be queryable" }
+        cursor.close()
+        // Delete it.
+        provider.deleteDocument(docId)
+        assert(!file.exists()) { "file must be gone after delete" }
+    }
+
+    @Test
+    fun openDocument_returns_parcel_file_for_existing_file() {
+        val provider = ensureProvider()
+        val file = java.io.File(rootDir(), "readme.txt").apply { writeText("hello") }
+        val pfd = provider.openDocument("readme.txt", "r", null)
+        pfd.use { pfd ->
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd).use { input ->
+                val text = input.readBytes().decodeToString()
+                assert(text == "hello") { "read content must match, got '$text'" }
+            }
+        }
+    }
+
+    @Test
+    fun deleteDocument_rejects_root() {
+        val provider = ensureProvider()
+        try {
+            provider.deleteDocument("terminal_home")
+            throw AssertionError("root delete must fail")
+        } catch (expected: java.io.FileNotFoundException) {
+            // expected — root delete would wipe the whole home.
+        }
+    }
 }

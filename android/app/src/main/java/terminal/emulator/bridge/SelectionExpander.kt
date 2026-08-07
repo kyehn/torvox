@@ -39,9 +39,43 @@ object SelectionExpander {
         if (urlStart >= 0) {
             var end = urlStart
             while (end < line.length && !line[end].isWhitespace()) end++
-            return urlStart to (end - 1).coerceAtLeast(urlStart)
+            // Trim trailing prose punctuation from the URL run
+            // (termux-app/termlib UrlDetection.trimDetectedUrl): a URL
+            // followed by `,`/`.`/`;`/`:`/`!` in prose should not include
+            // that punctuation. Balanced-bracket check: `https://x.com/a)`
+            // with no matching `(` trims the `)`; `(https://x.com/a)` keeps it.
+            var trimmedEnd = end - 1
+            while (trimmedEnd > urlStart) {
+                val ch = line[trimmedEnd]
+                val shouldTrim = ch in TRAILING_URL_PUNCTUATION ||
+                    // Include the current char in the bracket count: a `)`
+                    // with no matching `(` BEFORE it (including itself) is
+                    // prose, not a URL close.
+                    (ch == ')' && countOpenLessThanClose(line, trimmedEnd + 1, '(', ')')) ||
+                    (ch == ']' && countOpenLessThanClose(line, trimmedEnd + 1, '[', ']'))
+                if (!shouldTrim) break
+                trimmedEnd--
+            }
+            return urlStart to trimmedEnd.coerceAtLeast(urlStart)
         }
         return expandWord(line, c)
+    }
+
+    /** Prose punctuation that terminates a URL (termlib UrlDetection.kt:9). */
+    private val TRAILING_URL_PUNCTUATION = setOf('.', ',', ';', ':', '!')
+
+    /** True when [s] has more `closeChar` than `openChar` in [0, end). */
+    private fun countOpenLessThanClose(s: String, end: Int, openChar: Char, closeChar: Char): Boolean {
+        var openCount = 0
+        var closeCount = 0
+        for (i in 0 until end) {
+            if (s[i] == openChar) {
+                openCount++
+            } else if (s[i] == closeChar) {
+                closeCount++
+            }
+        }
+        return openCount < closeCount
     }
 
     private fun findUrlStart(line: String, c: Int): Int {

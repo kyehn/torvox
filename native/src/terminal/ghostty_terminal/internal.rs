@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
 use libghostty_vt::key::{self, Mods};
+use libghostty_vt::mouse;
 use libghostty_vt::render::{CellIterator, CursorVisualStyle, RenderState, RowIterator};
 use libghostty_vt::style::{PaletteIndex, StyleColor};
 use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate};
@@ -271,6 +272,28 @@ impl super::GhosttyTerminal {
             Err(error) => {
                 log::warn!(
                     "ghostty_terminal: key::Event::new() failed: {error} — keyboard protocol disabled"
+                );
+                None
+            }
+        };
+
+        // Reused per-mouse-event encoder/event, same lifetime pattern as the
+        // key encoder above. `set_options_from_terminal` re-syncs tracking
+        // mode and output format before each event (zelland pattern).
+        let mut mouse_encoder = match mouse::Encoder::new() {
+            Ok(enc) => Some(enc),
+            Err(error) => {
+                log::warn!(
+                    "ghostty_terminal: mouse::Encoder::new() failed: {error} — mouse protocol disabled"
+                );
+                None
+            }
+        };
+        let mut mouse_event = match mouse::Event::new() {
+            Ok(evt) => Some(evt),
+            Err(error) => {
+                log::warn!(
+                    "ghostty_terminal: mouse::Event::new() failed: {error} — mouse protocol disabled"
                 );
                 None
             }
@@ -640,6 +663,70 @@ impl super::GhosttyTerminal {
                         log::warn!("ghostty_terminal: encoder.encode_to_vec failed: {error}");
                     }
                     try_send(&tx, response, "key_encode response send failed");
+                }
+                Command::EncodeMouseEvent {
+                    position,
+                    action,
+                    button,
+                    cell_w,
+                    cell_h,
+                    tx,
+                } => {
+                    // Reference: zelland src-tauri/src/terminal.rs
+                    // `encode_mouse_event` — uses the Ghostty mouse encoder
+                    // with the renderer's live cell size, and drops the
+                    // event when mouse reporting is off. The encoder takes
+                    // options from the terminal (tracking mode + format) so
+                    // SGR/X10/UTF-8 output follows the application's
+                    // DECSET selection.
+                    let (mouse_encoder, mouse_event) = match (
+                        mouse_encoder.as_mut(),
+                        mouse_event.as_mut(),
+                    ) {
+                        (Some(enc), Some(evt)) => (enc, evt),
+                        _ => {
+                            log::warn!(
+                                "ghostty_terminal: mouse encoder/event unavailable — dropping mouse event"
+                            );
+                            let _ = tx.send(Vec::new());
+                            continue;
+                        }
+                    };
+                    mouse_encoder.set_options_from_terminal(&terminal);
+                    let cols = terminal.cols().unwrap_or(80) as u32;
+                    let rows = terminal.rows().unwrap_or(24) as u32;
+                    let size = mouse::EncoderSize {
+                        screen_width: cols.saturating_mul(cell_w.max(1.0) as u32),
+                        screen_height: rows.saturating_mul(cell_h.max(1.0) as u32),
+                        cell_width: cell_w.max(1.0) as u32,
+                        cell_height: cell_h.max(1.0) as u32,
+                        padding_top: 0,
+                        padding_bottom: 0,
+                        padding_right: 0,
+                        padding_left: 0,
+                    };
+                    mouse_encoder.set_size(size);
+                    mouse_event.set_position(mouse::Position {
+                        x: position.0,
+                        y: position.1,
+                    });
+                    mouse_event.set_action(match action {
+                        1 => mouse::Action::Release,
+                        2 => mouse::Action::Motion,
+                        _ => mouse::Action::Press,
+                    });
+                    mouse_event.set_button(match button {
+                        1 => Some(mouse::Button::Right),
+                        2 => Some(mouse::Button::Middle),
+                        3 => Some(mouse::Button::Four),
+                        4 => Some(mouse::Button::Five),
+                        _ => Some(mouse::Button::Left),
+                    });
+                    let mut response = Vec::new();
+                    if let Err(error) = mouse_encoder.encode_to_vec(mouse_event, &mut response) {
+                        log::warn!("ghostty_terminal: mouse encode failed: {error}");
+                    }
+                    try_send(&tx, response, "mouse encode response send failed");
                 }
                 // Query-only commands — never reach command_receiver in
                 // normal operation (they go via query_receiver), but we

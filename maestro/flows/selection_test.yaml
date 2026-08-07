@@ -1,0 +1,50 @@
+appId: com.termux
+---
+# 文本选择功能测试：长按文本 → 智能选择 → 菜单
+# 前置：终端显示 "hello world selection_test"（bash 内建 echo 输出）
+
+# 输入测试文本（真实 IME 路径）
+- inputText: "echo hello_world_selection"
+- pressKey: Enter
+- waitForAnimationToEnd
+
+# 等待输出
+- extendedWaitUntil:
+    visible:
+      text: "hello_world_selection"
+    timeout: 10000
+
+# 长按 "world" 词（文本在 prompt 上方区域）
+- longPressOn:
+    text: "hello_world_selection"
+    index: 1
+
+# 菜单应出现（Copy/Select All）
+- extendedWaitUntil:
+    visible:
+      text: "COPY"
+    timeout: 5000
+
+# 截图（菜单位置验证）
+- takeScreenshot: selection_menu
+
+# 点击 Copy
+- tapOn:
+    text: "COPY"
+- waitForAnimationToEnd
+
+# 验证剪贴板（通过 paste 验证）
+- longPressOn:
+    text: "$"
+    index: 1
+- extendedWaitUntil:
+    visible:
+      text: "PASTE"
+    timeout: 5000
+- tapOn:
+    text: "PASTE"
+- waitForAnimationToEnd
+
+# 输入粘贴验证
+- inputText: "paste_test"
+- pressKey: Enter

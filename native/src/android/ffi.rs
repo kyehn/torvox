@@ -2011,6 +2011,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine
             return std::ptr::null_mut();
         };
         let session = entry.session.lock();
+        // Kotlin passes an absolute row (scrollback + viewport offset via
+        // `scrollbackLength - scrollOffset + row`), so pass it straight
+        // through to read_line_text (which expects absolute rows).
         let text = session.terminal().read_line_text(row);
         drop(session);
         drop(registry);

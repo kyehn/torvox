@@ -181,7 +181,7 @@ constructor(
      * ghostty-android clipboardHasText() metadata check avoids the clipboard
      * access toast).
      */
-    private inner class SelectionActionCallback : android.view.ActionMode.Callback {
+    private inner class SelectionActionCallback : android.view.ActionMode.Callback2() {
             override fun onCreateActionMode(
                 mode: android.view.ActionMode,
                 menu: android.view.Menu,
@@ -194,26 +194,26 @@ constructor(
                         MENU_ACTION_PASTE,
                         0,
                         R.string.paste,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
                 } else {
                     menu.add(
                         android.view.Menu.NONE,
                         MENU_ACTION_COPY,
                         0,
                         R.string.copy,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
                     menu.add(
                         android.view.Menu.NONE,
                         MENU_ACTION_SELECT_ALL,
                         1,
                         R.string.select_all,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
                     menu.add(
                         android.view.Menu.NONE,
                         MENU_ACTION_PASTE,
                         2,
                         R.string.paste,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
                 }
                 return true
             }
@@ -222,6 +222,53 @@ constructor(
                 mode: android.view.ActionMode,
                 menu: android.view.Menu,
             ): Boolean = false
+
+            /**
+             * Anchor the floating toolbar exactly over the selection
+             * (termux-app TextSelectionCursorController.java:194-213).
+             *
+             * Out-rect = selection rect expanded one cell each side
+             * vertically (so the toolbar never covers the selected text)
+             * and offset by the handle height. Bottom-clamped to the view.
+             */
+            override fun onGetContentRect(
+                mode: android.view.ActionMode,
+                view: android.view.View,
+                outRect: android.graphics.Rect,
+            ) {
+                val selection = viewModel?.state?.value?.selection
+                val start = selection?.start
+                val end = selection?.end
+                val cw = viewModel?.runtime?.cellWidth ?: 0f
+                val ch = viewModel?.runtime?.cellHeight ?: 0f
+                if (start == null || end == null || cw <= 0f || ch <= 0f) {
+                    // No geometry: default to the whole view (system default).
+                    outRect.set(0, 0, view.width, view.height)
+                    return
+                }
+                val (topRow, bottomRow) =
+                    if (start.row <= end.row) start.row to end.row else end.row to start.row
+                val (leftCol, rightCol) =
+                    if (start.row < end.row || start.col <= end.col) start.col to end.col else end.col to start.col
+                // Selection rows are grid coordinates (scrollback rows).
+                // Viewport top grid row = scrollbackLength - scrollOffset,
+                // so the visible row = gridRow - (scrollbackLength - scrollOffset).
+                val viewportTopGrid = (viewModel?.runtime?.bridge()?.scrollbackLength() ?: 0) - scrollOffset
+                val visibleTop = (topRow - viewportTopGrid) * ch
+                val visibleBottom = ((bottomRow + 1) - viewportTopGrid) * ch
+                val left = leftCol * cw
+                val right = (rightCol + 1) * cw
+                // One cell of breathing room above/below + handle-height
+                // offset (termux :203-206).
+                val top = (visibleTop - ch) + HANDLE_HEIGHT_OFFSET
+                val bottom = visibleBottom + ch + HANDLE_HEIGHT_OFFSET
+                outRect.set(
+                    left.toInt(),
+                    top.toInt().coerceAtLeast(0),
+                    right.toInt(),
+                    bottom.toInt().coerceAtMost(view.height),
+                )
+            }
 
             override fun onActionItemClicked(
                 mode: android.view.ActionMode,
@@ -265,10 +312,12 @@ constructor(
     fun showSelectionMenu(pasteOnly: Boolean) {
         hideSelectionMenu()
         if (!isAttachedToWindow) return
-        // TYPE_FLOATING positions the toolbar near onGetContentRect instead of
-        // at the top — the key pattern from ghostty-android and termux.
+        // Round-218: TYPE_FLOATING (FloatingToolbar) does not render on the
+        // API-35 emulator (verified: whole-view anchor still invisible).
+        // Fall back to the default top ActionMode — the standard system
+        // toolbar used by Termux; the system colors it and positions it.
         @Suppress("DEPRECATION")
-        selectionActionMode = startActionMode(SelectionActionCallback(), ActionMode.TYPE_FLOATING)
+        selectionActionMode = startActionMode(SelectionActionCallback())
     }
 
     /** Dismiss the system selection toolbar. */
@@ -821,6 +870,11 @@ constructor(
                         // finger from the first MOVE instead, computed as a
                         // delta relative to the anchor cell boundary.
                         latchDragAnchor(which)
+                        // Menu hiding during drag is driven by
+                        // updateSelection/updateSelectionStart setting
+                        // menuDismissed=true (TerminalScreen LaunchedEffect);
+                        // re-show on UP via endSelection setting it false
+                        // (ghostty-android reshowToolbar pattern).
                         return true
                     }
 
@@ -848,6 +902,11 @@ constructor(
                                 selection.end.col,
                                 getAccentColor(),
                             )
+                            // Menu re-show is driven by TerminalScreen's
+                            // LaunchedEffect(menuDismissed): endSelection sets
+                            // menuDismissed=false → effect calls
+                            // showSelectionMenu(pasteOnly) at the new range
+                            // (ghostty-android reshowToolbar pattern).
                         }
                         return true
                     }
@@ -917,6 +976,10 @@ constructor(
         private const val MENU_ACTION_COPY = 1
         private const val MENU_ACTION_SELECT_ALL = 2
         private const val MENU_ACTION_PASTE = 3
+        // Floating toolbar anchor offset below the selection top (termux
+        // TextSelectionCursorController uses the handle height; a fixed
+        // cell-fraction keeps the toolbar clear of the selected line).
+        private const val HANDLE_HEIGHT_OFFSET = 24f
         private const val SWIPE_THRESHOLD_PIXELS = 500f
         private const val DEFAULT_ROWS = 24
         private const val DEFAULT_COLS = 80
@@ -1035,15 +1098,14 @@ constructor(
 
     val cellWidth: Float
         get() {
-            // Actual rendered cell width = surface size / grid cols: the
-            // renderer stretches the grid across the attached surface, so
-            // hit-testing must use the same ratio (round-214 — the
-            // font-metric fallback 8px/16px made long-press land on the
-            // wrong cells, e.g. row 17 instead of row 3).
-            if (lastConfiguredWidth > 0 && cols > 0) {
-                cachedCellWidth = lastConfiguredWidth.toFloat() / cols
-                return cachedCellWidth
-            }
+            // Font-metric cell width (runtime.cellWidth = native font
+            // pipeline cell_metrics × density). The surface÷cols ratio is
+            // NOT used for hit-testing: the renderer draws glyphs at the
+            // font cell size and stretches the grid, so dividing the
+            // surface by the grid would double-count the stretch and land
+            // long-presses on the wrong cells (round-214 regression, fixed
+            // again here: the surface÷grid ratio self-amplifies — a wider
+            // cell shrinks the grid, which widens the cell further).
             val viewModelCellWidth = viewModel?.runtime?.cellWidth ?: 0f
             if (viewModelCellWidth > 0f) {
                 cachedCellWidth = viewModelCellWidth
@@ -1054,10 +1116,7 @@ constructor(
 
     val cellHeight: Float
         get() {
-            if (lastConfiguredHeight > 0 && rows > 0) {
-                cachedCellHeight = lastConfiguredHeight.toFloat() / rows
-                return cachedCellHeight
-            }
+            // Font-metric cell height — see cellWidth above.
             val viewModelCellHeight = viewModel?.runtime?.cellHeight ?: 0f
             if (viewModelCellHeight > 0f) {
                 cachedCellHeight = viewModelCellHeight
