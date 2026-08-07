@@ -219,6 +219,23 @@ constructor(
     private val sessionLock = Any()
 
     /**
+     * Failsafe session request (termux-compatible app shortcut extra
+     * `com.termux.app.failsafe_session`): the next session starts with the
+     * system shell and no prefix bootstrap, so a broken bootstrap cannot
+     * brick terminal access. Consumed (not reset) by buildConfig; a second
+     * shortcut tap while a session is already up is a no-op because torvox
+     * keeps a single session (see start()'s `sessions.isNotEmpty()` guard).
+     */
+    @Volatile
+    var failsafeRequested: Boolean = false
+        private set
+
+    fun requestFailsafeSession() {
+        failsafeRequested = true
+        LogUtil.w("Runtime", "Failsafe session requested — next start uses /system/bin/sh without prefix")
+    }
+
+    /**
      * Serialises surface lifecycle transitions (pause/resume). Both
      * [pauseRendering] and [resumeRendering] run on this single thread so
      * that surface-destroy → surface-available ordering is preserved;
@@ -509,15 +526,41 @@ constructor(
         selectionBgColor = bridgeTheme.selectionBg
         val prefixDir = java.io.File(context.filesDir, "usr").absolutePath
         val homeDir = java.io.File(context.filesDir, "home").absolutePath
-        val bashFile = java.io.File("$prefixDir/bin/bash")
-        val bashComplete =
-            bashFile.exists() &&
-                java.io.File("$prefixDir/lib").isDirectory &&
+        // Failsafe (termux app shortcut "New session (Failsafe)"): bypass
+        // the prefix bootstrap entirely — system shell, system PATH, no
+        // PREFIX — so a broken bootstrap cannot brick terminal access
+        // (matches termux-app TermuxSession.java:95-113 isFailsafe path).
+        if (failsafeRequested) {
+            return buildFailsafeConfig(rows, cols, configReads, bridgeTheme, homeDir)
+        }
+        // Prefix shell resolution mirrors nix-on-droid-app
+        // (UnixShellEnvironment.LOGIN_SHELL_BINARIES = login, bash, zsh,
+        // fish, sh): nix-on-droid bootstraps expose bin/login (a static
+        // proot entry point), termux bootstraps expose bin/bash. The first
+        // existing candidate wins; completeness additionally requires the
+        // bootstrap's own tree (termux: lib/; nix-on-droid: nix/).
+        // Only ELF candidates are eligible: termux also ships a bin/login
+        // *script* (motd + exec, shebang #!/data/.../usr/bin/sh) which the
+        // linker-wrapper spawn path cannot load ("bad ELF magic" —
+        // emulator-verified round-223), so it must not be selected.
+        val prefixShell =
+            listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
+                .firstOrNull { candidate ->
+                    val file = java.io.File("$prefixDir/$candidate")
+                    file.isFile && isElf(file)
+                }
+        val prefixComplete =
+            prefixShell != null &&
+                (
+                    java.io.File("$prefixDir/lib").isDirectory ||
+                        java.io.File("$prefixDir/nix").isDirectory
+                    ) &&
                 java.io.File("$prefixDir/etc").isDirectory
-        val effectivePrefix = if (bashComplete) prefixDir else ""
-        val effectiveShell = if (bashComplete) Shell.Custom("$prefixDir/bin/bash") else shell
+        val effectivePrefix = if (prefixComplete) prefixDir else ""
+        val effectiveShell =
+            if (prefixComplete) Shell.Custom("$prefixDir/$prefixShell") else shell
         val effectiveHome =
-            if (bashComplete) {
+            if (prefixComplete) {
                 homeDir
             } else {
                 java.io
@@ -529,7 +572,7 @@ constructor(
                     }.absolutePath
             }
         val effectivePath: String =
-            if (bashComplete) {
+            if (prefixComplete) {
                 "$prefixDir/bin:${System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }}"
             } else {
                 System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
@@ -548,6 +591,38 @@ constructor(
             prefix = effectivePrefix,
         )
     }
+
+    /**
+     * Failsafe session config: system shell, system PATH, no PREFIX.
+     * Extracted from buildConfig (round-223) so the failsafe branch does
+     * not push buildConfig past the detekt LongMethod limit.
+     */
+    private fun buildFailsafeConfig(
+        rows: Int,
+        cols: Int,
+        configReads: ConfigReads,
+        bridgeTheme: BridgeTheme,
+        homeDir: String,
+    ): TerminalConfig = TerminalConfig(
+        shell = Shell.SystemDefault,
+        rows = rows,
+        cols = cols,
+        scrollbackLines = configReads.scrollbackLines,
+        font_size_tenths = configReads.fontSizeTenths,
+        theme = bridgeTheme,
+        home =
+        java.io
+            .File(context.filesDir, "home")
+            .apply {
+                if (!exists() && !mkdirs()) {
+                    LogUtil.w("Runtime", "Failed to create home directory: $this")
+                }
+            }.absolutePath,
+        user = System.getProperty("user.name") ?: "shell",
+        path = System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" },
+        workingDirectory = homeDir,
+        prefix = "",
+    )
 
     // ══════════════════════════════════════════════════════════════════════
     // SECTION 2b: Render-thread supervision (extracted C6)
@@ -1192,65 +1267,11 @@ constructor(
             if (poll.clipboard != null) {
                 clipboardAccess.setClipboardText(poll.clipboard)
             }
-            poll.dialogs.forEach { request ->
-                try {
-                    LogUtil.i("Runtime", "MCP dialog request session=${request.sessionId} type=${request.dialogType}")
-                    val handler = dialogRequestHandler
-                    if (handler != null) {
-                        handler(
-                            request.sessionId,
-                            request.requestId,
-                            request.dialogType,
-                            request.title,
-                            request.message,
-                            request.options,
-                        )
-                    } else {
-                        // No handler (activity destroyed window):
-                        // the event is already consumed, so reply
-                        // with an empty result instead of leaving
-                        // the native MCP tool call hanging.
-                        LogUtil.w(
-                            "Runtime",
-                            "MCP dialog request dropped (no handler), replying empty",
-                        )
-                        NativeBridge
-                            .dialogResult(request.sessionId, request.requestId, "")
-                    }
-                } catch (exception: Exception) {
-                    LogUtil.e("Runtime", "dialog request dispatch failed", exception)
-                    NativeBridge
-                        .dialogResult(request.sessionId, request.requestId, "")
-                }
-            }
+            poll.dialogs.forEach { request -> dispatchDialogRequest(request) }
             poll.dialogCancels.forEach { (sessionId, requestId) ->
                 dialogCancelHandler?.invoke(sessionId, requestId)
             }
-            poll.pickFiles.forEach { request ->
-                try {
-                    LogUtil.i("Runtime", "MCP pick_file request session=${request.sessionId}")
-                    val handler = pickFileRequestHandler
-                    if (handler != null) {
-                        handler(
-                            request.sessionId,
-                            request.requestId,
-                            request.startingPath,
-                            request.filter,
-                        )
-                    } else {
-                        LogUtil.w(
-                            "Runtime",
-                            "MCP pick_file request dropped (no handler), replying empty",
-                        )
-                        NativeBridge
-                            .dialogResult(request.sessionId, request.requestId, "")
-                    }
-                } catch (exception: Exception) {
-                    LogUtil.e("Runtime", "pick_file request dispatch failed", exception)
-                    NativeBridge
-                        .dialogResult(request.sessionId, request.requestId, "")
-                }
-            }
+            poll.pickFiles.forEach { request -> dispatchPickFileRequest(request) }
             poll.toastText?.let { text ->
                 Handler(Looper.getMainLooper()).post {
                     android.widget.Toast
@@ -1300,6 +1321,70 @@ constructor(
                         .clipboardResult(request.sessionId, request.requestId, "")
                 }
             }
+        }
+    }
+
+    /**
+     * Dispatch one MCP dialog request to the activity handler; replies
+     * empty when no handler is attached (activity destroyed window) so the
+     * native tool call never hangs. Extracted from handle() for the
+     * detekt CyclomaticComplexMethod limit.
+     */
+    private fun dispatchDialogRequest(request: terminal.emulator.bridge.Bridge.DialogRequest) {
+        try {
+            LogUtil.i("Runtime", "MCP dialog request session=${request.sessionId} type=${request.dialogType}")
+            val handler = dialogRequestHandler
+            if (handler != null) {
+                handler(
+                    request.sessionId,
+                    request.requestId,
+                    request.dialogType,
+                    request.title,
+                    request.message,
+                    request.options,
+                )
+            } else {
+                LogUtil.w(
+                    "Runtime",
+                    "MCP dialog request dropped (no handler), replying empty",
+                )
+                NativeBridge
+                    .dialogResult(request.sessionId, request.requestId, "")
+            }
+        } catch (exception: Exception) {
+            LogUtil.e("Runtime", "dialog request dispatch failed", exception)
+            NativeBridge
+                .dialogResult(request.sessionId, request.requestId, "")
+        }
+    }
+
+    /**
+     * Dispatch one MCP pick_file request to the activity handler (same
+     * no-handler fallback as [dispatchDialogRequest]).
+     */
+    private fun dispatchPickFileRequest(request: terminal.emulator.bridge.Bridge.PickFileRequest) {
+        try {
+            LogUtil.i("Runtime", "MCP pick_file request session=${request.sessionId}")
+            val handler = pickFileRequestHandler
+            if (handler != null) {
+                handler(
+                    request.sessionId,
+                    request.requestId,
+                    request.startingPath,
+                    request.filter,
+                )
+            } else {
+                LogUtil.w(
+                    "Runtime",
+                    "MCP pick_file request dropped (no handler), replying empty",
+                )
+                NativeBridge
+                    .dialogResult(request.sessionId, request.requestId, "")
+            }
+        } catch (exception: Exception) {
+            LogUtil.e("Runtime", "pick_file request dispatch failed", exception)
+            NativeBridge
+                .dialogResult(request.sessionId, request.requestId, "")
         }
     }
 
@@ -2986,4 +3071,24 @@ constructor(
             }
         }
     }
+}
+
+/**
+ * True when [file] starts with the ELF magic (0x7f 'E' 'L' 'F').
+ * Used to exclude shebang scripts from prefix-shell resolution: the
+ * linker-wrapper spawn path can only load real ELF binaries. Top-level
+ * (not on the private companion) so installer/settings code can reuse it.
+ */
+internal fun isElf(file: java.io.File): Boolean = try {
+    file.inputStream().use { input ->
+        val magic = ByteArray(4)
+        val read = input.read(magic)
+        read == 4 &&
+            magic[0] == 0x7f.toByte() &&
+            magic[1] == 'E'.code.toByte() &&
+            magic[2] == 'L'.code.toByte() &&
+            magic[3] == 'F'.code.toByte()
+    }
+} catch (_: Exception) {
+    false
 }

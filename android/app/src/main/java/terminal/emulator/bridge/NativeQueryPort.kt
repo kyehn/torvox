@@ -87,8 +87,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
 
     override fun getTerminalText(): String? = NativeBridge.getTerminalText(sessionIdProvider())
 
-    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? =
-        NativeBridge.selectionText(sessionIdProvider(), startRow, startCol, endRow, endCol, rectangle)
+    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? = NativeBridge.selectionText(sessionIdProvider(), startRow, startCol, endRow, endCol, rectangle)
 
     override fun hyperlinkAt(row: Int, col: Int): String? = NativeBridge.hyperlinkAt(sessionIdProvider(), row, col)
 

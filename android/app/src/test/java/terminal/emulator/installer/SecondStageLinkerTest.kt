@@ -1,6 +1,5 @@
 package terminal.emulator.installer
 
-import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -9,6 +8,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowBuild
+import java.io.File
 
 /**
  * Unit tests for the SELinux linker workaround in SecondStageRunner:
@@ -24,8 +24,7 @@ class SecondStageLinkerTest {
         ShadowBuild.setSupportedAbis(arrayOf("arm64-v8a"))
     }
 
-    private fun runnerWith(prefix: File, home: File = File("/tmp/home")) =
-        SecondStageRunner(prefixDir = prefix, homeDir = home)
+    private fun runnerWith(prefix: File, home: File = File("/tmp/home")) = SecondStageRunner(prefixDir = prefix, homeDir = home)
 
     private fun tempPrefix(): File {
         val dir = kotlin.io.path.createTempDirectory("prefix")
@@ -35,7 +34,10 @@ class SecondStageLinkerTest {
     @Test
     fun postinst_command_uses_linker_for_prefix_shebang() {
         val prefix = tempPrefix()
-        val prefixed = File(prefix, "bin/sh").apply { parentFile!!.mkdirs(); writeText("x") }
+        val prefixed = File(prefix, "bin/sh").apply {
+            parentFile!!.mkdirs()
+            writeText("x")
+        }
         val script = File(prefix, "var/lib/dpkg/info/coreutils.postinst")
         script.parentFile!!.mkdirs()
         script.writeText("#!/${prefixed.absolutePath}\n")

@@ -3,7 +3,6 @@ package terminal.emulator.ui.theme
 import android.os.Build
 import androidx.compose.ui.graphics.Color
 import androidx.test.core.app.ApplicationProvider
-import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -13,6 +12,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 
 /**
  * UserThemeStore (ghostty-android ThemeStore pattern): save/replace/delete
@@ -33,15 +33,14 @@ class UserThemeStoreTest {
         store = UserThemeStore(ctx, "user_themes_test_${System.nanoTime()}")
     }
 
-    private fun theme(name: String) =
-        TerminalTheme(
-            name = name,
-            background = Color(0xFF212121),
-            foreground = Color(0xFFF8F8F2),
-            cursor = Color(0xFFECEFF4),
-            selectionBg = Color(0xFF44475A),
-            ansi = List(16) { Color(0xFF000000 + it) },
-        )
+    private fun theme(name: String) = TerminalTheme(
+        name = name,
+        background = Color(0xFF212121),
+        foreground = Color(0xFFF8F8F2),
+        cursor = Color(0xFFECEFF4),
+        selectionBg = Color(0xFF44475A),
+        ansi = List(16) { Color(0xFF000000 + it) },
+    )
 
     @Test
     fun `save then read round-trips colors exactly`() = runBlocking {

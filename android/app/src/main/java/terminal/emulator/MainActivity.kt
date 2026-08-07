@@ -1,6 +1,7 @@
 package terminal.emulator
 
 import android.annotation.SuppressLint
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.drawable.ColorDrawable
@@ -43,6 +44,26 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
+
+        /**
+         * termux-compatible failsafe extra: app shortcut
+         * "New session (Failsafe)" and third-party launchers/taskers send
+         * `com.termux.app.failsafe_session=true` with ACTION_RUN. torvox
+         * keeps the exact termux name (applicationId is com.termux) so
+         * existing termux shortcuts/tasker tasks keep working.
+         */
+        const val EXTRA_FAILSAFE_SESSION = "com.termux.app.failsafe_session"
+
+        /** torvox-only extra: open the settings sheet on launch. */
+        const val EXTRA_OPEN_SETTINGS = "terminal.emulator.open_settings"
+
+        /**
+         * Test-only extra: install a bootstrap zip from a local path
+         * (used by NixBootstrapInstrumentedTest — the instrumentation
+         * process cannot write the app filesDir, SELinux app_data
+         * category). Mirrors the INSTALL_BOOTSTRAP broadcast backdoor.
+         */
+        const val EXTRA_INSTALL_BOOTSTRAP = "terminal.emulator.install_bootstrap"
     }
 
     @Inject
@@ -121,7 +142,10 @@ class MainActivity : ComponentActivity() {
                     } catch (exception: Exception) {
                         Log.e("T", "VT_WRITE failed", exception)
                     }
-                }.apply { isDaemon = true; start() }
+                }.apply {
+                    isDaemon = true
+                    start()
+                }
             },
             onInput = { text, rawInput ->
                 terminalViewModel.clearSelection()
@@ -170,6 +194,9 @@ class MainActivity : ComponentActivity() {
                 terminalViewModel.showPastePopup(row, col)
                 Log.d("T", "showPaste: row=$row col=$col")
             },
+            onInstallBootstrap = { ctx, zipPath ->
+                installBootstrapFromPath(zipPath)
+            },
         )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -209,9 +236,64 @@ class MainActivity : ComponentActivity() {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
         }
         wireMcpRequestHandlers()
+        handleLaunchIntent(intent)
         setContent {
-            TerminalNavHost()
+            TerminalNavHost(openSettingsOnLaunch = launchOpenSettings)
         }
+    }
+
+    /**
+     * App-shortcut / third-party intent handling (termux-compatible):
+     * `ACTION_RUN` + EXTRA_FAILSAFE_SESSION switches the next session to
+     * the failsafe system shell; EXTRA_OPEN_SETTINGS opens the settings
+     * sheet. Mirrors termux-app TermuxActivity.java:401-425 (shortcut
+     * intents are re-delivered on recreation, so the failsafe flag must be
+     * re-applied in onNewIntent, not just onCreate).
+     */
+    private var launchOpenSettings = false
+
+    private fun handleLaunchIntent(intent: Intent?) {
+        if (intent == null) {
+            LogUtil.d("MainActivity", "handleLaunchIntent: null intent")
+            return
+        }
+        LogUtil.d(
+            "MainActivity",
+            "handleLaunchIntent: action=${intent.action} installExtra=${intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP)} failsafe=${intent.getBooleanExtra(EXTRA_FAILSAFE_SESSION, false)}",
+        )
+        if (Intent.ACTION_RUN == intent.action &&
+            intent.getBooleanExtra(EXTRA_FAILSAFE_SESSION, false)
+        ) {
+            runtime.requestFailsafeSession()
+        }
+        if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
+            launchOpenSettings = true
+        }
+        intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP)?.let { zipPath ->
+            installBootstrapFromPath(zipPath)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLaunchIntent(intent)
+    }
+
+    /**
+     * Install a bootstrap zip from a local path. Delegates to
+     * [terminal.emulator.installer.BootstrapInstallService], which runs in
+     * its own `:install` process: when the main process is an
+     * instrumentation target it carries the TEST package's SELinux
+     * category and cannot write filesDir (round-223, emulator-verified).
+     * The service writes files/nix-install-result.txt on completion.
+     */
+    private fun installBootstrapFromPath(zipPath: String) {
+        LogUtil.d("MainActivity", "delegating bootstrap install to :install process")
+        startService(
+            Intent(this, terminal.emulator.installer.BootstrapInstallService::class.java)
+                .putExtra(terminal.emulator.installer.BootstrapInstallService.EXTRA_ZIP_PATH, zipPath),
+        )
     }
 
     /**
@@ -503,10 +585,13 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun TerminalNavHost(viewModelReady: (TerminalViewModel) -> Unit = {}) {
+private fun TerminalNavHost(
+    openSettingsOnLaunch: Boolean = false,
+    viewModelReady: (TerminalViewModel) -> Unit = {},
+) {
     val viewModel: TerminalViewModel = hiltViewModel()
     LaunchedEffect(viewModel) { viewModelReady(viewModel) }
-    var showSettings by remember { mutableStateOf(false) }
+    var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
     LaunchedEffect(showSettings) {
         viewModel.runtime.bridge()?.setRenderPaused(showSettings)
     }

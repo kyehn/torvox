@@ -4,8 +4,6 @@ import android.content.ContentResolver
 import android.net.Uri
 import android.os.Build
 import androidx.test.core.app.ApplicationProvider
-import java.io.File
-import java.io.FileOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -13,6 +11,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * ghostty-android BackgroundImageStore adoption (round-217):
