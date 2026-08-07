@@ -108,7 +108,12 @@ index 63c996c..750ab76 100644
 +    out_value: *bool,
 +) callconv(lib.calling_conv) Result {
 +    const wrapper = terminal_ orelse return .invalid_value;
-+    const mode_enum = modes.modeFromInt(@intCast(mode), true) orelse return .invalid_value;
++    // The Rust side passes a packed ModeTag (u15 value + ansi bit) — see
++    // libghostty-vt Mode::new. Decode the tag and look the mode up by its
++    // (value, ansi) pair; hardcoding ansi=true here made every DEC-mode
++    // query fail (modeFromInt returns null for ansi=false entries).
++    const tag: modes.ModeTag = @bitCast(@as(u16, @intCast(mode)));
++    const mode_enum = modes.modeFromInt(tag.value, tag.ansi) orelse return .invalid_value;
 +    out_value.* = wrapper.terminal.modes.get(mode_enum);
 +    return .success;
 +}
@@ -119,7 +124,8 @@ index 63c996c..750ab76 100644
 +    value: bool,
 +) callconv(lib.calling_conv) Result {
 +    const wrapper = terminal_ orelse return .invalid_value;
-+    const mode_enum = modes.modeFromInt(@intCast(mode), true) orelse return .invalid_value;
++    const tag: modes.ModeTag = @bitCast(@as(u16, @intCast(mode)));
++    const mode_enum = modes.modeFromInt(tag.value, tag.ansi) orelse return .invalid_value;
 +    wrapper.terminal.modes.set(mode_enum, value);
 +    return .success;
 +}

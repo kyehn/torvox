@@ -15,7 +15,8 @@ import android.util.Log
 class TestBackdoorReceivers(
     private val context: Context,
     private val onDumpTerminal: (Context) -> Unit,
-    private val onInput: (String) -> Unit,
+    private val onInput: (String, Boolean) -> Unit,
+    private val onVtWrite: (String) -> Unit,
     private val onSelectAll: () -> Unit,
     private val onPartialSelect: (startRow: Int, startCol: Int, endRow: Int, endCol: Int) -> Unit,
     private val onShowPaste: (row: Int, col: Int) -> Unit,
@@ -40,7 +41,7 @@ class TestBackdoorReceivers(
                         intent: Intent,
                     ) {
                         val text = intent.getStringExtra("text") ?: return
-                        onInput(text)
+                        onInput(text, intent.getStringExtra("raw") == "1")
                     }
                 },
                 "terminal.emulator.INPUT",
@@ -55,6 +56,18 @@ class TestBackdoorReceivers(
                     }
                 },
                 "terminal.emulator.SELECT_ALL",
+            ),
+            Pair(
+                object : BroadcastReceiver() {
+                    override fun onReceive(
+                        context: Context,
+                        intent: Intent,
+                    ) {
+                        val text = intent.getStringExtra("text") ?: return
+                        onVtWrite(text)
+                    }
+                },
+                "terminal.emulator.VT_WRITE",
             ),
             Pair(
                 object : BroadcastReceiver() {

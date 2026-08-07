@@ -639,6 +639,17 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     // classifier plus a visible CONFIRM surface, never execute a
     // BLOCKED pattern. Same idea also protects any future "tap to run a
     // suggested command" affordance.
+    fun feedTerminal(data: ByteArray): Boolean {
+        if (sessionId == 0L) return false
+        try {
+            NativeBridge.feedTerminal(sessionId, data)
+        } catch (exception: RuntimeException) {
+            Log.d(TAG, "feedTerminal: session $sessionId destroyed, dropping")
+            return false
+        }
+        return true
+    }
+
     fun writeToPty(data: ByteArray): Boolean {
         if (sessionId == 0L) return false
         try {
@@ -654,6 +665,25 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             return false
         }
         return true
+    }
+
+    /**
+     * Encode a mouse event via the Ghostty mouse encoder and write the
+     * resulting escape sequence to the PTY. Returns true when a sequence
+     * was produced and written; false when mouse reporting is disabled,
+     * encoding failed, or the session is gone (event dropped).
+     */
+    fun encodeMouseEvent(xPx: Float, yPx: Float, action: Int, button: Int, cellW: Float, cellH: Float): Boolean {
+        if (sessionId == 0L) return false
+        val bytes =
+            try {
+                NativeBridge.encodeMouseEvent(sessionId, xPx, yPx, action, button, cellW, cellH)
+            } catch (exception: RuntimeException) {
+                Log.d(TAG, "encodeMouseEvent: session $sessionId destroyed, dropping")
+                return false
+            }
+        if (bytes.isEmpty()) return false
+        return writeToPty(bytes)
     }
 
     fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
@@ -763,6 +793,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
     override fun getTerminalText(): String? = runCatching { queryPort.getTerminalText() }.getOrNull()
+    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? =
+        runCatching { queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle) }.getOrNull()
+    override fun hyperlinkAt(row: Int, col: Int): String? = runCatching { queryPort.hyperlinkAt(row, col) }.getOrNull()
     override fun listFontFamilies(): List<String>? = runCatching { queryPort.listFontFamilies() }.getOrNull()
     override fun getDefaultFontName(): String = runCatching { queryPort.getDefaultFontName() }.getOrDefault("monospace")
     override fun getFontInfo(): String? = runCatching { queryPort.getFontInfo() }.getOrNull()

@@ -109,7 +109,21 @@ class MainActivity : ComponentActivity() {
                     start()
                 }
             },
-            onInput = { text ->
+            onVtWrite = { text ->
+                Thread {
+                    try {
+                        Log.d("T", "VT_WRITE received (len=${text.length})")
+                        val processed =
+                            text
+                                .replace("\\x1b", "\u001b")
+                                .replace("\\033", "\u001b")
+                        terminalViewModel.feedTerminal(processed.toByteArray(Charsets.ISO_8859_1))
+                    } catch (exception: Exception) {
+                        Log.e("T", "VT_WRITE failed", exception)
+                    }
+                }.apply { isDaemon = true; start() }
+            },
+            onInput = { text, rawInput ->
                 terminalViewModel.clearSelection()
                 Thread {
                     try {
@@ -122,9 +136,18 @@ class MainActivity : ComponentActivity() {
                                 .replace("\\n", "\n")
                                 .replace("\\r", "\r")
                                 .replace("\\t", "\t")
-                        val data = (processed + "\n").byteInputStream().readBytes()
+                                .replace("\\x1b", "\u001b")
+                                .replace("\\033", "\u001b")
+                        // RAW mode (rawInput): write the bytes verbatim
+                        // without appending '\n' — used by tests to inject
+                        // escape sequences (OSC 8 links, DECSET) that must
+                        // not be interpreted as a shell command line.
+                        val data =
+                            (if (rawInput) processed else processed + "\n")
+                                .byteInputStream()
+                                .readBytes()
                         runtime.writeToPty(data)
-                        Log.d("T", "Input sent: ${data.size} bytes")
+                        Log.d("T", "Input sent: ${data.size} bytes raw=$rawInput")
                     } catch (exception: Exception) {
                         Log.e("T", "Input failed", exception)
                     }

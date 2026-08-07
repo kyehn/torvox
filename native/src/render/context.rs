@@ -462,6 +462,12 @@ impl Renderer {
             desired_maximum_frame_latency: 1,
             color_space: wgpu::SurfaceColorSpace::Srgb,
         };
+        // view_formats is deliberately empty on Android: the platform lacks
+        // the SURFACE_VIEW_FORMATS downlevel flag, so any non-empty list
+        // fails configure (wgpu-in-app app-surface/src/lib.rs:315-350 has the
+        // full platform matrix — webgl/Android empty, desktop srgb±; format ==
+        // view_formats is also ignored by configure per the spec). Verified on
+        // the API-35 emulator: Rgba8Unorm + empty view_formats renders.
         // wgpu 30's configure returns () (errors surface asynchronously via
         // get_current_texture's Lost state), so there is no Result to
         // propagate; the acquire path already reconfigure+retries on Lost.
