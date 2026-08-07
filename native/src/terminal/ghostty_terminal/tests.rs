@@ -820,6 +820,63 @@ fn decset_mouse_tracking_1000() {
     assert_invariants(&snap);
 }
 
+/// EncodeMouseEvent with no tracking mode enabled must return empty (the
+/// application never asked for mouse reporting) — zelland renderer/mod.rs
+/// drops mouse events when `get_mouse_mode()` is false.
+#[test]
+fn encode_mouse_event_gated_off_without_tracking_mode() {
+    let mut t = term();
+    let encoded = t.encode_mouse_event((50.0, 60.0), 0, 0, 10.0, 20.0);
+    let encoded = encoded.expect("encode_mouse_event should return Some");
+    assert!(
+        encoded.is_empty(),
+        "mouse event must be dropped when tracking is off (got {encoded:?})"
+    );
+}
+
+/// DECSET 1000 + SGR format (DECSET 1006) → left-click press at pixel
+/// (35,45) with 10x20 cells must produce a valid SGR mouse sequence for
+/// cell (3,2). Matches ghostty's standard SGR encoding.
+#[test]
+fn encode_mouse_event_sgr_press() {
+    let mut t = term();
+    t.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    t.flush();
+    let encoded = t
+        .encode_mouse_event((35.0, 45.0), 0, 0, 10.0, 20.0)
+        .expect("encode_mouse_event should return Some");
+    // SGR: ESC [ < Cb ; Cx ; Cy M — Cb is the 0-based button (0 = left
+    // press; X10's +32 offset does NOT apply to SGR mode).
+    // Cell (3,2) → Cx=3+1=4, Cy=2+1=3.
+    assert_eq!(
+        encoded, b"\x1b[<0;4;3M",
+        "SGR left-press at cell (3,2) must match ghostty's standard encoding"
+    );
+}
+
+/// Wheel-up with DECSET 1000 + SGR → button 4 (wheel-up = button 64+4-32).
+/// The Ghostty encoder emits button 4 for wheel-up; SGR adds 32 for press.
+#[test]
+fn encode_mouse_event_wheel() {
+    let mut t = term();
+    t.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    t.flush();
+    let up = t
+        .encode_mouse_event((10.0, 10.0), 0, 3, 10.0, 20.0)
+        .expect("wheel-up encode");
+    assert!(
+        up.len() >= 6 && up.starts_with(b"\x1b[<"),
+        "wheel-up must produce an SGR sequence (got {up:?})"
+    );
+    let down = t
+        .encode_mouse_event((10.0, 10.0), 0, 4, 10.0, 20.0)
+        .expect("wheel-down encode");
+    assert!(
+        down.len() >= 6 && down.starts_with(b"\x1b[<"),
+        "wheel-down must produce an SGR sequence (got {down:?})"
+    );
+}
+
 /// DECSET 1 (DECCKM, application cursor keys) should not crash.
 #[test]
 fn decset_application_cursor_keys() {

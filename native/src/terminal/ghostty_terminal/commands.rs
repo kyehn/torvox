@@ -71,6 +71,21 @@ pub enum Command {
         unshifted_char: u32,
         tx: Sender<Vec<u8>>,
     },
+    /// Encode a mouse event into terminal escape sequences using the
+    /// Ghostty mouse encoder (SGR/X10/UTF-8 per terminal state).
+    /// `position` is in surface pixels; `cell_w`/`cell_h` are the live
+    /// cell dimensions (pixels) so the encoder maps pixel→cell correctly.
+    /// Returns an empty Vec when mouse reporting is disabled or encoding
+    /// fails (zelland renderer/mod.rs pattern: mouse events are dropped
+    /// when the application has not enabled a tracking mode).
+    EncodeMouseEvent {
+        position: (f32, f32),
+        action: u8,
+        button: u8,
+        cell_w: f32,
+        cell_h: f32,
+        tx: Sender<Vec<u8>>,
+    },
     /// Graceful shutdown signal.
     Terminate,
 }
