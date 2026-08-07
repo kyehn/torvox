@@ -36,6 +36,7 @@ const HANDLED_OSC: &[u32] = &[
     OSC_NOTIFICATION_ITERM2,
     OSC_CLIPBOARD,
     OSC_NOTIFICATION_RXVT,
+    OSC_SHELL_INTEGRATION,
 ];
 
 const OSC_CLIPBOARD: u32 = 52;
@@ -43,6 +44,8 @@ const OSC_CWD: u32 = 7;
 const OSC_HYPERLINK: u32 = 8;
 const OSC_NOTIFICATION_ITERM2: u32 = 9;
 const OSC_NOTIFICATION_RXVT: u32 = 777;
+/// Shell integration (OSC 133;A/B/C/D) — termlib OscParser handleOsc133.
+const OSC_SHELL_INTEGRATION: u32 = 133;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OscState {
@@ -102,6 +105,20 @@ pub enum OscEvent {
     Cwd(CwdEvent),
     Hyperlink(HyperlinkEvent),
     Notification(NotificationEvent),
+    /// Shell integration marker (OSC 133;A/B/C/D). The payload is the
+    /// letter; for D (command finished) the payload may carry the exit
+    /// code (`D;0`). termlib OscParser handleOsc133 equivalent.
+    ShellIntegration(ShellIntegrationEvent),
+}
+
+/// Shell integration event (OSC 133).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShellIntegrationEvent {
+    /// Marker letter: A=prompt start, B=prompt end, C=command output
+    /// start, D=command finished.
+    pub marker: u8,
+    /// Optional exit code for D (`D;0`), None otherwise.
+    pub exit_code: Option<i32>,
 }
 
 /// OSC sequence interceptor that processes terminal output bytes and strips
@@ -323,8 +340,32 @@ impl OscHandler {
             OSC_HYPERLINK => self.dispatch_osc8(&payload),
             OSC_NOTIFICATION_ITERM2 => self.dispatch_osc9(&payload),
             OSC_NOTIFICATION_RXVT => self.dispatch_osc777(&payload),
+            OSC_SHELL_INTEGRATION => Self::dispatch_osc133(&payload),
             _ => None,
         }
+    }
+
+    /// OSC 133 shell integration (termlib OscParser.handleOsc133).
+    /// Payload: `A` prompt start, `B` prompt end, `C` command output
+    /// start, `D[;exit_code]` command finished.
+    fn dispatch_osc133(payload: &str) -> Option<OscEvent> {
+        let mut chars = payload.chars();
+        let marker = chars.next()?;
+        if !matches!(marker, 'A' | 'B' | 'C' | 'D') {
+            return None;
+        }
+        let exit_code = if marker == 'D' {
+            chars
+                .next()
+                .filter(|&c| c == ';')
+                .and_then(|_| chars.as_str().trim().parse::<i32>().ok())
+        } else {
+            None
+        };
+        Some(OscEvent::ShellIntegration(ShellIntegrationEvent {
+            marker: marker as u8,
+            exit_code,
+        }))
     }
 
     /// Test-only entry point for proptest: dispatches an OSC 52 payload

@@ -666,6 +666,50 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// Extract selection text with Ghostty's native formatter (wrap-aware,
+    /// wide-char safe). `start`/`end` are grid rows in screen coordinates
+    /// (absolute: scrollback row 0 is the top of history; the caller's
+    /// gridRow from scrollbackLine is exactly this). Returns "" on error.
+    pub fn selection_text(&self, start: (u32, u32), end: (u32, u32), rectangle: bool) -> String {
+        let (tx, rx) = bounded(1);
+        if let Err(error) = self.query_tx.try_send(Command::SelectionText {
+            start,
+            end,
+            rectangle,
+            tx,
+        }) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed for SelectionText: {error}");
+            return String::new();
+        }
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
+            Ok(text) => text,
+            Err(_) => {
+                log::warn!("ghostty_terminal: selection_text timed out or disconnected");
+                String::new()
+            }
+        }
+    }
+
+    /// Query the OSC 8 hyperlink URI at a grid cell (row 0 = top of
+    /// scrollback, matching scrollbackLine). None when no link.
+    pub fn hyperlink_at(&self, row: u32, col: u32) -> Option<String> {
+        let (tx, rx) = bounded(1);
+        if let Err(error) = self
+            .query_tx
+            .try_send(Command::HyperlinkAt { row, col, tx })
+        {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed for HyperlinkAt: {error}");
+            return None;
+        }
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
+            Ok(url) => url,
+            Err(_) => {
+                log::warn!("ghostty_terminal: hyperlink_at timed out or disconnected");
+                None
+            }
+        }
+    }
+
     pub fn search_in_scrollback(&self, query: &str) -> Option<(u32, u32)> {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.send(Command::SearchInScrollback {

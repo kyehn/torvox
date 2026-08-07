@@ -79,6 +79,14 @@ object NativeBridge {
     external fun feedPty(sessionId: Long, data: ByteArray)
 
     /**
+     * Feed bytes directly to the VT parser (not the PTY). Test-only path to
+     * inject escape sequences (OSC 8 links, DECSET) that must be parsed by
+     * the terminal rather than echoed by the shell.
+     */
+    @JvmStatic
+    external fun feedTerminal(sessionId: Long, data: ByteArray)
+
+    /**
      * Encode and submit a key event.
      * @param key Key name (e.g., "a", "Enter", "Escape", "Space")
      * @param mods Modifier bitmask (1=shift, 2=alt, 4=ctrl, 8=meta, 16=super)
@@ -86,6 +94,24 @@ object NativeBridge {
      */
     @JvmStatic
     external fun writeKey(sessionId: Long, key: String, mods: Int, text: String?)
+
+    /**
+     * Encode a mouse event into terminal escape sequences using the Ghostty
+     * mouse encoder (SGR/X10/UTF-8 per the application's DECSET selection).
+     * Position is in surface pixels; cellW/cellH are the live cell dims.
+     * Returns an empty array when mouse reporting is off or encoding fails
+     * (the event is dropped — zelland renderer/mod.rs pattern).
+     */
+    @JvmStatic
+    external fun encodeMouseEvent(
+        sessionId: Long,
+        xPx: Float,
+        yPx: Float,
+        action: Int,
+        button: Int,
+        cellW: Float,
+        cellH: Float,
+    ): ByteArray
 
     /**
      * Forward an application-window focus change to a session so the child
@@ -179,6 +205,27 @@ object NativeBridge {
     /** Visible + scrollback text joined by newlines. */
     @JvmStatic
     external fun getTerminalText(sessionId: Long): String?
+
+    /**
+     * Extract selection text with Ghostty's native formatter: soft-wrapped
+     * lines are joined without '\n' and trailing whitespace is trimmed —
+     * the same wrap-aware semantics as termux-app's
+     * TerminalBuffer.getSelectedText (joinBackLines). Coordinates are grid
+     * rows/cols (absolute: row 0 = top of scrollback). Returns "" on error.
+     */
+    @JvmStatic
+    external fun selectionText(
+        sessionId: Long,
+        startRow: Int,
+        startCol: Int,
+        endRow: Int,
+        endCol: Int,
+        rectangle: Boolean,
+    ): String?
+
+    /** OSC 8 hyperlink URI at a grid cell (row 0 = top of scrollback), or null. */
+    @JvmStatic
+    external fun hyperlinkAt(sessionId: Long, row: Int, col: Int): String?
 
     /**
      * Search the whole scrollback. Returns a JSON array of

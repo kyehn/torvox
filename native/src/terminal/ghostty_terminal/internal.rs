@@ -179,6 +179,24 @@ impl super::GhosttyTerminal {
                 }
                 try_send(&tx, text, "ghostty_terminal: query channel send failed");
             }
+            Command::SelectionText {
+                start,
+                end,
+                rectangle,
+                tx,
+            } => {
+                // Ghostty-native wrap-aware selection extraction (termux
+                // TerminalBuffer.getSelectedText semantics): unwrap joins
+                // soft-wrapped lines without '\n', trim drops trailing
+                // whitespace, and the formatter maps grid columns to char
+                // indices internally so CJK wide glyphs are never split.
+                let text = Self::selection_text_impl(terminal, start, end, rectangle);
+                try_send(&tx, text, "selection text response send failed");
+            }
+            Command::HyperlinkAt { row, col, tx } => {
+                let url = Self::hyperlink_at_impl(terminal, row, col);
+                try_send(&tx, url, "hyperlink_at response send failed");
+            }
             _ => {}
         }
     }
@@ -339,6 +357,10 @@ impl super::GhosttyTerminal {
         // set together on Write/Resize/SetTheme, but cleared
         // grid_dirty after TakeSnapshot.
         let mut grid_dirty = true;
+        // zelland row-level dirty cache: rows that did not change are copied
+        // from this cache instead of re-walking cells (build_cell_data).
+        // Invalidated on resize below (row count changes).
+        let mut row_cache: Vec<Vec<CellData>> = Vec::new();
 
         loop {
             // Wait for the next command from the bounded channel. Use a
@@ -358,7 +380,8 @@ impl super::GhosttyTerminal {
                     // ── Auto-push CellData (also sent on each state change above) ──
                     #[allow(clippy::collapsible_if)]
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                        && let Some(data) =
+                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
                     {
                         let _ = tx.try_send(data);
                     }
@@ -375,7 +398,8 @@ impl super::GhosttyTerminal {
                     grid_dirty = true;
                     #[allow(clippy::collapsible_if)]
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                        && let Some(data) =
+                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
                     {
                         let _ = tx.try_send(data);
                     }
@@ -427,7 +451,8 @@ impl super::GhosttyTerminal {
                     grid_dirty = true;
                     #[allow(clippy::collapsible_if)]
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                        && let Some(data) =
+                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
                     {
                         let _ = tx.try_send(data);
                     }
@@ -448,9 +473,16 @@ impl super::GhosttyTerminal {
                         log::error!("ghostty_terminal: resize failed: {error}");
                     }
                     grid_dirty = true;
+                    // zelland row-cache pattern: row count changed on resize,
+                    // the row cache is stale and must be invalidated.
+                    row_cache.clear();
+                    // zelland row-cache pattern: row count changed on resize,
+                    // the row cache is stale and must be invalidated.
+                    row_cache.clear();
                     #[allow(clippy::collapsible_if)]
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                        && let Some(data) =
+                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
                     {
                         let _ = tx.try_send(data);
                     }
@@ -464,7 +496,8 @@ impl super::GhosttyTerminal {
                     // Rebuild + repush CellData so the renderer draws the
                     // scrolled view immediately.
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(&terminal, default_fg, default_bg)
+                        && let Some(data) =
+                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
                     {
                         let _ = tx.try_send(data);
                     }
@@ -741,7 +774,9 @@ impl super::GhosttyTerminal {
                 | Command::AltScreen(_)
                 | Command::Title(_)
                 | Command::Cwd(_)
-                | Command::ModeGet(..) => {
+                | Command::ModeGet(..)
+                | Command::SelectionText { .. }
+                | Command::HyperlinkAt { .. } => {
                     log::warn!("ghostty_terminal: unexpected query on command channel, skipping");
                 }
                 Command::Terminate => break,
@@ -916,10 +951,20 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// Builds the full `CellData` grid for rendering, skipping clean rows.
+    ///
+    /// Reference: zelland src-tauri/src/renderer/mod.rs `draw_ghostty_state`
+    /// (row-level dirty cache): the Ghostty render state tracks per-row
+    /// dirty flags; rows that did not change since the last build are copied
+    /// from `row_cache` instead of re-walking their cells (which costs N
+    /// FFI calls and per-cell style/color resolution). The output is still
+    /// the full flat `Vec<CellData>` (render side and JNI are unchanged).
+    /// The cache is invalidated by the caller on resize (row count changes).
     pub(crate) fn build_cell_data(
         terminal: &Terminal,
         default_fg: [f32; 4],
         default_bg: [f32; 4],
+        row_cache: &mut Vec<Vec<CellData>>,
     ) -> Option<(Vec<CellData>, CursorInfo)> {
         let rows = terminal.rows().unwrap_or(24) as u32;
         let cols = terminal.cols().unwrap_or(80) as u32;
@@ -947,18 +992,38 @@ impl super::GhosttyTerminal {
         let mut current_row = 0u32;
 
         while let Some(row) = row_iter_impl.next() {
+            let row_idx = current_row as usize;
+            let is_dirty = row.dirty().unwrap_or(true);
+            // zelland row-cache pattern: clean rows are copied from the
+            // cache instead of re-walking their cells (FFI per cell).
+            if !is_dirty && let Some(cached) = row_cache.get(row_idx) {
+                data.extend_from_slice(cached);
+                current_row += 1;
+                continue;
+            }
+
+            let mut row_data = Vec::with_capacity(cols as usize);
             let mut cell_iter_impl = match cell_iter.update(row) {
                 Ok(ci) => ci,
                 Err(_) => break,
             };
 
             let mut current_col = 0u32;
+            // CellRun-style per-row style cache (termlib CellRun.kt):
+            // consecutive cells sharing a style_id resolve their
+            // style/fg/bg once; the flat CellData output is unchanged but
+            // the per-cell FFI calls (style/fg_color/bg_color) are skipped
+            // for the run.
+            let mut cached_style_id: Option<libghostty_vt::style::Id> = None;
+            let mut cached_fg = default_fg;
+            let mut cached_bg = default_bg;
+            let mut cached_flags = 0u32;
 
             while let Some(cell) = cell_iter_impl.next() {
                 let raw = match cell.raw_cell() {
                     Ok(c) => c,
                     Err(_) => {
-                        data.push(CellData {
+                        row_data.push(CellData {
                             codepoint: 0,
                             width: 1,
                             grapheme_extra: [0; 7],
@@ -973,23 +1038,55 @@ impl super::GhosttyTerminal {
                     }
                 };
 
-                let style = match cell.style() {
-                    Ok(s) => s,
-                    Err(_) => {
-                        data.push(CellData {
-                            codepoint: 0,
-                            width: 1,
-                            grapheme_extra: [0; 7],
-                            fg_color: default_fg,
-                            bg_color: default_bg,
-                            flags: 0,
-                            row: current_row,
-                            col: current_col,
-                        });
-                        current_col += 1;
-                        continue;
-                    }
-                };
+                let style_id = raw.style_id().ok();
+                let (_style, fg_color, bg_color, flags) =
+                    if style_id.is_some() && style_id == cached_style_id {
+                        // Same style run: reuse the cached resolved colors.
+                        (None, cached_fg, cached_bg, cached_flags)
+                    } else {
+                        match cell.style() {
+                            Ok(s) => {
+                                let fg = match cell.fg_color() {
+                                    Ok(Some(rgb)) => [
+                                        rgb.r as f32 / 255.0,
+                                        rgb.g as f32 / 255.0,
+                                        rgb.b as f32 / 255.0,
+                                        1.0,
+                                    ],
+                                    _ => default_fg,
+                                };
+                                let bg = match cell.bg_color() {
+                                    Ok(Some(rgb)) => [
+                                        rgb.r as f32 / 255.0,
+                                        rgb.g as f32 / 255.0,
+                                        rgb.b as f32 / 255.0,
+                                        1.0,
+                                    ],
+                                    _ => default_bg,
+                                };
+                                let fl = Self::pack_style_flags(&s);
+                                cached_style_id = style_id;
+                                cached_fg = fg;
+                                cached_bg = bg;
+                                cached_flags = fl;
+                                (Some(s), fg, bg, fl)
+                            }
+                            Err(_) => {
+                                row_data.push(CellData {
+                                    codepoint: 0,
+                                    width: 1,
+                                    grapheme_extra: [0; 7],
+                                    fg_color: default_fg,
+                                    bg_color: default_bg,
+                                    flags: 0,
+                                    row: current_row,
+                                    col: current_col,
+                                });
+                                current_col += 1;
+                                continue;
+                            }
+                        }
+                    };
 
                 let codepoint = raw.codepoint().unwrap_or(0);
 
@@ -1018,28 +1115,7 @@ impl super::GhosttyTerminal {
                     }
                 }
 
-                let fg_color = match cell.fg_color() {
-                    Ok(Some(rgb)) => [
-                        rgb.r as f32 / 255.0,
-                        rgb.g as f32 / 255.0,
-                        rgb.b as f32 / 255.0,
-                        1.0,
-                    ],
-                    _ => default_fg,
-                };
-                let bg_color = match cell.bg_color() {
-                    Ok(Some(rgb)) => [
-                        rgb.r as f32 / 255.0,
-                        rgb.g as f32 / 255.0,
-                        rgb.b as f32 / 255.0,
-                        1.0,
-                    ],
-                    _ => default_bg,
-                };
-
-                let flags = Self::pack_style_flags(&style);
-
-                data.push(CellData {
+                row_data.push(CellData {
                     codepoint,
                     width,
                     grapheme_extra,
@@ -1051,6 +1127,12 @@ impl super::GhosttyTerminal {
                 });
                 current_col += width;
             }
+            // Update the row cache for this row (zelland row-cache pattern).
+            if row_idx >= row_cache.len() {
+                row_cache.resize(row_idx + 1, Vec::new());
+            }
+            row_cache[row_idx] = row_data.clone();
+            data.extend_from_slice(&row_data);
             current_row += 1;
         }
         let cursor_style = snapshot
@@ -1339,6 +1421,115 @@ impl super::GhosttyTerminal {
         } else {
             Some(trimmed)
         }
+    }
+
+    /// Wrap-aware selection text extraction via Ghostty's native formatter.
+    ///
+    /// Reference: termux-app TerminalBuffer.getSelectedText (joinBackLines)
+    /// plus TerminalRow.findStartOfColumn. The formatter's `unwrap` joins
+    /// soft-wrapped lines without '\n' and `trim` removes trailing
+    /// whitespace; grid columns map to char indices internally so CJK wide
+    /// glyphs are never split (no column-to-char drift on surrogate pairs).
+    ///
+    /// Coordinates are screen-space rows (0..rows+scrollback are valid);
+    /// scrollback rows are passed as negative offsets per ghostty Point
+    /// semantics. Returns an empty string for an invalid selection.
+    pub(crate) fn selection_text_impl(
+        terminal: &Terminal,
+        start: (u32, u32),
+        end: (u32, u32),
+        rectangle: bool,
+    ) -> String {
+        let cols = terminal.cols().unwrap_or(80) as u32;
+        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let start_col = (start.1).min(cols - 1);
+        let end_col = (end.1).min(cols - 1);
+        // Grid rows are absolute (0 = top of history; viewport starts at
+        // scrollback_rows). Ghostty's Point::History expects y in history
+        // space and Point::Viewport expects viewport-local y; resolve which
+        // space each endpoint lives in, mirroring read_line_text_impl.
+        let start_point = {
+            let y = start.0;
+            if y < scrollback_rows {
+                Point::History(PointCoordinate {
+                    x: start_col as u16,
+                    y,
+                })
+            } else {
+                Point::Viewport(PointCoordinate {
+                    x: start_col as u16,
+                    y: y - scrollback_rows,
+                })
+            }
+        };
+        let end_point = {
+            let y = end.0;
+            if y < scrollback_rows {
+                Point::History(PointCoordinate {
+                    x: end_col as u16,
+                    y,
+                })
+            } else {
+                Point::Viewport(PointCoordinate {
+                    x: end_col as u16,
+                    y: y - scrollback_rows,
+                })
+            }
+        };
+        let (Ok(start_gref), Ok(end_gref)) =
+            (terminal.grid_ref(start_point), terminal.grid_ref(end_point))
+        else {
+            return String::new();
+        };
+        let selection = libghostty_vt::selection::Selection::new(start_gref, end_gref, rectangle);
+        let mut formatter = match libghostty_vt::fmt::Formatter::new(
+            terminal,
+            libghostty_vt::fmt::FormatterOptions::new()
+                .with_unwrap(true)
+                .with_trim(true)
+                .with_selection(&selection),
+        ) {
+            Ok(f) => f,
+            Err(error) => {
+                log::error!("ghostty_terminal: formatter new failed: {error}");
+                return String::new();
+            }
+        };
+        match formatter.format_alloc(None) {
+            Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
+            Err(error) => {
+                log::error!("ghostty_terminal: formatter format failed: {error}");
+                String::new()
+            }
+        }
+    }
+
+    /// Query the OSC 8 hyperlink URI at a grid cell (termux TerminalView
+    /// openLinkAt equivalent; ghostty cell.has_hyperlink + hyperlink_uri).
+    pub(crate) fn hyperlink_at_impl(terminal: &Terminal, row: u32, col: u32) -> Option<String> {
+        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let point = if row < scrollback_rows {
+            Point::History(PointCoordinate {
+                x: col as u16,
+                y: row,
+            })
+        } else {
+            Point::Viewport(PointCoordinate {
+                x: col as u16,
+                y: row - scrollback_rows,
+            })
+        };
+        let grid_ref = terminal.grid_ref(point).ok()?;
+        let cell = grid_ref.cell().ok()?;
+        if !cell.has_hyperlink().unwrap_or(false) {
+            return None;
+        }
+        let mut buf = [0u8; 4096];
+        let len = grid_ref.hyperlink_uri(&mut buf).ok()?;
+        if len == 0 {
+            return None;
+        }
+        Some(String::from_utf8_lossy(&buf[..len]).into_owned())
     }
 
     pub(crate) fn search_in_scrollback_impl(

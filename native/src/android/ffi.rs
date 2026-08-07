@@ -923,10 +923,55 @@ fn feed_pty_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, data: jby
     }
 }
 
+// JNI Export: feedTerminal
+// ══════════════════════════════════════════════════════════════════════════
+// Feeds bytes directly to the VT parser (terminal.vt_write) instead of the
+// PTY. Used by tests to inject escape sequences (OSC 8 links, DECSET) that
+// must be parsed by the terminal, not echoed by the shell.
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    data: jbyteArray,
+) {
+    jni_export_guard!(&mut env, (), {
+        feed_terminal_inner(&mut env, session_id, data)
+    })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+fn feed_terminal_inner(env: &mut JNIEnv, session_id: jlong, data: jbyteArray) {
+    let id = session_id as u64;
+    // SAFETY: `data` is a JNI method argument, guaranteed valid by the JVM
+    // runtime for the duration of this call.
+    let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+    let input: Vec<u8> = match env.convert_byte_array(&byte_array) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/RuntimeException",
+                "feedTerminal: failed to read input bytes",
+            );
+            return;
+        }
+    };
+    let registry = rlock_session_registry();
+    let Some(entry) = registry.get(&id) else {
+        let _ = env.throw_new(
+            "java/lang/RuntimeException",
+            "feedTerminal: session not found",
+        );
+        return;
+    };
+    let mut session = entry.session.lock();
+    session.terminal_mut().vt_write(&input);
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: writeKey
 // ══════════════════════════════════════════════════════════════════════════
-
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_writeKey(
     mut env: JNIEnv,
@@ -1003,6 +1048,72 @@ fn write_key_inner(
         return;
     }
     let _ = env.throw_new("java/lang/RuntimeException", "writeKey: session not found");
+}
+
+// JNI Export: encodeMouseEvent
+// ══════════════════════════════════════════════════════════════════════════
+// Encodes a mouse event into terminal escape sequences using the Ghostty
+// mouse encoder (SGR/X10/UTF-8 per the application's DECSET selection).
+// position is in surface pixels; cellW/cellH are the renderer's live cell
+// dimensions. Returns an empty byte array when mouse reporting is off or
+// encoding fails (the event is dropped — zelland renderer/mod.rs pattern).
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEvent(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    x_px: jfloat,
+    y_px: jfloat,
+    action: jint,
+    button: jint,
+    cell_w: jfloat,
+    cell_h: jfloat,
+) -> jbyteArray {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        encode_mouse_event_inner(
+            &mut env, session_id, x_px, y_px, action, button, cell_w, cell_h,
+        )
+    })
+}
+
+fn encode_mouse_event_inner(
+    env: &mut JNIEnv,
+    session_id: jlong,
+    x_px: jfloat,
+    y_px: jfloat,
+    action: jint,
+    button: jint,
+    cell_w: jfloat,
+    cell_h: jfloat,
+) -> jbyteArray {
+    let id = session_id as u64;
+    let empty = || {
+        env.byte_array_from_slice(&[])
+            .map(|arr| arr.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    };
+
+    let registry = rlock_session_registry();
+    let Some(entry) = registry.get(&id) else {
+        return empty();
+    };
+    let session = entry.session.lock();
+    let Some(bytes) = session.terminal().encode_mouse_event(
+        (x_px, y_px),
+        action as u8,
+        button as u8,
+        cell_w,
+        cell_h,
+    ) else {
+        return empty();
+    };
+    if bytes.is_empty() {
+        return empty();
+    }
+    env.byte_array_from_slice(&bytes)
+        .map(|arr| arr.into_raw())
+        .unwrap_or_else(|_| empty())
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -2078,6 +2189,74 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
         match env.new_string(&text) {
             Ok(s) => s.into_raw(),
             Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Extract selection text with Ghostty's native formatter (wrap-aware,
+/// wide-char safe — termux TerminalBuffer.getSelectedText semantics).
+/// startRow/startCol/endRow/endCol are grid rows/cols (absolute: row 0 is
+/// the top of scrollback, matching scrollbackLine). Returns "" on error.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    start_row: jint,
+    start_col: jint,
+    end_row: jint,
+    end_col: jint,
+    rectangle: jboolean,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return std::ptr::null_mut();
+        };
+        let session = entry.session.lock();
+        let text = session.terminal().selection_text(
+            (start_row.max(0) as u32, start_col.max(0) as u32),
+            (end_row.max(0) as u32, end_col.max(0) as u32),
+            rectangle == JNI_TRUE,
+        );
+        drop(session);
+        drop(registry);
+        match env.new_string(&text) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Query the OSC 8 hyperlink URI at a grid cell (row 0 = top of
+/// scrollback, matching scrollbackLine). Returns null when no link.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    row: jint,
+    col: jint,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return std::ptr::null_mut();
+        };
+        let session = entry.session.lock();
+        let url = session
+            .terminal()
+            .hyperlink_at(row.max(0) as u32, col.max(0) as u32);
+        drop(session);
+        drop(registry);
+        match url {
+            Some(url) => match env.new_string(&url) {
+                Ok(s) => s.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            None => std::ptr::null_mut(),
         }
     })
 }

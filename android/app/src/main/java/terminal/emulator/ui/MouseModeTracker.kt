@@ -13,6 +13,14 @@ package terminal.emulator.ui
  *          ESC [ ? <digits> l  (disable)
  *
  * Handles partial sequences across buffer boundaries via a simple state machine.
+ *
+ * NOTE (round-217): the production mouse path no longer needs this scanner —
+ * mouse events are encoded by the Rust-side Ghostty mouse encoder
+ * (`GhosttyTerminal::encode_mouse_event`, native/src/terminal/ghostty_terminal/
+ * public_api.rs), which reads the tracking mode directly from the terminal via
+ * `set_options_from_terminal` and returns an empty sequence when reporting is
+ * off (zelland pattern). This class is retained as a DECSET-reference
+ * implementation with tests; it is not wired into the input path.
  */
 class MouseModeTracker {
     private enum class State {

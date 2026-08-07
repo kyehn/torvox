@@ -231,6 +231,22 @@ fun TerminalScreen(
             val selection = state.selection
             val selectionActive = selection.active && selection.start != null && selection.end != null
 
+            // Round-219: with the legacy View.startActionMode(Callback) the
+            // system does NOT intercept BACK to finish the ActionMode (only
+            // TYPE_FLOATING modes do); BACK therefore fell through to the
+            // Activity and exited the app while a selection was active
+            // (emulator-verified). Intercept BACK while a selection is
+            // active and end it first — ghostty-android onDestroyActionMode
+            // clears the selection; Termux's first BACK dismisses the
+            // toolbar. The drawer's own BackHandler takes priority (it is
+            // registered earlier and LIFO runs ours first, so gate ours on
+            // the drawer being closed: BACK with the drawer open closes the
+            // drawer and must NOT clear the selection).
+            BackHandler(enabled = selectionActive && !drawerState.isOpen) {
+                viewModel.clearSelection()
+                surfaceRef.value?.hideSelectionMenu()
+            }
+
             // Consolidated text search state
             var searchState by remember { mutableStateOf(SearchState()) }
 

@@ -139,4 +139,7 @@
     <string name="cursor_blink_desc">Toggle cursor blinking animation</string>
     <string name="cursor_speed">Blink Speed</string>
     <string name="cursor_style_label">Cursor Style</string>
+    <string name="save">Save</string>
+    <string name="delete">Delete</string>
+    <string name="user_themes">User themes</string>
 </resources>

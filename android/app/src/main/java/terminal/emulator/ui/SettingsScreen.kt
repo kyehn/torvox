@@ -49,6 +49,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -315,6 +316,13 @@ private fun TerminalThemeSection(
     val dayThemeName = settings.dayThemeName
     val nightThemeName = settings.nightThemeName
     val themeName = settings.themeName
+    // User-created themes (ghostty-android ThemeStore pattern) merged into
+    // the pick list; `remember` keyed on the flow so a save re-renders.
+    val userThemes by viewModel.userThemes.collectAsStateWithLifecycle()
+    val allThemes = remember(userThemes) { terminal.emulator.ui.theme.BuiltInThemes.all + userThemes }
+    var saveThemeName by rememberSaveable { mutableStateOf("") }
+    val context = LocalContext.current
+    val systemInDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
     SectionHeader(stringResource(R.string.theme), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         TerminalThemeModeSelector(
@@ -331,7 +339,7 @@ private fun TerminalThemeSection(
                     ThemeSelector(
                         label = stringResource(R.string.day_theme),
                         selectedTheme = dayThemeName,
-                        themes = terminal.emulator.ui.theme.BuiltInThemes.all,
+                        themes = allThemes,
                         onThemeSelected = { viewModel.setDayThemeName(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
@@ -341,7 +349,7 @@ private fun TerminalThemeSection(
                     ThemeSelector(
                         label = stringResource(R.string.night_theme),
                         selectedTheme = nightThemeName,
-                        themes = terminal.emulator.ui.theme.BuiltInThemes.all,
+                        themes = allThemes,
                         onThemeSelected = { viewModel.setNightThemeName(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
@@ -354,12 +362,60 @@ private fun TerminalThemeSection(
                 ThemeSelector(
                     label = "",
                     selectedTheme = themeName,
-                    themes = terminal.emulator.ui.theme.BuiltInThemes.all,
+                    themes = allThemes,
                     onThemeSelected = { viewModel.setThemeName(it) },
                     textColor = textColor,
                     secondaryText = secondaryText,
                     cardBackground = cardBackground,
                 )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+        // User themes (ghostty-android ThemeStore pattern): save the current
+        // resolved theme under a name, or delete a saved user theme.
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            OutlinedTextField(
+                value = saveThemeName,
+                onValueChange = { saveThemeName = it },
+                placeholder = { Text("New theme name", color = secondaryText) },
+                singleLine = true,
+                modifier = Modifier.weight(1f).testTag("SaveThemeName"),
+            )
+            Button(
+                onClick = {
+                    val name = saveThemeName.trim()
+                    if (name.isNotEmpty()) {
+                        viewModel.saveCurrentThemeAs(name, systemInDarkTheme)
+                        saveThemeName = ""
+                    }
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                modifier = Modifier.testTag("SaveThemeButton"),
+            ) { Text(stringResource(R.string.save), color = MaterialTheme.colorScheme.onPrimary) }
+        }
+        if (userThemes.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(stringResource(R.string.user_themes), color = secondaryText, style = MaterialTheme.typography.bodySmall)
+            Spacer(modifier = Modifier.height(4.dp))
+            userThemes.forEach { theme ->
+                Row(
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        theme.name,
+                        color = textColor,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f).testTag("UserTheme_${theme.name}"),
+                    )
+                    TextButton(
+                        onClick = { viewModel.deleteUserTheme(theme.name) },
+                        modifier = Modifier.testTag("DeleteTheme_${theme.name}"),
+                    ) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) }
+                }
             }
         }
     }

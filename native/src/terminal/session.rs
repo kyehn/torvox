@@ -967,6 +967,25 @@ mod tests {
     }
 
     #[test]
+    fn extract_osc133_exit_code() {
+        // termlib OscParser handleOsc133: `D;exit_code` carries the command
+        // exit code for the COMMAND_FINISHED marker.
+        use crate::terminal::output_processor::{OutputProcessor, ShellIntegration};
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"\x1b]133;D;0\x1b\\");
+        assert_eq!(snap.shell_integration, ShellIntegration::CommandExecuted);
+        assert_eq!(snap.shell_exit_code, Some(0));
+        let snap = proc.process(b"\x1b]133;D;42\x1b\\");
+        assert_eq!(snap.shell_exit_code, Some(42));
+        // Plain D has no exit code.
+        let snap = proc.process(b"\x1b]133;D\x1b\\");
+        assert_eq!(snap.shell_exit_code, None);
+        // A/B/C never carry exit codes.
+        let snap = proc.process(b"\x1b]133;C\x1b\\");
+        assert_eq!(snap.shell_exit_code, None);
+    }
+
+    #[test]
     fn session_new_creates_pty() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)

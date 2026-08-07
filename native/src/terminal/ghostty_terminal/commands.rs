@@ -35,6 +35,27 @@ pub enum Command {
         tx: Sender<Option<String>>,
     },
     ReadVisibleText(Sender<String>),
+    /// Extract selection text with Ghostty's native formatter: soft-wrapped
+    /// lines are unwrapped (joined without '\n') and trailing whitespace is
+    /// trimmed — the same wrap-aware semantics as termux-app's
+    /// TerminalBuffer.getSelectedText (joinBackLines). Column endpoints are
+    /// grid columns; the formatter maps columns to char indices internally
+    /// (wide-char safe), matching TerminalRow.findStartOfColumn.
+    SelectionText {
+        /// Grid rows (absolute: scrollback rows are negative offsets in
+        /// ghostty semantics — callers pass Point::Screen coordinates).
+        start: (u32, u32),
+        end: (u32, u32),
+        rectangle: bool,
+        tx: Sender<String>,
+    },
+    /// Query the OSC 8 hyperlink URI at a grid cell, if any (termux
+    /// TerminalView openLinkAt equivalent).
+    HyperlinkAt {
+        row: u32,
+        col: u32,
+        tx: Sender<Option<String>>,
+    },
     SearchInScrollback {
         query: String,
         tx: Sender<Option<(u32, u32)>>,
