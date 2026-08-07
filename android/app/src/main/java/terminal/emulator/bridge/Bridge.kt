@@ -793,8 +793,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
     override fun getTerminalText(): String? = runCatching { queryPort.getTerminalText() }.getOrNull()
-    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? =
-        runCatching { queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle) }.getOrNull()
+    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? = runCatching { queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle) }.getOrNull()
     override fun hyperlinkAt(row: Int, col: Int): String? = runCatching { queryPort.hyperlinkAt(row, col) }.getOrNull()
     override fun listFontFamilies(): List<String>? = runCatching { queryPort.listFontFamilies() }.getOrNull()
     override fun getDefaultFontName(): String = runCatching { queryPort.getDefaultFontName() }.getOrDefault("monospace")

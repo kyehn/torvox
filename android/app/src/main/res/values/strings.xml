@@ -62,8 +62,15 @@
 
     <!-- Terminal -->
     <string name="terminal">Terminal</string>
+    <string name="action_new_session">New session</string>
+    <string name="action_new_session_failsafe">New session (Failsafe)</string>
+    <string name="action_open_settings">Settings</string>
     <string name="shell">Shell</string>
     <string name="shell_placeholder">/system/bin/sh</string>
+    <string name="launch_location_status_nix">启动位置：nix-on-droid（%1$s/bin/login）</string>
+    <string name="launch_location_status_termux">启动位置：Termux（%1$s/bin/bash）</string>
+    <string name="launch_location_status_none">未检测到 bootstrap，将使用系统 shell（/system/bin/sh）</string>
+    <string name="launch_location_reset">重置为检测到的默认</string>
     <string name="scrollback_lines">Scrollback Lines</string>
 
     <!-- Session -->

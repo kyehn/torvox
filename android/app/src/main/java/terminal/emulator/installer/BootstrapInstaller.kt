@@ -4,6 +4,7 @@ import android.system.Os
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import terminal.emulator.runtime.isElf
 import java.io.File
 import java.io.FileInputStream
 import java.util.zip.ZipFile
@@ -22,6 +23,7 @@ class BootstrapInstaller(
     // into stagingDir then renames (see installBootstrap); adding the sha256
     // sidecar is a P0 hardening item (docs/reference/research-warp.md §3).
     companion object {
+        private const val TAG = "BootstrapInstaller"
         const val COPY_BUFFER_SIZE = 8096
         const val MAX_SYMLINKS_BYTES = 1024 * 1024
         const val EXECUTABLE_FILE_MODE = 0x1ED
@@ -34,13 +36,26 @@ class BootstrapInstaller(
         private const val MAX_EXTRACTED_BYTES = 1L * 1024 * 1024 * 1024
     }
 
-    fun needsInstall(): Boolean = !File(prefixDir, "bin/bash").exists()
+    fun needsInstall(): Boolean = !(
+        (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
+            File(prefixDir, "bin/bash").exists()
+        )
 
+    /**
+     * A bootstrap is installed when its shell binary and the second-stage
+     * termux.env both exist. The shell binary is login-first (nix-on-droid)
+     * with bash fallback (termux), mirroring TerminalRuntime's resolution;
+     * only real ELF binaries qualify (termux's bin/login is a shebang
+     * script, nix's is a static ELF).
+     */
     fun isInstalled(): Boolean = // termux.env is written last by the second stage; requiring it here
         // means a failed/wedged second stage (e.g. writeTermuxEnv hitting a
         // full disk) is not reported as a healthy install, so the retry path
         // stays open instead of leaving a permanently broken environment.
-        File(prefixDir, "bin/bash").exists() &&
+        (
+            (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
+                File(prefixDir, "bin/bash").exists()
+            ) &&
             File(prefixDir, "etc/termux/termux.env").exists()
 
     suspend fun install(zipFile: File): Result<Unit> = withContext(Dispatchers.IO) {
@@ -93,16 +108,29 @@ class BootstrapInstaller(
 
     private fun extractZip(zipFile: File): List<Pair<String, String>> {
         val symlinks = mutableListOf<Pair<String, String>>()
+        val executables = mutableListOf<String>()
         val totalEntries = ZipFile(zipFile).use { it.size() }
         var lastReportedEntry = 0
         FileInputStream(zipFile).use { fis ->
             ZipInputStream(fis).use { zis ->
-                processZipEntries(zis, symlinks) { entryIndex ->
+                processZipEntries(zis, symlinks, executables) { entryIndex ->
                     if (entryIndex - lastReportedEntry >= EXTRACT_PROGRESS_INTERVAL || entryIndex == totalEntries) {
                         lastReportedEntry = entryIndex
                         onProgress?.onProgress(BootstrapProgress.Extracting(entryIndex, totalEntries))
                     }
                 }
+            }
+        }
+        // nix-on-droid bootstraps keep most executables under
+        // nix/store/<hash>/bin/ and usr/bin/, which the EXEC_PREFIXES
+        // prefix match cannot see — the archive's EXECUTABLES.txt is the
+        // authoritative list for those (matches termux-app
+        // TermuxInstaller.java:233-240).
+        for (executable in executables) {
+            try {
+                Os.chmod(File(stagingDir, executable).absolutePath, EXECUTABLE_FILE_MODE)
+            } catch (exception: Exception) {
+                Log.w(TAG, "EXECUTABLES.txt chmod failed for $executable", exception)
             }
         }
         return symlinks
@@ -111,6 +139,7 @@ class BootstrapInstaller(
     private fun processZipEntries(
         zis: ZipInputStream,
         symlinks: MutableList<Pair<String, String>>,
+        executables: MutableList<String>,
         onEntryProcessed: (Int) -> Unit,
     ) {
         var entry = zis.nextEntry
@@ -136,6 +165,14 @@ class BootstrapInstaller(
                     throw java.io.IOException("SYMLINKS.txt exceeds $MAX_SYMLINKS_BYTES bytes")
                 }
                 symlinks.addAll(parseSymlinks(bytes.decodeToString()))
+            } else if (name == "EXECUTABLES.txt") {
+                val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
+                if (bytes.size >= MAX_SYMLINKS_BYTES) {
+                    throw java.io.IOException("EXECUTABLES.txt exceeds $MAX_SYMLINKS_BYTES bytes")
+                }
+                executables.addAll(
+                    bytes.decodeToString().lines().map { it.trim() }.filter { it.isNotEmpty() },
+                )
             } else if (entry.isDirectory) {
                 File(stagingDir, name).mkdirs()
             } else {
@@ -234,17 +271,26 @@ class BootstrapInstaller(
             //     absolute targets that resolve inside the canonical
             //     prefix path.
             if (target.startsWith("/")) {
-                val canonicalPrefix = prefixDir.canonicalPath
-                val resolvedAbsolute =
-                    try {
-                        File(target).canonicalPath
-                    } catch (exception: Exception) {
+                // nix-on-droid bootstrap (bootstrap-aarch64.zip): SYMLINKS.txt
+                // uses absolute targets like `/nix/store/<hash>-<pkg>/bin/...`
+                // that only resolve inside the proot environment whose root is
+                // the prefix. They are safe here because delete() never follows
+                // symlinks (only the link inode is removed), and the links are
+                // inert until a proot session resolves them. Restrict to the
+                // /nix/ tree — anything else keeps the strict prefix check.
+                if (!target.startsWith("/nix/")) {
+                    val canonicalPrefix = prefixDir.canonicalPath
+                    val resolvedAbsolute =
+                        try {
+                            File(target).canonicalPath
+                        } catch (exception: Exception) {
+                            throw java.io.IOException("Unsafe symlink target: $target (${exception.message})", exception)
+                        }
+                    if (resolvedAbsolute != canonicalPrefix &&
+                        !resolvedAbsolute.startsWith("$canonicalPrefix/")
+                    ) {
                         throw java.io.IOException("Unsafe symlink target: $target")
                     }
-                if (resolvedAbsolute != canonicalPrefix &&
-                    !resolvedAbsolute.startsWith("$canonicalPrefix/")
-                ) {
-                    throw java.io.IOException("Unsafe symlink target: $target")
                 }
             } else {
                 val linkParent = File(linkPath).parent

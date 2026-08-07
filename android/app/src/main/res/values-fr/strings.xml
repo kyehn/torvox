@@ -50,7 +50,14 @@
     <string name="fixed">Fixe</string>
     <string name="terminal">Terminal</string>
     <string name="shell">Shell</string>
+    <string name="action_new_session">New session</string>
+    <string name="action_new_session_failsafe">New session (Failsafe)</string>
+    <string name="action_open_settings">Settings</string>
     <string name="shell_placeholder">/system/bin/sh</string>
+    <string name="launch_location_status_nix">Launch: nix-on-droid (%1$s/bin/login)</string>
+    <string name="launch_location_status_termux">Launch: Termux (%1$s/bin/bash)</string>
+    <string name="launch_location_status_none">No bootstrap detected, using system shell (/system/bin/sh)</string>
+    <string name="launch_location_reset">Reset to detected default</string>
     <string name="scrollback_lines">Lignes de défilement</string>
     <string name="sessions">Sessions</string>
     <string name="settings_button">Paramètres</string>
@@ -99,4 +106,7 @@
     <string name="cursor_blink_desc">Activer/désactiver l\'animation du clignotement du curseur</string>
     <string name="cursor_speed">Vitesse de clignotement</string>
     <string name="cursor_style_label">Style du curseur</string>
+    <string name="save">Enregistrer</string>
+    <string name="delete">Supprimer</string>
+    <string name="user_themes">Thèmes personnalisés</string>
 </resources>

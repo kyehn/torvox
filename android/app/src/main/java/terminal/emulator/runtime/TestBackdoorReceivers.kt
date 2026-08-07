@@ -18,6 +18,7 @@ class TestBackdoorReceivers(
     private val onInput: (String, Boolean) -> Unit,
     private val onVtWrite: (String) -> Unit,
     private val onSelectAll: () -> Unit,
+    private val onInstallBootstrap: (Context, String) -> Unit,
     private val onPartialSelect: (startRow: Int, startCol: Int, endRow: Int, endCol: Int) -> Unit,
     private val onShowPaste: (row: Int, col: Int) -> Unit,
 ) {
@@ -103,6 +104,18 @@ class TestBackdoorReceivers(
                     }
                 },
                 "terminal.emulator.SHOW_PASTE",
+            ),
+            Pair(
+                object : BroadcastReceiver() {
+                    override fun onReceive(
+                        context: Context,
+                        intent: Intent,
+                    ) {
+                        val path = intent.getStringExtra("path") ?: return
+                        onInstallBootstrap(context, path)
+                    }
+                },
+                "terminal.emulator.INSTALL_BOOTSTRAP",
             ),
         )
 
