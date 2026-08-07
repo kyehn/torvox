@@ -20,8 +20,8 @@ class BootstrapInstaller(
     // — extract to usr.tmp/ then write a .bootstrap-version.json marker whose
     // value is the bootstrap zip's sha256, so a kill-mid-extract can never look
     // "installed" and a corrupted zip is detected on next launch. torvox stages
-    // into stagingDir then renames (see installBootstrap); adding the sha256
-    // sidecar is a P0 hardening item (docs/reference/research-warp.md §3).
+    // into stagingDir then renames (see installBootstrap); the marker makes
+    // the corrupted-zip detection deterministic (round-224).
     companion object {
         private const val TAG = "BootstrapInstaller"
         const val COPY_BUFFER_SIZE = 8096
@@ -34,12 +34,80 @@ class BootstrapInstaller(
         // is ~150 MB; the limit gives headroom while preventing a hostile
         // archive from filling the data partition.
         private const val MAX_EXTRACTED_BYTES = 1L * 1024 * 1024 * 1024
+
+        // Install marker (warp bootstrap.rs VERSION_PIN_FILENAME analog):
+        // stores the sha256 of the zip that produced the prefix, written
+        // AFTER the atomic rename so a kill-mid-extract leaves no marker.
+        internal const val VERSION_PIN_FILENAME = ".bootstrap-version.json"
+
+        /**
+         * SHA-256 of [file], streamed (constant memory; a bootstrap zip is
+         * ~300MB). Throws IOException on read failure.
+         */
+        internal fun sha256Of(file: File): String {
+            val digest = java.security.MessageDigest.getInstance("SHA-256")
+            FileInputStream(file).use { input ->
+                val buffer = ByteArray(COPY_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    digest.update(buffer, 0, read)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
+        }
+
+        /** Parse the marker's sha256; null when absent or malformed. */
+        internal fun readVersionPin(prefixDir: File): String? {
+            val marker = File(prefixDir, VERSION_PIN_FILENAME)
+            if (!marker.isFile) return null
+            return try {
+                val text = marker.readText()
+                val key = "\"sha256\":"
+                val idx = text.indexOf(key)
+                if (idx < 0) {
+                    null
+                } else {
+                    val valueStart = text.indexOf('"', idx + key.length)
+                    val valueEnd = valueStart.let { s -> if (s < 0) -1 else text.indexOf('"', s + 1) }
+                    if (valueStart < 0 || valueEnd < 0) null else text.substring(valueStart + 1, valueEnd)
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+        /** Atomically write the version pin (temp + rename, no torn marker). */
+        internal fun writeVersionPin(prefixDir: File, sha256: String) {
+            val marker = File(prefixDir, VERSION_PIN_FILENAME)
+            val tmp = File(prefixDir, "$VERSION_PIN_FILENAME.tmp")
+            tmp.writeText(
+                """{"sha256":"$sha256","installedAt":${System.currentTimeMillis()}}""",
+            )
+            if (!tmp.renameTo(marker)) {
+                tmp.delete()
+                throw java.io.IOException("Failed to write version pin")
+            }
+        }
     }
 
-    fun needsInstall(): Boolean = !(
-        (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
-            File(prefixDir, "bin/bash").exists()
-        )
+    /**
+     * True when the prefix must be (re-)installed. With [zipSha256] (the
+     * sha256 of the zip about to be installed): marker missing OR marker
+     * mismatch → true; matching marker → false. Without it, falls back to
+     * the shell-binary check so callers that never pass a hash (e.g. the
+     * second-stage-only path) keep working.
+     */
+    fun needsInstall(zipSha256: String? = null): Boolean {
+        if (zipSha256 != null) {
+            val pinned = readVersionPin(prefixDir) ?: return true
+            return pinned != zipSha256
+        }
+        return !(
+            (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
+                File(prefixDir, "bin/bash").exists()
+            )
+    }
 
     /**
      * A bootstrap is installed when its shell binary and the second-stage
@@ -59,6 +127,15 @@ class BootstrapInstaller(
             File(prefixDir, "etc/termux/termux.env").exists()
 
     suspend fun install(zipFile: File): Result<Unit> = withContext(Dispatchers.IO) {
+        // Round-224: hash BEFORE extraction so a corrupted zip is detected
+        // even if extraction never completes (and so needsInstall(zipSha256)
+        // can compare). ~1s per 300MB on emulator — first-launch-only.
+        val zipSha256 =
+            try {
+                sha256Of(zipFile)
+            } catch (exception: Exception) {
+                return@withContext Result.failure(Exception("Failed to hash bootstrap zip: ${exception.message}"))
+            }
         try {
             cleanupOld()
             createDirectories()
@@ -71,6 +148,10 @@ class BootstrapInstaller(
             createSymlinks(symlinks)
             atomicRename()
             ensureHomeAndTmp()
+            // Marker AFTER the atomic rename: a kill-mid-extract leaves no
+            // marker, so the next launch re-installs instead of trusting a
+            // half-extracted tree (warp bootstrap.rs step 8).
+            writeVersionPin(prefixDir, zipSha256)
             Result.success(Unit)
         } catch (exception: Exception) {
             // Log the class only, consistent with BootstrapDownloader: the

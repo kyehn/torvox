@@ -492,40 +492,20 @@ constructor(
                             return true
                         }
                         val newComposing = text?.toString() ?: ""
-                        when {
-                            newComposing == composingBuffer -> {
-                                // No change — nothing to reconcile.
-                            }
-
-                            newComposing.startsWith(composingBuffer) -> {
-                                // Composition grew: send only the appended characters.
-                                encodeAndSend(
-                                    newComposing.substring(composingBuffer.length),
-                                    ctrlActive = false,
-                                    altActive = false,
-                                )
-                            }
-
-                            composingBuffer.startsWith(newComposing) -> {
-                                // Composition contracted: backspace the removed
-                                // characters. Count code points, not UTF-16
-                                // units — an emoji in the removed suffix is one
-                                // character, and counting units would emit extra
-                                // backspaces that eat a committed neighbour.
-                                val removed =
-                                    codePointCount(composingBuffer) - codePointCount(newComposing)
-                                viewModel?.writeToPty(
-                                    ByteArray(removed) { BACKSPACE_BYTE },
-                                )
-                            }
-
-                            else -> {
-                                // Diverged: replace the whole composing run.
-                                viewModel?.writeToPty(
-                                    ByteArray(codePointCount(composingBuffer)) { BACKSPACE_BYTE },
-                                )
-                                encodeAndSend(newComposing, ctrlActive = false, altActive = false)
-                            }
+                        // Round-224: pure reconciliation (ComposingDiff),
+                        // unit-tested — grow/contract/diverged in one place.
+                        val edit = ComposingDiff.reconcile(composingBuffer, newComposing)
+                        if (edit.backspaces > 0) {
+                            viewModel?.writeToPty(
+                                ByteArray(edit.backspaces) { BACKSPACE_BYTE },
+                            )
+                        }
+                        if (edit.append.isNotEmpty()) {
+                            encodeAndSend(
+                                edit.append,
+                                ctrlActive = false,
+                                altActive = false,
+                            )
                         }
                         composingBuffer = newComposing
                         return true
@@ -556,8 +536,11 @@ constructor(
                             if (committedText == composingBuffer) {
                                 // Already forwarded via composing deltas; do not resend.
                             } else {
+                                // Round-224: reuse the pure reconciliation to
+                                // compute the code-point backspace count.
+                                val clear = ComposingDiff.reconcile(composingBuffer, "")
                                 terminalViewModel?.writeToPty(
-                                    ByteArray(codePointCount(composingBuffer)) { BACKSPACE_BYTE },
+                                    ByteArray(clear.backspaces) { BACKSPACE_BYTE },
                                 )
                                 encodeAndSend(committedText, ctrlActive, altActive)
                             }

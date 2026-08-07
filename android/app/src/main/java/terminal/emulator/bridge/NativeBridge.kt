@@ -178,6 +178,14 @@ object NativeBridge {
     @JvmStatic
     external fun dialogResult(sessionId: Long, requestId: Long, result: String)
 
+    /**
+     * Answer an MCP `run_command` request (round-226 D1). `result` is the
+     * JSON payload `{"exit_code":N,"stdout":...,"stderr":...}` produced by
+     * [terminal.emulator.runtime.TerminalRuntime.dispatchRunCommandRequest].
+     * Like [dialogResult], must be answered exactly once.
+     */
+    external fun runCommandResult(sessionId: Long, requestId: Long, result: String)
+
     // ── Logging ──────────────────────────────────────────────────────────
 
     /** Initialise native-side logging. Should be called once at startup. */

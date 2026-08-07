@@ -1157,6 +1157,15 @@ fn wait_exit_code(session: &Arc<Mutex<Session>>) -> i32 {
     0
 }
 
+/// Read the child's recorded lifetime (fork → waitpid, ms). Round-224:
+/// the wait thread writes it at exit, so this returns immediately; 0 is
+/// the fallback for an exotic session without the field populated yet.
+fn wait_exit_alive_ms(session: &Arc<Mutex<Session>>) -> u64 {
+    let guard = session.as_ref().lock();
+    let alive = guard.exit_alive_ms.lock();
+    (*alive).unwrap_or(0)
+}
+
 fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) -> jstring {
     // Step 1: Poll the active session for new events.
     // Collect events first, then push them after dropping the session lock
@@ -1301,6 +1310,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
         pending_events.push(Event::Exit {
             session_id: id,
             code: wait_exit_code(&session),
+            alive_ms: wait_exit_alive_ms(&session),
         });
     }
     // Push collected events — no Session or SESSION_REGISTRY locks held.
@@ -1880,6 +1890,19 @@ fn set_mcp_enabled_inner(_env: &mut JNIEnv, _class: JClass, enabled: jboolean) {
                     None => format!("Session {session_id} not found"),
                 }
             });
+            state.set_run_command_handler(
+                |session_id: u64,
+                 command: String|
+                 -> (u64, tokio::sync::oneshot::Receiver<String>) {
+                    let (request_id, rx) = register_request(session_id);
+                    push_event(Event::RunCommand {
+                        session_id,
+                        request_id,
+                        command,
+                    });
+                    (request_id, rx)
+                },
+            );
             // Remaining tools are bridged through the event queue into
             // Kotlin (which owns the system clipboard, toasts, and the
             // browser), mirroring the dialog/pick_file seam.
@@ -2003,6 +2026,46 @@ pub(crate) fn answer_request(session_id: u64, request_id: u64, result: String) {
     if let Some(tx) = REQUEST_REGISTRY.lock().remove(&(session_id, request_id)) {
         let _ = tx.send(result);
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: runCommandResult — Kotlin responds to an MCP run_command
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Reply to an MCP `run_command` request. The `result` is the JSON payload
+/// `{"exit_code":N,"stdout":...,"stderr":...}` produced by the Kotlin
+/// command runner. Same routing as `dialogResult` (shared registry).
+#[unsafe(no_mangle)]
+#[cfg(feature = "mcp")]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_runCommandResult<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    request_id: jlong,
+    result: JString<'local>,
+) {
+    // A panic escaping this JNI export would abort the whole process.
+    // Convert it into a Java exception instead.
+    jni_export_guard!(&mut env, (), {
+        run_command_result_inner(&mut env, _class, session_id, request_id, result)
+    })
+}
+
+#[cfg(feature = "mcp")]
+fn run_command_result_inner<'local>(
+    env: &mut JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    request_id: jlong,
+    result: JString<'local>,
+) {
+    let session_id = session_id as u64;
+    let request_id = request_id as u64;
+    let result_str: String = env
+        .get_string(&result)
+        .map(|s| s.into())
+        .unwrap_or_default();
+    answer_request(session_id, request_id, result_str);
 }
 // ══════════════════════════════════════════════════════════════════════════
 

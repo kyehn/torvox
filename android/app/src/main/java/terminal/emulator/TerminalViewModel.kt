@@ -44,6 +44,7 @@ import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
+import terminal.emulator.ui.SmartCopy
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.UserThemeStore
 import terminal.emulator.ui.theme.resolveTerminalThemeName
@@ -170,6 +171,7 @@ constructor(
 ) : ViewModel() {
     private val clipboardAccess = ClipboardAccess(context, tag = "ViewModel")
     private val clipboardPaster = ClipboardPaster(clipboardAccess)
+
     private val selectionManager = SelectionManager()
     private val fontManager = FontManager()
     private val userThemeStore = UserThemeStore(context)
@@ -383,10 +385,49 @@ constructor(
         fun copySelectionToClipboard() {
             val rawText = _state.value.selection.selectedText
             if (rawText.isEmpty()) return
-            val text = if (rawText.length > CLIPBOARD_TEXT_MAX_LENGTH) rawText.substring(0, CLIPBOARD_TEXT_MAX_LENGTH) else rawText
-            clipboardAccess.setClipboardText(text, label = "terminal selection")
+            // Smart processing (round-225, Haven smartCopy:357-405) applies
+            // border-strip / wrapped-URL rebuild to the selection text; the
+            // ClipboardAccess.smartCopyProcessor hook stays null here (OSC 52
+            // programmatic writes from the runtime stay verbatim).
+            val text = smartCopySelection(rawText)
+            val clipped = if (text.length > CLIPBOARD_TEXT_MAX_LENGTH) text.substring(0, CLIPBOARD_TEXT_MAX_LENGTH) else text
+            clipboardAccess.setClipboardText(clipped, label = "terminal selection")
             // Close the floating menu after the action; keep the highlight.
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
+        }
+
+        /**
+         * Round-225: route the copy through smart processing (TUI border
+         * stripping + wrapped-URL rebuild, Haven smartCopy:357-405). Fetch
+         * the selection's rows from the snapshot; on any bridge failure
+         * fall back to the raw text.
+         */
+        private fun smartCopySelection(raw: String): String {
+            val selection = _state.value.selection
+            val start = selection.start ?: return raw
+            val end = selection.end ?: return raw
+            val bitmapSelection =
+                if (start.row < end.row || (start.row == end.row && start.col <= end.col)) {
+                    start to end
+                } else {
+                    end to start
+                }
+            val (lo, hi) = bitmapSelection
+            val bridge = runtime.bridge() ?: return raw
+            val lines =
+                (lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES))
+                    .map { r -> bridge.scrollbackLine(r) ?: "" }
+            if (lines.isEmpty()) return raw
+            val text =
+                SmartCopy.smartCopyText(
+                    lines = lines,
+                    startRow = 0,
+                    startCol = lo.col.coerceAtLeast(0),
+                    endRow = lines.size - 1,
+                    endCol = hi.col.coerceAtLeast(0),
+                    verbatim = raw,
+                )
+            return text.ifEmpty { raw }
         }
 
         fun clearSelection() {
@@ -449,8 +490,10 @@ constructor(
         }
 
         fun shareSelection() {
-            val text = _state.value.selection.selectedText
-            if (text.isEmpty()) return
+            val rawText = _state.value.selection.selectedText
+            if (rawText.isEmpty()) return
+            // Round-225: share the smart-copied text (border strip / URL rebuild).
+            val text = smartCopySelection(rawText)
             val shareIntent =
                 Intent.createChooser(
                     Intent(Intent.ACTION_SEND).apply {

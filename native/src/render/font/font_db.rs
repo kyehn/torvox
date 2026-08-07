@@ -1,5 +1,22 @@
 //! System font database loading and resolution.
 
+/// Android system font directories, in scan order. Round-224: /odm/fonts/
+/// and /data/fonts/ added — OEMs place custom fonts there and
+/// ASystemFontIterator (the NDK reference, warp font_render.rs:133-155)
+/// enumerates them. `cfg(any(target_os = "android", test))`: compiled for
+/// Android production builds and for host tests that pin the list; absent
+/// from plain host builds so clippy stays dead-code clean.
+#[cfg(any(target_os = "android", test))]
+pub(crate) const FONT_DIRS: &[&str] = &[
+    "/system/fonts/",
+    "/system/product/fonts/",
+    "/system_ext/fonts/",
+    "/vendor/fonts/",
+    "/product/fonts/",
+    "/odm/fonts/",
+    "/data/fonts/",
+];
+
 #[cfg(target_os = "android")]
 #[cfg(target_os = "android")]
 static CACHED_FONT_PATHS: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
@@ -27,20 +44,23 @@ pub(crate) fn load_font_database() -> fontdb::Database {
     let db = CACHED_FONT_DB.get_or_init(|| {
         let font_paths = CACHED_FONT_PATHS.get_or_init(|| {
             let mut paths = Vec::new();
-            for dir in [
-                "/system/fonts/",
-                "/system/product/fonts/",
-                "/system_ext/fonts/",
-                "/vendor/fonts/",
-                "/product/fonts/",
-            ] {
+            // Round-224: /odm/fonts/ and /data/fonts/ added — OEMs place
+            // custom fonts there and ASystemFontIterator (the NDK
+            // reference, warp font_render.rs:133-155) enumerates them.
+            for dir in FONT_DIRS {
                 let dir_path = std::path::Path::new(dir);
                 if let Ok(entries) = std::fs::read_dir(dir_path) {
+                    let mut dir_count = 0usize;
                     for entry in entries.flatten() {
                         if is_font_file(&entry.path()) {
+                            dir_count += 1;
                             paths.push(entry.path());
                         }
                     }
+                    // Log every EXISTING directory (even empty) so device
+                    // diagnostics can confirm each path was scanned —
+                    // mirrors warp's ASystemFontIterator enumeration count.
+                    log::debug!("FONT_LOAD: dir={dir} files={dir_count}");
                 }
             }
             log::debug!("FONT_LOAD: cached {} font paths", paths.len());
@@ -106,4 +126,51 @@ fn is_font_file(entry: &std::path::Path) -> bool {
                 || ext.eq_ignore_ascii_case("otf")
                 || ext.eq_ignore_ascii_case("ttc")
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::FONT_DIRS;
+
+    /// Round-224: the scan list must include the OEM font directories that
+    /// ASystemFontIterator (NDK reference) would enumerate — /odm/fonts/
+    /// and /data/fonts/ — so OEM-custom fonts are not missed on devices
+    /// that keep them outside /system/fonts.
+    #[test]
+    fn font_dirs_include_oem_paths() {
+        assert!(
+            FONT_DIRS.contains(&"/odm/fonts/"),
+            "OEM font dir /odm/fonts/ must be scanned"
+        );
+        assert!(
+            FONT_DIRS.contains(&"/data/fonts/"),
+            "OEM font dir /data/fonts/ must be scanned"
+        );
+        // The baseline Android paths must remain.
+        for required in [
+            "/system/fonts/",
+            "/system/product/fonts/",
+            "/system_ext/fonts/",
+            "/vendor/fonts/",
+            "/product/fonts/",
+        ] {
+            assert!(FONT_DIRS.contains(&required), "{required} must be scanned");
+        }
+        // No duplicates.
+        let mut sorted = FONT_DIRS.to_vec();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(
+            sorted.len(),
+            FONT_DIRS.len(),
+            "FONT_DIRS must not contain duplicates"
+        );
+    }
+
+    /// The directory list must be ordered with the most standard paths
+    /// first (they win when a face exists in several locations).
+    #[test]
+    fn font_dirs_start_with_system_fonts() {
+        assert_eq!(FONT_DIRS[0], "/system/fonts/");
+    }
 }

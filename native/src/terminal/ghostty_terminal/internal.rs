@@ -22,6 +22,28 @@ fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
 
 // ── Free functions ──────────────────────────────────────────────
 
+/// The 16 standard ANSI palette indices, in xterm order (normal colors
+/// followed by bright variants). `libghostty_vt::Palette` only exposes named
+/// `PaletteIndex` constants, so map theme colors onto them explicitly.
+const ANSI_PALETTE_INDICES: [PaletteIndex; 16] = [
+    PaletteIndex::BLACK,
+    PaletteIndex::RED,
+    PaletteIndex::GREEN,
+    PaletteIndex::YELLOW,
+    PaletteIndex::BLUE,
+    PaletteIndex::MAGENTA,
+    PaletteIndex::CYAN,
+    PaletteIndex::WHITE,
+    PaletteIndex::BRIGHT_BLACK,
+    PaletteIndex::BRIGHT_RED,
+    PaletteIndex::BRIGHT_GREEN,
+    PaletteIndex::BRIGHT_YELLOW,
+    PaletteIndex::BRIGHT_BLUE,
+    PaletteIndex::BRIGHT_MAGENTA,
+    PaletteIndex::BRIGHT_CYAN,
+    PaletteIndex::BRIGHT_WHITE,
+];
+
 /// Helper to create the three per-frame render iterators.
 /// Returns `None` and logs on any creation failure.
 fn create_render_iterators() -> Option<(
@@ -225,28 +247,11 @@ impl super::GhosttyTerminal {
             log::error!("ghostty_terminal: Terminal::new failed — thread exiting");
             return;
         };
-        // The C `terminal_new` ABI has no scrollback parameter and the
-        // vendor default disables scrollback entirely (Screen.Options
-        // max_scrollback_bytes = 0). Enable it explicitly after
-        // construction, otherwise scrollback browsing and
-        // scrollback_length() always return 0 (round-205,
-        // emulator-verified: scrollback_rows query returned 0 with
-        // content on screen). Both limits must be set: `setMaxBytes`
-        // flips the page list's `no_scrollback` flag (bytes == 0
-        // disables scrollback entirely), while `setMaxLines` only caps
-        // the physical row count.
-        if let Err(error) = terminal.set_max_scrollback_bytes(Some(
-            (config.scrollback_lines as usize)
-                .saturating_mul(256)
-                .max(1 << 20),
-        )) {
-            log::error!("ghostty_terminal: set_max_scrollback_bytes failed: {error}");
-        }
-        if let Err(error) =
-            terminal.set_max_scrollback_lines(Some(config.scrollback_lines as usize))
-        {
-            log::error!("ghostty_terminal: set_max_scrollback_lines failed: {error}");
-        }
+        // The C `ghostty_terminal_new` ABI consumes `Options.max_scrollback`
+        // directly (ghostty a887df42, libghostty-vt 0.2.1): `Screen.init`
+        // sets `no_scrollback = max_scrollback == 0`, so a non-zero value
+        // enables scrollback (round-205: scrollback_rows query returned 0
+        // when scrollback was disabled).
 
         // Initialize Kitty Graphics Protocol (KGP) support
         if let Err(error) = terminal.set_kitty_image_storage_limit(KGP_STORAGE_LIMIT) {
@@ -332,12 +337,15 @@ impl super::GhosttyTerminal {
             b: config.foreground_color[2],
         }));
         if let Ok(mut palette) = terminal.default_color_palette() {
-            for (i, color) in config.ansi_colors.iter().enumerate() {
-                palette[i] = libghostty_vt::style::RgbColor {
-                    r: color[0],
-                    g: color[1],
-                    b: color[2],
-                };
+            for (index, color) in ANSI_PALETTE_INDICES.iter().zip(config.ansi_colors.iter()) {
+                palette.set(
+                    *index,
+                    libghostty_vt::style::RgbColor {
+                        r: color[0],
+                        g: color[1],
+                        b: color[2],
+                    },
+                );
             }
             let _ = terminal.set_default_color_palette(Some(palette));
         }
@@ -439,12 +447,15 @@ impl super::GhosttyTerminal {
                         b: foreground[2],
                     }));
                     if let Ok(mut palette) = terminal.default_color_palette() {
-                        for (i, color) in ansi.iter().enumerate() {
-                            palette[i] = libghostty_vt::style::RgbColor {
-                                r: color[0],
-                                g: color[1],
-                                b: color[2],
-                            };
+                        for (index, color) in ANSI_PALETTE_INDICES.iter().zip(ansi.iter()) {
+                            palette.set(
+                                *index,
+                                libghostty_vt::style::RgbColor {
+                                    r: color[0],
+                                    g: color[1],
+                                    b: color[2],
+                                },
+                            );
                         }
                         let _ = terminal.set_default_color_palette(Some(palette));
                     }

@@ -18,6 +18,17 @@ class ClipboardAccess(
     private val context: Context,
     private val tag: String = "ClipboardAccess",
 ) {
+    /**
+     * Optional smart-copy transformation applied on every
+     * [setClipboardText] write (round-225, Haven
+     * SmartTerminalClipboard:407-430): the terminal selection copy path
+     * installs a border-strip / URL-rebuild processor; OSC 52 programmatic
+     * writes keep the default null → verbatim passthrough. When the
+     * processor returns null/blank the caller's text is kept instead of
+     * clobbering the clipboard (Haven's drift guard).
+     */
+    var smartCopyProcessor: ((text: String) -> String?)? = null
+
     private fun manager(): ClipboardManager? {
         val manager = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         if (manager == null) {
@@ -35,7 +46,11 @@ class ClipboardAccess(
 
     fun setClipboardText(text: String, label: String = "terminal clipboard") {
         val clipboard = manager() ?: return
-        clipboard.setPrimaryClip(ClipData.newPlainText(label, text))
+        val processed =
+            smartCopyProcessor?.invoke(text)
+                ?.takeIf { it.isNotBlank() }
+                ?: text
+        clipboard.setPrimaryClip(ClipData.newPlainText(label, processed))
     }
 
     /** True when a primary clip exists (safe against dead-clipboard

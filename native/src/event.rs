@@ -47,7 +47,14 @@ pub enum Event {
         body: String,
     },
     /// Child process exited.
-    Exit { session_id: u64, code: i32 },
+    Exit {
+        session_id: u64,
+        code: i32,
+        /// Round-224: how long the child actually lived (ms, from fork to
+        /// waitpid). Native-side measurement — immune to Kotlin event
+        /// handling latency — so fast-death recovery can rely on it.
+        alive_ms: u64,
+    },
     /// Request Kotlin to show a dialog (input/confirm/select).
     /// Kotlin responds by calling `dialogResult()` JNI.
     #[cfg(feature = "mcp")]
@@ -95,6 +102,16 @@ pub enum Event {
     /// MCP `open_url`: request Kotlin to open a URL in the default browser.
     #[cfg(feature = "mcp")]
     OpenUrl { url: String },
+    /// MCP `run_command`: request Kotlin to execute a raw command string
+    /// safely (ArgumentTokenizer argv split, no shell). Kotlin replies
+    /// via `runCommandResult()` JNI, keyed by (session_id, request_id) —
+    /// same request/response routing as ShowDialog/clipboard_get.
+    #[cfg(feature = "mcp")]
+    RunCommand {
+        session_id: u64,
+        request_id: u64,
+        command: String,
+    },
 }
 
 /// A thread-safe event queue shared between Rust and Kotlin.
@@ -208,6 +225,7 @@ mod tests {
         q.push(Event::Exit {
             session_id: 2,
             code: 0,
+            alive_ms: 10,
         });
         q.push(Event::Bell { session_id: 3 });
         assert_eq!(q.pop(), Some(Event::Bell { session_id: 1 }));
@@ -219,7 +237,8 @@ mod tests {
             q.pop(),
             Some(Event::Exit {
                 session_id: 2,
-                code: 0
+                code: 0,
+                alive_ms: 10
             })
         );
         assert_eq!(q.pop(), Some(Event::Bell { session_id: 3 }));
@@ -257,6 +276,7 @@ mod tests {
             q.push(Event::Exit {
                 session_id: i as u64,
                 code: 0,
+                alive_ms: 10,
             });
         }
         q.push(Event::Bell { session_id: 999 });
@@ -285,6 +305,7 @@ mod tests {
         q.push(Event::Exit {
             session_id: 42,
             code: 7,
+            alive_ms: 10,
         });
         // Queue is now full; pushing a new Bell must evict the OLDEST
         // Bell (session 0), never the Exit.
@@ -295,7 +316,8 @@ mod tests {
         assert_eq!(popped[0], Event::Bell { session_id: 1 });
         assert!(popped.contains(&Event::Exit {
             session_id: 42,
-            code: 7
+            code: 7,
+            alive_ms: 10
         }));
         assert_eq!(
             popped[MAX_QUEUED_EVENTS - 1],
@@ -309,12 +331,14 @@ mod tests {
         q.push(Event::Exit {
             session_id: 1,
             code: 0,
+            alive_ms: 10,
         });
         assert_eq!(
             q.pop(),
             Some(Event::Exit {
                 session_id: 1,
-                code: 0
+                code: 0,
+                alive_ms: 10
             })
         );
         assert_eq!(q.pop(), None);
