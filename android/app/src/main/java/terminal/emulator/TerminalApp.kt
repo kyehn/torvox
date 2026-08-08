@@ -14,7 +14,6 @@ import terminal.emulator.monitor.AnrWatchDog
 import terminal.emulator.monitor.BootGuard
 import terminal.emulator.monitor.MemoryMonitor
 import terminal.emulator.monitor.ThermalMonitor
-import terminal.emulator.runtime.LogcatFileWriter
 import java.io.File
 import java.io.FileOutputStream
 import java.io.PrintWriter
@@ -56,12 +55,10 @@ open class TerminalApp : Application() {
                 .penaltyLog()
                 .build(),
         )
-        LogcatFileWriter.init(this)
         Thread({
             try {
                 getSharedPreferences("toolbar_prefs", MODE_PRIVATE)
                 NativeBridge.initLogger()
-                LogcatFileWriter.getLogFilePath()?.let { NativeBridge.setLogFilePath(it) }
             } catch (error: Throwable) {
                 // Native library missing/corrupt (or any cold-start error in
                 // this best-effort init): swallow it here. The installCrashHandler

@@ -382,7 +382,15 @@ private fun ConfigurableModifierBar(
         }
 
         is ToolbarItem.Custom -> {
-            if (item.sequence.isNotEmpty()) {
+            val macro = item.macro
+            if (macro != null && ToolbarMacroExpander.isMacro(macro)) {
+                val keys = ToolbarMacroExpander.expand(macro)
+                if (keys.isNotEmpty()) {
+                    { keys.forEach(onKeyClick) }
+                } else {
+                    {}
+                }
+            } else if (item.sequence.isNotEmpty()) {
                 { onKeyClick(item.sequence) }
             } else {
                 {}
