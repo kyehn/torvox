@@ -841,9 +841,12 @@ mod tests {
     fn font_switching_clears_cache() {
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         pipeline.rasterize_ascii();
-        let before = pipeline.cache_length();
-        assert!(before > 0);
+        assert!(pipeline.cache_length() > 0);
+        // Include a non-ASCII glyph in the baseline: after the switch the
+        // cache is cleared and re-filled only with the new font's ASCII
+        // rasterization, so the length must drop below this value.
         pipeline.glyph_information('好');
+        let before = pipeline.cache_length();
         let names = pipeline.list_monospace_fonts();
         if names.len() > 1 {
             let alt = names.last().unwrap();
@@ -1222,6 +1225,110 @@ mod tests {
         );
     }
 
+    // ── round-227 T5: layered fallback (moke chain, spec d7) ─────────────
+
+    #[test]
+    fn fallback_layer_family_predicates() {
+        // moke chain layers: CJK / symbols / nerd / emoji are partitioned
+        // by family name; a family belongs to exactly one layer.
+        assert!(FontPipeline::is_cjk_candidate_family("noto sans cjk sc"));
+        assert!(!FontPipeline::is_cjk_candidate_family("noto color emoji"));
+        assert!(!FontPipeline::is_cjk_candidate_family("symbols nerd font"));
+
+        assert!(FontPipeline::is_symbol_candidate_family(
+            "noto sans symbols 2"
+        ));
+        assert!(FontPipeline::is_symbol_candidate_family("dejavu dingbats"));
+        assert!(!FontPipeline::is_symbol_candidate_family("dejavu sans"));
+        assert!(!FontPipeline::is_symbol_candidate_family(
+            "symbols nerd font"
+        ));
+
+        assert!(FontPipeline::is_nerd_candidate_family("symbols nerd font"));
+        assert!(FontPipeline::is_nerd_candidate_family(
+            "jetbrainsmono nerd font"
+        ));
+        assert!(!FontPipeline::is_nerd_candidate_family(
+            "noto sans symbols 2"
+        ));
+
+        assert!(FontPipeline::is_emoji_candidate_family("noto color emoji"));
+        assert!(!FontPipeline::is_emoji_candidate_family(
+            "noto sans symbols 2"
+        ));
+    }
+
+    #[test]
+    fn symbol_glyph_resolves_via_database_scan() {
+        // U+25B6 (▶) is absent from Liberation Mono but present in
+        // DejaVu Sans on the host. With Liberation Mono as the primary
+        // the layered chain ends with a whole-database scan (spec d7),
+        // which must resolve the glyph in a non-primary font.
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let names = pipeline.list_monospace_fonts();
+        if !names.iter().any(|n| n.contains("Liberation")) {
+            // Coverage guard: the scan tail is exercised on hosts that
+            // ship Liberation Mono (the standard Debian/CI set).
+            eprintln!("SKIP: symbol_glyph_resolves_via_database_scan (no Liberation Mono)");
+            return;
+        }
+        assert!(
+            pipeline.set_font_family("Liberation Mono"),
+            "switch to Liberation Mono"
+        );
+        let primary = pipeline.font_id.expect("primary font");
+        let info = pipeline.glyph_information('▶').expect("symbol glyph");
+        assert!(
+            info.width > 0,
+            "symbol must rasterize, got width {}",
+            info.width
+        );
+        let resolved = pipeline
+            .caches
+            .cjk_glyph_cache
+            .get(&'▶')
+            .expect("resolved glyph must be cached");
+        assert_ne!(
+            resolved.0, primary,
+            "symbol must resolve via a fallback font, not the primary"
+        );
+        assert_ne!(
+            resolved.1, 0,
+            "symbol must resolve to a real glyph, not .notdef"
+        );
+    }
+
+    #[test]
+    fn private_use_glyph_renders_notdef_without_panic() {
+        // U+E0A0 (powerline separator PUA) exists in no host font: the
+        // chain must end at .notdef without panicking (spec d7 scenario 3).
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let info = pipeline.glyph_information('\u{e0a0}');
+        assert!(info.is_some(), ".notdef fallback must return a glyph");
+    }
+
+    #[test]
+    fn emoji_glyph_no_panic_when_color_font_cannot_outline() {
+        // Noto Color Emoji covers 😀 but swash cannot outline color
+        // glyphs; the emoji layer and the database scan must skip it
+        // without panicking (moke: emoji via system chain).
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let _ = pipeline.glyph_information('😀');
+        // Reaching here without panic is the assertion.
+    }
+
+    #[test]
+    fn fallback_names_report_all_layers() {
+        // cjk_fallback_names is the CJK-only view; the layered fields are
+        // all populated by construction.
+        let pipeline = FontPipeline::new(512, 512, 14.0);
+        let cjk = pipeline.cjk_fallback_names();
+        assert!(
+            cjk.iter().all(|n| !n.is_empty()),
+            "CJK fallback names must not be empty strings"
+        );
+    }
+
     #[test]
     fn cjk_locale_selects_correct_variant() {
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
@@ -1492,6 +1599,64 @@ mod tests {
         assert!(
             result.is_some(),
             "load after set_font_family should succeed"
+        );
+    }
+}
+
+#[cfg(test)]
+mod nerd_render_tests {
+    use super::*;
+
+    fn pipeline_with_nerd_font() -> FontPipeline {
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        // Load any Nerd Font available on this host (the nix store path is
+        // the dev-shell location; the test is skipped when absent).
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        if let Ok(store) = std::fs::read_dir("/nix/store") {
+            for entry in store.flatten() {
+                let p = entry.path();
+                if p.to_string_lossy().contains("nerd-fonts")
+                    && let Ok(files) = std::fs::read_dir(p.join("share/fonts/truetype/NerdFonts"))
+                {
+                    for file in files.flatten() {
+                        let f = file.path();
+                        if f.to_string_lossy().ends_with("NerdFontMono-Regular.ttf") {
+                            candidates.push(f);
+                        }
+                    }
+                }
+            }
+        }
+        for path in candidates {
+            pipeline.font_system.db_mut().load_font_file(path).ok();
+        }
+        pipeline.find_symbol_fallback_fonts();
+        pipeline.find_nerd_fallback_fonts();
+        pipeline
+    }
+
+    #[test]
+    fn nerd_pua_glyph_renders_from_nerd_fallback() {
+        let mut pipeline = pipeline_with_nerd_font();
+        if pipeline.nerd_fallback_ids.is_empty() {
+            // No Nerd Font installed on this host — nothing to verify.
+            return;
+        }
+        let info = pipeline
+            .glyph_information('\u{e0a0}')
+            .expect("U+E0A0 should render via the Nerd fallback");
+        assert!(
+            info.width > 0 && info.height > 0,
+            "U+E0A0 must produce a real glyph bitmap, got {}x{}",
+            info.width,
+            info.height
+        );
+        // Powerline left triangle: taller than wide.
+        assert!(
+            info.height > info.width,
+            "U+E0A0 powerline triangle should be tall ({}x{})",
+            info.width,
+            info.height
         );
     }
 }

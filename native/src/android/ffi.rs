@@ -155,6 +155,42 @@ struct SessionEntry {
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
+/// Read the exit code of a registered session, if the wait thread already
+/// captured one (spec d4: terminal_info exposes the session exit code).
+/// Lock order: SESSION_REGISTRY → Session → exit_code (see module docs).
+/// `None` for unknown sessions and for sessions still running.
+pub(crate) fn session_exit_code(session_id: u64) -> Option<i32> {
+    let registry = SESSION_REGISTRY.read();
+    let entry = registry.get(&session_id)?;
+    let session = entry.session.lock();
+    session.exit_code_now()
+}
+
+/// Test-only: register a session entry directly (host tests cannot go
+/// through the JNI spawn path). Dead in non-test lib builds by design.
+#[cfg(any(test, feature = "test-util"))]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn register_session_for_test(
+    session_id: u64,
+    session: std::sync::Arc<parking_lot::Mutex<crate::terminal::session::Session>>,
+) {
+    SESSION_REGISTRY.write().insert(
+        session_id,
+        SessionEntry {
+            session,
+            last_scroll_offset: 0,
+        },
+    );
+}
+
+/// Test-only: drop every registered session so a stale entry cannot leak
+/// into a later test. Dead in non-test lib builds by design.
+#[cfg(any(test, feature = "test-util"))]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn clear_registry_for_test() {
+    SESSION_REGISTRY.write().clear();
+}
+
 /// Global render state (ADR-0007): the wgpu renderer + font pipeline used
 /// by the Android render thread. Created lazily on the first
 /// `attachWindow`, owned by the JNI render thread (Kotlin's render loop
@@ -549,13 +585,30 @@ fn init_session_inner(
         prefix: if prefix.is_empty() {
             None
         } else {
-            Some(prefix)
+            Some(prefix.clone())
         },
-        // Round-217: without TERM, bash's readline treats the terminal as
-        // "dumb" and disables input echo entirely — typed characters reach
-        // the shell (commands execute) but are never shown. xterm-256color
-        // is the standard value for terminal emulators (Termux uses it).
-        extra: vec![("TERM".to_string(), "xterm-256color".to_string())],
+        extra: {
+            // Round-217: without TERM, bash's readline treats the terminal
+            // as "dumb" and disables input echo entirely — typed characters
+            // reach the shell (commands execute) but are never shown.
+            // xterm-256color is the standard value for terminal emulators
+            // (Termux uses it).
+            let mut extra = vec![("TERM".to_string(), "xterm-256color".to_string())];
+            if !prefix.is_empty() {
+                // Round-227 (T6): termux-exec's execve hook only forwards
+                // app-data executables to the system linker when the path is
+                // under TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR.
+                // The nix-on-droid bootstrap is compiled with the built-in
+                // package name `com.termux.nix`, so without these variables
+                // every execve of a $PREFIX binary fails with EACCES
+                // (SELinux execute_no_trans) — `cat: Permission denied`.
+                // Derive the Termux paths from the prefix
+                // (`.../files/usr` → files dir → app data dir) instead of
+                // adding a new JNI parameter.
+                extra.extend(termux_env_vars(&prefix));
+            }
+            extra
+        },
     };
 
     match Session::spawn(&shell_path, rows, cols, &shell_env) {
@@ -1360,48 +1413,6 @@ fn init_logger_inner(_env: &mut JNIEnv, _class: JClass) {
     #[cfg(target_os = "android")]
     crate::android::logging::init();
     log::info!("NativeBridge::initLogger called");
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// JNI Export: setLogFilePath
-// ══════════════════════════════════════════════════════════════════════════
-
-/// Set the file path for Rust-side log output.
-/// Kotlin calls this after computing the log directory.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setLogFilePath<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    path: JString<'local>,
-) {
-    // A panic escaping this JNI export would abort the whole process.
-    // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        set_log_file_path_inner(&mut env, _class, path)
-    })
-}
-
-fn set_log_file_path_inner<'local>(
-    env: &mut JNIEnv<'local>,
-    _class: JClass<'local>,
-    path: JString<'local>,
-) {
-    #[cfg(target_os = "android")]
-    {
-        let path_str: String = match env.get_string(&path) {
-            Ok(s) => s.into(),
-            Err(_) => {
-                log::error!("setLogFilePath: failed to read path string");
-                return;
-            }
-        };
-        crate::android::logging::set_log_file_path(&path_str);
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = (&env, path);
-        log::info!("setLogFilePath: not supported on this platform");
-    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -3232,4 +3243,93 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
             );
         }
     })
+}
+
+/// Derive the Termux environment variables that termux-exec's execve hook
+/// needs to recognize `$PREFIX` paths (round-227 T6).
+///
+/// Without `TERMUX_APP__DATA_DIR` / `TERMUX_APP__LEGACY_DATA_DIR`,
+/// termux-exec falls back to the package name baked into the bootstrap
+/// (nix-on-droid builds with `com.termux.nix`), so it does not recognize
+/// `$PREFIX` binaries and every execve of one fails with EACCES
+/// (SELinux execute_no_trans on app_data_file). The paths are derived
+/// from the prefix (`.../files/usr` → files dir → app data dir) so no
+/// extra JNI parameter is needed.
+fn termux_env_vars(prefix: &str) -> Vec<(String, String)> {
+    let files_dir = prefix
+        .strip_suffix("/usr")
+        .map(str::to_string)
+        .unwrap_or_else(|| prefix.to_string());
+    let data_dir = files_dir
+        .strip_suffix("/files")
+        .map(str::to_string)
+        .unwrap_or_else(|| files_dir.clone());
+    let package_name = data_dir
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("com.termux");
+    vec![
+        (
+            "TERMUX_APP__PACKAGE_NAME".to_string(),
+            package_name.to_string(),
+        ),
+        ("TERMUX_APP__DATA_DIR".to_string(), data_dir.clone()),
+        (
+            "TERMUX_APP__LEGACY_DATA_DIR".to_string(),
+            format!("/data/data/{package_name}"),
+        ),
+        ("TERMUX__ROOTFS".to_string(), files_dir.clone()),
+        ("TERMUX__PREFIX".to_string(), prefix.to_string()),
+        ("TERMUX__HOME".to_string(), format!("{files_dir}/home")),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env_map(vars: &[(String, String)]) -> std::collections::HashMap<&str, &str> {
+        vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
+    }
+
+    #[test]
+    fn termux_env_vars_derive_from_modern_data_dir() {
+        let vars_vec = termux_env_vars("/data/user/0/com.termux/files/usr");
+        let vars = env_map(&vars_vec);
+        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
+        assert_eq!(vars["TERMUX_APP__DATA_DIR"], "/data/user/0/com.termux");
+        assert_eq!(vars["TERMUX_APP__LEGACY_DATA_DIR"], "/data/data/com.termux");
+        assert_eq!(vars["TERMUX__ROOTFS"], "/data/user/0/com.termux/files");
+        assert_eq!(vars["TERMUX__PREFIX"], "/data/user/0/com.termux/files/usr");
+        assert_eq!(vars["TERMUX__HOME"], "/data/user/0/com.termux/files/home");
+    }
+
+    #[test]
+    fn termux_env_vars_derive_from_legacy_data_dir() {
+        let vars_vec = termux_env_vars("/data/data/com.termux/files/usr");
+        let vars = env_map(&vars_vec);
+        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
+        assert_eq!(vars["TERMUX_APP__DATA_DIR"], "/data/data/com.termux");
+        assert_eq!(vars["TERMUX_APP__LEGACY_DATA_DIR"], "/data/data/com.termux");
+    }
+
+    #[test]
+    fn termux_env_vars_unusual_prefix_keeps_package_fallback() {
+        // A prefix that is not under .../files/usr must not panic and must
+        // still produce a usable package name.
+        let vars_vec = termux_env_vars("/custom/root/usr");
+        let vars = env_map(&vars_vec);
+        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "root");
+        assert_eq!(vars["TERMUX__PREFIX"], "/custom/root/usr");
+        assert_eq!(vars["TERMUX__ROOTFS"], "/custom/root");
+    }
+
+    #[test]
+    fn termux_env_vars_bare_prefix_falls_back_to_default_package() {
+        let vars_vec = termux_env_vars("/");
+        let vars = env_map(&vars_vec);
+        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
+        assert_eq!(vars["TERMUX__PREFIX"], "/");
+    }
 }

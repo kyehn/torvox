@@ -64,6 +64,9 @@ sealed class ToolbarItem {
         val label: String,
         val sequence: String,
         val id: String = "custom_${System.currentTimeMillis()}",
+        /** Space-separated macro (round-227 T3, termux extra-keys
+         *  semantics); when non-null the sequence field is ignored. */
+        val macro: String? = null,
     ) : ToolbarItem() {
         val testTag: String get() = "Key_$id"
     }
@@ -87,6 +90,7 @@ class ToolbarPreferences(
                         label = dto.label.orEmpty(),
                         sequence = dto.sequence.orEmpty(),
                         id = dto.id ?: "custom_${System.currentTimeMillis()}",
+                        macro = dto.macro,
                     )
                 }
             }
@@ -107,6 +111,7 @@ class ToolbarPreferences(
                             label = item.label,
                             sequence = item.sequence,
                             id = item.id,
+                            macro = item.macro,
                         )
                 }
             }
@@ -123,6 +128,7 @@ class ToolbarPreferences(
         @SerialName("label") val label: String? = null,
         @SerialName("sequence") val sequence: String? = null,
         @SerialName("id") val id: String? = null,
+        @SerialName("macro") val macro: String? = null,
     )
 
     private fun defaultLayout(): List<ToolbarItem> = listOf(

@@ -104,6 +104,10 @@ android {
 
     testOptions {
         unitTests.isIncludeAndroidResources = true
+        // Return defaults for unmocked android.* stubs (org.json etc.) so
+        // JVM tests can parse JSON payloads without Robolectric (round-227
+        // T4 RunCommandPayloadTest).
+        unitTests.isReturnDefaultValues = true
     }
 
     sourceSets

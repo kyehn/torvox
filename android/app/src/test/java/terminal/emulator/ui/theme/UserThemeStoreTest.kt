@@ -84,4 +84,27 @@ class UserThemeStoreTest {
         prefs.edit().putString("user_themes", "{not json").commit()
         assertTrue("corrupt blob must not crash", store.userThemes.first().isEmpty())
     }
+
+    @Test
+    fun `two instances on the same store name do not crash`() = runBlocking {
+        // Regression (round-227): a fresh PreferenceDataStoreFactory per
+        // UserThemeStore instance crashed with "multiple DataStores active
+        // for the same file" when the ViewModel was recreated. The store
+        // is now a process singleton per name; a second instance must be
+        // able to read and write the same file.
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val name = "user_themes_dual_${System.nanoTime()}"
+        val first = UserThemeStore(ctx, name)
+        val second = UserThemeStore(ctx, name)
+
+        first.save(theme("FromFirst"))
+        // The second instance shares the singleton DataStore: read and
+        // write both succeed without IllegalStateException.
+        val seenBySecond = second.userThemes.first()
+        assertEquals(1, seenBySecond.size)
+        assertEquals("FromFirst", seenBySecond[0].name)
+        second.save(theme("FromSecond"))
+        val seenByFirst = first.userThemes.first()
+        assertEquals(2, seenByFirst.size)
+    }
 }

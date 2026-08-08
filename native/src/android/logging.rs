@@ -1,23 +1,24 @@
-//! Custom `log::Log` implementation for Android that writes to logcat
-//! AND to an optional file simultaneously.
+//! Custom `log::Log` implementation for Android that writes to logcat.
 //!
-//! Initialised from Kotlin via JNI (`Java_..._initLogger`). The file
-//! path is set via [`set_log_file_path`] — until it is called, logs go
-//! only to logcat.
+//! Initialised from Kotlin via JNI (`Java_..._initLogger`).
+//!
+//! Messages longer than logcat's per-entry payload cap (4068 bytes) are
+//! split into chunks (round-227 T2) — logcat silently truncates any entry
+//! past that limit, so the tail of a long log line would otherwise be
+//! lost. Chunking math lives in [`crate::log_chunk`] and is unit-tested
+//! on the host.
 //!
 //! Replaces the previous `android_logger::init_once()` call in `bridge.rs`.
 //!
 //! # Requirements
-//! - NFR-025 — Unified logging infrastructure (logcat + rotating file)
+//! - NFR-025 — Unified logging infrastructure (logcat; round-227 T2:
+//!   logcat-only, no file sink — mirrors termux-kotlin Logger)
 
 #![cfg(target_os = "android")]
 
 use core::ffi::c_char;
 use log::{Level, LevelFilter, Log, Metadata, Record};
-use parking_lot::Mutex;
 use std::ffi::CString;
-use std::fs::OpenOptions;
-use std::io::Write;
 
 // ── Android log priorities (from <android/log.h>) ──────────────────────
 
@@ -48,9 +49,7 @@ fn level_to_android(level: Level) -> i32 {
 
 // ── Logger ──────────────────────────────────────────────────────────────
 
-struct AndroidLogger {
-    log_file: Mutex<Option<std::fs::File>>,
-}
+struct AndroidLogger;
 
 impl Log for AndroidLogger {
     fn enabled(&self, metadata: &Metadata) -> bool {
@@ -58,7 +57,6 @@ impl Log for AndroidLogger {
     }
 
     fn log(&self, record: &Record) {
-        // Always write to logcat
         let tag = record.target();
         let msg = format!("{}", record.args());
         let prio = level_to_android(record.level());
@@ -66,41 +64,24 @@ impl Log for AndroidLogger {
             // SAFETY: "Rust" has no interior NUL bytes
             CString::new("Rust").expect("hardcoded string without NUL")
         });
-        let msg_c = CString::new(msg.as_str()).unwrap_or_else(|_| {
-            // SAFETY: Vec::<u8>::new() contains no NUL bytes
-            CString::new(Vec::<u8>::new()).expect("empty vec has no NUL")
-        });
-        // SAFETY: __android_log_write is a public NDK function; the pointers
-        // point to valid NUL-terminated C strings.
-        unsafe {
-            __android_log_write(prio, tag_c.as_ptr(), msg_c.as_ptr());
-        }
-
-        // Write to file if a log file was configured
-        let mut guard = self.log_file.lock();
-        if let Some(ref mut file) = *guard {
-            let _ = writeln!(
-                file,
-                "D {} {}:{}: {}",
-                record.level(),
-                tag,
-                record.line().unwrap_or(0),
-                msg,
-            );
+        // Split long messages so logcat does not truncate them (T2).
+        for chunk in crate::log_chunk::chunk_message(tag, &msg) {
+            let msg_c = CString::new(chunk.as_str()).unwrap_or_else(|_| {
+                // SAFETY: Vec::<u8>::new() contains no NUL bytes
+                CString::new(Vec::<u8>::new()).expect("empty vec has no NUL")
+            });
+            // SAFETY: __android_log_write is a public NDK function; the
+            // pointers point to valid NUL-terminated C strings.
+            unsafe {
+                __android_log_write(prio, tag_c.as_ptr(), msg_c.as_ptr());
+            }
         }
     }
 
-    fn flush(&self) {
-        let mut guard = self.log_file.lock();
-        if let Some(ref mut file) = *guard {
-            let _ = file.flush();
-        }
-    }
+    fn flush(&self) {}
 }
 
-static LOGGER: AndroidLogger = AndroidLogger {
-    log_file: Mutex::new(None),
-};
+static LOGGER: AndroidLogger = AndroidLogger;
 
 /// Must be called exactly once (idempotent via [`std::sync::Once`]).
 /// Replaces the `android_logger::init_once()` call that was previously in
@@ -114,8 +95,8 @@ pub(crate) fn init() {
     });
 }
 
-/// Route panics from any Rust thread into the logging system (logcat +
-/// optional file) with a captured backtrace.
+/// Route panics from any Rust thread into the logging system (logcat)
+/// with a captured backtrace.
 ///
 /// Without this hook a panic in a non-JNI thread — e.g. the PTY reader
 /// thread spawned in `session.rs`, which has no `catch_unwind` — prints
@@ -131,32 +112,6 @@ fn install_panic_hook() {
         let backtrace = std::backtrace::Backtrace::force_capture();
         log::error!("panic: {info}\n{backtrace}");
     }));
-}
-
-/// Open (or re-open) the file backing the log-file side of [`LOGGER`].
-/// The file is opened in append mode; it is created if it does not exist.
-/// Kotlin calls this after figuring out the correct log directory.
-pub(crate) fn set_log_file_path(path: &str) {
-    let file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .unwrap_or_else(|e| {
-            // If we cannot open the file, log to logcat and carry on.
-            let msg = CString::new(format!("Log: failed to open log file {path}: {e}"))
-                .unwrap_or_default();
-            // SAFETY: `__android_log_write` is a documented NDK function from
-            // `liblog.so`. Both `c"Rust"` and `msg.as_ptr()` are valid NUL-terminated
-            // CString pointers, guaranteed by the `CString::new()` constructor above.
-            unsafe {
-                __android_log_write(ANDROID_LOG_ERROR, c"Rust".as_ptr(), msg.as_ptr());
-            }
-            OpenOptions::new()
-                .write(true)
-                .open("/dev/null")
-                .expect("cannot open /dev/null")
-        });
-    *LOGGER.log_file.lock() = Some(file);
 }
 
 // ── JNI exports ─────────────────────────────────────────────────────────

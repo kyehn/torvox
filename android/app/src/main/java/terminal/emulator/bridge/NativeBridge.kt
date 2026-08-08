@@ -192,10 +192,6 @@ object NativeBridge {
     @JvmStatic
     external fun initLogger()
 
-    /** Set the log file path on the native side. */
-    @JvmStatic
-    external fun setLogFilePath(path: String)
-
     // ── TerminalQueryPort (native query exports) ─────────────────────────
 
     /** Terminal title (OSC 0/2) for a session, or null when unknown. */

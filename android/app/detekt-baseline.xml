@@ -46,7 +46,6 @@
     <ID>TooGenericExceptionCaught:InputBatchBuffer.kt$InputBatchBuffer$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:LogcatDumpWriter.kt$LogcatDumpWriter$e: Exception</ID>
     <ID>TooGenericExceptionCaught:LogcatDumpWriter.kt$LogcatDumpWriter$exception: Exception</ID>
-    <ID>TooGenericExceptionCaught:LogcatFileWriter.kt$LogcatFileWriter$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$exception: Exception</ID>
     <ID>TooGenericExceptionCaught:MainActivity.kt$MainActivity$serviceException: Exception</ID>
     <ID>TooGenericExceptionCaught:MemoryMonitor.kt$MemoryMonitor$exception: Exception</ID>

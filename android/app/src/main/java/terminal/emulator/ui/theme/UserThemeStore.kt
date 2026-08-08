@@ -63,16 +63,31 @@ class UserThemeStore(
 ) {
     companion object {
         private const val TAG = "UserThemeStore"
+
+        /**
+         * Process-wide DataStore instances keyed by store name. DataStore
+         * forbids two active instances on the same file — a fresh
+         * `PreferenceDataStoreFactory.create` per UserThemeStore instance
+         * crashed the app with "multiple DataStores active" whenever the
+         * ViewModel was recreated (round-227). The app context also keeps
+         * the store alive across activity recreation.
+         */
+        private val dataStores =
+            java.util.concurrent.ConcurrentHashMap<String, androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences>>()
+
+        private fun dataStoreFor(context: Context, name: String): androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences> = dataStores.getOrPut(name) {
+            PreferenceDataStoreFactory.create(
+                produceFile = { context.applicationContext.preferencesDataStoreFile(name) },
+            )
+        }
     }
     private val key = stringPreferencesKey("user_themes")
     private val json = Json { ignoreUnknownKeys = true }
 
-    // Runtime-parameterized DataStore (the preferencesDataStore delegate is
-    // per-property; a factory lets tests isolate per-test store names).
+    // Process-singleton per store name (see companion); tests isolate with
+    // per-test store names.
     private val dataStore: androidx.datastore.core.DataStore<androidx.datastore.preferences.core.Preferences> by lazy {
-        PreferenceDataStoreFactory.create(
-            produceFile = { context.preferencesDataStoreFile(storeName) },
-        )
+        dataStoreFor(context, storeName)
     }
 
     val userThemes: Flow<List<TerminalTheme>> =

@@ -130,7 +130,7 @@
               deadnix
               pkg-config
               openssl
-              zig_0_16
+              zig_0_15
               cargo-ndk
               maestro
               semgrep
