@@ -60,13 +60,15 @@ fn build_instances(c: &mut Criterion) {
                 &cell_data,
                 rows,
                 cols,
+                1024.0, // grid_cell_w
+                1024.0, // grid_cell_h
                 cursor,
                 &mut font_pipeline,
-                1024.0,
-                1024.0,
-                None,
-                None,
-                &[],
+                1024.0, // atlas_width
+                1024.0, // atlas_height
+                None,   // selection
+                None,   // selection background (unused)
+                &[],    // search_highlights
                 &mut instances,
             ));
             black_box(instances.len());

@@ -335,6 +335,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val clipboard: String? = null,
         val exit: Boolean = false,
         val exitCode: Int = 0,
+        // : native-measured child lifetime for the first exit.
+        val exitAliveMs: Long = 0,
         val sessionId: Long = 0L,
         val dialogs: List<DialogRequest> = emptyList(),
         val pickFiles: List<PickFileRequest> = emptyList(),
@@ -343,6 +345,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val openUrl: String? = null,
         val clipboardGets: List<ClipboardRequest> = emptyList(),
         val clipboardReads: List<ClipboardRequest> = emptyList(),
+        val runCommands: List<RunCommandRequest> = emptyList(),
         // Every exit event seen this frame, in order. The single-slot
         // exit/sessionId/exitCode fields above describe only the FIRST one;
         // extra exits in the same frame must be reaped from this list or
@@ -358,6 +361,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             exit = exit || later.exit,
             // exitCode belongs to the same (first) exit as sessionId.
             exitCode = if (later.exit && !exit) later.exitCode else exitCode,
+            // : alive_ms travels with its exit event.
+            exitAliveMs = if (later.exit && !exit) later.exitAliveMs else exitAliveMs,
             // sessionId only serves exit attribution. The FIRST exit
             // seen in a frame wins: a later non-exit event (e.g. a
             // dialog for another session) must not overwrite the
@@ -373,6 +378,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             openUrl = later.openUrl ?: openUrl,
             clipboardGets = clipboardGets + later.clipboardGets,
             clipboardReads = clipboardReads + later.clipboardReads,
+            runCommands = runCommands + later.runCommands,
             exits = exits + later.exits,
         )
     }
@@ -380,12 +386,22 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     data class ExitInfo(
         val sessionId: Long,
         val exitCode: Int,
+        // : child lifetime (ms) measured natively — the
+        // fast-death decision uses this, not Kotlin event latency.
+        val exitAliveMs: Long = 0,
     )
 
     data class ClipboardRequest(
         val sessionId: Long,
         val requestId: Long,
         val selection: String = "",
+    )
+
+    /** MCP `run_command` request dispatched from a poll event (D1). */
+    data class RunCommandRequest(
+        val sessionId: Long,
+        val requestId: Long,
+        val command: String = "",
     )
 
     data class DialogRequest(
@@ -448,12 +464,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             PollResult(
                 exit = true,
                 exitCode = event.code,
+                exitAliveMs = event.aliveMs,
                 sessionId = event.sessionId,
                 exits =
                 listOf(
                     ExitInfo(
                         sessionId = event.sessionId,
                         exitCode = event.code,
+                        exitAliveMs = event.aliveMs,
                     ),
                 ),
             )
@@ -520,6 +538,18 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         is PollEvent.Toast -> PollResult(toastText = event.text)
 
         is PollEvent.OpenUrl -> PollResult(openUrl = event.url)
+
+        is PollEvent.RunCommand ->
+            PollResult(
+                runCommands =
+                listOf(
+                    RunCommandRequest(
+                        sessionId = event.sessionId,
+                        requestId = event.requestId,
+                        command = event.command,
+                    ),
+                ),
+            )
     }
 
     // ── Theme / appearance ────────────────────────────────────────────
@@ -639,6 +669,17 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     // classifier plus a visible CONFIRM surface, never execute a
     // BLOCKED pattern. Same idea also protects any future "tap to run a
     // suggested command" affordance.
+    fun feedTerminal(data: ByteArray): Boolean {
+        if (sessionId == 0L) return false
+        try {
+            NativeBridge.feedTerminal(sessionId, data)
+        } catch (exception: RuntimeException) {
+            Log.d(TAG, "feedTerminal: session $sessionId destroyed, dropping")
+            return false
+        }
+        return true
+    }
+
     fun writeToPty(data: ByteArray): Boolean {
         if (sessionId == 0L) return false
         try {
@@ -654,6 +695,25 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             return false
         }
         return true
+    }
+
+    /**
+     * Encode a mouse event via the Ghostty mouse encoder and write the
+     * resulting escape sequence to the PTY. Returns true when a sequence
+     * was produced and written; false when mouse reporting is disabled,
+     * encoding failed, or the session is gone (event dropped).
+     */
+    fun encodeMouseEvent(xPx: Float, yPx: Float, action: Int, button: Int, cellW: Float, cellH: Float): Boolean {
+        if (sessionId == 0L) return false
+        val bytes =
+            try {
+                NativeBridge.encodeMouseEvent(sessionId, xPx, yPx, action, button, cellW, cellH)
+            } catch (exception: RuntimeException) {
+                Log.d(TAG, "encodeMouseEvent: session $sessionId destroyed, dropping")
+                return false
+            }
+        if (bytes.isEmpty()) return false
+        return writeToPty(bytes)
     }
 
     fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
@@ -763,6 +823,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
     override fun getTerminalText(): String? = runCatching { queryPort.getTerminalText() }.getOrNull()
+    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? = runCatching { queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle) }.getOrNull()
+    override fun hyperlinkAt(row: Int, col: Int): String? = runCatching { queryPort.hyperlinkAt(row, col) }.getOrNull()
     override fun listFontFamilies(): List<String>? = runCatching { queryPort.listFontFamilies() }.getOrNull()
     override fun getDefaultFontName(): String = runCatching { queryPort.getDefaultFontName() }.getOrDefault("monospace")
     override fun getFontInfo(): String? = runCatching { queryPort.getFontInfo() }.getOrNull()

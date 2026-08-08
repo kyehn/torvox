@@ -8564,3 +8564,141 @@ fn terminal_is_alive_after_flush() {
     t.flush();
     assert!(t.is_alive());
 }
+
+/// zelland row-level dirty cache: after a write, only the affected row must
+/// be rebuilt; a subsequent build with no changes must return identical
+/// CellData (cache hit path). Verifies row-cache correctness end to end via
+/// the public receive_cell_data() stream.
+#[test]
+fn row_cache_returns_consistent_cell_data_across_writes() {
+    let mut t = term();
+    t.vt_write(b"hello");
+    t.flush();
+    let first = t.receive_cell_data().expect("first cell data");
+    let (first_cells, _) = first;
+
+    // A second build with no new input must produce the same content
+    // (dirty rows re-built, clean rows from cache — same bytes either way).
+    // The auto-push runs on the VT thread's 50ms recv timeout; wait for it
+    // instead of flushing (flush alone does not schedule a rebuild).
+    std::thread::sleep(std::time::Duration::from_millis(70));
+    let second = t.receive_cell_data().expect("second cell data");
+    let (second_cells, _) = second;
+
+    assert_eq!(first_cells.len(), second_cells.len(), "grid size stable");
+    // Row 0 content must match (hello at cols 0..5).
+    let cols = 80usize;
+    let row0_first: Vec<u32> = first_cells[..cols].iter().map(|c| c.codepoint).collect();
+    let row0_second: Vec<u32> = second_cells[..cols].iter().map(|c| c.codepoint).collect();
+    assert_eq!(
+        row0_first, row0_second,
+        "row 0 codepoints stable across builds"
+    );
+    assert_eq!(row0_first[0], 'h' as u32, "row 0 col 0 is 'h'");
+    assert_eq!(row0_first[4], 'o' as u32, "row 0 col 4 is 'o'");
+
+    // New input on row 1 must not disturb row 0's cached content.
+    t.vt_write(b"\nworld");
+    t.flush();
+    std::thread::sleep(std::time::Duration::from_millis(70));
+    let third = t.receive_cell_data().expect("third cell data");
+    let (third_cells, _) = third;
+    let row0_third: Vec<u32> = third_cells[..cols].iter().map(|c| c.codepoint).collect();
+    let row1_third: Vec<u32> = third_cells[cols..cols * 2]
+        .iter()
+        .map(|c| c.codepoint)
+        .collect();
+    assert_eq!(row0_third, row0_first, "row 0 unchanged after row-1 write");
+    // vt_write treats LF as a bare line feed (no CR), so "world" lands at
+    // col 5 on row 1, right after the LF.
+    assert_eq!(row1_third[5], 'w' as u32, "row 1 col 5 is 'w'");
+}
+
+/// Resize invalidates the row cache (row count changes); the next build must
+/// reflect the new grid dimensions, not stale cached rows.
+#[test]
+fn row_cache_invalidated_on_resize() {
+    let mut t = term();
+    t.vt_write(b"top");
+    t.flush();
+    std::thread::sleep(std::time::Duration::from_millis(70));
+    let before = t.receive_cell_data().expect("cell data before resize");
+    let (before_cells, _) = before;
+    assert_eq!(before_cells.len(), 24 * 80);
+
+    assert!(t.resize(10, 40), "resize to 10x40");
+    std::thread::sleep(std::time::Duration::from_millis(70));
+    let after = t.receive_cell_data().expect("cell data after resize");
+    let (after_cells, _) = after;
+    assert_eq!(
+        after_cells.len(),
+        10 * 40,
+        "row cache must be invalidated on resize (stale rows would keep 24x80)"
+    );
+}
+
+/// Ghostty formatter selection extraction: a soft-wrapped long line must be
+/// joined without '\n' (termux TerminalBuffer.getSelectedText joinBackLines
+/// semantics). Write a line longer than 80 cols then select across the wrap.
+#[test]
+fn selection_text_unwraps_soft_wrapped_lines() {
+    let mut t = term(); // 24x80
+    // 90 chars: exceeds the 80-col width -> soft wrap onto row 2.
+    let long = "a".repeat(90);
+    t.vt_write(long.as_bytes());
+    t.flush();
+    let snap = t.take_snapshot();
+    let scrollback = snap.scrollback_length;
+    // The text starts at viewport row 0 (grid row = scrollback_rows).
+    let row0 = scrollback;
+    let text = t.selection_text((row0, 0), (row0 + 1, 9), false);
+    assert_eq!(
+        text.len(),
+        90,
+        "soft-wrapped selection must be joined without newline (len={})",
+        text.len()
+    );
+    assert!(
+        !text.contains('\n'),
+        "no newline inside a soft-wrapped selection"
+    );
+}
+
+/// Wide-char (CJK) column mapping: selecting a range that includes a wide
+/// glyph must not split it and the extracted text must match the visible
+/// content (TerminalRow.findStartOfColumn equivalent).
+#[test]
+fn selection_text_wide_char_columns() {
+    let mut t = term();
+    t.vt_write("中".as_bytes()); // wide char at cols 0-1
+    t.vt_write(b"ab");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    let text = t.selection_text((row0, 0), (row0, 3), false);
+    assert_eq!(
+        text, "中ab",
+        "wide char must round-trip exactly (got {text:?})"
+    );
+}
+
+/// OSC 8 hyperlink query (termux TerminalView.openLinkAt equivalent):
+/// after writing an OSC 8 link, hyperlink_at returns the URI at the link
+/// cells and None outside them.
+#[test]
+fn hyperlink_at_returns_uri_inside_link() {
+    let mut t = term();
+    t.vt_write(b"\x1b]8;;https://example.com\x1b\\Link\x1b]8;;\x1b\\");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    // "Link" starts at col 0.
+    let url = t.hyperlink_at(row0, 0).expect("cell 0 has the link");
+    assert_eq!(url, "https://example.com");
+    // Last link cell still resolves; one past the link does not.
+    assert!(
+        t.hyperlink_at(row0, 3).is_some(),
+        "col 3 is the last link char"
+    );
+    assert!(t.hyperlink_at(row0, 4).is_none(), "col 4 is past the link");
+}
