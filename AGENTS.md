@@ -189,17 +189,16 @@ These files and directories are set read-only. Wait for the user to ask before m
 
 ## scripts/ Directory
 
-Only these 9 files allowed. No new files — merge into existing.
+Only these 8 files allowed. No new files — merge into existing.
 
-1. `bootstrap-libghostty.nu`
-2. `build-android-libs.nu`
-3. `build-apk.nu`
-4. `check-rust.nu`
-5. `download-rapidocr-models.nu`
-6. `fetch-aosp-testkey.nu`
-7. `setup-emulator.nu`
-8. `test-android-gradle.nu`
-9. `test-emulator.nu`
+1. `build-android-libs.nu`
+2. `build-apk.nu`
+3. `check-rust.nu`
+4. `download-rapidocr-models.nu`
+5. `fetch-aosp-testkey.nu`
+6. `setup-emulator.nu`
+7. `test-android-gradle.nu`
+8. `test-emulator.nu`
 
 ## .github/workflows
 
@@ -214,7 +213,7 @@ Prefer `scripts/` over workflows. Only modify workflows when scripts cannot solv
 - `check-rust.nu` → `rust-checks.yml`
 - `build-android-libs.nu` / `build-apk.nu` / `test-emulator.nu` → `release.yml`
 - `test-android-gradle.nu` → `android-tests.yml`
-- `bootstrap-libghostty.nu` / `download-rapidocr-models.nu` / `setup-emulator.nu` → auxiliary tools
+- `download-rapidocr-models.nu` / `setup-emulator.nu` → auxiliary tools
 
 ---
 

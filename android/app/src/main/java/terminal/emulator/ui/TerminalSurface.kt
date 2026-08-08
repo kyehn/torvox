@@ -24,10 +24,9 @@ import android.view.WindowInsets
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
-import android.widget.Magnifier
 import android.widget.LinearLayout
+import android.widget.Magnifier
 import android.widget.PopupWindow
-import kotlin.math.roundToInt
 import android.widget.TextView
 import terminal.emulator.R
 import terminal.emulator.SelectionMode
@@ -41,6 +40,7 @@ import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
+import kotlin.math.roundToInt
 
 // Approximate height reserved for the ModifierBar overlay when computing
 // the terminal grid (see applyGridResize). The bar itself is ~36dp of
@@ -182,126 +182,125 @@ constructor(
      * access toast).
      */
     private inner class SelectionActionCallback : android.view.ActionMode.Callback2() {
-            override fun onCreateActionMode(
-                mode: android.view.ActionMode,
-                menu: android.view.Menu,
-            ): Boolean {
-                val selection = viewModel?.state?.value?.selection ?: return false
-                val pasteOnly = selection.pasteOnly
-                if (pasteOnly) {
-                    menu.add(
-                        android.view.Menu.NONE,
-                        MENU_ACTION_PASTE,
-                        0,
-                        R.string.paste,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
-                } else {
-                    menu.add(
-                        android.view.Menu.NONE,
-                        MENU_ACTION_COPY,
-                        0,
-                        R.string.copy,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
-                    menu.add(
-                        android.view.Menu.NONE,
-                        MENU_ACTION_SELECT_ALL,
-                        1,
-                        R.string.select_all,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
-                    menu.add(
-                        android.view.Menu.NONE,
-                        MENU_ACTION_PASTE,
-                        2,
-                        R.string.paste,
-                    ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
-                }
-                return true
+        override fun onCreateActionMode(
+            mode: android.view.ActionMode,
+            menu: android.view.Menu,
+        ): Boolean {
+            val selection = viewModel?.state?.value?.selection ?: return false
+            val pasteOnly = selection.pasteOnly
+            if (pasteOnly) {
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_PASTE,
+                    0,
+                    R.string.paste,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+            } else {
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_COPY,
+                    0,
+                    R.string.copy,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_SELECT_ALL,
+                    1,
+                    R.string.select_all,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_PASTE,
+                    2,
+                    R.string.paste,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
             }
-
-            override fun onPrepareActionMode(
-                mode: android.view.ActionMode,
-                menu: android.view.Menu,
-            ): Boolean = false
-
-            /**
-             * Anchor the floating toolbar exactly over the selection
-             * (termux-app TextSelectionCursorController.java:194-213).
-             *
-             * Out-rect = selection rect expanded one cell each side
-             * vertically (so the toolbar never covers the selected text)
-             * and offset by the handle height. Bottom-clamped to the view.
-             */
-            override fun onGetContentRect(
-                mode: android.view.ActionMode,
-                view: android.view.View,
-                outRect: android.graphics.Rect,
-            ) {
-                val selection = viewModel?.state?.value?.selection
-                val start = selection?.start
-                val end = selection?.end
-                val cw = viewModel?.runtime?.cellWidth ?: 0f
-                val ch = viewModel?.runtime?.cellHeight ?: 0f
-                if (start == null || end == null || cw <= 0f || ch <= 0f) {
-                    // No geometry: default to the whole view (system default).
-                    outRect.set(0, 0, view.width, view.height)
-                    return
-                }
-                val (topRow, bottomRow) =
-                    if (start.row <= end.row) start.row to end.row else end.row to start.row
-                val (leftCol, rightCol) =
-                    if (start.row < end.row || start.col <= end.col) start.col to end.col else end.col to start.col
-                // Selection rows are grid coordinates (scrollback rows).
-                // Viewport top grid row = scrollbackLength - scrollOffset,
-                // so the visible row = gridRow - (scrollbackLength - scrollOffset).
-                val viewportTopGrid = (viewModel?.runtime?.bridge()?.scrollbackLength() ?: 0) - scrollOffset
-                val visibleTop = (topRow - viewportTopGrid) * ch
-                val visibleBottom = ((bottomRow + 1) - viewportTopGrid) * ch
-                val left = leftCol * cw
-                val right = (rightCol + 1) * cw
-                // One cell of breathing room above/below + handle-height
-                // offset (termux :203-206).
-                val top = (visibleTop - ch) + HANDLE_HEIGHT_OFFSET
-                val bottom = visibleBottom + ch + HANDLE_HEIGHT_OFFSET
-                outRect.set(
-                    left.toInt(),
-                    top.toInt().coerceAtLeast(0),
-                    right.toInt(),
-                    bottom.toInt().coerceAtMost(view.height),
-                )
-            }
-
-            override fun onActionItemClicked(
-                mode: android.view.ActionMode,
-                item: android.view.MenuItem,
-            ): Boolean {
-                when (item.itemId) {
-                    MENU_ACTION_COPY -> {
-                        viewModel?.copySelectionToClipboard()
-                        viewModel?.clearSelection()
-                        mode.finish()
-                    }
-
-                    MENU_ACTION_SELECT_ALL -> {
-                        viewModel?.selectAll()
-                        mode.finish()
-                    }
-
-                    MENU_ACTION_PASTE -> {
-                        viewModel?.pasteFromClipboard()
-                        viewModel?.clearSelection()
-                        mode.finish()
-                    }
-
-                    else -> return false
-                }
-                return true
-            }
-
-            override fun onDestroyActionMode(mode: android.view.ActionMode) {
-                selectionActionMode = null
-            }
-
+            return true
         }
+
+        override fun onPrepareActionMode(
+            mode: android.view.ActionMode,
+            menu: android.view.Menu,
+        ): Boolean = false
+
+        /**
+         * Anchor the floating toolbar exactly over the selection
+         * (termux-app TextSelectionCursorController.java:194-213).
+         *
+         * Out-rect = selection rect expanded one cell each side
+         * vertically (so the toolbar never covers the selected text)
+         * and offset by the handle height. Bottom-clamped to the view.
+         */
+        override fun onGetContentRect(
+            mode: android.view.ActionMode,
+            view: android.view.View,
+            outRect: android.graphics.Rect,
+        ) {
+            val selection = viewModel?.state?.value?.selection
+            val start = selection?.start
+            val end = selection?.end
+            val cw = viewModel?.runtime?.cellWidth ?: 0f
+            val ch = viewModel?.runtime?.cellHeight ?: 0f
+            if (start == null || end == null || cw <= 0f || ch <= 0f) {
+                // No geometry: default to the whole view (system default).
+                outRect.set(0, 0, view.width, view.height)
+                return
+            }
+            val (topRow, bottomRow) =
+                if (start.row <= end.row) start.row to end.row else end.row to start.row
+            val (leftCol, rightCol) =
+                if (start.row < end.row || start.col <= end.col) start.col to end.col else end.col to start.col
+            // Selection rows are grid coordinates (scrollback rows).
+            // Viewport top grid row = scrollbackLength - scrollOffset,
+            // so the visible row = gridRow - (scrollbackLength - scrollOffset).
+            val viewportTopGrid = (viewModel?.runtime?.bridge()?.scrollbackLength() ?: 0) - scrollOffset
+            val visibleTop = (topRow - viewportTopGrid) * ch
+            val visibleBottom = ((bottomRow + 1) - viewportTopGrid) * ch
+            val left = leftCol * cw
+            val right = (rightCol + 1) * cw
+            // One cell of breathing room above/below + handle-height
+            // offset (termux :203-206).
+            val top = (visibleTop - ch) + HANDLE_HEIGHT_OFFSET
+            val bottom = visibleBottom + ch + HANDLE_HEIGHT_OFFSET
+            outRect.set(
+                left.toInt(),
+                top.toInt().coerceAtLeast(0),
+                right.toInt(),
+                bottom.toInt().coerceAtMost(view.height),
+            )
+        }
+
+        override fun onActionItemClicked(
+            mode: android.view.ActionMode,
+            item: android.view.MenuItem,
+        ): Boolean {
+            when (item.itemId) {
+                MENU_ACTION_COPY -> {
+                    viewModel?.copySelectionToClipboard()
+                    viewModel?.clearSelection()
+                    mode.finish()
+                }
+
+                MENU_ACTION_SELECT_ALL -> {
+                    viewModel?.selectAll()
+                    mode.finish()
+                }
+
+                MENU_ACTION_PASTE -> {
+                    viewModel?.pasteFromClipboard()
+                    viewModel?.clearSelection()
+                    mode.finish()
+                }
+
+                else -> return false
+            }
+            return true
+        }
+
+        override fun onDestroyActionMode(mode: android.view.ActionMode) {
+            selectionActionMode = null
+        }
+    }
 
     /**
      * Show the selection context menu as the system [android.view.ActionMode]
@@ -493,40 +492,20 @@ constructor(
                             return true
                         }
                         val newComposing = text?.toString() ?: ""
-                        when {
-                            newComposing == composingBuffer -> {
-                                // No change — nothing to reconcile.
-                            }
-
-                            newComposing.startsWith(composingBuffer) -> {
-                                // Composition grew: send only the appended characters.
-                                encodeAndSend(
-                                    newComposing.substring(composingBuffer.length),
-                                    ctrlActive = false,
-                                    altActive = false,
-                                )
-                            }
-
-                            composingBuffer.startsWith(newComposing) -> {
-                                // Composition contracted: backspace the removed
-                                // characters. Count code points, not UTF-16
-                                // units — an emoji in the removed suffix is one
-                                // character, and counting units would emit extra
-                                // backspaces that eat a committed neighbour.
-                                val removed =
-                                    codePointCount(composingBuffer) - codePointCount(newComposing)
-                                viewModel?.writeToPty(
-                                    ByteArray(removed) { BACKSPACE_BYTE },
-                                )
-                            }
-
-                            else -> {
-                                // Diverged: replace the whole composing run.
-                                viewModel?.writeToPty(
-                                    ByteArray(codePointCount(composingBuffer)) { BACKSPACE_BYTE },
-                                )
-                                encodeAndSend(newComposing, ctrlActive = false, altActive = false)
-                            }
+                        // : pure reconciliation (ComposingDiff),
+                        // unit-tested — grow/contract/diverged in one place.
+                        val edit = ComposingDiff.reconcile(composingBuffer, newComposing)
+                        if (edit.backspaces > 0) {
+                            viewModel?.writeToPty(
+                                ByteArray(edit.backspaces) { BACKSPACE_BYTE },
+                            )
+                        }
+                        if (edit.append.isNotEmpty()) {
+                            encodeAndSend(
+                                edit.append,
+                                ctrlActive = false,
+                                altActive = false,
+                            )
                         }
                         composingBuffer = newComposing
                         return true
@@ -557,8 +536,11 @@ constructor(
                             if (committedText == composingBuffer) {
                                 // Already forwarded via composing deltas; do not resend.
                             } else {
+                                // : reuse the pure reconciliation to
+                                // compute the code-point backspace count.
+                                val clear = ComposingDiff.reconcile(composingBuffer, "")
                                 terminalViewModel?.writeToPty(
-                                    ByteArray(codePointCount(composingBuffer)) { BACKSPACE_BYTE },
+                                    ByteArray(clear.backspaces) { BACKSPACE_BYTE },
                                 )
                                 encodeAndSend(committedText, ctrlActive, altActive)
                             }
@@ -976,6 +958,7 @@ constructor(
         private const val MENU_ACTION_COPY = 1
         private const val MENU_ACTION_SELECT_ALL = 2
         private const val MENU_ACTION_PASTE = 3
+
         // Floating toolbar anchor offset below the selection top (termux
         // TextSelectionCursorController uses the handle height; a fixed
         // cell-fraction keeps the toolbar clear of the selected line).
@@ -1160,6 +1143,41 @@ constructor(
     private var dragAnchorRow = 0
     private var dragAnchorCol = 0
 
+    /**
+     * Opens an OSC 8 hyperlink at viewport pixel (px, py), if any.
+     * Mirrors termux TerminalView.openLinkAt: pixel→cell mapping through
+     * cellWidth/cellHeight, then queries the native hyperlink URI and
+     * launches the system handler. Returns true when a link was opened.
+     */
+    private fun openLinkAt(px: Float, py: Float): Boolean {
+        if (cellWidth <= 0f || cellHeight <= 0f) return false
+        val col = (px / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
+        val row = (py / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+        val gridRow = currentScrollbackLength() - scrollOffset + row
+        val bridge = viewModel?.runtime?.bridge() ?: return false
+        val url = bridge.hyperlinkAt(gridRow, col) ?: return false
+        if (url.isBlank()) return false
+        val uri = try {
+            android.net.Uri.parse(url.trim())
+        } catch (e: IllegalArgumentException) {
+            LogUtil.w(TAG, "openLinkAt: bad URI", e)
+            return false
+        }
+        return try {
+            val intent =
+                android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+            true
+        } catch (e: android.content.ActivityNotFoundException) {
+            LogUtil.w(TAG, "openLinkAt: no handler for $uri", e)
+            false
+        } catch (e: SecurityException) {
+            LogUtil.w(TAG, "openLinkAt: blocked for $uri", e)
+            false
+        }
+    }
+
     private fun dragTargetFromTouch(touchX: Float, touchY: Float): Pair<Int, Int> {
         val anchorLocalY = (dragAnchorRow + 1) * cellHeight
         val deltaRows = ((touchY - anchorLocalY) / cellHeight).roundToInt()
@@ -1312,6 +1330,12 @@ constructor(
                     // making scrollback feel unusable ("scrolling doesn't work").
                     isScrolling = false
                     onScrollingStateChanged?.invoke(false)
+                    return true
+                }
+                // OSC 8 hyperlink tap (termux TerminalView.openLinkAt
+                // pattern): a tap on a hyperlink cell opens the URI instead
+                // of raising the keyboard.
+                if (openLinkAt(event.x, event.y)) {
                     return true
                 }
                 if (isSelectingText) {
@@ -1839,6 +1863,35 @@ constructor(
         val fromMouse = event.isFromSource(InputDevice.SOURCE_MOUSE)
 
         if (fromMouse) {
+            // Mouse-mode reporting (DECSET 1000/1002/1003): route mouse
+            // events to the terminal via the Ghostty mouse encoder (zelland
+            // src-tauri/src/terminal.rs encode_mouse_event pattern). The
+            // encoder returns an empty sequence when the application has not
+            // enabled mouse reporting, in which case the event falls through
+            // to the app gestures below (right-click word-select,
+            // middle-click paste).
+            val runtime = viewModel?.runtime
+            val bridge = runtime?.bridge()
+            if (bridge != null) {
+                val cellW = runtime.cellWidth
+                val cellH = runtime.cellHeight
+                val button =
+                    when {
+                        event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) -> 1
+                        event.isButtonPressed(MotionEvent.BUTTON_TERTIARY) -> 2
+                        else -> 0
+                    }
+                val action =
+                    when (event.actionMasked) {
+                        MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> 1
+                        MotionEvent.ACTION_MOVE -> 2
+                        else -> 0
+                    }
+                if (bridge.encodeMouseEvent(event.x, event.y, action, button, cellW, cellH)) {
+                    return true
+                }
+            }
+
             when {
                 event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) -> {
                     if (event.action == MotionEvent.ACTION_DOWN) {
@@ -1983,6 +2036,32 @@ constructor(
             }
         }
         return true
+    }
+
+    /**
+     * Mouse wheel events (external mouse / trackpad). When the application
+     * has mouse reporting enabled (DECSET 1000/1002/1003), wheel events are
+     * encoded as buttons 4/5 by the Ghostty mouse encoder and written to the
+     * PTY (zelland src-tauri/src/terminal.rs: scroll_up/scroll_down → button
+     * FOUR/FIVE). The encoder returns an empty sequence when reporting is
+     * off — the event is then ignored (there is no scrollback wheel
+     * handling; touch scrolling covers that).
+     */
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (event.action == MotionEvent.ACTION_SCROLL && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            val runtime = viewModel?.runtime
+            val bridge = runtime?.bridge()
+            if (bridge != null) {
+                val delta = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                val button = if (delta > 0f) 3 else 4 // wheel-up=3, wheel-down=4 (Rust mapping)
+                if (bridge.encodeMouseEvent(event.x, event.y, 0, button, runtime.cellWidth, runtime.cellHeight)) {
+                    // Wheel release completes the scroll gesture.
+                    bridge.encodeMouseEvent(event.x, event.y, 1, button, runtime.cellWidth, runtime.cellHeight)
+                    return true
+                }
+            }
+        }
+        return super.onGenericMotionEvent(event)
     }
 
     // ── Surface lifecycle (SurfaceHolder.Callback; the native renderer
