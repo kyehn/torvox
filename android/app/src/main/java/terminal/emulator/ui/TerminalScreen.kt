@@ -6,21 +6,14 @@ import android.graphics.RectF
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -29,7 +22,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -49,7 +41,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -230,6 +221,22 @@ fun TerminalScreen(
             }
             val selection = state.selection
             val selectionActive = selection.active && selection.start != null && selection.end != null
+
+            // : with the legacy View.startActionMode(Callback) the
+            // system does NOT intercept BACK to finish the ActionMode (only
+            // TYPE_FLOATING modes do); BACK therefore fell through to the
+            // Activity and exited the app while a selection was active
+            // (emulator-verified). Intercept BACK while a selection is
+            // active and end it first — ghostty-android onDestroyActionMode
+            // clears the selection; Termux's first BACK dismisses the
+            // toolbar. The drawer's own BackHandler takes priority (it is
+            // registered earlier and LIFO runs ours first, so gate ours on
+            // the drawer being closed: BACK with the drawer open closes the
+            // drawer and must NOT clear the selection).
+            BackHandler(enabled = selectionActive && !drawerState.isOpen) {
+                viewModel.clearSelection()
+                surfaceRef.value?.hideSelectionMenu()
+            }
 
             // Consolidated text search state
             var searchState by remember { mutableStateOf(SearchState()) }
@@ -772,7 +779,6 @@ fun TerminalScreen(
         }
     }
 }
-
 
 @VisibleForTesting
 internal data class MenuPosition(

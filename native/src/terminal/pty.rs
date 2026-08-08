@@ -44,6 +44,9 @@ pub trait Pty: Send {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize>;
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>;
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError>;
+    /// Query the current terminal window size (rows x cols) via
+    /// TIOCGWINSZ. : used to verify the 24x80 spawn seed.
+    fn get_winsize(&self) -> Result<(u16, u16), PtyError>;
     fn child_pid(&self) -> nix::unistd::Pid;
     fn master_fd(&self) -> RawFd;
     /// Returns an independently-owned duplicate of the master fd for use by a
@@ -401,6 +404,31 @@ impl PtyPair {
         Ok(())
     }
 
+    /// Query the current terminal window size via TIOCGWINSZ. :
+    /// verifies the 24x80 spawn seed is in place before any resize.
+    pub fn get_winsize(&self) -> Result<(u16, u16), PtyError> {
+        let mut winsize = nix::pty::Winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        // SAFETY: ioctl TIOCGWINSZ fills a well-formed Winsize struct from
+        // the kernel; the fd is owned and valid. The struct is fully
+        // initialized before use.
+        unsafe {
+            let result = libc::ioctl(
+                self.master.as_raw_fd(),
+                libc::TIOCGWINSZ,
+                std::ptr::from_mut(&mut winsize),
+            );
+            if result < 0 {
+                return Err(PtyError::Resize(nix::errno::Errno::last()));
+            }
+        }
+        Ok((winsize.ws_row, winsize.ws_col))
+    }
+
     pub fn set_nonblocking(&self) -> Result<(), PtyError> {
         let flags = nix::fcntl::fcntl(&self.master, nix::fcntl::FcntlArg::F_GETFL)
             .map_err(PtyError::Fcntl)?;
@@ -427,6 +455,10 @@ impl Pty for PtyPair {
 
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
         PtyPair::resize(self, rows, cols)
+    }
+
+    fn get_winsize(&self) -> Result<(u16, u16), PtyError> {
+        PtyPair::get_winsize(self)
     }
 
     fn child_pid(&self) -> nix::unistd::Pid {
@@ -743,8 +775,20 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     // TERMUX__HOME / TERMUX_APP__PACKAGE_NAME / HOME=$termux_home and,
     // when $PREFIX/etc/tls/cert.pem exists, SSL_CERT_FILE + CURL_CA_BUNDLE
     // so cargo/npm/curl don't fail with "unable to get local issuer
-    // certificate". torvox currently sets only LD_PRELOAD + HOME/USER/... ;
-    // the Termux-var block + cert vars are a P0 bootstrap-env gap.
+    // certificate".
+    //
+    //  (T6): the TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR
+    // / TERMUX__ROOTFS / TERMUX__PREFIX / TERMUX__HOME /
+    // TERMUX_APP__PACKAGE_NAME variables are injected by the JNI layer
+    // (initSession) when a prefix is configured. Without
+    // TERMUX_APP__DATA_DIR, termux-exec's execve hook falls back to the
+    // package name baked into the bootstrap (nix-on-droid builds with
+    // `com.termux.nix`), so it does not recognize $PREFIX paths and every
+    // execve of a Termux binary fails with EACCES (SELinux
+    // execute_no_trans on app_data_file).
+    //
+    // SSL_CERT_FILE + CURL_CA_BUNDLE remain a known P0 gap for
+    // cargo/npm/curl until the bootstrap layout is verified on-device.
     // Reference (std::env overlay): terminal.rs insert_zed_terminal_env
     // :123-161 copies HOME/PATH/SHELL/TMPDIR/LANG then applies the overlay.
     // Kill-chain reference: terminal.rs kill_active_task (:2276-2288)
@@ -1014,6 +1058,35 @@ mod tests {
     fn resize_succeeds() {
         let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
         pty.resize(40, 120).expect("resize failed");
+    }
+
+    #[test]
+    fn spawn_seeds_24x80_winsize() {
+        //  (warp WarpTerminalService.kt:797-808): a TIOCGWINSZ
+        // before any UI-driven resize must return the seeded 24x80, so
+        // shells (zsh ZLE etc.) never see 0x0.
+        let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let (rows, cols) = pty.get_winsize().expect("TIOCGWINSZ failed");
+        assert_eq!(
+            rows, 24,
+            "seeded rows must be 24 before any resize, got {rows}"
+        );
+        assert_eq!(
+            cols, 80,
+            "seeded cols must be 80 before any resize, got {cols}"
+        );
+    }
+
+    #[test]
+    fn resize_reflected_in_get_winsize() {
+        let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        pty.resize(40, 120).expect("resize failed");
+        let (rows, cols) = pty.get_winsize().expect("TIOCGWINSZ failed");
+        assert_eq!(
+            (rows, cols),
+            (40, 120),
+            "resize must be reflected in TIOCGWINSZ"
+        );
     }
 
     #[test]

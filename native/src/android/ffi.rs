@@ -155,6 +155,42 @@ struct SessionEntry {
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
+/// Read the exit code of a registered session, if the wait thread already
+/// captured one (spec d4: terminal_info exposes the session exit code).
+/// Lock order: SESSION_REGISTRY → Session → exit_code (see module docs).
+/// `None` for unknown sessions and for sessions still running.
+pub(crate) fn session_exit_code(session_id: u64) -> Option<i32> {
+    let registry = SESSION_REGISTRY.read();
+    let entry = registry.get(&session_id)?;
+    let session = entry.session.lock();
+    session.exit_code_now()
+}
+
+/// Test-only: register a session entry directly (host tests cannot go
+/// through the JNI spawn path). Dead in non-test lib builds by design.
+#[cfg(any(test, feature = "test-util"))]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn register_session_for_test(
+    session_id: u64,
+    session: std::sync::Arc<parking_lot::Mutex<crate::terminal::session::Session>>,
+) {
+    SESSION_REGISTRY.write().insert(
+        session_id,
+        SessionEntry {
+            session,
+            last_scroll_offset: 0,
+        },
+    );
+}
+
+/// Test-only: drop every registered session so a stale entry cannot leak
+/// into a later test. Dead in non-test lib builds by design.
+#[cfg(any(test, feature = "test-util"))]
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) fn clear_registry_for_test() {
+    SESSION_REGISTRY.write().clear();
+}
+
 /// Global render state (ADR-0007): the wgpu renderer + font pipeline used
 /// by the Android render thread. Created lazily on the first
 /// `attachWindow`, owned by the JNI render thread (Kotlin's render loop
@@ -549,13 +585,30 @@ fn init_session_inner(
         prefix: if prefix.is_empty() {
             None
         } else {
-            Some(prefix)
+            Some(prefix.clone())
         },
-        // : without TERM, bash's readline treats the terminal as
-        // "dumb" and disables input echo entirely — typed characters reach
-        // the shell (commands execute) but are never shown. xterm-256color
-        // is the standard value for terminal emulators (Termux uses it).
-        extra: vec![("TERM".to_string(), "xterm-256color".to_string())],
+        extra: {
+            // : without TERM, bash's readline treats the terminal
+            // as "dumb" and disables input echo entirely — typed characters
+            // reach the shell (commands execute) but are never shown.
+            // xterm-256color is the standard value for terminal emulators
+            // (Termux uses it).
+            let mut extra = vec![("TERM".to_string(), "xterm-256color".to_string())];
+            if !prefix.is_empty() {
+                //  (T6): termux-exec's execve hook only forwards
+                // app-data executables to the system linker when the path is
+                // under TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR.
+                // The nix-on-droid bootstrap is compiled with the built-in
+                // package name `com.termux.nix`, so without these variables
+                // every execve of a $PREFIX binary fails with EACCES
+                // (SELinux execute_no_trans) — `cat: Permission denied`.
+                // Derive the Termux paths from the prefix
+                // (`.../files/usr` → files dir → app data dir) instead of
+                // adding a new JNI parameter.
+                extra.extend(termux_env_vars(&prefix));
+            }
+            extra
+        },
     };
 
     match Session::spawn(&shell_path, rows, cols, &shell_env) {
@@ -923,10 +976,55 @@ fn feed_pty_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, data: jby
     }
 }
 
+// JNI Export: feedTerminal
+// ══════════════════════════════════════════════════════════════════════════
+// Feeds bytes directly to the VT parser (terminal.vt_write) instead of the
+// PTY. Used by tests to inject escape sequences (OSC 8 links, DECSET) that
+// must be parsed by the terminal, not echoed by the shell.
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    data: jbyteArray,
+) {
+    jni_export_guard!(&mut env, (), {
+        feed_terminal_inner(&mut env, session_id, data)
+    })
+}
+
+#[allow(clippy::not_unsafe_ptr_arg_deref)]
+fn feed_terminal_inner(env: &mut JNIEnv, session_id: jlong, data: jbyteArray) {
+    let id = session_id as u64;
+    // SAFETY: `data` is a JNI method argument, guaranteed valid by the JVM
+    // runtime for the duration of this call.
+    let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+    let input: Vec<u8> = match env.convert_byte_array(&byte_array) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            let _ = env.throw_new(
+                "java/lang/RuntimeException",
+                "feedTerminal: failed to read input bytes",
+            );
+            return;
+        }
+    };
+    let registry = rlock_session_registry();
+    let Some(entry) = registry.get(&id) else {
+        let _ = env.throw_new(
+            "java/lang/RuntimeException",
+            "feedTerminal: session not found",
+        );
+        return;
+    };
+    let mut session = entry.session.lock();
+    session.terminal_mut().vt_write(&input);
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: writeKey
 // ══════════════════════════════════════════════════════════════════════════
-
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_writeKey(
     mut env: JNIEnv,
@@ -1005,6 +1103,72 @@ fn write_key_inner(
     let _ = env.throw_new("java/lang/RuntimeException", "writeKey: session not found");
 }
 
+// JNI Export: encodeMouseEvent
+// ══════════════════════════════════════════════════════════════════════════
+// Encodes a mouse event into terminal escape sequences using the Ghostty
+// mouse encoder (SGR/X10/UTF-8 per the application's DECSET selection).
+// position is in surface pixels; cellW/cellH are the renderer's live cell
+// dimensions. Returns an empty byte array when mouse reporting is off or
+// encoding fails (the event is dropped — zelland renderer/mod.rs pattern).
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEvent(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    x_px: jfloat,
+    y_px: jfloat,
+    action: jint,
+    button: jint,
+    cell_w: jfloat,
+    cell_h: jfloat,
+) -> jbyteArray {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        encode_mouse_event_inner(
+            &mut env, session_id, x_px, y_px, action, button, cell_w, cell_h,
+        )
+    })
+}
+
+fn encode_mouse_event_inner(
+    env: &mut JNIEnv,
+    session_id: jlong,
+    x_px: jfloat,
+    y_px: jfloat,
+    action: jint,
+    button: jint,
+    cell_w: jfloat,
+    cell_h: jfloat,
+) -> jbyteArray {
+    let id = session_id as u64;
+    let empty = || {
+        env.byte_array_from_slice(&[])
+            .map(|arr| arr.into_raw())
+            .unwrap_or(std::ptr::null_mut())
+    };
+
+    let registry = rlock_session_registry();
+    let Some(entry) = registry.get(&id) else {
+        return empty();
+    };
+    let session = entry.session.lock();
+    let Some(bytes) = session.terminal().encode_mouse_event(
+        (x_px, y_px),
+        action as u8,
+        button as u8,
+        cell_w,
+        cell_h,
+    ) else {
+        return empty();
+    };
+    if bytes.is_empty() {
+        return empty();
+    }
+    env.byte_array_from_slice(&bytes)
+        .map(|arr| arr.into_raw())
+        .unwrap_or_else(|_| empty())
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: pollEvent
 // ══════════════════════════════════════════════════════════════════════════
@@ -1044,6 +1208,15 @@ fn wait_exit_code(session: &Arc<Mutex<Session>>) -> i32 {
     }
     log::warn!("ffi: exit code not written within 100ms of exit");
     0
+}
+
+/// Read the child's recorded lifetime (fork → waitpid, ms). :
+/// the wait thread writes it at exit, so this returns immediately; 0 is
+/// the fallback for an exotic session without the field populated yet.
+fn wait_exit_alive_ms(session: &Arc<Mutex<Session>>) -> u64 {
+    let guard = session.as_ref().lock();
+    let alive = guard.exit_alive_ms.lock();
+    (*alive).unwrap_or(0)
 }
 
 fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) -> jstring {
@@ -1190,6 +1363,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
         pending_events.push(Event::Exit {
             session_id: id,
             code: wait_exit_code(&session),
+            alive_ms: wait_exit_alive_ms(&session),
         });
     }
     // Push collected events — no Session or SESSION_REGISTRY locks held.
@@ -1239,48 +1413,6 @@ fn init_logger_inner(_env: &mut JNIEnv, _class: JClass) {
     #[cfg(target_os = "android")]
     crate::android::logging::init();
     log::info!("NativeBridge::initLogger called");
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// JNI Export: setLogFilePath
-// ══════════════════════════════════════════════════════════════════════════
-
-/// Set the file path for Rust-side log output.
-/// Kotlin calls this after computing the log directory.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setLogFilePath<'local>(
-    mut env: JNIEnv<'local>,
-    _class: JClass<'local>,
-    path: JString<'local>,
-) {
-    // A panic escaping this JNI export would abort the whole process.
-    // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        set_log_file_path_inner(&mut env, _class, path)
-    })
-}
-
-fn set_log_file_path_inner<'local>(
-    env: &mut JNIEnv<'local>,
-    _class: JClass<'local>,
-    path: JString<'local>,
-) {
-    #[cfg(target_os = "android")]
-    {
-        let path_str: String = match env.get_string(&path) {
-            Ok(s) => s.into(),
-            Err(_) => {
-                log::error!("setLogFilePath: failed to read path string");
-                return;
-            }
-        };
-        crate::android::logging::set_log_file_path(&path_str);
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        let _ = (&env, path);
-        log::info!("setLogFilePath: not supported on this platform");
-    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1769,6 +1901,19 @@ fn set_mcp_enabled_inner(_env: &mut JNIEnv, _class: JClass, enabled: jboolean) {
                     None => format!("Session {session_id} not found"),
                 }
             });
+            state.set_run_command_handler(
+                |session_id: u64,
+                 command: String|
+                 -> (u64, tokio::sync::oneshot::Receiver<String>) {
+                    let (request_id, rx) = register_request(session_id);
+                    push_event(Event::RunCommand {
+                        session_id,
+                        request_id,
+                        command,
+                    });
+                    (request_id, rx)
+                },
+            );
             // Remaining tools are bridged through the event queue into
             // Kotlin (which owns the system clipboard, toasts, and the
             // browser), mirroring the dialog/pick_file seam.
@@ -1892,6 +2037,46 @@ pub(crate) fn answer_request(session_id: u64, request_id: u64, result: String) {
     if let Some(tx) = REQUEST_REGISTRY.lock().remove(&(session_id, request_id)) {
         let _ = tx.send(result);
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: runCommandResult — Kotlin responds to an MCP run_command
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Reply to an MCP `run_command` request. The `result` is the JSON payload
+/// `{"exit_code":N,"stdout":...,"stderr":...}` produced by the Kotlin
+/// command runner. Same routing as `dialogResult` (shared registry).
+#[unsafe(no_mangle)]
+#[cfg(feature = "mcp")]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_runCommandResult<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    request_id: jlong,
+    result: JString<'local>,
+) {
+    // A panic escaping this JNI export would abort the whole process.
+    // Convert it into a Java exception instead.
+    jni_export_guard!(&mut env, (), {
+        run_command_result_inner(&mut env, _class, session_id, request_id, result)
+    })
+}
+
+#[cfg(feature = "mcp")]
+fn run_command_result_inner<'local>(
+    env: &mut JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    request_id: jlong,
+    result: JString<'local>,
+) {
+    let session_id = session_id as u64;
+    let request_id = request_id as u64;
+    let result_str: String = env
+        .get_string(&result)
+        .map(|s| s.into())
+        .unwrap_or_default();
+    answer_request(session_id, request_id, result_str);
 }
 // ══════════════════════════════════════════════════════════════════════════
 
@@ -2078,6 +2263,74 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
         match env.new_string(&text) {
             Ok(s) => s.into_raw(),
             Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Extract selection text with Ghostty's native formatter (wrap-aware,
+/// wide-char safe — termux TerminalBuffer.getSelectedText semantics).
+/// startRow/startCol/endRow/endCol are grid rows/cols (absolute: row 0 is
+/// the top of scrollback, matching scrollbackLine). Returns "" on error.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    start_row: jint,
+    start_col: jint,
+    end_row: jint,
+    end_col: jint,
+    rectangle: jboolean,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return std::ptr::null_mut();
+        };
+        let session = entry.session.lock();
+        let text = session.terminal().selection_text(
+            (start_row.max(0) as u32, start_col.max(0) as u32),
+            (end_row.max(0) as u32, end_col.max(0) as u32),
+            rectangle == JNI_TRUE,
+        );
+        drop(session);
+        drop(registry);
+        match env.new_string(&text) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
+        }
+    })
+}
+
+/// Query the OSC 8 hyperlink URI at a grid cell (row 0 = top of
+/// scrollback, matching scrollbackLine). Returns null when no link.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    row: jint,
+    col: jint,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return std::ptr::null_mut();
+        };
+        let session = entry.session.lock();
+        let url = session
+            .terminal()
+            .hyperlink_at(row.max(0) as u32, col.max(0) as u32);
+        drop(session);
+        drop(registry);
+        match url {
+            Some(url) => match env.new_string(&url) {
+                Ok(s) => s.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            None => std::ptr::null_mut(),
         }
     })
 }
@@ -2990,4 +3243,93 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
             );
         }
     })
+}
+
+/// Derive the Termux environment variables that termux-exec's execve hook
+/// needs to recognize `$PREFIX` paths (T6).
+///
+/// Without `TERMUX_APP__DATA_DIR` / `TERMUX_APP__LEGACY_DATA_DIR`,
+/// termux-exec falls back to the package name baked into the bootstrap
+/// (nix-on-droid builds with `com.termux.nix`), so it does not recognize
+/// `$PREFIX` binaries and every execve of one fails with EACCES
+/// (SELinux execute_no_trans on app_data_file). The paths are derived
+/// from the prefix (`.../files/usr` → files dir → app data dir) so no
+/// extra JNI parameter is needed.
+fn termux_env_vars(prefix: &str) -> Vec<(String, String)> {
+    let files_dir = prefix
+        .strip_suffix("/usr")
+        .map(str::to_string)
+        .unwrap_or_else(|| prefix.to_string());
+    let data_dir = files_dir
+        .strip_suffix("/files")
+        .map(str::to_string)
+        .unwrap_or_else(|| files_dir.clone());
+    let package_name = data_dir
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("com.termux");
+    vec![
+        (
+            "TERMUX_APP__PACKAGE_NAME".to_string(),
+            package_name.to_string(),
+        ),
+        ("TERMUX_APP__DATA_DIR".to_string(), data_dir.clone()),
+        (
+            "TERMUX_APP__LEGACY_DATA_DIR".to_string(),
+            format!("/data/data/{package_name}"),
+        ),
+        ("TERMUX__ROOTFS".to_string(), files_dir.clone()),
+        ("TERMUX__PREFIX".to_string(), prefix.to_string()),
+        ("TERMUX__HOME".to_string(), format!("{files_dir}/home")),
+    ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env_map(vars: &[(String, String)]) -> std::collections::HashMap<&str, &str> {
+        vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
+    }
+
+    #[test]
+    fn termux_env_vars_derive_from_modern_data_dir() {
+        let vars_vec = termux_env_vars("/data/user/0/com.termux/files/usr");
+        let vars = env_map(&vars_vec);
+        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
+        assert_eq!(vars["TERMUX_APP__DATA_DIR"], "/data/user/0/com.termux");
+        assert_eq!(vars["TERMUX_APP__LEGACY_DATA_DIR"], "/data/data/com.termux");
+        assert_eq!(vars["TERMUX__ROOTFS"], "/data/user/0/com.termux/files");
+        assert_eq!(vars["TERMUX__PREFIX"], "/data/user/0/com.termux/files/usr");
+        assert_eq!(vars["TERMUX__HOME"], "/data/user/0/com.termux/files/home");
+    }
+
+    #[test]
+    fn termux_env_vars_derive_from_legacy_data_dir() {
+        let vars_vec = termux_env_vars("/data/data/com.termux/files/usr");
+        let vars = env_map(&vars_vec);
+        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
+        assert_eq!(vars["TERMUX_APP__DATA_DIR"], "/data/data/com.termux");
+        assert_eq!(vars["TERMUX_APP__LEGACY_DATA_DIR"], "/data/data/com.termux");
+    }
+
+    #[test]
+    fn termux_env_vars_unusual_prefix_keeps_package_fallback() {
+        // A prefix that is not under .../files/usr must not panic and must
+        // still produce a usable package name.
+        let vars_vec = termux_env_vars("/custom/root/usr");
+        let vars = env_map(&vars_vec);
+        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "root");
+        assert_eq!(vars["TERMUX__PREFIX"], "/custom/root/usr");
+        assert_eq!(vars["TERMUX__ROOTFS"], "/custom/root");
+    }
+
+    #[test]
+    fn termux_env_vars_bare_prefix_falls_back_to_default_package() {
+        let vars_vec = termux_env_vars("/");
+        let vars = env_map(&vars_vec);
+        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
+        assert_eq!(vars["TERMUX__PREFIX"], "/");
+    }
 }

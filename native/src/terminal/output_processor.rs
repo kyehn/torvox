@@ -55,6 +55,8 @@ pub struct OutputSnapshot {
     pub bel: bool,
     /// Shell integration marker detected in this chunk.
     pub shell_integration: ShellIntegration,
+    /// Exit code from OSC 133;D[;exit_code] (None unless D carried one).
+    pub shell_exit_code: Option<i32>,
     /// Filtered output bytes for the VT parser.
     pub filtered: Vec<u8>,
 }
@@ -100,16 +102,22 @@ impl OutputProcessor {
                 OscEvent::Notification(ne) => {
                     snapshot.notification = Some((ne.title.clone(), ne.body.clone()));
                 }
+                OscEvent::ShellIntegration(se) => {
+                    snapshot.shell_integration = match se.marker {
+                        b'A' => ShellIntegration::PromptStart,
+                        b'B' => ShellIntegration::PromptEnd,
+                        b'C' => ShellIntegration::CommandStart,
+                        b'D' => ShellIntegration::CommandExecuted,
+                        _ => ShellIntegration::None,
+                    };
+                    snapshot.shell_exit_code = se.exit_code;
+                }
             }
         }
 
         let filtered = self.osc_handler.output();
-        let marker = extract_osc133(filtered);
-        if marker.is_none() && filtered.contains(&0x07) {
+        if snapshot.shell_integration == ShellIntegration::None && filtered.contains(&0x07) {
             snapshot.bel = true;
-        }
-        if let Some(marker) = marker {
-            snapshot.shell_integration = marker;
         }
         snapshot.filtered = filtered.to_vec();
         snapshot
@@ -119,59 +127,6 @@ impl OutputProcessor {
     pub fn output(&self) -> &[u8] {
         self.osc_handler.output()
     }
-}
-
-/// Extract an OSC 133 shell integration marker from a byte sequence.
-fn extract_osc133(data: &[u8]) -> Option<ShellIntegration> {
-    let mut result = None;
-    let mut i = 0;
-    while i + 6 < data.len() {
-        if data[i] == 0x1B
-            && data[i + 1] == b']'
-            && data[i + 2] == b'1'
-            && data[i + 3] == b'3'
-            && data[i + 4] == b'3'
-            && data[i + 5] == b';'
-        {
-            let marker_position = i + 6;
-            if marker_position < data.len() {
-                let marker = data[marker_position];
-                let si = match marker {
-                    b'A' => ShellIntegration::PromptStart,
-                    b'B' => ShellIntegration::PromptEnd,
-                    b'C' => ShellIntegration::CommandStart,
-                    b'D' => ShellIntegration::CommandExecuted,
-                    _ => ShellIntegration::None,
-                };
-                if si != ShellIntegration::None
-                    && let Some(end) = find_osc_terminator(data, marker_position + 1)
-                {
-                    result = Some(si);
-                    i = end;
-                    continue;
-                }
-            }
-            i += 6;
-        } else {
-            i += 1;
-        }
-    }
-    result
-}
-
-/// Find the end of an OSC sequence (BEL or ST terminator).
-fn find_osc_terminator(data: &[u8], position: usize) -> Option<usize> {
-    let mut j = position;
-    while j < data.len() {
-        if data[j] == 0x07 {
-            return Some(j + 1);
-        }
-        if data[j] == 0x1B && j + 1 < data.len() && data[j + 1] == b'\\' {
-            return Some(j + 2);
-        }
-        j += 1;
-    }
-    None
 }
 
 #[cfg(test)]

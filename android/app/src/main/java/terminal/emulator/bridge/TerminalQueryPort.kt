@@ -43,6 +43,8 @@ interface TerminalQueryPort {
     fun setScrollOffset(offset: Int)
 
     fun getTerminalText(): String?
+    fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String?
+    fun hyperlinkAt(row: Int, col: Int): String?
     fun listFontFamilies(): List<String>?
     fun getDefaultFontName(): String
     fun getFontInfo(): String?
