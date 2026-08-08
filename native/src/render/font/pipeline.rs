@@ -15,6 +15,18 @@ pub struct FontPipeline {
     pub(crate) atlas_height: u32,
     pub(crate) font_id: Option<fontdb::ID>,
     pub(crate) cjk_fallback_ids: Vec<fontdb::ID>,
+    /// Symbol layer (round-227 T5, moke chain: primary → CJK → symbols →
+    /// Nerd → emoji → db scan): generic symbol fonts (Noto Sans Symbols 2
+    /// and friends) for ▶ ⏵ ♥ ★ and similar terminal glyphs.
+    pub(crate) symbol_fallback_ids: Vec<fontdb::ID>,
+    /// Nerd layer: Nerd-patched families for private-use-area glyphs
+    /// (U+E000..U+F8FF — powerline separators, devicons, file icons).
+    pub(crate) nerd_fallback_ids: Vec<fontdb::ID>,
+    /// Emoji layer: NotoColorEmoji-style families. swash cannot outline
+    /// color glyphs, so these are tried and skipped at render time; the
+    /// layer exists so the chain matches moke's "try emoji" semantics
+    /// and the database scan / .notdef takes over.
+    pub(crate) emoji_fallback_ids: Vec<fontdb::ID>,
     pub(crate) font_size: f32,
     pub(crate) raster_scale: f32,
     pub(crate) atlas_generation: u64,
@@ -31,6 +43,7 @@ impl FontPipeline {
         #[cfg(target_os = "android")]
         {
             let extra = font_db::EXTRA_FONT_PATHS.read();
+            let mut extra_loaded = 0usize;
             for path in extra.iter() {
                 if path.is_file() {
                     if let Err(error) = db.load_font_file(path) {
@@ -39,24 +52,32 @@ impl FontPipeline {
                             "font: failed to load font file {}: {error}",
                             path.file_name().unwrap_or_default().to_string_lossy()
                         );
+                    } else {
+                        extra_loaded += 1;
                     }
                 } else if path.is_dir()
                     && let Ok(entries) = std::fs::read_dir(path)
                 {
                     for entry in entries.flatten() {
                         let file_path = entry.path();
-                        if is_font_file(&file_path)
-                            && let Err(error) = db.load_font_file(&file_path)
-                        {
-                            // File name only: the full path can embed a user home dir (round-109).
-                            log::warn!(
-                                "font: failed to load font file {}: {error}",
-                                file_path.file_name().unwrap_or_default().to_string_lossy()
-                            );
+                        if is_font_file(&file_path) {
+                            if let Err(error) = db.load_font_file(&file_path) {
+                                // File name only: the full path can embed a user home dir (round-109).
+                                log::warn!(
+                                    "font: failed to load font file {}: {error}",
+                                    file_path.file_name().unwrap_or_default().to_string_lossy()
+                                );
+                            } else {
+                                extra_loaded += 1;
+                            }
                         }
                     }
                 }
             }
+            log::debug!(
+                "FONT_EXTRA: loaded {extra_loaded} fonts from {} extra paths",
+                extra.len()
+            );
         }
 
         #[cfg(not(target_os = "android"))]
@@ -82,6 +103,9 @@ impl FontPipeline {
             atlas_height: atlas_height as u32,
             font_id: None,
             cjk_fallback_ids: Vec::new(),
+            symbol_fallback_ids: Vec::new(),
+            nerd_fallback_ids: Vec::new(),
+            emoji_fallback_ids: Vec::new(),
             font_size,
             atlas_generation: 0,
             dirty_rect: None,
@@ -95,6 +119,9 @@ impl FontPipeline {
         }
         let system_locale = pipeline.system_locale.clone();
         pipeline.find_cjk_fallback_fonts(&system_locale);
+        pipeline.find_symbol_fallback_fonts();
+        pipeline.find_nerd_fallback_fonts();
+        pipeline.find_emoji_fallback_fonts();
         pipeline.rasterize_ascii();
         pipeline
     }
@@ -143,6 +170,9 @@ impl FontPipeline {
             atlas_height: atlas_height as u32,
             font_id: None,
             cjk_fallback_ids: Vec::new(),
+            symbol_fallback_ids: Vec::new(),
+            nerd_fallback_ids: Vec::new(),
+            emoji_fallback_ids: Vec::new(),
             font_size,
             atlas_generation: 0,
             dirty_rect: None,
@@ -154,6 +184,9 @@ impl FontPipeline {
         pipeline.find_monospace_font();
         let system_locale = pipeline.system_locale.clone();
         pipeline.find_cjk_fallback_fonts(&system_locale);
+        pipeline.find_symbol_fallback_fonts();
+        pipeline.find_nerd_fallback_fonts();
+        pipeline.find_emoji_fallback_fonts();
         pipeline
     }
 
@@ -328,8 +361,14 @@ impl FontPipeline {
             self.atlas_generation = self.atlas_generation.wrapping_add(1);
             self.reset_dirty_rect_full();
             self.cjk_fallback_ids.clear();
+            self.symbol_fallback_ids.clear();
+            self.nerd_fallback_ids.clear();
+            self.emoji_fallback_ids.clear();
             let system_locale = self.system_locale.clone();
             self.find_cjk_fallback_fonts(&system_locale);
+            self.find_symbol_fallback_fonts();
+            self.find_nerd_fallback_fonts();
+            self.find_emoji_fallback_fonts();
             self.rasterize_ascii();
             return true;
         }
@@ -359,8 +398,14 @@ impl FontPipeline {
             self.atlas_generation = self.atlas_generation.wrapping_add(1);
             self.reset_dirty_rect_full();
             self.cjk_fallback_ids.clear();
+            self.symbol_fallback_ids.clear();
+            self.nerd_fallback_ids.clear();
+            self.emoji_fallback_ids.clear();
             let system_locale = self.system_locale.clone();
             self.find_cjk_fallback_fonts(&system_locale);
+            self.find_symbol_fallback_fonts();
+            self.find_nerd_fallback_fonts();
+            self.find_emoji_fallback_fonts();
             self.rasterize_ascii();
             return true;
         }
@@ -628,7 +673,11 @@ impl FontPipeline {
         }
 
         // ── Check glyph_cache before expensive CJK ops ──────────────────────
-        {
+        // PUA (Nerd Font) characters skip this fast path: the cache may
+        // hold the primary font's .notdef (tofu) from before a Nerd Font
+        // was installed/loaded (round-227 T5).
+        let is_nerd_pua = (ch as u32) >= 0xE000 && (ch as u32) <= 0xF8FF;
+        if !is_nerd_pua {
             let key = GlyphKey {
                 font_id: primary_font_id,
                 glyph_id,
@@ -652,9 +701,27 @@ impl FontPipeline {
             }
         }
 
-        // ── glyph_id == 0: search fallback fonts ────────────────────────────
-        if glyph_id == 0 && has_cjk_fallback {
-            for &fallback_id in &self.cjk_fallback_ids {
+        // ── glyph_id == 0: search the layered fallback chain ────────────────
+        // (round-227 T5, moke chain: primary → CJK → symbols → Nerd →
+        // emoji → whole-database scan; spec d7)
+        //
+        // PUA (Nerd Font private-use area U+E000..U+F8FF) characters must
+        // also route through the chain even when the primary font maps
+        // them: most fonts map the PUA to .notdef (the tofu box), so a
+        // non-zero glyph_id from the primary is not a real glyph.
+        if glyph_id == 0 || is_nerd_pua {
+            // Collect the layered ids first: the chain borrows self's
+            // fields, which would conflict with the &mut self render call
+            // inside the loop.
+            let fallback_ids: Vec<fontdb::ID> = self
+                .cjk_fallback_ids
+                .iter()
+                .chain(&self.symbol_fallback_ids)
+                .chain(&self.nerd_fallback_ids)
+                .chain(&self.emoji_fallback_ids)
+                .copied()
+                .collect();
+            for &fallback_id in &fallback_ids {
                 let fallback_glyph = {
                     let db = self.font_system.db();
                     db.with_face_data(fallback_id, |font_data, face_index| {
@@ -665,11 +732,41 @@ impl FontPipeline {
                 };
                 if let Some(Some(fid)) = fallback_glyph
                     && fid != 0
+                    && let Some(result) = self.glyph_information_from_font(fallback_id, ch, fid)
+                    && result.width > 0
+                    && result.height > 0
                 {
-                    let result = self.glyph_information_from_font(fallback_id, ch, fid)?;
+                    let db = self.font_system.db();
+                    let face_name = db
+                        .face(fallback_id)
+                        .and_then(|f| f.families.first())
+                        .map(|(n, _)| n.clone())
+                        .unwrap_or_else(|| "?".to_string());
+                    log::debug!(
+                        "FALLBACK_HIT: ch=U+{:04X} layer='{}' gid={} w={} h={}",
+                        ch as u32,
+                        face_name,
+                        fid,
+                        result.width,
+                        result.height,
+                    );
                     self.caches.cjk_glyph_cache.put(ch, (fallback_id, fid));
                     return Some(result);
+                    // Rendering failed (e.g. a color font swash cannot
+                    // outline): try the next layer instead of returning a
+                    // 0x0 placeholder (round-227 T5).
                 }
+            }
+            // Whole-database scan tail of the chain (spec d7: "ending with
+            // a whole-font-database scan"). Cached by cjk_glyph_cache, so
+            // it runs once per character.
+            if let Some((scan_id, scan_gid)) = self.find_glyph_anywhere(ch)
+                && let Some(result) = self.glyph_information_from_font(scan_id, ch, scan_gid)
+                && result.width > 0
+                && result.height > 0
+            {
+                self.caches.cjk_glyph_cache.put(ch, (scan_id, scan_gid));
+                return Some(result);
             }
         }
 

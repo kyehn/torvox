@@ -775,8 +775,20 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     // TERMUX__HOME / TERMUX_APP__PACKAGE_NAME / HOME=$termux_home and,
     // when $PREFIX/etc/tls/cert.pem exists, SSL_CERT_FILE + CURL_CA_BUNDLE
     // so cargo/npm/curl don't fail with "unable to get local issuer
-    // certificate". torvox currently sets only LD_PRELOAD + HOME/USER/... ;
-    // the Termux-var block + cert vars are a P0 bootstrap-env gap.
+    // certificate".
+    //
+    // Round-227 (T6): the TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR
+    // / TERMUX__ROOTFS / TERMUX__PREFIX / TERMUX__HOME /
+    // TERMUX_APP__PACKAGE_NAME variables are injected by the JNI layer
+    // (initSession) when a prefix is configured. Without
+    // TERMUX_APP__DATA_DIR, termux-exec's execve hook falls back to the
+    // package name baked into the bootstrap (nix-on-droid builds with
+    // `com.termux.nix`), so it does not recognize $PREFIX paths and every
+    // execve of a Termux binary fails with EACCES (SELinux
+    // execute_no_trans on app_data_file).
+    //
+    // SSL_CERT_FILE + CURL_CA_BUNDLE remain a known P0 gap for
+    // cargo/npm/curl until the bootstrap layout is verified on-device.
     // Reference (std::env overlay): terminal.rs insert_zed_terminal_env
     // :123-161 copies HOME/PATH/SHELL/TMPDIR/LANG then applies the overlay.
     // Kill-chain reference: terminal.rs kill_active_task (:2276-2288)

@@ -43,20 +43,17 @@ impl raw_window_handle::HasDisplayHandle for AndroidDisplay {
 /// validation.
 pub async fn initialize_wgpu()
 -> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue), GpuError> {
-    // Android: the emulator's software Vulkan (ranchu/gfxstream + SwiftShader)
-    // deadlocks on vkAcquireNextImageKHR's ANativeWindow dequeueBuffer
-    // (observed: -110 timeout every frame, both TextureView and SurfaceView).
-    // The GLES backend (EGL window surface) is the mature gfxstream path and
-    // renders correctly on both emulators and physical devices. Physical
-    // devices support both; prefer GL for consistency.
-    //
-    // Reference: shashlik-map app-surface/src/android.rs:25-37 — same
-    // is_emulator ? Backends::GL : Backends::VULKAN split, plus a GL
-    // fallback retry after Vulkan adapter failure (wgpu#2384 GL backend
-    // quirks). torvox hardcodes GL on Android instead; revisit if physical
-    // devices show GLES perf issues.
+    // Android: prefer the Vulkan backend (hardware GPU on physical
+    // devices; SwiftShader software Vulkan on the emulator). Older
+    // emulator images deadlocked on vkAcquireNextImageKHR's
+    // ANativeWindow dequeueBuffer (observed -110 timeouts with
+    // gfxstream), so GL remains as the fallback backend for those
+    // images. wgpu enumerates adapters in backend-priority order, so
+    // with both enabled a Vulkan adapter wins when one exists
+    // (round-227: hardware Vulkan must never fall through to the GLES
+    // CPU path).
     #[cfg(target_os = "android")]
-    let backends = wgpu::Backends::GL;
+    let backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
     #[cfg(not(target_os = "android"))]
     let backends = wgpu::Backends::PRIMARY;
     #[cfg(debug_assertions)]

@@ -34,6 +34,7 @@ import terminal.emulator.bridge.createBridge
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes
+import terminal.emulator.util.ArgumentTokenizer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -499,7 +500,7 @@ constructor(
             entry.closing = true
             entry.running = false
         }
-        // LogUtil.e already mirrors to LogcatFileWriter — no duplicate write.
+        // LogUtil.e already logs to logcat — no duplicate write.
         LogUtil.e("Runtime", "session ${entry.id} exceeded max restart attempts, closing session")
         try {
             if (entry.renderThreadPossiblyAlive) {
@@ -1307,11 +1308,7 @@ constructor(
                     getDone = { entry.lastRenderDone },
                     isRunning = { entry.running && !entry.renderThreadExited && activeSessionId == entry.id },
                     onHangDetected = {
-                        LogUtil.e("Runtime", "session ${entry.id} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s)")
-                        LogcatFileWriter.write(
-                            "Runtime",
-                            "session ${entry.id} render hang detected — marking thread for restart",
-                        )
+                        LogUtil.e("Runtime", "session ${entry.id} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart")
                         // Mark the thread as dead. The render monitor (checkSessions)
                         // will detect this and restart the thread with exponential backoff.
                         // This avoids killing the entire process for a GPU hang.
@@ -1469,7 +1466,12 @@ constructor(
                         .clipboardResult(request.sessionId, request.requestId, "")
                 }
             }
-            poll.runCommands.forEach { request -> dispatchRunCommandRequest(request) }
+            poll.runCommands.forEach { request ->
+                // run_command may take up to 30 s; run it on the IO scope
+                // so the poll loop keeps servicing keyboard / clipboard /
+                // signal requests meanwhile (round-227 T4c).
+                scope.launch { dispatchRunCommandRequest(request) }
+            }
         }
     }
 
@@ -1480,9 +1482,9 @@ constructor(
      * process. The captured stdout/stderr and exit code are returned to
      * the native MCP tool via `NativeBridge.runCommandResult`.
      *
-     * Executed on the polling coroutine (IO dispatcher): a single command
-     * may take up to 30 s, and concurrent MCP calls are routed to
-     * independent request ids, so blocking here is safe.
+     * Runs on the IO scope (round-227 T4c): the poll loop launches it
+     * without awaiting so a 30 s command cannot freeze keyboard /
+     * clipboard / signal polling.
      */
     private fun dispatchRunCommandRequest(request: terminal.emulator.bridge.Bridge.RunCommandRequest) {
         // Reply with an error payload instead of leaving the native
@@ -1490,9 +1492,12 @@ constructor(
         fun fail(detail: String) {
             LogUtil.e("Runtime", "run_command request dispatch failed: $detail")
             val payload =
-                "{\"exit_code\":-1,\"stdout\":\"\",\"stderr\":\"${
-                    detail.replace("\"", "\\\"").replace("\n", "\\n")
-                }\"}"
+                runCommandPayload(
+                    exitCode = -1,
+                    errCode = ERR_CODE_EXCEPTION,
+                    stdout = "",
+                    stderr = detail,
+                )
             NativeBridge.runCommandResult(request.sessionId, request.requestId, payload)
         }
         try {
@@ -1506,51 +1511,18 @@ constructor(
                 return
             }
             LogUtil.i("Runtime", "run_command argv=${argv.joinToString(" ")}")
-            val process = ProcessBuilder(argv).redirectErrorStream(false).start()
-            var stdout: String
-            var stderr: String
-            var exitCode: Int
-            try {
-                val stdoutJob =
-                    kotlinx.coroutines.GlobalScope.async {
-                        process.inputStream.bufferedReader().readText()
-                    }
-                val stderrJob =
-                    kotlinx.coroutines.GlobalScope.async {
-                        process.errorStream.bufferedReader().readText()
-                    }
-                if (process.waitFor(RUN_COMMAND_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
-                    exitCode = process.exitValue()
-                } else {
-                    process.destroyForcibly()
-                    exitCode = -1
-                }
-                stdout = stdoutJob.get()
-                stderr = stderrJob.get()
-            } finally {
-                process.destroy()
-            }
+            val result =
+                executeRunCommand(
+                    argv,
+                    prefixDir = java.io.File(context.filesDir, "usr").absolutePath,
+                )
+            val errCode = if (result.timedOut) ERR_CODE_TIMEOUT else ERR_CODE_NONE
             val payload =
-                "{\"exit_code\":$exitCode,\"stdout\":${
-                    jsonString(stdout)
-                },\"stderr\":${
-                    jsonString(stderr)
-                }}"
+                runCommandPayload(result.exitCode, errCode, result.stdout, result.stderr)
             NativeBridge.runCommandResult(request.sessionId, request.requestId, payload)
         } catch (exception: Exception) {
             fail("${exception.javaClass.simpleName}: ${exception.message}")
         }
-    }
-
-    private fun jsonString(value: String): String {
-        val escaped =
-            value
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-                .replace("\t", "\\t")
-        return "\"$escaped\""
     }
 
     /**
@@ -1629,8 +1601,17 @@ constructor(
         private const val FONT_SIZE_HEIGHT_MIN_PX = 250
         private const val FONT_SIZE_HEIGHT_MAX_PX = 500
         private const val RENDER_ERROR_LOG_FREQUENCY = 60
-        /** MCP run_command process timeout (round-226 D1). */
-        private const val RUN_COMMAND_TIMEOUT_MS = 30_000L
+
+        /**
+         * run_command err_code (round-227 T4, termux ExecutionCommand
+         * dual-track): exitCode is the shell exit code; errCode is the
+         * app-level failure classification. 0 = none (command ran),
+         * 1 = timeout, 2 = internal exception.
+         */
+        private const val ERR_CODE_NONE = 0
+        private const val ERR_CODE_TIMEOUT = 1
+        private const val ERR_CODE_EXCEPTION = 2
+
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
         private const val RENDER_MAX_TRANSIENT_ERRORS = 50 // ~2.5s of transient errors before thread exit
         private const val RENDER_ERROR_SLEEP_MS = 50L
@@ -1754,7 +1735,7 @@ constructor(
             if (sessions.isNotEmpty() || starting) return
             starting = true
         }
-        // LogUtil.d already mirrors to LogcatFileWriter — no duplicate write.
+        // LogUtil.d already logs to logcat — no duplicate write.
         LogUtil.d("Runtime", "start() called: surface=$surface width=$width height=$height")
         // ADR-0007: remember the surface handed in by startRuntime so the
         // renderer can attach it once the session bridge exists.
@@ -1933,7 +1914,12 @@ constructor(
                     LogUtil.w("Runtime", "Failed to create fonts directory: $this")
                 }
             }
-            bridge.setExtraFontPaths(listOf(fontsDir.absolutePath))
+            // NOTE: bridge.setExtraFontPaths is intentionally NOT called
+            // here — Bridge skips it while sessionId == 0 (before
+            // spawnTerminal), which silently dropped the extra font paths
+            // (round-227: Nerd Font in filesDir/fonts never loaded,
+            // NERD_FALLBACK found 0). It is called again right after
+            // spawnTerminal below.
 
             // The bootstrap download/install above can take minutes. The
             // surface passed into start() may have been destroyed during
@@ -1966,11 +1952,15 @@ constructor(
             )
             if (spawnResult <= 0L) {
                 LogUtil.e("Runtime", "spawnTerminal returned $spawnResult — native session init failed, aborting start")
-                // Deliberate duplicate with a stable grep anchor (FAILED prefix).
-                LogcatFileWriter.write("Runtime", "FAILED to spawn terminal: native init returned $spawnResult")
                 bridge.close()
                 return
             }
+
+            // Round-227: sessionId is now non-zero — extra font paths
+            // (filesDir/fonts, e.g. user-installed Nerd Fonts) actually
+            // reach the native font database here. Called before
+            // spawnTerminal it was a silent no-op.
+            bridge.setExtraFontPaths(listOf(fontsDir.absolutePath))
 
             try {
                 val initialFontFamily = settingsRepository.fontFamily.first()
@@ -2148,9 +2138,8 @@ constructor(
                 throw exception
             }
             LogUtil.e("Runtime", "Failed to start terminal", exception)
-            // Deliberate duplicate: the file copy includes the full stack
-            // trace (LogUtil truncates it) and a stable FAILED grep anchor.
-            LogcatFileWriter.write("Runtime", "FAILED to start terminal: ${exception.message}\n${exception.stackTraceToString()}")
+            // The full stack trace reaches logcat via LogUtil (chunked if
+            // needed, round-227 T2), with a stable FAILED grep anchor.
             // Any failure after createBridge() (settings, attachSurface,
             // spawnTerminal throwing instead of returning 0) would otherwise
             // leak the native session and its PTY child forever.
@@ -2427,12 +2416,8 @@ constructor(
                 throw exception
             }
             LogUtil.e("Runtime", "Failed to create session $nextId", exception)
-            // Deliberate duplicate: the file copy includes the full stack
-            // trace (LogUtil truncates it) and a stable FAILED grep anchor.
-            LogcatFileWriter.write(
-                "Runtime",
-                "FAILED to create session $nextId: ${exception.message}\n${exception.stackTraceToString()}",
-            )
+            // The full stack trace reaches logcat via LogUtil (chunked if
+            // needed, round-227 T2), with a stable FAILED grep anchor.
             // If the failure happened before the entry was inserted (settings
             // application, spawnTerminal throwing), the bridge was never
             // rolled back above — close it to avoid leaking the native
@@ -3362,3 +3347,216 @@ internal fun shouldRetryFastDeath(
  * 500ms << (attempt-1), capped at 5000ms (warp's formula).
  */
 internal fun fastDeathBackoffMs(attempt: Int): Long = minOf(500L shl (attempt - 1), 5000L)
+
+/**
+ * Build the JSON payload returned to the native MCP `run_command` tool
+ * (round-227 T4 dual-track). `exit_code` is the shell exit code; `err_code`
+ * classifies app-level failure: 0 = none (command ran), 1 = timeout,
+ * 2 = internal exception. Termux semantics: a non-zero exit code is NOT a
+ * failure — only err_code != 0 is.
+ */
+internal fun runCommandPayload(
+    exitCode: Int,
+    errCode: Int,
+    stdout: String,
+    stderr: String,
+): String = "{\"exit_code\":$exitCode,\"err_code\":$errCode,\"stdout\":${
+    jsonString(stdout)
+},\"stderr\":${
+    jsonString(stderr)
+}}"
+
+private fun jsonString(value: String): String {
+    // Full JSON string escaping (round-227 T4b): every C0 control byte
+    // (0x00-0x1F) must be escaped — previously \b, \f and the rest were
+    // embedded raw, producing invalid JSON. \uXXXX keeps the data intact.
+    val sb = StringBuilder(value.length + 16)
+    sb.append('"')
+    for (ch in value) {
+        when (ch) {
+            '\\' -> sb.append("\\\\")
+
+            '"' -> sb.append("\\\"")
+
+            '\n' -> sb.append("\\n")
+
+            '\r' -> sb.append("\\r")
+
+            '\t' -> sb.append("\\t")
+
+            '\b' -> sb.append("\\b")
+
+            '\u000C' -> sb.append("\\f")
+
+            else ->
+                if (ch < ' ') {
+                    sb.append("\\u").append(ch.code.toString(16).padStart(4, '0'))
+                } else {
+                    sb.append(ch)
+                }
+        }
+    }
+    sb.append('"')
+    return sb.toString()
+}
+
+// ── MCP run_command execution (round-227 T4c) ────────────────────────────
+
+/** MCP run_command process timeout (round-226 D1). */
+private const val RUN_COMMAND_TIMEOUT_MS = 30_000L
+
+/**
+ * Grace period for draining stdout/stderr after the process exits or is
+ * killed. A grandchild that inherited the pipe fds keeps the read open
+ * forever; bounding the drain keeps the caller from hanging (round-227
+ * T4c — previously the two `await()` calls were unbounded).
+ */
+private const val RUN_COMMAND_DRAIN_MS = 2_000L
+
+/** Result of [executeRunCommand]: captured streams, exit code and whether
+ *  the process had to be killed for exceeding the timeout. */
+internal data class RunCommandResult(
+    val stdout: String,
+    val stderr: String,
+    val exitCode: Int,
+    val timedOut: Boolean,
+)
+
+/**
+ * Execute `argv` as a child process with a bounded lifetime:
+ *  - `timeoutMs`: the process is force-killed when it does not exit in
+ *    time (exitCode -1, timedOut true).
+ *  - `drainMs`: after the process exits (or is killed) the stdout/stderr
+ *    readers get at most this long to reach EOF. A grandchild that
+ *    inherited the pipe fds cannot hang the caller past this bound; the
+ *    readers are cancelled and the streams come back empty.
+ *
+ * Pure JVM (no Android dependencies): unit-tested on the host.
+ */
+internal fun executeRunCommand(
+    argv: List<String>,
+    timeoutMs: Long = RUN_COMMAND_TIMEOUT_MS,
+    drainMs: Long = RUN_COMMAND_DRAIN_MS,
+    prefixDir: String? = null,
+): RunCommandResult {
+    // Round-227 T6: Android 15+ SELinux denies execve of app_data_file
+    // binaries (execute_no_trans) for untrusted_app. termux-exec's
+    // LD_PRELOAD hook wraps child execs for the shell, but run_command
+    // spawns directly via ProcessBuilder — so a $PREFIX binary (echo,
+    // coreutils applets, nix store paths) must be launched through the
+    // system linker, exactly like PtyPair::spawn does on the native side.
+    val wrapped = wrapTermuxExec(argv, prefixDir)
+    val process = try {
+        ProcessBuilder(wrapped).redirectErrorStream(false).start()
+    } catch (e: java.io.IOException) {
+        // Round-227 T4d: process spawn failure (e.g. invalid binary) must
+        // not crash the MCP server — return an error result instead.
+        return RunCommandResult(
+            stdout = "",
+            stderr = "exec failed: ${e.message ?: e.toString()}\n",
+            exitCode = 127, // 127 = "command not found" convention
+            timedOut = false,
+        )
+    }
+    // Readers run on daemon threads with a self-imposed deadline of
+    // timeout+drain: they poll via ready() (never blocking on a read that
+    // cannot be interrupted) so a grandchild inheriting the pipe fds can
+    // at most delay the result until the deadline — it can never hang the
+    // caller (round-227 T4c).
+    val readBudgetMs = timeoutMs + drainMs
+    val out = BoundedStreamRead(process.inputStream, readBudgetMs)
+    val err = BoundedStreamRead(process.errorStream, readBudgetMs)
+    try {
+        val exited = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
+        if (!exited) {
+            process.destroyForcibly()
+        }
+        // The join is bounded by the drain grace period — NOT by the full
+        // read budget — so a grandchild holding the pipe open can delay
+        // the result by at most drainMs. The reader threads keep polling
+        // in the background and finish by their own deadline.
+        val stdout = out.get(drainMs + 50)
+        val stderr = err.get(50)
+        val code = if (exited) process.exitValue() else -1
+        return RunCommandResult(stdout, stderr, code, !exited)
+    } finally {
+        process.destroy()
+        runCatching { process.inputStream.close() }
+        runCatching { process.errorStream.close() }
+    }
+}
+
+/**
+ * Wrap a `$PREFIX` executable in the system linker when needed
+ * (round-227 T6). Android 15+ SELinux denies untrusted_app from exec'ing
+ * app_data_file binaries directly (`execute_no_trans`); the system linker
+ * path is allowed because it only maps the file (`execute`). This mirrors
+ * the native `PtyPair::spawn` SPAWN_LINKER logic.
+ */
+internal fun wrapTermuxExec(
+    argv: List<String>,
+    prefixDir: String?,
+): List<String> {
+    if (prefixDir.isNullOrBlank() || argv.isEmpty()) return argv
+    val prefix = prefixDir.trimEnd('/')
+    val executable = argv[0]
+    if (!executable.startsWith("$prefix/")) return argv
+    val linker =
+        if (java.io.File("/system/bin/linker64").exists()) {
+            "/system/bin/linker64"
+        } else {
+            "/system/bin/linker"
+        }
+    return listOf(linker, executable) + argv.drop(1)
+}
+
+/**
+ * Reads [stream] on a daemon thread, appending into a shared buffer. The
+ * blocking read() returns as soon as the write end of the pipe closes
+ * (process exit without descendants) — EOF is detected naturally, unlike
+ * ready()-based polling (ready() returns false on EOF). When a grandchild
+ * holds the pipe open, [get] joins with a bounded timeout and returns the
+ * partial output; the daemon reader is then abandoned (it dies with the
+ * process), so the caller can never hang (round-227 T4c).
+ */
+private class BoundedStreamRead(
+    private val stream: java.io.InputStream,
+    private val budgetMs: Long,
+) {
+    private val sb = StringBuilder()
+
+    private val thread: Thread =
+        Thread(
+            {
+                val reader = java.io.BufferedReader(java.io.InputStreamReader(stream))
+                val buf = CharArray(4096)
+                val deadline = System.nanoTime() + budgetMs * 1_000_000L
+                while (System.nanoTime() < deadline) {
+                    val n = reader.read(buf)
+                    if (n < 0) {
+                        return@Thread
+                    }
+                    synchronized(sb) {
+                        sb.append(buf, 0, n)
+                    }
+                }
+            },
+            "run-command-read",
+        ).apply {
+            isDaemon = true
+            start()
+        }
+
+    /** Join the reader for at most [remainingMs]; returns what was read. */
+    fun get(remainingMs: Long): String {
+        thread.join(remainingMs)
+        if (thread.isAlive) {
+            // Best effort: a blocking read() may ignore close(), but the
+            // daemon thread then exits with the process.
+            runCatching { stream.close() }
+        }
+        return synchronized(sb) {
+            sb.toString()
+        }
+    }
+}

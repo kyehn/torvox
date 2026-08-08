@@ -397,6 +397,13 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val selection: String = "",
     )
 
+    /** MCP `run_command` request dispatched from a poll event (round-226 D1). */
+    data class RunCommandRequest(
+        val sessionId: Long,
+        val requestId: Long,
+        val command: String = "",
+    )
+
     data class DialogRequest(
         val sessionId: Long,
         val requestId: Long,

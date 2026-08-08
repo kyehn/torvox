@@ -1,7 +1,44 @@
+/*BEGIN_COPYRIGHT_BLOCK
+ *
+ * Copyright (c) 2001-2010, JavaPLT group at Rice University (drjava@rice.edu)
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *    * Redistributions of source code must retain the above copyright
+ *      notice, this list of conditions and the following disclaimer.
+ *    * Redistributions in binary form must reproduce the above copyright
+ *      notice, this list of conditions and the following disclaimer in the
+ *      documentation and/or other materials provided with the distribution.
+ *    * Neither the names of DrJava, the JavaPLT group, Rice University, nor the
+ *      names of its contributors may be used to endorse or promote products
+ *      derived from this software without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ * LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ * NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *
+ * This software is Open Source Initiative approved Open Source Software.
+ * Open Source Initative Approved is a trademark of the Open Source Initiative.
+ *
+ * This file is part of DrJava.  Download the current version of this project
+ * from http://www.drjava.org/ or http://sourceforge.net/projects/drjava/
+ *
+ * END_COPYRIGHT_BLOCK*/
+
 package terminal.emulator.util
 
 /*
- * Port of DrJava's ArgumentTokenizer (BSD-2, Rice University JavaPLT),
+ * Kotlin port of DrJava's ArgumentTokenizer (3-clause BSD, Rice University
+ * JavaPLT — license block above retained verbatim as BSD requires),
  * via termux-kotlin-app's `termux-shared/shell/ArgumentTokenizer.kt`
  * (itself a 1:1 Kotlin port). Splits a user-visible command string into a
  * safe argv array WITHOUT `sh -c` semantics: no variable expansion, no
@@ -22,6 +59,11 @@ object ArgumentTokenizer {
 
     fun tokenize(arguments: String): List<String> = tokenize(arguments, false)
 
+    // 1:1 port of termux-app's ArgumentTokenizer.java state machine — the
+    // branching is inherent to the four-state parser; suppressing keeps the
+    // port byte-for-byte comparable with upstream (TerminalViewModel.kt:534
+    // precedent).
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod", "NestedBlockDepth")
     fun tokenize(
         arguments: String,
         stringify: Boolean,
@@ -39,6 +81,7 @@ object ArgumentTokenizer {
                     currArg.append(c)
                     escaped = false
                 }
+
                 state == SINGLE_QUOTE_STATE -> {
                     if (c == '\'') {
                         state = NORMAL_TOKEN_STATE
@@ -46,6 +89,7 @@ object ArgumentTokenizer {
                         currArg.append(c)
                     }
                 }
+
                 state == DOUBLE_QUOTE_STATE -> {
                     if (c == '"') {
                         state = NORMAL_TOKEN_STATE
@@ -68,20 +112,25 @@ object ArgumentTokenizer {
                         currArg.append(c)
                     }
                 }
+
                 state == NO_TOKEN_STATE -> {
                     when {
                         c == '\\' -> {
                             escaped = true
                             state = NORMAL_TOKEN_STATE
                         }
+
                         c == '\'' -> state = SINGLE_QUOTE_STATE
+
                         c == '"' -> state = DOUBLE_QUOTE_STATE
+
                         !c.isWhitespace() -> {
                             currArg.append(c)
                             state = NORMAL_TOKEN_STATE
                         }
                     }
                 }
+
                 // NORMAL_TOKEN_STATE
                 else -> {
                     when {
@@ -89,13 +138,17 @@ object ArgumentTokenizer {
                             escaped = true
                             state = NORMAL_TOKEN_STATE
                         }
+
                         c == '\'' -> state = SINGLE_QUOTE_STATE
+
                         c == '"' -> state = DOUBLE_QUOTE_STATE
+
                         c.isWhitespace() -> {
                             argList.add(currArg.toString())
                             currArg = StringBuilder()
                             state = NO_TOKEN_STATE
                         }
+
                         else -> currArg.append(c)
                     }
                 }
@@ -120,29 +173,38 @@ object ArgumentTokenizer {
 
     private fun escapeQuotesAndBackslashes(s: String): String {
         val buf = StringBuilder()
-        // Iterate in reverse so that insert() indices stay valid.
+        // Iterate in reverse so that insert() indices stay valid. The
+        // character just inserted sits at index 0, so control-char
+        // replacement deletes index 0 before inserting the two-char escape
+        // (round-227 T1b: this was deleteCharAt(1), which dropped the NEXT
+        // already-processed character and corrupted \t/\r/\b/\f/\n output).
         for (i in s.indices.reversed()) {
             buf.insert(0, s[i])
             when (s[i]) {
                 '\\', '"' -> buf.insert(0, '\\')
+
                 '\n' -> {
-                    buf.deleteCharAt(1)
+                    buf.deleteCharAt(0)
                     buf.insert(0, "\\n")
                 }
+
                 '\t' -> {
-                    buf.deleteCharAt(1)
+                    buf.deleteCharAt(0)
                     buf.insert(0, "\\t")
                 }
+
                 '\r' -> {
-                    buf.deleteCharAt(1)
+                    buf.deleteCharAt(0)
                     buf.insert(0, "\\r")
                 }
+
                 '\u0008' -> {
-                    buf.deleteCharAt(1)
+                    buf.deleteCharAt(0)
                     buf.insert(0, "\\b")
                 }
+
                 '\u000C' -> {
-                    buf.deleteCharAt(1)
+                    buf.deleteCharAt(0)
                     buf.insert(0, "\\f")
                 }
             }

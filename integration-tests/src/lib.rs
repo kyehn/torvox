@@ -905,12 +905,62 @@ mod linux_ansi_sequences {
     use super::common::*;
     use native::terminal::session::Session;
 
+    /// Render the current grid as a plain text string (control codepoints
+    /// become `?`). Used by tests that assert on visible content.
+    fn grid_text(s: &Session) -> String {
+        let snap = s.terminal().take_snapshot();
+        let cols = snap.cols as usize;
+        snap.cells
+            .chunks(cols)
+            .map(|row| {
+                row.iter()
+                    .map(|c| char::from_u32(c.codepoint).unwrap_or('?'))
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    /// Bring up a raw-mode echo child. The session's default line discipline
+    /// deliberately keeps kernel ECHO+ECHOCTL on (round-217: termux.c
+    /// parity — readline echoes typed input itself), so bytes written before
+    /// raw mode is active come back twice: once as the kernel ECHO stream
+    /// (control chars expanded, `\x1b` → `^[`) and once as the child's own
+    /// echo.
+    ///
+    /// A shell `stty raw; exec cat` cannot work here: interactive bash/dash
+    /// restore the saved termios (ECHO on) when launching an external
+    /// command (job-control reset), so cat always runs with ECHO on.
+    /// Instead we run python3, which calls `tty.setraw(0)` itself *after*
+    /// the shell's job-control reset — the same thing a full-screen app
+    /// (vim, less) does. The `printf` of `R2D2_READY` happens after
+    /// `setraw`, and the marker is spelled with an octal escape
+    /// (`\122EADY`) so the command-line ECHO stream cannot contain it —
+    /// seeing `R2D2_READY` in the grid is therefore a deterministic proof
+    /// that raw mode is active and only the child echoes afterwards.
+    fn spawn_raw_cat(rows: u32, cols: u32) -> (Session, bool) {
+        let mut s =
+            Session::spawn("/bin/sh", rows, cols, &ShellEnv::default()).expect("spawn /bin/sh");
+        let cmd = b"python3 -c '\n\
+import tty,sys,os\ntty.setraw(0)\nprint(\"R2D2_\\122EADY\")\nsys.stdout.flush()\n\
+while True:\n    b = os.read(0, 4096)\n    if not b: break\n    os.write(1, b)\n'\n";
+        s.write(cmd).expect("spawn raw echo child");
+        let primed = drain_until(
+            &mut s,
+            |s| grid_text(s).contains("R2D2_READY"),
+            Duration::from_secs(5),
+        );
+        (s, primed)
+    }
+
     #[test]
     fn clear_screen_sequence() {
-        let mut s = Session::spawn("/bin/cat", 24, 80, &ShellEnv::default()).expect("spawn");
-        // Write some text via session PTY; /bin/cat echoes it back
+        let (mut s, primed) = spawn_raw_cat(24, 80);
+        assert!(primed, "stty+exec did not settle within 5s");
+        // Now write text + clear-screen through the raw PTY; cat echoes the
+        // exact bytes back and ESC[2J must wipe the grid.
         s.write(b"HELLO_SEEN\x1b[H\x1b[2J").expect("write");
-        let deadline = Instant::now() + Duration::from_millis(500);
+        let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             s.process_output();
             let snap = s.terminal().take_snapshot();
@@ -941,13 +991,19 @@ mod linux_ansi_sequences {
     #[test]
     fn cursor_movement() {
         // /bin/cat echoes stdin back to the PTY, so the ANSI sequences
-        // written below reach the VT parser. A raw shell (dash) does not
-        // echo under raw-mode PTY (ECHO off), so the sequences would never
-        // arrive (see clear_screen_sequence for the same pattern).
-        let mut s = Session::spawn("/bin/cat", 24, 80, &ShellEnv::default()).expect("spawn");
+        // written below reach the VT parser. The session's default line
+        // discipline keeps kernel ECHO on (round-217: termux.c parity —
+        // readline echoes input itself), which would add a *second* copy of
+        // every byte with ECHOCTL control-character expansion (`\x1b` →
+        // `^[`) and make the position assertion below ambiguous. Switch to
+        // raw mode first, exactly like a full-screen app does, so the only
+        // bytes reaching the VT are cat's exact echo (see
+        // clear_screen_sequence for the same pattern).
+        let (mut s, primed) = spawn_raw_cat(24, 80);
+        assert!(primed, "raw echo child did not settle within 5s");
         // Clear screen
         s.write(b"\x1b[2J\x1b[H").expect("clear");
-        let deadline = Instant::now() + Duration::from_millis(200);
+        let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             if s.process_output() {
                 break;
@@ -962,7 +1018,7 @@ mod linux_ansi_sequences {
         // Cursor positioning + write should not crash
         s.write(b"\x1b[5;5H").expect("cursor move");
         s.write(b"X").expect("write");
-        let deadline = Instant::now() + Duration::from_millis(200);
+        let deadline = Instant::now() + Duration::from_secs(5);
         while Instant::now() < deadline {
             if s.process_output() {
                 break;
@@ -970,35 +1026,96 @@ mod linux_ansi_sequences {
             std::thread::sleep(Duration::from_millis(5));
         }
         s.process_output();
-        // Verify 'X' appears on screen after \x1b[5;5H
+        // Verify 'X' appears on screen after \x1b[5;5H — and at the exact
+        // cell the CUP sequence addressed (row 5, col 5, 1-based).
         let snap = s.terminal().take_snapshot();
         let x_cell = snap.cells.iter().find(|c| c.codepoint == b'X' as u32);
         assert!(
             x_cell.is_some(),
             "cursor_movement: 'X' should appear on screen after cursor positioning"
         );
+        let x_index = snap
+            .cells
+            .iter()
+            .position(|c| c.codepoint == b'X' as u32)
+            .expect("X cell must exist (checked above)");
+        let (x_row, x_col) = (x_index / snap.cols as usize, x_index % snap.cols as usize);
+        let (x_row, x_col) = (x_index / snap.cols as usize, x_index % snap.cols as usize);
+        if (x_row, x_col) != (4, 4) {
+            let cols = snap.cols as usize;
+            let lines: Vec<String> = snap
+                .cells
+                .chunks(cols)
+                .map(|chunk| {
+                    chunk
+                        .iter()
+                        .map(|c| char::from_u32(c.codepoint).unwrap_or('?'))
+                        .collect()
+                })
+                .collect();
+            let raw: Vec<u32> = snap.cells.iter().take(24).map(|c| c.codepoint).collect();
+            panic!(
+                "cursor_movement: 'X' must sit at CUP(5,5) (0-based 4,4), found ({x_row},{x_col}). Grid:\n{}\nraw first 24 codepoints: {:?}",
+                lines.join("\n"),
+                raw
+            );
+        }
     }
 
     #[test]
     fn sgr_bold_attribute() {
-        let mut s = Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn");
+        let (mut s, primed) = spawn_raw_cat(24, 80);
+        assert!(primed, "raw echo child did not settle within 5s");
         // Set bold, write X, reset
-        s.write(b"\x1b[1mX\x1b[0m\n").expect("write");
+        s.write(b"\x1b[1mX\x1b[0m").expect("write");
         drain_until(&mut s, |_| false, Duration::from_secs(2));
         let snap = s.terminal().take_snapshot();
-        // Find the X cell and check bold flag
-        let x_cell = snap.cells.iter().find(|c| c.codepoint == 'X' as u32);
-        assert!(x_cell.is_some(), "should find bold X cell");
+        // Find the X cell and check bold flag. The raw echo child passes the
+        // exact bytes back, so the SGR bold attribute must be set on the X
+        // cell itself (a kernel-ECHO stream would show plain text instead).
+        let x_index = snap.cells.iter().rposition(|c| c.codepoint == 'X' as u32);
+        assert!(
+            x_index.is_some(),
+            "should find bold X cell (raw echo child echoes SGR bytes)"
+        );
+        let x_cell = &snap.cells[x_index.expect("X cell must exist (checked above)")];
+        assert!(
+            x_cell.bold,
+            "X cell must carry the bold attribute from SGR 1"
+        );
     }
 
     #[test]
     fn sgr_colors() {
-        let mut s = Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn");
-        s.write(b"\x1b[31mR\x1b[0m\n").expect("write");
+        let (mut s, primed) = spawn_raw_cat(24, 80);
+        assert!(primed, "raw echo child did not settle within 5s");
+        s.write(b"\x1b[31mR\x1b[0m").expect("write");
         drain_until(&mut s, |_| false, Duration::from_secs(2));
         let snap = s.terminal().take_snapshot();
-        let r_cell = snap.cells.iter().find(|c| c.codepoint == 'R' as u32);
-        assert!(r_cell.is_some(), "should find colored R cell");
+        // The marker line "R2D2_READY" also contains 'R' cells, so take the
+        // LAST 'R' — the one written by SGR 31 — rather than the first.
+        let r_index = snap.cells.iter().rposition(|c| c.codepoint == 'R' as u32);
+        assert!(
+            r_index.is_some(),
+            "should find colored R cell (raw echo child echoes SGR bytes)"
+        );
+        let r_cell = &snap.cells[r_index.expect("R cell must exist (checked above)")];
+        // Theme is Catppuccin Mocha: palette index 1 is the pink/red
+        // (243, 139, 168) — not pure red. Assert we landed on that exact
+        // palette entry (a kernel-ECHO stream would show the default fg
+        // instead).
+        let expected = [243.0 / 255.0, 139.0 / 255.0, 168.0 / 255.0, 1.0];
+        let tolerance = 0.02;
+        let is_red = r_cell
+            .foreground
+            .iter()
+            .zip(expected.iter())
+            .all(|(actual, expected)| (actual - expected).abs() < tolerance);
+        assert!(
+            is_red,
+            "R cell must carry the palette-1 (red/pink) foreground from SGR 31, got {:?} (expected {expected:?})",
+            r_cell.foreground
+        );
     }
 
     #[test]
