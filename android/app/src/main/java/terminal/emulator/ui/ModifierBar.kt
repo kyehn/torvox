@@ -107,6 +107,7 @@ fun ModifierBar(
     toolbarLayout: List<ToolbarItem>? = null,
     barMode: ModifierBarMode = ModifierBarMode.Normal,
     onCopy: (() -> Unit)? = null,
+    copyEnabled: Boolean = onCopy != null,
     onSelectAll: (() -> Unit)? = null,
     onPaste: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
@@ -117,7 +118,7 @@ fun ModifierBar(
 
     if (barMode == ModifierBarMode.SelectionActions) {
         SelectionActionsBar(
-            actions = SelectionActions(onCopy, onSelectAll, onPaste, onShare, onDismiss),
+            actions = SelectionActions(onCopy, copyEnabled, onSelectAll, onPaste, onShare, onDismiss),
             textColor = textColor,
             backgroundColor = backgroundColor,
             buttonHeight = buttonHeight,
@@ -250,6 +251,7 @@ fun ModifierBar(
 
 private data class SelectionActions(
     val onCopy: (() -> Unit)?,
+    val copyEnabled: Boolean = onCopy != null,
     val onSelectAll: (() -> Unit)?,
     val onPaste: (() -> Unit)?,
     val onShare: (() -> Unit)?,
@@ -264,11 +266,11 @@ private fun SelectionActionsBar(
     buttonHeight: androidx.compose.ui.unit.Dp,
     modifier: Modifier,
 ) {
-    val actionList = mutableListOf<Pair<String, () -> Unit>>()
-    if (actions.onCopy != null) actionList.add("Copy" to actions.onCopy)
-    if (actions.onSelectAll != null) actionList.add("Select All" to actions.onSelectAll)
-    if (actions.onPaste != null) actionList.add("Paste" to actions.onPaste)
-    if (actions.onShare != null) actionList.add("Share" to actions.onShare)
+    val actionList = mutableListOf<Triple<String, () -> Unit, Boolean>>()
+    if (actions.onCopy != null) actionList.add(Triple("Copy", actions.onCopy, actions.copyEnabled))
+    if (actions.onSelectAll != null) actionList.add(Triple("Select All", actions.onSelectAll, true))
+    if (actions.onPaste != null) actionList.add(Triple("Paste", actions.onPaste, true))
+    if (actions.onShare != null) actionList.add(Triple("Share", actions.onShare, true))
 
     Row(
         modifier =
@@ -279,11 +281,12 @@ private fun SelectionActionsBar(
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        for ((label, action) in actionList) {
+        for ((label, action, enabled) in actionList) {
             ExtraKeyButton(
                 text = label,
                 onClick = action,
                 textColor = textColor,
+                enabled = enabled,
                 testTag = "Action_${label.replace(" ", "")}",
                 contentDescription = label,
             )
@@ -441,13 +444,14 @@ private fun ConfigurableModifierBar(
     }
 }
 
-@Suppress("LongParameterList", "CyclomaticComplexMethod", "LongMethod")
+@Suppress("LongParameterList", "CyclomaticComplexMethod", "LongMethod", "CognitiveComplexMethod")
 @Composable
 private fun RowScope.ExtraKeyButton(
     text: String,
     onClick: () -> Unit,
     textColor: androidx.compose.ui.graphics.Color,
     isActive: Boolean = false,
+    enabled: Boolean = true,
     modifierState: ModifierState? = null,
     testTag: String = "",
     contentDescription: String? = null,
@@ -459,7 +463,7 @@ private fun RowScope.ExtraKeyButton(
     var isPressed by remember { mutableStateOf(false) }
 
     val scale by animateFloatAsState(
-        targetValue = if (isPressed) 0.90f else 1f,
+        targetValue = if (isPressed && enabled) 0.90f else 1f,
         animationSpec = spring(dampingRatio = 0.5f, stiffness = 800f),
         label = "btnScale",
     )
@@ -480,6 +484,7 @@ private fun RowScope.ExtraKeyButton(
     )
     val activeFg =
         when {
+            !enabled -> textColor.copy(alpha = 0.38f)
             isLocked -> MaterialTheme.colorScheme.onPrimary
             isOnce -> MaterialTheme.colorScheme.primary
             isActive -> MaterialTheme.colorScheme.primary
@@ -522,23 +527,25 @@ private fun RowScope.ExtraKeyButton(
                         isPressed = false
                         return@awaitEachGesture
                     }
-                    view.performHapticFeedback(
-                        android.view.HapticFeedbackConstants.KEYBOARD_TAP,
-                    )
-                    onClick()
-                    if (onRepeat == null) {
-                        if (!upConsumed) {
-                            waitForUpOrCancellation()
-                        }
-                    } else {
-                        while (true) {
-                            try {
-                                withTimeout(REPEAT_TIMEOUT_MS) {
-                                    waitForUpOrCancellation()
+                    if (enabled) {
+                        view.performHapticFeedback(
+                            android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                        )
+                        onClick()
+                        if (onRepeat == null) {
+                            if (!upConsumed) {
+                                waitForUpOrCancellation()
+                            }
+                        } else {
+                            while (true) {
+                                try {
+                                    withTimeout(REPEAT_TIMEOUT_MS) {
+                                        waitForUpOrCancellation()
+                                    }
+                                    break
+                                } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                                    onRepeat()
                                 }
-                                break
-                            } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
-                                onRepeat()
                             }
                         }
                     }
