@@ -14,6 +14,10 @@ This directory contains Architecture Decision Records (ADRs) for the torvox proj
 | 0006 | Build and Dependency Simplification | ✅ Accepted — implemented (Phase 3) |
 | 0007 | Session Lifecycle and Android Integration | ✅ Accepted — partially implemented (Phase 2) |
 | 0008 | Rendering Pipeline | ✅ Accepted — baseline established |
+| 0009 | Security Model | ✅ Accepted |
+| 0010 | Logging Architecture | ✅ Accepted |
+| 0011 | Testing Strategy | ✅ Accepted |
+| 0012 | Dependency Management | ✅ Accepted |
 
 ## Template
 

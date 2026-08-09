@@ -1,3 +1,9 @@
+//! Frame invalidation tracking for incremental rendering.
+//!
+//! # Requirements
+//! - FR-013 — The system SHALL maintain a dirty mask that tracks which rows of the grid have changed.
+//! - NFR-010 — The frame pipeline SHALL only repaint dirty rows, avoiding full-grid redraws.
+
 /// Terminal-specific invalidation levels (ordered by cost).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InvalidationLevel {
@@ -45,8 +51,8 @@ pub struct FrameInvalidation {
 impl FrameInvalidation {
     pub fn new(rows: u32) -> Self {
         Self {
-            level: InvalidationLevel::Full,
-            dirty_rows: vec![true; rows as usize],
+            level: InvalidationLevel::CursorOnly,
+            dirty_rows: vec![false; rows as usize],
             rows,
             cursor_moved: false,
             selection_changed: false,
@@ -102,7 +108,7 @@ impl FrameInvalidation {
         self.dirty_rows
             .iter()
             .enumerate()
-            .filter(|(_, &d)| d)
+            .filter(|(_, d)| **d)
             .map(|(i, _)| i as u32)
             .collect()
     }
@@ -172,9 +178,9 @@ mod tests {
     }
 
     #[test]
-    fn invalidation_starts_at_full() {
+    fn invalidation_starts_at_cursor_only() {
         let inv = FrameInvalidation::new(24);
-        assert_eq!(inv.level(), InvalidationLevel::Full);
+        assert_eq!(inv.level(), InvalidationLevel::CursorOnly);
     }
 
     #[test]

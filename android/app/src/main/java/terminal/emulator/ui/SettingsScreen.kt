@@ -68,6 +68,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
+import terminal.emulator.bell.BellMode
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
@@ -275,6 +276,14 @@ private fun AppearanceSectionContent(
     CursorStyleSelector(
         selectedStyle = cursorStyleValue,
         onStyleSelected = { viewModel.setCursorStyle(it) },
+        textColor = textColor,
+        accentColor = accentColor,
+        cardBackground = backgroundColor,
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    BellModeSelector(
+        selectedModeId = settings.bellMode,
+        onModeSelected = { viewModel.setBellMode(it) },
         textColor = textColor,
         accentColor = accentColor,
         cardBackground = backgroundColor,
@@ -1467,5 +1476,28 @@ private fun CursorStyleSelector(
         onOptionSelected = onStyleSelected,
         testTag = "CursorStyleSelector",
         optionTestTagPrefix = "CursorStyle",
+    )
+}
+
+@Composable
+private fun BellModeSelector(
+    selectedModeId: Int,
+    onModeSelected: (Int) -> Unit,
+    textColor: Color,
+    accentColor: Color,
+    cardBackground: Color,
+) {
+    val options =
+        BellMode.entries.map { mode ->
+            mode.id.toString() to mode.displayName
+        }
+    SettingsSelectorRow(
+        title = stringResource(R.string.bell_mode),
+        selectedKey = selectedModeId.toString(),
+        options = options,
+        colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
+        onOptionSelected = { key -> onModeSelected(key.toInt()) },
+        testTag = "BellModeSelector",
+        optionTestTagPrefix = "BellMode",
     )
 }

@@ -1691,6 +1691,7 @@ dependencies = [
  "quickcheck",
  "quickcheck_macros",
  "raw-window-handle",
+ "regex",
  "renderdoc",
  "schemars",
  "serde",

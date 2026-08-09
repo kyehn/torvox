@@ -825,7 +825,7 @@ fn decset_mouse_tracking_1000() {
 /// drops mouse events when `get_mouse_mode()` is false.
 #[test]
 fn encode_mouse_event_gated_off_without_tracking_mode() {
-    let mut t = term();
+    let t = term();
     let encoded = t.encode_mouse_event((50.0, 60.0), 0, 0, 10.0, 20.0);
     let encoded = encoded.expect("encode_mouse_event should return Some");
     assert!(

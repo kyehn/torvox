@@ -159,6 +159,7 @@ static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
 /// captured one (spec d4: terminal_info exposes the session exit code).
 /// Lock order: SESSION_REGISTRY → Session → exit_code (see module docs).
 /// `None` for unknown sessions and for sessions still running.
+#[cfg(feature = "mcp")]
 pub(crate) fn session_exit_code(session_id: u64) -> Option<i32> {
     let registry = SESSION_REGISTRY.read();
     let entry = registry.get(&session_id)?;
@@ -380,6 +381,7 @@ pub(crate) fn push_event(event: Event) {
 /// clipboard" response.
 const CLIPBOARD_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
+#[cfg(feature = "mcp")]
 fn wait_for_clipboard_answer(mut rx: tokio::sync::oneshot::Receiver<String>) -> String {
     let deadline = std::time::Instant::now() + CLIPBOARD_ANSWER_TIMEOUT;
     loop {
@@ -396,6 +398,7 @@ fn wait_for_clipboard_answer(mut rx: tokio::sync::oneshot::Receiver<String>) -> 
     }
 }
 
+#[cfg(feature = "mcp")]
 pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::Receiver<String>) {
     let (tx, rx) = tokio::sync::oneshot::channel();
     let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
@@ -1231,6 +1234,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
     // holding the registry read lock that long would block destroySession/
     // initSession write locks (RwLock writer starvation).
     let mut pending_exits: Vec<(u64, Arc<Mutex<Session>>)> = Vec::new();
+    #[cfg(feature = "mcp")]
     let mut pending_clipboard_reads: Vec<(u64, String)> = Vec::new();
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
     {
@@ -1263,6 +1267,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
                 // one-shot slot + responder thread are set up after the
                 // registry/session locks are released (see below) so the
                 // lock order stays single-directional.
+                #[cfg(feature = "mcp")]
                 if let Some(selection) = session.poll_clipboard_read() {
                     pending_clipboard_reads.push((active_id, selection));
                 }
@@ -1329,6 +1334,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
     // event, and spawn a short-lived responder thread that writes the
     // host-app answer back to the PTY. The VT thread must never block on
     // the host app, and clipboardResult may arrive on any thread.
+    #[cfg(feature = "mcp")]
     for (session_id, selection) in pending_clipboard_reads {
         let (request_id, rx) = register_request(session_id);
         pending_events.push(Event::ClipboardRead {
@@ -1817,12 +1823,12 @@ fn detach_window_inner(_env: &mut JNIEnv, _class: JClass, _session_id: jlong) {
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setMcpSocketPath(
     mut env: JNIEnv,
     _class: JClass,
-    path: JString,
+    _path: JString,
 ) {
     jni_export_guard!(&mut env, (), {
         #[cfg(feature = "mcp")]
         {
-            if let Ok(s) = env.get_string(&path) {
+            if let Ok(s) = env.get_string(&_path) {
                 crate::mcp::set_socket_path(s.into());
                 log::info!("setMcpSocketPath: {}", crate::mcp::socket_path());
             }

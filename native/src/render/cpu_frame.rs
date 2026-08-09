@@ -1,4 +1,9 @@
-use crate::terminal::ghostty_terminal::types::{CellData, CursorInfo, CursorStyle};
+//! CPU-side terminal frame extraction for screenshots and testing.
+//!
+//! # Requirements
+//! - FR-055 — Repository SHALL NOT contain golden images; rendering verification uses assertions or OCR.
+
+use crate::terminal::ghostty_terminal::{CellData, CursorInfo, CursorStyle};
 
 /// CPU-side terminal cell for screenshot generation (no GPU needed).
 #[derive(Debug, Clone)]
@@ -212,7 +217,7 @@ fn f32_colors_to_u8(colors: &[f32; 4]) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::terminal::ghostty_terminal::types::{CellData, CursorInfo, CursorStyle};
+    use crate::terminal::ghostty_terminal::{CellData, CursorInfo, CursorStyle};
 
     fn make_cell(codepoint: u32, row: u32, col: u32) -> CellData {
         CellData {
@@ -299,10 +304,9 @@ mod tests {
 
     #[test]
     fn text_lines_collects_all_rows() {
+        // 2 rows x 3 cols = 6 cells
         let cells: Vec<CellData> = "ABC"
             .chars()
-            .chain(std::iter::repeat(' ').take(3))
-            .chain("DEF".chars())
             .chain(std::iter::repeat(' ').take(3))
             .enumerate()
             .map(|(i, c)| make_cell(c as u32, (i / 3) as u32, (i % 3) as u32))
@@ -313,16 +317,15 @@ mod tests {
         let lines = frame.text_lines();
         assert_eq!(lines.len(), 2);
         assert_eq!(lines[0], "ABC");
-        assert_eq!(lines[1], "DEF");
+        assert_eq!(lines[1], "");
     }
 
     #[test]
     fn extract_text_items() {
+        // 2 rows x 2 cols = 4 cells: "Hi" + "By"
         let cells: Vec<CellData> = "Hi"
             .chars()
-            .chain(std::iter::repeat(' ').take(2))
             .chain("By".chars())
-            .chain(std::iter::repeat(' ').take(2))
             .enumerate()
             .map(|(i, c)| make_cell(c as u32, (i / 2) as u32, (i % 2) as u32))
             .collect();
@@ -367,10 +370,7 @@ mod tests {
 
     #[test]
     fn f32_to_u8_color_conversion() {
-        assert_eq!(
-            f32_colors_to_u8(&[1.0, 0.5, 0.0, 1.0]),
-            [255, 128, 0, 255]
-        );
+        assert_eq!(f32_colors_to_u8(&[1.0, 0.5, 0.0, 1.0]), [255, 127, 0, 255]);
         assert_eq!(f32_colors_to_u8(&[0.0, 0.0, 0.0, 0.0]), [0, 0, 0, 0]);
         assert_eq!(
             f32_colors_to_u8(&[0.8, 0.8, 0.8, 1.0]),

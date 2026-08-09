@@ -75,6 +75,7 @@
 //! mcp::run_stdio(state).await?;
 //! ```
 
+use base64::Engine as _;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::json;
@@ -118,7 +119,7 @@ fn peer_uid_of(fd: std::os::fd::RawFd) -> Option<u32> {
         )
     };
     if rc != 0 {
-        log::warn!(
+        log::debug!(
             "MCP server: getsockopt(SO_PEERCRED) failed: {}",
             std::io::Error::last_os_error()
         );
@@ -143,6 +144,7 @@ struct PeerCheckedListener {
 
 impl PeerCheckedListener {
     fn new(inner: tokio::net::UnixListener) -> Self {
+        // SAFETY: getuid(2) is always safe — returns the real user ID of the calling process.
         let own_uid = unsafe { libc::getuid() };
         Self::with_own_uid(inner, own_uid)
     }
@@ -219,7 +221,6 @@ impl axum::serve::Listener for PeerCheckedListener {
                     }
                     #[cfg(not(any(target_os = "android", target_os = "linux")))]
                     {
-                        let _ = (stream, addr);
                         return (stream, addr);
                     }
                 }
@@ -298,6 +299,8 @@ type CallbackPickFile =
 type CallbackSendSignal = Box<dyn Fn(u64, i32) -> String + Send + Sync>;
 type CallbackRunCommand =
     Box<dyn Fn(u64, String) -> (u64, tokio::sync::oneshot::Receiver<String>) + Send + Sync>;
+type CallbackScreenshot =
+    Box<dyn Fn(u64) -> (u64, tokio::sync::oneshot::Receiver<(u32, u32, Vec<u8>)>) + Send + Sync>;
 
 /// Thread-safe state shared between JNI bridge and MCP tools.
 #[derive(Clone)]
@@ -313,6 +316,7 @@ struct McpStateInner {
     on_pick_file: Mutex<Option<CallbackPickFile>>,
     on_send_signal: Mutex<Option<CallbackSendSignal>>,
     on_run_command: Mutex<Option<CallbackRunCommand>>,
+    on_screenshot: Mutex<Option<CallbackScreenshot>>,
     terminal_rows: AtomicU32,
     terminal_cols: AtomicU32,
     active_session_id: AtomicU64,
@@ -330,6 +334,7 @@ impl McpState {
             on_pick_file: Mutex::new(None),
             on_send_signal: Mutex::new(None),
             on_run_command: Mutex::new(None),
+            on_screenshot: Mutex::new(None),
             terminal_rows: AtomicU32::new(24),
             terminal_cols: AtomicU32::new(80),
             active_session_id: AtomicU64::new(0),
@@ -424,6 +429,18 @@ impl McpState {
         F: Fn(u64, String) -> (u64, tokio::sync::oneshot::Receiver<String>) + Send + Sync + 'static,
     {
         *self.0.on_run_command.lock() = Some(Box::new(f));
+    }
+
+    /// Set the handler for MCP `screenshot`. The handler receives the session_id
+    /// and returns a channel that will receive the RGBA image bytes.
+    pub fn set_screenshot_handler<F>(&self, f: F)
+    where
+        F: Fn(u64) -> (u64, tokio::sync::oneshot::Receiver<(u32, u32, Vec<u8>)>)
+            + Send
+            + Sync
+            + 'static,
+    {
+        *self.0.on_screenshot.lock() = Some(Box::new(f));
     }
 }
 
@@ -791,6 +808,50 @@ fn run_command_tool() -> Tool {
         .build()
 }
 
+/// MCP tool: capture the current terminal screen as a PNG image.
+fn screenshot_tool() -> Tool {
+    ToolBuilder::new("screenshot")
+        .title("Screenshot terminal screen")
+        .description(
+            "Capture the current terminal rendering as a base64-encoded PNG image. \
+             Returns the image dimensions and raw pixel data.",
+        )
+        .handler(|_input: ()| async move {
+            let state = global_state();
+            let session_id = state.0.active_session_id.load(Ordering::Acquire);
+            if session_id == 0 {
+                return Ok(CallToolResult::error("No active terminal session"));
+            }
+            let rx = {
+                let guard = state.0.on_screenshot.lock();
+                guard
+                    .as_ref()
+                    .map(|callback| callback(session_id))
+            };
+            match rx {
+                Some((request_id, rx)) => {
+                    match tokio::time::timeout(Duration::from_secs(10), rx).await {
+                        Ok(Ok((width, height, rgba_bytes))) => {
+                            let b64 = base64::engine::general_purpose::STANDARD
+                                .encode(&rgba_bytes);
+                            Ok(CallToolResult::text(format!(
+                                "{{\"width\":{width},\"height\":{height},\"format\":\"rgba\",\"data\":\"{b64}\"}}"
+                            )))
+                        }
+                        _ => {
+                            crate::android::ffi::cancel_request(session_id, request_id);
+                            Ok(CallToolResult::error("Screenshot cancelled or timed out"))
+                        }
+                    }
+                }
+                None => Ok(CallToolResult::error(
+                    "Screenshot not available (no handler registered)",
+                )),
+            }
+        })
+        .build()
+}
+
 fn build_router() -> McpRouter {
     McpRouter::new()
         .server_info("terminal", env!("CARGO_PKG_VERSION"))
@@ -804,6 +865,7 @@ fn build_router() -> McpRouter {
         .tool(pick_file_tool())
         .tool(dialog_tool())
         .tool(run_command_tool())
+        .tool(screenshot_tool())
 }
 
 // ── Server lifecycle ─────────────────────────────────────────────────────
@@ -1040,7 +1102,8 @@ mod tests {
         assert!(names.contains(&"send_signal"));
         assert!(names.contains(&"pick_file"));
         assert!(names.contains(&"dialog"));
-        assert_eq!(names.len(), 10);
+        assert!(names.contains(&"screenshot"));
+        assert_eq!(names.len(), 11);
     }
 
     #[tokio::test(flavor = "current_thread")]
