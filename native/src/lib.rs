@@ -35,6 +35,9 @@
 
 pub mod event;
 
+// ── Platform traits (clipboard, capabilities, etc.) ────────────────────
+pub mod platform;
+
 // ── Terminal engine (ex terminal-engine) ─────────────────────────────────
 pub mod terminal;
 

@@ -286,9 +286,13 @@ fun TerminalScreen(
                     matches.map { (row, startCol, endCol) ->
                         SearchResult(lineIndex = row, startIndex = startCol, endIndex = endCol)
                     }
-                val isNarrowing =
-                    query.isNotEmpty() && searchState.previousQuery.isNotEmpty() &&
-                        query.length < searchState.previousQuery.length && searchState.previousQuery.startsWith(query)
+                // narrowing_down: GNOME Console (kgx) uses g_strrstr() to check
+                // if the last_search string *contains* the current query — not just
+                // prefix matching. This allows narrowing to work when the user
+                // deletes characters from the middle or end of a search string,
+                // not only when they remove the last characters.
+                // See: kgx-tab.c:191-250 (search_changed callback).
+                val isNarrowing = SearchResult.isNarrowingDown(query, searchState.previousQuery)
                 val newIndex =
                     if (isNarrowing && results.isNotEmpty()) {
                         searchState.currentIndex.coerceIn(0, results.size - 1)
@@ -749,6 +753,7 @@ fun TerminalScreen(
                         } else {
                             null
                         },
+                        copyEnabled = selectionActive,
                         onSelectAll =
                         if (selectionActive) {
                             { viewModel.selectAll() }

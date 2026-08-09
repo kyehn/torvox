@@ -14,7 +14,9 @@
 //! - FR-050 — Android surface lifecycle (attach/detach) recreates the wgpu surface and pipeline
 
 // ── Sub-modules ──────────────────────────────────────────────────────────
+pub mod cpu_frame;
 pub mod font;
+pub mod invalidation;
 #[cfg(not(target_os = "android"))]
 pub mod renderdoc_capture;
 
@@ -30,6 +32,8 @@ mod tests;
 
 // ── Re-exports ───────────────────────────────────────────────────────────
 pub use cell_builder::{CellCursor, build_instances_from_cell_data};
+pub use cpu_frame::{CpuCell, CpuCursor, CpuFrame, TextHit, TextItem};
+pub use invalidation::{FrameInvalidation, InvalidationLevel};
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
 pub(crate) use cell_builder::{SearchHighlight, SelectionRange, blend_highlight, cell_highlight};
