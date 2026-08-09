@@ -7,6 +7,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
+import android.os.SystemClock
 import android.util.AttributeSet
 import android.util.Log
 import android.view.ActionMode
@@ -107,6 +108,19 @@ constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        // Force-hide the IME: a detach can happen during rotation or back
+        // press while the soft keyboard is open.  Without this the keyboard
+        // remains visible over a destroyed Activity window (stuck-keyboard
+        // bug).
+        try {
+            val imm =
+                context.getSystemService(
+                    android.content.Context.INPUT_METHOD_SERVICE,
+                ) as android.view.inputmethod.InputMethodManager
+            imm.hideSoftInputFromWindow(windowToken, 0)
+        } catch (_: Exception) {
+            // View already torn down — ignore.
+        }
         // Stop the edge-scroll self-loop: it is driven by postDelayed and
         // only stops on ACTION_UP/CANCEL. A detach mid-drag (rotation,
         // window destruction) would otherwise leave it running forever,
@@ -164,6 +178,7 @@ constructor(
     fun hideSelectionHandles() = selectionHandles.hideSelectionHandles()
 
     private var selectionActionMode: android.view.ActionMode? = null
+    private var toolbarSelGeom: Long = 0L
 
     /**
      * System selection toolbar (ActionMode).
@@ -213,6 +228,18 @@ constructor(
                     MENU_ACTION_PASTE,
                     2,
                     R.string.paste,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_ANCHOR_LEFT,
+                    3,
+                    R.string.select_anchor_left,
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                menu.add(
+                    android.view.Menu.NONE,
+                    MENU_ACTION_ANCHOR_RIGHT,
+                    4,
+                    R.string.select_anchor_right,
                 ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
             }
             return true
@@ -268,6 +295,7 @@ constructor(
                 right.toInt(),
                 bottom.toInt().coerceAtMost(view.height),
             )
+            toolbarSelGeom = selectionGeometryKey()
         }
 
         override fun onActionItemClicked(
@@ -290,6 +318,18 @@ constructor(
                     viewModel?.pasteFromClipboard()
                     viewModel?.clearSelection()
                     mode.finish()
+                }
+
+                MENU_ACTION_ANCHOR_LEFT -> {
+                    viewModel?.moveSelectionAnchor(-1)
+                    mode.invalidate()
+                    return true
+                }
+
+                MENU_ACTION_ANCHOR_RIGHT -> {
+                    viewModel?.moveSelectionAnchor(1)
+                    mode.invalidate()
+                    return true
                 }
 
                 else -> return false
@@ -323,6 +363,32 @@ constructor(
     fun hideSelectionMenu() {
         selectionActionMode?.finish()
         selectionActionMode = null
+    }
+
+    /**
+     * Pack the current selection rect into a 48-bit Long for O(1) comparison.
+     * Reference: ghostty-android TerminalView.java:1157-1170.
+     */
+    private fun selectionGeometryKey(): Long {
+        val sel = viewModel?.state?.value?.selection ?: return 0L
+        val s = sel.start ?: return 0L
+        val e = sel.end ?: return 0L
+        val top = minOf(s.row, e.row).toLong()
+        val bottom = maxOf(s.row, e.row).toLong()
+        val left = minOf(s.col, e.col).toLong()
+        val right = maxOf(s.col, e.col).toLong()
+        return (top shl 48) or (bottom shl 32) or (left shl 16) or right
+    }
+
+    /**
+     * Re-show the selection toolbar after handle drag ends.
+     * Reference: ghostty-android TerminalView.java:1239-1250.
+     * `hide(0)` immediately cancels the framework's internal hide-requested flag.
+     */
+    private fun reshowToolbar() {
+        toolbarSelGeom = selectionGeometryKey()
+        selectionActionMode?.invalidateContentRect()
+        selectionActionMode?.hide(0)
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -958,6 +1024,8 @@ constructor(
         private const val MENU_ACTION_COPY = 1
         private const val MENU_ACTION_SELECT_ALL = 2
         private const val MENU_ACTION_PASTE = 3
+        private const val MENU_ACTION_ANCHOR_LEFT = 4
+        private const val MENU_ACTION_ANCHOR_RIGHT = 5
 
         // Floating toolbar anchor offset below the selection top (termux
         // TextSelectionCursorController uses the handle height; a fixed
@@ -1121,6 +1189,7 @@ constructor(
     var isAfterLongPress = false
 
     var lastTapTime = 0L
+    private var tapCount = 0
 
     @JvmField
     var scaleFactor = 1.0f
@@ -1313,6 +1382,18 @@ constructor(
             }
 
             override fun onSingleTapUp(event: MotionEvent): Boolean {
+                // Multi-tap selection (ghostty-android pattern): count
+                // rapid taps and handle word/line/select-all on tap 2/3/4+.
+                val now = SystemClock.uptimeMillis()
+                if (now - lastTapTime < DOUBLE_TAP_WINDOW_MS) {
+                    tapCount++
+                } else {
+                    tapCount = 1
+                }
+                lastTapTime = now
+
+                if (handleMultiTap(event)) return true
+
                 if (isAfterLongPress) {
                     isAfterLongPress = false
                     longPressDragging = false
@@ -1372,36 +1453,7 @@ constructor(
             }
 
             override fun onDoubleTap(event: MotionEvent): Boolean {
-                if (isSelectingText) {
-                    viewModel?.clearSelection()
-                    return true
-                }
-                val now = System.currentTimeMillis()
-                if (now - lastTapTime < DOUBLE_TAP_WINDOW_MS) {
-                    val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-                    val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
-                    val gridRow = currentScrollbackLength() - scrollOffset + row
-                    viewModel?.setSelectionMode(SelectionMode.Line)
-                    viewModel?.startSelection(gridRow, 0)
-                    val bridge = viewModel?.runtime?.bridge()
-                    val line = bridge?.scrollbackLine(gridRow) ?: ""
-                    viewModel?.updateSelection(gridRow, line.length.coerceAtLeast(0))
-                    viewModel?.endSelection()
-                    selectionHandles.showSelectionHandles(gridRow, 0, gridRow, line.length.coerceAtLeast(0), getAccentColor())
-                } else {
-                    startSelectionAt(event, expandToWord = true)
-                    val currentSelection = viewModel?.state?.value?.selection
-                    if (currentSelection?.active == true && currentSelection.start != null && currentSelection.end != null) {
-                        selectionHandles.showSelectionHandles(
-                            currentSelection.start.row,
-                            currentSelection.start.col,
-                            currentSelection.end.row,
-                            currentSelection.end.col,
-                            getAccentColor(),
-                        )
-                    }
-                }
-                lastTapTime = now
+                // Multi-tap is handled in onSingleTapUp using tapCount self-counting
                 return true
             }
 
@@ -1733,14 +1785,69 @@ constructor(
         clipboardPaster.pasteTo { inputBatchBuffer.write(it) }
     }
 
+    /**
+     * Handle multi-tap selection (ghostty-android pattern).
+     * Returns true if the event was consumed (tapCount >= 2).
+     */
+    private fun handleMultiTap(event: MotionEvent): Boolean {
+        when {
+            tapCount >= 4 -> {
+                viewModel?.selectAll()
+                showHandlesIfActive()
+                return true
+            }
+
+            tapCount == 3 -> {
+                startSelectionAt(event, selectLine = true)
+                showHandlesIfActive()
+                return true
+            }
+
+            tapCount == 2 -> {
+                startSelectionAt(event, expandToWord = true)
+                showHandlesIfActive()
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun showHandlesIfActive() {
+        val sel = viewModel?.state?.value?.selection ?: return
+        if (sel.active && sel.start != null && sel.end != null) {
+            selectionHandles.showSelectionHandles(
+                sel.start.row,
+                sel.start.col,
+                sel.end.row,
+                sel.end.col,
+                getAccentColor(),
+            )
+        }
+    }
+
     private fun startSelectionAt(
         event: MotionEvent,
         expandToWord: Boolean = false,
+        selectLine: Boolean = false,
     ) {
         val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
         val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
 
-        if (expandToWord) {
+        if (selectLine) {
+            // Triple-tap line selection: select the entire line at the tap row.
+            val scrollbackLength = currentScrollbackLength()
+            val gridRow = scrollbackLength - scrollOffset + row
+            viewModel?.setSelectionMode(SelectionMode.Line)
+            viewModel?.startSelection(gridRow, 0)
+            val bridge = viewModel?.runtime?.bridge()
+            val line = bridge?.scrollbackLine(gridRow) ?: ""
+            viewModel?.updateSelection(gridRow, line.length.coerceAtLeast(0))
+            viewModel?.endSelection()
+            Log.d(
+                "Selection",
+                "TRIPLE_TAP line: tapRow=$row gridRow=$gridRow lineLen=${line.length}",
+            )
+        } else if (expandToWord) {
             // Use the core-backed expansion (CJK / URL aware) so double-tap word
             // selection matches long-press exactly — no divergent client logic.
             val bridge = viewModel?.runtime?.bridge()
@@ -1933,6 +2040,7 @@ constructor(
                     } else {
                         viewModel?.clearSelection()
                         selectionHandles.hideSelectionHandles()
+                        selectionActionMode?.hide(0)
                     }
                 }
             }
@@ -2018,6 +2126,7 @@ constructor(
                             selection.end.col,
                             getAccentColor(),
                         )
+                        reshowToolbar()
                         // The selection menu is rendered as a PopupWindow
                         // (system ActionMode), driven by the view-model state.
                     }

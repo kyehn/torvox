@@ -40,8 +40,8 @@ import terminal.emulator.input.next
 import terminal.emulator.input.toKeyboardMode
 import terminal.emulator.input.toSettingsString
 import terminal.emulator.runtime.ClipboardAccess
-import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.PasteChunker
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.SmartCopy
@@ -124,6 +124,14 @@ data class PastePopupRequest(
     val col: Int,
 )
 
+/** State for multi-line paste confirmation dialog. */
+data class PasteConfirmationState(
+    val visible: Boolean = false,
+    val text: String = "",
+    val lineCount: Int = 0,
+    val charCount: Int = 0,
+)
+
 data class SessionInfo(
     val id: Long,
     val title: String,
@@ -170,7 +178,6 @@ constructor(
     val runtime: TerminalRuntime,
 ) : ViewModel() {
     private val clipboardAccess = ClipboardAccess(context, tag = "ViewModel")
-    private val clipboardPaster = ClipboardPaster(clipboardAccess)
 
     private val selectionManager = SelectionManager()
     private val fontManager = FontManager()
@@ -217,7 +224,20 @@ constructor(
 
     fun selectAll(scrollOffset: Int = 0) = selectionManager.selectAll(scrollOffset)
 
+    fun moveSelectionAnchor(deltaCol: Int) = selectionManager.moveSelectionAnchor(deltaCol)
+
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
+
+    fun confirmPaste() {
+        val text = _pasteConfirmation.value.text
+        _pasteConfirmation.value = PasteConfirmationState()
+        selectionManager.executePaste(text)
+    }
+
+    fun cancelPaste() {
+        _pasteConfirmation.value = PasteConfirmationState()
+    }
+
     fun writeToPty(data: ByteArray) {
         val written = runtime.writeToPty(data)
         if (!written) {
@@ -531,6 +551,32 @@ constructor(
             syncSelectionToNative()
         }
 
+        /**
+         * Move the selection start anchor by [deltaCol] columns (character-by-character
+         * navigation via d-pad buttons in the selection action bar).
+         * Reference: research-haven.md §2.3 anchor movement buttons.
+         */
+        fun moveSelectionAnchor(deltaCol: Int) {
+            val current = _state.value.selection
+            val anchor = current.start ?: return
+            val newCol = (anchor.col + deltaCol).coerceAtLeast(0)
+            val newStart = anchor.copy(col = newCol)
+            // Ensure start doesn't cross past end
+            val end = current.end ?: return
+            val clamped = if (
+                newStart.row > end.row ||
+                (newStart.row == end.row && newStart.col >= end.col)
+            ) {
+                anchor.copy(col = (end.col - 1).coerceAtLeast(0))
+            } else {
+                newStart
+            }
+            val updated = current.copy(start = clamped, menuDismissed = false)
+            val text = extractSelectedText(updated)
+            _state.update { it.copy(selection = updated.copy(selectedText = text)) }
+            syncSelectionToNative()
+        }
+
         @Suppress("CyclomaticComplexMethod")
         private fun extractSelectedText(selection: SelectionState): String {
             val start = selection.start ?: return ""
@@ -569,7 +615,7 @@ constructor(
                         endCol = tmp
                     }
                     if (startCol < visLine.length) {
-                        parts.add(visLine.substring(startCol, endCol))
+                        parts.add(extractBlockColumn(visLine, startCol, endCol))
                     }
                 }
                 return parts.joinToString("\n")
@@ -626,12 +672,80 @@ constructor(
             return false
         }
 
+        private fun isWideChar(ch: Char): Boolean {
+            val type = Character.getType(ch)
+            return type == Character.OTHER_SYMBOL.toInt() ||
+                type == Character.LETTER_NUMBER.toInt() ||
+                type == Character.ENCLOSING_MARK.toInt() ||
+                ch.code in 0x1100..0x115F ||
+                ch.code in 0x2E80..0x9FFF ||
+                ch.code in 0xA000..0xA4CF ||
+                ch.code in 0xAC00..0xD7AF ||
+                ch.code in 0xF900..0xFAFF ||
+                ch.code in 0xFE30..0xFE6F ||
+                ch.code in 0xFF01..0xFF60 ||
+                ch.code in 0xFFE0..0xFFE6 ||
+                ch.code in 0x20000..0x2FA1F ||
+                ch.code in 0x30000..0x3134F
+        }
+
+        /**
+         * Extract a column-bounded rectangle slice from a single line,
+         * correctly handling CJK wide characters that occupy 2 cell columns.
+         */
+        private fun extractBlockColumn(
+            line: String,
+            startCol: Int,
+            endCol: Int,
+        ): String {
+            var col = 0
+            var charStart = -1
+            var charEnd = line.length
+            for ((i, ch) in line.withIndex()) {
+                val w = if (isWideChar(ch)) 2 else 1
+                if (col >= startCol && charStart < 0) charStart = i
+                if (col >= endCol) {
+                    charEnd = i
+                    break
+                }
+                col += w
+            }
+            if (charStart < 0) return ""
+            return line.substring(charStart, charEnd.coerceAtMost(line.length))
+        }
+
+        /**
+         * Paste clipboard content. For multi-line or long content (>1 line or
+         * >500 chars), shows a confirmation dialog first.
+         * Reference: research-gnome-console.md §4 paste confirmation.
+         */
         fun pasteFromClipboard(): Int {
-            val written = clipboardPaster.pasteTo { runtime.writeToPty(it) }
-            // Close the floating menu after the action (round-214); the
-            // selection highlight stays until the next tap.
+            val text = clipboardAccess.clipboardText() ?: return 0
+            val lines = text.lines()
+            if (lines.size > 1 || text.length > 500) {
+                _pasteConfirmation.update {
+                    PasteConfirmationState(
+                        visible = true,
+                        text = text,
+                        lineCount = lines.size,
+                        charCount = text.length,
+                    )
+                }
+                _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
+                return 0
+            }
+            return executePaste(text)
+        }
+
+        /** Actually send [text] to PTY via the chunker. */
+        fun executePaste(text: String): Int {
+            var offset = 0
+            for (chunk in PasteChunker().chunks(text)) {
+                runtime.writeToPty(chunk.toByteArray())
+                offset += chunk.length
+            }
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-            return written
+            return offset
         }
     }
 
@@ -843,6 +957,9 @@ constructor(
 
     private val _state = MutableStateFlow(TerminalState())
     val state: StateFlow<TerminalState> = _state.asStateFlow()
+
+    private val _pasteConfirmation = MutableStateFlow(PasteConfirmationState())
+    val pasteConfirmation: StateFlow<PasteConfirmationState> = _pasteConfirmation.asStateFlow()
 
     @Volatile var currentSurface: Surface? = null
 
@@ -1275,6 +1392,12 @@ constructor(
 
     fun setCursorStyle(style: String) = applyCursorSetting({ settingsRepository.setCursorStyle(style) }) { bridge ->
         bridge.setCursorStyle(style)
+    }
+
+    fun setBellMode(modeId: Int) {
+        viewModelScope.launch {
+            settingsRepository.setBellMode(modeId)
+        }
     }
 
     /**

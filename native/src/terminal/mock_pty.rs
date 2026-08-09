@@ -153,6 +153,10 @@ impl Pty for MockPty {
         nix::unistd::Pid::from_raw(4_194_305)
     }
 
+    fn foreground_pid(&self) -> Option<nix::unistd::Pid> {
+        None
+    }
+
     fn master_fd(&self) -> RawFd {
         -1
     }

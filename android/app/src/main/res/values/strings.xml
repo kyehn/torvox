@@ -146,7 +146,27 @@
     <string name="cursor_blink_desc">Toggle cursor blinking animation</string>
     <string name="cursor_speed">Blink Speed</string>
     <string name="cursor_style_label">Cursor Style</string>
+
+    <!-- Bell Mode -->
+    <string name="bell_mode">Bell Mode</string>
+    <string name="bell_mode_desc">How the terminal bell behaves</string>
+
     <string name="save">Save</string>
     <string name="delete">Delete</string>
     <string name="user_themes">User themes</string>
+
+    <!-- Accessibility -->
+    <string name="selection_accessible">Selected: %1$s</string>
+    <string name="search_result_accessible">Match %1$d of %2$d</string>
+    <string name="search_no_results_accessible">No results found</string>
+
+    <!-- Paste confirmation -->
+    <string name="paste_confirm_title">Confirm Paste</string>
+    <string name="paste_confirm_detail">Pasting %1$d lines (%2$d characters).\nThis will be sent to the terminal.</string>
+    <string name="paste_confirm_yes">Paste</string>
+    <string name="paste_confirm_no">Cancel</string>
+
+    <!-- Selection anchor movement -->
+    <string name="select_anchor_left">◀</string>
+    <string name="select_anchor_right">▶</string>
 </resources>

@@ -32,14 +32,14 @@ mod tests;
 
 // ── Re-exports ───────────────────────────────────────────────────────────
 pub use cell_builder::{CellCursor, build_instances_from_cell_data};
-pub use cpu_frame::{CpuCell, CpuCursor, CpuFrame, TextHit, TextItem};
-pub use invalidation::{FrameInvalidation, InvalidationLevel};
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
 pub(crate) use cell_builder::{SearchHighlight, SelectionRange, blend_highlight, cell_highlight};
 pub use context::FrameContext;
 pub use context::Renderer;
 pub use context::orthographic_projection;
+pub use cpu_frame::{CpuCell, CpuCursor, CpuFrame, TextHit, TextItem};
+pub use invalidation::{FrameInvalidation, InvalidationLevel};
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
 pub(crate) use old_path::{

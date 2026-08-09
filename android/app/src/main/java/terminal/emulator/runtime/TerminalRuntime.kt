@@ -1,8 +1,6 @@
 package terminal.emulator.runtime
 
 import android.content.Context
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -25,6 +23,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import terminal.emulator.bell.BellHandler
+import terminal.emulator.bell.BellMode
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.BridgeTheme
 import terminal.emulator.bridge.NativeBridge
@@ -179,16 +179,15 @@ constructor(
 
     private val eventDispatcher = EventDispatcher()
 
+    /** BellHandler with 4-mode support (SOUND/VIBRATE/SCREEN_FLASH/SILENT) and 150ms debounce. */
+    private val bellHandler = BellHandler(context)
+
     init {
-        // Warm up the bell ToneGenerator off the render thread: the first
-        // bell would otherwise construct it (AudioManager connect) inline
-        // in the render loop, stalling a frame. The lazy is thread-safe;
-        // whoever touches it first wins, and failure is harmless (the lazy
-        // simply retries on the next bell).
-        Thread { bellToneGenerator }.apply {
-            isDaemon = true
-            name = "BellToneWarmUp"
-            start()
+        // Sync bell handler mode from persisted setting on startup.
+        // Uses a local scope since the class-level `scope` is not yet initialized.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            val modeId = settingsRepository.bellMode.first()
+            bellHandler.setMode(BellMode.fromId(modeId))
         }
     }
 
@@ -1391,10 +1390,7 @@ constructor(
 
         fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
             if (poll.bel) {
-                bellToneGenerator.startTone(BEL_TONE_TYPE, BEL_TONE_DURATION_MILLIS)
-                // Accessibility (termlib AccessibilityOverlay live-region
-                // pattern): announce the bell so TalkBack users hear it.
-                announceAccessibility("Bell")
+                bellHandler.fireBell(onAccessibility = { announceAccessibility(it) })
             }
             if (poll.notification != null) {
                 val (title, body) = poll.notification
@@ -1621,10 +1617,6 @@ constructor(
         private const val RENDER_IDLE_THRESHOLD_NANOS = 5_000_000_000L // 5s idle → switch to low-freq
         private const val RENDER_DIAGNOSTIC_FREQUENCY = 60
         private const val THREAD_JOIN_TIMEOUT_MS = 1000L
-        private const val BEL_TONE_STREAM_TYPE = AudioManager.STREAM_NOTIFICATION
-        private const val BEL_TONE_VOLUME = 50
-        private const val BEL_TONE_TYPE = ToneGenerator.TONE_PROP_ACK
-        private const val BEL_TONE_DURATION_MILLIS = 200
         private const val RENDER_HANG_TIMEOUT_NANOS = 10_000_000_000L // 10 seconds
         private const val RENDER_INITIAL_RETRY_MAX = 5
         private const val RENDER_INITIAL_RETRY_DELAY_MS = 150L
@@ -1635,11 +1627,6 @@ constructor(
         private const val INITIAL_RESTART_DELAY_MS = 100L
         private const val MAX_RESTART_DELAY_MS = 1000L
         private const val GRACE_PERIOD_AFTER_RESTART_MS = 300L
-
-        /** Cached ToneGenerator for bell — avoids per-event allocation. */
-        private val bellToneGenerator by lazy {
-            ToneGenerator(BEL_TONE_STREAM_TYPE, BEL_TONE_VOLUME)
-        }
     }
 
     private data class ConfigReads(

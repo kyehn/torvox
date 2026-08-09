@@ -14,14 +14,17 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -29,6 +32,7 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -48,6 +52,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -56,6 +61,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SelectionAnchor
@@ -71,6 +77,7 @@ import kotlin.math.roundToInt
 private const val FONT_SIZE_MIN = 8f
 private const val FONT_SIZE_MAX = 48f
 private const val SEARCH_MATCH_ALPHA = 0.25f
+private const val SEARCH_DEBOUNCE_MS = 150L
 
 /** Selection drag-handle drawable width (Material `text_select_handle_*`, 48dp). */
 private const val SELECTION_HANDLE_WIDTH_DP = 48f
@@ -178,6 +185,21 @@ fun TerminalScreen(
         }
     }
 
+    LaunchedEffect(state.selection.active, state.selection.start, state.selection.end) {
+        val sel = state.selection
+        if (sel.active && sel.hasSelection) {
+            val text = sel.selectedText
+            if (text.isNotEmpty()) {
+                val preview = if (text.length > 100) text.take(100) + "..." else text
+                hostView.announceForAccessibility(
+                    context.getString(R.string.selection_accessible, preview),
+                )
+            }
+        }
+    }
+
+    // Selection accessibility is announced from the search effect below (after searchState is declared).
+
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
     }
@@ -207,6 +229,43 @@ fun TerminalScreen(
         modifier = modifier,
     ) {
         val snackbarHostState = remember { SnackbarHostState() }
+
+        // ── Paste confirmation dialog ─────────────────────────────────
+        val pasteConfirmation by viewModel.pasteConfirmation.collectAsStateWithLifecycle()
+        if (pasteConfirmation.visible) {
+            AlertDialog(
+                onDismissRequest = { viewModel.cancelPaste() },
+                title = { Text(stringResource(R.string.paste_confirm_title)) },
+                text = {
+                    Column {
+                        Text(
+                            stringResource(
+                                R.string.paste_confirm_detail,
+                                pasteConfirmation.lineCount,
+                                pasteConfirmation.charCount,
+                            ),
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = pasteConfirmation.text.take(200) +
+                                if (pasteConfirmation.text.length > 200) "..." else "",
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 10,
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { viewModel.confirmPaste() }) {
+                        Text(stringResource(R.string.paste_confirm_yes))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { viewModel.cancelPaste() }) {
+                        Text(stringResource(R.string.paste_confirm_no))
+                    }
+                },
+            )
+        }
 
         Box(
             modifier =
@@ -252,6 +311,25 @@ fun TerminalScreen(
                 surfaceRef.value?.resetScrollOffset()
             }
 
+            // Announce search result count changes for TalkBack.
+            LaunchedEffect(searchState.resultCount, searchState.currentIndex, searchState.query) {
+                if (searchState.query.isNotEmpty()) {
+                    if (searchState.resultCount > 0) {
+                        hostView.announceForAccessibility(
+                            context.getString(
+                                R.string.search_result_accessible,
+                                searchState.currentIndex + 1,
+                                searchState.resultCount,
+                            ),
+                        )
+                    } else {
+                        hostView.announceForAccessibility(
+                            context.getString(R.string.search_no_results_accessible),
+                        )
+                    }
+                }
+            }
+
             fun scrollToMatchIfNeeded(match: SearchResult) {
                 val surface = surfaceRef.value ?: return
                 val visibleRows = surface.getRows()
@@ -271,6 +349,7 @@ fun TerminalScreen(
                     searchState = searchState.copy(results = emptyList())
                     return
                 }
+                surfaceRef.value?.finishComposing()
                 val bridge =
                     viewModel.runtime.bridge() ?: run {
                         searchState = searchState.copy(results = emptyList())
@@ -645,8 +724,10 @@ fun TerminalScreen(
                         onQueryChange = { query ->
                             searchState = searchState.copy(query = query)
                             searchJob?.cancel()
-                            searchJob =
-                                scope.launch { performSearch() }
+                            searchJob = scope.launch {
+                                delay(SEARCH_DEBOUNCE_MS)
+                                performSearch()
+                            }
                         },
                         resultCount = searchState.resultCount,
                         currentResultIndex = searchState.currentIndex,
@@ -769,6 +850,18 @@ fun TerminalScreen(
                         onShare =
                         if (selectionActive) {
                             { viewModel.shareSelection() }
+                        } else {
+                            null
+                        },
+                        onAnchorLeft =
+                        if (selectionActive) {
+                            { viewModel.moveSelectionAnchor(-1) }
+                        } else {
+                            null
+                        },
+                        onAnchorRight =
+                        if (selectionActive) {
+                            { viewModel.moveSelectionAnchor(1) }
                         } else {
                             null
                         },

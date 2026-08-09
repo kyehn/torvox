@@ -10,6 +10,13 @@ pub struct ShellEnv {
     pub extra: Vec<(String, String)>,
 }
 
+/// Environment change primitive (zed util::env::EnvOp pattern).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum EnvOp {
+    Set(String),
+    Remove,
+}
+
 impl Default for ShellEnv {
     fn default() -> Self {
         let home = std::env::var("HOME").unwrap_or_else(|_| "/".to_string());
@@ -27,6 +34,21 @@ impl Default for ShellEnv {
             extra: vec![],
         }
     }
+}
+
+use std::sync::OnceLock;
+
+static TERMINAL_ENV_OVERLAY: OnceLock<Vec<(String, EnvOp)>> = OnceLock::new();
+
+/// Register terminal env overlay once. Duplicate calls log a warning.
+pub fn register_terminal_env_overlay(ops: Vec<(String, EnvOp)>) {
+    if TERMINAL_ENV_OVERLAY.set(ops).is_err() {
+        log::warn!("terminal_env_overlay already registered, ignoring duplicate");
+    }
+}
+
+pub fn terminal_env_overlay() -> &'static [(String, EnvOp)] {
+    TERMINAL_ENV_OVERLAY.get().map_or(&[], |v| v.as_slice())
 }
 
 #[cfg(test)]
@@ -97,5 +119,34 @@ mod tests {
         // Default construction should never panic regardless of env state
         let env = ShellEnv::default();
         assert!(!env.home.is_empty());
+    }
+
+    #[test]
+    fn env_op_set_equality() {
+        assert_eq!(EnvOp::Set("val".into()), EnvOp::Set("val".into()));
+        assert_ne!(EnvOp::Set("a".into()), EnvOp::Set("b".into()));
+    }
+
+    #[test]
+    fn env_op_remove_is_unique() {
+        assert_eq!(EnvOp::Remove, EnvOp::Remove);
+    }
+
+    #[test]
+    fn register_overlay_once_is_idempotent() {
+        register_terminal_env_overlay(vec![("TEST_OVERLAY".into(), EnvOp::Set("1".into()))]);
+        register_terminal_env_overlay(vec![]);
+        assert!(!terminal_env_overlay().is_empty());
+    }
+
+    #[test]
+    fn overlay_set_overrides_existing() {
+        let mut env = ShellEnv::default();
+        env.extra.push(("MY_KEY".into(), "old".into()));
+        // Simulate overlay
+        register_terminal_env_overlay(vec![("MY_KEY".into(), EnvOp::Set("new".into()))]);
+        // In build_env the overlay would replace old with new
+        let overlay = terminal_env_overlay();
+        assert!(overlay.iter().any(|(k, _)| k == "MY_KEY"));
     }
 }

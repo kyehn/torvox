@@ -98,8 +98,10 @@ fun ModifierBar(
     onScrollClick: () -> Unit = {},
     ctrlState: ModifierState = ModifierState.Off,
     altState: ModifierState = ModifierState.Off,
+    fnState: ModifierState = ModifierState.Off,
     onToggleCtrl: () -> Unit = {},
     onToggleAlt: () -> Unit = {},
+    onToggleFn: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
     modifier: Modifier = Modifier,
@@ -111,6 +113,8 @@ fun ModifierBar(
     onSelectAll: (() -> Unit)? = null,
     onPaste: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
+    onAnchorLeft: (() -> Unit)? = null,
+    onAnchorRight: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
 ) {
     fun label(key: String): String = if (useNerdFontGlyphs) NerdKeyLabels.label(key) else key
@@ -118,7 +122,7 @@ fun ModifierBar(
 
     if (barMode == ModifierBarMode.SelectionActions) {
         SelectionActionsBar(
-            actions = SelectionActions(onCopy, copyEnabled, onSelectAll, onPaste, onShare, onDismiss),
+            actions = SelectionActions(onCopy, copyEnabled, onSelectAll, onPaste, onShare, onAnchorLeft, onAnchorRight, onDismiss),
             textColor = textColor,
             backgroundColor = backgroundColor,
             buttonHeight = buttonHeight,
@@ -190,6 +194,14 @@ fun ModifierBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ExtraKeyButton(
+                text = label("FN"),
+                onClick = { onToggleFn() },
+                textColor = textColor,
+                modifierState = fnState,
+                testTag = "Key_FN",
+                contentDescription = "Function key layer",
+            )
+            ExtraKeyButton(
                 text = label("TAB"),
                 onClick = { onKeyClick("\t") },
                 textColor = textColor,
@@ -255,6 +267,8 @@ private data class SelectionActions(
     val onSelectAll: (() -> Unit)?,
     val onPaste: (() -> Unit)?,
     val onShare: (() -> Unit)?,
+    val onAnchorLeft: (() -> Unit)?,
+    val onAnchorRight: (() -> Unit)?,
     val onDismiss: (() -> Unit)?,
 )
 
@@ -267,6 +281,8 @@ private fun SelectionActionsBar(
     modifier: Modifier,
 ) {
     val actionList = mutableListOf<Triple<String, () -> Unit, Boolean>>()
+    if (actions.onAnchorLeft != null) actionList.add(Triple("\u25c0", actions.onAnchorLeft, true))
+    if (actions.onAnchorRight != null) actionList.add(Triple("\u25b6", actions.onAnchorRight, true))
     if (actions.onCopy != null) actionList.add(Triple("Copy", actions.onCopy, actions.copyEnabled))
     if (actions.onSelectAll != null) actionList.add(Triple("Select All", actions.onSelectAll, true))
     if (actions.onPaste != null) actionList.add(Triple("Paste", actions.onPaste, true))
@@ -543,7 +559,7 @@ private fun RowScope.ExtraKeyButton(
                                         waitForUpOrCancellation()
                                     }
                                     break
-                                } catch (_: kotlinx.coroutines.TimeoutCancellationException) {
+                                } catch (_: TimeoutCancellationException) {
                                     onRepeat()
                                 }
                             }

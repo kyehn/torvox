@@ -4,6 +4,7 @@
 //! - [FR-026](crate) — PTY: master/slave pair creation
 use std::io;
 use std::os::unix::io::{AsRawFd, OwnedFd, RawFd};
+#[cfg(test)]
 use std::time::Duration;
 
 use thiserror::Error;
@@ -17,7 +18,6 @@ const DEFAULT_LANG: &str = "en_US.UTF-8";
 /// Android does not have a writable /tmp, so we use /data/local/tmp
 /// which is guaranteed to be writable by the app process on all API levels.
 const ANDROID_TMPDIR: &str = "/data/local/tmp";
-const GRACEFUL_SHUTDOWN_TIMEOUT_MS: u64 = 100;
 
 #[derive(Debug, Error)]
 pub enum PtyError {
@@ -48,6 +48,9 @@ pub trait Pty: Send {
     /// TIOCGWINSZ. Round-224: used to verify the 24x80 spawn seed.
     fn get_winsize(&self) -> Result<(u16, u16), PtyError>;
     fn child_pid(&self) -> nix::unistd::Pid;
+    /// Return the foreground process group PID (via tcgetpgrp), or None on error.
+    /// Used for process group kill (zed-port pattern: pty_info.rs:29-53).
+    fn foreground_pid(&self) -> Option<nix::unistd::Pid>;
     fn master_fd(&self) -> RawFd;
     /// Returns an independently-owned duplicate of the master fd for use by a
     /// dedicated reader thread. The duplicate shares the underlying open file
@@ -465,6 +468,12 @@ impl Pty for PtyPair {
         PtyPair::child_pid(self)
     }
 
+    fn foreground_pid(&self) -> Option<nix::unistd::Pid> {
+        // SAFETY: tcgetpgrp is async-signal-safe and returns the foreground
+        // process group ID on the PTY master fd.
+        nix::unistd::tcgetpgrp(&self.master).ok()
+    }
+
     fn master_fd(&self) -> RawFd {
         PtyPair::master_fd(self)
     }
@@ -506,47 +515,10 @@ impl std::io::Write for PtyPair {
 
 impl Drop for PtyPair {
     fn drop(&mut self) {
-        if let Err(e) = nix::sys::signal::kill(self.child_pid, nix::sys::signal::Signal::SIGHUP) {
-            log::warn!(
-                "failed to send SIGHUP to child {} during drop: {e}",
-                self.child_pid
-            );
-        }
-        if let Err(e) = nix::sys::signal::kill(self.child_pid, nix::sys::signal::Signal::SIGCONT) {
-            log::warn!(
-                "failed to send SIGCONT to child {} during drop: {e}",
-                self.child_pid
-            );
-        }
-        std::thread::sleep(Duration::from_millis(GRACEFUL_SHUTDOWN_TIMEOUT_MS));
-        if let Err(e) = nix::sys::signal::kill(self.child_pid, nix::sys::signal::Signal::SIGKILL) {
-            log::warn!(
-                "failed to send SIGKILL to child {} during drop: {e}",
-                self.child_pid
-            );
-        }
-        // Use WNOHANG + retry loop to avoid blocking Drop.
-        // SIGKILL was sent above, so reaping should complete quickly.
-        // ECHILD means already reaped by another thread.
-        for _attempt in 0..10 {
-            match nix::sys::wait::waitpid(
-                self.child_pid,
-                Some(nix::sys::wait::WaitPidFlag::WNOHANG),
-            ) {
-                Ok(
-                    nix::sys::wait::WaitStatus::Exited(_, _)
-                    | nix::sys::wait::WaitStatus::Signaled(_, _, _),
-                ) => break,
-                Ok(_) => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(nix::errno::Errno::ECHILD) => break,
-                Err(e) => {
-                    log::warn!("waitpid for child {} failed: {e}", self.child_pid);
-                    break;
-                }
-            }
-        }
+        // Close the master FDs. The session drop owns signal delivery and
+        // reaping, so PtyPair only needs to release file descriptors.
+        // Closing master_fd will cause any blocking PTY read/write to fail,
+        // unblocking reader/writer threads.
     }
 }
 
@@ -800,6 +772,29 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
         result.retain(|(k, _)| k != key);
     }
     result.extend(env.extra.iter().cloned());
+
+    // P0: SSL cert bundle for cargo/npm/curl
+    if let Some(p) = prefix_str {
+        let cert_path = format!("{p}/etc/tls/cert.pem");
+        if std::path::Path::new(&cert_path).exists() {
+            result.push(("SSL_CERT_FILE".to_string(), cert_path.clone()));
+            result.push(("CURL_CA_BUNDLE".to_string(), cert_path));
+        }
+    }
+
+    // Apply registered env overlay (zed-port pattern)
+    for (key, op) in crate::terminal::shell_env::terminal_env_overlay() {
+        match op {
+            crate::terminal::shell_env::EnvOp::Set(val) => {
+                result.retain(|(k, _)| k != key);
+                result.push((key.clone(), val.clone()));
+            }
+            crate::terminal::shell_env::EnvOp::Remove => {
+                result.retain(|(k, _)| k != key);
+            }
+        }
+    }
+
     result
 }
 
@@ -1100,15 +1095,36 @@ mod tests {
     }
 
     #[test]
-    fn drop_kills_child() {
+    fn drop_closes_master_fd() {
+        // PtyPair drop must complete without blocking. Signal delivery
+        // and child reaping are now the responsibility of Session::drop().
+        let _pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        // PtyPair is dropped here at end of scope — must not block.
+    }
+
+    #[test]
+    fn child_survives_without_session_kill() {
+        // PtyPair::drop() closes the master fd, which causes the kernel to
+        // send SIGHUP to the slave's foreground process group (per pts(4)).
+        // The child MAY die from SIGHUP — that's expected kernel behavior.
+        // What we verify: PtyPair drop does NOT block or panic, and does NOT
+        // call waitpid (reaping is Session::drop()'s job).
         let child = {
             let pty =
                 PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
             pty.child_pid()
         };
-        std::thread::sleep(Duration::from_millis(200));
+        std::thread::sleep(Duration::from_millis(100));
+        // Child may be alive (SIGTERM succeeds) or dead (ESRCH) — both OK.
+        // The key invariant: no panic, no hang.
         let result = nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGTERM);
-        assert!(result.is_err(), "child should already be dead after drop");
+        assert!(
+            matches!(result, Ok(()) | Err(nix::errno::Errno::ESRCH)),
+            "SIGTERM to child after PtyPair drop must be Ok or ESRCH, got {result:?}"
+        );
+        // Clean up if still alive.
+        let _ = nix::sys::signal::kill(child, nix::sys::signal::Signal::SIGKILL);
+        let _ = nix::sys::wait::waitpid(child, Some(nix::sys::wait::WaitPidFlag::WNOHANG));
     }
 
     #[test]

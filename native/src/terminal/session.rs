@@ -136,6 +136,10 @@ pub struct Session {
     output_processor: OutputProcessor,
     output_tx: flume::Sender<Vec<u8>>,
     output_rx: Receiver<Vec<u8>>,
+    /// Tee channel: secondary consumer for raw PTY output (logging, tracing, MCP screenshot).
+    /// Bounded(256) — drops silently when full (backpressure without blocking PTY reader).
+    tee_tx: Option<flume::Sender<Vec<u8>>>,
+    tee_rx: Option<Receiver<Vec<u8>>>,
 
     // ── Event state (polled from Kotlin via push_event) ──────────────
     exited: Arc<AtomicBool>,
@@ -267,6 +271,7 @@ impl Session {
 
         let exited = session.exited.clone();
         let output_tx = session.output_tx.clone();
+        let tee_tx = session.tee_tx.clone();
 
         log::info!("Session::spawn: spawning reader thread");
         let exited_read = exited.clone();
@@ -307,6 +312,13 @@ impl Session {
                         break;
                     }
                     Ok(bytes_read) => {
+                        // Tee: send raw bytes to secondary consumer (non-blocking).
+                        // Only clone if tee channel exists.
+                        if let Some(ref tee) = tee_tx {
+                            let tee_data = read_buf[..bytes_read].to_vec();
+                            let _ = tee.try_send(tee_data);
+                        }
+                        // Primary channel: send ownership (no clone needed)
                         let data = read_buf[..bytes_read].to_vec();
                         if output_tx.send(data).is_err() {
                             log::info!("reader thread: output channel closed");
@@ -386,6 +398,8 @@ impl Session {
         let clipboard_text = Arc::new(Mutex::new(None));
         let clipboard_read = Arc::new(Mutex::new(None));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(128);
+        // Tee channel: secondary consumer for raw PTY output (logging, tracing, MCP screenshot).
+        let (tee_tx, tee_rx) = bounded::<Vec<u8>>(256);
 
         let terminal = GhosttyTerminal::new_with_theme(
             rows,
@@ -406,6 +420,8 @@ impl Session {
             output_processor: OutputProcessor::new(),
             output_tx,
             output_rx,
+            tee_tx: Some(tee_tx),
+            tee_rx: Some(tee_rx),
             exited,
             exit_reported,
             bel_triggered,
@@ -482,12 +498,31 @@ impl Session {
     /// Used by the MCP server's `send_signal` tool so an external controller can
     /// interrupt / terminate a live shell.
     pub fn send_signal(&self, signum: i32) -> Result<(), SessionError> {
-        let pid = self.pty.child_pid();
         let signal = nix::sys::signal::Signal::try_from(signum)
             .map_err(|error| SessionError::Ghostty(format!("invalid signal {signum}: {error}")))?;
-        nix::sys::signal::kill(pid, signal).map_err(|error| {
-            SessionError::Ghostty(format!("kill({pid}, {signal:?}) failed: {error}"))
-        })
+        // Kill the foreground process group first (zed-port pattern: pty_info.rs:29-53).
+        let target = self.pty.foreground_pid().unwrap_or(self.pty.child_pid());
+        let pgid = -(target.as_raw() as libc::pid_t);
+        // SAFETY: killpg sends signal to a process group. We use negative PID
+        // to target the group rather than the individual process.
+        let result = unsafe { libc::kill(pgid, signal as i32) };
+        if result == 0 {
+            Ok(())
+        } else {
+            // Fall back to direct child kill if group kill fails
+            let child = self.pty.child_pid();
+            let child_signal = signal;
+            let child_result =
+                unsafe { libc::kill(child.as_raw() as libc::pid_t, child_signal as i32) };
+            if child_result == 0 {
+                Ok(())
+            } else {
+                Err(SessionError::Ghostty(format!(
+                    "kill({pgid}, {signal:?}) failed: {}",
+                    nix::errno::Errno::last()
+                )))
+            }
+        }
     }
 
     /// Maximum chunks of VT output processed per session frame, bounding
@@ -587,6 +622,12 @@ impl Session {
     pub fn poll_clipboard(&self) -> Option<String> {
         let mut guard = self.clipboard_text.lock();
         guard.take()
+    }
+
+    /// Take the tee receiver for raw PTY output consumption.
+    /// Returns `None` if already taken. The caller owns the raw byte stream.
+    pub fn take_tee_receiver(&mut self) -> Option<Receiver<Vec<u8>>> {
+        self.tee_rx.take()
     }
 
     /// Take the pending OSC 52 clipboard read request (the selection name),
@@ -1234,5 +1275,60 @@ mod tests {
         );
         assert_eq!(ShellIntegration::from(5u8), ShellIntegration::None);
         assert_eq!(ShellIntegration::from(255u8), ShellIntegration::None);
+    }
+
+    #[test]
+    fn tee_channel_receives_data() {
+        let mut session =
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        // Take the tee receiver
+        let tee_rx = session.take_tee_receiver().expect("tee_rx should exist");
+        assert!(
+            tee_rx.try_recv().is_err(),
+            "tee channel should be empty initially"
+        );
+
+        // Write something — reader thread should send to both output_tx and tee_tx
+        session.write(b"echo tee_test_abc\n").expect("write failed");
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        loop {
+            session.process_output();
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+
+        // Tee channel should have received at least one chunk
+        let mut tee_data = Vec::new();
+        while let Ok(chunk) = tee_rx.try_recv() {
+            tee_data.extend_from_slice(&chunk);
+        }
+        let tee_text = String::from_utf8_lossy(&tee_data);
+        assert!(
+            tee_text.contains("tee_test_abc"),
+            "tee channel should contain test data, got: {tee_text}"
+        );
+
+        // Clean up: let session exit
+        session.write(b"exit\n").expect("write failed");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+
+    #[test]
+    fn tee_channel_single_take() {
+        let mut session =
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let rx1 = session
+            .take_tee_receiver()
+            .expect("first take should succeed");
+        assert!(
+            session.take_tee_receiver().is_none(),
+            "second take should return None"
+        );
+        // Drop rx1 to clean up
+        drop(rx1);
+        session.write(b"exit\n").expect("write failed");
+        std::thread::sleep(Duration::from_millis(200));
     }
 }
