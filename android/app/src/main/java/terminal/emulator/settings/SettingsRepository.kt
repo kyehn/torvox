@@ -39,6 +39,7 @@ constructor(
         val CURSOR_BLINK = booleanPreferencesKey("cursor_blink")
         val CURSOR_STYLE = stringPreferencesKey("cursor_style")
         val CURSOR_SPEED = intPreferencesKey("cursor_speed")
+        val BELL_MODE = intPreferencesKey("bell_mode")
     }
 
     companion object {
@@ -54,6 +55,7 @@ constructor(
         const val DEFAULT_BACKGROUND_BLUR_RADIUS = 0
         const val DEFAULT_BACKGROUND_ALPHA = 0.8f
         const val DEFAULT_CURSOR_SPEED_MS = 530
+        const val DEFAULT_BELL_MODE = 0
     }
 
     val appThemeMode: Flow<String> = provider.dataStore.data.map { it[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM }
@@ -81,6 +83,7 @@ constructor(
     val cursorBlink: Flow<Boolean> = provider.dataStore.data.map { it[Keys.CURSOR_BLINK] ?: true }
     val cursorStyle: Flow<String> = provider.dataStore.data.map { it[Keys.CURSOR_STYLE] ?: "block" }
     val cursorSpeed: Flow<Int> = provider.dataStore.data.map { it[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS }
+    val bellMode: Flow<Int> = provider.dataStore.data.map { it[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE }
 
     /**
      * Single merged snapshot of every persisted setting, derived from one
@@ -110,6 +113,7 @@ constructor(
         val cursorBlink: Boolean = true,
         val cursorStyle: String = "block",
         val cursorSpeed: Int = DEFAULT_CURSOR_SPEED_MS,
+        val bellMode: Int = DEFAULT_BELL_MODE,
     )
 
     val settings: Flow<SettingsState> = provider.dataStore.data.map { prefs ->
@@ -135,6 +139,7 @@ constructor(
             cursorBlink = prefs[Keys.CURSOR_BLINK] ?: true,
             cursorStyle = prefs[Keys.CURSOR_STYLE] ?: "block",
             cursorSpeed = prefs[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS,
+            bellMode = prefs[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE,
         )
     }
 
@@ -179,6 +184,8 @@ constructor(
     suspend fun setCursorStyle(style: String) = put(Keys.CURSOR_STYLE, style)
 
     suspend fun setCursorSpeed(speedMs: Int) = put(Keys.CURSOR_SPEED, speedMs)
+
+    suspend fun setBellMode(id: Int) = put(Keys.BELL_MODE, id)
 
     private suspend fun <T> put(
         key: Preferences.Key<T>,

@@ -27,6 +27,7 @@ pub mod pty;
 pub mod session;
 pub use session::ThemeConfig;
 pub mod shell_env;
+pub mod url_regex;
 
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) mod action_parser;
