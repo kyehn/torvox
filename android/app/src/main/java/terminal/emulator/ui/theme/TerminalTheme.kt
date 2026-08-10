@@ -21,6 +21,45 @@ data class TerminalTheme(
     init {
         require(ansi.size == 16) { "Theme must have exactly 16 ANSI colors" }
     }
+
+    companion object {
+        /**
+         * Generate the standard xterm 256-color palette:
+         *  - 0-15:    standard ANSI colors (VGA palette, same as themes' `ansi`)
+         *  - 16-231:  6x6x6 RGB cube, channels 0/95/135/175/215/255
+         *  - 232-255: 24-step grayscale ramp (8, 18, 28, …, 238)
+         *
+         * Reference: ghostty-android TerminalTheme.java generate256Palette().
+         */
+        fun generate256Palette(): List<Color> {
+            val palette = ArrayList<Color>(256)
+            val alphaBase = 0xFF000000.toInt()
+            // Colors 0-15: standard ANSI.
+            val ansi =
+                intArrayOf(
+                    0x000000, 0x800000, 0x008000, 0x808000,
+                    0x000080, 0x800080, 0x008080, 0xC0C0C0,
+                    0x808080, 0xFF0000, 0x00FF00, 0xFFFF00,
+                    0x0000FF, 0xFF00FF, 0x00FFFF, 0xFFFFFF,
+                )
+            ansi.forEach { palette.add(Color(alphaBase or it)) }
+            // Colors 16-231: 6x6x6 RGB cube.
+            val cube = intArrayOf(0, 95, 135, 175, 215, 255)
+            for (r in cube) {
+                for (g in cube) {
+                    for (b in cube) {
+                        palette.add(Color(alphaBase or (r shl 16) or (g shl 8) or b))
+                    }
+                }
+            }
+            // Colors 232-255: 24-step grayscale ramp.
+            for (i in 0 until 24) {
+                val v = 8 + 10 * i
+                palette.add(Color(alphaBase or (v shl 16) or (v shl 8) or v))
+            }
+            return palette
+        }
+    }
 }
 
 object BuiltInThemes {
