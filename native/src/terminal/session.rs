@@ -62,7 +62,7 @@ const READ_BUF_SIZE: usize = 8192;
 /// while the thread no longer spins the CPU when the PTY is idle.
 const READ_POLL_TIMEOUT_MS: i32 = 100;
 
-const DEFAULT_SCROLLBACK_LINES: u32 = 50000;
+pub const DEFAULT_SCROLLBACK_LINES: u32 = 50000;
 
 /// Errors that can occur during session operations.
 #[derive(Debug, Error)]

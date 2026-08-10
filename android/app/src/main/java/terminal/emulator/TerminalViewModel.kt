@@ -222,6 +222,33 @@ constructor(
 
     fun shareSelection() = selectionManager.shareSelection()
 
+    /**
+     * Export full terminal text (scrollback + visible) to a SAF URI.
+     * Called from the SelectionActions toolbar via ActivityResultContracts.CreateDocument.
+     */
+    fun exportTerminalOutput(uri: Uri) {
+        viewModelScope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runtime.bridge()?.getTerminalText() ?: ""
+            }
+            if (text.isEmpty()) {
+                android.widget.Toast.makeText(context, "Terminal output is empty", android.widget.Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            try {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(text.toByteArray(Charsets.UTF_8))
+                    }
+                }
+                android.widget.Toast.makeText(context, "Terminal output exported", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: java.io.IOException) {
+                LogUtil.e("ViewModel", "Export failed", e)
+                android.widget.Toast.makeText(context, "Export failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     fun selectAll(scrollOffset: Int = 0) = selectionManager.selectAll(scrollOffset)
 
     fun moveSelectionAnchor(deltaCol: Int) = selectionManager.moveSelectionAnchor(deltaCol)
@@ -1218,6 +1245,68 @@ constructor(
                 val result = orchestrator.ensureBootstrap(url)
                 _bootstrapResult.value = result.getOrNull() ?: "Error: ${result.exceptionOrNull()?.javaClass?.simpleName}"
             } catch (exception: Exception) {
+                _bootstrapResult.value = "Error: ${exception.javaClass.simpleName}"
+            } finally {
+                _bootstrapRunning.value = false
+            }
+        }
+    }
+
+    /**
+     * Offline bootstrap install from a SAF URI.  The user picks a .zip file
+     * via [android.activity.result.contract.ActivityResultContracts.OpenDocument];
+     * the content is copied to a cache file, then fed to the same installer
+     * pipeline as the online path (installer.install → secondStage.run).
+     * No network required; the downloaded bootstrap URL is ignored.
+     */
+    fun installOffline(uri: android.net.Uri) {
+        if (!_bootstrapRunning.compareAndSet(false, true)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _bootstrapResult.value = null
+            _bootstrapProgress.value = null
+            try {
+                val onProgress =
+                    terminal.emulator.installer.BootstrapProgressCallback { progress ->
+                        _bootstrapProgress.value = progress
+                    }
+                val installer =
+                    terminal.emulator.installer.BootstrapInstaller(
+                        prefixDir = java.io.File(context.filesDir, "usr"),
+                        homeDir = java.io.File(context.filesDir, "home"),
+                        stagingDir = java.io.File(context.filesDir, "usr-staging"),
+                        onProgress = onProgress,
+                    )
+                val secondStage =
+                    terminal.emulator.installer.SecondStageRunner(
+                        prefixDir = java.io.File(context.filesDir, "usr"),
+                        homeDir = java.io.File(context.filesDir, "home"),
+                        onProgress = onProgress,
+                    )
+                // Copy SAF URI content to a temp cache file — the installer
+                // needs a File (it hashes + streams the zip).  The cache dir
+                // is always writable and cleared by the OS under pressure.
+                _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Downloading(0, 0)
+                val cacheFile = java.io.File(context.cacheDir, "offline-bootstrap.zip")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    cacheFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: throw java.io.IOException("Failed to open bootstrap file")
+                val result = installer.install(cacheFile)
+                if (result.isSuccess) {
+                    _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Complete
+                    val secondResult = secondStage.run()
+                    val messages = mutableListOf("Bootstrap installed from file")
+                    if (secondResult.errors.isNotEmpty()) {
+                        messages.add("${secondResult.errors.size} postinst scripts had errors")
+                    }
+                    _bootstrapResult.value = messages.joinToString("; ")
+                } else {
+                    _bootstrapResult.value = "Error: ${result.exceptionOrNull()?.javaClass?.simpleName}"
+                }
+                cacheFile.delete()
+            } catch (exception: Exception) {
+                LogUtil.e("ViewModel", "Offline install failed", exception)
                 _bootstrapResult.value = "Error: ${exception.javaClass.simpleName}"
             } finally {
                 _bootstrapRunning.value = false

@@ -112,6 +112,11 @@ pub enum Event {
         request_id: u64,
         command: String,
     },
+    /// MCP `screenshot`: request Kotlin to capture the current terminal
+    /// rendering as RGBA pixels. Kotlin captures via the render thread's
+    /// GPU readback path and replies via `screenshotResult()` JNI.
+    #[cfg(feature = "mcp")]
+    Screenshot { session_id: u64, request_id: u64 },
 }
 
 /// A thread-safe event queue shared between Rust and Kotlin.

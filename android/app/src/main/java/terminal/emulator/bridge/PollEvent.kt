@@ -104,6 +104,13 @@ sealed class PollEvent {
         @SerialName("request_id") val requestId: Long = 0,
         val command: String = "",
     ) : PollEvent()
+
+    @Serializable
+    @SerialName("screenshot")
+    data class Screenshot(
+        @SerialName("session_id") val sessionId: Long = 0,
+        @SerialName("request_id") val requestId: Long = 0,
+    ) : PollEvent()
 }
 
 /**

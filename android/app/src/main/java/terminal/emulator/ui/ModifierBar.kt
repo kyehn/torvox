@@ -113,6 +113,7 @@ fun ModifierBar(
     onSelectAll: (() -> Unit)? = null,
     onPaste: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
+    onExport: (() -> Unit)? = null,
     onAnchorLeft: (() -> Unit)? = null,
     onAnchorRight: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
@@ -122,7 +123,7 @@ fun ModifierBar(
 
     if (barMode == ModifierBarMode.SelectionActions) {
         SelectionActionsBar(
-            actions = SelectionActions(onCopy, copyEnabled, onSelectAll, onPaste, onShare, onAnchorLeft, onAnchorRight, onDismiss),
+            actions = SelectionActions(onCopy, copyEnabled, onSelectAll, onPaste, onShare, onExport, onAnchorLeft, onAnchorRight, onDismiss),
             textColor = textColor,
             backgroundColor = backgroundColor,
             buttonHeight = buttonHeight,
@@ -267,6 +268,7 @@ private data class SelectionActions(
     val onSelectAll: (() -> Unit)?,
     val onPaste: (() -> Unit)?,
     val onShare: (() -> Unit)?,
+    val onExport: (() -> Unit)?,
     val onAnchorLeft: (() -> Unit)?,
     val onAnchorRight: (() -> Unit)?,
     val onDismiss: (() -> Unit)?,
@@ -287,6 +289,7 @@ private fun SelectionActionsBar(
     if (actions.onSelectAll != null) actionList.add(Triple("Select All", actions.onSelectAll, true))
     if (actions.onPaste != null) actionList.add(Triple("Paste", actions.onPaste, true))
     if (actions.onShare != null) actionList.add(Triple("Share", actions.onShare, true))
+    if (actions.onExport != null) actionList.add(Triple("Export", actions.onExport, true))
 
     Row(
         modifier =
