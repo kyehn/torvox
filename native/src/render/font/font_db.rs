@@ -18,7 +18,6 @@ pub(crate) const FONT_DIRS: &[&str] = &[
 ];
 
 #[cfg(target_os = "android")]
-#[cfg(target_os = "android")]
 static CACHED_FONT_PATHS: std::sync::OnceLock<Vec<std::path::PathBuf>> = std::sync::OnceLock::new();
 
 #[cfg(target_os = "android")]
@@ -43,24 +42,28 @@ pub fn set_extra_font_paths(paths: Vec<std::path::PathBuf>) {
 pub(crate) fn load_font_database() -> fontdb::Database {
     let db = CACHED_FONT_DB.get_or_init(|| {
         let font_paths = CACHED_FONT_PATHS.get_or_init(|| {
-            let mut paths = Vec::new();
-            // Round-224: /odm/fonts/ and /data/fonts/ added — OEMs place
-            // custom fonts there and ASystemFontIterator (the NDK
-            // reference, warp font_render.rs:133-155) enumerates them.
-            for dir in FONT_DIRS {
-                let dir_path = std::path::Path::new(dir);
-                if let Ok(entries) = std::fs::read_dir(dir_path) {
-                    let mut dir_count = 0usize;
-                    for entry in entries.flatten() {
-                        if is_font_file(&entry.path()) {
-                            dir_count += 1;
-                            paths.push(entry.path());
+            // Round-231 T5: prefer the NDK ASystemFontIterator API (API 29+,
+            // minSdk 33) — it enumerates every system-installed font the
+            // platform knows about, including OEM paths, without guessing a
+            // static directory list. Fall back to the FONT_DIRS scan when the
+            // API is unavailable (e.g. unusual runtimes) or yields nothing.
+            let mut paths = android_font_iterator::enumerate_font_paths();
+            if paths.is_empty() {
+                log::debug!("FONT_LOAD: ASystemFontIterator empty, falling back to FONT_DIRS scan");
+                for dir in FONT_DIRS {
+                    let dir_path = std::path::Path::new(dir);
+                    if let Ok(entries) = std::fs::read_dir(dir_path) {
+                        let mut dir_count = 0usize;
+                        for entry in entries.flatten() {
+                            if is_font_file(&entry.path()) {
+                                dir_count += 1;
+                                paths.push(entry.path());
+                            }
                         }
+                        // Log every EXISTING directory (even empty) so device
+                        // diagnostics can confirm each path was scanned.
+                        log::debug!("FONT_LOAD: dir={dir} files={dir_count}");
                     }
-                    // Log every EXISTING directory (even empty) so device
-                    // diagnostics can confirm each path was scanned —
-                    // mirrors warp's ASystemFontIterator enumeration count.
-                    log::debug!("FONT_LOAD: dir={dir} files={dir_count}");
                 }
             }
             log::debug!("FONT_LOAD: cached {} font paths", paths.len());
@@ -172,5 +175,76 @@ mod tests {
     #[test]
     fn font_dirs_start_with_system_fonts() {
         assert_eq!(FONT_DIRS[0], "/system/fonts/");
+    }
+}
+
+/// NDK `ASystemFontIterator` bindings (android/font.h + android/system_fonts.h,
+/// API 29+; minSdk is 33). Round-231 T5: enumerate every system-installed
+/// font the platform knows about instead of relying on a static directory
+/// list, which misses OEM font locations and new partitions.
+#[cfg(target_os = "android")]
+mod android_font_iterator {
+    use std::ffi::{CStr, c_char};
+    use std::path::PathBuf;
+
+    /// Opaque iterator handle.
+    #[repr(C)]
+    pub(super) struct ASystemFontIterator {
+        _private: [u8; 0],
+    }
+
+    /// Opaque font handle returned by `ASystemFontIterator_next`.
+    #[repr(C)]
+    pub(super) struct AFont {
+        _private: [u8; 0],
+    }
+
+    // SAFETY: these are the stable NDK C functions declared in
+    // system_fonts.h/font.h; all pointers are opaque handles produced and
+    // consumed by the same API family.
+    #[link(name = "android")]
+    unsafe extern "C" {
+        fn ASystemFontIterator_open() -> *mut ASystemFontIterator;
+        fn ASystemFontIterator_next(iterator: *mut ASystemFontIterator) -> *mut AFont;
+        fn ASystemFontIterator_close(iterator: *mut ASystemFontIterator);
+        fn AFont_getFontFilePath(font: *const AFont) -> *const c_char;
+        fn AFont_close(font: *mut AFont);
+    }
+
+    /// Enumerate the absolute paths of every system font. Returns an empty
+    /// vec when the API fails or no fonts are installed — the caller then
+    /// falls back to the static `FONT_DIRS` scan.
+    pub(super) fn enumerate_font_paths() -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        // SAFETY: open() either returns a valid iterator or null; the
+        // iterator is closed exactly once via ASystemFontIterator_close();
+        // each AFont from next() is closed via AFont_close(); the path
+        // pointer returned by AFont_getFontFilePath() is only read while
+        // its owning AFont is alive, per the header contract.
+        unsafe {
+            let iterator = ASystemFontIterator_open();
+            if iterator.is_null() {
+                log::warn!("FONT_LOAD: ASystemFontIterator_open failed");
+                return paths;
+            }
+            loop {
+                let font = ASystemFontIterator_next(iterator);
+                if font.is_null() {
+                    break;
+                }
+                let path_ptr = AFont_getFontFilePath(font);
+                if !path_ptr.is_null() {
+                    let cstr = CStr::from_ptr(path_ptr);
+                    if let Ok(path) = cstr.to_str() {
+                        paths.push(PathBuf::from(path));
+                    } else {
+                        log::warn!("FONT_LOAD: non-UTF-8 font path skipped");
+                    }
+                }
+                AFont_close(font);
+            }
+            ASystemFontIterator_close(iterator);
+        }
+        paths
     }
 }

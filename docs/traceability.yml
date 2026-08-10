@@ -625,6 +625,81 @@ requirements:
       - "integration-tests/tests/tool_lint.rs"
     verification: "git ls-files '*.png' '*.ttf' '*.otf' '*.woff' '*.woff2' '*.eot' | wc -l"
 
+  FR-056:
+    description: "The crate SHALL provide an off-screen render-verification path — procedural geometry generator (SceneData + add_floor/add_sphere/add_box/add_torus + hand-written matrices) and an infinite LOD grid shader rendered through a Depth32Float attachment — used by crate tests. This path SHALL NOT add depth attachments to the production terminal render path."
+    design:
+      - "native/src/render/procedural_geometry.rs"
+      - "native/shaders/grid.wgsl"
+      - "native/src/render/pipeline.rs"
+    api: []
+    tests:
+      - "native/src/render/procedural_geometry.rs"
+      - "native/src/render/tests.rs"
+    verification: "cargo test --package native"
+
+  FR-057:
+    description: "The search overlay input SHALL debounce query changes by 150 ms (Handler-based) so the native scrollback search only runs after the user pauses typing."
+    design:
+      - "android/app/src/main/java/terminal/emulator/ui/TextSearchBar.kt"
+    api: []
+    tests:
+      - "android/app/src/test/java/terminal/emulator/ui/TextSearchBarDebounceTest.kt"
+    verification: "cd android && ./gradlew testDebugUnitTest"
+
+  FR-058:
+    description: "Dependent settings controls SHALL be grayed out (disabled) when their prerequisite is off — cursor-speed slider when cursor blink is off, user-theme edit entry when no user themes exist."
+    design:
+      - "android/app/src/main/java/terminal/emulator/ui/SettingsScreen.kt"
+      - "android/app/src/main/java/terminal/emulator/ui/SettingsComponents.kt"
+    api: []
+    tests: []
+    verification: "cd android && ./gradlew spotlessCheck detekt"
+
+  FR-059:
+    description: "The terminal surface SHALL expose accessibility custom actions (read previous line, read next line, read all) and update its content description to the current screen text (throttled) so TalkBack can navigate terminal content line by line."
+    design:
+      - "android/app/src/main/java/terminal/emulator/ui/TerminalSurface.kt"
+    api: []
+    tests: []
+    verification: "Emulator check with TalkBack event log"
+
+  FR-060:
+    description: "The bootstrap installer SHALL support HTTP download (existing ensureBootstrap(url)) and local-file install via SAF (existing offline install button), both installing through BootstrapInstaller.install + SecondStageRunner.run. Embedded assets/bootstrap/ archives SHALL NOT be added — the APK must not carry the archive."
+    design:
+      - "android/app/src/main/java/terminal/emulator/installer/BootstrapOrchestrator.kt"
+      - "android/app/src/main/java/terminal/emulator/installer/BootstrapInstaller.kt"
+    api: []
+    tests: []
+    verification: "cd android && ./gradlew spotlessCheck detekt"
+
+  FR-061:
+    description: "Toolbar keys SHALL support a width (flex weight) and an optional secondary key (long-press action); the layout editor SHALL allow editing both; serialization SHALL be backward compatible with existing layouts."
+    design:
+      - "android/app/src/main/java/terminal/emulator/ui/ToolbarPreferences.kt"
+      - "android/app/src/main/java/terminal/emulator/ui/ModifierBar.kt"
+    api: []
+    tests:
+      - "android/app/src/test/java/terminal/emulator/ui/ToolbarPreferencesTest.kt"
+    verification: "cd android && ./gradlew testDebugUnitTest"
+
+  FR-062:
+    description: "PlatformCapabilities SHALL expose Memory and Unsupported capability variants so callers can distinguish a memory-limited device from an unsupported configuration without panicking."
+    design:
+      - "native/src/platform/capabilities.rs"
+    api: []
+    tests:
+      - "native/src/platform/capabilities.rs"
+    verification: "cargo test --package native"
+
+  FR-063:
+    description: "Terminal surface URL detection SHALL route through the scroll-position LRU cache (UrlCache.getOrCompute) so repeated queries at the same scroll offset reuse cached results."
+    design:
+      - "android/app/src/main/java/terminal/emulator/ui/UrlCache.kt"
+    api: []
+    tests:
+      - "android/app/src/test/java/terminal/emulator/ui/UrlCacheTest.kt"
+    verification: "cd android && ./gradlew testDebugUnitTest"
+
   # ==========================================================================
   # 4.1 Safety (NFR-001 — NFR-005)
   # ==========================================================================

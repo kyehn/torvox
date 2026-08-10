@@ -348,6 +348,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val clipboardReads: List<ClipboardRequest> = emptyList(),
         val runCommands: List<RunCommandRequest> = emptyList(),
         val screenshots: List<ScreenshotRequest> = emptyList(),
+        val progress: Pair<Int, Int>? = null,
         // Every exit event seen this frame, in order. The single-slot
         // exit/sessionId/exitCode fields above describe only the FIRST one;
         // extra exits in the same frame must be reaped from this list or
@@ -382,6 +383,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             clipboardReads = clipboardReads + later.clipboardReads,
             runCommands = runCommands + later.runCommands,
             screenshots = screenshots + later.screenshots,
+            progress = later.progress ?: progress,
             exits = exits + later.exits,
         )
     }
@@ -463,6 +465,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         is PollEvent.Notification ->
             PollResult(
                 notification = event.title to event.body,
+                sessionId = event.sessionId,
+            )
+
+        is PollEvent.Progress ->
+            PollResult(
+                progress = event.state to event.value,
                 sessionId = event.sessionId,
             )
 

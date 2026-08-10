@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -35,6 +36,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.TimeoutCancellationException
@@ -46,6 +48,84 @@ private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 private const val REPEAT_TIMEOUT_MS = 500L
 private const val DWELL_GUARD_MS = 100L
+private const val LONG_PRESS_MS = 500L
+private const val SECONDARY_FONT_SIZE_SP = 8
+
+/**
+ * Compose key sequences: (first char, second char) → composed character.
+ * Mirrors the classic X11 default compose table for the common Latin-1
+ * accented characters plus a few symbols.
+ */
+private val COMPOSE_TABLE: Map<Pair<Char, Char>, Char> =
+    mapOf(
+        // Grave accents
+        Pair('a', '`') to 'à',
+        Pair('e', '`') to 'è',
+        Pair('i', '`') to 'ì',
+        Pair('o', '`') to 'ò',
+        Pair('u', '`') to 'ù',
+        // Acute accents
+        Pair('a', '\'') to 'á',
+        Pair('e', '\'') to 'é',
+        Pair('i', '\'') to 'í',
+        Pair('o', '\'') to 'ó',
+        Pair('u', '\'') to 'ú',
+        // Circumflex accents
+        Pair('a', '^') to 'â',
+        Pair('e', '^') to 'ê',
+        Pair('i', '^') to 'î',
+        Pair('o', '^') to 'ô',
+        Pair('u', '^') to 'û',
+        // Tilde
+        Pair('a', '~') to 'ã',
+        Pair('n', '~') to 'ñ',
+        Pair('o', '~') to 'õ',
+        // Diaeresis
+        Pair('a', '"') to 'ä',
+        Pair('e', '"') to 'ë',
+        Pair('i', '"') to 'ï',
+        Pair('o', '"') to 'ö',
+        Pair('u', '"') to 'ü',
+        Pair('y', '"') to 'ÿ',
+        // Ring, ligatures, stroke
+        Pair('a', 'o') to 'å',
+        Pair('a', 'e') to 'æ',
+        Pair('o', 'e') to 'œ',
+        Pair('o', '/') to 'ø',
+        Pair('s', 's') to 'ß',
+        // Cedilla
+        Pair('c', ',') to 'ç',
+        // Symbols
+        Pair('(', 'c') to '©',
+        Pair('(', 'r') to '®',
+        Pair('o', 'o') to '°',
+        Pair('!', '!') to '¡',
+        Pair('?', '?') to '¿',
+        Pair('-', '-') to '\u2013',
+    )
+
+/** Look up a two-key compose sequence; null when no match exists. */
+private fun composeLookup(
+    first: Char,
+    second: Char,
+): Char? = COMPOSE_TABLE[first to second]
+
+/** F1-F12 escape sequences (XTerm function-key codes). */
+private val FN_KEY_SEQUENCES: List<Pair<String, String>> =
+    listOf(
+        "F1" to "\u001b[11P",
+        "F2" to "\u001b[12Q",
+        "F3" to "\u001b[13R",
+        "F4" to "\u001b[14S",
+        "F5" to "\u001b[15~",
+        "F6" to "\u001b[17~",
+        "F7" to "\u001b[18~",
+        "F8" to "\u001b[19~",
+        "F9" to "\u001b[20~",
+        "F10" to "\u001b[21~",
+        "F11" to "\u001b[23~",
+        "F12" to "\u001b[24~",
+    )
 
 enum class ModifierBarMode { Normal, SelectionActions }
 
@@ -121,6 +201,63 @@ fun ModifierBar(
     fun label(key: String): String = if (useNerdFontGlyphs) NerdKeyLabels.label(key) else key
     val buttonHeight = BUTTON_HEIGHT_DP.dp
 
+    // ── Compose key mode ──────────────────────────────────────────────
+    var composeActive by remember { mutableStateOf(false) }
+    var composeBuffer by remember { mutableStateOf<Char?>(null) }
+
+    fun flushCompose() {
+        composeBuffer?.let { onKeyClick(it.toString()) }
+        composeBuffer = null
+        composeActive = false
+    }
+
+    fun toggleCompose() {
+        if (composeActive) flushCompose() else composeActive = true
+    }
+
+    /** Route every key sequence through the compose state machine. */
+    fun dispatchKey(seq: String) {
+        if (!composeActive) {
+            onKeyClick(seq)
+            return
+        }
+        val ch = if (seq.length == 1) seq[0] else null
+        if (ch == null || ch.isISOControl()) {
+            // Non-printable key: flush the buffered char and exit compose mode.
+            flushCompose()
+            onKeyClick(seq)
+            return
+        }
+        val buffered = composeBuffer
+        if (buffered == null) {
+            composeBuffer = ch
+        } else {
+            composeBuffer = null
+            composeActive = false
+            val composed = composeLookup(buffered, ch)
+            if (composed != null) {
+                onKeyClick(composed.toString())
+            } else {
+                // No match: deliver both keys verbatim.
+                onKeyClick(buffered.toString())
+                onKeyClick(ch.toString())
+            }
+        }
+    }
+
+    // ── FN second layer (F1-F12) ──────────────────────────────────────
+    if (fnState == ModifierState.Locked) {
+        FnKeyRows(
+            onKeyClick = ::dispatchKey,
+            onToggleFn = onToggleFn,
+            textColor = textColor,
+            backgroundColor = backgroundColor,
+            modifier = modifier,
+            label = ::label,
+        )
+        return
+    }
+
     if (barMode == ModifierBarMode.SelectionActions) {
         SelectionActionsBar(
             actions = SelectionActions(onCopy, copyEnabled, onSelectAll, onPaste, onShare, onExport, onAnchorLeft, onAnchorRight, onDismiss),
@@ -135,13 +272,17 @@ fun ModifierBar(
     if (toolbarLayout != null) {
         ConfigurableModifierBar(
             toolbarLayout = toolbarLayout,
-            onKeyClick = onKeyClick,
+            onKeyClick = ::dispatchKey,
             onDrawerClick = onDrawerClick,
             onScrollClick = onScrollClick,
             ctrlState = ctrlState,
             altState = altState,
+            fnState = fnState,
             onToggleCtrl = onToggleCtrl,
             onToggleAlt = onToggleAlt,
+            onToggleFn = onToggleFn,
+            composeActive = composeActive,
+            onToggleCompose = ::toggleCompose,
             textColor = textColor,
             backgroundColor = backgroundColor,
             modifier = modifier,
@@ -160,7 +301,7 @@ fun ModifierBar(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ExtraKeyButton(text = label("ESC"), onClick = {
-                onKeyClick("\u001b")
+                dispatchKey("\u001b")
             }, textColor = textColor, testTag = "Key_ESC", contentDescription = "Escape")
             ExtraKeyButton(text = "\u2630", onClick = {
                 onDrawerClick()
@@ -169,23 +310,23 @@ fun ModifierBar(
                 onScrollClick()
             }, textColor = textColor, testTag = "Key_SCROLL", contentDescription = "Toggle scroll")
             ExtraKeyButton(text = label("HOME"), onClick = {
-                onKeyClick("\u001b[H")
+                dispatchKey("\u001b[H")
             }, textColor = textColor, testTag = "Key_HOME", contentDescription = "Home")
             ExtraKeyButton(
                 text = "\u2191",
                 onClick = {
-                    onKeyClick("\u001b[A")
+                    dispatchKey("\u001b[A")
                 },
                 textColor = textColor,
                 testTag = "Key_↑",
                 contentDescription = "Arrow up",
-                onRepeat = { onKeyClick("\u001b[A") },
+                onRepeat = { dispatchKey("\u001b[A") },
             )
             ExtraKeyButton(text = label("END"), onClick = {
-                onKeyClick("\u001b[F")
+                dispatchKey("\u001b[F")
             }, textColor = textColor, testTag = "Key_END", contentDescription = "End")
             ExtraKeyButton(text = label("PGUP"), onClick = {
-                onKeyClick("\u001b[5~")
+                dispatchKey("\u001b[5~")
             }, textColor = textColor, testTag = "Key_PGUP", contentDescription = "Page up")
         }
 
@@ -203,8 +344,16 @@ fun ModifierBar(
                 contentDescription = "Function key layer",
             )
             ExtraKeyButton(
+                text = label("COMPOSE"),
+                onClick = { toggleCompose() },
+                textColor = textColor,
+                modifierState = if (composeActive) ModifierState.Locked else null,
+                testTag = "Key_COMPOSE",
+                contentDescription = "Compose key",
+            )
+            ExtraKeyButton(
                 text = label("TAB"),
-                onClick = { onKeyClick("\t") },
+                onClick = { dispatchKey("\t") },
                 textColor = textColor,
                 testTag = "Key_TAB",
                 contentDescription = "Tab",
@@ -228,36 +377,102 @@ fun ModifierBar(
             ExtraKeyButton(
                 text = "\u2190",
                 onClick = {
-                    onKeyClick("\u001b[D")
+                    dispatchKey("\u001b[D")
                 },
                 textColor = textColor,
                 testTag = "Key_←",
                 contentDescription = "Arrow left",
-                onRepeat = { onKeyClick("\u001b[D") },
+                onRepeat = { dispatchKey("\u001b[D") },
             )
             ExtraKeyButton(
                 text = "\u2193",
                 onClick = {
-                    onKeyClick("\u001b[B")
+                    dispatchKey("\u001b[B")
                 },
                 textColor = textColor,
                 testTag = "Key_↓",
                 contentDescription = "Arrow down",
-                onRepeat = { onKeyClick("\u001b[B") },
+                onRepeat = { dispatchKey("\u001b[B") },
             )
             ExtraKeyButton(
                 text = "\u2192",
                 onClick = {
-                    onKeyClick("\u001b[C")
+                    dispatchKey("\u001b[C")
                 },
                 textColor = textColor,
                 testTag = "Key_→",
                 contentDescription = "Arrow right",
-                onRepeat = { onKeyClick("\u001b[C") },
+                onRepeat = { dispatchKey("\u001b[C") },
             )
             ExtraKeyButton(text = label("PGDN"), onClick = {
-                onKeyClick("\u001b[6~")
+                dispatchKey("\u001b[6~")
             }, textColor = textColor, testTag = "Key_PGDN", contentDescription = "Page down")
+        }
+    }
+}
+
+/**
+ * Second-layer rows shown when the FN modifier is Locked: F1-F12.
+ * Tapping an F-key sends its escape sequence and returns to the normal
+ * layer (single-shot); tapping FN again returns without sending anything.
+ */
+@Composable
+private fun FnKeyRows(
+    onKeyClick: (String) -> Unit,
+    onToggleFn: () -> Unit,
+    textColor: Color,
+    backgroundColor: Color,
+    modifier: Modifier,
+    label: (String) -> String,
+) {
+    val buttonHeight = BUTTON_HEIGHT_DP.dp
+    Column(
+        modifier = modifier.fillMaxWidth().background(backgroundColor).testTag("ModifierBar"),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().height(buttonHeight),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FN_KEY_SEQUENCES.take(6).forEach { (name, seq) ->
+                ExtraKeyButton(
+                    text = label(name),
+                    onClick = {
+                        onKeyClick(seq)
+                        onToggleFn()
+                    },
+                    textColor = textColor,
+                    testTag = "Key_$name",
+                    contentDescription = name,
+                )
+            }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth().height(buttonHeight),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FN_KEY_SEQUENCES.drop(6).forEach { (name, seq) ->
+                ExtraKeyButton(
+                    text = label(name),
+                    onClick = {
+                        onKeyClick(seq)
+                        onToggleFn()
+                    },
+                    textColor = textColor,
+                    testTag = "Key_$name",
+                    contentDescription = name,
+                )
+            }
+            ExtraKeyButton(
+                text = label("FN"),
+                onClick = { onToggleFn() },
+                textColor = textColor,
+                modifierState = ModifierState.Locked,
+                testTag = "Key_FN",
+                contentDescription = "Function key layer",
+            )
         }
     }
 }
@@ -331,8 +546,12 @@ private fun ConfigurableModifierBar(
     onScrollClick: () -> Unit,
     ctrlState: ModifierState,
     altState: ModifierState,
+    fnState: ModifierState,
     onToggleCtrl: () -> Unit,
     onToggleAlt: () -> Unit,
+    onToggleFn: () -> Unit,
+    composeActive: Boolean,
+    onToggleCompose: () -> Unit,
     textColor: Color,
     backgroundColor: Color,
     modifier: Modifier,
@@ -343,122 +562,200 @@ private fun ConfigurableModifierBar(
     val midpoint = (allKeys.size + 1) / 2
     val row1 = allKeys.take(midpoint)
     val row2 = allKeys.drop(midpoint)
-
-    fun getModifierState(item: ToolbarItem): ModifierState? = (item as? ToolbarItem.Default)
-        ?.takeIf { it.key.modifier }
-        ?.let {
-            when (it.key) {
-                ToolbarKey.CTRL -> ctrlState
-                ToolbarKey.ALT -> altState
-                else -> null
-            }
-        }
-
-    fun getOnRepeat(item: ToolbarItem): (() -> Unit)? = (item as? ToolbarItem.Default)
-        ?.takeIf { it.key.repeatable }
-        ?.let { { onKeyClick(it.key.sequence) } }
-
-    fun getItemLabel(item: ToolbarItem): String = when (item) {
-        is ToolbarItem.Default -> item.key.symbol ?: label(item.key.defaultLabel)
-        is ToolbarItem.Custom -> item.label
-    }
-
-    fun getTestTag(item: ToolbarItem): String = when (item) {
-        is ToolbarItem.Default -> item.key.testTag ?: "Key_${item.key.defaultLabel}"
-        is ToolbarItem.Custom -> item.testTag
-    }
-
-    fun getContentDescription(item: ToolbarItem): String = when (item) {
-        is ToolbarItem.Default -> item.key.contentDescription ?: item.key.defaultLabel
-        is ToolbarItem.Custom -> item.label
-    }
-
-    fun getKeyHandler(item: ToolbarItem): () -> Unit = when (item) {
-        is ToolbarItem.Default -> {
-            when (item.key) {
-                ToolbarKey.CTRL -> {
-                    onToggleCtrl
-                }
-
-                ToolbarKey.ALT -> {
-                    onToggleAlt
-                }
-
-                ToolbarKey.DRAWER -> {
-                    onDrawerClick
-                }
-
-                ToolbarKey.SCROLL -> {
-                    onScrollClick
-                }
-
-                else -> {
-                    val seq = item.key.sequence
-                    if (seq.isNotEmpty()) {
-                        { onKeyClick(seq) }
-                    } else {
-                        {}
-                    }
-                }
-            }
-        }
-
-        is ToolbarItem.Custom -> {
-            val macro = item.macro
-            if (macro != null && ToolbarMacroExpander.isMacro(macro)) {
-                val keys = ToolbarMacroExpander.expand(macro)
-                if (keys.isNotEmpty()) {
-                    { keys.forEach(onKeyClick) }
-                } else {
-                    {}
-                }
-            } else if (item.sequence.isNotEmpty()) {
-                { onKeyClick(item.sequence) }
-            } else {
-                {}
-            }
-        }
+    val actions =
+        ModifierBarActions(
+            onKeyClick = onKeyClick,
+            onDrawerClick = onDrawerClick,
+            onScrollClick = onScrollClick,
+            onToggleCtrl = onToggleCtrl,
+            onToggleAlt = onToggleAlt,
+            onToggleFn = onToggleFn,
+            onToggleCompose = onToggleCompose,
+        )
+    val modifierStates =
+        ModifierBarStates(
+            ctrlState = ctrlState,
+            altState = altState,
+            fnState = fnState,
+            composeActive = composeActive,
+        )
+    val presentation = { item: ToolbarItem ->
+        toolbarItemPresentation(
+            item = item,
+            actions = actions,
+            modifierStates = modifierStates,
+            label = label,
+        )
     }
 
     Column(
         modifier = modifier.fillMaxWidth().background(backgroundColor),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().height(buttonHeight),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            for (item in row1) {
-                ExtraKeyButton(
-                    text = getItemLabel(item),
-                    onClick = getKeyHandler(item),
-                    textColor = textColor,
-                    modifierState = getModifierState(item),
-                    testTag = getTestTag(item),
-                    contentDescription = getContentDescription(item),
-                    onRepeat = getOnRepeat(item),
-                )
-            }
-        }
+        ModifierBarButtonRow(
+            items = row1.map(presentation),
+            buttonHeight = buttonHeight,
+            textColor = textColor,
+        )
         if (row2.isNotEmpty()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().height(buttonHeight),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                for (item in row2) {
-                    ExtraKeyButton(
-                        text = getItemLabel(item),
-                        onClick = getKeyHandler(item),
-                        textColor = textColor,
-                        modifierState = getModifierState(item),
-                        testTag = getTestTag(item),
-                        contentDescription = getContentDescription(item),
-                        onRepeat = getOnRepeat(item),
-                    )
+            ModifierBarButtonRow(
+                items = row2.map(presentation),
+                buttonHeight = buttonHeight,
+                textColor = textColor,
+            )
+        }
+    }
+}
+
+/** One rendered button's full presentation, derived from a [ToolbarItem]. */
+private data class ToolbarItemPresentation(
+    val label: String,
+    val onClick: () -> Unit,
+    val modifierState: ModifierState?,
+    val testTag: String,
+    val contentDescription: String?,
+    val onRepeat: (() -> Unit)?,
+    val widthWeight: Int,
+    val secondaryLabel: String?,
+    val secondaryAction: (() -> Unit)?,
+)
+
+/** The callbacks a configurable modifier bar can trigger. */
+private data class ModifierBarActions(
+    val onKeyClick: (String) -> Unit,
+    val onDrawerClick: () -> Unit,
+    val onScrollClick: () -> Unit,
+    val onToggleCtrl: () -> Unit,
+    val onToggleAlt: () -> Unit,
+    val onToggleFn: () -> Unit,
+    val onToggleCompose: () -> Unit,
+)
+
+/** The live toggle states of the modifier keys. */
+private data class ModifierBarStates(
+    val ctrlState: ModifierState,
+    val altState: ModifierState,
+    val fnState: ModifierState,
+    val composeActive: Boolean,
+)
+
+private fun toolbarItemPresentation(
+    item: ToolbarItem,
+    actions: ModifierBarActions,
+    modifierStates: ModifierBarStates,
+    label: (String) -> String,
+): ToolbarItemPresentation {
+    val modifierState =
+        when ((item as? ToolbarItem.Default)?.key) {
+            ToolbarKey.CTRL -> modifierStates.ctrlState
+            ToolbarKey.ALT -> modifierStates.altState
+            ToolbarKey.FN -> modifierStates.fnState
+            ToolbarKey.COMPOSE -> if (modifierStates.composeActive) ModifierState.Locked else null
+            else -> null
+        }
+    val onRepeat =
+        (item as? ToolbarItem.Default)
+            ?.takeIf { it.key.repeatable }
+            ?.let { { actions.onKeyClick(it.key.sequence) } }
+    val itemLabel =
+        when (item) {
+            is ToolbarItem.Default -> item.key.symbol ?: label(item.key.defaultLabel)
+            is ToolbarItem.Custom -> item.label
+        }
+    val testTag =
+        when (item) {
+            is ToolbarItem.Default -> item.key.testTag ?: "Key_${item.key.defaultLabel}"
+            is ToolbarItem.Custom -> item.testTag
+        }
+    val contentDescription =
+        when (item) {
+            is ToolbarItem.Default -> item.key.contentDescription ?: item.key.defaultLabel
+            is ToolbarItem.Custom -> item.label
+        }
+    return ToolbarItemPresentation(
+        label = itemLabel,
+        onClick = toolbarItemKeyHandler(item, actions),
+        modifierState = modifierState,
+        testTag = testTag,
+        contentDescription = contentDescription,
+        onRepeat = onRepeat,
+        widthWeight = item.width,
+        secondaryLabel = item.secondaryLabel,
+        secondaryAction = item.secondarySequence?.takeIf { it.isNotEmpty() }
+            ?.let { { actions.onKeyClick(it) } },
+    )
+}
+
+private fun toolbarItemKeyHandler(
+    item: ToolbarItem,
+    actions: ModifierBarActions,
+): () -> Unit = when (item) {
+    is ToolbarItem.Default ->
+        when (item.key) {
+            ToolbarKey.CTRL -> actions.onToggleCtrl
+
+            ToolbarKey.ALT -> actions.onToggleAlt
+
+            ToolbarKey.FN -> actions.onToggleFn
+
+            ToolbarKey.COMPOSE -> actions.onToggleCompose
+
+            ToolbarKey.DRAWER -> actions.onDrawerClick
+
+            ToolbarKey.SCROLL -> actions.onScrollClick
+
+            else -> {
+                val seq = item.key.sequence
+                if (seq.isNotEmpty()) {
+                    { actions.onKeyClick(seq) }
+                } else {
+                    {}
                 }
             }
+        }
+
+    is ToolbarItem.Custom -> {
+        val macro = item.macro
+        if (macro != null && ToolbarMacroExpander.isMacro(macro)) {
+            val keys = ToolbarMacroExpander.expand(macro)
+            if (keys.isNotEmpty()) {
+                { keys.forEach(actions.onKeyClick) }
+            } else {
+                {}
+            }
+        } else if (item.sequence.isNotEmpty()) {
+            { actions.onKeyClick(item.sequence) }
+        } else {
+            {}
+        }
+    }
+}
+
+/** One full-width row of extra-key buttons from pre-computed presentations. */
+@Composable
+private fun ModifierBarButtonRow(
+    items: List<ToolbarItemPresentation>,
+    buttonHeight: Dp,
+    textColor: Color,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(buttonHeight),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        for (item in items) {
+            ExtraKeyButton(
+                text = item.label,
+                onClick = item.onClick,
+                textColor = textColor,
+                modifierState = item.modifierState,
+                testTag = item.testTag,
+                contentDescription = item.contentDescription,
+                onRepeat = item.onRepeat,
+                widthWeight = item.widthWeight,
+                secondaryLabel = item.secondaryLabel,
+                secondaryAction = item.secondaryAction,
+            )
         }
     }
 }
@@ -475,6 +772,9 @@ private fun RowScope.ExtraKeyButton(
     testTag: String = "",
     contentDescription: String? = null,
     onRepeat: (() -> Unit)? = null,
+    widthWeight: Int = 1,
+    secondaryLabel: String? = null,
+    secondaryAction: (() -> Unit)? = null,
 ) {
     val isLocked = modifierState == ModifierState.Locked
     val isOnce = modifierState == ModifierState.Once
@@ -519,7 +819,7 @@ private fun RowScope.ExtraKeyButton(
 
     val view = LocalView.current
     val gestureModifier =
-        Modifier.pointerInput(onRepeat) {
+        Modifier.pointerInput(onRepeat, secondaryAction) {
             awaitEachGesture {
                 awaitFirstDown()
                 val downPos = currentEvent.changes.first().position
@@ -528,42 +828,55 @@ private fun RowScope.ExtraKeyButton(
                 try {
                     var gestureValid = true
                     var upConsumed = false
-                    withTimeoutOrNull(DWELL_GUARD_MS) {
-                        while (true) {
-                            val ev = awaitPointerEvent()
-                            val ch = ev.changes.first()
-                            if (!ch.pressed) {
-                                upConsumed = true
-                                break
-                            }
-                            if ((ch.position - downPos).getDistance() > slop) {
-                                gestureValid = false
-                                break
-                            }
-                        }
-                    }
-                    if (!gestureValid) {
-                        isPressed = false
-                        return@awaitEachGesture
-                    }
-                    if (enabled) {
-                        view.performHapticFeedback(
-                            android.view.HapticFeedbackConstants.KEYBOARD_TAP,
-                        )
-                        onClick()
-                        if (onRepeat == null) {
-                            if (!upConsumed) {
-                                waitForUpOrCancellation()
-                            }
-                        } else {
+                    // Keys with a secondary action wait LONG_PRESS_MS for a
+                    // long-press before falling back to the click path; keys
+                    // without one keep the original DWELL_GUARD_MS window so
+                    // auto-repeat latency is unchanged.
+                    val waitWindow = if (secondaryAction != null) LONG_PRESS_MS else DWELL_GUARD_MS
+                    val waitResult =
+                        withTimeoutOrNull(waitWindow) {
                             while (true) {
-                                try {
-                                    withTimeout(REPEAT_TIMEOUT_MS) {
-                                        waitForUpOrCancellation()
-                                    }
+                                val ev = awaitPointerEvent()
+                                val ch = ev.changes.first()
+                                if (!ch.pressed) {
+                                    upConsumed = true
                                     break
-                                } catch (_: TimeoutCancellationException) {
-                                    onRepeat()
+                                }
+                                if ((ch.position - downPos).getDistance() > slop) {
+                                    gestureValid = false
+                                    break
+                                }
+                            }
+                            false
+                        }
+                    val longPressTriggered =
+                        secondaryAction != null && gestureValid && !upConsumed && waitResult == null
+                    if (longPressTriggered) {
+                        view.performHapticFeedback(
+                            android.view.HapticFeedbackConstants.LONG_PRESS,
+                        )
+                        secondaryAction()
+                        waitForUpOrCancellation()
+                    } else if (gestureValid) {
+                        if (enabled) {
+                            view.performHapticFeedback(
+                                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                            )
+                            onClick()
+                            if (onRepeat == null) {
+                                if (!upConsumed) {
+                                    waitForUpOrCancellation()
+                                }
+                            } else {
+                                while (true) {
+                                    try {
+                                        withTimeout(REPEAT_TIMEOUT_MS) {
+                                            waitForUpOrCancellation()
+                                        }
+                                        break
+                                    } catch (_: TimeoutCancellationException) {
+                                        onRepeat()
+                                    }
                                 }
                             }
                         }
@@ -577,7 +890,7 @@ private fun RowScope.ExtraKeyButton(
     Box(
         modifier =
         Modifier
-            .weight(1f)
+            .weight(weight = widthWeight.coerceAtLeast(1).toFloat())
             .height(BUTTON_HEIGHT_DP.dp)
             .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
             .then(
@@ -592,6 +905,17 @@ private fun RowScope.ExtraKeyButton(
             }.then(gestureModifier),
         contentAlignment = Alignment.Center,
     ) {
+        if (secondaryLabel != null) {
+            Text(
+                text = secondaryLabel,
+                color = activeFg.copy(alpha = 0.55f),
+                fontSize = SECONDARY_FONT_SIZE_SP.sp,
+                fontWeight = FontWeight.Normal,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                modifier = Modifier.align(Alignment.TopCenter).padding(top = 2.dp),
+            )
+        }
         Text(
             text = text,
             color = activeFg,

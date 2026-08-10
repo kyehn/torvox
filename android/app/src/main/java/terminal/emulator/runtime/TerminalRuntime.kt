@@ -35,6 +35,7 @@ import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.util.ArgumentTokenizer
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -112,6 +113,13 @@ internal data class SessionEntry(
     // window: the old thread's exit event is consumed, polling the dead
     // session would re-trigger fast-death (double respawn race) — the
     // respawn thread restarts the render thread itself.
+    // Round-230: auto-reset scroll offset when new PTY output arrives while
+    // the user is scrolled up (browsing history). The render thread sets this;
+    // TerminalSurface reads and clears it during composition.
+    @Volatile var scrollResetRequested: Boolean = false,
+    // Round-230: when true (SCROLL button active), new output should NOT
+    // auto-reset scroll — the user intentionally wants to stay browsing.
+    @Volatile var scrollActive: Boolean = false,
     @Volatile var fastDeathRetryScheduled: Boolean = false,
 ) {
     // renderSignaled replaced a per-frame `CountDownLatch`, which had a
@@ -182,6 +190,15 @@ constructor(
     /** BellHandler with 4-mode support (SOUND/VIBRATE/SCREEN_FLASH/SILENT) and 150ms debounce. */
     private val bellHandler = BellHandler(context)
 
+    /**
+     * Round-232: invoked from the render loop after every presented frame
+     * (render thread). Lets the SurfaceView refresh its accessibility
+     * contentDescription — the SurfaceView is self-drawn and has no text
+     * nodes, so the render loop is the only content-changed signal.
+     * Must return quickly; the callback may post to the main thread.
+     */
+    @Volatile var onFrameRendered: (() -> Unit)? = null
+
     init {
         // Sync bell handler mode from persisted setting on startup.
         // Uses a local scope since the class-level `scope` is not yet initialized.
@@ -192,6 +209,15 @@ constructor(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Keep bell handler mode in sync with persisted setting at runtime (round-230 fix).
+    init {
+        scope.launch {
+            settingsRepository.bellMode.collect { modeId ->
+                bellHandler.setMode(BellMode.fromId(modeId))
+            }
+        }
+    }
     private val _state = MutableStateFlow(RuntimeState())
     val state: StateFlow<RuntimeState> = _state.asStateFlow()
 
@@ -633,6 +659,24 @@ constructor(
         // calling thread (often the UI thread during scroll). Just signal the
         // render thread to pick up the change.
         entry.notifyRender()
+    }
+
+    /** Round-230: consume the scroll-reset flag set by the render thread when
+     *  new PTY output arrives while the user is browsing history. Returns true
+     *  once, then clears the flag. TerminalSurface calls this to sync its local
+     *  scrollOffset with the reset. */
+    fun consumeScrollResetRequest(): Boolean {
+        val entry = sessions[activeSessionId] ?: return false
+        return entry.scrollResetRequested.also {
+            entry.scrollResetRequested = false
+        }
+    }
+
+    /** Round-230: sync scroll-active state from TerminalViewModel so the render
+     *  thread knows whether to auto-reset scroll on new output. */
+    fun setScrollActive(active: Boolean) {
+        val entry = sessions[activeSessionId] ?: return
+        entry.scrollActive = active
     }
 
     fun forceRender() {
@@ -1090,6 +1134,14 @@ constructor(
                             }
                             entry.lastRenderStart = System.nanoTime()
                             val count = bridge.render()
+                            // Round-230: auto-reset scroll when new output arrives
+                            // while user is browsing history (scrollOffset > 0).
+                            // Only on count > 0 (actual new CellData, not idle repaint).
+                            // Skip when scrollActive (SCROLL button) — user wants to stay browsing.
+                            if (count > 0 && entry.scrollOffset != 0 && !entry.scrollActive) {
+                                entry.scrollOffset = 0
+                                entry.scrollResetRequested = true
+                            }
                             if (count < 0) {
                                 // Transient render error (surface not ready, snapshot unavailable, etc.)
                                 // These resolve on their own; don't count them toward the fatal limit.
@@ -1256,6 +1308,16 @@ constructor(
                                     }
                                 }
                                 entry.lastRenderDone = System.nanoTime()
+                                // Round-232: accessibility hook — the render loop
+                                // is the only signal that terminal content
+                                // changed, and the SurfaceView has no text nodes.
+                                // The listener runs on the render thread and must
+                                // return quickly (it may post to the main thread).
+                                try {
+                                    onFrameRendered?.invoke()
+                                } catch (exception: Exception) {
+                                    LogUtil.w("Runtime", "onFrameRendered callback failed", exception)
+                                }
                                 if (!entry.forceRenderRequested) {
                                     val idleNanos = System.nanoTime() - entry.lastSignalNanos
                                     val timeoutNanos =
@@ -1409,6 +1471,11 @@ constructor(
                     .showNotification(title, body)
                 announceAccessibility(if (title.isNotEmpty()) title else body)
             }
+            // Round-230: ConEmu progress (OSC 9;4). Log the event;
+            // a progress bar UI can be added later if needed.
+            poll.progress?.let { (state, value) ->
+                LogUtil.d("Runtime", "OSC 9;4 progress: state=$state value=$value")
+            }
             if (poll.clipboard != null) {
                 clipboardAccess.setClipboardText(poll.clipboard)
             }
@@ -1495,16 +1562,20 @@ constructor(
                 return
             }
             // First 8 bytes: width (u32 LE) + height (u32 LE)
-            val width = ((data[0].toInt() and 0xFF)
-                or ((data[1].toInt() and 0xFF) shl 8)
-                or ((data[2].toInt() and 0xFF) shl 16)
-                or ((data[3].toInt() and 0xFF) shl 24))
-            val height = ((data[4].toInt() and 0xFF)
-                or ((data[5].toInt() and 0xFF) shl 8)
-                or ((data[6].toInt() and 0xFF) shl 16)
-                or ((data[7].toInt() and 0xFF) shl 24))
+            val width = (
+                (data[0].toInt() and 0xFF)
+                    or ((data[1].toInt() and 0xFF) shl 8)
+                    or ((data[2].toInt() and 0xFF) shl 16)
+                    or ((data[3].toInt() and 0xFF) shl 24)
+                )
+            val height = (
+                (data[4].toInt() and 0xFF)
+                    or ((data[5].toInt() and 0xFF) shl 8)
+                    or ((data[6].toInt() and 0xFF) shl 16)
+                    or ((data[7].toInt() and 0xFF) shl 24)
+                )
             if (width <= 0 || height <= 0) {
-                LogUtil.w("Runtime", "screenshot: invalid dimensions ${width}x${height}")
+                LogUtil.w("Runtime", "screenshot: invalid dimensions ${width}x$height")
                 NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
                 return
             }
@@ -1647,7 +1718,9 @@ constructor(
          * run_command err_code (round-227 T4, termux ExecutionCommand
          * dual-track): exitCode is the shell exit code; errCode is the
          * app-level failure classification. 0 = none (command ran),
-         * 1 = timeout, 2 = internal exception.
+         * 1 = timeout, 2 = internal exception. Destructive commands are
+         * refused by the native safety classifier before they reach the
+         * host (round-231 T3), so no blocked err_code exists on this side.
          */
         private const val ERR_CODE_NONE = 0
         private const val ERR_CODE_TIMEOUT = 1
@@ -3385,14 +3458,6 @@ internal fun shouldRetryFastDeath(
 internal fun fastDeathBackoffMs(attempt: Int): Long = minOf(500L shl (attempt - 1), 5000L)
 
 /**
- * Build the JSON payload returned to the native MCP `run_command` tool
- * (round-227 T4 dual-track). `exit_code` is the shell exit code; `err_code`
- * classifies app-level failure: 0 = none (command ran), 1 = timeout,
- * 2 = internal exception. Termux semantics: a non-zero exit code is NOT a
- * failure — only err_code != 0 is.
- */
-
-/**
  * Bundle-extract JetBrainsMono Nerd Font into [fontsDir] on first launch.
  * The font is shipped in `assets/fonts/` and provides PUA glyphs (U+E0A0,
  * U+E0B0, etc.) needed by the Nerd fallback layer in cjk.rs.  Skips if
@@ -3409,7 +3474,7 @@ internal fun extractBundledNerdFont(context: android.content.Context, fontsDir: 
             }
         }
         LogUtil.i("Runtime", "Extracted bundled Nerd Font: ${target.absolutePath}")
-    } catch (exception: Exception) {
+    } catch (exception: IOException) {
         LogUtil.w("Runtime", "Failed to extract bundled Nerd Font: ${exception.javaClass.simpleName}")
     }
 }

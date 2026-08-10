@@ -63,12 +63,13 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SelectionAnchor
 import terminal.emulator.SelectionState
 import terminal.emulator.TerminalViewModel
+import terminal.emulator.input.ModifierState
+import terminal.emulator.input.next
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.resolveAppDarkMode
 import terminal.emulator.ui.theme.resolveTerminalThemeName
@@ -79,7 +80,6 @@ import kotlin.math.roundToInt
 private const val FONT_SIZE_MIN = 8f
 private const val FONT_SIZE_MAX = 48f
 private const val SEARCH_MATCH_ALPHA = 0.25f
-private const val SEARCH_DEBOUNCE_MS = 150L
 
 /** Selection drag-handle drawable width (Material `text_select_handle_*`, 48dp). */
 private const val SELECTION_HANDLE_WIDTH_DP = 48f
@@ -143,6 +143,10 @@ fun TerminalScreen(
     val context = androidx.compose.ui.platform.LocalContext.current
     val hostView = androidx.compose.ui.platform.LocalView.current
     var showTextSearch by remember { mutableStateOf(false) }
+    // Sticky FN layer (ModifierBar): when Locked the bar shows the F1-F12
+    // second layer; tapping an F-key or FN again exits it.
+    var fnState by remember { mutableStateOf(ModifierState.Off) }
+    val onToggleFn: () -> Unit = { fnState = fnState.next() }
     var composeScrollOffset by remember { mutableIntStateOf(0) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val view = LocalView.current
@@ -732,10 +736,10 @@ fun TerminalScreen(
                         onQueryChange = { query ->
                             searchState = searchState.copy(query = query)
                             searchJob?.cancel()
-                            searchJob = scope.launch {
-                                delay(SEARCH_DEBOUNCE_MS)
-                                performSearch()
-                            }
+                            // TextSearchBar already debounces input with its
+                            // own 150ms Handler-based debounce; run the search
+                            // immediately here.
+                            searchJob = scope.launch { performSearch() }
                         },
                         resultCount = searchState.resultCount,
                         currentResultIndex = searchState.currentIndex,
@@ -822,6 +826,8 @@ fun TerminalScreen(
                         },
                         ctrlState = state.ctrlState,
                         altState = state.altState,
+                        fnState = fnState,
+                        onToggleFn = onToggleFn,
                         onToggleCtrl = {
                             viewModel.cycleCtrlState()
                         },

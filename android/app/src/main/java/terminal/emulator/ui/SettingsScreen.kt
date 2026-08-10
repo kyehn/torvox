@@ -11,6 +11,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -25,7 +27,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -170,6 +175,17 @@ fun SettingsScreen(
                     )
                 }
                 item { ClearAppDataSectionItem(viewModel, textColor, cardBackground, sectionTitleColor, isSmallScreen) }
+                item { KeyboardShortcutsSection(viewModel, textColor, secondaryText, cardBackground, sectionTitleColor, isSmallScreen) }
+                item {
+                    ModifierBarSettingsSection(
+                        viewModel,
+                        textColor,
+                        secondaryText,
+                        cardBackground,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
                 item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
@@ -335,6 +351,10 @@ private fun TerminalThemeSection(
     var saveThemeName by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     val systemInDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+
+    // Theme editor dialog state — opened when user taps "Edit" on a user theme.
+    var editingTheme by rememberSaveable { mutableStateOf<terminal.emulator.ui.theme.TerminalTheme?>(null) }
+
     SectionHeader(stringResource(R.string.theme), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         TerminalThemeModeSelector(
@@ -424,12 +444,33 @@ private fun TerminalThemeSection(
                         modifier = Modifier.weight(1f).testTag("UserTheme_${theme.name}"),
                     )
                     TextButton(
+                        onClick = { editingTheme = theme },
+                        modifier = Modifier.testTag("EditTheme_${theme.name}"),
+                    ) { Text(stringResource(R.string.edit_theme), color = MaterialTheme.colorScheme.primary) }
+                    TextButton(
                         onClick = { viewModel.deleteUserTheme(theme.name) },
                         modifier = Modifier.testTag("DeleteTheme_${theme.name}"),
                     ) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) }
                 }
             }
         }
+    }
+
+    // Theme editor dialog — edits a working copy of the theme.
+    editingTheme?.let { theme ->
+        terminal.emulator.ui.theme.ThemeEditorDialog(
+            theme = theme,
+            isOverwriteExisting = true,
+            onSaveAsNew = { edited ->
+                viewModel.saveEditedThemeAsNew(edited.name, edited)
+                editingTheme = null
+            },
+            onOverwrite = { edited ->
+                viewModel.overwriteUserTheme(edited)
+                editingTheme = null
+            },
+            onDismiss = { editingTheme = null },
+        )
     }
 }
 
@@ -1519,4 +1560,400 @@ private fun BellModeSelector(
         testTag = "BellModeSelector",
         optionTestTagPrefix = "BellMode",
     )
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Keyboard Shortcuts Section
+// ══════════════════════════════════════════════════════════════════════
+
+@Composable
+private fun KeyboardShortcutsSection(
+    viewModel: TerminalViewModel,
+    textColor: Color,
+    secondaryText: Color,
+    cardBackground: Color,
+    sectionTitleColor: Color,
+    isSmallScreen: Boolean,
+) {
+    val bindings by viewModel.shortcutBindings.collectAsStateWithLifecycle()
+    var capturingAction by rememberSaveable { mutableStateOf<String?>(null) }
+    val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+
+    SectionHeader(stringResource(R.string.keyboard_shortcuts), sectionTitleColor)
+    SettingsCard(cardBackground, isSmallScreen) {
+        terminal.emulator.shortcut.KeyShortcutHandler.Action.entries.forEach { action ->
+            val actionId = when (action) {
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste ->
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE
+
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession ->
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION
+
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession ->
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION
+
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy ->
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY
+
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll ->
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL
+            }
+            val binding = bindings[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY
+            val actionLabel = when (action) {
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste -> "Paste"
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession -> "New Session"
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession -> "Close Session"
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy -> "Copy"
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll -> "Toggle Scroll"
+            }
+
+            Row(
+                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { capturingAction = actionId }
+                    .testTag("Shortcut_$actionId")
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(actionLabel, style = labelStyle, color = textColor)
+                    Text(
+                        binding.toDisplayString(),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = secondaryText,
+                    )
+                }
+                TextButton(
+                    onClick = { viewModel.resetShortcutBinding(actionId) },
+                    modifier = Modifier.testTag("ResetShortcut_$actionId"),
+                ) {
+                    Text(stringResource(R.string.shortcut_reset), color = secondaryText)
+                }
+            }
+        }
+    }
+
+    // Shortcut capture dialog
+    capturingAction?.let { actionId ->
+        val currentBinding = bindings[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY
+        terminal.emulator.shortcut.ShortcutCaptureDialog(
+            current = currentBinding,
+            conflictDetector = { binding -> viewModel.hasShortcutConflict(actionId, binding) },
+            onDismiss = { capturingAction = null },
+            onSave = { binding ->
+                viewModel.updateShortcutBinding(actionId, binding)
+                capturingAction = null
+            },
+        )
+    }
+}
+
+/**
+ * "Modifier Bar" settings section: previews the toolbar layout as key
+ * chips and opens an editor dialog to add/remove keys or reset to the
+ * default layout. Persists through [ToolbarPreferences.saveLayout].
+ */
+@Composable
+private fun ModifierBarSettingsSection(
+    viewModel: TerminalViewModel,
+    textColor: Color,
+    secondaryText: Color,
+    cardBackground: Color,
+    sectionTitleColor: Color,
+    isSmallScreen: Boolean,
+) {
+    val context = LocalContext.current
+    val toolbarPreferences = remember { ToolbarPreferences(context) }
+    var layout by remember { mutableStateOf(toolbarPreferences.getLayout()) }
+    var showEditor by rememberSaveable { mutableStateOf(false) }
+
+    SectionHeader("Modifier Bar", sectionTitleColor)
+    SettingsCard(cardBackground, isSmallScreen) {
+        Text(
+            text = "Current layout",
+            color = secondaryText,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        ToolbarLayoutPreview(layout, textColor, cardBackground)
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = { showEditor = true },
+            modifier = Modifier.testTag("EditModifierBarButton"),
+        ) {
+            Text("Edit", color = MaterialTheme.colorScheme.primary)
+        }
+    }
+
+    if (showEditor) {
+        ModifierBarEditorDialog(
+            layout = layout,
+            onLayoutChange = { layout = it },
+            onSave = {
+                toolbarPreferences.saveLayout(layout)
+                showEditor = false
+            },
+            onReset = { layout = toolbarPreferences.defaultLayout() },
+            onDismiss = { showEditor = false },
+            textColor = textColor,
+            secondaryText = secondaryText,
+            cardBackground = cardBackground,
+        )
+    }
+}
+
+/** Key chips laid out in wrapping rows (mirrors the toolbar's 2-row shape). */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ToolbarLayoutPreview(
+    layout: List<ToolbarItem>,
+    textColor: Color,
+    cardBackground: Color,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.testTag("ModifierBarPreview"),
+    ) {
+        layout.forEach { item ->
+            ToolbarKeyChip(
+                label = itemLabel(item),
+                textColor = textColor,
+                cardBackground = cardBackground,
+                onClick = {},
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ModifierBarEditorDialog(
+    layout: List<ToolbarItem>,
+    onLayoutChange: (List<ToolbarItem>) -> Unit,
+    onSave: () -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit,
+    textColor: Color,
+    secondaryText: Color,
+    cardBackground: Color,
+) {
+    val currentKeys = layout.filterIsInstance<ToolbarItem.Default>().map { it.key }.toSet()
+    val availableKeys = ToolbarKey.entries.filter { it !in currentKeys }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Edit Modifier Bar") },
+        text = {
+            Column(
+                modifier =
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .testTag("ModifierBarEditorDialog"),
+            ) {
+                Text(
+                    text = "Current layout (tap a key to remove)",
+                    color = secondaryText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                CurrentLayoutEditor(
+                    layout = layout,
+                    onLayoutChange = onLayoutChange,
+                    textColor = textColor,
+                    secondaryText = secondaryText,
+                    cardBackground = cardBackground,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Available keys (tap to add)",
+                    color = secondaryText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                AvailableKeysPicker(
+                    availableKeys = availableKeys,
+                    onLayoutChange = onLayoutChange,
+                    layout = layout,
+                    textColor = textColor,
+                    cardBackground = cardBackground,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = onReset,
+                    modifier = Modifier.testTag("ResetModifierBarButton"),
+                ) {
+                    Text("Reset to Default", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onSave,
+                modifier = Modifier.testTag("SaveModifierBarButton"),
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
+}
+
+/** The current key list with per-key width steppers and secondary labels. */
+@Composable
+private fun CurrentLayoutEditor(
+    layout: List<ToolbarItem>,
+    onLayoutChange: (List<ToolbarItem>) -> Unit,
+    textColor: Color,
+    secondaryText: Color,
+    cardBackground: Color,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        layout.forEach { item ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                ToolbarKeyChip(
+                    label = itemLabel(item),
+                    textColor = textColor,
+                    cardBackground = cardBackground,
+                    onClick = { onLayoutChange(layout - item) },
+                )
+                Text(
+                    text = "W",
+                    color = secondaryText,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                IconButton(
+                    onClick = {
+                        onLayoutChange(
+                            layout.replace(
+                                item,
+                                item.withWidth((item.width - 1).coerceAtLeast(1)),
+                            ),
+                        )
+                    },
+                    modifier = Modifier.size(28.dp).testTag("WidthMinus_${itemLabel(item)}"),
+                ) {
+                    Text("−", color = secondaryText)
+                }
+                Text(
+                    text = "${item.width}",
+                    color = textColor,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.testTag("WidthValue_${itemLabel(item)}"),
+                )
+                IconButton(
+                    onClick = {
+                        onLayoutChange(
+                            layout.replace(
+                                item,
+                                item.withWidth((item.width + 1).coerceAtMost(4)),
+                            ),
+                        )
+                    },
+                    modifier = Modifier.size(28.dp).testTag("WidthPlus_${itemLabel(item)}"),
+                ) {
+                    Text("+", color = secondaryText)
+                }
+                BasicTextField(
+                    value = item.secondaryLabel.orEmpty(),
+                    onValueChange = { value ->
+                        onLayoutChange(layout.replace(item, item.withSecondary(value)))
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = textColor),
+                    modifier =
+                    Modifier
+                        .weight(1f)
+                        .testTag("SecondaryLabel_${itemLabel(item)}")
+                        .background(
+                            cardBackground,
+                            RoundedCornerShape(4.dp),
+                        )
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+/** The keys not yet in the layout, tappable to append. */
+@Composable
+private fun AvailableKeysPicker(
+    availableKeys: List<ToolbarKey>,
+    layout: List<ToolbarItem>,
+    onLayoutChange: (List<ToolbarItem>) -> Unit,
+    textColor: Color,
+    cardBackground: Color,
+) {
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        availableKeys.forEach { key ->
+            ToolbarKeyChip(
+                label = key.defaultLabel,
+                textColor = textColor,
+                cardBackground = cardBackground,
+                onClick = { onLayoutChange(layout + ToolbarItem.Default(key)) },
+            )
+        }
+    }
+}
+
+private fun itemLabel(item: ToolbarItem): String = when (item) {
+    is ToolbarItem.Default -> item.key.defaultLabel
+    is ToolbarItem.Custom -> item.label
+}
+
+/** Returns a copy of this item with a new row weight (round-231 T10). */
+private fun ToolbarItem.withWidth(width: Int): ToolbarItem = when (this) {
+    is ToolbarItem.Default -> copy(width = width)
+    is ToolbarItem.Custom -> copy(width = width)
+}
+
+/** Returns a copy with a secondary long-press key; the sequence is the
+ *  label itself, matching termux extra-keys secondary key semantics. */
+private fun ToolbarItem.withSecondary(label: String): ToolbarItem {
+    val trimmed = label.trim()
+    val secondaryLabel = trimmed.ifEmpty { null }
+    val secondarySequence = trimmed.ifEmpty { null }
+    return when (this) {
+        is ToolbarItem.Default -> copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
+        is ToolbarItem.Custom -> copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
+    }
+}
+
+/** Replaces the first item equal to `old` with `new` (round-231 T10). */
+private fun List<ToolbarItem>.replace(old: ToolbarItem, new: ToolbarItem): List<ToolbarItem> {
+    val index = indexOf(old)
+    if (index < 0) return this
+    return toMutableList().also { it[index] = new }
+}
+
+@Composable
+private fun ToolbarKeyChip(
+    label: String,
+    onClick: () -> Unit,
+    textColor: Color,
+    cardBackground: Color,
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(6.dp),
+        color = cardBackground,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.testTag("ToolbarKeyChip_$label"),
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+    }
 }

@@ -48,11 +48,37 @@ pub enum FontError {
     AtlasAllocationFailed,
 }
 
+/// Glyph synthesis mode (round-231 T6): how a glyph is styled when the
+/// font has no matching bold/italic face. Pixels are post-processed on the
+/// rasterized alpha mask — bold emboldens, italic shears.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum GlyphSynthesis {
+    #[default]
+    None,
+    Bold,
+    Italic,
+    BoldItalic,
+}
+
+impl GlyphSynthesis {
+    /// Bit values packed into the glyph cache key (3 bits are enough).
+    pub(crate) fn bits(self) -> u8 {
+        match self {
+            GlyphSynthesis::None => 0,
+            GlyphSynthesis::Bold => 1,
+            GlyphSynthesis::Italic => 2,
+            GlyphSynthesis::BoldItalic => 3,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct GlyphKey {
     pub font_id: fontdb::ID,
     pub glyph_id: u16,
     pub pixel_size: u16,
+    /// Glyph synthesis applied at rasterization time (0 = none).
+    pub synthesis: u8,
 }
 
 #[derive(Debug, Clone)]
@@ -1522,6 +1548,174 @@ mod tests {
         let result = p.load_font_file(&corrupt_path);
         assert!(result.is_none(), "corrupt file should return None");
         let _ = std::fs::remove_file(&corrupt_path);
+    }
+
+    // ── Round-231 T6: bold/italic glyph synthesis ─────────────────────────
+
+    /// Count non-zero alpha pixels in the glyph's atlas region (RGBA atlas).
+    fn glyph_pixel_count(info: &GlyphInfo, bitmap: &[u8], atlas_width: usize) -> usize {
+        if info.allocation_id.is_none() || info.width <= 0 || info.height <= 0 {
+            return 0;
+        }
+        let mut count = 0usize;
+        for y in 0..info.height as usize {
+            let row = (info.atlas_y as usize + y) * atlas_width;
+            for x in 0..info.width as usize {
+                if bitmap[row + info.atlas_x as usize + x] > 0 {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    fn styled_test_pipeline() -> (FontPipeline, String) {
+        let mut p = FontPipeline::new(512, 512, 14.0);
+        let font_path = find_test_font();
+        let family = p.load_font_file(&font_path).expect("test font loads");
+        assert!(p.set_font_family(&family), "test font family selects");
+        (p, family)
+    }
+
+    #[test]
+    fn styled_bold_produces_heavier_glyph() {
+        let (mut p, _) = styled_test_pipeline();
+        let regular = p.glyph_information('A').expect("regular A");
+        let bold = p
+            .glyph_information_styled('A', true, false)
+            .expect("bold A");
+        assert!(bold.width > 0 && bold.height > 0, "bold bitmap must exist");
+        let bitmap = p.atlas_bitmap();
+        let atlas_width = p.atlas_width as usize;
+        let regular_pixels = glyph_pixel_count(&regular, &bitmap, atlas_width);
+        let bold_pixels = glyph_pixel_count(&bold, &bitmap, atlas_width);
+        assert!(
+            bold_pixels >= regular_pixels,
+            "bold must be at least as heavy as regular ({bold_pixels} >= {regular_pixels})"
+        );
+        // The styled bitmap must actually differ from the regular one —
+        // either a real bold face was resolved or synthesis emboldened it.
+        assert_ne!(
+            bold.atlas_x, regular.atlas_x,
+            "bold and regular glyphs must not share a cache entry"
+        );
+    }
+
+    #[test]
+    fn styled_italic_shears_glyph() {
+        let (mut p, _) = styled_test_pipeline();
+        let regular = p.glyph_information('A').expect("regular A");
+        let italic = p
+            .glyph_information_styled('A', false, true)
+            .expect("italic A");
+        assert!(
+            italic.width > 0 && italic.height > 0,
+            "italic bitmap must exist"
+        );
+        assert_ne!(
+            italic.atlas_x, regular.atlas_x,
+            "italic and regular glyphs must not share a cache entry"
+        );
+        // Either a real italic face was resolved (its metrics are the
+        // designer's own — may be narrower) or the shear synthesis applied;
+        // the only invariant is that the styled bitmap differs.
+        let bitmap = p.atlas_bitmap();
+        let atlas_width = p.atlas_width as usize;
+        let regular_pixels = glyph_pixel_count(&regular, &bitmap, atlas_width);
+        let italic_pixels = glyph_pixel_count(&italic, &bitmap, atlas_width);
+        assert_ne!(
+            regular_pixels, italic_pixels,
+            "italic bitmap must differ from regular (real face or shear)"
+        );
+    }
+
+    #[test]
+    fn styled_bold_italic_combines_both() {
+        let (mut p, _) = styled_test_pipeline();
+        let regular = p.glyph_information('A').expect("regular A");
+        let bold_italic = p
+            .glyph_information_styled('A', true, true)
+            .expect("bold-italic A");
+        assert!(bold_italic.width > 0 && bold_italic.height > 0);
+        assert_ne!(
+            bold_italic.atlas_x, regular.atlas_x,
+            "bold-italic must have its own cache entry"
+        );
+        let bitmap = p.atlas_bitmap();
+        let atlas_width = p.atlas_width as usize;
+        let regular_pixels = glyph_pixel_count(&regular, &bitmap, atlas_width);
+        let bi_pixels = glyph_pixel_count(&bold_italic, &bitmap, atlas_width);
+        assert!(
+            bi_pixels >= regular_pixels,
+            "bold-italic must be heavier than regular ({bi_pixels} >= {regular_pixels})"
+        );
+    }
+
+    #[test]
+    fn styled_glyph_cache_distinguishes_synthesis() {
+        let (mut p, _) = styled_test_pipeline();
+        let regular = p.glyph_information('A').expect("regular A");
+        let bold = p
+            .glyph_information_styled('A', true, false)
+            .expect("bold A");
+        let italic = p
+            .glyph_information_styled('A', false, true)
+            .expect("italic A");
+        // Re-lookup returns the cached styled glyphs (same atlas slot) and
+        // never the regular one.
+        let bold_again = p
+            .glyph_information_styled('A', true, false)
+            .expect("bold A again");
+        let italic_again = p
+            .glyph_information_styled('A', false, true)
+            .expect("italic A again");
+        assert_eq!(bold.atlas_x, bold_again.atlas_x);
+        assert_eq!(italic.atlas_x, italic_again.atlas_x);
+        assert_ne!(regular.atlas_x, bold.atlas_x);
+        assert_ne!(regular.atlas_x, italic.atlas_x);
+        assert_ne!(bold.atlas_x, italic.atlas_x);
+    }
+
+    #[test]
+    fn resolve_style_face_prefers_same_family_bold_when_available() {
+        let (p, _) = styled_test_pipeline();
+        let base_id = p.font_id.expect("font selected");
+        let base_family = p
+            .font_system
+            .db()
+            .face(base_id)
+            .and_then(|f| f.families.first().map(|(n, _)| n.clone()));
+        // With system fonts loaded, the family may or may not have a bold
+        // face on this host. Either way the contract must hold: a resolved
+        // face belongs to the same family and differs from the base; no
+        // face at all means the caller falls back to synthesis.
+        if let Some(style_id) = p.resolve_style_face(base_id, true, false) {
+            assert_ne!(style_id, base_id, "bold face must differ from regular");
+            let style_family = p
+                .font_system
+                .db()
+                .face(style_id)
+                .and_then(|f| f.families.first().map(|(n, _)| n.clone()));
+            assert_eq!(
+                base_family, style_family,
+                "style face must share the base family"
+            );
+        }
+        // Resolving the plain style yields a face of the same family
+        // (fontdb's query returns the closest match, which is the base
+        // itself unless another normal face of the family exists — e.g.
+        // DejaVuSansCondensed — so only the family invariant is asserted).
+        if let Some(plain) = p.resolve_style_face(base_id, false, false) {
+            let plain_family = p
+                .font_system
+                .db()
+                .face(plain)
+                .and_then(|f| f.families.first().map(|(n, _)| n.clone()));
+            assert_eq!(
+                base_family, plain_family,
+                "plain-style face must share the base family"
+            );
+        }
     }
 
     #[test]

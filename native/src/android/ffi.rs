@@ -1333,6 +1333,14 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
                         body,
                     });
                 }
+                // Check progress (OSC 9;4 ConEmu)
+                if let Some((state, value)) = session.poll_progress() {
+                    pending_events.push(Event::Progress {
+                        session_id: active_id,
+                        state,
+                        value,
+                    });
+                }
                 // Check exit. Only the first poll after the process exits
                 // reports it (mark_exit_reported); the sweep branch below uses
                 // the same dedup so a slow consumer can never see duplicate

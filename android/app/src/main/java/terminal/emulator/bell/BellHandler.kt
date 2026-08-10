@@ -63,23 +63,40 @@ class BellHandler(private val context: Context) {
         if (now - lastBellTime < DEBOUNCE_MS) return false
         lastBellTime = now
         when (_currentMode.value) {
-            BellMode.SOUND -> toneGenerator?.startTone(TONE_TYPE, 200)
+            BellMode.SOUND -> try {
+                toneGenerator?.startTone(TONE_TYPE, 200)
+            } catch (_: Exception) {
+                // Ignore tone generation failures
+            }
 
             BellMode.VIBRATE -> vibrator?.let {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    it.vibrate(VibrationEffect.createOneShot(VIBRATE_DURATION_MS, VibrationEffect.DEFAULT_AMPLITUDE))
-                } else {
-                    @Suppress("DEPRECATION")
-                    it.vibrate(VIBRATE_DURATION_MS)
+                // SAFETY: Samsung Android 8 VibrationEffect.createOneShot can throw NPE in VibratorService$Vibration.mEffect
+                try {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        it.vibrate(VibrationEffect.createOneShot(VIBRATE_DURATION_MS, VibrationEffect.DEFAULT_AMPLITUDE))
+                    } else {
+                        @Suppress("DEPRECATION")
+                        it.vibrate(VIBRATE_DURATION_MS)
+                    }
+                } catch (_: Exception) {
+                    // Ignore vibration failures
                 }
             }
 
-            BellMode.SCREEN_FLASH -> targetView?.let { v ->
-                val originalBg = v.background
-                v.setBackgroundColor(android.graphics.Color.WHITE)
-                scope.launch {
-                    delay(FLASH_DURATION_MS)
-                    v.background = originalBg
+            BellMode.SCREEN_FLASH -> {
+                val v = targetView
+                if (v != null) {
+                    val originalBg = v.background
+                    v.setBackgroundColor(android.graphics.Color.WHITE)
+                    scope.launch {
+                        delay(FLASH_DURATION_MS)
+                        v.background = originalBg
+                    }
+                } else {
+                    // Fallback to sound when no view is available (runtime singleton).
+                    try {
+                        toneGenerator?.startTone(TONE_TYPE, 200)
+                    } catch (_: Exception) { }
                 }
             }
 

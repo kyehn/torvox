@@ -40,11 +40,16 @@ constructor(
         val CURSOR_STYLE = stringPreferencesKey("cursor_style")
         val CURSOR_SPEED = intPreferencesKey("cursor_speed")
         val BELL_MODE = intPreferencesKey("bell_mode")
+        val SHORTCUT_PASTE = stringPreferencesKey("shortcut_paste")
+        val SHORTCUT_NEW_SESSION = stringPreferencesKey("shortcut_new_session")
+        val SHORTCUT_CLOSE_SESSION = stringPreferencesKey("shortcut_close_session")
+        val SHORTCUT_COPY = stringPreferencesKey("shortcut_copy")
+        val SHORTCUT_TOGGLE_SCROLL = stringPreferencesKey("shortcut_toggle_scroll")
     }
 
     companion object {
         const val DEFAULT_FONT_SIZE = 10f
-        const val DEFAULT_SCROLLBACK_LINES = 50_000
+        const val DEFAULT_SCROLLBACK_LINES = 10_000
         private const val DEFAULT_THEME = "Dracula Plus"
         const val DEFAULT_DAY_THEME_NAME = "Catppuccin Latte"
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
@@ -114,6 +119,11 @@ constructor(
         val cursorStyle: String = "block",
         val cursorSpeed: Int = DEFAULT_CURSOR_SPEED_MS,
         val bellMode: Int = DEFAULT_BELL_MODE,
+        val shortcutPaste: String = "",
+        val shortcutNewSession: String = "",
+        val shortcutCloseSession: String = "",
+        val shortcutCopy: String = "",
+        val shortcutToggleScroll: String = "",
     )
 
     val settings: Flow<SettingsState> = provider.dataStore.data.map { prefs ->
@@ -140,6 +150,11 @@ constructor(
             cursorStyle = prefs[Keys.CURSOR_STYLE] ?: "block",
             cursorSpeed = prefs[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS,
             bellMode = prefs[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE,
+            shortcutPaste = prefs[Keys.SHORTCUT_PASTE] ?: "",
+            shortcutNewSession = prefs[Keys.SHORTCUT_NEW_SESSION] ?: "",
+            shortcutCloseSession = prefs[Keys.SHORTCUT_CLOSE_SESSION] ?: "",
+            shortcutCopy = prefs[Keys.SHORTCUT_COPY] ?: "",
+            shortcutToggleScroll = prefs[Keys.SHORTCUT_TOGGLE_SCROLL] ?: "",
         )
     }
 
@@ -186,6 +201,22 @@ constructor(
     suspend fun setCursorSpeed(speedMs: Int) = put(Keys.CURSOR_SPEED, speedMs)
 
     suspend fun setBellMode(id: Int) = put(Keys.BELL_MODE, id)
+
+    /** Persist a serialized shortcut binding ("CTRL|SHIFT|54") for the given action id. */
+    suspend fun setShortcutBinding(actionId: String, serialized: String) {
+        val key = when (actionId) {
+            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE -> Keys.SHORTCUT_PASTE
+            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION -> Keys.SHORTCUT_NEW_SESSION
+            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION -> Keys.SHORTCUT_CLOSE_SESSION
+            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY -> Keys.SHORTCUT_COPY
+            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL -> Keys.SHORTCUT_TOGGLE_SCROLL
+            else -> return
+        }
+        put(key, serialized)
+    }
+
+    /** Clear a persisted shortcut binding (revert to default). */
+    suspend fun clearShortcutBinding(actionId: String) = setShortcutBinding(actionId, "")
 
     private suspend fun <T> put(
         key: Preferences.Key<T>,

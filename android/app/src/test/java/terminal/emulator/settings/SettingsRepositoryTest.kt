@@ -94,4 +94,37 @@ class SettingsRepositoryTest {
             assertEquals("Solarized Dark", awaitItem())
         }
     }
+
+    @Test
+    fun `shortcut binding round-trips via string keys`() = runTest {
+        repository.setShortcutBinding("paste", "CTRL|SHIFT|54")
+        repository.setShortcutBinding("new_session", "CTRL|SHIFT|36")
+        // Read back via settings snapshot
+        repository.settings.test {
+            val state = awaitItem()
+            assertEquals("CTRL|SHIFT|54", state.shortcutPaste)
+            assertEquals("CTRL|SHIFT|36", state.shortcutNewSession)
+            assertEquals("", state.shortcutCopy) // default
+        }
+    }
+
+    @Test
+    fun `clear shortcut binding reverts to default`() = runTest {
+        repository.setShortcutBinding("paste", "CTRL|SHIFT|54")
+        repository.clearShortcutBinding("paste")
+        repository.settings.test {
+            val state = awaitItem()
+            assertEquals("", state.shortcutPaste)
+        }
+    }
+
+    @Test
+    fun `unknown action id in setShortcutBinding is ignored`() = runTest {
+        repository.setShortcutBinding("nonexistent", "CTRL|54")
+        repository.settings.test {
+            val state = awaitItem()
+            // All shortcut fields should remain at default
+            assertEquals("", state.shortcutPaste)
+        }
+    }
 }

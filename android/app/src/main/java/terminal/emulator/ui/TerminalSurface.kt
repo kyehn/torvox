@@ -29,6 +29,11 @@ import android.widget.LinearLayout
 import android.widget.Magnifier
 import android.widget.PopupWindow
 import android.widget.TextView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SelectionMode
 import terminal.emulator.TerminalViewModel
@@ -56,6 +61,36 @@ private val modifierBarHeightPx: Int by lazy {
 }
 
 internal fun isWordChar(c: Char): Boolean = c.isLetterOrDigit() || c == '_' || c == '-' || c == '.' || c == '/'
+
+/**
+ * True when the code point occupies two terminal cells (wide char).
+ * Covers the CJK and East-Asian wide ranges from Markus Kuhn's wcwidth()
+ * tables (plus emoji ranges). Split into BMP/astral halves to keep the
+ * cyclomatic complexity of each helper below the detekt threshold.
+ */
+private fun isWideCodePoint(cp: Int): Boolean = isWideBmp(cp) || isWideAstral(cp)
+
+private fun isWideBmp(cp: Int): Boolean = cp in 0x1100..0x115F || // Hangul Jamo
+    cp in 0x2329..0x232A || // angle brackets
+    cp in 0x2E80..0x303E || // CJK Radicals Supplement .. CJK Symbols and Punctuation
+    cp in 0x3041..0x33FF || // Hiragana .. CJK Compatibility
+    cp in 0x3400..0x4DBF || // CJK Unified Ideographs Extension A
+    cp in 0x4E00..0x9FFF || // CJK Unified Ideographs
+    cp in 0xA000..0xA4CF || // Yi Syllables
+    cp in 0xAC00..0xD7A3 || // Hangul Syllables
+    cp in 0xF900..0xFAFF || // CJK Compatibility Ideographs
+    cp in 0xFE30..0xFE4F || // CJK Compatibility Forms
+    cp in 0xFF00..0xFF60 || // Fullwidth Forms
+    cp in 0xFFE0..0xFFE6 // Fullwidth Signs
+
+private fun isWideAstral(cp: Int): Boolean = cp in 0x1F300..0x1F64F || // Emoticons
+    cp in 0x1F680..0x1F6FF || // Transport and Map Symbols
+    cp in 0x1F700..0x1F8FF || // Alchemical Symbols .. Geometric Shapes Extended
+    cp in 0x1F900..0x1F9FF || // Supplemental Symbols and Pictographs
+    cp in 0x1FA00..0x1FAFF || // Chess Symbols .. Symbols and Pictographs Extended-A
+    cp in 0x1F1E6..0x1F1FF || // Regional Indicator (flag) pairs
+    cp in 0x20000..0x2FFFD || // CJK Extensions B-F
+    cp in 0x30000..0x3FFFD // CJK Extension G
 
 internal fun expandWordOnLine(
     line: String,
@@ -108,6 +143,13 @@ constructor(
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        surfaceScope?.cancel()
+        surfaceScope = null
+        // Round-232: release the render-loop accessibility hook; the view
+        // is being destroyed and the runtime should not keep calling into
+        // it (activity recreation builds a fresh TerminalSurface).
+        viewModel?.runtime?.onFrameRendered = null
+        accessibilityDescriptionUpdater.cancel()
         // Force-hide the IME: a detach can happen during rotation or back
         // press while the soft keyboard is open.  Without this the keyboard
         // remains visible over a destroyed Activity window (stuck-keyboard
@@ -1062,11 +1104,40 @@ constructor(
         /** Number of Unicode code points in [text] (surrogate-pair safe). */
         private fun codePointCount(text: String): Int = text.codePointCount(0, text.length)
         private const val EDGE_SCROLL_INTERVAL_MS = 50L
+        private const val ACCESSIBILITY_DESCRIPTION_DEBOUNCE_MILLIS = 500L
+        private const val ACCESSIBILITY_SCROLLBACK_QUERY_INTERVAL_NANOS = 250_000_000L // 4 Hz
+
+        // Custom accessibility action ids start at 0x1000; the
+        // ACTION_CUSTOM_ACTION constant was removed in API 37.
+        private const val ACCESSIBILITY_CUSTOM_ACTION_BASE = 0x1000
     }
 
     private fun getAccentColor(): Int = viewModel?.runtime?.accentColor ?: 0xFF2196F3.toInt()
 
     private var viewModel: TerminalViewModel? = null
+    private var shortcutHandler: terminal.emulator.shortcut.KeyShortcutHandler? = null
+    private var surfaceScope: kotlinx.coroutines.CoroutineScope? = null
+
+    // Round-232: accessibility integration — the SurfaceView is self-drawn
+    // with no text nodes, so the visible terminal lines are surfaced via a
+    // dynamic contentDescription (debounced) plus Next/Previous line custom
+    // actions. The scrollback length is queried on the render thread (never
+    // on the main thread — it is a synchronous JNI call) and throttled to
+    // ACCESSIBILITY_SCROLLBACK_QUERY_INTERVAL_NANOS; the description itself
+    // is assembled on the main thread from the cached length.
+    private val accessibilityMainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val accessibilityLineProvider =
+        AccessibilityLineProvider { row -> viewModel?.runtime?.bridge()?.scrollbackLine(row) }
+    private val accessibilityNavigator = AccessibilityLineNavigator(accessibilityLineProvider)
+    private val accessibilityDescriptionUpdater =
+        DebouncedTextUpdater(
+            ACCESSIBILITY_DESCRIPTION_DEBOUNCE_MILLIS,
+            HandlerDebounceScheduler(accessibilityMainHandler),
+        )
+    private var accessibilityDescriptionRefreshPosted = false
+    private var lastAccessibilityScrollbackQueryNanos = 0L
+
+    @Volatile private var accessibilityScrollbackLength = 0
     private var rows: Int = DEFAULT_ROWS
     private var cols: Int = DEFAULT_COLS
     private var surfaceWidthPixels: Int = 0
@@ -1260,7 +1331,36 @@ constructor(
         val deltaCols = ((touchX - anchorLocalX) / cellWidth).roundToInt()
         val col = (dragAnchorCol + deltaCols).coerceIn(0, (cols - 1).coerceAtLeast(0))
         val gridRow = currentScrollbackLength() - scrollOffset + row
-        return gridRow to col
+        return gridRow to snapToWideCharBoundary(gridRow, col)
+    }
+
+    /**
+     * Snap a column onto a wide-char boundary: when `col` lands on the
+     * trailing (second) half of a wide char, step back one cell so the
+     * selection handle never splits a wide character in two.
+     */
+    private fun snapToWideCharBoundary(
+        gridRow: Int,
+        col: Int,
+    ): Int {
+        if (col <= 0) return col
+        val bridge = viewModel?.runtime?.bridge() ?: return col
+        val line = bridge.scrollbackLine(gridRow) ?: return col
+        var cell = 0
+        var i = 0
+        while (i < line.length) {
+            val cp = line.codePointAt(i)
+            val width = if (isWideCodePoint(cp)) 2 else 1
+            if (cell + width > col) {
+                // col is inside this char: snap back only when it falls on
+                // the trailing half of a wide char.
+                if (width == 2 && col == cell + 1) return col - 1
+                return col
+            }
+            cell += width
+            i += Character.charCount(cp)
+        }
+        return col
     }
 
     private fun latchDragAnchor(which: HandleDrag) {
@@ -1597,6 +1697,7 @@ constructor(
         scaleDetector.isQuickScaleEnabled = false
         contentDescription = context.getString(R.string.terminal)
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
+        installAccessibilityCustomActions()
         edgeScrollRunnable =
             Runnable {
                 if (!edgeScrollRunning) return@Runnable
@@ -1610,10 +1711,11 @@ constructor(
                             // Top viewport row in grid coordinates.
                             val gridRow = scrollbackLen - newOffset
                             val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
+                            val snappedCol = snapToWideCharBoundary(gridRow, curCol)
                             if (handleDragState == HandleDrag.START) {
-                                viewModel?.updateSelectionStart(gridRow, curCol)
+                                viewModel?.updateSelectionStart(gridRow, snappedCol)
                             } else if (handleDragState == HandleDrag.END) {
-                                viewModel?.updateSelection(gridRow, curCol)
+                                viewModel?.updateSelection(gridRow, snappedCol)
                             }
                         }
                     }
@@ -1626,10 +1728,11 @@ constructor(
                             // Bottom viewport row in grid coordinates.
                             val gridRow = currentScrollbackLength() - newOffset + rows - 1
                             val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
+                            val snappedCol = snapToWideCharBoundary(gridRow, curCol)
                             if (handleDragState == HandleDrag.START) {
-                                viewModel?.updateSelectionStart(gridRow, curCol)
+                                viewModel?.updateSelectionStart(gridRow, snappedCol)
                             } else if (handleDragState == HandleDrag.END) {
-                                viewModel?.updateSelection(gridRow, curCol)
+                                viewModel?.updateSelection(gridRow, snappedCol)
                             }
                         }
                     }
@@ -1716,6 +1819,152 @@ constructor(
 
     fun initialize(viewModel: TerminalViewModel) {
         this.viewModel = viewModel
+        // Round-232: wire the render-loop frame hook so the accessibility
+        // description tracks terminal output (the SurfaceView is drawn by
+        // native code — no other content-changed signal exists).
+        viewModel.runtime.onFrameRendered = { accessibilityRenderTick() }
+        val handler = terminal.emulator.shortcut.KeyShortcutHandler(viewModel)
+        handler.setBindings(viewModel.shortcutBindings.value)
+        this.shortcutHandler = handler
+        // Reactive subscription: re-push bindings when the user edits shortcuts
+        // in Settings (round-230 fix for stale handler snapshot).
+        surfaceScope?.cancel()
+        val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+        this.surfaceScope = scope
+        scope.launch {
+            viewModel.shortcutBindings.collect { bindings ->
+                shortcutHandler?.setBindings(bindings)
+            }
+        }
+    }
+
+    /**
+     * Round-232: called from the render loop (render thread) after each
+     * presented frame. Refreshes the accessibility contentDescription so
+     * TalkBack reads live terminal output. The blocking JNI scrollback
+     * query runs here (never on the main thread) and is throttled; the
+     * description assembly happens on the main thread.
+     */
+    fun accessibilityRenderTick() {
+        if (!isAccessibilityEnabled()) return
+        if (accessibilityDescriptionRefreshPosted) return
+        val now = System.nanoTime()
+        if (now - lastAccessibilityScrollbackQueryNanos < ACCESSIBILITY_SCROLLBACK_QUERY_INTERVAL_NANOS) {
+            return
+        }
+        val bridge = viewModel?.runtime?.bridge() ?: return
+        lastAccessibilityScrollbackQueryNanos = now
+        val scrollbackLength =
+            try {
+                bridge.scrollbackLength()
+            } catch (exception: Exception) {
+                LogUtil.w(TAG, "accessibility scrollbackLength query failed", exception)
+                return
+            }
+        accessibilityScrollbackLength = scrollbackLength
+        accessibilityDescriptionRefreshPosted = true
+        accessibilityMainHandler.post {
+            accessibilityDescriptionRefreshPosted = false
+            refreshAccessibilityDescription()
+        }
+    }
+
+    /** Assemble the visible-screen description and apply it (debounced). Main thread only. */
+    private fun refreshAccessibilityDescription() {
+        val bridge = viewModel?.runtime?.bridge() ?: return
+        if (!isAccessibilityEnabled()) return
+        val scrollbackLength = accessibilityScrollbackLength
+        val lines = accessibilityLineProvider.visibleLines(rows, scrollbackLength, scrollOffset)
+        val description = accessibilityLineProvider.contentDescription(lines)
+        if (description.isEmpty()) return
+        accessibilityDescriptionUpdater.update(description) { this.contentDescription = it }
+    }
+
+    /**
+     * Next (delta > 0) / Previous (delta < 0) / current (delta == 0)
+     * accessibility line navigation. The chosen line becomes the
+     * contentDescription immediately (no debounce) so TalkBack reads it
+     * right after the custom action completes. Main thread only.
+     */
+    private fun navigateAccessibilityLine(delta: Int) {
+        val bridge = viewModel?.runtime?.bridge() ?: return
+        if (!isAccessibilityEnabled()) return
+        val scrollbackLength = currentScrollbackLength()
+        val line =
+            when {
+                delta > 0 -> accessibilityNavigator.next(rows, scrollbackLength, scrollOffset)
+                delta < 0 -> accessibilityNavigator.previous(rows, scrollbackLength, scrollOffset)
+                else -> accessibilityNavigator.current(rows, scrollbackLength, scrollOffset)
+            }
+        if (line != null) {
+            accessibilityDescriptionUpdater.cancel()
+            contentDescription = line.text
+        }
+    }
+
+    private fun isAccessibilityEnabled(): Boolean {
+        val manager =
+            context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE)
+                as? android.view.accessibility.AccessibilityManager ?: return false
+        return manager.isEnabled
+    }
+
+    private fun installAccessibilityCustomActions() {
+        // API 37 removed the ACTION_CUSTOM_ACTION constant; custom action
+        // ids still start at 0x1000 (see AccessibilityNodeInfo docs).
+        val customBase = ACCESSIBILITY_CUSTOM_ACTION_BASE
+        accessibilityDelegate =
+            object : android.view.View.AccessibilityDelegate() {
+                override fun onInitializeAccessibilityNodeInfo(
+                    host: android.view.View,
+                    info: android.view.accessibility.AccessibilityNodeInfo,
+                ) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.addAction(
+                        android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
+                            customBase + 1,
+                            context.getString(R.string.accessibility_next_line),
+                        ),
+                    )
+                    info.addAction(
+                        android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
+                            customBase + 2,
+                            context.getString(R.string.accessibility_previous_line),
+                        ),
+                    )
+                    info.addAction(
+                        android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction(
+                            customBase + 3,
+                            context.getString(R.string.accessibility_read_screen),
+                        ),
+                    )
+                }
+
+                // API 37 renamed View.AccessibilityDelegate.onPerformAccessibilityAction
+                // to performAccessibilityAction (Android 16 accessibility overhaul).
+                override fun performAccessibilityAction(
+                    host: android.view.View,
+                    action: Int,
+                    arguments: android.os.Bundle?,
+                ): Boolean = when (action) {
+                    customBase + 1 -> {
+                        navigateAccessibilityLine(1)
+                        true
+                    }
+
+                    customBase + 2 -> {
+                        navigateAccessibilityLine(-1)
+                        true
+                    }
+
+                    customBase + 3 -> {
+                        navigateAccessibilityLine(0)
+                        true
+                    }
+
+                    else -> super.performAccessibilityAction(host, action, arguments)
+                }
+            }
     }
 
     fun postDelayedUnpause(delayMillis: Long) {
@@ -1898,6 +2147,12 @@ constructor(
         keyCode: Int,
         event: KeyEvent,
     ): Boolean {
+        // Hardware shortcut intercept: ask the handler first.  Only bound
+        // chords (Ctrl+Shift+V, etc.) are consumed; unbound keys (Ctrl+C
+        // SIGINT, Ctrl+D EOF, …) always fall through to the terminal.
+        shortcutHandler?.let { handler ->
+            if (handler.dispatch(event)) return true
+        }
         val terminalViewModel = viewModel
         val bridge = terminalViewModel?.runtime?.bridge()
         if (bridge != null) {
@@ -1968,6 +2223,17 @@ constructor(
         // z-index which naturally intercepts touches in the mod bar zone.
 
         val fromMouse = event.isFromSource(InputDevice.SOURCE_MOUSE)
+
+        // Round-230: when the render thread detects new output while the user
+        // is scrolled up, it resets entry.scrollOffset to 0 and sets the flag.
+        // Consume it here so TerminalSurface's local scrollOffset stays in sync
+        // with the bridge/native scroll position.
+        if (event.action == MotionEvent.ACTION_DOWN &&
+            viewModel?.runtime?.consumeScrollResetRequest() == true
+        ) {
+            scrollOffset = 0
+            onScrollChanged?.invoke(0)
+        }
 
         if (fromMouse) {
             // Mouse-mode reporting (DECSET 1000/1002/1003): route mouse

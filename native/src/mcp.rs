@@ -79,12 +79,11 @@ use base64::Engine as _;
 use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::json;
+use std::os::fd::AsRawFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
-
-use std::os::fd::AsRawFd;
 
 // ── SO_PEERCRED peer validation (round-227 T1, termux AmSocketServer) ──
 
@@ -761,6 +760,139 @@ fn dialog_tool() -> Tool {
 
 // ── Router construction ──────────────────────────────────────────────────
 
+/// Risk classification for `run_command` input (round-231 T3).
+///
+/// Modeled on the three-level classifier in sushi-ssh's CommandSafety
+/// (SAFE / CONFIRM / BLOCKED). torvox has no CONFIRM dialog (excluded by
+/// the user), so commands are either Safe or Blocked; blocked commands are
+/// refused **before** the Kotlin host executes anything.
+///
+/// The command never reaches a shell — the Kotlin host tokenizes it to
+/// argv (no `sh -c`), so shell metacharacters are inert. The patterns
+/// below therefore match the raw string for the destructive shapes that
+/// would survive tokenization (`rm -rf /`, `mkfs.*`, `dd of=/dev/...`,
+/// fork bombs, recursive root chmod/chown, system control commands).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommandRisk {
+    Safe,
+    Blocked,
+}
+
+/// Normalize a command for matching: lowercase, collapse whitespace,
+/// strip a leading `sudo`/`env`/`nice` prefix so `sudo rm -rf /` and
+/// `rm -rf /` classify identically.
+fn normalized_command(command: &str) -> String {
+    let mut normalized = command.trim().to_lowercase();
+    for prefix in ["sudo ", "env ", "nice ", "command "] {
+        if let Some(rest) = normalized.strip_prefix(prefix) {
+            normalized = rest.trim_start().to_string();
+            break;
+        }
+    }
+    // Collapse runs of whitespace so `rm -rf  /` matches `rm -rf /`.
+    let mut collapsed = String::with_capacity(normalized.len());
+    let mut in_space = false;
+    for c in normalized.chars() {
+        if c.is_whitespace() {
+            if !in_space {
+                collapsed.push(' ');
+            }
+            in_space = true;
+        } else {
+            collapsed.push(c);
+            in_space = false;
+        }
+    }
+    collapsed.trim().to_string()
+}
+
+/// The first whitespace-delimited token, used as argv[0] for system
+/// control command matching (`reboot` as an argument is not dangerous).
+fn first_token(command: &str) -> &str {
+    command.split_whitespace().next().unwrap_or("")
+}
+
+pub(crate) fn classify_command(command: &str) -> CommandRisk {
+    let normalized = normalized_command(command);
+    if normalized.is_empty() {
+        return CommandRisk::Safe;
+    }
+
+    // 1. Root filesystem deletion: `rm -rf /` and direct variants. The
+    //    flags may be combined in any order (`-fr`, `-rfv`) or split
+    //    (`-r -f`, `--recursive --force`); the target must be `/` or `/*`.
+    let rm_root = [
+        "rm -rf /",
+        "rm -fr /",
+        "rm -r -f /",
+        "rm -f -r /",
+        "rm -rf /*",
+        "rm -fr /*",
+        "rm -r -f /*",
+        "rm -f -r /*",
+        "rm --recursive --force /",
+        "rm --force --recursive /",
+        "rm -rf --no-preserve-root /",
+        "rm -rf / --no-preserve-root",
+    ];
+    if normalized.starts_with("rm ")
+        && rm_root
+            .iter()
+            .any(|p| normalized == *p || normalized.starts_with(&format!("{p} ")))
+    {
+        return CommandRisk::Blocked;
+    }
+
+    // 2. Filesystem formatting: `mkfs.*`, `mkswap`.
+    let argv0 = first_token(&normalized);
+    if argv0 == "mkfs" || argv0.starts_with("mkfs.") || argv0 == "mkswap" || argv0 == "mkfs.ext4" {
+        return CommandRisk::Blocked;
+    }
+
+    // 3. Raw block-device writes: `dd of=/dev/<dev>` (of=/dev/null is
+    //    harmless), `shred /dev/<dev>`.
+    if argv0 == "dd"
+        && let Some(of_pos) = normalized.find("of=/dev/")
+    {
+        let target = &normalized[of_pos + "of=/dev/".len()..];
+        if !target.starts_with("null") {
+            return CommandRisk::Blocked;
+        }
+    }
+    if argv0 == "shred" && normalized.contains("/dev/") {
+        return CommandRisk::Blocked;
+    }
+
+    // 4. Fork bombs: bash function definitions that recurse in the
+    //    background (`:(){ :|:& };:`, `f() { f | f & }; f`). The `(){`
+    //    signature (or `() {` with a background `&`) is unmistakable.
+    if normalized.contains("(){") || (normalized.contains("() {") && normalized.contains('&')) {
+        return CommandRisk::Blocked;
+    }
+
+    // 5. Recursive permission destruction on the root: `chmod -R 777 /`,
+    //    `chown -R root /` (the `-r` substring also covers `-R`, `-r`,
+    //    and `--recursive` after lowercasing).
+    if let Some(args) = normalized.strip_prefix("chmod ")
+        && args.contains("-r")
+        && (args.ends_with(" /") || args.ends_with(" /*"))
+    {
+        return CommandRisk::Blocked;
+    }
+    if normalized.starts_with("chown ")
+        && (normalized.ends_with(" /") || normalized.ends_with(" /*"))
+    {
+        return CommandRisk::Blocked;
+    }
+
+    // 6. System control: shutdown/reboot/poweroff/halt as the program name.
+    if matches!(argv0, "shutdown" | "reboot" | "poweroff" | "halt") {
+        return CommandRisk::Blocked;
+    }
+
+    CommandRisk::Safe
+}
+
 fn run_command_tool() -> Tool {
     #[derive(Deserialize, JsonSchema)]
     struct RunCommandInput {
@@ -781,6 +913,14 @@ fn run_command_tool() -> Tool {
              stdout/stderr. Shell metacharacters are NOT interpreted.",
         )
         .handler(|input: RunCommandInput| async move {
+            // Round-231 T3: refuse destructive commands before the Kotlin
+            // host executes anything. The error text is returned directly
+            // to the MCP client.
+            if classify_command(&input.command) == CommandRisk::Blocked {
+                return Ok(CallToolResult::error(
+                    "BLOCKED: command refused by safety classifier (destructive pattern)",
+                ));
+            }
             let (session_id, rx) = {
                 let state = global_state();
                 let guard = state.0.on_run_command.lock();
@@ -1055,6 +1195,136 @@ mod tests {
     use std::sync::Mutex as StdMutex;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tower_mcp::testing::TestClient;
+
+    // ── Round-231 T3: command safety classifier ────────────────────────────
+
+    #[test]
+    fn classifier_blocks_root_deletion() {
+        for cmd in [
+            "rm -rf /",
+            "rm -fr /",
+            "rm -r -f /",
+            "rm -rf /*",
+            "rm --recursive --force /",
+            "rm -rf --no-preserve-root /",
+            "sudo rm -rf /",
+            "env rm -rf /",
+            "rm  -rf   /",
+        ] {
+            assert_eq!(
+                classify_command(cmd),
+                CommandRisk::Blocked,
+                "must block: {cmd}"
+            );
+        }
+        // Deleting a subtree under the root is a normal operation.
+        assert_eq!(classify_command("rm -rf /tmp/build"), CommandRisk::Safe);
+        assert_eq!(classify_command("rm -rf ~/projects"), CommandRisk::Safe);
+    }
+
+    #[test]
+    fn classifier_blocks_formatting_and_devices() {
+        for cmd in [
+            "mkfs.ext4 /dev/sda1",
+            "mkfs -t ext4 /dev/sdb",
+            "mkswap /dev/sdc",
+            "dd if=/dev/zero of=/dev/sda",
+            "dd if=/dev/zero of=/dev/mmcblk0 bs=4M",
+            "shred /dev/sda",
+        ] {
+            assert_eq!(
+                classify_command(cmd),
+                CommandRisk::Blocked,
+                "must block: {cmd}"
+            );
+        }
+        // Reading devices or writing /dev/null is safe.
+        assert_eq!(
+            classify_command("dd if=/dev/zero of=/dev/null count=1"),
+            CommandRisk::Safe
+        );
+        assert_eq!(
+            classify_command("dd if=/dev/sda of=/tmp/disk.img bs=1M count=1"),
+            CommandRisk::Safe
+        );
+        // `mkfs` (even with -h) is blocked: argv0 is the formatter and a
+        // bare `mkfs` formats the default device — never worth the risk
+        // from an agent.
+        assert_eq!(classify_command("mkfs -h"), CommandRisk::Blocked);
+    }
+
+    #[test]
+    fn classifier_blocks_fork_bombs() {
+        for cmd in [":(){ :|:& };:", ":(){ :|: & };:", "f() { f | f & }; f"] {
+            assert_eq!(
+                classify_command(cmd),
+                CommandRisk::Blocked,
+                "must block: {cmd}"
+            );
+        }
+        assert_eq!(classify_command("echo '{()'"), CommandRisk::Safe);
+    }
+
+    #[test]
+    fn classifier_blocks_root_chmod_chown() {
+        for cmd in [
+            "chmod -R 777 /",
+            "chmod -R 777 /*",
+            "chmod --recursive 777 /",
+            "chown -R root:root /",
+        ] {
+            assert_eq!(
+                classify_command(cmd),
+                CommandRisk::Blocked,
+                "must block: {cmd}"
+            );
+        }
+        assert_eq!(classify_command("chmod -R 777 /tmp"), CommandRisk::Safe);
+        assert_eq!(classify_command("chmod 755 /"), CommandRisk::Safe);
+        assert_eq!(
+            classify_command("chown -R me:me /home/me"),
+            CommandRisk::Safe
+        );
+    }
+
+    #[test]
+    fn classifier_blocks_system_control() {
+        for cmd in [
+            "shutdown",
+            "shutdown -h now",
+            "reboot",
+            "poweroff",
+            "halt",
+            "sudo reboot",
+        ] {
+            assert_eq!(
+                classify_command(cmd),
+                CommandRisk::Blocked,
+                "must block: {cmd}"
+            );
+        }
+        // `reboot` as a data argument is not the program.
+        assert_eq!(classify_command("echo reboot"), CommandRisk::Safe);
+        assert_eq!(classify_command("git rebase main"), CommandRisk::Safe);
+    }
+
+    #[test]
+    fn classifier_allows_normal_commands() {
+        for cmd in [
+            "ls -la",
+            "echo hello world",
+            "cat /etc/hosts",
+            "ps aux | grep java",
+            "apt list --installed",
+            "printf '%s\\n' hello",
+        ] {
+            assert_eq!(
+                classify_command(cmd),
+                CommandRisk::Safe,
+                "must allow: {cmd}"
+            );
+        }
+    }
 
     // `global_state()` is a process-wide singleton; the tools read the
     // handlers from it. Tests that register handlers MUST run serially or

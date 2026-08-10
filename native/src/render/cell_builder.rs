@@ -14,6 +14,14 @@ use std::collections::HashMap;
 /// Must match the bit layout used by pack_style_flags() and shader/cell.wgsl.
 const REVERSE_BIT: u8 = 2;
 
+/// Bit position of bold (SGR 1) in CellData.flags — drives styled glyph
+/// lookup (round-231 T6).
+const BOLD_BIT: u8 = 0;
+
+/// Bit position of italic (SGR 3) in CellData.flags — drives styled glyph
+/// lookup (round-231 T6).
+const ITALIC_BIT: u8 = 1;
+
 /// Cursor state passed to build_instances_from_cell_data() for cursor rendering.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct CellCursor {
@@ -338,8 +346,11 @@ pub fn build_instances_from_cell_data(
         // Non-empty cell: emit glyph quad first, then cursor marker
         // (if any; for Bar/Underline) on top so the thin bar/underline
         // is visible over the glyph.
-        // Primary glyph
-        if let Some(info) = font_pipeline.glyph_information(ch) {
+        // Primary glyph — styled when the cell carries bold/italic flags
+        // (round-231 T6: same-family styled face preferred, else synthesis).
+        let cell_bold = (cd.flags >> BOLD_BIT) & 1 == 1;
+        let cell_italic = (cd.flags >> ITALIC_BIT) & 1 == 1;
+        if let Some(info) = font_pipeline.glyph_information_styled(ch, cell_bold, cell_italic) {
             let uv_x = info.atlas_x as f32 / atlas_width;
             let uv_y = info.atlas_y as f32 / atlas_height;
             let uv_w = info.width as f32 / atlas_width;

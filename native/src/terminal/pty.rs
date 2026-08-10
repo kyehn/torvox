@@ -2,6 +2,7 @@
 //!
 //! # Requirements
 //! - [FR-026](crate) — PTY: master/slave pair creation
+use std::cell::Cell;
 use std::io;
 use std::os::unix::io::{AsRawFd, OwnedFd, RawFd};
 #[cfg(test)]
@@ -44,6 +45,15 @@ pub trait Pty: Send {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize>;
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize>;
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError>;
+    /// Update the cached pixel dimensions and write them to the kernel via
+    /// TIOCSWINSZ (ws_xpixel/ws_ypixel), so fullscreen applications see
+    /// the real pixel size instead of 0.
+    ///
+    /// Default: no-op — test doubles without a kernel winsize (e.g.
+    /// `MockPty`) inherit this; real PTYs override it.
+    fn set_pixel_size(&self, _width: u16, _height: u16) -> Result<(), PtyError> {
+        Ok(())
+    }
     /// Query the current terminal window size (rows x cols) via
     /// TIOCGWINSZ. Round-224: used to verify the 24x80 spawn seed.
     fn get_winsize(&self) -> Result<(u16, u16), PtyError>;
@@ -87,8 +97,8 @@ pub trait Pty: Send {
 pub struct PtyPair {
     master: OwnedFd,
     child_pid: nix::unistd::Pid,
-    pixel_width: u16,
-    pixel_height: u16,
+    pixel_width: Cell<u16>,
+    pixel_height: Cell<u16>,
 }
 
 impl PtyPair {
@@ -212,8 +222,8 @@ impl PtyPair {
                 Ok(Self {
                     master: master_fd,
                     child_pid: child,
-                    pixel_width: 0,
-                    pixel_height: 0,
+                    pixel_width: Cell::new(0),
+                    pixel_height: Cell::new(0),
                 })
             }
             nix::unistd::ForkResult::Child => {
@@ -387,9 +397,54 @@ impl PtyPair {
         let winsize = nix::pty::Winsize {
             ws_row: rows,
             ws_col: cols,
-            ws_xpixel: self.pixel_width,
-            ws_ypixel: self.pixel_height,
+            ws_xpixel: self.pixel_width.get(),
+            ws_ypixel: self.pixel_height.get(),
         };
+        // SAFETY: ioctl with TIOCSWINSZ writes a well-formed Winsize struct
+        // to the master PTY fd. The fd is owned and valid. The kernel copies
+        // the winsize to the slave side — no memory safety risk. The return
+        // value is checked for errors.
+        unsafe {
+            let result = libc::ioctl(
+                self.master.as_raw_fd(),
+                libc::TIOCSWINSZ,
+                std::ptr::from_ref(&winsize),
+            );
+            if result < 0 {
+                return Err(PtyError::Resize(nix::errno::Errno::last()));
+            }
+        }
+        Ok(())
+    }
+
+    /// Update the cached pixel dimensions and push them to the kernel via
+    /// TIOCSWINSZ (ws_xpixel/ws_ypixel), so fullscreen applications see
+    /// the real pixel size instead of 0. TIOCSWINSZ replaces the whole
+    /// struct, so the current rows/cols are read back first and preserved.
+    pub fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), PtyError> {
+        self.pixel_width.set(width);
+        self.pixel_height.set(height);
+        let mut winsize = nix::pty::Winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        // SAFETY: ioctl TIOCGWINSZ fills a well-formed Winsize struct from
+        // the kernel; the fd is owned and valid. The struct is fully
+        // initialized before use.
+        unsafe {
+            let result = libc::ioctl(
+                self.master.as_raw_fd(),
+                libc::TIOCGWINSZ,
+                std::ptr::from_mut(&mut winsize),
+            );
+            if result < 0 {
+                return Err(PtyError::Resize(nix::errno::Errno::last()));
+            }
+        }
+        winsize.ws_xpixel = width;
+        winsize.ws_ypixel = height;
         // SAFETY: ioctl with TIOCSWINSZ writes a well-formed Winsize struct
         // to the master PTY fd. The fd is owned and valid. The kernel copies
         // the winsize to the slave side — no memory safety risk. The return
@@ -458,6 +513,10 @@ impl Pty for PtyPair {
 
     fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
         PtyPair::resize(self, rows, cols)
+    }
+
+    fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), PtyError> {
+        PtyPair::set_pixel_size(self, width, height)
     }
 
     fn get_winsize(&self) -> Result<(u16, u16), PtyError> {

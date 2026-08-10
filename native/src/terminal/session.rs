@@ -62,7 +62,7 @@ const READ_BUF_SIZE: usize = 8192;
 /// while the thread no longer spins the CPU when the PTY is idle.
 const READ_POLL_TIMEOUT_MS: i32 = 100;
 
-pub const DEFAULT_SCROLLBACK_LINES: u32 = 50000;
+pub const DEFAULT_SCROLLBACK_LINES: u32 = 10000;
 
 /// Errors that can occur during session operations.
 #[derive(Debug, Error)]
@@ -148,6 +148,10 @@ pub struct Session {
     /// reports it exactly once.
     exit_reported: Arc<AtomicBool>,
     bel_triggered: Arc<AtomicBool>,
+    /// Round-P0: timestamp of the last delivered BEL, for the 500 ms
+    /// `poll_bel` debounce (prevents a burst of BELs from ringing the
+    /// bell more than once per half second).
+    last_bel_at: std::sync::Mutex<Option<std::time::Instant>>,
     clipboard_text: Arc<Mutex<Option<String>>>,
     /// Pending OSC 52 clipboard read request: the requested selection name.
     /// Consumed by the JNI layer (`poll_clipboard_read`), which forwards it
@@ -155,6 +159,8 @@ pub struct Session {
     /// [`Session::answer_clipboard_read`].
     clipboard_read: Arc<Mutex<Option<String>>>,
     notification: Arc<Mutex<Option<(String, String)>>>,
+    /// Round-230: ConEmu progress from OSC 9;4 (state, value).
+    progress: Arc<Mutex<Option<(u8, u8)>>>,
     cwd: Arc<Mutex<Option<String>>>,
 
     // ── Thread lifecycle ─────────────────────────────────────────────
@@ -318,8 +324,12 @@ impl Session {
                             let tee_data = read_buf[..bytes_read].to_vec();
                             let _ = tee.try_send(tee_data);
                         }
-                        // Primary channel: send ownership (no clone needed)
-                        let data = read_buf[..bytes_read].to_vec();
+                        // NUL stripping: remove 0x00 bytes before VT parsing.
+                        // Reference: ghostty-android strips NUL to avoid APC-NUL rendering artifacts.
+                        let mut data = read_buf[..bytes_read].to_vec();
+                        if data.contains(&0) {
+                            data.retain(|&b| b != 0);
+                        }
                         if output_tx.send(data).is_err() {
                             log::info!("reader thread: output channel closed");
                             break;
@@ -412,6 +422,7 @@ impl Session {
         .map_err(SessionError::Ghostty)?;
 
         let notification = Arc::new(Mutex::new(None));
+        let progress = Arc::new(Mutex::new(None));
         let cwd = Arc::new(Mutex::new(None));
 
         Ok(Self {
@@ -425,9 +436,11 @@ impl Session {
             exited,
             exit_reported,
             bel_triggered,
+            last_bel_at: std::sync::Mutex::new(None),
             clipboard_text,
             clipboard_read,
             notification,
+            progress,
             cwd,
             reader_handle: None,
             wait_handle: None,
@@ -500,28 +513,33 @@ impl Session {
     pub fn send_signal(&self, signum: i32) -> Result<(), SessionError> {
         let signal = nix::sys::signal::Signal::try_from(signum)
             .map_err(|error| SessionError::Ghostty(format!("invalid signal {signum}: {error}")))?;
+        let child = self.pty.child_pid();
         // Kill the foreground process group first (zed-port pattern: pty_info.rs:29-53).
-        let target = self.pty.foreground_pid().unwrap_or(self.pty.child_pid());
-        let pgid = -(target.as_raw() as libc::pid_t);
-        // SAFETY: killpg sends signal to a process group. We use negative PID
-        // to target the group rather than the individual process.
-        let result = unsafe { libc::kill(pgid, signal as i32) };
+        if let Some(fg_pid) = self.pty.foreground_pid() {
+            let fg_raw = fg_pid.as_raw() as libc::pid_t;
+            if fg_raw > 1 {
+                let pgid = -fg_raw;
+                // SAFETY: killpg sends signal to a process group.
+                let result = unsafe { libc::kill(pgid, signal as i32) };
+                if result == 0 {
+                    return Ok(());
+                }
+                log::warn!(
+                    "send_signal: group kill(-{fg_raw}, {signal:?}) failed: {}, falling back to child",
+                    nix::errno::Errno::last()
+                );
+            }
+        }
+        // Fall back to direct child kill
+        let result = unsafe { libc::kill(child.as_raw() as libc::pid_t, signal as i32) };
         if result == 0 {
             Ok(())
         } else {
-            // Fall back to direct child kill if group kill fails
-            let child = self.pty.child_pid();
-            let child_signal = signal;
-            let child_result =
-                unsafe { libc::kill(child.as_raw() as libc::pid_t, child_signal as i32) };
-            if child_result == 0 {
-                Ok(())
-            } else {
-                Err(SessionError::Ghostty(format!(
-                    "kill({pgid}, {signal:?}) failed: {}",
-                    nix::errno::Errno::last()
-                )))
-            }
+            Err(SessionError::Ghostty(format!(
+                "kill({}, {signal:?}) failed: {}",
+                child,
+                nix::errno::Errno::last()
+            )))
         }
     }
 
@@ -555,6 +573,10 @@ impl Session {
             if let Some((ref title, ref body)) = snap.notification {
                 let mut guard = self.notification.lock();
                 *guard = Some((title.clone(), body.clone()));
+            }
+            if let Some((state, value)) = snap.progress {
+                let mut guard = self.progress.lock();
+                *guard = Some((state, value));
             }
 
             if snap.bel {
@@ -613,9 +635,19 @@ impl Session {
         self.poll_pty_output(Self::MAX_CHUNKS_PER_FRAME)
     }
 
-    /// Poll for a BEL (bell character) event. Returns true if a BEL was received since last poll.
+    /// Poll for a BEL (bell character) event. Returns true if a BEL was
+    /// received since the last poll, debounced to at most one per 500 ms.
     pub fn poll_bel(&self) -> bool {
-        self.bel_triggered.swap(false, Ordering::AcqRel)
+        const BELL_DEBOUNCE_MS: u64 = 500;
+        if self.bel_triggered.swap(false, Ordering::AcqRel) {
+            let now = std::time::Instant::now();
+            let mut last = self.last_bel_at.lock().unwrap();
+            if last.is_none_or(|t| now.duration_since(t).as_millis() as u64 >= BELL_DEBOUNCE_MS) {
+                *last = Some(now);
+                return true;
+            }
+        }
+        false
     }
 
     /// Poll for clipboard text set by an OSC 52 escape sequence.
@@ -666,6 +698,13 @@ impl Session {
     /// Poll for a desktop notification set by an OSC 9 escape sequence.
     pub fn poll_notification(&self) -> Option<(String, String)> {
         let mut guard = self.notification.lock();
+        guard.take()
+    }
+
+    /// Poll for a ConEmu progress update set by OSC 9;4.
+    /// Returns (state, value) where state is 0–4 and value is 0–100.
+    pub fn poll_progress(&self) -> Option<(u8, u8)> {
+        let mut guard = self.progress.lock();
         guard.take()
     }
 
@@ -786,29 +825,53 @@ fn join_with_timeout(handle: &mut Option<std::thread::JoinHandle<()>>, timeout: 
 impl Drop for Session {
     fn drop(&mut self) {
         self.exited.store(true, Ordering::Release);
-
         let pid = self.pty.child_pid();
         if pid.as_raw() > 0 {
-            if let Err(e) = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGHUP) {
-                log::warn!("session drop: failed to send SIGHUP to {}: {e}", pid);
+            // Try process-group-first kill: kill(-pgid) sends the signal to
+            // the entire foreground process group (reference: zed-port
+            // pty_info.rs:29-53), so child processes of the shell
+            // (pipelines, background jobs in the foreground group) die
+            // together with it.
+            if let Ok(pgid) = nix::unistd::getpgid(Some(pid)) {
+                let pgid_raw = pgid.as_raw();
+                if pgid_raw > 0 {
+                    if let Err(e) = nix::sys::signal::kill(
+                        nix::unistd::Pid::from_raw(-pgid_raw),
+                        nix::sys::signal::Signal::SIGHUP,
+                    ) {
+                        log::warn!(
+                            "session drop: SIGHUP to pgid -{pgid_raw}: {e}, falling back to child pid"
+                        );
+                        // Group kill failed, fall back to direct child.
+                        let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGHUP);
+                    }
+                    let _ = nix::sys::signal::kill(
+                        nix::unistd::Pid::from_raw(-pgid_raw),
+                        nix::sys::signal::Signal::SIGCONT,
+                    );
+                    std::thread::sleep(Duration::from_millis(50));
+                    if let Err(e) = nix::sys::signal::kill(
+                        nix::unistd::Pid::from_raw(-pgid_raw),
+                        nix::sys::signal::Signal::SIGKILL,
+                    ) {
+                        log::warn!(
+                            "session drop: SIGKILL to pgid -{pgid_raw}: {e}, falling back to child pid"
+                        );
+                        let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
+                    }
+                    // Try to wait for any process in the group.
+                    join_with_timeout(&mut self.reader_handle, Duration::from_millis(50));
+                    join_with_timeout(&mut self.wait_handle, Duration::from_millis(50));
+                    return;
+                }
             }
-            if let Err(e) = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGCONT) {
-                log::warn!("session drop: failed to send SIGCONT to {}: {e}", pid);
-            }
+            // Fallback: direct child kill (if getpgid fails or pgid <= 0).
+            let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGHUP);
+            let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGCONT);
             std::thread::sleep(Duration::from_millis(50));
-            if let Err(e) = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL) {
-                log::warn!("session drop: failed to send SIGKILL to {}: {e}", pid);
-            }
+            let _ = nix::sys::signal::kill(pid, nix::sys::signal::Signal::SIGKILL);
         }
-
-        // Try to join the reader thread with a short timeout.
-        // If it's blocked on PTY read, SIGKILL above will have closed the fd
-        // and the thread should terminate quickly.
         join_with_timeout(&mut self.reader_handle, Duration::from_millis(50));
-        // Try to join the wait thread with a short timeout.
-        // SIGKILL was sent above, so waitpid() in the wait thread should
-        // return promptly. Best-effort: if the child doesn't terminate,
-        // the thread is detached to avoid blocking Drop indefinitely.
         join_with_timeout(&mut self.wait_handle, Duration::from_millis(50));
     }
 }

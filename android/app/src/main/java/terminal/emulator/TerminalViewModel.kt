@@ -188,6 +188,57 @@ constructor(
     private val _userThemes = kotlinx.coroutines.flow.MutableStateFlow<List<terminal.emulator.ui.theme.TerminalTheme>>(emptyList())
     val userThemes: kotlinx.coroutines.flow.StateFlow<List<terminal.emulator.ui.theme.TerminalTheme>> = _userThemes.asStateFlow()
 
+    // ── Keyboard shortcuts ────────────────────────────────────────────
+    private val _shortcutBindings = kotlinx.coroutines.flow.MutableStateFlow(
+        terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all(),
+    )
+    val shortcutBindings: kotlinx.coroutines.flow.StateFlow<Map<String, terminal.emulator.shortcut.ShortcutBinding>> =
+        _shortcutBindings.asStateFlow()
+
+    /** Load persisted shortcut bindings from DataStore into the hot StateFlow. */
+    private fun loadShortcutBindingsFromDataStore(state: terminal.emulator.settings.SettingsRepository.SettingsState) {
+        val defaults = terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all()
+        val loaded = defaults.mapValues { (actionId, default) ->
+            val serialized = when (actionId) {
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE -> state.shortcutPaste
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION -> state.shortcutNewSession
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION -> state.shortcutCloseSession
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY -> state.shortcutCopy
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL -> state.shortcutToggleScroll
+                else -> ""
+            }
+            if (serialized.isNotEmpty()) {
+                terminal.emulator.shortcut.ShortcutBinding.deserialize(serialized).let {
+                    if (it.isEmpty()) default else it
+                }
+            } else {
+                default
+            }
+        }
+        _shortcutBindings.value = loaded
+    }
+
+    fun updateShortcutBinding(actionId: String, binding: terminal.emulator.shortcut.ShortcutBinding) {
+        _shortcutBindings.value = _shortcutBindings.value.toMutableMap().apply { put(actionId, binding) }
+        viewModelScope.launch {
+            settingsRepository.setShortcutBinding(actionId, binding.serialize())
+        }
+    }
+
+    fun resetShortcutBinding(actionId: String) {
+        val defaults = terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all()
+        _shortcutBindings.value = _shortcutBindings.value.toMutableMap().apply {
+            put(actionId, defaults[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY)
+        }
+        viewModelScope.launch {
+            settingsRepository.clearShortcutBinding(actionId)
+        }
+    }
+
+    fun hasShortcutConflict(actionId: String, binding: terminal.emulator.shortcut.ShortcutBinding): Boolean = _shortcutBindings.value.any { (id, existing) ->
+        id != actionId && existing == binding
+    }
+
     // ── Font forwards (implementation in FontManager) ─────────────────────
 
     fun setFontSize(size: Float) = fontManager.setFontSize(size)
@@ -699,22 +750,31 @@ constructor(
             return false
         }
 
-        private fun isWideChar(ch: Char): Boolean {
-            val type = Character.getType(ch)
-            return type == Character.OTHER_SYMBOL.toInt() ||
-                type == Character.LETTER_NUMBER.toInt() ||
-                type == Character.ENCLOSING_MARK.toInt() ||
-                ch.code in 0x1100..0x115F ||
-                ch.code in 0x2E80..0x9FFF ||
-                ch.code in 0xA000..0xA4CF ||
-                ch.code in 0xAC00..0xD7AF ||
-                ch.code in 0xF900..0xFAFF ||
-                ch.code in 0xFE30..0xFE6F ||
-                ch.code in 0xFF01..0xFF60 ||
-                ch.code in 0xFFE0..0xFFE6 ||
-                ch.code in 0x20000..0x2FA1F ||
-                ch.code in 0x30000..0x3134F
-        }
+        private fun isWideChar(ch: Char): Boolean = isWideBmp(ch.code) || isWideAstral(ch.code)
+
+        /** BMP wide ranges from Markus Kuhn's wcwidth() tables. */
+        private fun isWideBmp(cp: Int): Boolean = cp in 0x1100..0x115F || // Hangul Jamo
+            cp in 0x2329..0x232A || // angle brackets
+            cp in 0x2E80..0x303E || // CJK Radicals .. CJK Symbols and Punctuation
+            cp in 0x3041..0x33FF || // Hiragana .. CJK Compatibility
+            cp in 0x3400..0x4DBF || // CJK Extension A
+            cp in 0x4E00..0x9FFF || // CJK Unified Ideographs
+            cp in 0xA000..0xA4CF || // Yi Syllables
+            cp in 0xAC00..0xD7A3 || // Hangul Syllables
+            cp in 0xF900..0xFAFF || // CJK Compatibility Ideographs
+            cp in 0xFE30..0xFE4F || // CJK Compatibility Forms
+            cp in 0xFF00..0xFF60 || // Fullwidth Forms
+            cp in 0xFFE0..0xFFE6 // Fullwidth Signs
+
+        /** Astral-plane wide ranges (emoji and CJK extensions B-G). */
+        private fun isWideAstral(cp: Int): Boolean = cp in 0x1F1E6..0x1F1FF || // Regional Indicator (flag)
+            cp in 0x1F300..0x1F64F || // Emoticons
+            cp in 0x1F680..0x1F6FF || // Transport
+            cp in 0x1F700..0x1F8FF || // Alchemical .. Geometric Extended
+            cp in 0x1F900..0x1F9FF || // Supplemental Symbols
+            cp in 0x1FA00..0x1FAFF || // Chess .. Symbols Extended-A
+            cp in 0x20000..0x2FFFD || // CJK Extensions B-F
+            cp in 0x30000..0x3FFFD // CJK Extension G
 
         /**
          * Extract a column-bounded rectangle slice from a single line,
@@ -1029,6 +1089,15 @@ constructor(
     val fontInfo: StateFlow<String> = _fontInfo.asStateFlow()
 
     init {
+        // Load persisted shortcut bindings from DataStore (round-230 fix).
+        viewModelScope.launch {
+            settings.map {
+                it.shortcutPaste to it.shortcutNewSession to
+                    it.shortcutCloseSession to it.shortcutCopy to it.shortcutToggleScroll
+            }
+                .distinctUntilChanged()
+                .collect { loadShortcutBindingsFromDataStore(settings.value) }
+        }
         viewModelScope.launch {
             runtime.state.collect { runtimeState ->
                 val sortedIds = runtimeState.sessionIds.sorted()
@@ -1544,6 +1613,26 @@ constructor(
         }
     }
 
+    /**
+     * Overwrite an existing user theme with a new definition from the
+     * theme editor. The name must match an existing user theme.
+     */
+    fun overwriteUserTheme(theme: terminal.emulator.ui.theme.TerminalTheme) {
+        viewModelScope.launch {
+            userThemeStore.save(theme)
+        }
+    }
+
+    /**
+     * Save an edited theme as a brand-new user theme.
+     */
+    fun saveEditedThemeAsNew(name: String, theme: terminal.emulator.ui.theme.TerminalTheme) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            userThemeStore.save(theme.copy(name = name.trim()))
+        }
+    }
+
     fun setDayThemeName(name: String) = applyThemeSettings { settingsRepository.setDayThemeName(name) }
 
     fun setNightThemeName(name: String) = applyThemeSettings { settingsRepository.setNightThemeName(name) }
@@ -1676,6 +1765,9 @@ constructor(
 
     fun toggleScrollMode() {
         _state.update { it.copy(scrollActive = !it.scrollActive) }
+        // Round-230: sync scrollActive to SessionEntry so the render thread
+        // knows whether to auto-reset scroll on new output.
+        runtime.setScrollActive(_state.value.scrollActive)
     }
 
     fun createSession() {
