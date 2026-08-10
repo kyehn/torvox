@@ -1165,6 +1165,10 @@ constructor(
                                                 NativeBridge
                                                     .clipboardResult(request.sessionId, request.requestId, "")
                                             }
+                                            poll.screenshots.forEach { request ->
+                                                NativeBridge
+                                                    .screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
+                                            }
                                         } catch (replyException: Exception) {
                                             LogUtil.e(
                                                 "Runtime",
@@ -1468,6 +1472,47 @@ constructor(
                 // signal requests meanwhile (round-227 T4c).
                 scope.launch { dispatchRunCommandRequest(request) }
             }
+            poll.screenshots.forEach { request ->
+                dispatchScreenshotRequest(request)
+            }
+        }
+    }
+
+    /**
+     * Dispatch one MCP `screenshot` request. Captures the current terminal
+     * frame as RGBA pixels via GPU readback (render_to_buffer) and returns
+     * the result to the native MCP tool via [NativeBridge.screenshotResult].
+     *
+     * Must run on the render thread (which owns the wgpu context). The
+     * render thread's event loop calls this directly.
+     */
+    private fun dispatchScreenshotRequest(request: terminal.emulator.bridge.Bridge.ScreenshotRequest) {
+        try {
+            val data = NativeBridge.captureFrame(request.sessionId)
+            if (data == null || data.size < 8) {
+                LogUtil.w("Runtime", "screenshot: captureFrame returned null or insufficient data")
+                NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
+                return
+            }
+            // First 8 bytes: width (u32 LE) + height (u32 LE)
+            val width = ((data[0].toInt() and 0xFF)
+                or ((data[1].toInt() and 0xFF) shl 8)
+                or ((data[2].toInt() and 0xFF) shl 16)
+                or ((data[3].toInt() and 0xFF) shl 24))
+            val height = ((data[4].toInt() and 0xFF)
+                or ((data[5].toInt() and 0xFF) shl 8)
+                or ((data[6].toInt() and 0xFF) shl 16)
+                or ((data[7].toInt() and 0xFF) shl 24))
+            if (width <= 0 || height <= 0) {
+                LogUtil.w("Runtime", "screenshot: invalid dimensions ${width}x${height}")
+                NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
+                return
+            }
+            val pixels = data.copyOfRange(8, data.size)
+            NativeBridge.screenshotResult(request.sessionId, request.requestId, width, height, pixels)
+        } catch (exception: Exception) {
+            LogUtil.e("Runtime", "screenshot dispatch failed: ${exception.message}")
+            NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
         }
     }
 
@@ -1947,6 +1992,10 @@ constructor(
             // (filesDir/fonts, e.g. user-installed Nerd Fonts) actually
             // reach the native font database here. Called before
             // spawnTerminal it was a silent no-op.
+            // Bundle-extract Nerd Font on first launch so PUA glyphs
+            // (U+E0A0, U+E0B0, etc.) work out-of-the-box without
+            // requiring the user to manually install a Nerd Font.
+            extractBundledNerdFont(context, fontsDir)
             bridge.setExtraFontPaths(listOf(fontsDir.absolutePath))
 
             try {
@@ -3342,16 +3391,45 @@ internal fun fastDeathBackoffMs(attempt: Int): Long = minOf(500L shl (attempt - 
  * 2 = internal exception. Termux semantics: a non-zero exit code is NOT a
  * failure — only err_code != 0 is.
  */
+
+/**
+ * Bundle-extract JetBrainsMono Nerd Font into [fontsDir] on first launch.
+ * The font is shipped in `assets/fonts/` and provides PUA glyphs (U+E0A0,
+ * U+E0B0, etc.) needed by the Nerd fallback layer in cjk.rs.  Skips if
+ * the file already exists (idempotent — user may have placed their own).
+ */
+internal fun extractBundledNerdFont(context: android.content.Context, fontsDir: java.io.File) {
+    val target = java.io.File(fontsDir, "JetBrainsMonoNerdFont-Regular.ttf")
+    if (target.exists()) return
+    try {
+        fontsDir.mkdirs()
+        context.assets.open("fonts/JetBrainsMonoNerdFont-Regular.ttf").use { input ->
+            target.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        LogUtil.i("Runtime", "Extracted bundled Nerd Font: ${target.absolutePath}")
+    } catch (exception: Exception) {
+        LogUtil.w("Runtime", "Failed to extract bundled Nerd Font: ${exception.javaClass.simpleName}")
+    }
+}
+
 internal fun runCommandPayload(
     exitCode: Int,
     errCode: Int,
     stdout: String,
     stderr: String,
-): String = "{\"exit_code\":$exitCode,\"err_code\":$errCode,\"stdout\":${
-    jsonString(stdout)
-},\"stderr\":${
-    jsonString(stderr)
-}}"
+): String {
+    // Clamp exit_code to 0-255 per spec d4 (defense-in-depth; the caller
+    // should already clamp, but this ensures the wire format is always valid).
+    // POSIX exit codes wrap mod 256; preserve -1 (timeout sentinel).
+    val clampedExit = if (exitCode == -1) -1 else exitCode and 0xFF
+    return "{\"exit_code\":$clampedExit,\"err_code\":$errCode,\"stdout\":${
+        jsonString(stdout)
+    },\"stderr\":${
+        jsonString(stderr)
+    }}"
+}
 
 private fun jsonString(value: String): String {
     // Full JSON string escaping (round-227 T4b): every C0 control byte
@@ -3464,7 +3542,7 @@ internal fun executeRunCommand(
         // in the background and finish by their own deadline.
         val stdout = out.get(drainMs + 50)
         val stderr = err.get(50)
-        val code = if (exited) process.exitValue() else -1
+        val code = if (exited) process.exitValue() and 0xFF else -1
         return RunCommandResult(stdout, stderr, code, !exited)
     } finally {
         process.destroy()

@@ -342,6 +342,13 @@ static REQUEST_REGISTRY: LazyLock<
     Mutex<HashMap<(u64, u64), tokio::sync::oneshot::Sender<String>>>,
 > = LazyLock::new(|| Mutex::new(HashMap::new()));
 
+/// Separate registry for screenshot requests which return
+/// `(width, height, rgba_bytes)` instead of a plain String.
+#[cfg(feature = "mcp")]
+static SCREENSHOT_REQUEST_REGISTRY: LazyLock<
+    Mutex<HashMap<(u64, u64), tokio::sync::oneshot::Sender<(u32, u32, Vec<u8>)>>>,
+> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
 fn encode_modifiers(input: &[u8], mods: i32) -> Vec<u8> {
     let ctrl = (mods & 4) != 0;
     let alt_or_meta = (mods & (2 | 8)) != 0;
@@ -406,12 +413,45 @@ pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::R
     (request_id, rx)
 }
 
+/// Register a screenshot request that returns `(width, height, rgba_bytes)`.
+#[cfg(feature = "mcp")]
+pub(crate) fn register_screenshot_request(
+    session_id: u64,
+) -> (u64, tokio::sync::oneshot::Receiver<(u32, u32, Vec<u8>)>) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
+    SCREENSHOT_REQUEST_REGISTRY
+        .lock()
+        .insert((session_id, request_id), tx);
+    (request_id, rx)
+}
+
+/// Answer a screenshot request with RGBA pixel data.
+#[cfg(feature = "mcp")]
+pub(crate) fn answer_screenshot_request(
+    session_id: u64,
+    request_id: u64,
+    width: u32,
+    height: u32,
+    pixels: Vec<u8>,
+) {
+    if let Some(tx) = SCREENSHOT_REQUEST_REGISTRY
+        .lock()
+        .remove(&(session_id, request_id))
+    {
+        let _ = tx.send((width, height, pixels));
+    }
+}
+
 /// Remove a pending dialog/pick_file request without answering it. Called
 /// by the MCP tools when their 300s timeout expires so a never-answered
 /// request cannot leak one oneshot Sender in REQUEST_REGISTRY per call.
 #[cfg(feature = "mcp")]
 pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
     REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
+    SCREENSHOT_REQUEST_REGISTRY
+        .lock()
+        .remove(&(session_id, request_id));
     // Round-210 P2-14: tell Kotlin to dismiss the still-visible dialog
     // (the MCP tool call has given up; without this the dialog hangs on
     // screen unresponsive until the process dies).
@@ -444,6 +484,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     path: JString,
     working_directory: JString,
     prefix: JString,
+    scrollback_lines: jint,
 ) -> jlong {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
@@ -459,6 +500,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
             path,
             working_directory,
             prefix,
+            scrollback_lines,
         )
     })
 }
@@ -479,6 +521,7 @@ fn init_session_inner(
     path: JString,
     working_directory: JString,
     prefix: JString,
+    scrollback_lines: jint,
 ) -> jlong {
     let rows = match u32::try_from(rows) {
         Ok(r) => r,
@@ -614,7 +657,18 @@ fn init_session_inner(
         },
     };
 
-    match Session::spawn(&shell_path, rows, cols, &shell_env) {
+    // Parse scrollback_lines: Kotlin Settings → JNI → native.
+    // Non-positive values fall back to the default (50 000).
+    let scrollback_lines = u32::try_from(scrollback_lines)
+        .unwrap_or(crate::terminal::session::DEFAULT_SCROLLBACK_LINES)
+        .max(1);
+
+    let theme = crate::terminal::session::ThemeConfig {
+        scrollback_lines,
+        ..Default::default()
+    };
+
+    match Session::spawn_with_theme(&shell_path, rows, cols, &shell_env, theme) {
         Ok(mut session) => {
             let id = next_session_id();
             let entry = SessionEntry {
@@ -1953,6 +2007,16 @@ fn set_mcp_enabled_inner(_env: &mut JNIEnv, _class: JClass, enabled: jboolean) {
             state.set_open_url_handler(|url: String| {
                 push_event(Event::OpenUrl { url });
             });
+            state.set_screenshot_handler(
+                |session_id: u64| -> (u64, tokio::sync::oneshot::Receiver<(u32, u32, Vec<u8>)>) {
+                    let (request_id, rx) = register_screenshot_request(session_id);
+                    push_event(Event::Screenshot {
+                        session_id,
+                        request_id,
+                    });
+                    (request_id, rx)
+                },
+            );
         });
         crate::mcp::set_enabled(enabled == JNI_TRUE);
     }
@@ -2084,6 +2148,135 @@ fn run_command_result_inner<'local>(
         .unwrap_or_default();
     answer_request(session_id, request_id, result_str);
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: screenshotResult — Kotlin responds to an MCP screenshot
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Reply to an MCP `screenshot` request. Kotlin captures RGBA pixels via
+/// `captureFrame()` and sends them back through this export.
+#[unsafe(no_mangle)]
+#[cfg(feature = "mcp")]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_screenshotResult<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    request_id: jlong,
+    width: jint,
+    height: jint,
+    pixels: jbyteArray,
+) {
+    jni_export_guard!(&mut env, (), {
+        screenshot_result_inner(
+            &mut env, _class, session_id, request_id, width, height, pixels,
+        )
+    })
+}
+
+#[cfg(feature = "mcp")]
+fn screenshot_result_inner<'local>(
+    env: &mut JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    request_id: jlong,
+    width: jint,
+    height: jint,
+    pixels: jbyteArray,
+) {
+    let session_id = session_id as u64;
+    let request_id = request_id as u64;
+    let w = width as u32;
+    let h = height as u32;
+    let pixel_data: Vec<u8> = {
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(pixels) };
+        env.convert_byte_array(&byte_array).unwrap_or_default()
+    };
+    answer_screenshot_request(session_id, request_id, w, h, pixel_data);
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: captureFrame — render thread captures current frame pixels
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Capture the current terminal frame as RGBA pixels via GPU readback.
+/// Called from the render thread (which owns the wgpu context) when an
+/// MCP `screenshot` event is dispatched.
+///
+/// Returns a `byte[]` with the first 8 bytes being width (u32 LE) +
+/// height (u32 LE), followed by `width * height * 4` RGBA bytes.
+/// Returns null if no frame is available.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_captureFrame<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+) -> jbyteArray {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        capture_frame_inner(&mut env, _class, session_id as u64)
+    })
+}
+
+fn capture_frame_inner<'local>(
+    env: &mut JNIEnv<'local>,
+    _class: JClass<'local>,
+    _session_id: u64,
+) -> jbyteArray {
+    let mut state = render_state_mut();
+    let Some(render_state) = state.as_mut() else {
+        log::warn!("captureFrame: render state not initialized");
+        return std::ptr::null_mut();
+    };
+
+    // Check that the renderer has a surface config (dimensions).
+    let (w, h) = render_state
+        .renderer
+        .surface_config
+        .as_ref()
+        .map_or((0, 0), |c| (c.width, c.height));
+    if w == 0 || h == 0 {
+        log::warn!("captureFrame: no surface config (w={w}, h={h})");
+        return std::ptr::null_mut();
+    }
+
+    // Clone instances from the last render (render_to_buffer needs &mut self,
+    // so we can't borrow cpu_instances while calling it).
+    let instances = render_state.renderer.cpu_instances.clone();
+    if instances.is_empty() {
+        log::warn!("captureFrame: no instances to render (frame not yet rendered)");
+        return std::ptr::null_mut();
+    }
+
+    // GPU readback: render to offscreen buffer.
+    match render_state.renderer.render_to_buffer(&instances, &[]) {
+        Ok(pixels) => {
+            let pixel_len = pixels.len();
+            let expected = (w * h * 4) as usize;
+            if pixel_len != expected {
+                log::warn!(
+                    "captureFrame: pixel count mismatch (got {pixel_len}, expected {expected})"
+                );
+                return std::ptr::null_mut();
+            }
+            // Build output: [width:u32 LE][height:u32 LE][RGBA pixels]
+            let mut output = Vec::with_capacity(8 + pixel_len);
+            output.extend_from_slice(&w.to_le_bytes());
+            output.extend_from_slice(&h.to_le_bytes());
+            output.extend_from_slice(&pixels);
+            match env.byte_array_from_slice(&output) {
+                Ok(arr) => arr.into_raw(),
+                Err(e) => {
+                    log::warn!("captureFrame: byte_array_from_slice failed: {e}");
+                    std::ptr::null_mut()
+                }
+            }
+        }
+        Err(e) => {
+            log::warn!("captureFrame: render_to_buffer failed: {e}");
+            std::ptr::null_mut()
+        }
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Returns a JSON array of active session IDs.

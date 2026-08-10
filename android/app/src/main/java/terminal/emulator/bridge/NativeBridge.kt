@@ -47,6 +47,7 @@ object NativeBridge {
         path: String,
         workingDirectory: String,
         prefix: String,
+        scrollbackLines: Int,
     ): Long
 
     /** Destroy a session by ID. Returns true on success. */
@@ -185,6 +186,32 @@ object NativeBridge {
      * Like [dialogResult], must be answered exactly once.
      */
     external fun runCommandResult(sessionId: Long, requestId: Long, result: String)
+
+    // ── Screenshot ─────────────────────────────────────────────────────
+
+    /**
+     * Reply to an MCP `screenshot` request. Kotlin captures RGBA pixels
+     * via [captureFrame] and sends them back through this export.
+     *
+     * Like [dialogResult], must be answered exactly once.
+     */
+    external fun screenshotResult(
+        sessionId: Long,
+        requestId: Long,
+        width: Int,
+        height: Int,
+        pixels: ByteArray,
+    )
+
+    /**
+     * Capture the current terminal frame as RGBA pixels via GPU readback.
+     * Must be called from the render thread (which owns the wgpu context).
+     *
+     * @param sessionId the active session to capture
+     * @return byte array with [width:u32 LE][height:u32 LE][RGBA pixels], or null on failure
+     */
+    @JvmStatic
+    external fun captureFrame(sessionId: Long): ByteArray?
 
     // ── Logging ──────────────────────────────────────────────────────────
 

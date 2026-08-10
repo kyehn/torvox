@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
@@ -581,6 +582,7 @@ private fun BootstrapSectionFromSettings(
             bootstrapUrl = bootstrapUrl,
             onUrlChanged = { viewModel.setBootstrapUrl(it) },
             onRunBootstrap = { viewModel.runBootstrap() },
+            onInstallOffline = { uri -> viewModel.installOffline(uri) },
             bootstrapRunning = bootstrapRunning,
             bootstrapResult = bootstrapResult,
             bootstrapProgress = bootstrapProgress,
@@ -1078,6 +1080,7 @@ private fun BootstrapSection(
     bootstrapUrl: String,
     onUrlChanged: (String) -> Unit,
     onRunBootstrap: () -> Unit,
+    onInstallOffline: (android.net.Uri) -> Unit,
     bootstrapRunning: Boolean,
     bootstrapResult: String?,
     bootstrapProgress: BootstrapProgress?,
@@ -1148,6 +1151,22 @@ private fun BootstrapSection(
 
     Spacer(modifier = Modifier.height(8.dp))
     BootstrapInstallButton(onRunBootstrap, bootstrapRunning, bootstrapResult, bootstrapProgress, accentColor, textColor)
+
+    // Offline install: pick a .zip file via SAF, no network required
+    Spacer(modifier = Modifier.height(8.dp))
+    val offlineLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        uri?.let { onInstallOffline(it) }
+    }
+    OutlinedButton(
+        onClick = { offlineLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+        enabled = !bootstrapRunning,
+        modifier = Modifier.fillMaxWidth().testTag("OfflineInstallButton"),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
+    ) {
+        Text(stringResource(R.string.bootstrap_install_offline))
+    }
 }
 
 @Composable
