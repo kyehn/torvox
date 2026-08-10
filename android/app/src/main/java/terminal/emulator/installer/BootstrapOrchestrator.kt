@@ -41,6 +41,17 @@ class BootstrapOrchestrator(
         if (installer.isInstalled()) {
             return@withContext Result.success("Bootstrap already installed")
         }
+        // Multi-user guard: the bootstrap writes into /data/data/com.termux
+        // which is only accessible to the primary user (userId 0). Secondary
+        // users share the UID namespace but cannot access the primary user's
+        // private directory, causing silent SELinux denials and broken exec.
+        // Android UIDs encode userId as uid / 100_000 (stable ABI contract).
+        val userId = android.os.Process.myUid() / 100_000
+        if (userId != 0) {
+            return@withContext Result.failure(
+                Exception("Bootstrap can only be installed by the primary user (owner profile)"),
+            )
+        }
         // Mutex via CAS: two concurrent entry points (runtime start and
         // settings bootstrap button) must not both download/install into
         // the same staging directory — they would delete each other's

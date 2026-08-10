@@ -5,6 +5,8 @@ package terminal.emulator.ui
 import android.graphics.RectF
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -280,6 +282,12 @@ fun TerminalScreen(
             }
             val selection = state.selection
             val selectionActive = selection.active && selection.start != null && selection.end != null
+
+            val exportLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.CreateDocument("text/plain"),
+            ) { uri ->
+                uri?.let { viewModel.exportTerminalOutput(it) }
+            }
 
             // Round-219: with the legacy View.startActionMode(Callback) the
             // system does NOT intercept BACK to finish the ActionMode (only
@@ -850,6 +858,14 @@ fun TerminalScreen(
                         onShare =
                         if (selectionActive) {
                             { viewModel.shareSelection() }
+                        } else {
+                            null
+                        },
+                        onExport =
+                        if (selectionActive) {
+                            exportLauncher.let { launcher ->
+                                { launcher.launch("terminal_output.txt") }
+                            }
                         } else {
                             null
                         },
