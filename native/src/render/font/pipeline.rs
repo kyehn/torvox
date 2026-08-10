@@ -3,7 +3,9 @@
 use cosmic_text::FontSystem;
 
 use super::font_db;
-use super::{CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, PREFERRED_MONOSPACE_FONTS};
+use super::{
+    CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis, PREFERRED_MONOSPACE_FONTS,
+};
 
 pub struct FontPipeline {
     pub(crate) font_system: FontSystem,
@@ -618,9 +620,99 @@ impl FontPipeline {
     }
 
     pub fn glyph_information(&mut self, ch: char) -> Option<GlyphInfo> {
+        self.glyph_information_with_synthesis(ch, GlyphSynthesis::None)
+    }
+
+    /// Style-aware glyph lookup (round-231 T6): prefers a real bold/italic
+    /// face of the same family when one exists, otherwise rasterizes the
+    /// base face with font synthesis (embolden/shear).
+    pub fn glyph_information_styled(
+        &mut self,
+        ch: char,
+        bold: bool,
+        italic: bool,
+    ) -> Option<GlyphInfo> {
+        if !bold && !italic {
+            return self.glyph_information(ch);
+        }
+        let primary_font_id = self.font_id?;
+
+        // 1) Same-family bold/italic face wins when it actually contains the
+        //    glyph (this keeps real styled faces crisp and hintable).
+        if let Some(style_id) = self.resolve_style_face(primary_font_id, bold, italic) {
+            let db = self.font_system.db();
+            let style_gid = db
+                .with_face_data(style_id, |font_data, face_index| {
+                    let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+                    Some(font_ref.charmap().map(ch))
+                })
+                .flatten();
+            if let Some(gid) = style_gid.filter(|&g| g != 0)
+                && let Some(info) = self.glyph_information_from_font_with_synthesis(
+                    style_id,
+                    gid,
+                    GlyphSynthesis::None,
+                )
+                && info.width > 0
+                && info.height > 0
+            {
+                return Some(info);
+            }
+        }
+
+        // 2) Fall back to synthesizing the base (or fallback) face.
+        let synthesis = match (bold, italic) {
+            (true, true) => GlyphSynthesis::BoldItalic,
+            (true, false) => GlyphSynthesis::Bold,
+            (false, true) => GlyphSynthesis::Italic,
+            (false, false) => GlyphSynthesis::None,
+        };
+        self.glyph_information_with_synthesis(ch, synthesis)
+    }
+
+    /// Find a face of the same font family with the requested weight/style.
+    /// Returns the same id when the base face already matches, and None
+    /// when no matching face exists (caller then uses synthesis).
+    pub(crate) fn resolve_style_face(
+        &self,
+        base_id: fontdb::ID,
+        bold: bool,
+        italic: bool,
+    ) -> Option<fontdb::ID> {
+        let db = self.font_system.db();
+        let base = db.face(base_id)?;
+        let family = base.families.first()?.0.clone();
+        let query = fontdb::Query {
+            families: &[fontdb::Family::Name(&family)],
+            weight: if bold {
+                fontdb::Weight::BOLD
+            } else {
+                fontdb::Weight::NORMAL
+            },
+            stretch: fontdb::Stretch::Normal,
+            style: if italic {
+                fontdb::Style::Italic
+            } else {
+                fontdb::Style::Normal
+            },
+        };
+        let matched = db.query(&query)?;
+        if matched == base_id {
+            None
+        } else {
+            Some(matched)
+        }
+    }
+
+    fn glyph_information_with_synthesis(
+        &mut self,
+        ch: char,
+        synthesis: GlyphSynthesis,
+    ) -> Option<GlyphInfo> {
         let primary_font_id = self.font_id?;
         let pixel_size = (self.font_size * self.raster_scale) as u16;
         let has_cjk_fallback = !self.cjk_fallback_ids.is_empty();
+        let synthesized = synthesis != GlyphSynthesis::None;
 
         // ── Fast path: ASCII with cached glyph_id —─────────────────────────
         if (ch as u32) < 128
@@ -630,6 +722,7 @@ impl FontPipeline {
                 font_id: primary_font_id,
                 glyph_id: gid,
                 pixel_size,
+                synthesis: synthesis.bits(),
             };
             if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
                 return Some(info);
@@ -637,7 +730,10 @@ impl FontPipeline {
         }
 
         // ── CJK cache: skip swash + fallback for already-resolved chars ─────
-        if (ch as u32) >= CJK_IDEOGRAPHIC_START
+        // (skipped when synthesizing — the cached (font, glyph) pair was
+        // resolved for the regular style and does not apply to styled runs)
+        if !synthesized
+            && (ch as u32) >= CJK_IDEOGRAPHIC_START
             && has_cjk_fallback
             && let Some(&(cached_font_id, cached_glyph_id)) = self.caches.cjk_glyph_cache.get(&ch)
         {
@@ -645,6 +741,7 @@ impl FontPipeline {
                 font_id: cached_font_id,
                 glyph_id: cached_glyph_id,
                 pixel_size,
+                synthesis: synthesis.bits(),
             };
             if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
                 return Some(info);
@@ -682,9 +779,10 @@ impl FontPipeline {
                 font_id: primary_font_id,
                 glyph_id,
                 pixel_size,
+                synthesis: synthesis.bits(),
             };
             if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
-                if (ch as u32) >= CJK_IDEOGRAPHIC_START {
+                if !synthesized && (ch as u32) >= CJK_IDEOGRAPHIC_START {
                     self.caches
                         .cjk_glyph_cache
                         .put(ch, (primary_font_id, glyph_id));
@@ -694,7 +792,11 @@ impl FontPipeline {
         }
 
         // ── CJK: check outline, try fallback ────────────────────────────────
-        if glyph_id != 0 && (ch as u32) >= CJK_IDEOGRAPHIC_START && has_cjk_fallback {
+        // (skipped when synthesizing: the outline-fallback face resolves
+        // the regular glyph shape; styled runs keep the base path so the
+        // synthesis applies to the rasterized mask)
+        if !synthesized && glyph_id != 0 && (ch as u32) >= CJK_IDEOGRAPHIC_START && has_cjk_fallback
+        {
             let is_outline = self.glyph_source_is_outline(primary_font_id, glyph_id);
             if !is_outline && let Some(fallback_info) = self.try_cjk_outline_fallback(ch) {
                 return Some(fallback_info);
@@ -732,7 +834,8 @@ impl FontPipeline {
                 };
                 if let Some(Some(fid)) = fallback_glyph
                     && fid != 0
-                    && let Some(result) = self.glyph_information_from_font(fallback_id, ch, fid)
+                    && let Some(result) =
+                        self.glyph_information_from_font_with_synthesis(fallback_id, fid, synthesis)
                     && result.width > 0
                     && result.height > 0
                 {
@@ -750,7 +853,9 @@ impl FontPipeline {
                         result.width,
                         result.height,
                     );
-                    self.caches.cjk_glyph_cache.put(ch, (fallback_id, fid));
+                    if !synthesized {
+                        self.caches.cjk_glyph_cache.put(ch, (fallback_id, fid));
+                    }
                     return Some(result);
                     // Rendering failed (e.g. a color font swash cannot
                     // outline): try the next layer instead of returning a
@@ -761,18 +866,22 @@ impl FontPipeline {
             // a whole-font-database scan"). Cached by cjk_glyph_cache, so
             // it runs once per character.
             if let Some((scan_id, scan_gid)) = self.find_glyph_anywhere(ch)
-                && let Some(result) = self.glyph_information_from_font(scan_id, ch, scan_gid)
+                && let Some(result) =
+                    self.glyph_information_from_font_with_synthesis(scan_id, scan_gid, synthesis)
                 && result.width > 0
                 && result.height > 0
             {
-                self.caches.cjk_glyph_cache.put(ch, (scan_id, scan_gid));
+                if !synthesized {
+                    self.caches.cjk_glyph_cache.put(ch, (scan_id, scan_gid));
+                }
                 return Some(result);
             }
         }
 
         // ── Fallback to primary font ────────────────────────────────────────
-        let result = self.glyph_information_from_font(primary_font_id, ch, glyph_id)?;
-        if (ch as u32) >= CJK_IDEOGRAPHIC_START {
+        let result =
+            self.glyph_information_from_font_with_synthesis(primary_font_id, glyph_id, synthesis)?;
+        if !synthesized && (ch as u32) >= CJK_IDEOGRAPHIC_START {
             self.caches
                 .cjk_glyph_cache
                 .put(ch, (primary_font_id, glyph_id));

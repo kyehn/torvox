@@ -52,6 +52,21 @@ object LogUtil {
         logChunked(Log.ERROR, tag, message, throwable)
     }
 
+    /**
+     * Log sensitive data (e.g. MCP payloads, user input) at VERBOSE
+     * priority with a `[PRIVATE]` prefix. Only active in DEBUG builds —
+     * no-op in release builds, so secrets never reach logcat there.
+     */
+    fun logPrivate(
+        tag: String,
+        message: String,
+        throwable: Throwable? = null,
+    ) {
+        if (BuildConfig.DEBUG) {
+            logChunked(Log.VERBOSE, tag, "[PRIVATE] $message", throwable)
+        }
+    }
+
     private fun logChunked(
         priority: Int,
         tag: String,

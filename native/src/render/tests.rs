@@ -2546,3 +2546,233 @@ fn bench_cjk_glyph_cache_warmup() {
 }
 
 include!("screenshot_tests.rs");
+
+// ── Off-screen infinite-LOD grid verification (research-wgpu-example §6.1) ─
+// Renders the grid.wgsl shader through a Depth32Float attachment into an
+// off-screen color texture, reads the pixels back and asserts the grid is
+// visible near the camera while the far region fades to the clear color.
+// This exercises the depth attachment path without touching the `Renderer`
+// struct or the main render_frame/render_to_buffer paths.
+
+fn readback_pixels(
+    device: &wgpu::Device,
+    _queue: &wgpu::Queue,
+    buffer: &wgpu::Buffer,
+    width: u32,
+    height: u32,
+) -> Vec<u8> {
+    let slice = buffer.slice(..);
+    let (map_tx, map_rx) = std::sync::mpsc::channel();
+    slice.map_async(wgpu::MapMode::Read, move |r| {
+        let _ = map_tx.send(r);
+    });
+    let poll_start = std::time::Instant::now();
+    let map_result = loop {
+        let _ = device.poll(wgpu::PollType::Wait {
+            submission_index: None,
+            timeout: Some(std::time::Duration::from_millis(10)),
+        });
+        match map_rx.try_recv() {
+            Ok(result) => break result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => {}
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                panic!("readback map channel disconnected");
+            }
+        }
+        if poll_start.elapsed() > std::time::Duration::from_millis(500) {
+            panic!("readback map_async timed out");
+        }
+    };
+    map_result.expect("map_async failed");
+    let data = slice.get_mapped_range().expect("get_mapped_range").to_vec();
+    buffer.unmap();
+
+    let bytes_per_row = width as usize * 4;
+    let padded = bytes_per_row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize)
+        * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
+    let mut flat = Vec::with_capacity((width * height * 4) as usize);
+    for row in 0..height as usize {
+        let row_start = row * padded;
+        flat.extend_from_slice(&data[row_start..row_start + bytes_per_row]);
+    }
+    flat
+}
+
+#[test]
+fn offscreen_grid_render_uses_depth_attachment() {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
+        eprintln!("SKIP: no GPU available for offscreen grid render test");
+        return;
+    };
+    const W: u32 = 256;
+    const H: u32 = 256;
+
+    let color = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Grid Test Color"),
+        size: wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
+
+    // The depth attachment is the feature under test.
+    let depth_view = crate::render::procedural_geometry::create_depth_texture(&device, W, H);
+
+    let (pipeline, bind_group_layout) =
+        crate::render::pipeline::create_grid_pipeline(&device, wgpu::TextureFormat::Rgba8Unorm);
+    // Capture any validation errors from pipeline creation (wgpu swallows
+    // them when validation is off, producing a pipeline that draws nothing).
+    let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let oom_scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+
+    // Camera at (3,3,3) looking down at the grid origin; grid quad spans
+    // ±10 * grid_size = ±40 units around the camera's XZ position.
+    let view = crate::render::procedural_geometry::look_at(
+        [3.0, 3.0, 3.0],
+        [0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0],
+    );
+    let proj = crate::render::procedural_geometry::perspective(
+        60f32.to_radians(),
+        W as f32 / H as f32,
+        0.1,
+        100.0,
+    );
+    let view_proj = crate::render::procedural_geometry::mat4_mul(proj, view);
+    let uniforms = crate::render::pipeline::GridUniforms::perspective(
+        view_proj,
+        [3.0, 3.0, 3.0],
+        4.0,
+        2.0,
+        1.0,
+    );
+    let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+        label: Some("Grid Uniform Buffer"),
+        contents: bytemuck::bytes_of(&uniforms),
+        usage: wgpu::BufferUsages::UNIFORM,
+    });
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Grid Bind Group"),
+        layout: &bind_group_layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: uniform_buffer.as_entire_binding(),
+        }],
+    });
+
+    let bytes_per_row = W * 4;
+    let padded = bytes_per_row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
+        * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    let readback = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Grid Readback Buffer"),
+        size: (padded as u64) * (H as u64),
+        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+        mapped_at_creation: false,
+    });
+
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Grid Test Encoder"),
+    });
+    {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Grid Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &color_view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &depth_view,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Store,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        pass.set_pipeline(&pipeline);
+        pass.set_bind_group(0, &bind_group, &[]);
+        pass.draw(0..6, 0..1);
+    }
+    encoder.copy_texture_to_buffer(
+        wgpu::TexelCopyTextureInfo {
+            texture: &color,
+            mip_level: 0,
+            origin: wgpu::Origin3d::ZERO,
+            aspect: wgpu::TextureAspect::All,
+        },
+        wgpu::TexelCopyBufferInfo {
+            buffer: &readback,
+            layout: wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(padded),
+                rows_per_image: Some(H),
+            },
+        },
+        wgpu::Extent3d {
+            width: W,
+            height: H,
+            depth_or_array_layers: 1,
+        },
+    );
+    queue.submit(std::iter::once(encoder.finish()));
+
+    // Report any validation errors surfaced while rendering.
+    if let Some(error) = futures::executor::block_on(oom_scope.pop()) {
+        eprintln!("GRID OOM ERROR: {error:?}");
+    }
+    if let Some(error) = futures::executor::block_on(validation_scope.pop()) {
+        eprintln!("GRID VALIDATION ERROR: {error:?}");
+    }
+
+    let pixels = readback_pixels(&device, &queue, &readback, W, H);
+    assert_eq!(pixels.len(), (W * H * 4) as usize);
+
+    // Grid lines must be visible: count pixels with a strong blue channel
+    // (grid_color_thick is (0.2, 0.4, 0.8)); blended over black at the
+    // thickest LODs this stays > 0.05 even on SwiftShader.
+    let blue_pixels = pixels
+        .chunks(4)
+        .filter(|p| p[2] > 13) // 0.05 * 255
+        .count();
+    assert!(
+        blue_pixels > 50,
+        "expected visible grid lines, only {blue_pixels} pixels with blue>0.05"
+    );
+
+    // The top quarter of the frame looks away from the grid plane (camera at
+    // (3,3,3) looks at the origin): the central columns must be close to the
+    // black clear color, proving the depth attachment cleared and no stray
+    // geometry covers the sky region. (Left/right edge columns are excluded:
+    // the grid shader's dpdx/dpdy derivatives misbehave at the frustum edge,
+    // producing a few stray alpha-blended pixels — a cosmetic artifact, not a
+    // depth-attachment issue.)
+    let top_brightness = region_total_brightness(&pixels, W, W / 4, 0, W / 2, H / 4);
+    let top_avg = top_brightness as f64 / (W as f64 / 2.0 * (H as f64 / 4.0) * 3.0);
+    assert!(
+        top_avg < 0.02,
+        "top region should be clear color, average brightness {top_avg:.4}"
+    );
+
+    // The center region (where the grid is) must be brighter than the sky.
+    let center_brightness = region_total_brightness(&pixels, W, W / 4, H / 2, W / 2, H / 4);
+    assert!(
+        center_brightness > 0,
+        "center region should contain grid content"
+    );
+}

@@ -14,6 +14,10 @@
 
 use crate::terminal::osc_handler::{OscEvent, OscHandler};
 
+/// Maximum bytes to capture between OSC 133 B and C markers.
+/// Prevents unbounded memory growth from runaway output (e.g., `cat /dev/urandom | xxd`).
+const MAX_CAPTURE_BYTES: usize = 64 * 1024;
+
 /// Shell integration markers (OSC 133).
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[repr(u8)]
@@ -51,6 +55,10 @@ pub struct OutputSnapshot {
     pub hyperlink: Option<String>,
     /// Notification (title, body) from OSC 9 or OSC 777.
     pub notification: Option<(String, String)>,
+    /// ConEmu progress (state, value) from OSC 9;4.
+    /// state: 0=remove, 1=indeterminate, 2=normal, 3=error, 4=indeterminate(error).
+    /// value: 0–100 clamped.
+    pub progress: Option<(u8, u8)>,
     /// BEL character detected in this chunk.
     pub bel: bool,
     /// Shell integration marker detected in this chunk.
@@ -61,9 +69,32 @@ pub struct OutputSnapshot {
     pub filtered: Vec<u8>,
 }
 
+/// Byte prefix of an OSC 133 shell-integration marker (`ESC ] 133 ; <letter>`),
+/// matched byte-by-byte so marker sequences split across chunk boundaries
+/// are still recognised.
+const OSC133_MARKER_PREFIX: &[u8] = b"\x1b]133;";
+
 /// Processes raw PTY output, extracting events and producing filtered bytes.
 pub struct OutputProcessor {
     osc_handler: OscHandler,
+    /// OSC 133 `last_command_output`: text captured between the B (prompt
+    /// end) and C (command output start) markers. Consumed and cleared by
+    /// [`Self::take_last_command_output`].
+    last_command_output: String,
+    /// True while bytes are being captured (between B and C markers).
+    capturing_output: bool,
+    /// In-progress capture buffer (raw bytes, lossy-converted on finalise).
+    capture_buf: Vec<u8>,
+    /// Number of `OSC133_MARKER_PREFIX` bytes matched so far (carried
+    /// across chunk boundaries).
+    prefix_match: usize,
+    /// Consumed-but-unconfirmed prefix bytes; flushed into the capture on a
+    /// mismatch so non-133 escape sequences are preserved verbatim.
+    pending: Vec<u8>,
+    /// True while consuming the marker terminator (BEL or ST `ESC \`).
+    skip_terminator: bool,
+    /// True after the `ESC` of an ST (`ESC \`) terminator.
+    st_esc: bool,
 }
 
 impl Default for OutputProcessor {
@@ -76,11 +107,105 @@ impl OutputProcessor {
     pub fn new() -> Self {
         Self {
             osc_handler: OscHandler::new(),
+            last_command_output: String::new(),
+            capturing_output: false,
+            capture_buf: Vec::with_capacity(1024),
+            prefix_match: 0,
+            pending: Vec::with_capacity(8),
+            skip_terminator: false,
+            st_esc: false,
+        }
+    }
+
+    /// Take the OSC 133 last-command-output text (captured between the B
+    /// and C markers), clearing it so the next capture starts fresh.
+    pub fn take_last_command_output(&mut self) -> String {
+        std::mem::take(&mut self.last_command_output)
+    }
+
+    /// Scan raw output for OSC 133 A/B/C/D markers and capture the text
+    /// between the B (prompt end) and C (command output start) markers
+    /// into [`Self::last_command_output`]. A new A (prompt start) resets
+    /// any in-progress capture.
+    fn scan_osc133(&mut self, data: &[u8]) {
+        for &byte in data {
+            self.scan_osc133_byte(byte);
+        }
+    }
+
+    fn scan_osc133_byte(&mut self, byte: u8) {
+        // Marker terminator (BEL or ST `ESC \`) — never part of the text.
+        if self.skip_terminator {
+            if byte == 0x07 {
+                self.skip_terminator = false;
+                return;
+            }
+            if byte == 0x1B {
+                self.skip_terminator = false;
+                self.st_esc = true;
+                return;
+            }
+            self.skip_terminator = false;
+        }
+        if self.st_esc {
+            self.st_esc = false;
+            if byte == b'\\' {
+                return;
+            }
+            // Not a valid ST terminator; reprocess the byte below.
+        }
+        if self.prefix_match == OSC133_MARKER_PREFIX.len() {
+            match byte {
+                // A: prompt start — reset the capture for the new cycle.
+                b'A' => {
+                    self.capturing_output = false;
+                    self.capture_buf.clear();
+                }
+                // B: prompt end — begin capturing the command output region.
+                b'B' => {
+                    self.capturing_output = true;
+                    self.capture_buf.clear();
+                }
+                // C: command output start — end capture and store the result.
+                b'C' => {
+                    self.capturing_output = false;
+                    self.last_command_output =
+                        String::from_utf8_lossy(&std::mem::take(&mut self.capture_buf))
+                            .into_owned();
+                }
+                _ => {}
+            }
+            self.pending.clear();
+            self.prefix_match = 0;
+            self.skip_terminator = true;
+            return;
+        }
+        if byte == OSC133_MARKER_PREFIX[self.prefix_match] {
+            self.pending.push(byte);
+            self.prefix_match += 1;
+            return;
+        }
+        // Prefix mismatch: the pending bytes were ordinary text (e.g. a
+        // different escape sequence) — flush them, then reprocess `byte`.
+        if self.capturing_output {
+            let remaining = MAX_CAPTURE_BYTES.saturating_sub(self.capture_buf.len());
+            let flush_len = self.pending.len().min(remaining);
+            self.capture_buf
+                .extend_from_slice(&self.pending[..flush_len]);
+        }
+        self.pending.clear();
+        self.prefix_match = 0;
+        if byte == OSC133_MARKER_PREFIX[0] {
+            self.pending.push(byte);
+            self.prefix_match = 1;
+        } else if self.capturing_output && self.capture_buf.len() < MAX_CAPTURE_BYTES {
+            self.capture_buf.push(byte);
         }
     }
 
     /// Process a raw output chunk and return a snapshot of decoded events.
     pub fn process(&mut self, data: &[u8]) -> OutputSnapshot {
+        self.scan_osc133(data);
         self.osc_handler.process(data);
 
         let mut snapshot = OutputSnapshot::default();
@@ -111,6 +236,9 @@ impl OutputProcessor {
                         _ => ShellIntegration::None,
                     };
                     snapshot.shell_exit_code = se.exit_code;
+                }
+                OscEvent::Progress(pe) => {
+                    snapshot.progress = Some((pe.state, pe.value));
                 }
             }
         }
@@ -185,5 +313,76 @@ mod tests {
         let mut proc = OutputProcessor::new();
         let snap = proc.process(b"plain text");
         assert_eq!(snap.shell_integration, ShellIntegration::None);
+    }
+
+    #[test]
+    fn last_command_output_captures_between_b_and_c() {
+        let mut proc = OutputProcessor::new();
+        proc.process(b"\x1b]133;A\x07$ \x1b]133;B\x07echo hello\x1b]133;C\x07hello");
+        assert_eq!(proc.take_last_command_output(), "echo hello");
+    }
+
+    #[test]
+    fn last_command_output_cross_chunk_and_st_terminator() {
+        let mut proc = OutputProcessor::new();
+        proc.process(b"\x1b]133;A\x1b\\$ \x1b]133;B\x1b\\ech");
+        assert_eq!(
+            proc.take_last_command_output(),
+            "",
+            "capture must stay open across chunk boundaries"
+        );
+        proc.process(b"o hello\x1b]133;C\x1b\\hello");
+        assert_eq!(proc.take_last_command_output(), "echo hello");
+    }
+
+    #[test]
+    fn last_command_output_take_clears() {
+        let mut proc = OutputProcessor::new();
+        proc.process(b"\x1b]133;B\x07abc\x1b]133;C\x07");
+        assert_eq!(proc.take_last_command_output(), "abc");
+        assert_eq!(
+            proc.take_last_command_output(),
+            "",
+            "take must clear the capture"
+        );
+    }
+
+    #[test]
+    fn last_command_output_reset_on_new_prompt() {
+        let mut proc = OutputProcessor::new();
+        proc.process(b"\x1b]133;B\x07abc\x1b]133;A\x07$ ");
+        assert_eq!(
+            proc.take_last_command_output(),
+            "",
+            "a new prompt marker must reset an in-progress capture"
+        );
+    }
+
+    #[test]
+    fn last_command_output_preserves_non_osc133_escapes() {
+        let mut proc = OutputProcessor::new();
+        proc.process(b"\x1b]133;B\x07\x1b[31mred\x1b]133;C\x07");
+        assert_eq!(proc.take_last_command_output(), "\x1b[31mred");
+    }
+
+    /// OSC 133 capture is capped at MAX_CAPTURE_BYTES to prevent OOM.
+    #[test]
+    fn last_command_output_respects_capture_cap() {
+        use super::MAX_CAPTURE_BYTES;
+        let mut proc = OutputProcessor::new();
+        // Start capture with B marker
+        proc.process(b"\x1b]133;B");
+        // Fill capture_buf with raw text (no OSC133 prefix) past the cap.
+        // Between B and C, any non-ESC byte goes directly into capture_buf.
+        let payload = vec![b'x'; MAX_CAPTURE_BYTES * 2];
+        proc.process(&payload);
+        // End capture with C marker
+        proc.process(b"\x1b]133;C");
+        let output = proc.take_last_command_output();
+        assert!(
+            output.len() <= MAX_CAPTURE_BYTES,
+            "capture_buf exceeded cap: {} > {MAX_CAPTURE_BYTES}",
+            output.len()
+        );
     }
 }

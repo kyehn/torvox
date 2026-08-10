@@ -96,6 +96,12 @@ pub enum Event {
         request_id: u64,
         selection: String,
     },
+    /// ConEmu progress update (OSC 9;4): state 0–4, value 0–100.
+    Progress {
+        session_id: u64,
+        state: u8,
+        value: u8,
+    },
     /// MCP `toast`: request Kotlin to show a brief toast message.
     #[cfg(feature = "mcp")]
     Toast { text: String },

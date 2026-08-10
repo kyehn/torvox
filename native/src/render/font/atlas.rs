@@ -1,10 +1,17 @@
 //! Glyph atlas — packing rasterized glyphs into GPU texture.
 use swash::scale::{Render, Source};
-use swash::zeno::Placement;
+use swash::zeno::{Placement, Transform};
 
-use super::{FontPipeline, GlyphInfo, GlyphKey};
+use super::{FontPipeline, GlyphInfo, GlyphKey, GlyphSynthesis};
 
 pub(super) const GLYPH_CACHE_EVICTION_DIVISOR: usize = 4;
+
+/// Italic shear slope: tan(12°) — the classic synthetic-italic angle.
+const ITALIC_SHEAR: f32 = 0.2126;
+
+/// Faux-bold strength as a fraction of the em size (pixels). 4% matches
+/// common text-renderer defaults (FreeType's bold strength is ~4.5%).
+const BOLD_STRENGTH_EM: f32 = 0.04;
 
 impl FontPipeline {
     pub(crate) fn glyph_information_from_font(
@@ -13,10 +20,26 @@ impl FontPipeline {
         _ch: char,
         glyph_id: swash::GlyphId,
     ) -> Option<GlyphInfo> {
+        self.glyph_information_from_font_with_synthesis(font_id, glyph_id, GlyphSynthesis::None)
+    }
+
+    /// Style-aware glyph lookup (round-231 T6): when the requested synthesis
+    /// is bold/italic and the primary font has no matching face, the alpha
+    /// mask is post-processed — embolden for bold, shear for italic. When a
+    /// matching bold/italic face exists (e.g. Roboto-Bold.ttf), the caller
+    /// resolves it first via [FontPipeline::resolve_style_face] and passes
+    /// [GlyphSynthesis::None] with that face id.
+    pub(crate) fn glyph_information_from_font_with_synthesis(
+        &mut self,
+        font_id: fontdb::ID,
+        glyph_id: swash::GlyphId,
+        synthesis: GlyphSynthesis,
+    ) -> Option<GlyphInfo> {
         let key = GlyphKey {
             font_id,
             glyph_id,
             pixel_size: (self.font_size * self.raster_scale) as u16,
+            synthesis: synthesis.bits(),
         };
 
         if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
@@ -39,7 +62,24 @@ impl FontPipeline {
                 // 124px bitmaps); hint only when rendering at 1:1.
                 .hint(self.raster_scale <= 1.01)
                 .build();
-            let image = Render::new(&[Source::Outline]).render(&mut scaler, glyph_id);
+            let image = {
+                let mut render = Render::new(&[Source::Outline]);
+                // Round-231 T6: font synthesis at the outline level (swash
+                // native) — faux bold via embolden(), synthetic italic via
+                // an affine shear, both applied while rasterizing so the
+                // anti-aliasing quality is preserved.
+                if matches!(synthesis, GlyphSynthesis::Bold | GlyphSynthesis::BoldItalic) {
+                    render.embolden(raster_size * BOLD_STRENGTH_EM);
+                }
+                if matches!(
+                    synthesis,
+                    GlyphSynthesis::Italic | GlyphSynthesis::BoldItalic
+                ) {
+                    // Shear x' = x + y * slope (top rows lean right).
+                    render.transform(Some(Transform::new(1.0, 0.0, ITALIC_SHEAR, 1.0, 0.0, 0.0)));
+                }
+                render.render(&mut scaler, glyph_id)
+            };
             let upem = font_ref.metrics(&[]).units_per_em as f32;
             let scale = if upem > 0.0 {
                 font_size / upem
@@ -68,6 +108,9 @@ impl FontPipeline {
             }
         };
 
+        // Round-231 T6: font synthesis is applied at the outline level by
+        // the Render builder above (embolden/shear); the image returned here
+        // is already styled.
         let width = image.placement.width as i32;
         let height = image.placement.height as i32;
 

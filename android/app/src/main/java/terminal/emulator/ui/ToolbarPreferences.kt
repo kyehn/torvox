@@ -36,7 +36,8 @@ enum class ToolbarKey(
     ARROW_DOWN("\u2193", "\u001b[B", contentDescription = "Arrow down", repeatable = true),
     ARROW_RIGHT("\u2192", "\u001b[C", contentDescription = "Arrow right", repeatable = true),
     PGDN("PGDN", "\u001b[6~", contentDescription = "Page down"),
-    FN("FN", ""),
+    FN("FN", "", contentDescription = "Function key layer"),
+    COMPOSE("COMPOSE", "", contentDescription = "Compose key"),
     PIPE("|", "|"),
     SLASH("/", "/"),
     DASH("-", "-"),
@@ -53,8 +54,23 @@ enum class ToolbarKey(
 }
 
 sealed class ToolbarItem {
+    /** Row weight — wider keys take proportionally more space (round-231 T10). */
+    abstract val width: Int
+
+    /** Secondary key label shown on long press (round-231 T10). */
+    abstract val secondaryLabel: String?
+
+    /** Secondary key sequence sent on long press. */
+    abstract val secondarySequence: String?
+
     data class Default(
         val key: ToolbarKey,
+        /** Row weight — wider keys take proportionally more space (round-231 T10). */
+        override val width: Int = 1,
+        /** Secondary key label shown on long press (round-231 T10). */
+        override val secondaryLabel: String? = null,
+        /** Secondary key sequence sent on long press. */
+        override val secondarySequence: String? = null,
     ) : ToolbarItem() {
         val label: String get() = key.defaultLabel
         val testTag: String get() = "Key_${key.defaultLabel}"
@@ -67,6 +83,12 @@ sealed class ToolbarItem {
         /** Space-separated macro (round-227 T3, termux extra-keys
          *  semantics); when non-null the sequence field is ignored. */
         val macro: String? = null,
+        /** Row weight — wider keys take proportionally more space (round-231 T10). */
+        override val width: Int = 1,
+        /** Secondary key label shown on long press (round-231 T10). */
+        override val secondaryLabel: String? = null,
+        /** Secondary key sequence sent on long press. */
+        override val secondarySequence: String? = null,
     ) : ToolbarItem() {
         val testTag: String get() = "Key_$id"
     }
@@ -84,13 +106,21 @@ class ToolbarPreferences(
         return try {
             pollEventJson.decodeFromString<List<ToolbarItemDto>>(json).map { dto ->
                 if (dto.key != null) {
-                    ToolbarItem.Default(ToolbarKey.valueOf(dto.key))
+                    ToolbarItem.Default(
+                        key = ToolbarKey.valueOf(dto.key),
+                        width = dto.width ?: 1,
+                        secondaryLabel = dto.secondaryLabel,
+                        secondarySequence = dto.secondarySequence,
+                    )
                 } else {
                     ToolbarItem.Custom(
                         label = dto.label.orEmpty(),
                         sequence = dto.sequence.orEmpty(),
                         id = dto.id ?: "custom_${System.currentTimeMillis()}",
                         macro = dto.macro,
+                        width = dto.width ?: 1,
+                        secondaryLabel = dto.secondaryLabel,
+                        secondarySequence = dto.secondarySequence,
                     )
                 }
             }
@@ -104,7 +134,13 @@ class ToolbarPreferences(
         val dtos =
             items.map { item ->
                 when (item) {
-                    is ToolbarItem.Default -> ToolbarItemDto(key = item.key.name)
+                    is ToolbarItem.Default ->
+                        ToolbarItemDto(
+                            key = item.key.name,
+                            width = item.width,
+                            secondaryLabel = item.secondaryLabel,
+                            secondarySequence = item.secondarySequence,
+                        )
 
                     is ToolbarItem.Custom ->
                         ToolbarItemDto(
@@ -112,6 +148,9 @@ class ToolbarPreferences(
                             sequence = item.sequence,
                             id = item.id,
                             macro = item.macro,
+                            width = item.width,
+                            secondaryLabel = item.secondaryLabel,
+                            secondarySequence = item.secondarySequence,
                         )
                 }
             }
@@ -129,9 +168,12 @@ class ToolbarPreferences(
         @SerialName("sequence") val sequence: String? = null,
         @SerialName("id") val id: String? = null,
         @SerialName("macro") val macro: String? = null,
+        @SerialName("width") val width: Int? = null,
+        @SerialName("secondaryLabel") val secondaryLabel: String? = null,
+        @SerialName("secondarySequence") val secondarySequence: String? = null,
     )
 
-    private fun defaultLayout(): List<ToolbarItem> = listOf(
+    fun defaultLayout(): List<ToolbarItem> = listOf(
         ToolbarItem.Default(ToolbarKey.ESC),
         ToolbarItem.Default(ToolbarKey.DRAWER),
         ToolbarItem.Default(ToolbarKey.SCROLL),
@@ -146,5 +188,7 @@ class ToolbarPreferences(
         ToolbarItem.Default(ToolbarKey.ARROW_DOWN),
         ToolbarItem.Default(ToolbarKey.ARROW_RIGHT),
         ToolbarItem.Default(ToolbarKey.PGDN),
+        ToolbarItem.Default(ToolbarKey.FN),
+        ToolbarItem.Default(ToolbarKey.COMPOSE),
     )
 }

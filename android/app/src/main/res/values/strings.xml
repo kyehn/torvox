@@ -63,6 +63,9 @@
 
     <!-- Terminal -->
     <string name="terminal">Terminal</string>
+    <string name="accessibility_next_line">Next line</string>
+    <string name="accessibility_previous_line">Previous line</string>
+    <string name="accessibility_read_screen">Read screen</string>
     <string name="action_new_session">New session</string>
     <string name="action_new_session_failsafe">New session (Failsafe)</string>
     <string name="action_open_settings">Settings</string>
@@ -166,6 +169,17 @@
     <string name="paste_confirm_detail">Pasting %1$d lines (%2$d characters).\nThis will be sent to the terminal.</string>
     <string name="paste_confirm_yes">Paste</string>
     <string name="paste_confirm_no">Cancel</string>
+
+    <!-- Keyboard Shortcuts -->
+    <string name="keyboard_shortcuts">Keyboard Shortcuts</string>
+    <string name="keyboard_shortcuts_desc">Configure hardware keyboard shortcuts</string>
+    <string name="shortcut_capture_title">Record Shortcut</string>
+    <string name="shortcut_capture_prompt">Press a modifier + key combination</string>
+    <string name="shortcut_reset">Reset</string>
+
+    <!-- Theme Editor -->
+    <string name="edit_theme">Edit Theme</string>
+    <string name="edit_theme_desc">Customize colors of the current user theme</string>
 
     <!-- Selection anchor movement -->
     <string name="select_anchor_left">◀</string>
