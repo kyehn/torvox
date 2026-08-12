@@ -163,6 +163,11 @@ dependencies {
     testImplementation("com.squareup.okhttp3:mockwebserver3:5.4.0")
     testImplementation("com.squareup.okhttp3:okhttp-tls:5.4.0")
 
+    // Moshi — JSON parsing for structured native responses (font metadata,
+    // MCP tool results). Codegen avoids runtime reflection (R8-safe).
+    implementation("com.squareup.moshi:moshi-kotlin:1.15.2")
+    ksp("com.squareup.moshi:moshi-kotlin-codegen:1.15.2")
+
     // LeakCanary 3.x auto-installs. No Application code change needed.
     debugImplementation("com.squareup.leakcanary:leakcanary-android:3.0-alpha-9")
 
@@ -186,6 +191,12 @@ dependencies {
     testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.70.0")
     testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.70.0")
     testImplementation("androidx.test:core:1.7.0")
+
+    // Konsist — architecture consistency tests (guard package structure,
+    // naming conventions, dependency rules). Disabled: Konsist 0.17.x
+    // is incompatible with Kotlin 2.4.x (extension functions unresolved).
+    // Re-enable when upstream adds Kotlin 2.4 support.
+    // testImplementation("com.lemonappdev:konsist:0.17.3")
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
