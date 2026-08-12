@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -93,7 +94,8 @@ fun SettingsRow(
     }
 }
 
-/** Slider row: title + formatted value + Slider with the accent colors. */
+/** Slider row: title + formatted value + Slider with the accent colors. When [enabled] is
+ * false the slider is greyed out, the value text is dimmed to 50% and changes are ignored. */
 @Composable
 fun SettingsSliderRow(
     title: String,
@@ -105,6 +107,7 @@ fun SettingsSliderRow(
     valueFormatter: (Float) -> String = { "%.0f".format(it) },
     modifier: Modifier = Modifier,
     testTag: String? = null,
+    enabled: Boolean = true,
 ) {
     val isSmallScreen = rememberIsSmallScreen()
     val labelStyle =
@@ -129,12 +132,13 @@ fun SettingsSliderRow(
             Text(
                 text = valueFormatter(value),
                 style = valueStyle,
-                color = colors.secondaryText,
+                color = colors.secondaryText.copy(alpha = if (enabled) 1f else 0.5f),
             )
         }
         Slider(
             value = value,
-            onValueChange = onValueChange,
+            enabled = enabled,
+            onValueChange = { newValue: Float -> if (enabled) onValueChange(newValue) },
             valueRange = valueRange,
             steps = steps,
             colors = SliderDefaults.colors(thumbColor = colors.accentColor, activeTrackColor = colors.accentColor),
@@ -142,7 +146,8 @@ fun SettingsSliderRow(
     }
 }
 
-/** Switch row: title + optional description + Switch with the accent colors. */
+/** Switch row: title + optional description + Switch with the accent colors. When [enabled] is
+ * false the switch is greyed out, the text is dimmed to 50% and toggles are ignored. */
 @Composable
 fun SettingsSwitchRow(
     title: String,
@@ -152,6 +157,7 @@ fun SettingsSwitchRow(
     description: String? = null,
     modifier: Modifier = Modifier,
     testTag: String? = null,
+    enabled: Boolean = true,
 ) {
     Row(
         modifier = modifier.then(if (testTag != null) Modifier.testTag(testTag) else Modifier),
@@ -162,19 +168,20 @@ fun SettingsSwitchRow(
             Text(
                 text = title,
                 style = MaterialTheme.typography.bodyLarge,
-                color = colors.textColor,
+                color = colors.textColor.copy(alpha = if (enabled) 1f else 0.5f),
             )
             if (description != null) {
                 Text(
                     text = description,
                     style = MaterialTheme.typography.bodySmall,
-                    color = colors.textColor.copy(alpha = 0.6f),
+                    color = colors.textColor.copy(alpha = if (enabled) 0.6f else 0.5f),
                 )
             }
         }
         Switch(
             checked = checked,
-            onCheckedChange = onToggle,
+            enabled = enabled,
+            onCheckedChange = { newChecked: Boolean -> if (enabled) onToggle(newChecked) },
             colors =
             SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
@@ -186,7 +193,8 @@ fun SettingsSwitchRow(
     }
 }
 
-/** Selector row: title + a row of pill buttons; one option selected. */
+/** Selector row: title + a row of pill buttons; one option selected. When [enabled] is false
+ * the pills are dimmed to 50% and clicks are ignored. */
 @Composable
 fun SettingsSelectorRow(
     title: String,
@@ -197,6 +205,7 @@ fun SettingsSelectorRow(
     modifier: Modifier = Modifier,
     testTag: String? = null,
     optionTestTagPrefix: String? = null,
+    enabled: Boolean = true,
 ) {
     val isSmallScreen = rememberIsSmallScreen()
     val labelStyle =
@@ -213,32 +222,59 @@ fun SettingsSelectorRow(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             options.forEach { (key, label) ->
-                val isSelected = selectedKey == key
-                Box(
-                    modifier =
-                    Modifier
-                        .then(
-                            if (optionTestTagPrefix != null) {
-                                Modifier.testTag("${optionTestTagPrefix}_$key")
-                            } else {
-                                Modifier
-                            },
-                        )
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isSelected) colors.accentColor else colors.cardBackground)
-                        .clickable { onOptionSelected(key) }
-                        .padding(vertical = 10.dp, horizontal = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = label,
-                        color = if (isSelected) Color.White else colors.textColor,
-                        style =
-                        if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
-                    )
-                }
+                SettingsSelectorPill(
+                    key = key,
+                    label = label,
+                    isSelected = selectedKey == key,
+                    enabled = enabled,
+                    colors = colors,
+                    onOptionSelected = onOptionSelected,
+                    optionTestTagPrefix = optionTestTagPrefix,
+                    isSmallScreen = isSmallScreen,
+                )
             }
         }
+    }
+}
+
+/** One pill inside a [SettingsSelectorRow]. */
+@Composable
+private fun RowScope.SettingsSelectorPill(
+    key: String,
+    label: String,
+    isSelected: Boolean,
+    enabled: Boolean,
+    colors: SettingsColors,
+    onOptionSelected: (String) -> Unit,
+    optionTestTagPrefix: String?,
+    isSmallScreen: Boolean,
+) {
+    Box(
+        modifier =
+        Modifier
+            .then(
+                if (optionTestTagPrefix != null) {
+                    Modifier.testTag("${optionTestTagPrefix}_$key")
+                } else {
+                    Modifier
+                },
+            )
+            .weight(1f)
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                (if (isSelected) colors.accentColor else colors.cardBackground)
+                    .copy(alpha = if (enabled) 1f else 0.5f),
+            )
+            .clickable(enabled = enabled) { onOptionSelected(key) }
+            .padding(vertical = 10.dp, horizontal = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color =
+            (if (isSelected) Color.White else colors.textColor).copy(alpha = if (enabled) 1f else 0.5f),
+            style =
+            if (isSmallScreen) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+        )
     }
 }

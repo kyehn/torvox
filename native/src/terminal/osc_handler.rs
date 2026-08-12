@@ -97,6 +97,16 @@ pub struct NotificationEvent {
     pub body: String,
 }
 
+/// ConEmu progress event (OSC 9;4). Format: `ESC ] 9 ; 4 ; state [ ; value ] ESC \\`.
+///
+/// - `state`: 0=remove, 1=indeterminate, 2=normal, 3=error, 4=indeterminate(error)
+/// - `value`: 0–100 (clamped), only meaningful for state 2 and 3.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressEvent {
+    pub state: u8,
+    pub value: u8,
+}
+
 /// Events decoded by the OSC handler.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OscEvent {
@@ -105,6 +115,8 @@ pub enum OscEvent {
     Cwd(CwdEvent),
     Hyperlink(HyperlinkEvent),
     Notification(NotificationEvent),
+    /// ConEmu progress (OSC 9;4). `state` 0–4, `value` 0–100 clamped.
+    Progress(ProgressEvent),
     /// Shell integration marker (OSC 133;A/B/C/D). The payload is the
     /// letter; for D (command finished) the payload may carry the exit
     /// code (`D;0`). termlib OscParser handleOsc133 equivalent.
@@ -425,7 +437,13 @@ impl OscHandler {
         if payload.is_empty() {
             return None;
         }
-        // OSC 9 format: \x1b]9;body\x07 or \x1b]9;title;body\x07
+        // OSC 9;4 ConEmu progress: `4;state[;value]`
+        // Must be checked before the generic notification parse since
+        // both share the OSC 9 number namespace.
+        if let Some(rest) = payload.strip_prefix("4;") {
+            return Self::dispatch_osc9_4(rest);
+        }
+        // Generic OSC 9 notification format: `title;body` or just `body`
         let (title, body) = if let Some(semi) = payload.find(';') {
             let t = &payload[..semi];
             let b = &payload[semi + 1..];
@@ -434,6 +452,23 @@ impl OscHandler {
             (String::new(), payload.to_string())
         };
         Some(OscEvent::Notification(NotificationEvent { title, body }))
+    }
+
+    /// ConEmu progress (OSC 9;4): `state[;value]`.
+    /// state: 0=remove, 1=indeterminate, 2=normal, 3=error, 4=indeterminate(error)
+    /// value: 0–100 clamped.
+    fn dispatch_osc9_4(rest: &str) -> Option<OscEvent> {
+        let mut parts = rest.split(';');
+        let state: u8 = parts.next()?.parse().ok()?;
+        if state > 4 {
+            return None;
+        }
+        let value: u8 = parts
+            .next()
+            .and_then(|v| v.parse::<u8>().ok())
+            .map(|v| v.min(100))
+            .unwrap_or(0);
+        Some(OscEvent::Progress(ProgressEvent { state, value }))
     }
 
     fn dispatch_osc777(&self, payload: &str) -> Option<OscEvent> {
@@ -684,6 +719,86 @@ mod tests {
                 assert_eq!(cwd.path, "file:///home/user/project");
             }
             other => panic!("expected OscEvent::Cwd, got {other:?}"),
+        }
+    }
+
+    // ── OSC 9;4 ConEmu progress tests ─────────────────────────────
+
+    #[test]
+    fn osc9_4_progress_normal_with_value() {
+        let mut handler = OscHandler::new();
+        handler.process(b"\x1b]9;4;2;75\x07");
+        assert!(handler.output().is_empty());
+        assert_eq!(handler.events().len(), 1);
+        match &handler.events()[0] {
+            OscEvent::Progress(p) => {
+                assert_eq!(p.state, 2, "state=normal");
+                assert_eq!(p.value, 75, "value=75");
+            }
+            other => panic!("expected Progress, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn osc9_4_progress_remove() {
+        let mut handler = OscHandler::new();
+        handler.process(b"\x1b]9;4;0\x07");
+        assert!(handler.output().is_empty());
+        match &handler.events()[0] {
+            OscEvent::Progress(p) => {
+                assert_eq!(p.state, 0, "state=remove");
+                assert_eq!(p.value, 0, "value defaults to 0");
+            }
+            other => panic!("expected Progress, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn osc9_4_progress_indeterminate() {
+        let mut handler = OscHandler::new();
+        handler.process(b"\x1b]9;4;1\x07");
+        match &handler.events()[0] {
+            OscEvent::Progress(p) => {
+                assert_eq!(p.state, 1, "state=indeterminate");
+            }
+            other => panic!("expected Progress, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn osc9_4_progress_value_clamped() {
+        let mut handler = OscHandler::new();
+        handler.process(b"\x1b]9;4;2;150\x07");
+        match &handler.events()[0] {
+            OscEvent::Progress(p) => {
+                assert_eq!(p.value, 100, "value must be clamped to 100");
+            }
+            other => panic!("expected Progress, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn osc9_4_progress_invalid_state_rejected() {
+        let mut handler = OscHandler::new();
+        handler.process(b"\x1b]9;4;9\x07");
+        assert!(
+            handler.events().is_empty(),
+            "state > 4 must be rejected (no event)"
+        );
+        // Payload still stripped from output
+        assert!(handler.output().is_empty());
+    }
+
+    #[test]
+    fn osc9_4_does_not_conflict_with_notification() {
+        let mut handler = OscHandler::new();
+        // Plain notification (no 4; prefix) must still produce Notification
+        handler.process(b"\x1b]9;Test notification body\x07");
+        match &handler.events()[0] {
+            OscEvent::Notification(n) => {
+                assert_eq!(n.body, "Test notification body");
+            }
+            other => panic!("expected Notification, got {other:?}"),
         }
     }
 }
