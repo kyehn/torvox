@@ -30,6 +30,7 @@
 //! ├── render/         — wgpu pipeline, cosmic-text shaping, swash glyphs
 //! ├── android/        — JNI FFI exports, NDK bridge, logging
 //! ├── mcp/            — MCP server (feature-gated, tower-mcp)
+//! ├── test/           — LiveTest TCP protocol (cfg(test) only)
 //! └── screenshot_tests — included into render::tests
 //! ```
 
@@ -54,6 +55,10 @@ pub mod log_chunk;
 // ── MCP (JSON-RPC over Unix socket for local IPC) ────────────────────────
 #[cfg(feature = "mcp")]
 pub mod mcp;
+
+// ── LiveTest TCP protocol (test infrastructure, cfg(test) only) ──────────
+#[cfg(test)]
+pub mod test;
 
 // ── Re-exports for backward compatibility ────────────────────────────────
 //

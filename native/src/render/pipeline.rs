@@ -712,3 +712,150 @@ impl Renderer {
         }));
     }
 }
+
+// ── Off-screen grid verification path (research-wgpu-example.md §6.1) ─────
+// Deliberately free functions: the main `Renderer` keeps zero depth
+// attachments (2D terminal rendering needs none), so the infinite-LOD grid
+// shader + depth texture live on the off-screen render-verification path
+// only.
+
+/// Uniform layout for `shaders/grid.wgsl`. Must match the WGSL `Uniform`
+/// struct exactly (see grid.wgsl:8-17); `_padding` keeps the struct 16-byte
+/// aligned at 112 bytes as required by uniform buffer layout rules.
+///
+/// `#[cfg(test)]`: only the crate's off-screen render verification path
+/// consumes this (see `procedural_geometry`); the production pipeline never
+/// builds a grid pipeline.
+#[cfg(test)]
+#[repr(C)]
+#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct GridUniforms {
+    pub view_proj: [[f32; 4]; 4],
+    pub camera_world_pos: [f32; 4],
+    pub grid_size: f32,
+    pub grid_min_pixels: f32,
+    pub grid_cell_size: f32,
+    pub orthographic_scale: f32,
+    pub is_orthographic: f32,
+    /// WGSL `Uniform` struct rounds to 112 bytes (16-byte align); Rust side
+    /// must match exactly: 64 (view_proj) + 16 (camera_world_pos) + 20
+    /// (five f32) + 12 padding.
+    pub _padding: [f32; 3],
+}
+
+#[cfg(test)]
+impl GridUniforms {
+    pub fn perspective(
+        view_proj: [[f32; 4]; 4],
+        camera_world_pos: [f32; 3],
+        grid_size: f32,
+        grid_min_pixels: f32,
+        grid_cell_size: f32,
+    ) -> Self {
+        Self {
+            view_proj,
+            camera_world_pos: [
+                camera_world_pos[0],
+                camera_world_pos[1],
+                camera_world_pos[2],
+                1.0,
+            ],
+            grid_size,
+            grid_min_pixels,
+            grid_cell_size,
+            orthographic_scale: 1.0,
+            is_orthographic: 0.0,
+            _padding: [0.0; 3],
+        }
+    }
+}
+
+/// Create the grid render pipeline for a given color target format. Uses a
+/// `Depth32Float` depth attachment with `Less` compare and depth write
+/// enabled — the pipeline must be paired with a depth view from
+/// `crate::render::procedural_geometry::create_depth_texture`.
+#[cfg(test)]
+pub(crate) fn create_grid_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
+    let wgsl_source = include_str!("../../shaders/grid.wgsl");
+    let grid_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("Grid Shader"),
+        source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl_source)),
+    });
+
+    let grid_bind_group_layout =
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Grid Bind Group Layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: None,
+                },
+                count: None,
+            }],
+        });
+
+    let grid_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+        label: Some("Grid Pipeline Layout"),
+        bind_group_layouts: &[Some(&grid_bind_group_layout)],
+        immediate_size: 0,
+    });
+
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Grid Pipeline"),
+        layout: Some(&grid_pipeline_layout),
+        vertex: wgpu::VertexState {
+            module: &grid_shader,
+            entry_point: Some("vertex_main"),
+            buffers: &[],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &grid_shader,
+            entry_point: Some("fragment_main"),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState {
+                    color: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::SrcAlpha,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                    alpha: wgpu::BlendComponent {
+                        src_factor: wgpu::BlendFactor::One,
+                        dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                        operation: wgpu::BlendOperation::Add,
+                    },
+                }),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+            compilation_options: wgpu::PipelineCompilationOptions::default(),
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleList,
+            strip_index_format: None,
+            front_face: wgpu::FrontFace::Ccw,
+            cull_mode: None,
+            polygon_mode: wgpu::PolygonMode::Fill,
+            unclipped_depth: false,
+            conservative: false,
+        },
+        depth_stencil: Some(wgpu::DepthStencilState {
+            format: wgpu::TextureFormat::Depth32Float,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        }),
+        multisample: wgpu::MultisampleState::default(),
+        multiview_mask: None,
+        cache: None,
+    });
+
+    (pipeline, grid_bind_group_layout)
+}

@@ -489,6 +489,136 @@ fn semgrep_finds_no_violations() {
     );
 }
 
+// ── Dependency boundary guard (osmosis P0) ────────────────────────────
+
+/// Helper: parse `cargo tree` output into a set of crate names,
+/// stripping UTF-8 box-drawing connectors.
+fn parse_tree_deps(stdout: &str) -> std::collections::BTreeSet<String> {
+    let mut deps = std::collections::BTreeSet::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('[') {
+            continue;
+        }
+        // Strip tree connectors (UTF-8 box drawing: ├─, └─, │) and leading whitespace
+        let cleaned = trimmed
+            .chars()
+            .skip_while(|c| *c == '│' || *c == '├' || *c == '└' || *c == '─' || *c == ' ')
+            .collect::<String>()
+            .trim()
+            .to_string();
+        // Extract crate name: "serde v1.0.228" → "serde"
+        if let Some(name) = cleaned.split_whitespace().next() {
+            if !name.is_empty() {
+                deps.insert(name.to_string());
+            }
+        }
+    }
+    deps
+}
+
+/// Assert the workspace stays within the declared dependency budget.
+/// This prevents silent dependency creep; any new crate must be explicitly
+/// added to the allowlist below (or the threshold raised with justification).
+#[test]
+fn dependency_count_within_budget() {
+    let output = std::process::Command::new("cargo")
+        .args([
+            "tree", "-p", "native", "--depth", "1", "--edges", "normal", "--format", "{p}",
+        ])
+        .current_dir(WORKSPACE)
+        .output()
+        .expect("cargo must be available");
+    assert!(
+        output.status.success(),
+        "cargo tree failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let deps = parse_tree_deps(&stdout);
+
+    // Budget: current count (27 normal deps) + 5 headroom for legitimate additions
+    const DEPENDENCY_BUDGET: usize = 35;
+    assert!(
+        deps.len() <= DEPENDENCY_BUDGET,
+        "Dependency count {} exceeds budget {DEPENDENCY_BUDGET}. \
+         If this is intentional, update DEPENDENCY_BUDGET in tool_lint.rs.\n\
+         Dependencies: {:?}",
+        deps.len(),
+        deps
+    );
+}
+
+/// Third-party dependency allowlist. Every direct dependency of the `native`
+/// crate must appear here. A new crate not in this list will cause CI failure
+/// until the allowlist is explicitly updated.
+#[test]
+fn all_dependencies_are_allowlisted() {
+    let output = std::process::Command::new("cargo")
+        .args([
+            "tree", "-p", "native", "--depth", "1", "--edges", "normal", "--format", "{p}",
+        ])
+        .current_dir(WORKSPACE)
+        .output()
+        .expect("cargo must be available");
+    assert!(
+        output.status.success(),
+        "cargo tree failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let deps = parse_tree_deps(&stdout);
+
+    // Declared allowlist — update this set when adding a new dependency
+    let allowlist: std::collections::BTreeSet<&str> = [
+        "axum",
+        "base64",
+        "bytemuck",
+        "cosmic-text",
+        "flume",
+        "foldhash",
+        "fontdb",
+        "futures",
+        "guillotiere",
+        "jni",
+        "libc",
+        "libghostty-vt",
+        "log",
+        "lru",
+        "nix",
+        "parking_lot",
+        "raw-window-handle",
+        "regex",
+        "renderdoc",
+        "schemars",
+        "serde",
+        "serde_json",
+        "swash",
+        "thiserror",
+        "tokio",
+        "tower-mcp",
+        "wgpu",
+        "wgpu-types",
+        "native",
+    ]
+    .into_iter()
+    .collect();
+
+    let mut violations: Vec<String> = Vec::new();
+    for name in &deps {
+        if !allowlist.contains(name.as_str()) {
+            violations.push(name.clone());
+        }
+    }
+
+    assert!(
+        violations.is_empty(),
+        "Undeclared dependencies found (not in allowlist): {:?}\n\
+         Add them to the allowlist in tool_lint.rs::all_dependencies_are_allowlisted",
+        violations
+    );
+}
+
 #[test]
 fn no_code_duplication() {
     let output = std::process::Command::new("npx")

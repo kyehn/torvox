@@ -40,8 +40,8 @@ import terminal.emulator.input.next
 import terminal.emulator.input.toKeyboardMode
 import terminal.emulator.input.toSettingsString
 import terminal.emulator.runtime.ClipboardAccess
-import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.runtime.PasteChunker
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.SmartCopy
@@ -124,6 +124,14 @@ data class PastePopupRequest(
     val col: Int,
 )
 
+/** State for multi-line paste confirmation dialog. */
+data class PasteConfirmationState(
+    val visible: Boolean = false,
+    val text: String = "",
+    val lineCount: Int = 0,
+    val charCount: Int = 0,
+)
+
 data class SessionInfo(
     val id: Long,
     val title: String,
@@ -170,7 +178,6 @@ constructor(
     val runtime: TerminalRuntime,
 ) : ViewModel() {
     private val clipboardAccess = ClipboardAccess(context, tag = "ViewModel")
-    private val clipboardPaster = ClipboardPaster(clipboardAccess)
 
     private val selectionManager = SelectionManager()
     private val fontManager = FontManager()
@@ -180,6 +187,57 @@ constructor(
     // resubscribe per frame and miss updates; stateIn keeps one collector).
     private val _userThemes = kotlinx.coroutines.flow.MutableStateFlow<List<terminal.emulator.ui.theme.TerminalTheme>>(emptyList())
     val userThemes: kotlinx.coroutines.flow.StateFlow<List<terminal.emulator.ui.theme.TerminalTheme>> = _userThemes.asStateFlow()
+
+    // ── Keyboard shortcuts ────────────────────────────────────────────
+    private val _shortcutBindings = kotlinx.coroutines.flow.MutableStateFlow(
+        terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all(),
+    )
+    val shortcutBindings: kotlinx.coroutines.flow.StateFlow<Map<String, terminal.emulator.shortcut.ShortcutBinding>> =
+        _shortcutBindings.asStateFlow()
+
+    /** Load persisted shortcut bindings from DataStore into the hot StateFlow. */
+    private fun loadShortcutBindingsFromDataStore(state: terminal.emulator.settings.SettingsRepository.SettingsState) {
+        val defaults = terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all()
+        val loaded = defaults.mapValues { (actionId, default) ->
+            val serialized = when (actionId) {
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE -> state.shortcutPaste
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION -> state.shortcutNewSession
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION -> state.shortcutCloseSession
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY -> state.shortcutCopy
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL -> state.shortcutToggleScroll
+                else -> ""
+            }
+            if (serialized.isNotEmpty()) {
+                terminal.emulator.shortcut.ShortcutBinding.deserialize(serialized).let {
+                    if (it.isEmpty()) default else it
+                }
+            } else {
+                default
+            }
+        }
+        _shortcutBindings.value = loaded
+    }
+
+    fun updateShortcutBinding(actionId: String, binding: terminal.emulator.shortcut.ShortcutBinding) {
+        _shortcutBindings.value = _shortcutBindings.value.toMutableMap().apply { put(actionId, binding) }
+        viewModelScope.launch {
+            settingsRepository.setShortcutBinding(actionId, binding.serialize())
+        }
+    }
+
+    fun resetShortcutBinding(actionId: String) {
+        val defaults = terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all()
+        _shortcutBindings.value = _shortcutBindings.value.toMutableMap().apply {
+            put(actionId, defaults[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY)
+        }
+        viewModelScope.launch {
+            settingsRepository.clearShortcutBinding(actionId)
+        }
+    }
+
+    fun hasShortcutConflict(actionId: String, binding: terminal.emulator.shortcut.ShortcutBinding): Boolean = _shortcutBindings.value.any { (id, existing) ->
+        id != actionId && existing == binding
+    }
 
     // ── Font forwards (implementation in FontManager) ─────────────────────
 
@@ -215,9 +273,49 @@ constructor(
 
     fun shareSelection() = selectionManager.shareSelection()
 
+    /**
+     * Export full terminal text (scrollback + visible) to a SAF URI.
+     * Called from the SelectionActions toolbar via ActivityResultContracts.CreateDocument.
+     */
+    fun exportTerminalOutput(uri: Uri) {
+        viewModelScope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runtime.bridge()?.getTerminalText() ?: ""
+            }
+            if (text.isEmpty()) {
+                android.widget.Toast.makeText(context, "Terminal output is empty", android.widget.Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            try {
+                withContext(Dispatchers.IO) {
+                    context.contentResolver.openOutputStream(uri)?.use { out ->
+                        out.write(text.toByteArray(Charsets.UTF_8))
+                    }
+                }
+                android.widget.Toast.makeText(context, "Terminal output exported", android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: java.io.IOException) {
+                LogUtil.e("ViewModel", "Export failed", e)
+                android.widget.Toast.makeText(context, "Export failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     fun selectAll(scrollOffset: Int = 0) = selectionManager.selectAll(scrollOffset)
 
+    fun moveSelectionAnchor(deltaCol: Int) = selectionManager.moveSelectionAnchor(deltaCol)
+
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
+
+    fun confirmPaste() {
+        val text = _pasteConfirmation.value.text
+        _pasteConfirmation.value = PasteConfirmationState()
+        selectionManager.executePaste(text)
+    }
+
+    fun cancelPaste() {
+        _pasteConfirmation.value = PasteConfirmationState()
+    }
+
     fun writeToPty(data: ByteArray) {
         val written = runtime.writeToPty(data)
         if (!written) {
@@ -531,6 +629,32 @@ constructor(
             syncSelectionToNative()
         }
 
+        /**
+         * Move the selection start anchor by [deltaCol] columns (character-by-character
+         * navigation via d-pad buttons in the selection action bar).
+         * Reference: research-haven.md §2.3 anchor movement buttons.
+         */
+        fun moveSelectionAnchor(deltaCol: Int) {
+            val current = _state.value.selection
+            val anchor = current.start ?: return
+            val newCol = (anchor.col + deltaCol).coerceAtLeast(0)
+            val newStart = anchor.copy(col = newCol)
+            // Ensure start doesn't cross past end
+            val end = current.end ?: return
+            val clamped = if (
+                newStart.row > end.row ||
+                (newStart.row == end.row && newStart.col >= end.col)
+            ) {
+                anchor.copy(col = (end.col - 1).coerceAtLeast(0))
+            } else {
+                newStart
+            }
+            val updated = current.copy(start = clamped, menuDismissed = false)
+            val text = extractSelectedText(updated)
+            _state.update { it.copy(selection = updated.copy(selectedText = text)) }
+            syncSelectionToNative()
+        }
+
         @Suppress("CyclomaticComplexMethod")
         private fun extractSelectedText(selection: SelectionState): String {
             val start = selection.start ?: return ""
@@ -569,7 +693,7 @@ constructor(
                         endCol = tmp
                     }
                     if (startCol < visLine.length) {
-                        parts.add(visLine.substring(startCol, endCol))
+                        parts.add(extractBlockColumn(visLine, startCol, endCol))
                     }
                 }
                 return parts.joinToString("\n")
@@ -626,12 +750,89 @@ constructor(
             return false
         }
 
+        private fun isWideChar(ch: Char): Boolean = isWideBmp(ch.code) || isWideAstral(ch.code)
+
+        /** BMP wide ranges from Markus Kuhn's wcwidth() tables. */
+        private fun isWideBmp(cp: Int): Boolean = cp in 0x1100..0x115F || // Hangul Jamo
+            cp in 0x2329..0x232A || // angle brackets
+            cp in 0x2E80..0x303E || // CJK Radicals .. CJK Symbols and Punctuation
+            cp in 0x3041..0x33FF || // Hiragana .. CJK Compatibility
+            cp in 0x3400..0x4DBF || // CJK Extension A
+            cp in 0x4E00..0x9FFF || // CJK Unified Ideographs
+            cp in 0xA000..0xA4CF || // Yi Syllables
+            cp in 0xAC00..0xD7A3 || // Hangul Syllables
+            cp in 0xF900..0xFAFF || // CJK Compatibility Ideographs
+            cp in 0xFE30..0xFE4F || // CJK Compatibility Forms
+            cp in 0xFF00..0xFF60 || // Fullwidth Forms
+            cp in 0xFFE0..0xFFE6 // Fullwidth Signs
+
+        /** Astral-plane wide ranges (emoji and CJK extensions B-G). */
+        private fun isWideAstral(cp: Int): Boolean = cp in 0x1F1E6..0x1F1FF || // Regional Indicator (flag)
+            cp in 0x1F300..0x1F64F || // Emoticons
+            cp in 0x1F680..0x1F6FF || // Transport
+            cp in 0x1F700..0x1F8FF || // Alchemical .. Geometric Extended
+            cp in 0x1F900..0x1F9FF || // Supplemental Symbols
+            cp in 0x1FA00..0x1FAFF || // Chess .. Symbols Extended-A
+            cp in 0x20000..0x2FFFD || // CJK Extensions B-F
+            cp in 0x30000..0x3FFFD // CJK Extension G
+
+        /**
+         * Extract a column-bounded rectangle slice from a single line,
+         * correctly handling CJK wide characters that occupy 2 cell columns.
+         */
+        private fun extractBlockColumn(
+            line: String,
+            startCol: Int,
+            endCol: Int,
+        ): String {
+            var col = 0
+            var charStart = -1
+            var charEnd = line.length
+            for ((i, ch) in line.withIndex()) {
+                val w = if (isWideChar(ch)) 2 else 1
+                if (col >= startCol && charStart < 0) charStart = i
+                if (col >= endCol) {
+                    charEnd = i
+                    break
+                }
+                col += w
+            }
+            if (charStart < 0) return ""
+            return line.substring(charStart, charEnd.coerceAtMost(line.length))
+        }
+
+        /**
+         * Paste clipboard content. For multi-line or long content (>1 line or
+         * >500 chars), shows a confirmation dialog first.
+         * Reference: research-gnome-console.md §4 paste confirmation.
+         */
         fun pasteFromClipboard(): Int {
-            val written = clipboardPaster.pasteTo { runtime.writeToPty(it) }
-            // Close the floating menu after the action ; the
-            // selection highlight stays until the next tap.
+            val text = clipboardAccess.clipboardText() ?: return 0
+            val lines = text.lines()
+            if (lines.size > 1 || text.length > 500) {
+                _pasteConfirmation.update {
+                    PasteConfirmationState(
+                        visible = true,
+                        text = text,
+                        lineCount = lines.size,
+                        charCount = text.length,
+                    )
+                }
+                _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
+                return 0
+            }
+            return executePaste(text)
+        }
+
+        /** Actually send [text] to PTY via the chunker. */
+        fun executePaste(text: String): Int {
+            var offset = 0
+            for (chunk in PasteChunker().chunks(text)) {
+                runtime.writeToPty(chunk.toByteArray())
+                offset += chunk.length
+            }
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-            return written
+            return offset
         }
     }
 
@@ -844,6 +1045,9 @@ constructor(
     private val _state = MutableStateFlow(TerminalState())
     val state: StateFlow<TerminalState> = _state.asStateFlow()
 
+    private val _pasteConfirmation = MutableStateFlow(PasteConfirmationState())
+    val pasteConfirmation: StateFlow<PasteConfirmationState> = _pasteConfirmation.asStateFlow()
+
     @Volatile var currentSurface: Surface? = null
 
     @Volatile var surfaceWidth: Int = 0
@@ -885,6 +1089,15 @@ constructor(
     val fontInfo: StateFlow<String> = _fontInfo.asStateFlow()
 
     init {
+        // Load persisted shortcut bindings from DataStore (fix).
+        viewModelScope.launch {
+            settings.map {
+                it.shortcutPaste to it.shortcutNewSession to
+                    it.shortcutCloseSession to it.shortcutCopy to it.shortcutToggleScroll
+            }
+                .distinctUntilChanged()
+                .collect { loadShortcutBindingsFromDataStore(settings.value) }
+        }
         viewModelScope.launch {
             runtime.state.collect { runtimeState ->
                 val sortedIds = runtimeState.sessionIds.sorted()
@@ -1108,6 +1321,68 @@ constructor(
         }
     }
 
+    /**
+     * Offline bootstrap install from a SAF URI.  The user picks a .zip file
+     * via [android.activity.result.contract.ActivityResultContracts.OpenDocument];
+     * the content is copied to a cache file, then fed to the same installer
+     * pipeline as the online path (installer.install → secondStage.run).
+     * No network required; the downloaded bootstrap URL is ignored.
+     */
+    fun installOffline(uri: android.net.Uri) {
+        if (!_bootstrapRunning.compareAndSet(false, true)) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _bootstrapResult.value = null
+            _bootstrapProgress.value = null
+            try {
+                val onProgress =
+                    terminal.emulator.installer.BootstrapProgressCallback { progress ->
+                        _bootstrapProgress.value = progress
+                    }
+                val installer =
+                    terminal.emulator.installer.BootstrapInstaller(
+                        prefixDir = java.io.File(context.filesDir, "usr"),
+                        homeDir = java.io.File(context.filesDir, "home"),
+                        stagingDir = java.io.File(context.filesDir, "usr-staging"),
+                        onProgress = onProgress,
+                    )
+                val secondStage =
+                    terminal.emulator.installer.SecondStageRunner(
+                        prefixDir = java.io.File(context.filesDir, "usr"),
+                        homeDir = java.io.File(context.filesDir, "home"),
+                        onProgress = onProgress,
+                    )
+                // Copy SAF URI content to a temp cache file — the installer
+                // needs a File (it hashes + streams the zip).  The cache dir
+                // is always writable and cleared by the OS under pressure.
+                _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Downloading(0, 0)
+                val cacheFile = java.io.File(context.cacheDir, "offline-bootstrap.zip")
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    cacheFile.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                } ?: throw java.io.IOException("Failed to open bootstrap file")
+                val result = installer.install(cacheFile)
+                if (result.isSuccess) {
+                    _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Complete
+                    val secondResult = secondStage.run()
+                    val messages = mutableListOf("Bootstrap installed from file")
+                    if (secondResult.errors.isNotEmpty()) {
+                        messages.add("${secondResult.errors.size} postinst scripts had errors")
+                    }
+                    _bootstrapResult.value = messages.joinToString("; ")
+                } else {
+                    _bootstrapResult.value = "Error: ${result.exceptionOrNull()?.javaClass?.simpleName}"
+                }
+                cacheFile.delete()
+            } catch (exception: Exception) {
+                LogUtil.e("ViewModel", "Offline install failed", exception)
+                _bootstrapResult.value = "Error: ${exception.javaClass.simpleName}"
+            } finally {
+                _bootstrapRunning.value = false
+            }
+        }
+    }
+
     fun setUseNerdFontGlyphs(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setUseNerdFontGlyphs(enabled)
@@ -1277,6 +1552,12 @@ constructor(
         bridge.setCursorStyle(style)
     }
 
+    fun setBellMode(modeId: Int) {
+        viewModelScope.launch {
+            settingsRepository.setBellMode(modeId)
+        }
+    }
+
     /**
      * Persist a cursor setting then push it to the bridge and force a
      * render. Shared by the three cursor setters (R10: 
@@ -1329,6 +1610,26 @@ constructor(
             // If the deleted theme was selected, fall back to the default.
             val current = settingsRepository.themeName.first()
             if (current == name) settingsRepository.setThemeName("Dracula Plus")
+        }
+    }
+
+    /**
+     * Overwrite an existing user theme with a new definition from the
+     * theme editor. The name must match an existing user theme.
+     */
+    fun overwriteUserTheme(theme: terminal.emulator.ui.theme.TerminalTheme) {
+        viewModelScope.launch {
+            userThemeStore.save(theme)
+        }
+    }
+
+    /**
+     * Save an edited theme as a brand-new user theme.
+     */
+    fun saveEditedThemeAsNew(name: String, theme: terminal.emulator.ui.theme.TerminalTheme) {
+        if (name.isBlank()) return
+        viewModelScope.launch {
+            userThemeStore.save(theme.copy(name = name.trim()))
         }
     }
 
@@ -1464,6 +1765,9 @@ constructor(
 
     fun toggleScrollMode() {
         _state.update { it.copy(scrollActive = !it.scrollActive) }
+        // : sync scrollActive to SessionEntry so the render thread
+        // knows whether to auto-reset scroll on new output.
+        runtime.setScrollActive(_state.value.scrollActive)
     }
 
     fun createSession() {

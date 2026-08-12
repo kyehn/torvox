@@ -25,6 +25,13 @@ pub mod context;
 pub(crate) mod old_path;
 mod pass;
 mod pipeline;
+// Off-screen render-verification path (research-wgpu-example §6.1/§6.2):
+// procedural geometry + depth-attached LOD grid are crate-test-only — the
+// production `Renderer` keeps zero depth attachments (2D terminal rendering
+// needs none), so this module must not ship in the normal build or leak into
+// `integration-tests` (which enables `test-util`).
+#[cfg(test)]
+pub(crate) mod procedural_geometry;
 pub(crate) mod wgpu_backend;
 
 #[cfg(test)]
@@ -32,14 +39,14 @@ mod tests;
 
 // ── Re-exports ───────────────────────────────────────────────────────────
 pub use cell_builder::{CellCursor, build_instances_from_cell_data};
-pub use cpu_frame::{CpuCell, CpuCursor, CpuFrame, TextHit, TextItem};
-pub use invalidation::{FrameInvalidation, InvalidationLevel};
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
 pub(crate) use cell_builder::{SearchHighlight, SelectionRange, blend_highlight, cell_highlight};
 pub use context::FrameContext;
 pub use context::Renderer;
 pub use context::orthographic_projection;
+pub use cpu_frame::{CpuCell, CpuCursor, CpuFrame, TextHit, TextItem};
+pub use invalidation::{FrameInvalidation, InvalidationLevel};
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
 pub(crate) use old_path::{
