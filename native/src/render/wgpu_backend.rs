@@ -12,6 +12,61 @@ use std::sync::Arc;
 
 use crate::render::GpuError;
 
+/// Parse the `TORVOX_BACKEND` environment variable into a [`wgpu::Backends`]
+/// bitmask. Returns `None` when the variable is unset (caller uses the
+/// platform default) and logs a warning for unrecognized values.
+///
+/// Accepted values: `"vulkan"`, `"gl"`, `"primary"`.
+///
+/// Absorbed from wgpu-in-app `app_surface_use_winit.rs:68`.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn parse_backend_env() -> Option<wgpu::Backends> {
+    parse_backend_value(std::env::var("TORVOX_BACKEND").ok().as_deref())
+}
+
+/// Parse a raw backend string value into a [`wgpu::Backends`] bitmask.
+/// Pure function — safe for parallel test execution.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn parse_backend_value(value: Option<&str>) -> Option<wgpu::Backends> {
+    match value {
+        Some("vulkan") => Some(wgpu::Backends::VULKAN),
+        Some("gl") => Some(wgpu::Backends::GL),
+        Some("primary") => Some(wgpu::Backends::PRIMARY),
+        Some(other) => {
+            log::warn!("TORVOX_BACKEND={other} unrecognized, using default");
+            None
+        }
+        None => None,
+    }
+}
+
+/// Parse the `TORVOX_POWER` environment variable into a
+/// [`wgpu::PowerPreference`]. Returns `None` when the variable is unset
+/// (caller uses `HighPerformance` default).
+///
+/// Accepted values: `"low"`, `"high"`, `"default"`.
+///
+/// Absorbed from wgpu-in-app `lib.rs:371-372`.
+pub(crate) fn parse_power_env() -> Option<wgpu::PowerPreference> {
+    parse_power_value(std::env::var("TORVOX_POWER").ok().as_deref())
+}
+
+/// Parse a raw power preference string value into a
+/// [`wgpu::PowerPreference`]. Pure function — safe for parallel test
+/// execution.
+pub(crate) fn parse_power_value(value: Option<&str>) -> Option<wgpu::PowerPreference> {
+    match value {
+        Some("low") => Some(wgpu::PowerPreference::LowPower),
+        Some("high") => Some(wgpu::PowerPreference::HighPerformance),
+        Some("default") => Some(wgpu::PowerPreference::default()),
+        Some(other) => {
+            log::warn!("TORVOX_POWER={other} unrecognized, using HighPerformance");
+            None
+        }
+        None => None,
+    }
+}
+
 /// Android display wrapper: raw-window-handle's `AndroidDisplayHandle`
 /// does not implement `HasDisplayHandle` itself, but wgpu 30 requires a
 /// `WgpuHasDisplayHandle` object in `InstanceDescriptor::display` for
@@ -53,7 +108,7 @@ pub async fn initialize_wgpu()
     // (round-227: hardware Vulkan must never fall through to the GLES
     // CPU path).
     #[cfg(target_os = "android")]
-    let backends = wgpu::Backends::VULKAN | wgpu::Backends::GL;
+    let backends = parse_backend_env().unwrap_or(wgpu::Backends::VULKAN | wgpu::Backends::GL);
     #[cfg(not(target_os = "android"))]
     let backends = wgpu::Backends::PRIMARY;
     #[cfg(debug_assertions)]
@@ -87,9 +142,13 @@ pub async fn initialize_wgpu()
     #[cfg(not(target_os = "android"))]
     crate::render::renderdoc_capture::initialize();
 
+    // TORVOX_POWER env override (absorbed from wgpu-in-app
+    // lib.rs:371-372): allows overriding adapter power preference for
+    // debugging. Values: "low", "high", "default". Unset = HighPerformance.
+    let power_preference = parse_power_env().unwrap_or(wgpu::PowerPreference::HighPerformance);
     let adapter = instance
         .request_adapter(&wgpu::RequestAdapterOptions {
-            power_preference: wgpu::PowerPreference::HighPerformance,
+            power_preference,
             compatible_surface: None,
             force_fallback_adapter: false,
             apply_limit_buckets: false,
@@ -126,4 +185,78 @@ pub async fn initialize_wgpu()
 
     log::info!("GPU device created, queue ok");
     Ok((instance, adapter, device, queue))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_backend_value tests (pure function, parallel-safe) ────
+
+    #[test]
+    fn parse_backend_vulkan() {
+        assert_eq!(
+            parse_backend_value(Some("vulkan")),
+            Some(wgpu::Backends::VULKAN)
+        );
+    }
+
+    #[test]
+    fn parse_backend_gl() {
+        assert_eq!(parse_backend_value(Some("gl")), Some(wgpu::Backends::GL));
+    }
+
+    #[test]
+    fn parse_backend_primary() {
+        assert_eq!(
+            parse_backend_value(Some("primary")),
+            Some(wgpu::Backends::PRIMARY)
+        );
+    }
+
+    #[test]
+    fn parse_backend_unrecognized_returns_none() {
+        assert_eq!(parse_backend_value(Some("dx12")), None);
+    }
+
+    #[test]
+    fn parse_backend_unset_returns_none() {
+        assert_eq!(parse_backend_value(None), None);
+    }
+
+    // ── parse_power_value tests (pure function, parallel-safe) ─────
+
+    #[test]
+    fn parse_power_low() {
+        assert_eq!(
+            parse_power_value(Some("low")),
+            Some(wgpu::PowerPreference::LowPower)
+        );
+    }
+
+    #[test]
+    fn parse_power_high() {
+        assert_eq!(
+            parse_power_value(Some("high")),
+            Some(wgpu::PowerPreference::HighPerformance)
+        );
+    }
+
+    #[test]
+    fn parse_power_default() {
+        assert_eq!(
+            parse_power_value(Some("default")),
+            Some(wgpu::PowerPreference::default())
+        );
+    }
+
+    #[test]
+    fn parse_power_unrecognized_returns_none() {
+        assert_eq!(parse_power_value(Some("turbo")), None);
+    }
+
+    #[test]
+    fn parse_power_unset_returns_none() {
+        assert_eq!(parse_power_value(None), None);
+    }
 }
