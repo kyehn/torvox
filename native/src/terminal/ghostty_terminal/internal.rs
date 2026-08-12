@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
@@ -94,7 +94,11 @@ pub(crate) fn snapshot_needs_rebuild(
 
 // ── impl GhosttyTerminal ──────────────────────────────────────
 impl super::GhosttyTerminal {
-    pub(crate) fn process_query(query: Command, terminal: &mut Terminal) {
+    pub(crate) fn process_query(
+        query: Command,
+        terminal: &mut Terminal,
+        alt_screen_active: &Arc<AtomicBool>,
+    ) {
         match query {
             Command::Rows(tx) => {
                 if let Err(error) =
@@ -149,6 +153,11 @@ impl super::GhosttyTerminal {
                 let is_alt = terminal
                     .active_screen()
                     .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate);
+                // Mirror lock-free for the Android input path (Haven
+                // research: altScreen wheel consumption — touch-scroll on the
+                // alternate screen must forward to the remote, not scroll
+                // local scrollback).
+                alt_screen_active.store(is_alt, Ordering::Release);
                 try_send(&tx, is_alt, "ghostty_terminal: query channel send failed");
             }
             Command::Title(tx) => {
@@ -260,6 +269,14 @@ impl super::GhosttyTerminal {
         // PNG decoder is disabled because the upstream RustPngDecoder API has not
         // stabilized across libghostty-vt versions. KGP image storage still accepts
         // pre-decoded raw RGBA data from external PNG decoders.
+        //
+        // Upgrade path (P2 doc item): (1) track libghostty-vt upstream and
+        // re-enable the RustPngDecoder once its API stabilizes (gate on the
+        // png/image feature); or (2) register an `image`-crate decoder via the
+        // terminal's kitty image-decoder hook so kitty `a=Z`/`a=T` payloads are
+        // decoded in-process. Until either lands, callers must decode PNG bytes
+        // to raw RGBA externally and submit them through the pre-decoded
+        // raw-RGBA kitty image path.
 
         // Register PTY write-back callback for terminal responses
         // (DECRPM mode reports, DSR, DA, etc.)
@@ -383,13 +400,18 @@ impl super::GhosttyTerminal {
                     // No bounded commands pending — drain query channel so
                     // queries sent between commands don't wait indefinitely.
                     while let Ok(query) = query_receiver.try_recv() {
-                        Self::process_query(query, &mut terminal);
+                        Self::process_query(query, &mut terminal, &config.alt_screen_active);
                     }
                     // ── Auto-push CellData (also sent on each state change above) ──
                     #[allow(clippy::collapsible_if)]
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) =
-                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
+                        && let Some(data) = Self::build_cell_data(
+                            &terminal,
+                            default_fg,
+                            default_bg,
+                            &mut row_cache,
+                            &config.alt_screen_active,
+                        )
                     {
                         let _ = tx.try_send(data);
                     }
@@ -406,8 +428,13 @@ impl super::GhosttyTerminal {
                     grid_dirty = true;
                     #[allow(clippy::collapsible_if)]
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) =
-                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
+                        && let Some(data) = Self::build_cell_data(
+                            &terminal,
+                            default_fg,
+                            default_bg,
+                            &mut row_cache,
+                            &config.alt_screen_active,
+                        )
                     {
                         let _ = tx.try_send(data);
                     }
@@ -462,8 +489,13 @@ impl super::GhosttyTerminal {
                     grid_dirty = true;
                     #[allow(clippy::collapsible_if)]
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) =
-                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
+                        && let Some(data) = Self::build_cell_data(
+                            &terminal,
+                            default_fg,
+                            default_bg,
+                            &mut row_cache,
+                            &config.alt_screen_active,
+                        )
                     {
                         let _ = tx.try_send(data);
                     }
@@ -492,8 +524,13 @@ impl super::GhosttyTerminal {
                     row_cache.clear();
                     #[allow(clippy::collapsible_if)]
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) =
-                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
+                        && let Some(data) = Self::build_cell_data(
+                            &terminal,
+                            default_fg,
+                            default_bg,
+                            &mut row_cache,
+                            &config.alt_screen_active,
+                        )
                     {
                         let _ = tx.try_send(data);
                     }
@@ -507,8 +544,13 @@ impl super::GhosttyTerminal {
                     // Rebuild + repush CellData so the renderer draws the
                     // scrolled view immediately.
                     if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) =
-                            Self::build_cell_data(&terminal, default_fg, default_bg, &mut row_cache)
+                        && let Some(data) = Self::build_cell_data(
+                            &terminal,
+                            default_fg,
+                            default_bg,
+                            &mut row_cache,
+                            &config.alt_screen_active,
+                        )
                     {
                         let _ = tx.try_send(data);
                     }
@@ -795,7 +837,7 @@ impl super::GhosttyTerminal {
             // After processing the bounded command, drain any pending queries
             // so they see the updated terminal state.
             while let Ok(query) = query_receiver.try_recv() {
-                Self::process_query(query, &mut terminal);
+                Self::process_query(query, &mut terminal, &config.alt_screen_active);
             }
         }
     }
@@ -976,7 +1018,21 @@ impl super::GhosttyTerminal {
         default_fg: [f32; 4],
         default_bg: [f32; 4],
         row_cache: &mut Vec<Vec<CellData>>,
+        alt_screen_active: &Arc<AtomicBool>,
     ) -> Option<(Vec<CellData>, CursorInfo)> {
+        // Keep the lock-free alternate-screen mirror in sync on every frame
+        // the VT thread emits (not only when a `Command::AltScreen` query
+        // arrives — no production caller issues that query, so a query-only
+        // update would leave the mirror stale at `false` forever). The
+        // Android input path reads this mirror lock-free on every touch-scroll
+        // to decide whether to forward the gesture to the remote (Haven
+        // research: altScreen wheel consumption).
+        alt_screen_active.store(
+            terminal
+                .active_screen()
+                .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate),
+            Ordering::Release,
+        );
         let rows = terminal.rows().unwrap_or(24) as u32;
         let cols = terminal.cols().unwrap_or(80) as u32;
         let size = (rows * cols) as usize;

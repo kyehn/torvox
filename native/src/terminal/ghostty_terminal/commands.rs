@@ -1,4 +1,4 @@
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 
 use flume::{Receiver, Sender};
@@ -128,6 +128,10 @@ pub(crate) struct RunConfig {
     pub(crate) ansi_colors: [[u8; 3]; 16],
     pub(crate) response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
     pub(crate) snapshot_rebuild_count: Arc<AtomicU64>,
+    /// Mirror of the alternate-screen state, updated lock-free by the VT
+    /// thread on every `Command::AltScreen` query so the input path can
+    /// detect it without a blocking RPC.
+    pub(crate) alt_screen_active: Arc<AtomicBool>,
     /// Optional channel for auto-pushing CellData after each frame update.
     /// When set, the ghostty thread will automatically build and send
     /// Vec<CellData> (via CellIterator) whenever the grid changes.

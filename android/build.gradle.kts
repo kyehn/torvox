@@ -12,6 +12,9 @@ plugins {
     id("androidx.benchmark") version "1.5.0-alpha06" apply false
     id("androidx.baselineprofile") version "1.5.0-alpha06" apply false
     id("com.github.ben-manes.versions") version "0.54.0" apply false
+    id("com.ncorti.ktfmt.gradle") version "0.22.0" apply false
+    id("org.jlleitschuh.gradle.ktlint") version "12.2.0" apply false
+    id("de.infix.testBalloon") version "1.0.1-K2.4.0" apply false
 }
 
 val verrors = mutableListOf<String>()
@@ -93,6 +96,15 @@ subprojects {
             ktlint().editorConfigOverride(mapOf("max_line_length" to "300"))
             target("*.gradle.kts")
         }
+    }
+
+    // ktlint-gradle (JLLeitschuh) — dedicated ktlintCheck/ktlintFormat tasks
+    // as an alternative to the Spotless-managed ktlint pass. Pinned to the
+    // same ktlint 1.8.0 version as Spotless so both tools agree on rules.
+    apply(plugin = "org.jlleitschuh.gradle.ktlint")
+    configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
+        version.set("1.8.0")
+        android.set(true)
     }
 }
 

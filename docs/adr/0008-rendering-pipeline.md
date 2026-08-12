@@ -1,8 +1,14 @@
-# 0008 — Rendering Pipeline
+# 8. Rendering Pipeline
 
-- **Status**: Accepted
-- **Date**: 2026-07-27
-- **Requirement IDs**: FR-02, NFR-01
+## Status
+
+Accepted
+
+Date: 2026-07-27
+
+## Requirement IDs
+
+FR-02, NFR-01
 
 ## Context
 
@@ -122,5 +128,10 @@ Decisions **not implemented** (scope evolved or deferred):
 - ❌ Font module files (`font/pipeline.rs`, `font/rasterization.rs`, `font/cjk.rs`) **relocated** to `native/src/render/font/` but not inlined
 - ❌ KLOC estimate (~2,450) under-estimated — actual core render code is ~6,500 lines (features like background blur, KGP added)
 
+## Compliance
+
 - Frame time budget: <16 ms per frame at 60 fps on Adreno 6xx+
 - `ATrace_beginSection`/`_endSection` markers in all render functions
+- GPU benchmarks (`bench_build_instances_from_cell_data`, `bench_gpu_buffer_upload_throughput`)
+  enforce minimum throughput thresholds in CI
+- `cargo clippy` catches unsafe render code violations

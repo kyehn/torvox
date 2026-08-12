@@ -1,46 +1,41 @@
 package terminal.emulator
 
-import org.junit.Assert.assertTrue
+import com.lemonappdev.konsist.api.Konsist
+import com.lemonappdev.konsist.api.ext.list.classes
+import com.lemonappdev.konsist.api.ext.list.withNameEndingWith
+import com.lemonappdev.konsist.api.verify.assertTrue
 import org.junit.Test
 
 /**
- * Architecture consistency tests.
+ * Architecture consistency tests (Konsist 0.17.3 — uses `assertTrue {}`,
+ * the `assert {}` lambda API was introduced in a later version).
  *
  * Guards:
- * - ViewModels reside in `terminal.emulator` or sub-packages
- * - Repositories reside in `terminal.emulator.settings`
+ * - `*ViewModel` classes reside in `terminal.emulator` or sub-packages
+ * - `*Repository` classes reside in `terminal.emulator.settings` or
+ *   `terminal.emulator`
  *
  * Reference: android-showcase, cortinico/kotlin-android-template,
- * miaowmiaow/fragmject. Konsist integration deferred until upstream
- * supports Kotlin 2.4.x.
+ * miaowmiaow/fragmject.
  */
 class ArchitectureTest {
 
     @Test
-    fun `terminal emulator package should contain ViewModel classes`() {
-        val viewModelClasses =
-            listOf(
-                "terminal.emulator.TerminalViewModel",
-            )
-        viewModelClasses.forEach { className ->
-            assertTrue(
-                "ViewModel class $className should reside in terminal.emulator package",
-                className.startsWith("terminal.emulator."),
-            )
-        }
+    fun `ViewModel classes reside in terminal emulator package`() {
+        Konsist.scopeFromProject()
+            .classes()
+            .withNameEndingWith("ViewModel")
+            .assertTrue { it.resideInPackage("terminal.emulator..") }
     }
 
     @Test
-    fun `settings package should contain Repository classes`() {
-        val repositoryClasses =
-            listOf(
-                "terminal.emulator.settings.SettingsRepository",
-            )
-        repositoryClasses.forEach { className ->
-            assertTrue(
-                "Repository class $className should reside in terminal.emulator.settings package",
-                className.startsWith("terminal.emulator.settings."),
-            )
-        }
+    fun `Repository classes reside in settings or terminal emulator package`() {
+        Konsist.scopeFromProject()
+            .classes()
+            .withNameEndingWith("Repository")
+            .assertTrue {
+                it.resideInPackage("terminal.emulator.settings..") ||
+                    it.resideInPackage("terminal.emulator..")
+            }
     }
 }

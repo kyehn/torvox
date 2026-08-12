@@ -300,6 +300,10 @@ type CallbackRunCommand =
     Box<dyn Fn(u64, String) -> (u64, tokio::sync::oneshot::Receiver<String>) + Send + Sync>;
 type CallbackScreenshot =
     Box<dyn Fn(u64) -> (u64, tokio::sync::oneshot::Receiver<(u32, u32, Vec<u8>)>) + Send + Sync>;
+/// Resolves a session's current working directory (None when unavailable).
+/// Registered by the JNI bridge so MCP tools can query the session registry
+/// without taking its lock (mirrors ffi.rs session_exit_code).
+type CallbackSessionCwd = Box<dyn Fn(u64) -> Option<String> + Send + Sync + 'static>;
 
 /// Thread-safe state shared between JNI bridge and MCP tools.
 #[derive(Clone)]
@@ -316,6 +320,7 @@ struct McpStateInner {
     on_send_signal: Mutex<Option<CallbackSendSignal>>,
     on_run_command: Mutex<Option<CallbackRunCommand>>,
     on_screenshot: Mutex<Option<CallbackScreenshot>>,
+    on_session_cwd: Mutex<Option<CallbackSessionCwd>>,
     terminal_rows: AtomicU32,
     terminal_cols: AtomicU32,
     active_session_id: AtomicU64,
@@ -334,6 +339,7 @@ impl McpState {
             on_send_signal: Mutex::new(None),
             on_run_command: Mutex::new(None),
             on_screenshot: Mutex::new(None),
+            on_session_cwd: Mutex::new(None),
             terminal_rows: AtomicU32::new(24),
             terminal_cols: AtomicU32::new(80),
             active_session_id: AtomicU64::new(0),
@@ -441,6 +447,18 @@ impl McpState {
     {
         *self.0.on_screenshot.lock() = Some(Box::new(f));
     }
+
+    /// Register a handler resolving a session's current working directory
+    /// (session.cwd(): OSC 7 shell-tracked first, then the terminal's
+    /// /proc-derived fallback, session.rs:752). The JNI bridge registers
+    /// this so the MCP `terminal_info` tool can report `cwd` without the
+    /// MCP thread holding the session lock.
+    pub fn set_session_cwd_handler<F>(&self, f: F)
+    where
+        F: Fn(u64) -> Option<String> + Send + Sync + 'static,
+    {
+        *self.0.on_session_cwd.lock() = Some(Box::new(f));
+    }
 }
 
 impl Default for McpState {
@@ -497,8 +515,9 @@ fn terminal_info_tool() -> Tool {
     ToolBuilder::new("terminal_info")
         .title("Get terminal info")
         .description(
-            "Get terminal dimensions (rows, columns), version info and the \
-             active session's exit code (null while it is still running)",
+            "Get terminal dimensions (rows, columns), version info, the \
+             active session's exit code (null while it is still running) \
+             and its current working directory (cwd, null when unknown)",
         )
         .no_params_handler(|| async move {
             let state = global_state();
@@ -515,11 +534,26 @@ fn terminal_info_tool() -> Tool {
                     crate::android::ffi::session_exit_code(session_id)
                 }
             };
+            // cwd: resolved live from the active session via the
+            // JNI-registered handler. Source is session.cwd() — OSC 7
+            // (shell-tracked) when the shell emits it, otherwise the
+            // terminal's /proc-derived cwd fallback (session.rs:752).
+            // null when no session or the handler is not registered.
+            let cwd = {
+                let session_id = state.0.active_session_id.load(Ordering::Acquire);
+                let handler = state.0.on_session_cwd.lock();
+                if session_id == 0 {
+                    None
+                } else {
+                    handler.as_ref().and_then(|f| f(session_id))
+                }
+            };
             let info = json!({
                 "rows": rows,
                 "columns": cols,
                 "version": env!("CARGO_PKG_VERSION"),
                 "exit_code": exit_code,
+                "cwd": cwd,
             });
             Ok(CallToolResult::text(info.to_string()))
         })
@@ -658,6 +692,29 @@ fn send_signal_tool() -> Tool {
                     Ok(CallToolResult::text(result))
                 }
                 None => Ok(CallToolResult::error("send_signal not available")),
+            }
+        })
+        .build()
+}
+
+fn last_command_output_tool() -> Tool {
+    ToolBuilder::new("last_command_output")
+        .title("Get last command output")
+        .description(
+            "Return the text output of the last completed shell command in the active terminal \
+             session, captured via OSC 133 shell integration (termlib getLastCommandOutput \
+             equivalent). Empty when the shell does not emit OSC 133 markers or no command \
+             finished yet. Reading drains the buffer.",
+        )
+        .no_params_handler(|| async move {
+            let state = global_state();
+            let session_id = state.0.active_session_id.load(Ordering::Acquire);
+            if session_id == 0 {
+                return Ok(CallToolResult::error("no active session"));
+            }
+            match crate::android::ffi::session_last_command_output(session_id) {
+                Some(output) => Ok(CallToolResult::text(output)),
+                None => Ok(CallToolResult::text("")),
             }
         })
         .build()
@@ -1002,6 +1059,7 @@ fn build_router() -> McpRouter {
         .tool(toast_tool())
         .tool(open_url_tool())
         .tool(send_signal_tool())
+        .tool(last_command_output_tool())
         .tool(pick_file_tool())
         .tool(dialog_tool())
         .tool(run_command_tool())
@@ -1346,6 +1404,7 @@ mod tests {
         *state.0.on_pick_file.lock() = None;
         *state.0.on_send_signal.lock() = None;
         *state.0.on_run_command.lock() = None;
+        *state.0.on_session_cwd.lock() = None;
         state.set_active_session_id(0);
     }
 
@@ -1370,10 +1429,11 @@ mod tests {
         assert!(names.contains(&"toast"));
         assert!(names.contains(&"open_url"));
         assert!(names.contains(&"send_signal"));
+        assert!(names.contains(&"last_command_output"));
         assert!(names.contains(&"pick_file"));
         assert!(names.contains(&"dialog"));
         assert!(names.contains(&"screenshot"));
-        assert_eq!(names.len(), 11);
+        assert_eq!(names.len(), 12);
     }
 
     #[tokio::test(flavor = "current_thread")]
@@ -1396,11 +1456,34 @@ mod tests {
         // With no active session registered it resolves to null.
         assert!(info.get("exit_code").is_some(), "exit_code field missing");
         assert!(info["exit_code"].is_null(), "no session → exit_code null");
+        // cwd field: present and null when no session/handler.
+        assert!(info.get("cwd").is_some(), "cwd field missing");
+        assert!(info["cwd"].is_null(), "no session → cwd null");
     }
 
     /// Spec d4 scenario: an exited session reports its real exit code via
     /// terminal_info. Spawns a real shell, has it exit 3, registers the
     /// session (as the JNI spawn path would), and asserts the value.
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_terminal_info_cwd_field_resolves_from_handler() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
+        // The cwd field is resolved via the JNI-registered handler (ffi.rs
+        // registers a callback reading session.cwd() from the registry).
+        global_state()
+            .set_session_cwd_handler(|_id| Some("/data/data/com.termux/files/home".to_string()));
+        global_state().set_active_session_id(42);
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+
+        let result = client.call_tool("terminal_info", json!({})).await;
+        assert!(!result.is_error);
+        let text = result.content.first().unwrap().as_text().unwrap();
+        let info: Value = serde_json::from_str(text).unwrap();
+        assert_eq!(info["cwd"], "/data/data/com.termux/files/home");
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn test_terminal_info_exit_code_reflects_exited_session() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
@@ -1411,6 +1494,7 @@ mod tests {
             24,
             80,
             &crate::terminal::ShellEnv::default(),
+            None,
         )
         .expect("spawn failed");
         session.write(b"exit 3\n").expect("write failed");

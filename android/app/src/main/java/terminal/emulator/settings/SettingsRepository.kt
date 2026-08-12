@@ -20,6 +20,8 @@ constructor(
     private object Keys {
         val FONT_SIZE = floatPreferencesKey("font_size")
         val FONT_FAMILY = stringPreferencesKey("font_family")
+        val BOLD_FONT_FAMILY = stringPreferencesKey("bold_font_family")
+        val ITALIC_FONT_FAMILY = stringPreferencesKey("italic_font_family")
         val THEME_NAME = stringPreferencesKey("theme_name")
         val DAY_THEME_NAME = stringPreferencesKey("day_theme_name")
         val NIGHT_THEME_NAME = stringPreferencesKey("night_theme_name")
@@ -33,6 +35,7 @@ constructor(
         val USE_SEMANTIC_SELECTION = booleanPreferencesKey("use_semantic_selection")
         val KEYBOARD_MODE = stringPreferencesKey("keyboard_mode")
         val MCP_SERVER_ENABLED = booleanPreferencesKey("mcp_server_enabled")
+        val ENVIRONMENT_VARIABLES = stringPreferencesKey("environment_variables")
         val BACKGROUND_IMAGE_PATH = stringPreferencesKey("bg_image_path")
         val BACKGROUND_BLUR_RADIUS = intPreferencesKey("bg_blur_radius")
         val BACKGROUND_ALPHA = floatPreferencesKey("bg_alpha")
@@ -66,6 +69,8 @@ constructor(
     val appThemeMode: Flow<String> = provider.dataStore.data.map { it[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM }
     val fontSize: Flow<Float> = provider.dataStore.data.map { it[Keys.FONT_SIZE] ?: DEFAULT_FONT_SIZE }
     val fontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "" }
+    val boldFontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.BOLD_FONT_FAMILY] ?: "" }
+    val italicFontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.ITALIC_FONT_FAMILY] ?: "" }
     val themeName: Flow<String> = provider.dataStore.data.map { it[Keys.THEME_NAME] ?: DEFAULT_THEME }
     val dayThemeName: Flow<String> = provider.dataStore.data.map { it[Keys.DAY_THEME_NAME] ?: DEFAULT_DAY_THEME_NAME }
     val nightThemeName: Flow<String> = provider.dataStore.data.map { it[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME }
@@ -78,6 +83,12 @@ constructor(
     val useSemanticSelection: Flow<Boolean> = provider.dataStore.data.map { it[Keys.USE_SEMANTIC_SELECTION] ?: false }
     val keyboardMode: Flow<String> = provider.dataStore.data.map { it[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE }
     val mcpServerEnabled: Flow<Boolean> = provider.dataStore.data.map { it[Keys.MCP_SERVER_ENABLED] ?: false }
+
+    /** User-defined environment overrides (KEY=VALUE), one per line. */
+    val environmentVariables: Flow<Map<String, String>> =
+        provider.dataStore.data.map {
+            parseEnvironmentVariables(it[Keys.ENVIRONMENT_VARIABLES].orEmpty())
+        }
     val backgroundImagePath: Flow<String> = provider.dataStore.data.map { it[Keys.BACKGROUND_IMAGE_PATH] ?: "" }
     val backgroundBlurRadius: Flow<Int> =
         provider.dataStore.data.map {
@@ -100,6 +111,8 @@ constructor(
         val appThemeMode: String = DEFAULT_FOLLOW_SYSTEM,
         val fontSize: Float = DEFAULT_FONT_SIZE,
         val fontFamily: String = "",
+        val boldFontFamily: String = "",
+        val italicFontFamily: String = "",
         val themeName: String = DEFAULT_THEME,
         val dayThemeName: String = DEFAULT_DAY_THEME_NAME,
         val nightThemeName: String = DEFAULT_THEME,
@@ -112,6 +125,7 @@ constructor(
         val useSemanticSelection: Boolean = false,
         val keyboardMode: String = DEFAULT_KEYBOARD_MODE,
         val mcpServerEnabled: Boolean = false,
+        val environmentVariables: Map<String, String> = emptyMap(),
         val backgroundImagePath: String = "",
         val backgroundBlurRadius: Int = DEFAULT_BACKGROUND_BLUR_RADIUS,
         val backgroundAlpha: Float = DEFAULT_BACKGROUND_ALPHA,
@@ -131,6 +145,8 @@ constructor(
             appThemeMode = prefs[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM,
             fontSize = prefs[Keys.FONT_SIZE] ?: DEFAULT_FONT_SIZE,
             fontFamily = prefs[Keys.FONT_FAMILY] ?: "",
+            boldFontFamily = prefs[Keys.BOLD_FONT_FAMILY] ?: "",
+            italicFontFamily = prefs[Keys.ITALIC_FONT_FAMILY] ?: "",
             themeName = prefs[Keys.THEME_NAME] ?: DEFAULT_THEME,
             dayThemeName = prefs[Keys.DAY_THEME_NAME] ?: DEFAULT_DAY_THEME_NAME,
             nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME,
@@ -143,6 +159,7 @@ constructor(
             useSemanticSelection = prefs[Keys.USE_SEMANTIC_SELECTION] ?: false,
             keyboardMode = prefs[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE,
             mcpServerEnabled = prefs[Keys.MCP_SERVER_ENABLED] ?: false,
+            environmentVariables = parseEnvironmentVariables(prefs[Keys.ENVIRONMENT_VARIABLES].orEmpty()),
             backgroundImagePath = prefs[Keys.BACKGROUND_IMAGE_PATH] ?: "",
             backgroundBlurRadius = prefs[Keys.BACKGROUND_BLUR_RADIUS] ?: DEFAULT_BACKGROUND_BLUR_RADIUS,
             backgroundAlpha = prefs[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA,
@@ -161,6 +178,10 @@ constructor(
     suspend fun setFontSize(size: Float) = put(Keys.FONT_SIZE, size)
 
     suspend fun setFontFamily(family: String) = put(Keys.FONT_FAMILY, family)
+
+    suspend fun setBoldFontFamily(family: String) = put(Keys.BOLD_FONT_FAMILY, family)
+
+    suspend fun setItalicFontFamily(family: String) = put(Keys.ITALIC_FONT_FAMILY, family)
 
     suspend fun setThemeName(name: String) = put(Keys.THEME_NAME, name)
 
@@ -187,6 +208,9 @@ constructor(
     suspend fun setKeyboardMode(mode: String) = put(Keys.KEYBOARD_MODE, mode)
 
     suspend fun setMcpServerEnabled(enabled: Boolean) = put(Keys.MCP_SERVER_ENABLED, enabled)
+
+    /** Persist user-defined environment overrides ("KEY=VALUE" lines). */
+    suspend fun setEnvironmentVariables(vars: Map<String, String>) = put(Keys.ENVIRONMENT_VARIABLES, serializeEnvironmentVariables(vars))
 
     suspend fun setBackgroundImagePath(path: String) = put(Keys.BACKGROUND_IMAGE_PATH, path)
 
@@ -225,3 +249,27 @@ constructor(
         provider.dataStore.edit { it[key] = value }
     }
 }
+
+/**
+ * Parse the persisted "KEY=VALUE" (one per line) environment overrides.
+ * Lines without '=' or with a blank key are skipped; the first '=' splits
+ * key from value so values may contain '=' and keep surrounding
+ * whitespace. Mirrors the native `parse_env_entries` (shell_env.rs)
+ * contract exactly (key trimmed, value untouched).
+ */
+internal fun parseEnvironmentVariables(raw: String): Map<String, String> {
+    val result = linkedMapOf<String, String>()
+    for (line in raw.lineSequence()) {
+        val equals = line.indexOf('=')
+        if (equals <= 0) continue
+        val key = line.substring(0, equals).trim()
+        if (key.isEmpty()) continue
+        result[key] = line.substring(equals + 1)
+    }
+    return result
+}
+
+/** Serialize environment overrides to "KEY=VALUE" lines (sorted for stability). */
+internal fun serializeEnvironmentVariables(vars: Map<String, String>): String = vars.entries
+    .sortedBy { it.key }
+    .joinToString(separator = "\n") { "${it.key}=${it.value}" }

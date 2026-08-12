@@ -19,7 +19,8 @@ object UrlDetector {
     private fun buildUrlPattern(): Pattern {
         val schemesSlash =
             "https?|ftp|ftps|file|data|ssh|git|svn|hg|sftp|scp|irc|ircs|gemini|gopher|news|nntp|ed2k|steam|skype|xmpp"
-        val schemesColon = "mailto|tel|sms|callto|magnet"
+        // ipfs:/ipns: per zed-android-port URL_REGEX (research-zed-port.md:675).
+        val schemesColon = "mailto|tel|sms|callto|magnet|ipfs|ipns"
         // Characters excluded from URL body: whitespace, angle brackets, comma,
         // semicolon, exclamation, single/double quotes, and backslash.
         // Dot (.) kept for domain names. Colon (:) kept for nested schemes (urn:).

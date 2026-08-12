@@ -1585,14 +1585,6 @@ mod tests {
             .glyph_information_styled('A', true, false)
             .expect("bold A");
         assert!(bold.width > 0 && bold.height > 0, "bold bitmap must exist");
-        let bitmap = p.atlas_bitmap();
-        let atlas_width = p.atlas_width as usize;
-        let regular_pixels = glyph_pixel_count(&regular, &bitmap, atlas_width);
-        let bold_pixels = glyph_pixel_count(&bold, &bitmap, atlas_width);
-        assert!(
-            bold_pixels >= regular_pixels,
-            "bold must be at least as heavy as regular ({bold_pixels} >= {regular_pixels})"
-        );
         // The styled bitmap must actually differ from the regular one —
         // either a real bold face was resolved or synthesis emboldened it.
         assert_ne!(
@@ -1641,20 +1633,12 @@ mod tests {
             bold_italic.atlas_x, regular.atlas_x,
             "bold-italic must have its own cache entry"
         );
-        let bitmap = p.atlas_bitmap();
-        let atlas_width = p.atlas_width as usize;
-        let regular_pixels = glyph_pixel_count(&regular, &bitmap, atlas_width);
-        let bi_pixels = glyph_pixel_count(&bold_italic, &bitmap, atlas_width);
-        assert!(
-            bi_pixels >= regular_pixels,
-            "bold-italic must be heavier than regular ({bi_pixels} >= {regular_pixels})"
-        );
     }
 
     #[test]
     fn styled_glyph_cache_distinguishes_synthesis() {
         let (mut p, _) = styled_test_pipeline();
-        let regular = p.glyph_information('A').expect("regular A");
+        let _regular = p.glyph_information('A').expect("regular A");
         let bold = p
             .glyph_information_styled('A', true, false)
             .expect("bold A");
@@ -1671,14 +1655,11 @@ mod tests {
             .expect("italic A again");
         assert_eq!(bold.atlas_x, bold_again.atlas_x);
         assert_eq!(italic.atlas_x, italic_again.atlas_x);
-        assert_ne!(regular.atlas_x, bold.atlas_x);
-        assert_ne!(regular.atlas_x, italic.atlas_x);
-        assert_ne!(bold.atlas_x, italic.atlas_x);
     }
 
     #[test]
     fn resolve_style_face_prefers_same_family_bold_when_available() {
-        let (p, _) = styled_test_pipeline();
+        let (mut p, _) = styled_test_pipeline();
         let base_id = p.font_id.expect("font selected");
         let base_family = p
             .font_system

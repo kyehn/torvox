@@ -48,6 +48,7 @@ The environment is deterministic: SDK paths, tool availability, and system state
 - Expand all variables to descriptive names: no `s`, `p`, `w`, `h`, `t`, `e` single-letter variables
 - Functions and variables: full words, no abbreviations (`config` not `cfg`, `background` not `bg`, `application` not `app`)
 - Nushell: use `is-not-empty` / `is-empty` instead of `| length > 0` / `| length == 0`
+- Nushell: `str replace` uses `-a` (not `--all`) for global replacement — `str replace -a "." "_"`
 
 ## Nix
 
@@ -163,5 +164,5 @@ contract for new work; violating them regresses a fixed bug.
 - All public Rust API items must have `///` doc comments
 - Rust doc comments can contain executable examples (doctests)
 - Kotlin public API items must have `/** ... */` KDoc comments
-- Every requirement ID (FR-xxx, NFR-xxx) referenced in comments must match `docs/srs.md`
+- Every requirement ID (FR-xxx, NFR-xxx) referenced in comments must match `docs/requirements/`（StrictDoc .sdoc）
 - Every design decision must reference a requirement ID

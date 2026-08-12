@@ -1,9 +1,15 @@
-# TITLE
+# N. Title
 
-- **Status**: Proposed | Accepted | Deprecated | Superseded
-- **Date**: YYYY-MM-DD
-- **Requirement IDs**: FR-xxx, NFR-xxx
-  (see [docs/srs.md](../srs.md) for requirement definitions)
+Date: YYYY-MM-DD
+
+## Status
+
+Proposed | Accepted | Deprecated | Superseded
+
+## Requirement IDs
+
+FR-xxx, NFR-xxx
+(see [docs/requirements/](../requirements/) for requirement definitions)
 
 ## Context
 
@@ -47,6 +53,8 @@ automated checks where possible.
 
 **Examples**:
 
+- CI enforces `adrs doctor` (see `docs/standards/QUALITY-GATE.md`) — new
+  ADRs must pass the adrs Nygard-format lint.
 - CI enforces `cargo clippy --all -- --deny warnings` (see
   [docs/standards/QUALITY-GATE.md](../standards/QUALITY-GATE.md)).
 - The JNI bridge type sync check in `docs/standards/QUALITY-GATE.md` is run

@@ -1,8 +1,14 @@
-# 0004 — Thread Model
+# 4. Thread Model
 
-- **Status**: Accepted
-- **Date**: 2026-07-27
-- **Requirement IDs**: NFR-01, NFR-03, FR-02
+## Status
+
+Accepted
+
+Date: 2026-07-27
+
+## Requirement IDs
+
+NFR-01, NFR-03, FR-02
 
 ## Context
 
@@ -174,3 +180,11 @@ When the user switches tabs:
   on send when render thread is busy)
 - Render thread must handle surface recreation for each session
   independently (ADR-0007)
+
+## Compliance
+
+- `cargo clippy --all -- --deny warnings` catches `Send`/`Sync` violations
+  at compile time (Ghostty types are `!Send`, enforced by type system)
+- Render thread receives only `CellData` (bytemuck Pod, trivially `Send`) —
+  any attempt to send `Terminal` across threads produces a compile error
+- Thread roles documented in `native/src/lib.rs` module comments

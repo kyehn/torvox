@@ -97,8 +97,8 @@ fun findMatches(
     // "bar"). Console detects narrowing via g_strrstr(last_search, search)
     // and reorders set-regex/find. torvox recomputes all matches here; the
     // caller (TextSearchBar) should keep the current index pinned when the
-    // new query is a prefix of the previous one — see
-    // docs/reference/research-gnome-console.md §2.
+    // new query is a prefix of the previous one — gnome-console
+    // search-narrowing pattern (absorbed; see docs/rejected-technologies.md §9).
     val lines = text.split("\n")
     val results = mutableListOf<SearchResult>()
     for ((lineIndex, line) in lines.withIndex()) {
