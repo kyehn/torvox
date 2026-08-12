@@ -123,6 +123,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 config.path,
                 config.workingDirectory,
                 config.prefix,
+                config.scrollbackLines,
             )
         return sessionId
     }
@@ -346,6 +347,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val clipboardGets: List<ClipboardRequest> = emptyList(),
         val clipboardReads: List<ClipboardRequest> = emptyList(),
         val runCommands: List<RunCommandRequest> = emptyList(),
+        val screenshots: List<ScreenshotRequest> = emptyList(),
+        val progress: Pair<Int, Int>? = null,
         // Every exit event seen this frame, in order. The single-slot
         // exit/sessionId/exitCode fields above describe only the FIRST one;
         // extra exits in the same frame must be reaped from this list or
@@ -379,6 +382,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             clipboardGets = clipboardGets + later.clipboardGets,
             clipboardReads = clipboardReads + later.clipboardReads,
             runCommands = runCommands + later.runCommands,
+            screenshots = screenshots + later.screenshots,
+            progress = later.progress ?: progress,
             exits = exits + later.exits,
         )
     }
@@ -402,6 +407,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val sessionId: Long,
         val requestId: Long,
         val command: String = "",
+    )
+
+    /** MCP `screenshot` request dispatched from a poll event. */
+    data class ScreenshotRequest(
+        val sessionId: Long,
+        val requestId: Long,
     )
 
     data class DialogRequest(
@@ -454,6 +465,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         is PollEvent.Notification ->
             PollResult(
                 notification = event.title to event.body,
+                sessionId = event.sessionId,
+            )
+
+        is PollEvent.Progress ->
+            PollResult(
+                progress = event.state to event.value,
                 sessionId = event.sessionId,
             )
 
@@ -547,6 +564,17 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                         sessionId = event.sessionId,
                         requestId = event.requestId,
                         command = event.command,
+                    ),
+                ),
+            )
+
+        is PollEvent.Screenshot ->
+            PollResult(
+                screenshots =
+                listOf(
+                    ScreenshotRequest(
+                        sessionId = event.sessionId,
+                        requestId = event.requestId,
                     ),
                 ),
             )

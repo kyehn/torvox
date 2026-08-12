@@ -98,4 +98,23 @@ class RunCommandPayloadTest {
         assertEquals("1", timeout["err_code"])
         assertEquals("2", exception["err_code"])
     }
+
+    @Test
+    fun `exit_code is clamped to 0-255 per spec d4`() {
+        // 256 → 0 (wrap)
+        val wrap = parse(runCommandPayload(256, 0, "", ""))
+        assertEquals("0", wrap["exit_code"])
+        // 512 → 0
+        val large = parse(runCommandPayload(512, 0, "", ""))
+        assertEquals("0", large["exit_code"])
+        // 255 stays 255
+        val max = parse(runCommandPayload(255, 0, "", ""))
+        assertEquals("255", max["exit_code"])
+        // -1 (timeout) stays -1
+        val timeout = parse(runCommandPayload(-1, 1, "", ""))
+        assertEquals("-1", timeout["exit_code"])
+        // Normal exit 7 unchanged
+        val normal = parse(runCommandPayload(7, 0, "", ""))
+        assertEquals("7", normal["exit_code"])
+    }
 }

@@ -39,6 +39,14 @@ sealed class PollEvent {
     ) : PollEvent()
 
     @Serializable
+    @SerialName("progress")
+    data class Progress(
+        @SerialName("session_id") val sessionId: Long = 0,
+        val state: Int = 0,
+        val value: Int = 0,
+    ) : PollEvent()
+
+    @Serializable
     @SerialName("exit")
     data class Exit(
         @SerialName("session_id") val sessionId: Long = 0,
@@ -103,6 +111,13 @@ sealed class PollEvent {
         @SerialName("session_id") val sessionId: Long = 0,
         @SerialName("request_id") val requestId: Long = 0,
         val command: String = "",
+    ) : PollEvent()
+
+    @Serializable
+    @SerialName("screenshot")
+    data class Screenshot(
+        @SerialName("session_id") val sessionId: Long = 0,
+        @SerialName("request_id") val requestId: Long = 0,
     ) : PollEvent()
 }
 

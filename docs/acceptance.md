@@ -668,6 +668,117 @@ paths) instead of image comparison or bundled binaries.
 
 ---
 
+### FR-056: Off-Screen Render Verification Path
+
+**Requirement**: The crate SHALL provide an off-screen render-verification
+path — a procedural geometry generator (`SceneData` + `add_floor`/`add_sphere`/
+`add_box`/`add_torus` + hand-written `mat4_mul`/`perspective`/`look_at`) and an
+infinite LOD grid shader (`shaders/grid.wgsl`) rendered through a `Depth32Float`
+attachment — used by crate tests to verify GPU rendering and depth attachment
+behavior. This path SHALL NOT add depth attachments to the production terminal
+render path (`Renderer`/`render_frame`/`render_to_buffer` stay depth-free).
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | Procedural geometry produces verifiable meshes (vertex/index counts, unit normals, AABB) | `cargo test --package native -- procedural_geometry` |
+| 2 | The grid shader renders through a depth attachment off-screen with visible grid pixels and a clean sky region | `cargo test --package native -- offscreen_grid_render_uses_depth_attachment` |
+| 3 | No depth attachment fields on the production `Renderer` | Code review: `native/src/render/context.rs` — no depth texture fields |
+
+---
+
+### FR-057: Search Input Debounce
+
+**Requirement**: The search overlay input SHALL debounce query changes by
+150 ms (Handler-based) so the native scrollback search only runs after the user
+pauses typing.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | Rapid query changes collapse to one search after 150 ms idle | Kotlin unit test in `android/app/src/test/` (TextSearchBar debounce) |
+
+---
+
+### FR-058: Settings Dependency Gating
+
+**Requirement**: Dependent settings controls SHALL be grayed out (disabled)
+when their prerequisite is off — the cursor-speed slider when cursor blink is
+off, and the user-theme edit entry when no user themes exist.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | Cursor-speed slider disabled while cursor blink is off | Code review: `SettingsScreen.kt` + `SettingsComponents.kt` enabled wiring |
+| 2 | User-theme edit entry grayed with no user themes | Code review: `SettingsScreen.kt` user theme section |
+
+---
+
+### FR-059: Terminal Accessibility Line Navigation
+
+**Requirement**: The terminal surface SHALL expose accessibility custom
+actions (read previous line, read next line, read all) and update its
+content description to the current screen text (throttled) so TalkBack can
+navigate terminal content line by line.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | Custom actions are registered on the surface accessibility delegate | Code review: `TerminalSurface.kt` accessibilityDelegate |
+| 2 | Content description reflects current screen text | Instrumented/emulator check with TalkBack event log |
+
+---
+
+### FR-060: Bootstrap Install Paths
+
+**Requirement**: The bootstrap installer SHALL support HTTP download (existing
+`ensureBootstrap(url)`) and local-file install via SAF (existing offline
+install button), both installing through `BootstrapInstaller.install` +
+`SecondStageRunner.run`. Embedded `assets/bootstrap/` archives SHALL NOT be
+added — the APK must not carry the archive.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | HTTP download path installs the default bootstrap | Existing `BootstrapOrchestrator.ensureBootstrap` path |
+| 2 | Local-file install via SAF is preserved | Existing offline install button |
+| 3 | No embedded bootstrap asset is required or bundled | `git ls-files` — no `assets/bootstrap/` zip tracked |
+
+---
+
+### FR-061: Extra Keys Width and Secondary Key
+
+**Requirement**: Toolbar keys SHALL support a width (flex weight) and an
+optional secondary key (long-press action); the layout editor SHALL allow
+editing both, and serialization SHALL be backward compatible with existing
+layouts.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | Layout JSON round-trips width and secondary with backward-compatible defaults | Kotlin unit test in `android/app/src/test/` (ToolbarPreferences round-trip) |
+| 2 | Width weight scales row allocation | Code review: `ModifierBar.kt` layout |
+
+---
+
+### FR-062: Platform Capabilities Memory and Unsupported
+
+**Requirement**: `PlatformCapabilities` SHALL expose `Memory` and `Unsupported`
+capability variants so callers can distinguish a memory-limited device from an
+unsupported configuration without panicking.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | Memory capability reports a limit without panicking on stub | `cargo test --package native` (platform capabilities test) |
+
+---
+
+### FR-063: URL Detection Cache Wiring
+
+**Requirement**: Terminal surface URL detection SHALL route through the
+scroll-position LRU cache (`UrlCache.getOrCompute`) so repeated queries at the
+same scroll offset reuse cached results.
+
+| # | Criterion | Verification |
+|---|-----------|-------------|
+| 1 | Repeated `getOrCompute(offset)` calls the detector once | Kotlin unit test in `android/app/src/test/` (UrlCache wiring) |
+
+---
+
 ## 11. Non-Functional: Safety
 
 ### NFR-001: No Unsafe in Production Code

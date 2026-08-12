@@ -1,8 +1,6 @@
 package terminal.emulator.runtime
 
 import android.content.Context
-import android.media.AudioManager
-import android.media.ToneGenerator
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -25,6 +23,8 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import terminal.emulator.bell.BellHandler
+import terminal.emulator.bell.BellMode
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.BridgeTheme
 import terminal.emulator.bridge.NativeBridge
@@ -35,6 +35,7 @@ import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.util.ArgumentTokenizer
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -112,6 +113,13 @@ internal data class SessionEntry(
     // window: the old thread's exit event is consumed, polling the dead
     // session would re-trigger fast-death (double respawn race) — the
     // respawn thread restarts the render thread itself.
+    // : auto-reset scroll offset when new PTY output arrives while
+    // the user is scrolled up (browsing history). The render thread sets this;
+    // TerminalSurface reads and clears it during composition.
+    @Volatile var scrollResetRequested: Boolean = false,
+    // : when true (SCROLL button active), new output should NOT
+    // auto-reset scroll — the user intentionally wants to stay browsing.
+    @Volatile var scrollActive: Boolean = false,
     @Volatile var fastDeathRetryScheduled: Boolean = false,
 ) {
     // renderSignaled replaced a per-frame `CountDownLatch`, which had a
@@ -179,20 +187,37 @@ constructor(
 
     private val eventDispatcher = EventDispatcher()
 
+    /** BellHandler with 4-mode support (SOUND/VIBRATE/SCREEN_FLASH/SILENT) and 150ms debounce. */
+    private val bellHandler = BellHandler(context)
+
+    /**
+     * : invoked from the render loop after every presented frame
+     * (render thread). Lets the SurfaceView refresh its accessibility
+     * contentDescription — the SurfaceView is self-drawn and has no text
+     * nodes, so the render loop is the only content-changed signal.
+     * Must return quickly; the callback may post to the main thread.
+     */
+    @Volatile var onFrameRendered: (() -> Unit)? = null
+
     init {
-        // Warm up the bell ToneGenerator off the render thread: the first
-        // bell would otherwise construct it (AudioManager connect) inline
-        // in the render loop, stalling a frame. The lazy is thread-safe;
-        // whoever touches it first wins, and failure is harmless (the lazy
-        // simply retries on the next bell).
-        Thread { bellToneGenerator }.apply {
-            isDaemon = true
-            name = "BellToneWarmUp"
-            start()
+        // Sync bell handler mode from persisted setting on startup.
+        // Uses a local scope since the class-level `scope` is not yet initialized.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            val modeId = settingsRepository.bellMode.first()
+            bellHandler.setMode(BellMode.fromId(modeId))
         }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // Keep bell handler mode in sync with persisted setting at runtime (fix).
+    init {
+        scope.launch {
+            settingsRepository.bellMode.collect { modeId ->
+                bellHandler.setMode(BellMode.fromId(modeId))
+            }
+        }
+    }
     private val _state = MutableStateFlow(RuntimeState())
     val state: StateFlow<RuntimeState> = _state.asStateFlow()
 
@@ -634,6 +659,24 @@ constructor(
         // calling thread (often the UI thread during scroll). Just signal the
         // render thread to pick up the change.
         entry.notifyRender()
+    }
+
+    /** : consume the scroll-reset flag set by the render thread when
+     *  new PTY output arrives while the user is browsing history. Returns true
+     *  once, then clears the flag. TerminalSurface calls this to sync its local
+     *  scrollOffset with the reset. */
+    fun consumeScrollResetRequest(): Boolean {
+        val entry = sessions[activeSessionId] ?: return false
+        return entry.scrollResetRequested.also {
+            entry.scrollResetRequested = false
+        }
+    }
+
+    /** : sync scroll-active state from TerminalViewModel so the render
+     *  thread knows whether to auto-reset scroll on new output. */
+    fun setScrollActive(active: Boolean) {
+        val entry = sessions[activeSessionId] ?: return
+        entry.scrollActive = active
     }
 
     fun forceRender() {
@@ -1091,6 +1134,14 @@ constructor(
                             }
                             entry.lastRenderStart = System.nanoTime()
                             val count = bridge.render()
+                            // : auto-reset scroll when new output arrives
+                            // while user is browsing history (scrollOffset > 0).
+                            // Only on count > 0 (actual new CellData, not idle repaint).
+                            // Skip when scrollActive (SCROLL button) — user wants to stay browsing.
+                            if (count > 0 && entry.scrollOffset != 0 && !entry.scrollActive) {
+                                entry.scrollOffset = 0
+                                entry.scrollResetRequested = true
+                            }
                             if (count < 0) {
                                 // Transient render error (surface not ready, snapshot unavailable, etc.)
                                 // These resolve on their own; don't count them toward the fatal limit.
@@ -1165,6 +1216,10 @@ constructor(
                                             poll.clipboardGets.forEach { request ->
                                                 NativeBridge
                                                     .clipboardResult(request.sessionId, request.requestId, "")
+                                            }
+                                            poll.screenshots.forEach { request ->
+                                                NativeBridge
+                                                    .screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
                                             }
                                         } catch (replyException: Exception) {
                                             LogUtil.e(
@@ -1253,6 +1308,16 @@ constructor(
                                     }
                                 }
                                 entry.lastRenderDone = System.nanoTime()
+                                // : accessibility hook — the render loop
+                                // is the only signal that terminal content
+                                // changed, and the SurfaceView has no text nodes.
+                                // The listener runs on the render thread and must
+                                // return quickly (it may post to the main thread).
+                                try {
+                                    onFrameRendered?.invoke()
+                                } catch (exception: Exception) {
+                                    LogUtil.w("Runtime", "onFrameRendered callback failed", exception)
+                                }
                                 if (!entry.forceRenderRequested) {
                                     val idleNanos = System.nanoTime() - entry.lastSignalNanos
                                     val timeoutNanos =
@@ -1391,10 +1456,7 @@ constructor(
 
         fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
             if (poll.bel) {
-                bellToneGenerator.startTone(BEL_TONE_TYPE, BEL_TONE_DURATION_MILLIS)
-                // Accessibility (termlib AccessibilityOverlay live-region
-                // pattern): announce the bell so TalkBack users hear it.
-                announceAccessibility("Bell")
+                bellHandler.fireBell(onAccessibility = { announceAccessibility(it) })
             }
             if (poll.notification != null) {
                 val (title, body) = poll.notification
@@ -1408,6 +1470,11 @@ constructor(
                     .TerminalNotificationHelper(context)
                     .showNotification(title, body)
                 announceAccessibility(if (title.isNotEmpty()) title else body)
+            }
+            // : ConEmu progress (OSC 9;4). Log the event;
+            // a progress bar UI can be added later if needed.
+            poll.progress?.let { (state, value) ->
+                LogUtil.d("Runtime", "OSC 9;4 progress: state=$state value=$value")
             }
             if (poll.clipboard != null) {
                 clipboardAccess.setClipboardText(poll.clipboard)
@@ -1472,6 +1539,51 @@ constructor(
                 // signal requests meanwhile (T4c).
                 scope.launch { dispatchRunCommandRequest(request) }
             }
+            poll.screenshots.forEach { request ->
+                dispatchScreenshotRequest(request)
+            }
+        }
+    }
+
+    /**
+     * Dispatch one MCP `screenshot` request. Captures the current terminal
+     * frame as RGBA pixels via GPU readback (render_to_buffer) and returns
+     * the result to the native MCP tool via [NativeBridge.screenshotResult].
+     *
+     * Must run on the render thread (which owns the wgpu context). The
+     * render thread's event loop calls this directly.
+     */
+    private fun dispatchScreenshotRequest(request: terminal.emulator.bridge.Bridge.ScreenshotRequest) {
+        try {
+            val data = NativeBridge.captureFrame(request.sessionId)
+            if (data == null || data.size < 8) {
+                LogUtil.w("Runtime", "screenshot: captureFrame returned null or insufficient data")
+                NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
+                return
+            }
+            // First 8 bytes: width (u32 LE) + height (u32 LE)
+            val width = (
+                (data[0].toInt() and 0xFF)
+                    or ((data[1].toInt() and 0xFF) shl 8)
+                    or ((data[2].toInt() and 0xFF) shl 16)
+                    or ((data[3].toInt() and 0xFF) shl 24)
+                )
+            val height = (
+                (data[4].toInt() and 0xFF)
+                    or ((data[5].toInt() and 0xFF) shl 8)
+                    or ((data[6].toInt() and 0xFF) shl 16)
+                    or ((data[7].toInt() and 0xFF) shl 24)
+                )
+            if (width <= 0 || height <= 0) {
+                LogUtil.w("Runtime", "screenshot: invalid dimensions ${width}x$height")
+                NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
+                return
+            }
+            val pixels = data.copyOfRange(8, data.size)
+            NativeBridge.screenshotResult(request.sessionId, request.requestId, width, height, pixels)
+        } catch (exception: Exception) {
+            LogUtil.e("Runtime", "screenshot dispatch failed: ${exception.message}")
+            NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
         }
     }
 
@@ -1606,7 +1718,9 @@ constructor(
          * run_command err_code (T4, termux ExecutionCommand
          * dual-track): exitCode is the shell exit code; errCode is the
          * app-level failure classification. 0 = none (command ran),
-         * 1 = timeout, 2 = internal exception.
+         * 1 = timeout, 2 = internal exception. Destructive commands are
+         * refused by the native safety classifier before they reach the
+         * host (T3), so no blocked err_code exists on this side.
          */
         private const val ERR_CODE_NONE = 0
         private const val ERR_CODE_TIMEOUT = 1
@@ -1621,10 +1735,6 @@ constructor(
         private const val RENDER_IDLE_THRESHOLD_NANOS = 5_000_000_000L // 5s idle → switch to low-freq
         private const val RENDER_DIAGNOSTIC_FREQUENCY = 60
         private const val THREAD_JOIN_TIMEOUT_MS = 1000L
-        private const val BEL_TONE_STREAM_TYPE = AudioManager.STREAM_NOTIFICATION
-        private const val BEL_TONE_VOLUME = 50
-        private const val BEL_TONE_TYPE = ToneGenerator.TONE_PROP_ACK
-        private const val BEL_TONE_DURATION_MILLIS = 200
         private const val RENDER_HANG_TIMEOUT_NANOS = 10_000_000_000L // 10 seconds
         private const val RENDER_INITIAL_RETRY_MAX = 5
         private const val RENDER_INITIAL_RETRY_DELAY_MS = 150L
@@ -1635,11 +1745,6 @@ constructor(
         private const val INITIAL_RESTART_DELAY_MS = 100L
         private const val MAX_RESTART_DELAY_MS = 1000L
         private const val GRACE_PERIOD_AFTER_RESTART_MS = 300L
-
-        /** Cached ToneGenerator for bell — avoids per-event allocation. */
-        private val bellToneGenerator by lazy {
-            ToneGenerator(BEL_TONE_STREAM_TYPE, BEL_TONE_VOLUME)
-        }
     }
 
     private data class ConfigReads(
@@ -1960,6 +2065,10 @@ constructor(
             // (filesDir/fonts, e.g. user-installed Nerd Fonts) actually
             // reach the native font database here. Called before
             // spawnTerminal it was a silent no-op.
+            // Bundle-extract Nerd Font on first launch so PUA glyphs
+            // (U+E0A0, U+E0B0, etc.) work out-of-the-box without
+            // requiring the user to manually install a Nerd Font.
+            extractBundledNerdFont(context, fontsDir)
             bridge.setExtraFontPaths(listOf(fontsDir.absolutePath))
 
             try {
@@ -3349,22 +3458,43 @@ internal fun shouldRetryFastDeath(
 internal fun fastDeathBackoffMs(attempt: Int): Long = minOf(500L shl (attempt - 1), 5000L)
 
 /**
- * Build the JSON payload returned to the native MCP `run_command` tool
- * (T4 dual-track). `exit_code` is the shell exit code; `err_code`
- * classifies app-level failure: 0 = none (command ran), 1 = timeout,
- * 2 = internal exception. Termux semantics: a non-zero exit code is NOT a
- * failure — only err_code != 0 is.
+ * Bundle-extract JetBrainsMono Nerd Font into [fontsDir] on first launch.
+ * The font is shipped in `assets/fonts/` and provides PUA glyphs (U+E0A0,
+ * U+E0B0, etc.) needed by the Nerd fallback layer in cjk.rs.  Skips if
+ * the file already exists (idempotent — user may have placed their own).
  */
+internal fun extractBundledNerdFont(context: android.content.Context, fontsDir: java.io.File) {
+    val target = java.io.File(fontsDir, "JetBrainsMonoNerdFont-Regular.ttf")
+    if (target.exists()) return
+    try {
+        fontsDir.mkdirs()
+        context.assets.open("fonts/JetBrainsMonoNerdFont-Regular.ttf").use { input ->
+            target.outputStream().use { output ->
+                input.copyTo(output)
+            }
+        }
+        LogUtil.i("Runtime", "Extracted bundled Nerd Font: ${target.absolutePath}")
+    } catch (exception: IOException) {
+        LogUtil.w("Runtime", "Failed to extract bundled Nerd Font: ${exception.javaClass.simpleName}")
+    }
+}
+
 internal fun runCommandPayload(
     exitCode: Int,
     errCode: Int,
     stdout: String,
     stderr: String,
-): String = "{\"exit_code\":$exitCode,\"err_code\":$errCode,\"stdout\":${
-    jsonString(stdout)
-},\"stderr\":${
-    jsonString(stderr)
-}}"
+): String {
+    // Clamp exit_code to 0-255 per spec d4 (defense-in-depth; the caller
+    // should already clamp, but this ensures the wire format is always valid).
+    // POSIX exit codes wrap mod 256; preserve -1 (timeout sentinel).
+    val clampedExit = if (exitCode == -1) -1 else exitCode and 0xFF
+    return "{\"exit_code\":$clampedExit,\"err_code\":$errCode,\"stdout\":${
+        jsonString(stdout)
+    },\"stderr\":${
+        jsonString(stderr)
+    }}"
+}
 
 private fun jsonString(value: String): String {
     // Full JSON string escaping (T4b): every C0 control byte
@@ -3477,7 +3607,7 @@ internal fun executeRunCommand(
         // in the background and finish by their own deadline.
         val stdout = out.get(drainMs + 50)
         val stderr = err.get(50)
-        val code = if (exited) process.exitValue() else -1
+        val code = if (exited) process.exitValue() and 0xFF else -1
         return RunCommandResult(stdout, stderr, code, !exited)
     } finally {
         process.destroy()

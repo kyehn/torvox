@@ -8,4 +8,6 @@ pub mod capabilities;
 pub mod clipboard;
 
 pub use capabilities::{CapabilityProvider, PlatformCapabilities};
-pub use clipboard::{ClipboardProvider, ClipboardSelection, MockClipboardProvider, SessionClipboardProvider};
+pub use clipboard::{
+    ClipboardProvider, ClipboardSelection, MockClipboardProvider, SessionClipboardProvider,
+};
