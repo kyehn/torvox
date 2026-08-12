@@ -70,3 +70,4 @@ generated-patches/
 
 # : user-mandated test artifacts (screenshots/video for selection verification)
 !test-artifacts/
+

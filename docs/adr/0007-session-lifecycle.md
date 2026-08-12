@@ -1,8 +1,14 @@
-# 0007 — Session Lifecycle and Android Integration
+# 7. Session Lifecycle and Android Integration
 
-- **Status**: Accepted
-- **Date**: 2026-07-27
-- **Requirement IDs**: FR-03, FR-04, NFR-03
+## Status
+
+Accepted
+
+Date: 2026-07-27
+
+## Requirement IDs
+
+FR-03, FR-04, NFR-03
 
 ## Context
 

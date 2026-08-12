@@ -29,10 +29,12 @@ object TerminalInputEncoder {
         if (ctrlActive && text.length == 1) {
             val codePoint = text[0].code
             // Digits 1/9/0 have no traditional Ctrl mapping (c & 0x1F would
-            // collide with Ctrl+Q / Ctrl+Y / Ctrl+P) and are dropped,
-            // matching the hardware-key path (encodeKeyEvent).
+            // collide with Ctrl+Q / Ctrl+Y / Ctrl+P); per zed-port
+            // mappings/keys.rs they are emitted as `CSI 27;5;code~` instead
+            // of being dropped, matching the hardware-key path.
             if (codePoint == '1'.code || codePoint == '9'.code || codePoint == '0'.code) {
-                return byteArrayOf()
+                val modifier = 1 + (if (altActive) 2 else 0) + 4
+                return csi27(modifier, codePoint)
             }
             val controlByte = controlByteForCodePoint(codePoint)
             if (controlByte != null) return withAltPrefix(altActive, byteArrayOf(controlByte))
@@ -55,6 +57,7 @@ object TerminalInputEncoder {
         unicodeChar: Int,
         ctrlActive: Boolean,
         altActive: Boolean,
+        appCursorMode: Boolean = false,
     ): ByteArray? {
         if (ctrlActive) {
             val controlByte = controlByteForKeyCode(keyCode)
@@ -64,20 +67,22 @@ object TerminalInputEncoder {
                 return withAltPrefix(altActive, byteArrayOf(0x00))
             }
             // Fold Ctrl+printable-ASCII into a control byte (shared table
-            // with encodeCommittedText). Ctrl+1/9/0 are not folded: no
-            // traditional mapping, and c & 0x1F would collide with Ctrl+Q /
-            // Ctrl+Y / Ctrl+P — they are dropped instead. When Alt is also
+            // with encodeCommittedText). Digits 1/9/0 have no traditional
+            // mapping (c & 0x1F would collide with Ctrl+Q / Ctrl+Y / Ctrl+P),
+            // so per zed-port mappings/keys.rs they are emitted as
+            // `CSI 27;5;code~` instead of being dropped. When Alt is also
             // held the folded byte is prefixed with ESC, matching xterm
             // (Ctrl+Alt+A → ESC 0x01).
             if (unicodeChar in 0x20..0x7E) {
                 if (unicodeChar == '1'.code || unicodeChar == '9'.code || unicodeChar == '0'.code) {
-                    return null
+                    val modifier = 1 + (if (altActive) 2 else 0) + 4
+                    return csi27(modifier, unicodeChar)
                 }
                 val folded = controlByteForCodePoint(unicodeChar)
                 if (folded != null) return withAltPrefix(altActive, byteArrayOf(folded))
             }
         }
-        val escapeSequence = escapeSequenceForKeyCode(keyCode, ctrlActive, altActive)
+        val escapeSequence = escapeSequenceForKeyCode(keyCode, ctrlActive, altActive, appCursorMode)
         if (escapeSequence != null) return escapeSequence.toByteArray(Charsets.UTF_8)
         if (keyCode == KeyEvent.KEYCODE_ENTER || keyCode == KeyEvent.KEYCODE_NUMPAD_ENTER) return byteArrayOf(0x0A)
         if (keyCode == KeyEvent.KEYCODE_DEL) return byteArrayOf(0x7F)
@@ -86,6 +91,14 @@ object TerminalInputEncoder {
         return if (altActive) byteArrayOf(0x1B) + encoded else encoded
     }
 
+    /**
+     * xterm/zed `CSI 27` modifier encoding: `ESC [ 27 ; modifier ; code ~`.
+     * Modifier bits: Shift=1, Alt=2, Ctrl=4 (zed mappings/keys.rs
+     * modifier_code). Used for Ctrl+digits that have no traditional caret
+     * fold (research-zed-port.md D: Ctrl+数字/标点 → CSI 27;5;n~).
+     */
+    private fun csi27(modifier: Int, code: Int): ByteArray = "\u001b[27;$modifier;$code~".toByteArray(Charsets.UTF_8)
+
     /** Prefixes ESC when Alt is held, matching xterm (Alt+X → ESC x). */
     private fun withAltPrefix(altActive: Boolean, bytes: ByteArray): ByteArray = if (altActive) byteArrayOf(0x1B) + bytes else bytes
 
@@ -93,6 +106,7 @@ object TerminalInputEncoder {
         keyCode: Int,
         ctrlActive: Boolean,
         altActive: Boolean,
+        appCursorMode: Boolean,
     ): String? {
         val hasModifier = ctrlActive || altActive
         if (hasModifier) {
@@ -152,13 +166,10 @@ object TerminalInputEncoder {
 
             KeyEvent.KEYCODE_F12 -> "\u001b[24~"
 
-            KeyEvent.KEYCODE_DPAD_UP -> "\u001b[A"
-
-            KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[B"
-
-            KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[C"
-
-            KeyEvent.KEYCODE_DPAD_LEFT -> "\u001b[D"
+            KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_LEFT,
+            ->
+                arrowSequence(keyCode, appCursorMode)
 
             KeyEvent.KEYCODE_MOVE_HOME -> "\u001b[H"
 
@@ -204,6 +215,24 @@ object TerminalInputEncoder {
             KeyEvent.KEYCODE_DEL -> "\u001b[3;$modifierParam~"
             else -> null
         }
+    }
+
+    /**
+     * Arrow-key sequence honoring DECCKM (research-haven.md:141,
+     * research-zed-port.md:252): in application cursor mode the arrows must
+     * use SS3 (`ESC O A`) instead of CSI (`ESC [ A`), or vim/less/mutt in
+     * app mode misread them. Modifier-carrying arrows never reach this
+     * helper — they are handled by [csiSequenceWithModifier].
+     */
+    private fun arrowSequence(keyCode: Int, appCursorMode: Boolean): String = when {
+        appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_UP -> "\u001bOA"
+        appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> "\u001bOB"
+        appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001bOC"
+        appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_LEFT -> "\u001bOD"
+        keyCode == KeyEvent.KEYCODE_DPAD_UP -> "\u001b[A"
+        keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> "\u001b[B"
+        keyCode == KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001b[C"
+        else -> "\u001b[D"
     }
 
     /**

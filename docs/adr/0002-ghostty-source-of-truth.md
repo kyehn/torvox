@@ -1,8 +1,14 @@
-# 0002 — Ghostty as the Single Source of Terminal State
+# 2. Ghostty as the Single Source of Terminal State
 
-- **Status**: Accepted
-- **Date**: 2026-07-27
-- **Requirement IDs**: FR-01, NFR-01, NFR-03
+## Status
+
+Accepted
+
+Date: 2026-07-27
+
+## Requirement IDs
+
+FR-01, NFR-01, NFR-03
 
 ## Context
 

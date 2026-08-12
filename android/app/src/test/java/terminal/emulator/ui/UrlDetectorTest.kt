@@ -83,4 +83,27 @@ class UrlDetectorTest {
     fun `extracts magnet url`() {
         assertEquals(listOf("magnet:?xt=urn:abc"), UrlDetector.findUrls("open magnet:?xt=urn:abc"))
     }
+
+    @Test
+    fun `extracts ipfs and ipns urls`() {
+        // zed-android-port URL_REGEX 20-protocol list (research-zed-port.md:675).
+        assertEquals(
+            listOf("ipfs://QmTzQ1a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t"),
+            UrlDetector.findUrls("get ipfs://QmTzQ1a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t now"),
+        )
+        assertEquals(
+            listOf("ipns://docs.ipfs.tech"),
+            UrlDetector.findUrls("browse ipns://docs.ipfs.tech"),
+        )
+    }
+
+    @Test
+    fun `keeps query string and port`() {
+        // Regression: the body class must keep `?`, `=`, `&`, and `:` so
+        // queries and ports survive (must mirror native url_regex.rs).
+        assertEquals(
+            listOf("https://example.com:8080/a/b?q=1&x=2"),
+            UrlDetector.findUrls("go https://example.com:8080/a/b?q=1&x=2 end"),
+        )
+    }
 }
