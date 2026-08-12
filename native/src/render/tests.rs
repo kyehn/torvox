@@ -2089,8 +2089,17 @@ fn image_active_value_flag_matches_bg_bind_group() {
 /// Benchmark `build_instances_from_cell_data` with realistic mixed content:
 /// varied colors, bold, italic, CJK, wide chars. This simulates a real
 /// terminal screen with syntax highlighting, git output, and Unicode.
+///
+/// Thresholds are two-tiered (see docs/standards/TESTING.md,
+/// "Benchmarks & Performance Thresholds"): local runs assert the
+/// strict 200 fps floor; CI runs (software Vulkan/llvmpipe + parallel test
+/// contention) keep a ~2.5x anti-flake floor that still catches
+/// order-of-magnitude regressions.
+fn render_benchmarks_strict() -> bool {
+    std::env::var("CI").is_err() && std::env::var("GITHUB_ACTIONS").is_err()
+}
+
 #[test]
-#[ignore]
 fn bench_build_instances_from_cell_data() {
     use std::hint::black_box;
     use std::time::Instant;
@@ -2166,9 +2175,14 @@ fn bench_build_instances_from_cell_data() {
         n,
         count
     );
+    let threshold_fps = if render_benchmarks_strict() {
+        200.0
+    } else {
+        80.0
+    };
     assert!(
-        fps > 200.0,
-        "Mixed-content render too slow: {:.0} fps (need >200)",
+        fps > threshold_fps,
+        "Mixed-content render too slow: {:.0} fps (need >{threshold_fps:.0})",
         fps
     );
 }
@@ -2181,7 +2195,6 @@ fn bench_build_instances_from_cell_data() {
 /// Every frame writes CellInstance data to a GPU buffer via queue.write_buffer().
 /// This benchmark measures raw write speed for 24×80 instance data (1920 cells).
 #[test]
-#[ignore]
 fn bench_gpu_buffer_upload_throughput() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2243,7 +2256,6 @@ fn bench_gpu_buffer_upload_throughput() {
 /// draw instances, end pass, submit. This tests the CPU-side graphics command
 /// path that happens every frame.
 #[test]
-#[ignore]
 fn bench_gpu_command_encoding_overhead() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2313,7 +2325,6 @@ fn bench_gpu_command_encoding_overhead() {
 /// buffer upload + command encoding + submit + poll. This mirrors the actual
 /// render_frame() path without requiring a swapchain surface.
 #[test]
-#[ignore]
 fn bench_gpu_full_submit_throughput() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2416,7 +2427,6 @@ fn bench_gpu_full_submit_throughput() {
 /// Measures the cost of creating + uploading a new atlas texture after glyph
 /// cache warmup — this happens when new glyphs are encountered.
 #[test]
-#[ignore]
 fn bench_gpu_atlas_texture_upload() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2485,7 +2495,6 @@ fn bench_gpu_atlas_texture_upload() {
 /// FontPipeline, measuring first-encounter time vs cache-hit time. This tests
 /// the CJK cache and atlas allocation for the cold-start scenario.
 #[test]
-#[ignore]
 fn bench_cjk_glyph_cache_warmup() {
     use std::hint::black_box;
     use std::time::Instant;

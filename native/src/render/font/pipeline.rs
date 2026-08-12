@@ -16,6 +16,12 @@ pub struct FontPipeline {
     pub(crate) atlas_width: u32,
     pub(crate) atlas_height: u32,
     pub(crate) font_id: Option<fontdb::ID>,
+    /// Independent bold/italic/bold-italic family slots (ghostty-android
+    /// TerminalFontStore 4-slot design, research-ghostty-android-extra.md:80):
+    /// when a style slot is set, glyph_information_styled prefers that real
+    /// face over same-family lookup + synthesis. Index: 0=bold, 1=italic,
+    /// 2=bold-italic.
+    pub(crate) styled_font_ids: [Option<fontdb::ID>; 3],
     pub(crate) cjk_fallback_ids: Vec<fontdb::ID>,
     /// Symbol layer (round-227 T5, moke chain: primary → CJK → symbols →
     /// Nerd → emoji → db scan): generic symbol fonts (Noto Sans Symbols 2
@@ -104,6 +110,7 @@ impl FontPipeline {
             atlas_width: atlas_width as u32,
             atlas_height: atlas_height as u32,
             font_id: None,
+            styled_font_ids: [None, None, None],
             cjk_fallback_ids: Vec::new(),
             symbol_fallback_ids: Vec::new(),
             nerd_fallback_ids: Vec::new(),
@@ -171,6 +178,7 @@ impl FontPipeline {
             atlas_width: atlas_width as u32,
             atlas_height: atlas_height as u32,
             font_id: None,
+            styled_font_ids: [None, None, None],
             cjk_fallback_ids: Vec::new(),
             symbol_fallback_ids: Vec::new(),
             nerd_fallback_ids: Vec::new(),
@@ -418,6 +426,57 @@ impl FontPipeline {
         false
     }
 
+    /// Style slot index for the independent bold/italic families.
+    /// 0 = bold, 1 = italic, 2 = bold-italic.
+    pub(crate) fn styled_slot_index(bold: bool, italic: bool) -> usize {
+        match (bold, italic) {
+            (true, true) => 2,
+            (true, false) => 0,
+            (false, true) => 1,
+            (false, false) => 0,
+        }
+    }
+
+    /// Sets (or clears, when `family_name` is empty) the independent family
+    /// for one style slot (0=bold, 1=italic, 2=bold-italic) — the
+    /// ghostty-android TerminalFontStore 4-slot design
+    /// (research-ghostty-android-extra.md:80). When a slot has a family,
+    /// `glyph_information_styled` renders that style from the real face
+    /// instead of same-family lookup + synthesis. Returns true when the
+    /// family was found and set.
+    pub fn set_font_family_for_style(&mut self, family_name: &str, slot: u8) -> bool {
+        let slot = slot.min(2) as usize;
+        self.caches.shape_cache.clear();
+        self.caches.glyph_id_cache.clear();
+        self.caches.cjk_glyph_cache.clear();
+        self.caches.ascii_glyph_ids = [None; 128];
+        if family_name.is_empty() {
+            self.styled_font_ids[slot] = None;
+            return true;
+        }
+        let found = {
+            let db = self.font_system.db_mut();
+            Self::find_font_by_name(db, family_name)
+        };
+        match found {
+            Some(id) => {
+                self.styled_font_ids[slot] = Some(id);
+                log::debug!(
+                    "FONT_DIAG: set_font_family_for_style(slot={slot}, '{}') found id={id:?}",
+                    family_name
+                );
+                true
+            }
+            None => {
+                log::warn!(
+                    "FONT_DIAG: set_font_family_for_style(slot={slot}, '{}') NOT FOUND in fontdb",
+                    family_name
+                );
+                false
+            }
+        }
+    }
+
     pub fn set_system_locale(&mut self, locale: &str) {
         self.caches.shape_cache.clear();
         self.caches.glyph_id_cache.clear();
@@ -637,16 +696,38 @@ impl FontPipeline {
         }
         let primary_font_id = self.font_id?;
 
+        // 0) Independent bold/italic family slot (ghostty-android 4-slot
+        //    TerminalFontStore, research-ghostty-android-extra.md:80): the
+        //    user-configured style family wins outright, no synthesis.
+        let slot = Self::styled_slot_index(bold, italic);
+        let style_id = self.styled_font_ids[slot].or_else(|| {
+            // bold-italic falls back to the bold slot (synthesized italic
+            // on top of the real bold face) when no dedicated face exists.
+            if slot == 2 {
+                self.styled_font_ids[0]
+            } else {
+                None
+            }
+        });
+        if let Some(style_id) = style_id {
+            let style_gid = self.style_glyph_id(style_id, ch);
+            if let Some(gid) = style_gid.filter(|&g| g != 0)
+                && let Some(info) = self.glyph_information_from_font_with_synthesis(
+                    style_id,
+                    gid,
+                    GlyphSynthesis::None,
+                )
+                && info.width > 0
+                && info.height > 0
+            {
+                return Some(info);
+            }
+        }
+
         // 1) Same-family bold/italic face wins when it actually contains the
         //    glyph (this keeps real styled faces crisp and hintable).
         if let Some(style_id) = self.resolve_style_face(primary_font_id, bold, italic) {
-            let db = self.font_system.db();
-            let style_gid = db
-                .with_face_data(style_id, |font_data, face_index| {
-                    let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                    Some(font_ref.charmap().map(ch))
-                })
-                .flatten();
+            let style_gid = self.style_glyph_id(style_id, ch);
             if let Some(gid) = style_gid.filter(|&g| g != 0)
                 && let Some(info) = self.glyph_information_from_font_with_synthesis(
                     style_id,
@@ -673,12 +754,20 @@ impl FontPipeline {
     /// Find a face of the same font family with the requested weight/style.
     /// Returns the same id when the base face already matches, and None
     /// when no matching face exists (caller then uses synthesis).
+    ///
+    /// Results are memoized in `style_face_cache` so the fontdb family/
+    /// weight/style query runs at most once per (font, bold, italic)
+    /// combination instead of once per styled cell per frame.
     pub(crate) fn resolve_style_face(
-        &self,
+        &mut self,
         base_id: fontdb::ID,
         bold: bool,
         italic: bool,
     ) -> Option<fontdb::ID> {
+        let key = (base_id, bold, italic);
+        if let Some(cached) = self.caches.style_face_cache.get(&key) {
+            return *cached;
+        }
         let db = self.font_system.db();
         let base = db.face(base_id)?;
         let family = base.families.first()?.0.clone();
@@ -696,12 +785,32 @@ impl FontPipeline {
                 fontdb::Style::Normal
             },
         };
-        let matched = db.query(&query)?;
-        if matched == base_id {
-            None
-        } else {
-            Some(matched)
+        let matched = db.query(&query);
+        let result = match matched {
+            Some(id) if id != base_id => Some(id),
+            _ => None,
+        };
+        self.caches.style_face_cache.put(key, result);
+        result
+    }
+
+    /// Cached charmap lookup on a (possibly styled) face: maps `ch` to its
+    /// glyph id without re-entering `with_face_data` on every call.
+    fn style_glyph_id(&mut self, face_id: fontdb::ID, ch: char) -> Option<swash::GlyphId> {
+        let key = (face_id, ch as u32);
+        if let Some(&cached) = self.caches.style_glyph_id_cache.get(&key) {
+            return Some(cached);
         }
+        let gid = self
+            .font_system
+            .db()
+            .with_face_data(face_id, |font_data, face_index| {
+                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+                Some(font_ref.charmap().map(ch))
+            })
+            .flatten()?;
+        self.caches.style_glyph_id_cache.put(key, gid);
+        Some(gid)
     }
 
     fn glyph_information_with_synthesis(

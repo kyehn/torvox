@@ -127,4 +127,65 @@ class SettingsRepositoryTest {
             assertEquals("", state.shortcutPaste)
         }
     }
+
+    @Test
+    fun `environment variables default to empty`() = runTest {
+        repository.environmentVariables.test {
+            assertEquals(emptyMap<String, String>(), awaitItem())
+        }
+    }
+
+    @Test
+    fun `environment variables round-trip via repository`() = runTest {
+        repository.setEnvironmentVariables(
+            mapOf("EDITOR" to "vim", "MY_FLAG" to "1"),
+        )
+        repository.environmentVariables.test {
+            assertEquals(
+                mapOf("EDITOR" to "vim", "MY_FLAG" to "1"),
+                awaitItem(),
+            )
+        }
+        repository.settings.test {
+            val state = awaitItem()
+            assertEquals(mapOf("EDITOR" to "vim", "MY_FLAG" to "1"), state.environmentVariables)
+        }
+    }
+
+    @Test
+    fun `environment variables empty map clears persisted value`() = runTest {
+        repository.setEnvironmentVariables(mapOf("KEEP" to "1"))
+        repository.setEnvironmentVariables(emptyMap())
+        repository.environmentVariables.test {
+            assertEquals(emptyMap<String, String>(), awaitItem())
+        }
+    }
+
+    @Test
+    fun `parse environment variables skips malformed lines and keeps values with equals`() {
+        val parsed =
+            parseEnvironmentVariables(
+                "\n\nNO_EQUALS\n=emptykey\n  =blank\nURL=https://x.test/a=b\n  PADDED = value  \n",
+            )
+        // key trimmed, value untouched (leading space after '=' preserved)
+        assertEquals(
+            mapOf("URL" to "https://x.test/a=b", "PADDED" to " value  "),
+            parsed,
+        )
+    }
+
+    @Test
+    fun `serialize environment variables sorts keys and joins with newline`() {
+        assertEquals(
+            "A=one\nB=two",
+            serializeEnvironmentVariables(mapOf("A" to "one", "B" to "two")),
+        )
+        assertEquals("", serializeEnvironmentVariables(emptyMap()))
+    }
+
+    @Test
+    fun `parse serialize round-trips`() {
+        val original = mapOf("EDITOR" to "vim", "URL" to "https://x.test/a=b")
+        assertEquals(original, parseEnvironmentVariables(serializeEnvironmentVariables(original)))
+    }
 }

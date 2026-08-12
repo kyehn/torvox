@@ -38,6 +38,7 @@ object NativeBridge {
 
     /** Create a new terminal session. Returns session ID (0 on failure). */
     @JvmStatic
+    @Suppress("LongParameterList") // JNI signature mirrors native init_session - parameters cannot be grouped
     external fun initSession(
         rows: Int,
         cols: Int,
@@ -48,6 +49,7 @@ object NativeBridge {
         workingDirectory: String,
         prefix: String,
         scrollbackLines: Int,
+        env: Array<String>?,
     ): Long
 
     /** Destroy a session by ID. Returns true on success. */
@@ -74,6 +76,14 @@ object NativeBridge {
     /** Resize the specified session. */
     @JvmStatic
     external fun resize(sessionId: Long, rows: Int, cols: Int)
+
+    /**
+     * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the
+     * specified session, preserving rows/cols. pixel-aware programs
+     * (`icat`, fullscreen TUIs) read the pixel size from TIOCGWINSZ.
+     */
+    @JvmStatic
+    external fun setPixelSize(sessionId: Long, widthPx: Int, heightPx: Int)
 
     /** Write raw bytes to the PTY (binary-safe; no UTF-8 mangling). */
     @JvmStatic
@@ -113,6 +123,33 @@ object NativeBridge {
         cellW: Float,
         cellH: Float,
     ): ByteArray
+
+    /**
+     * Whether the remote is on the alternate screen buffer (vim/less/htop).
+     * Lock-free mirror maintained by the Rust VT thread; safe to call on every
+     * touch-scroll event. Backs [Bridge.isAltScreenActive] so touch-scroll on
+     * the alternate screen forwards to the remote as wheel escapes instead of
+     * scrolling local scrollback (Haven research: altScreen wheel consumption).
+     */
+    @JvmStatic
+    external fun getAltScreenState(sessionId: Long): Boolean
+
+    /**
+     * Query a terminal mode (ghostty `mode_get`); `kind` 0 = DEC private
+     * modes, non-zero = ANSI modes. Backs the DECCKM (application cursor
+     * keys, DEC private mode 1) lookup used to switch arrow keys between
+     * SS3 (`ESC OA`) and CSI (`ESC [ A`) — research-haven.md:141,
+     * research-zed-port.md:252.
+     */
+    @JvmStatic
+    external fun getMode(sessionId: Long, modeNum: Int, kind: Int): Boolean
+
+    /**
+     * Drain the OSC 133 last-command-output buffer (termlib
+     * getLastCommandOutput equivalent); null when empty. Reading clears it.
+     */
+    @JvmStatic
+    external fun getLastCommandOutput(sessionId: Long): String?
 
     /**
      * Forward an application-window focus change to a session so the child
@@ -324,6 +361,13 @@ object NativeBridge {
 
     external fun setBackgroundParams(sessionId: Long, blurRadius: Int, alphaTenths: Int)
 
+    /**
+     * Set the bell-flash overlay phase for the next rendered frame.
+     * [phase] decays 1.0 → 0.0 over ~300-500ms after a bell; the native
+     * renderer composites a full-screen quad whose alpha scales with it.
+     */
+    external fun setFlashState(sessionId: Long, phase: Float)
+
     external fun setCursorBlink(sessionId: Long, enabled: Boolean, speedMs: Int)
 
     external fun resetCursorBlink(sessionId: Long)
@@ -333,6 +377,9 @@ object NativeBridge {
     external fun setCursorStyle(sessionId: Long, style: String)
 
     external fun setFontFamily(sessionId: Long, family: String): Boolean
+
+    /** Slot: 0=bold, 1=italic, 2=bold-italic (ghostty-android 4-slot). */
+    external fun setFontFamilyForStyle(sessionId: Long, family: String, slot: Int): Boolean
 
     external fun setFontSizeInPlace(sessionId: Long, sizeTenths: Int)
 

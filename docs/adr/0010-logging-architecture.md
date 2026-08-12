@@ -1,8 +1,14 @@
-# 0010 — Logging Architecture
+# 10. Logging Architecture
 
-- **Status**: Accepted
-- **Date**: 2026-09-05
-- **Requirement IDs**: NFR-025, NFR-028
+## Status
+
+Accepted
+
+Date: 2026-09-05
+
+## Requirement IDs
+
+NFR-025, NFR-028
 
 ## Context
 
@@ -136,3 +142,10 @@ standard `env_logger` or `env_logger`-compatible backend is used via the
   (could be made configurable via settings in the future)
 - The `log` crate does not support structured logging fields — all
   context is embedded in the format string
+
+## Compliance
+
+- Single `log` facade across all subsystems (enforced by `cargo clippy` —
+  no `println!`/`eprintln!` allowed in production code)
+- Logcat output verified via `adb logcat` in emulator tests
+- Noisy crate filters maintained in `android_logger.rs` (static list)

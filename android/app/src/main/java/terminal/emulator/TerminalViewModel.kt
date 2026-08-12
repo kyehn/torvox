@@ -33,6 +33,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.bridge.SelectionExpander
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
@@ -110,6 +111,41 @@ data class SelectionState(
         }
         return HandleDragResult(currentStart.row, currentStart.col, targetRow, targetCol)
     }
+
+    /**
+     * Round-231 P2 (arrow-key selection navigation, termlib moveSelection*
+     * semantics): move the START anchor by [deltaRow]/[deltaCol], clamped to
+     * the grid so it never crosses the END anchor (the end stays put as the
+     * moving end sweeps up to it). Pure and unit-testable.
+     */
+    fun moveSelectionAnchorBy(
+        deltaRow: Int,
+        deltaCol: Int,
+        maxRow: Int,
+        maxCol: Int,
+    ): SelectionState {
+        val currentStart = start ?: return this
+        val currentEnd = end ?: return this
+        if (!active) return this
+        val newRow = (currentStart.row + deltaRow).coerceIn(0, maxRow.coerceAtLeast(0))
+        val newCol = (currentStart.col + deltaCol).coerceIn(0, maxCol.coerceAtLeast(0))
+        val crossedEnd =
+            newRow > currentEnd.row ||
+                (newRow == currentEnd.row && newCol > currentEnd.col)
+        val anchor =
+            if (crossedEnd) {
+                // Clamp just before the end anchor so the range never
+                // inverts: same row → col just before END; below END → last
+                // row before it with col just before END's col.
+                currentStart.copy(
+                    row = (currentEnd.row - 1).coerceAtLeast(0),
+                    col = (currentEnd.col - 1).coerceAtLeast(0),
+                )
+            } else {
+                currentStart.copy(row = newRow, col = newCol)
+            }
+        return copy(start = anchor)
+    }
 }
 
 data class HandleDragResult(
@@ -119,19 +155,7 @@ data class HandleDragResult(
     val endCol: Int,
 )
 
-data class PastePopupRequest(
-    val row: Int,
-    val col: Int,
-)
-
-/** State for multi-line paste confirmation dialog. */
-data class PasteConfirmationState(
-    val visible: Boolean = false,
-    val text: String = "",
-    val lineCount: Int = 0,
-    val charCount: Int = 0,
-)
-
+/** Session info for the session drawer. */
 data class SessionInfo(
     val id: Long,
     val title: String,
@@ -147,7 +171,6 @@ data class TerminalState(
     val scrollActive: Boolean = false,
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
-    val pastePopupRequest: PastePopupRequest? = null,
     val keyboardMode: KeyboardMode = KeyboardMode.Secure,
     val selectionBg: Int = 0,
     val selectionAccent: Int = 0,
@@ -180,6 +203,12 @@ constructor(
     private val clipboardAccess = ClipboardAccess(context, tag = "ViewModel")
 
     private val selectionManager = SelectionManager()
+
+    // Round-231 P2: last grid size seen from the runtime; a shrink clamps
+    // the active selection (see runtime.state collector).
+    @Volatile private var lastGridRows = 0
+
+    @Volatile private var lastGridCols = 0
     private val fontManager = FontManager()
     private val userThemeStore = UserThemeStore(context)
 
@@ -245,6 +274,9 @@ constructor(
 
     fun setFontFamily(family: String) = fontManager.setFontFamily(family)
 
+    /** Slot: [FONT_SLOT_BOLD] or [FONT_SLOT_ITALIC] (ghostty-android 4-slot). */
+    fun setFontFamilyForStyle(family: String, slot: Int) = fontManager.setFontFamilyForStyle(family, slot)
+
     fun installFontFile(uri: Uri) = fontManager.installFontFile(uri)
 
     // ── Selection forwards (implementation in SelectionManager) ────────────
@@ -269,51 +301,35 @@ constructor(
 
     fun showPastePopup(row: Int, col: Int) = selectionManager.showPastePopup(row, col)
 
-    fun consumePastePopupRequest(): PastePopupRequest? = selectionManager.consumePastePopupRequest()
-
     fun shareSelection() = selectionManager.shareSelection()
-
-    /**
-     * Export full terminal text (scrollback + visible) to a SAF URI.
-     * Called from the SelectionActions toolbar via ActivityResultContracts.CreateDocument.
-     */
-    fun exportTerminalOutput(uri: Uri) {
-        viewModelScope.launch {
-            val text = withContext(Dispatchers.IO) {
-                runtime.bridge()?.getTerminalText() ?: ""
-            }
-            if (text.isEmpty()) {
-                android.widget.Toast.makeText(context, "Terminal output is empty", android.widget.Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            try {
-                withContext(Dispatchers.IO) {
-                    context.contentResolver.openOutputStream(uri)?.use { out ->
-                        out.write(text.toByteArray(Charsets.UTF_8))
-                    }
-                }
-                android.widget.Toast.makeText(context, "Terminal output exported", android.widget.Toast.LENGTH_SHORT).show()
-            } catch (e: java.io.IOException) {
-                LogUtil.e("ViewModel", "Export failed", e)
-                android.widget.Toast.makeText(context, "Export failed: ${e.message}", android.widget.Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
 
     fun selectAll(scrollOffset: Int = 0) = selectionManager.selectAll(scrollOffset)
 
     fun moveSelectionAnchor(deltaCol: Int) = selectionManager.moveSelectionAnchor(deltaCol)
 
+    fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int) = selectionManager.moveSelectionAnchorBy(deltaRow, deltaCol)
+
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
 
-    fun confirmPaste() {
-        val text = _pasteConfirmation.value.text
-        _pasteConfirmation.value = PasteConfirmationState()
-        selectionManager.executePaste(text)
-    }
-
-    fun cancelPaste() {
-        _pasteConfirmation.value = PasteConfirmationState()
+    /**
+     * Round-231 P2: clamp a selection's anchors onto [rows]×[cols] after a
+     * grid resize so native setSelection never receives out-of-bounds cells.
+     */
+    private fun clampSelectionToGrid(selection: SelectionState, rows: Int, cols: Int): SelectionState {
+        val start = selection.start ?: return selection
+        val end = selection.end ?: return selection
+        val maxRow = (rows - 1).coerceAtLeast(0)
+        val maxCol = (cols - 1).coerceAtLeast(0)
+        return selection.copy(
+            start = start.copy(
+                row = start.row.coerceIn(0, maxRow),
+                col = start.col.coerceIn(0, maxCol),
+            ),
+            end = end.copy(
+                row = end.row.coerceIn(0, maxRow),
+                col = end.col.coerceIn(0, maxCol),
+            ),
+        )
     }
 
     fun writeToPty(data: ByteArray) {
@@ -364,10 +380,6 @@ constructor(
             col: Int,
             touchClass: TouchClass = TouchClass.Unknown,
         ) {
-            // A text-selection long-press supersedes any pending paste chip;
-            // drop it so it cannot reappear once the selection is cleared
-            // (round-105).
-            consumePastePopupRequest()
             val anchor = SelectionAnchor(row, col)
             // CAS (round-98): selection is touched from the main thread but
             // _state is also written by IO coroutines; a plain RMW could lose
@@ -477,7 +489,57 @@ constructor(
         }
 
         fun setSelectionMode(mode: SelectionMode) {
-            _state.update { it.copy(selection = it.selection.copy(mode = mode)) }
+            _state.update { state ->
+                val current = state.selection
+                val adjusted =
+                    if (!current.active || current.start == null || current.end == null) {
+                        current
+                    } else {
+                        adjustSelectionForMode(current, mode)
+                    }
+                state.copy(selection = adjusted.copy(mode = mode))
+            }
+            syncSelectionToNative()
+        }
+
+        /**
+         * Round-231 P2: mode switch re-expands the range (termlib
+         * SelectionManager.adjustSelectionForMode :288-320): WORD expands
+         * both ends onto word boundaries, LINE spans the full rows, CHAR
+         * keeps the current range as-is.
+         */
+        private fun adjustSelectionForMode(
+            selection: SelectionState,
+            mode: SelectionMode,
+        ): SelectionState {
+            val start = selection.start ?: return selection
+            val end = selection.end ?: return selection
+            return when (mode) {
+                SelectionMode.Line -> {
+                    val cols = (runtime.state.value.cols - 1).coerceAtLeast(0)
+                    selection.copy(
+                        start = start.copy(col = 0),
+                        end = end.copy(col = cols),
+                    )
+                }
+
+                SelectionMode.Word -> {
+                    val bridge = runtime.bridge() ?: return selection
+                    val startLine = bridge.scrollbackLine(start.row) ?: return selection
+                    val endLine = bridge.scrollbackLine(end.row) ?: return selection
+                    val startWord = SelectionExpander.expandBounds(startLine, start.col)
+                    val endWord = SelectionExpander.expandBounds(endLine, end.col)
+                    selection.copy(
+                        start = start.copy(col = startWord.first),
+                        end = end.copy(col = endWord.second),
+                    )
+                }
+
+                SelectionMode.Char,
+                SelectionMode.Block,
+                SelectionMode.Semantic,
+                -> selection
+            }
         }
 
         fun copySelectionToClipboard() {
@@ -530,9 +592,6 @@ constructor(
 
         fun clearSelection() {
             _state.update { it.copy(selection = SelectionState()) }
-            // Drop any pending paste chip: with the selection cleared it would
-            // reappear over the terminal (round-105).
-            consumePastePopupRequest()
             syncSelectionToNative()
         }
 
@@ -555,21 +614,9 @@ constructor(
                         mode = SelectionMode.Char,
                         touchClass = TouchClass.EmptyArea,
                     ),
-                    pastePopupRequest = null,
                 )
             }
             syncSelectionToNative()
-        }
-
-        fun consumePastePopupRequest(): PastePopupRequest? {
-            // Explicit CAS loop (round-102): update() would re-run its lambda on
-            // contention and leak a stale captured result to a second consumer;
-            // compareAndSet returns exactly one winner per request.
-            while (true) {
-                val state = _state.value
-                val req = state.pastePopupRequest ?: return null
-                if (_state.compareAndSet(state, state.copy(pastePopupRequest = null))) return req
-            }
         }
 
         private fun syncSelectionToNative() {
@@ -652,6 +699,25 @@ constructor(
             val updated = current.copy(start = clamped, menuDismissed = false)
             val text = extractSelectedText(updated)
             _state.update { it.copy(selection = updated.copy(selectedText = text)) }
+            syncSelectionToNative()
+        }
+
+        /**
+         * Round-231 P2: arrow-key selection movement — move the START anchor
+         * by [deltaRow]/[deltaCol] (pure [SelectionState.moveSelectionAnchorBy]),
+         * re-extract the selected text and sync to native. Called from
+         * TerminalSurface.onKeyDown while a selection is active.
+         */
+        fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int) {
+            val selection = _state.value.selection
+            if (!selection.active || selection.start == null || selection.end == null) return
+            val runtimeState = runtime.state.value
+            val maxRow = (runtimeState.rows - 1).coerceAtLeast(0)
+            val maxCol = (runtimeState.cols - 1).coerceAtLeast(0)
+            val updated = selection.moveSelectionAnchorBy(deltaRow, deltaCol, maxRow, maxCol)
+            if (updated === selection) return
+            val text = extractSelectedText(updated)
+            _state.update { it.copy(selection = updated.copy(selectedText = text, menuDismissed = false)) }
             syncSelectionToNative()
         }
 
@@ -801,26 +867,9 @@ constructor(
             return line.substring(charStart, charEnd.coerceAtMost(line.length))
         }
 
-        /**
-         * Paste clipboard content. For multi-line or long content (>1 line or
-         * >500 chars), shows a confirmation dialog first.
-         * Reference: research-gnome-console.md §4 paste confirmation.
-         */
+        /** Paste clipboard content directly to the PTY (no confirmation dialog). */
         fun pasteFromClipboard(): Int {
             val text = clipboardAccess.clipboardText() ?: return 0
-            val lines = text.lines()
-            if (lines.size > 1 || text.length > 500) {
-                _pasteConfirmation.update {
-                    PasteConfirmationState(
-                        visible = true,
-                        text = text,
-                        lineCount = lines.size,
-                        charCount = text.length,
-                    )
-                }
-                _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
-                return 0
-            }
             return executePaste(text)
         }
 
@@ -946,6 +995,32 @@ constructor(
             }
         }
 
+        /**
+         * Set the independent family for a style slot (0=bold, 1=italic,
+         * 2=bold-italic) — ghostty-android TerminalFontStore 4-slot design
+         * (research-ghostty-android-extra.md:80). Empty clears the slot.
+         */
+        fun setFontFamilyForStyle(family: String, slot: Int) {
+            viewModelScope.launch(Dispatchers.IO) {
+                try {
+                    android.util.Log.d("Font", "Setting style slot $slot font family: $family")
+                    when (slot) {
+                        FONT_SLOT_REGULAR -> settingsRepository.setFontFamily(family)
+                        FONT_SLOT_BOLD -> settingsRepository.setBoldFontFamily(family)
+                        FONT_SLOT_ITALIC -> settingsRepository.setItalicFontFamily(family)
+                        else -> Unit
+                    }
+                    runtime.applyFontSettings()
+                    val bridge = runtime.bridge()
+                    val fontName = bridge?.getDefaultFontName() ?: "monospace"
+                    _defaultFontName.value = fontName
+                    android.util.Log.d("Font", "Style slot $slot font applied")
+                } catch (exception: Exception) {
+                    android.util.Log.e("Font", "setFontFamilyForStyle failed for slot $slot", exception)
+                }
+            }
+        }
+
         fun installFontFile(uri: Uri) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
@@ -1045,9 +1120,6 @@ constructor(
     private val _state = MutableStateFlow(TerminalState())
     val state: StateFlow<TerminalState> = _state.asStateFlow()
 
-    private val _pasteConfirmation = MutableStateFlow(PasteConfirmationState())
-    val pasteConfirmation: StateFlow<PasteConfirmationState> = _pasteConfirmation.asStateFlow()
-
     @Volatile var currentSurface: Surface? = null
 
     @Volatile var surfaceWidth: Int = 0
@@ -1100,6 +1172,18 @@ constructor(
         }
         viewModelScope.launch {
             runtime.state.collect { runtimeState ->
+                // Round-231 P2: a grid resize can shrink below the current
+                // selection bounds; clamp start/end onto the new grid so
+                // native setSelection never sees out-of-bounds cells.
+                if (runtimeState.rows != lastGridRows || runtimeState.cols != lastGridCols) {
+                    lastGridRows = runtimeState.rows
+                    lastGridCols = runtimeState.cols
+                    _state.update { current ->
+                        current.copy(
+                            selection = clampSelectionToGrid(current.selection, runtimeState.rows, runtimeState.cols),
+                        )
+                    }
+                }
                 val sortedIds = runtimeState.sessionIds.sorted()
                 val sessions =
                     sortedIds.mapIndexed { index, id ->
@@ -1414,6 +1498,14 @@ constructor(
                 Log.w("TerminalViewModel", "setMcpServerEnabled: native library not loaded, ignoring toggle")
             }
             settingsRepository.setMcpServerEnabled(enabled)
+        }
+    }
+
+    fun setEnvironmentVariables(vars: Map<String, String>) {
+        // Applied on the next session spawn (native side folds them into
+        // the PTY environment); no live-session mutation.
+        viewModelScope.launch {
+            settingsRepository.setEnvironmentVariables(vars)
         }
     }
 

@@ -1,8 +1,14 @@
-# 0001 — Crate Consolidation
+# 1. Crate Consolidation
 
-- **Status**: Accepted
-- **Date**: 2026-07-27
-- **Requirement IDs**: NFR-02, NFR-05
+## Status
+
+Accepted
+
+Date: 2026-07-27
+
+## Requirement IDs
+
+NFR-02, NFR-05
 
 ## Context
 

@@ -3,10 +3,10 @@
 package terminal.emulator.ui
 
 import android.graphics.RectF
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.VisibleForTesting
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -16,7 +16,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,7 +25,6 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -34,7 +32,6 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -54,7 +51,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -140,6 +136,18 @@ fun TerminalScreen(
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    // P0#13: real 150ms debounce for the search query (termlib / ghostty-android
+    // adoption). SearchDebouncer collapses rapid keystrokes into a single
+    // performSearch after a quiet period instead of firing a full-scrollback
+    // search on every keystroke. The production scheduler runs on the main
+    // Looper (TerminalSurface callbacks are main-thread); unit tests use a fake
+    // scheduler (see SearchDebouncerTest).
+    val searchDebouncer = remember {
+        SearchDebouncer(
+            debounceMillis = 150L,
+            scheduler = HandlerDebounceScheduler(Handler(Looper.getMainLooper())),
+        )
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
     val hostView = androidx.compose.ui.platform.LocalView.current
     var showTextSearch by remember { mutableStateOf(false) }
@@ -236,43 +244,6 @@ fun TerminalScreen(
     ) {
         val snackbarHostState = remember { SnackbarHostState() }
 
-        // ── Paste confirmation dialog ─────────────────────────────────
-        val pasteConfirmation by viewModel.pasteConfirmation.collectAsStateWithLifecycle()
-        if (pasteConfirmation.visible) {
-            AlertDialog(
-                onDismissRequest = { viewModel.cancelPaste() },
-                title = { Text(stringResource(R.string.paste_confirm_title)) },
-                text = {
-                    Column {
-                        Text(
-                            stringResource(
-                                R.string.paste_confirm_detail,
-                                pasteConfirmation.lineCount,
-                                pasteConfirmation.charCount,
-                            ),
-                        )
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            text = pasteConfirmation.text.take(200) +
-                                if (pasteConfirmation.text.length > 200) "..." else "",
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 10,
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { viewModel.confirmPaste() }) {
-                        Text(stringResource(R.string.paste_confirm_yes))
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { viewModel.cancelPaste() }) {
-                        Text(stringResource(R.string.paste_confirm_no))
-                    }
-                },
-            )
-        }
-
         Box(
             modifier =
             Modifier
@@ -286,12 +257,6 @@ fun TerminalScreen(
             }
             val selection = state.selection
             val selectionActive = selection.active && selection.start != null && selection.end != null
-
-            val exportLauncher = rememberLauncherForActivityResult(
-                contract = ActivityResultContracts.CreateDocument("text/plain"),
-            ) { uri ->
-                uri?.let { viewModel.exportTerminalOutput(it) }
-            }
 
             // Round-219: with the legacy View.startActionMode(Callback) the
             // system does NOT intercept BACK to finish the ActionMode (only
@@ -537,26 +502,6 @@ fun TerminalScreen(
                         }
                     }
 
-                    val pasteReq = state.pastePopupRequest
-                    if (!selectionActive && pasteReq != null) {
-                        val surface = surfaceRef.value
-                        if (surface != null) {
-                            PasteChipOverlay(
-                                row = pasteReq.row,
-                                col = pasteReq.col,
-                                cellWidth = surface.cellWidth,
-                                cellHeight = surface.cellHeight,
-                                scrollOffset = surface.getScrollOffset(),
-                                onPaste = {
-                                    viewModel.pasteFromClipboard()
-                                    viewModel.consumePastePopupRequest()
-                                },
-                                accentColor = Color(state.selectionAccent),
-                                backgroundColor = Color(state.selectionBg),
-                            )
-                        }
-                    }
-
                     // ── Selection context menu (PopupWindow) ──
                     // Round-217: the menu must be a PopupWindow, not a
                     // Compose overlay — the terminal is a SurfaceView whose
@@ -736,10 +681,15 @@ fun TerminalScreen(
                         onQueryChange = { query ->
                             searchState = searchState.copy(query = query)
                             searchJob?.cancel()
-                            // TextSearchBar already debounces input with its
-                            // own 150ms Handler-based debounce; run the search
-                            // immediately here.
-                            searchJob = scope.launch { performSearch() }
+                            // P0#13: debounce the search so rapid keystrokes
+                            // collapse into a single performSearch after 150ms of
+                            // quiet (termlib / ghostty-android adoption). The
+                            // previous pending search is cancelled by the
+                            // debouncer, not by re-launching a coroutine per
+                            // keystroke.
+                            searchDebouncer.submit {
+                                searchJob = scope.launch { performSearch() }
+                            }
                         },
                         resultCount = searchState.resultCount,
                         currentResultIndex = searchState.currentIndex,
@@ -774,6 +724,8 @@ fun TerminalScreen(
                         onClose = {
                             showTextSearch = false
                             searchState = SearchState()
+                            searchDebouncer.cancel()
+                            searchJob?.cancel()
                             surfaceRef.value?.searchActive = false
                             surfaceRef.value?.clearSearchHighlights()
                         },
@@ -864,14 +816,6 @@ fun TerminalScreen(
                         onShare =
                         if (selectionActive) {
                             { viewModel.shareSelection() }
-                        } else {
-                            null
-                        },
-                        onExport =
-                        if (selectionActive) {
-                            exportLauncher.let { launcher ->
-                                { launcher.launch("terminal_output.txt") }
-                            }
                         } else {
                             null
                         },

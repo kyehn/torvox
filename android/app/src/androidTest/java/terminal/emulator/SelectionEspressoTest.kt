@@ -23,8 +23,7 @@ import org.junit.runner.RunWith
  * Selection is driven through the existing broadcast intents
  * (terminal.emulator.PARTIAL_SELECT / SELECT_ALL / SHOW_PASTE) so the tests do not depend on
  * the GPU render thread or the emulator's long-press timing. The tests then assert that
- * the Compose overlays (SelectionMenuOverlay / PasteChipOverlay) are shown and that the
- * Copy action lands the selected text on the clipboard.
+ * the selection is active and that the Copy action lands the selected text on the clipboard.
  */
 @RunWith(AndroidJUnit4::class)
 @LargeTest
@@ -71,13 +70,18 @@ class SelectionEspressoTest {
     }
 
     @Test
-    fun emptyAreaLongPressShowsPasteChip() {
+    fun emptyAreaLongPressShowsPasteSelection() {
         sendSelectionBroadcast("terminal.emulator.SHOW_PASTE") {
             putExtra("row", 10)
             putExtra("col", 0)
         }
-        composeTestRule.onNodeWithTag("PasteChipOverlay").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Paste").assertIsDisplayed()
+        // Round-231: the PasteChipOverlay was removed; an empty-area
+        // long-press now shows a paste-only selection state.
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            val sel = activity.terminalViewModel.state.value.selection
+            assertTrue("Selection should be active", sel.active)
+            assertTrue("Expected a paste-only selection", sel.pasteOnly)
+        }
     }
 
     @Test

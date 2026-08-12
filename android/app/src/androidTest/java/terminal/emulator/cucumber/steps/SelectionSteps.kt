@@ -125,11 +125,15 @@ constructor(
     @Then("^the paste popup appears$")
     fun pastePopupAppears() {
         composeRuleHolder.composeRule.waitForIdle()
-        // The real paste popup is PasteChipOverlay; ModifierBar is always
-        // visible and would make this assertion tautological (round-104).
-        composeRuleHolder.composeRule
-            .onNodeWithTag("PasteChipOverlay", useUnmergedTree = true)
-            .assertIsDisplayed()
+        // Round-231: the PasteChipOverlay was removed together with paste
+        // confirmation; an empty-area long-press now produces a paste-only
+        // selection (SelectionManager.showPastePopup) with its floating
+        // Paste menu.
+        var pasteOnly = false
+        composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
+            pasteOnly = activity.terminalViewModel.state.value.selection.pasteOnly
+        }
+        assert(pasteOnly) { "Expected a paste-only selection" }
     }
 
     @Then("^the selection extends to the drag target$")

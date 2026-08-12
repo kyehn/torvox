@@ -138,6 +138,127 @@ pub(crate) fn apply_search_highlight(fg: &mut [f32; 4], bg: &mut [f32; 4], hl: [
     *bg = blend_highlight(*bg, hl);
 }
 
+/// Row-level instance cache for incremental rendering (FR-013 / NFR-010).
+///
+/// Mirrors the test-only reference in `old_path::build_cell_instances_into`
+/// (row_ends + per-row instance slices): after a build, `row_ends[r]` is the
+/// exclusive end index of row `r`'s instances in `instances`. Clean rows can
+/// then be copied from the previous frame instead of re-walking their cells
+/// through the font atlas (NFR-010: only repaint dirty rows).
+#[derive(Debug)]
+pub struct CachedInstances {
+    row_ends: Vec<usize>,
+    instances: Vec<CellInstance>,
+    rows: u32,
+    cols: u32,
+    /// Whether a build has ever populated this cache. A freshly created
+    /// cache (e.g. right after a resize) is dimensionally "compatible"
+    /// with the new grid but holds NO row data: serving "clean" rows from
+    /// it would copy 0 instances and drop rows (round-231 P2 regression).
+    built: bool,
+}
+
+impl CachedInstances {
+    pub fn new(rows: u32, cols: u32) -> Self {
+        Self {
+            row_ends: vec![0; rows as usize],
+            instances: Vec::new(),
+            rows,
+            cols,
+            built: false,
+        }
+    }
+
+    /// The full instance list of the last build (row-major, per `row_ends`).
+    pub fn instances(&self) -> &[CellInstance] {
+        &self.instances
+    }
+
+    /// Whether the cache still matches the current grid size (a resize
+    /// invalidates the row layout and forces a full rebuild) AND holds row
+    /// data from a previous build. An empty, never-built cache must not be
+    /// trusted for incremental serving.
+    pub fn is_compatible(&self, rows: u32, cols: u32) -> bool {
+        self.built && self.rows == rows && self.cols == cols && self.row_ends.len() == rows as usize
+    }
+
+    /// `[start, end)` instance slice belonging to `row`.
+    pub(crate) fn row_slice(&self, row: usize) -> (usize, usize) {
+        let start = if row == 0 { 0 } else { self.row_ends[row - 1] };
+        (start, self.row_ends[row])
+    }
+
+    /// Replace the cache contents after a build.
+    fn update(&mut self, rows: u32, cols: u32, instances: &[CellInstance], row_ends: Vec<usize>) {
+        self.rows = rows;
+        self.cols = cols;
+        self.row_ends = row_ends;
+        self.instances.clear();
+        self.instances.extend_from_slice(instances);
+        self.built = true;
+    }
+}
+
+/// Partition a flat, row-major `cell_data` slice into per-row ranges using
+/// the `CellData.row` field. Row lengths vary because wide/spacer cells are
+/// elided by the terminal; rows without cells map to empty ranges. Returns
+/// `None` when cells exist beyond `rows` (or the input is not row-major) —
+/// stale/mismatched data that must not be trusted for incremental builds.
+pub(crate) fn build_row_ranges(
+    cell_data: &[crate::terminal::ghostty_terminal::CellData],
+    rows: u32,
+) -> Option<Vec<std::ops::Range<usize>>> {
+    let mut ranges: Vec<std::ops::Range<usize>> = (0..rows as usize).map(|_| 0..0).collect();
+    let mut current = 0usize;
+    for (r, range) in ranges.iter_mut().enumerate() {
+        let start = current;
+        while current < cell_data.len() && cell_data[current].row as usize == r {
+            current += 1;
+        }
+        *range = start..current;
+    }
+    if current < cell_data.len() {
+        return None;
+    }
+    Some(ranges)
+}
+
+/// Bytewise comparison of two per-row cell slices. `CellData` is a POD
+/// bytemuck struct, so this is valid and faster than a field-by-field diff.
+fn rows_equal(
+    old: &[crate::terminal::ghostty_terminal::CellData],
+    new: &[crate::terminal::ghostty_terminal::CellData],
+) -> bool {
+    let a: &[u8] = bytemuck::cast_slice(old);
+    let b: &[u8] = bytemuck::cast_slice(new);
+    a == b
+}
+
+/// Derive a per-row dirty mask by diffing two consecutive CellData
+/// snapshots. Row boundaries come from `build_row_ranges`; on degenerate
+/// input (row ranges unbuildable) everything is conservatively dirty.
+pub(crate) fn diff_dirty_rows(
+    old: &[crate::terminal::ghostty_terminal::CellData],
+    new: &[crate::terminal::ghostty_terminal::CellData],
+    rows: u32,
+) -> Vec<bool> {
+    let mut dirty = vec![false; rows as usize];
+    let (Some(old_ranges), Some(new_ranges)) =
+        (build_row_ranges(old, rows), build_row_ranges(new, rows))
+    else {
+        dirty.fill(true);
+        return dirty;
+    };
+    for r in 0..rows as usize {
+        let o = &old[old_ranges[r].clone()];
+        let n = &new[new_ranges[r].clone()];
+        if !rows_equal(o, n) {
+            dirty[r] = true;
+        }
+    }
+    dirty
+}
+
 /// Convert pre-built `CellData` slices into GPU instance data.
 ///
 /// Takes selection and search highlight parameters so the renderer can
@@ -161,6 +282,89 @@ pub fn build_instances_from_cell_data(
     // renders the highlight; the parameter is kept for API stability.
     _selection_bg: Option<[f32; 4]>,
     search_highlights: &[SearchHighlight],
+    instances: &mut Vec<CellInstance>,
+) -> Option<()> {
+    build_row_instances_into(
+        cell_data,
+        rows,
+        cols,
+        grid_cell_w,
+        grid_cell_h,
+        cursor,
+        font_pipeline,
+        atlas_width,
+        atlas_height,
+        selection,
+        search_highlights,
+        None,
+        None,
+        instances,
+    )
+}
+
+/// Incremental variant of [`build_instances_from_cell_data`] (row-level
+/// dirty caching, FR-013 / NFR-010): only rows flagged in `dirty_rows` are
+/// rebuilt; clean rows are copied verbatim from `cache`. `cache` is updated
+/// in place so the next frame can reuse it. A dirty mask shorter than
+/// `rows`, or a cache incompatible with the grid size, degrades to a full
+/// rebuild of every row.
+#[allow(clippy::too_many_arguments)]
+pub fn build_instances_cached(
+    cell_data: &[crate::terminal::ghostty_terminal::CellData],
+    rows: u32,
+    cols: u32,
+    grid_cell_w: f32,
+    grid_cell_h: f32,
+    cursor: CellCursor,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+    atlas_width: f32,
+    atlas_height: f32,
+    selection: Option<SelectionRange>,
+    // Round-216: kept for API symmetry with build_instances_from_cell_data.
+    _selection_bg: Option<[f32; 4]>,
+    search_highlights: &[SearchHighlight],
+    dirty_rows: &[bool],
+    cache: &mut CachedInstances,
+    instances: &mut Vec<CellInstance>,
+) -> Option<()> {
+    build_row_instances_into(
+        cell_data,
+        rows,
+        cols,
+        grid_cell_w,
+        grid_cell_h,
+        cursor,
+        font_pipeline,
+        atlas_width,
+        atlas_height,
+        selection,
+        search_highlights,
+        Some(dirty_rows),
+        Some(cache),
+        instances,
+    )
+}
+
+/// Shared implementation behind the full and incremental builders.
+///
+/// Builds quad instances for every grid row. When `dirty_rows` and `cache`
+/// are supplied and coherent, clean rows copy their cached instances
+/// instead of re-walking their cells through the font atlas.
+#[allow(clippy::too_many_arguments)]
+fn build_row_instances_into(
+    cell_data: &[crate::terminal::ghostty_terminal::CellData],
+    rows: u32,
+    cols: u32,
+    grid_cell_w: f32,
+    grid_cell_h: f32,
+    cursor: CellCursor,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+    atlas_width: f32,
+    atlas_height: f32,
+    selection: Option<SelectionRange>,
+    search_highlights: &[SearchHighlight],
+    dirty_rows: Option<&[bool]>,
+    mut cache: Option<&mut CachedInstances>,
     instances: &mut Vec<CellInstance>,
 ) -> Option<()> {
     // Quad geometry uses GRID cell dimensions (surface/rows, surface/cols),
@@ -197,7 +401,62 @@ pub fn build_instances_from_cell_data(
         }
     }
 
-    for cd in cell_data {
+    // Partition into per-row ranges once; used for both the incremental
+    // dirty-row decision and the per-row iteration below.
+    let row_ranges = build_row_ranges(cell_data, rows)?;
+    let incremental = dirty_rows.is_some_and(|d| d.len() >= rows as usize)
+        && cache.as_ref().is_some_and(|c| c.is_compatible(rows, cols));
+
+    let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
+    for (row, range) in row_ranges.iter().enumerate() {
+        if incremental && !dirty_rows.unwrap()[row] {
+            // Clean row: reuse the instances built last frame (NFR-010).
+            let (cs, ce) = cache.as_ref().unwrap().row_slice(row);
+            instances.extend_from_slice(&cache.as_ref().unwrap().instances()[cs..ce]);
+        } else {
+            append_row_instances(
+                cell_w,
+                cell_h,
+                ascent_pixels,
+                raster_scale,
+                atlas_width,
+                atlas_height,
+                cursor,
+                selection,
+                &highlights_by_row,
+                cols,
+                font_pipeline,
+                instances,
+                &cell_data[range.clone()],
+            );
+        }
+        row_ends.push(instances.len());
+    }
+    if let Some(c) = cache.as_mut() {
+        c.update(rows, cols, &instances[..], row_ends);
+    }
+    Some(())
+}
+
+/// Build instances for one grid row. Shared by the full and incremental
+/// builders so the cell-level logic stays identical in both paths.
+#[allow(clippy::too_many_arguments)]
+fn append_row_instances(
+    cell_w: f32,
+    cell_h: f32,
+    ascent_pixels: f32,
+    raster_scale: f32,
+    atlas_width: f32,
+    atlas_height: f32,
+    cursor: CellCursor,
+    selection: Option<SelectionRange>,
+    highlights_by_row: &HashMap<i32, Vec<&SearchHighlight>, RandomState>,
+    cols: u32,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+    instances: &mut Vec<CellInstance>,
+    cell_row: &[crate::terminal::ghostty_terminal::CellData],
+) {
+    for cd in cell_row {
         // Validate codepoint before conversion — invalid values should be
         // caught in debug builds so terminal-content bugs don't hide.
         debug_assert!(
@@ -233,7 +492,7 @@ pub fn build_instances_from_cell_data(
             std::mem::swap(&mut fg_color, &mut bg_color);
         }
         // Search highlight overlay (applied on top of selection)
-        if let Some(hl) = cell_highlight(cd.row, cd.col, &highlights_by_row) {
+        if let Some(hl) = cell_highlight(cd.row, cd.col, highlights_by_row) {
             apply_search_highlight(&mut fg_color, &mut bg_color, *hl);
         }
         let is_cursor = cursor.visible && cd.row == cursor.row && cd.col == cursor.col;
@@ -465,7 +724,6 @@ pub fn build_instances_from_cell_data(
             });
         }
     }
-    Some(())
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -823,6 +1081,241 @@ mod tests {
         assert!(
             !block_sel.contains(1, 3, 80),
             "Block mode bounds the column"
+        );
+    }
+
+    /// Field-by-field comparison (CellInstance does not derive PartialEq).
+    fn instances_equal(a: &[CellInstance], b: &[CellInstance]) -> bool {
+        a.len() == b.len()
+            && a.iter().zip(b).all(|(x, y)| {
+                x.quad_origin == y.quad_origin
+                    && x.atlas_offset == y.atlas_offset
+                    && x.atlas_size == y.atlas_size
+                    && x.fg_color == y.fg_color
+                    && x.bg_color == y.bg_color
+                    && x.quad_size == y.quad_size
+                    && x.flags == y.flags
+                    && x.bearing == y.bearing
+                    && x.glyph_advance_width == y.glyph_advance_width
+            })
+    }
+
+    /// Incremental path (build_instances_cached): a frame that only dirties
+    /// row 2 must produce exactly the instances of a full rebuild, with the
+    /// clean rows served from the cache (NFR-010: only repaint dirty rows).
+    #[test]
+    fn cached_incremental_rebuild_matches_full_build() {
+        let mk = |row: u32, ch: char| {
+            cell_data(row, 0, ch, [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)
+        };
+        let cells: Vec<CellData> = (0..24).map(|r| mk(r, 'a')).collect();
+        let cursor = CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: CursorStyle::Block,
+            color: None,
+        };
+
+        // Frame 1: full dirty pass seeds the cache.
+        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        let mut instances = Vec::new();
+        let mut cache = CachedInstances::new(24, 80);
+        let all_dirty = vec![true; 24];
+        let ok = build_instances_cached(
+            &cells,
+            24,
+            80,
+            1024.0 / 80.0,
+            1024.0 / 24.0,
+            cursor,
+            &mut font_pipeline,
+            1024.0,
+            1024.0,
+            None,
+            None,
+            &[],
+            &all_dirty,
+            &mut cache,
+            &mut instances,
+        );
+        assert!(ok.is_some(), "initial full build should succeed");
+        let full_frame1 = build(&cells, cursor, None, None, &[]);
+        assert!(
+            instances_equal(&instances, &full_frame1),
+            "initial build equals a full build"
+        );
+
+        // Frame 2: only row 2 changes; all other rows must be served from
+        // the cache and the result must still equal a full rebuild.
+        let mut cells2 = cells.clone();
+        cells2[2] = mk(2, 'z');
+        let mut dirty = vec![false; 24];
+        dirty[2] = true;
+        instances.clear();
+        let ok = build_instances_cached(
+            &cells2,
+            24,
+            80,
+            1024.0 / 80.0,
+            1024.0 / 24.0,
+            cursor,
+            &mut font_pipeline,
+            1024.0,
+            1024.0,
+            None,
+            None,
+            &[],
+            &dirty,
+            &mut cache,
+            &mut instances,
+        );
+        assert!(ok.is_some(), "incremental build should succeed");
+        let full_frame2 = build(&cells2, cursor, None, None, &[]);
+        assert!(
+            instances_equal(&instances, &full_frame2),
+            "incremental result must match a full rebuild"
+        );
+        // The cache now holds frame 2's instances for the next frame.
+        assert!(
+            instances_equal(cache.instances(), &instances),
+            "cache must be refreshed with the latest instances"
+        );
+    }
+
+    /// Degenerate incremental inputs (stale cache grid size or a dirty mask
+    /// shorter than the grid) must fall back to a full rebuild instead of
+    /// serving stale rows.
+    #[test]
+    fn cached_degraded_input_falls_back_to_full_rebuild() {
+        let cells: Vec<CellData> = (0..24)
+            .map(|r| cell_data(r, 0, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
+            .collect();
+        let cursor = CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: CursorStyle::Block,
+            color: None,
+        };
+        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        let full = build(&cells, cursor, None, None, &[]);
+
+        // Stale cache: built for a 12-row grid while the grid has 24 rows.
+        let mut cache = CachedInstances::new(12, 80);
+        let mut instances = Vec::new();
+        let ok = build_instances_cached(
+            &cells,
+            24,
+            80,
+            1024.0 / 80.0,
+            1024.0 / 24.0,
+            cursor,
+            &mut font_pipeline,
+            1024.0,
+            1024.0,
+            None,
+            None,
+            &[],
+            &vec![true; 24],
+            &mut cache,
+            &mut instances,
+        );
+        assert!(ok.is_some());
+        assert!(
+            instances_equal(&instances, &full),
+            "stale cache must force a full rebuild"
+        );
+
+        // Dirty mask shorter than the grid (only 10 rows).
+        let mut cache2 = CachedInstances::new(24, 80);
+        instances.clear();
+        let ok = build_instances_cached(
+            &cells,
+            24,
+            80,
+            1024.0 / 80.0,
+            1024.0 / 24.0,
+            cursor,
+            &mut font_pipeline,
+            1024.0,
+            1024.0,
+            None,
+            None,
+            &[],
+            &[true; 10],
+            &mut cache2,
+            &mut instances,
+        );
+        assert!(ok.is_some());
+        assert!(
+            instances_equal(&instances, &full),
+            "a too-short dirty mask must force a full rebuild"
+        );
+    }
+
+    /// Round-231 P2 regression: a cache that no longer matches the grid
+    /// (e.g. a cols-only resize keeps rows identical) combined with a
+    /// PARTIAL dirty mask must still produce a full rebuild. A freshly
+    /// re-created empty cache looks "compatible" (same rows/cols fields),
+    /// so serving "clean" rows from it would copy 0 instances and drop
+    /// those rows from the frame. The caller (pass.rs) is responsible for
+    /// substituting an all-true mask when it rebuilds the cache; this test
+    /// pins the degenerate combination so it can never silently pass.
+    #[test]
+    fn stale_cache_with_partial_mask_must_not_drop_rows() {
+        let cells: Vec<CellData> = (0..24)
+            .map(|r| cell_data(r, 0, 'x', [1.0; 4], [0.0, 0.0, 0.0, 1.0], 0))
+            .collect();
+        let cursor = CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: CursorStyle::Block,
+            color: None,
+        };
+        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        let full = build(&cells, cursor, None, None, &[]);
+
+        // Simulate the resize frame: cache was built for 24x40 but the grid
+        // is now 24x80 (cols-only change). A re-created empty cache for
+        // 24x80 is "compatible" by dimensions, yet holds no row data.
+        let mut cache = CachedInstances::new(24, 80);
+        let mut instances = Vec::new();
+        // Partial mask: only row 2 is dirty (as produced by the cell diff
+        // path when only one row's bytes changed).
+        let mut mask = vec![false; 24];
+        mask[2] = true;
+        let ok = build_instances_cached(
+            &cells,
+            24,
+            80,
+            1024.0 / 80.0,
+            1024.0 / 24.0,
+            cursor,
+            &mut font_pipeline,
+            1024.0,
+            1024.0,
+            None,
+            None,
+            &[],
+            &mask,
+            &mut cache,
+            &mut instances,
+        );
+        assert!(ok.is_some());
+        // Every row must be present: an empty cache serving "clean" rows
+        // would produce 0 instances for the 23 clean rows.
+        assert_eq!(
+            instances.len(),
+            full.len(),
+            "partial mask on an empty cache must not drop rows (got {} vs {})",
+            instances.len(),
+            full.len()
+        );
+        assert!(
+            instances_equal(&instances, &full),
+            "result must equal a full rebuild on cache mismatch"
         );
     }
 }

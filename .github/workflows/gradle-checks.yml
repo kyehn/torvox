@@ -1,4 +1,4 @@
-name: Android Tests
+name: gradle-checks
 on:
   push:
     branches: [main]
@@ -6,8 +6,6 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
-permissions:
-  contents: read
 jobs:
   gradle-checks:
     runs-on: ubuntu-latest
@@ -29,15 +27,10 @@ jobs:
           path: |
             ~/.gradle/caches/
             ~/.gradle/wrapper/
-          key: ${{ runner.os }}-gradle-${{ hashFiles('android/**/*.gradle*', 'android/**/gradle-wrapper.properties') }}
+          key: ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: |
-            ${{ runner.os }}-gradle-
-      - run: |
-          scripts/test-android-gradle.nu
-        env:
-          NIXPKGS_ALLOW_UNFREE: "1"
-          NIXPKGS_ALLOW_INSECURE: "1"
-          NIXPKGS_ACCEPT_ANDROID_SDK_LICENSE: "1"
+            ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-
+      - run: scripts/test-android-gradle.nu
       - uses: actions/upload-artifact@main
         if: always()
         continue-on-error: true

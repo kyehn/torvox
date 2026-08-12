@@ -614,7 +614,7 @@ needed.
 ### FR-052: 16 Built-In Color Themes
 
 **Requirement**: The system SHALL provide 16 built-in color themes (see FR-054
-in `docs/srs.md` for the full list).
+in `docs/requirements/`（StrictDoc .sdoc） for the full list).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|

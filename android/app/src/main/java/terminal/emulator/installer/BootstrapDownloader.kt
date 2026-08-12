@@ -38,6 +38,9 @@ class BootstrapDownloader(
         // script is executed, so the download must be authenticated.
         // Plain-http is trivially MITM-able; the default URL already ships
         // https, so rejecting http costs nothing for legitimate users.
+        // (User ruling, rejected-technologies.md #10: "support HTTP download"
+        // means network download as opposed to embedded — https is its safe
+        // implementation; plaintext http stays rejected.)
         if (!url.startsWith("https://", ignoreCase = true)) {
             return@withContext Result.failure(
                 Exception("Bootstrap URL must be https (got non-https URL)"),

@@ -52,6 +52,8 @@ impl super::GhosttyTerminal {
         let snapshot_rebuild_count_for_run = snapshot_rebuild_count.clone();
         let panicked = Arc::new(AtomicBool::new(false));
         let panicked_for_run = panicked.clone();
+        let alt_screen_active = Arc::new(AtomicBool::new(false));
+        let alt_screen_active_for_run = alt_screen_active.clone();
         let handle = thread::Builder::new()
             .name("ghostty-terminal".into())
             .spawn(move || {
@@ -67,6 +69,7 @@ impl super::GhosttyTerminal {
                         ansi_colors: initial_ansi,
                         response_buffer: pty_for_run,
                         snapshot_rebuild_count: snapshot_rebuild_count_for_run,
+                        alt_screen_active: alt_screen_active_for_run,
                         cell_data_tx: Some(cell_data_tx),
                     })
                 }));
@@ -99,6 +102,7 @@ impl super::GhosttyTerminal {
             panicked,
             last_pty_write_byte: 0,
             last_in_string_mode: false,
+            alt_screen_active,
         })
     }
 
@@ -612,6 +616,15 @@ impl super::GhosttyTerminal {
 
     pub fn is_alt_screen_active(&self) -> bool {
         self.alt_screen()
+    }
+
+    /// Lock-free read of the alternate-screen mirror, updated by the VT thread
+    /// on every `Command::AltScreen` query. Safe to call from the Android
+    /// input path on every touch-scroll event without blocking the UI thread
+    /// (unlike `is_alt_screen_active`, which round-trips through the VT
+    /// thread via a query RPC).
+    pub fn alt_screen_active_atomic(&self) -> bool {
+        self.alt_screen_active.load(Ordering::Acquire)
     }
 
     pub fn title(&self) -> String {

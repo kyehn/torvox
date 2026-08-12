@@ -1,8 +1,14 @@
-# 0011 — Testing Strategy
+# 11. Testing Strategy
 
-- **Status**: Accepted
-- **Date**: 2026-09-05
-- **Requirement IDs**: NFR-020, NFR-026, NFR-027, NFR-028, NFR-029, FR-017
+## Status
+
+Accepted
+
+Date: 2026-09-05
+
+## Requirement IDs
+
+NFR-020, NFR-026, NFR-027, NFR-028, NFR-029, FR-017
 
 ## Context
 
@@ -170,3 +176,11 @@ No PR merges without all gates passing.
   atlas layout changes — requires manual visual inspection
 - lavapipe/SwiftShader output may differ slightly from real GPU output —
   tolerance thresholds need occasional tuning
+
+## Compliance
+
+- `cargo test --workspace` must pass before every commit
+- `cargo clippy --all -- --deny warnings` enforced in CI
+- GPU snapshot tests require Lavapipe (VK_ICD_FILENAMES) or real GPU
+- Tier 3 emulator tests run in CI only (`scripts/test-emulator.nu`)
+- Test count tracked in `docs/traceability.yml`

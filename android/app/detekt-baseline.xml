@@ -18,7 +18,7 @@
     <ID>CyclomaticComplexMethod:BootstrapDownloader.kt$BootstrapDownloader$suspend fun download( url: String, arch: String, ): Result&lt;File></ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun controlByteForKeyCode(keyCode: Int): Byte?</ID>
     <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun csiSequenceWithModifier( keyCode: Int, ctrlActive: Boolean, altActive: Boolean, ): String?</ID>
-    <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun escapeSequenceForKeyCode( keyCode: Int, ctrlActive: Boolean, altActive: Boolean, ): String?</ID>
+    <ID>CyclomaticComplexMethod:TerminalInputEncoder.kt$TerminalInputEncoder$private fun escapeSequenceForKeyCode( keyCode: Int, ctrlActive: Boolean, altActive: Boolean, appCursorMode: Boolean, ): String?</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun activateReplacementSession( newId: Long, caller: String, markRunning: Boolean, withRetry: Boolean, syncGrid: Boolean, )</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private fun switchSessionInternal( id: Long, surface: Surface, width: Int, height: Int, )</ID>
     <ID>CyclomaticComplexMethod:TerminalRuntime.kt$TerminalRuntime$private suspend fun createSessionInner( surface: Surface, width: Int, height: Int, ): Long</ID>

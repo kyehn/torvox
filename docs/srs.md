@@ -163,6 +163,47 @@ The primary users are:
 - **No `Canvas.drawText` per cell**: Rendering must not use per-cell software
   text drawing; the GPU pipeline is mandatory.
 
+### 2.5 Project Charter（项目章程，吸收自 `docs/charter.md`，原文已删除）
+
+**Mission**: Build a GPU-accelerated Android terminal emulator using Vulkan (via
+wgpu), Ghostty's vendored VT parser, and Kotlin + Compose UI.
+
+**Core Goals**:
+
+1. **GPU-accelerated rendering** — no CPU software fallback, only wgpu/Vulkan.
+   Mesa Lavapipe for headless Linux, SwiftShader for emulator guest GPU.
+2. **Full VT5xx+ compliance** — vendored Ghostty parser handles all escape
+   sequences, scrollback, SGR, DEC modes, Kitty keyboard protocol, OSC.
+3. **Low-latency input** — separate PTY reader and input writer threads,
+   Kitty keyboard protocol, IME pixel-stable layout.
+4. **Android-first** — Kotlin + Compose, JNI bridge, package name `com.termux`
+   (Termux add-on compatibility).
+5. **AI agent integration** — MCP server over Unix socket + stdio (tower-mcp).
+
+**Target Users**: Android developers needing a native terminal for debugging,
+Git, adb; Termux users relying on the existing Termux ecosystem; SSH/Mosh users
+connecting to remote servers from Android; AI-assisted developers using AI
+coding agents (Codex CLI, OpenCode, etc.) that consume MCP services.
+
+**Design Philosophy**:
+
+- GPU-accelerated everywhere (no `Canvas.drawText`, no CPU fallback)
+- Deterministic Nix builds (no `sdkmanager`, no runtime discovery)
+- Test closest to source (Rust-side over Android-side, state over pixels)
+- Keep it simple: one `native/` crate, JNI direct bridge (no boltffi/JNA),
+  embedded MCP (no standalone server)
+
+**Out of Scope**（补充 §1.2）: Java files (Kotlin only on Android side);
+`portable-pty` / `bincode` / `rust-android-gradle` packages; CPU/Canvas
+rendering fallback; desktop builds (Linux builds for CI/testing only); bundled
+fonts (uses system fonts).
+
+**Key Technical Constraints**（补充 §2.4）: zero `unsafe` in the terminal
+module（仅 `pty.rs` 与 FFI 允许，且须 `// SAFETY:`）；`anyhow` forbidden in
+library code (`thiserror 2`)；naming = full words only（无缩写）；
+scripts = Nushell only；MCP embedded in `native/`；AOSP testkey only
+（self-signing forbidden）；package name `com.termux` — do not change。
+
 ---
 
 ## 3. Functional Requirements

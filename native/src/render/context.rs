@@ -119,6 +119,21 @@ pub struct Renderer {
     /// CPU-side instance buffer reused across frames (avoids a ~100KB
     /// allocation per frame; see build_instances_from_cell_data).
     pub(crate) cpu_instances: Vec<crate::render::CellInstance>,
+    /// Row-dirty instance cache (FR-013 / NFR-010): retains per-row
+    /// instance slices so clean rows are copied instead of rebuilt.
+    pub(crate) cell_cache: Option<crate::render::cell_builder::CachedInstances>,
+    /// Reusable all-true dirty mask (length = current grid rows) for the
+    /// frame where `cell_cache` was just rebuilt from scratch (resize):
+    /// serving "clean" rows from an empty cache would drop them
+    /// (round-231 P2 regression fix).
+    pub(crate) cell_full_mask_cache: Vec<bool>,
+    pub(crate) flash_pipeline: Option<wgpu::RenderPipeline>,
+    pub(crate) flash_uniform_buffer: Option<wgpu::Buffer>,
+    pub(crate) flash_bind_group: Option<wgpu::BindGroup>,
+    /// Bell-flash overlay phase in 0..=1 (0 = off). The Kotlin side
+    /// drives the decay animation; the renderer only composites a white
+    /// full-screen quad at `BELL_FLASH_ALPHA_255/255 * phase`.
+    pub(crate) flash_phase: f32,
     pub(crate) atlas_texture: Option<wgpu::Texture>,
     pub(crate) atlas_view: Option<wgpu::TextureView>,
     pub(crate) atlas_sampler: Option<wgpu::Sampler>,
@@ -130,6 +145,9 @@ pub struct Renderer {
     pub(crate) bg_color: wgpu::Color,
     pub(crate) bg_image_texture: Option<wgpu::Texture>,
     pub(crate) bg_image_view: Option<wgpu::TextureView>,
+    /// Source background image size in pixels (set by `set_bg_image`);
+    /// consumed by the bg uniforms for the cover (center-crop) mapping.
+    pub(crate) bg_image_size: [f32; 2],
     pub(crate) bg_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) bg_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub(crate) bg_bind_group: Option<wgpu::BindGroup>,
@@ -255,6 +273,9 @@ impl Drop for Renderer {
         self.bg_pipeline = None;
         self.bg_image_view = None;
         self.bg_image_texture = None;
+        self.flash_pipeline = None;
+        self.flash_uniform_buffer = None;
+        self.flash_bind_group = None;
         self.atlas_view = None;
         self.atlas_sampler = None;
         self.atlas_texture = None;
@@ -294,6 +315,12 @@ impl Renderer {
             cell_uniform_buffer: None,
             instance_buffer: None,
             cpu_instances: Vec::new(),
+            cell_cache: None,
+            cell_full_mask_cache: Vec::new(),
+            flash_pipeline: None,
+            flash_uniform_buffer: None,
+            flash_bind_group: None,
+            flash_phase: 0.0,
             atlas_texture: None,
             atlas_view: None,
             atlas_sampler: None,
@@ -305,6 +332,7 @@ impl Renderer {
             bg_color: CATPPUCCIN_MOCHA_BG,
             bg_image_texture: None,
             bg_image_view: None,
+            bg_image_size: [0.0; 2],
             bg_pipeline: None,
             bg_bind_group_layout: None,
             bg_bind_group: None,
@@ -587,13 +615,24 @@ impl Renderer {
         );
         self.bg_image_view = Some(tex.create_view(&wgpu::TextureViewDescriptor::default()));
         self.bg_image_texture = Some(tex);
+        self.bg_image_size = [width as f32, height as f32];
         self.bg_bind_group = None;
     }
 
     pub fn clear_bg_image(&mut self) {
         self.bg_image_view = None;
         self.bg_image_texture = None;
+        self.bg_image_size = [0.0; 2];
         self.bg_bind_group = None;
+    }
+
+    /// Set the bell-flash overlay phase (0.0 = off, 1.0 = peak flash).
+    /// The Kotlin side drives the decay animation; the renderer only
+    /// composites a white full-screen quad at an alpha proportional to
+    /// `phase` (see `BELL_FLASH_ALPHA_255`). Any-thread entry point; the
+    /// value is stored and consumed on the render thread.
+    pub fn set_flash_phase(&mut self, phase: f32) {
+        self.flash_phase = phase.max(0.0);
     }
 
     pub fn set_kgp_atlas(&mut self, rgba_data: &[u8], width: u32, height: u32) {

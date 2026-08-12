@@ -44,6 +44,7 @@ use parking_lot::Mutex;
 use std::fs::File;
 use std::io::Read;
 use std::os::unix::io::AsRawFd;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::Duration;
@@ -220,8 +221,20 @@ impl Session {
     }
 
     /// Spawn a new session with the default Catppuccin Mocha theme.
-    pub fn spawn(shell: &str, rows: u32, cols: u32, env: &ShellEnv) -> Result<Self, SessionError> {
-        Self::spawn_with_theme(shell, rows, cols, env, ThemeConfig::default())
+    ///
+    /// `cwd` optionally overrides the child's initial working directory
+    /// (termux `createSubprocess(workingDirectory)` semantics). `None`
+    /// keeps the legacy behavior: chdir to `env.working_directory`. A cwd
+    /// that is missing or not a directory is logged to stderr by the child
+    /// but does not fail spawn (matches shell behavior).
+    pub fn spawn(
+        shell: &str,
+        rows: u32,
+        cols: u32,
+        env: &ShellEnv,
+        cwd: Option<&Path>,
+    ) -> Result<Self, SessionError> {
+        Self::spawn_with_theme(shell, rows, cols, env, cwd, ThemeConfig::default())
     }
 
     /// Spawn a new session with a custom theme and scrollback buffer size.
@@ -230,16 +243,17 @@ impl Session {
         rows: u32,
         cols: u32,
         env: &ShellEnv,
+        cwd: Option<&Path>,
         theme: ThemeConfig,
     ) -> Result<Self, SessionError> {
-        log::info!("Session::spawn: shell='{shell}', rows={rows}, cols={cols}");
+        log::info!("Session::spawn: shell='{shell}', rows={rows}, cols={cols}, cwd={cwd:?}");
         // Reject out-of-range dimensions up front (mirrors resize's
         // InvalidDimensions check): `as u16` below would silently truncate
         // and the cached grid_size would then disagree with the PTY.
         if !(u16::try_from(rows).is_ok() && u16::try_from(cols).is_ok()) {
             return Err(SessionError::InvalidDimensions);
         }
-        let pty = match PtyPair::spawn(shell, rows as u16, cols as u16, env) {
+        let pty = match PtyPair::spawn(shell, rows as u16, cols as u16, env, cwd) {
             Ok(p) => {
                 log::info!("Session::spawn: PtyPair::spawn OK");
                 p
@@ -497,6 +511,17 @@ impl Session {
         Ok(ResizeOutcome::Applied)
     }
 
+    /// Update the PTY winsize pixel fields (`ws_xpixel`/`ws_ypixel`) via
+    /// TIOCSWINSZ, preserving the current rows/cols. ghostty-android
+    /// `pty_jni.c:84-87`: pixel-aware programs (`icat`, fullscreen TUIs)
+    /// read the pixel size from TIOCGWINSZ and fall back to a wrong default
+    /// cell size when it is 0. The cached rows/cols are preserved because
+    /// TIOCSWINSZ replaces the whole struct (see `Pty::set_pixel_size`).
+    pub fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), SessionError> {
+        self.pty.set_pixel_size(width, height)?;
+        Ok(())
+    }
+
     /// Lock-free read of the last known grid size (spawn/resize). Never
     /// blocks: the VT thread's authoritative size is only reachable via a
     /// query RPC, which callers holding the registry write lock must avoid.
@@ -750,6 +775,14 @@ impl Session {
 
     /// Get the current working directory of the child process.
     pub fn cwd(&self) -> String {
+        // Live /proc/<pid>/cwd first: reflects in-shell `cd` even without
+        // OSC 7 emission, and self-heals when the shell chdirs after spawn
+        // (deferred D5: getCwd /proc refresh). Falls back to the OSC 7
+        // cached value, then the ghostty terminal query, when the process
+        // is dead, unreadable (SELinux), or on non-Linux hosts.
+        if let Some(cwd) = Session::read_proc_cwd(self.pty.child_pid()) {
+            return cwd;
+        }
         let guard = self.cwd.lock();
         if let Some(tracked) = guard.as_ref() {
             return tracked.clone();
@@ -757,8 +790,29 @@ impl Session {
         self.terminal.cwd()
     }
 
+    /// Read `/proc/<pid>/cwd` for a live child process. Returns `None` for
+    /// pid ≤ 0, dead processes, SELinux-restricted readers, and non-Linux
+    /// hosts — callers fall back to the OSC 7 tracked cwd.
+    fn read_proc_cwd(pid: nix::unistd::Pid) -> Option<String> {
+        let raw = pid.as_raw();
+        if raw <= 0 {
+            return None;
+        }
+        std::fs::read_link(format!("/proc/{raw}/cwd"))
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned())
+    }
+
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
         self.terminal.mode_get(mode_num, kind)
+    }
+
+    /// Drains the OSC 133 `last_command_output` buffer (text between
+    /// prompt-end and command-finished markers). termlib
+    /// `getLastCommandOutput` equivalent (research-supplement-4.md §1.2);
+    /// the buffer is cleared on take so repeated queries see fresh data.
+    pub(crate) fn take_last_command_output(&mut self) -> String {
+        self.output_processor.take_last_command_output()
     }
 
     pub fn focus_event(&mut self, focused: bool) {
@@ -893,7 +947,7 @@ mod tests {
     #[test]
     fn session_spawn_and_exit() {
         let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         session.write(b"exit\n").expect("write failed");
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         drain_output(&mut session, deadline);
@@ -903,7 +957,7 @@ mod tests {
     #[test]
     fn session_echo_hello() {
         let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         session.write(b"echo hello_p12\n").expect("write failed");
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         let mut found = false;
@@ -929,7 +983,7 @@ mod tests {
     #[test]
     fn session_resize() {
         let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         session.resize(40, 120).expect("resize failed");
         assert_eq!(session.terminal().rows(), 40);
         assert_eq!(session.terminal().cols(), 120);
@@ -1001,7 +1055,7 @@ mod tests {
     #[test]
     fn session_resize_dirty_same_size_still_retries() {
         let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         // Simulate a dropped grid command: dirty set, cache at old size.
         session.grid_dirty.store(true, Ordering::Release);
         // Same-size resize must NOT short-circuit: it re-issues the ioctl +
@@ -1015,7 +1069,7 @@ mod tests {
     #[test]
     fn session_resize_dirty_cleared_on_success() {
         let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         session.grid_dirty.store(true, Ordering::Release);
         // A genuinely different size clears the dirty flag on success.
         let outcome = session.resize(40, 120).expect("resize failed");
@@ -1027,7 +1081,7 @@ mod tests {
     #[test]
     fn session_after_exit_returns_error() {
         let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         session.write(b"exit\n").expect("write failed");
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         drain_output(&mut session, deadline);
@@ -1213,6 +1267,24 @@ mod tests {
     }
 
     #[test]
+    fn read_proc_cwd_live_pid_returns_cwd() {
+        // /proc/<pid>/cwd is Linux-only; other hosts fall back to OSC 7.
+        if std::path::Path::new("/proc/self/cwd").exists() {
+            let cwd = Session::read_proc_cwd(nix::unistd::Pid::from_raw(
+                std::process::id() as libc::pid_t,
+            ))
+            .expect("live /proc/<pid>/cwd must resolve");
+            assert!(cwd.starts_with('/'), "cwd must be absolute: {cwd}");
+        }
+    }
+
+    #[test]
+    fn read_proc_cwd_invalid_pid_returns_none() {
+        // Above PID_MAX_LIMIT — same sentinel MockPty uses — always ESRCH.
+        assert_eq!(Session::read_proc_cwd(nix::unistd::Pid::from_raw(4_194_305)), None);
+    }
+
+    #[test]
     fn session_mode_get_default_false() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
@@ -1343,7 +1415,7 @@ mod tests {
     #[test]
     fn tee_channel_receives_data() {
         let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         // Take the tee receiver
         let tee_rx = session.take_tee_receiver().expect("tee_rx should exist");
         assert!(
@@ -1381,7 +1453,7 @@ mod tests {
     #[test]
     fn tee_channel_single_take() {
         let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         let rx1 = session
             .take_tee_receiver()
             .expect("first take should succeed");

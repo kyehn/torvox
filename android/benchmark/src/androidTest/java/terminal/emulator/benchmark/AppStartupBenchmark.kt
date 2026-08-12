@@ -16,7 +16,7 @@ import org.junit.runner.RunWith
  * measurements live in the Rust bench suite (render/terminal benches) and
  * the JNI integration tests; a device-side microbenchmark of raw JNI
  * round-trips would need a benchmark APK sharing the app process and is
- * tracked as a follow-up (docs/test-coverage-audit.md P1-7).
+ * tracked as a follow-up (docs/rejected-technologies.md §7c D22 area).
  */
 @RunWith(AndroidJUnit4::class)
 class AppStartupBenchmark {

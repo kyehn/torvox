@@ -70,3 +70,4 @@ generated-patches/
 
 # round-214: user-mandated test artifacts (screenshots/video for selection verification)
 !test-artifacts/
+

@@ -426,6 +426,40 @@ impl Renderer {
         }
         #[cfg(debug_assertions)]
         encoder.pop_debug_group(); // Draw Cells
+
+        // ── Bell flash overlay ──────────────────────────────────────────
+        // Drawn above cells and kitty graphics; alpha decays with the phase
+        // that Kotlin pushes via `setFlashState` (phase 0 = nothing drawn).
+        // Runs only when the phase is non-zero so the hot frame path is
+        // untouched otherwise.
+        if self.flash_phase > 0.0 {
+            self.ensure_flash_pipeline();
+            if let (Some(flash_pipeline), Some(flash_bind_group)) =
+                (&self.flash_pipeline, &self.flash_bind_group)
+            {
+                let mut flash_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Flash Render Pass"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Load,
+                            store: wgpu::StoreOp::Store,
+                        },
+                        depth_slice: None,
+                    })],
+                    depth_stencil_attachment: None,
+                    ..Default::default()
+                });
+                flash_pass.set_pipeline(flash_pipeline);
+                flash_pass.set_bind_group(0, flash_bind_group, &[]);
+                flash_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
+                flash_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
+                flash_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+                flash_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
+            }
+        }
+
         #[cfg(debug_assertions)]
         encoder.pop_debug_group(); // Frame
 
@@ -448,12 +482,16 @@ impl Renderer {
     ///
     /// `atlas_width`/`atlas_height` come from the font pipeline's atlas
     /// texture dimensions (typically passed alongside the CellData).
+    ///
+    /// When `dirty_rows` is `Some`, only those rows are rebuilt and clean
+    /// rows are copied from `self.cell_cache` (FR-013 / NFR-010); `None`
+    /// forces a full rebuild (and drops the stale cache).
     #[allow(clippy::too_many_arguments)]
     pub fn render_cell_data(
         &mut self,
         cell_data: &[crate::terminal::ghostty_terminal::CellData],
-        _rows: u32,
-        _cols: u32,
+        rows: u32,
+        cols: u32,
         cursor: crate::render::CellCursor,
         font_pipeline: &mut crate::render::font::FontPipeline,
         atlas_width: f32,
@@ -461,6 +499,7 @@ impl Renderer {
         selection: Option<crate::render::cell_builder::SelectionRange>,
         selection_bg: Option<[f32; 4]>,
         search_highlights: &[crate::render::cell_builder::SearchHighlight],
+        dirty_rows: Option<&[bool]>,
     ) -> Result<(), GpuError> {
         // Grid cell dimensions from the attached surface: quads must cover
         // the full grid (surface_w/cols x surface_h/rows), not the font
@@ -478,21 +517,67 @@ impl Renderer {
         let scale = font_pipeline.get_raster_scale();
         let grid_cell_w = if font_w > 0.0 { font_w * scale } else { 0.0 };
         let grid_cell_h = if font_h > 0.0 { font_h * scale } else { 0.0 };
-        let converted = crate::render::build_instances_from_cell_data(
-            cell_data,
-            _rows,
-            _cols,
-            grid_cell_w,
-            grid_cell_h,
-            cursor,
-            font_pipeline,
-            atlas_width,
-            atlas_height,
-            selection,
-            selection_bg,
-            search_highlights,
-            &mut self.cpu_instances,
-        );
+        // Row-level dirty caching (FR-013 / NFR-010): with a dirty mask,
+        // only flagged rows are rebuilt through the font atlas; clean rows
+        // are copied from the cross-frame cache. `None` (caller has no
+        // baseline, e.g. first frame) forces a full rebuild.
+        let converted = match dirty_rows {
+            Some(mask) => {
+                let cache = self.cell_cache.get_or_insert_with(|| {
+                    crate::render::cell_builder::CachedInstances::new(rows, cols)
+                });
+                let effective_mask: &[bool] = if cache.is_compatible(rows, cols) {
+                    mask
+                } else {
+                    // Cache no longer matches the grid (resize): the new
+                    // cache starts EMPTY, so serving "clean" rows from it
+                    // would copy 0 instances and drop rows. Force a full
+                    // rebuild for this frame (round-231 P2 regression: a
+                    // cols-only change kept the diff path alive but the
+                    // rebuilt cache had no data).
+                    *cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
+                    self.cell_full_mask_cache.resize(rows as usize, true);
+                    &self.cell_full_mask_cache
+                };
+                crate::render::cell_builder::build_instances_cached(
+                    cell_data,
+                    rows,
+                    cols,
+                    grid_cell_w,
+                    grid_cell_h,
+                    cursor,
+                    font_pipeline,
+                    atlas_width,
+                    atlas_height,
+                    selection,
+                    selection_bg,
+                    search_highlights,
+                    effective_mask,
+                    cache,
+                    &mut self.cpu_instances,
+                )
+            }
+            None => {
+                // No baseline: drop any stale cache (grid may have changed
+                // out from under it) and rebuild every row.
+                self.cell_cache = None;
+                crate::render::build_instances_from_cell_data(
+                    cell_data,
+                    rows,
+                    cols,
+                    grid_cell_w,
+                    grid_cell_h,
+                    cursor,
+                    font_pipeline,
+                    atlas_width,
+                    atlas_height,
+                    selection,
+                    selection_bg,
+                    search_highlights,
+                    &mut self.cpu_instances,
+                )
+            }
+        };
         if converted.is_none() {
             return Err(GpuError::Surface("CellData conversion failed".into()));
         }

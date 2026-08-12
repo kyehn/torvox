@@ -1,0 +1,381 @@
+[DOCUMENT]
+TITLE: Functional Requirements
+PREFIX: FR-
+
+[REQUIREMENT]
+UID: FR-001
+STATEMENT: >>>
+Process VT/xterm escape sequences using the Ghostty parser (`libghostty-vt`).
+<<<
+
+[REQUIREMENT]
+UID: FR-002
+STATEMENT: >>>
+Maintain a terminal grid data model (`Grid`) consisting of rows of cells, each with a character code, foreground/background color, and text attributes (`Attrs`).
+<<<
+
+[REQUIREMENT]
+UID: FR-003
+STATEMENT: >>>
+Support SGR (Select Graphic Rendition) parameters: bold, dim, italic, underline, double underline, blink, reverse, hidden, strikethrough, overline, and protected.
+<<<
+
+[REQUIREMENT]
+UID: FR-004
+STATEMENT: >>>
+Support 16 ANSI color palette indices plus 256-color and truecolor (24-bit RGB) foreground/background specifications.
+<<<
+
+[REQUIREMENT]
+UID: FR-005
+STATEMENT: >>>
+Support alternate screen buffer mode (SM/RM 1049) for full-screen applications (e.g., vim, less).
+<<<
+
+[REQUIREMENT]
+UID: FR-006
+STATEMENT: >>>
+Support cursor positioning and movement (CUU, CUD, CUF, CUB, CUP, HVP, etc.) and cursor style (block, bar, underline, beam) with visible/hidden state.
+<<<
+
+[REQUIREMENT]
+UID: FR-007
+STATEMENT: >>>
+Support scrolling regions (`scroll_up`, `scroll_down`, `insert_lines`, `delete_lines`) with configurable top/bottom boundaries.
+<<<
+
+[REQUIREMENT]
+UID: FR-008
+STATEMENT: >>>
+Support tab stops (set, clear, move).
+<<<
+
+[REQUIREMENT]
+UID: FR-009
+STATEMENT: >>>
+Report terminal size changes via `SIGWINCH` to the child process.
+<<<
+
+[REQUIREMENT]
+UID: FR-010
+STATEMENT: >>>
+Render the terminal grid using wgpu (Vulkan) as the sole graphics backend. OpenGL and CPU software paths are not supported.
+<<<
+
+[REQUIREMENT]
+UID: FR-011
+STATEMENT: >>>
+Shape text runs using `cosmic-text` and rasterize glyphs using `swash`, caching results in a GPU atlas.
+<<<
+
+[REQUIREMENT]
+UID: FR-012
+STATEMENT: >>>
+Pack glyph bitmaps into a GPU texture atlas using `guillotiere` for dynamic rectangle allocation and eviction.
+<<<
+
+[REQUIREMENT]
+UID: FR-013
+STATEMENT: >>>
+Maintain a dirty mask (`DirtyMask`) that tracks which rows of the grid have changed and limit rendering to those rows.
+<<<
+
+[REQUIREMENT]
+UID: FR-014
+STATEMENT: >>>
+Render a cell cursor (block, bar, underline, beam) with configurable color and blink behavior.
+<<<
+
+[REQUIREMENT]
+UID: FR-015
+STATEMENT: >>>
+Render text selection highlights (character, word, line, block modes) as colored overlays on the affected cells.
+<<<
+
+[REQUIREMENT]
+UID: FR-016
+STATEMENT: >>>
+Support font configuration: family, size, line spacing, and fallback to preferred monospace fonts (Roboto Mono, JetBrains Mono, etc.).
+<<<
+
+[REQUIREMENT]
+UID: FR-017
+STATEMENT: >>>
+Render the terminal background, foreground, and 16-color ANSI palette from the active theme configuration.
+<<<
+
+[REQUIREMENT]
+UID: FR-018
+STATEMENT: >>>
+Recover from GPU surface destruction (e.g., Android activity restart) by recreating the render pipeline and continuing without data loss.
+<<<
+
+[REQUIREMENT]
+UID: FR-019
+STATEMENT: >>>
+Support the Kitty Graphics Protocol (KGP) for rendering inline images as textured quads.
+<<<
+
+[REQUIREMENT]
+UID: FR-020
+STATEMENT: >>>
+Encode physical keyboard input using the Kitty Keyboard Protocol (KBP) for extended modifier and key reporting.
+<<<
+
+[REQUIREMENT]
+UID: FR-021
+STATEMENT: >>>
+Support IME (Input Method Editor) text input for composing CJK and other complex characters, with `Composing` state management.
+<<<
+
+[REQUIREMENT]
+UID: FR-022
+STATEMENT: >>>
+Support terminal selection in four modes: character (`Char`), word (`Word`), line (`Line`), and block (`Block`).
+<<<
+
+[REQUIREMENT]
+UID: FR-023
+STATEMENT: >>>
+Automatically expand word-mode selections to word boundaries and detect URLs (`http://`, `https://`, `ftp://`, `www.`) for URL-aware selection expansion.
+<<<
+
+[REQUIREMENT]
+UID: FR-024
+STATEMENT: >>>
+Support touch input gestures: tap to place cursor, long-press for selection handles, and swipe for scrollback navigation.
+<<<
+
+[REQUIREMENT]
+UID: FR-025
+STATEMENT: >>>
+Support configurable backspace mode (DEL `0x7f` or BS `0x08`) and right-Alt mode (character modifier or meta).
+<<<
+
+[REQUIREMENT]
+UID: FR-026
+STATEMENT: >>>
+Spawn a child process (shell or custom executable) connected to a pseudo-terminal (PTY) via `fork/exec`.
+<<<
+
+[REQUIREMENT]
+UID: FR-027
+STATEMENT: >>>
+Read PTY output on a dedicated reader thread and forward parsed output to the grid update pipeline via a `flume` channel.
+<<<
+
+[REQUIREMENT]
+UID: FR-028
+STATEMENT: >>>
+Wait for child process exit on a dedicated waiter thread and emit a `ProcessExited` event on termination.
+<<<
+
+[REQUIREMENT]
+UID: FR-029
+STATEMENT: >>>
+Support resizing a terminal session (changing rows and columns) and forwarding the new size to the child process via `SIGWINCH`.
+<<<
+
+[REQUIREMENT]
+UID: FR-030
+STATEMENT: >>>
+Maintain a bounded scrollback buffer with a configurable maximum (default 50,000 lines), evicting oldest entries when the limit is exceeded.
+<<<
+
+[REQUIREMENT]
+UID: FR-031
+STATEMENT: >>>
+Support a scrollback search feature that finds text matching a pattern (regex or literal) within the scrollback history.
+<<<
+
+[REQUIREMENT]
+UID: FR-032
+STATEMENT: >>>
+Clear the scrollback buffer when entering the alternate screen and restore it on exit.
+<<<
+
+[REQUIREMENT]
+UID: FR-033
+STATEMENT: >>>
+Intercept OSC 7 sequences (`ESC ] 7 ; <uri> ST`) and extract the current working directory path as a `CwdEvent`.
+<<<
+
+[REQUIREMENT]
+UID: FR-034
+STATEMENT: >>>
+Intercept OSC 8 sequences (`ESC ] 8 ; <params> ; <url> ST`) and extract hyperlink open/close events as `HyperlinkEvent`.
+<<<
+
+[REQUIREMENT]
+UID: FR-035
+STATEMENT: >>>
+Intercept OSC 52 sequences (`ESC ] 52 ; <selection> ; <base64> ST`) and decode clipboard content as a `ClipboardEvent`.
+<<<
+
+[REQUIREMENT]
+UID: FR-036
+STATEMENT: >>>
+Intercept OSC 9 (iTerm2) and OSC 777 (rxvt) sequences and extract notification title/body as `NotificationEvent`.
+<<<
+
+[REQUIREMENT]
+UID: FR-037
+STATEMENT: >>>
+Pass through unrecognised OSC sequences (e.g., OSC 0 for title, OSC 4 for palette change) to the VT parser unchanged.
+<<<
+
+[REQUIREMENT]
+UID: FR-038
+STATEMENT: >>>
+Handle partial OSC sequences that arrive split across multiple input chunks, accumulating state across `process()` calls.
+<<<
+
+[REQUIREMENT]
+UID: FR-039
+STATEMENT: >>>
+Copy selected text to the system clipboard on user request (e.g., copy action from selection).
+<<<
+
+[REQUIREMENT]
+UID: FR-040
+STATEMENT: >>>
+Read clipboard content when requested by terminal applications via OSC 52 (paste).
+<<<
+
+[REQUIREMENT]
+UID: FR-041
+STATEMENT: >>>
+Display Android notifications for terminal-emitted OSC 9/777 notification sequences.
+<<<
+
+[REQUIREMENT]
+UID: FR-042
+STATEMENT: >>>
+Provide an executable (`exec-bin`) capable of establishing SSH and Mosh connections.
+<<<
+
+[REQUIREMENT]
+UID: FR-043
+STATEMENT: >>>
+Integrate SSH/Mosh sessions with the terminal session lifecycle (PTY management, resize forwarding).
+<<<
+
+[REQUIREMENT]
+UID: FR-044
+STATEMENT: >>>
+Run an MCP (Model Context Protocol) server over a Unix domain socket, communicating via JSON-RPC 2.0 with newline-delimited JSON.
+<<<
+
+[REQUIREMENT]
+UID: FR-045
+STATEMENT: >>>
+Expose tools for listing sessions, reading grid state, reading scrollback, reading cursor position, and reading selected text.
+<<<
+
+[REQUIREMENT]
+UID: FR-046
+STATEMENT: >>>
+Expose tools for writing to the PTY, sending signals, resizing the terminal, and setting clipboard content (gated behind `--mcp-allow-write`).
+<<<
+
+[REQUIREMENT]
+UID: FR-047
+STATEMENT: >>>
+Expose a scrollback search tool that matches a regex pattern and returns matching line numbers, text, and column ranges.
+<<<
+
+[REQUIREMENT]
+UID: FR-048
+STATEMENT: >>>
+Expose an input queue mechanism that watches for a prompt pattern in scrollback and automatically injects queued text (AI agent automation).
+<<<
+
+[REQUIREMENT]
+UID: FR-049
+STATEMENT: >>>
+Use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction) via `jni_bridge.rs`.
+<<<
+
+[REQUIREMENT]
+UID: FR-050
+STATEMENT: >>>
+Handle Android surface creation and destruction events, recreating the wgpu surface and render pipeline as needed.
+<<<
+
+[REQUIREMENT]
+UID: FR-051
+STATEMENT: >>>
+Support ProGuard/R8 obfuscation with `-dontoptimize` to preserve direct JNI (no JNA).
+<<<
+
+[REQUIREMENT]
+UID: FR-052
+STATEMENT: >>>
+Provide 16 built-in color themes: Catppuccin Mocha, Catppuccin Latte, Dracula+, Nord, Tokyo Night, Rose Pine, Gruvbox Dark, Gruvbox Light, Everforest Dark, One Dark, One Light, Monokai, Ayu Dark, Ayu Light, Kanagawa Wave, and Night Owl.
+<<<
+
+[REQUIREMENT]
+UID: FR-053
+STATEMENT: >>>
+Support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots.
+<<<
+
+[REQUIREMENT]
+UID: FR-054
+STATEMENT: >>>
+Support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via `TerminalConfig`.
+<<<
+
+[REQUIREMENT]
+UID: FR-055
+STATEMENT: >>>
+Repository SHALL NOT contain golden images; rendering verification SHALL use logical assertions or OCR.
+<<<
+
+[REQUIREMENT]
+UID: FR-056
+STATEMENT: >>>
+The crate SHALL provide an off-screen render-verification path — a procedural geometry generator (`SceneData` + floor/sphere/box/torus + hand-written matrix helpers) and an infinite LOD grid shader rendered through a `Depth32Float` attachment — used by crate tests to verify GPU rendering and depth attachment behavior. This path SHALL NOT add depth attachments to the production terminal render path.
+<<<
+
+[REQUIREMENT]
+UID: FR-057
+STATEMENT: >>>
+The search overlay input SHALL debounce query changes by 150 ms (Handler-based) so the native scrollback search only runs after the user pauses typing.
+<<<
+
+[REQUIREMENT]
+UID: FR-058
+STATEMENT: >>>
+Dependent settings controls SHALL be grayed out (disabled) when their prerequisite is off — the cursor-speed slider when cursor blink is off, and the user-theme edit entry when no user themes exist.
+<<<
+
+[REQUIREMENT]
+UID: FR-059
+STATEMENT: >>>
+The terminal surface SHALL expose accessibility custom actions (read previous line, read next line, read all) and update its content description to the current screen text (throttled) so TalkBack can navigate terminal content line by line.
+<<<
+
+[REQUIREMENT]
+UID: FR-060
+STATEMENT: >>>
+The bootstrap installer SHALL support both HTTP download and local-file install (SAF), and SHALL offer an offline path reading the bootstrap archive from `assets/bootstrap/` when present (no network). Embedded assets SHALL be detected at runtime; the APK SHALL NOT be forced to carry the archive.
+<<<
+
+[REQUIREMENT]
+UID: FR-061
+STATEMENT: >>>
+Toolbar keys SHALL support a width (flex weight) and an optional secondary key (long-press action); the layout editor SHALL allow editing both; serialization SHALL be backward compatible with existing layouts.
+<<<
+
+[REQUIREMENT]
+UID: FR-062
+STATEMENT: >>>
+`PlatformCapabilities` SHALL expose `Memory` and `Unsupported` capability variants so callers can distinguish a memory-limited device from an unsupported configuration without panicking.
+<<<
+
+[REQUIREMENT]
+UID: FR-063
+STATEMENT: >>>
+Terminal surface URL detection SHALL route through the scroll-position LRU cache (`UrlCache.getOrCompute`) so repeated queries at the same scroll offset reuse cached results.
+<<<

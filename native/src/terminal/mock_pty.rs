@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 use std::io;
 use std::os::unix::io::{OwnedFd, RawFd};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use crate::terminal::pty::{Pty, PtyError};
@@ -188,6 +189,7 @@ impl Pty for MockPty {
         rows: u16,
         cols: u16,
         _env: &ShellEnv,
+        _cwd: Option<&Path>,
     ) -> Result<Box<dyn Pty>, PtyError> {
         let (mock, _handle) = MockPty::new(rows, cols);
         Ok(Box::new(mock))

@@ -1,8 +1,14 @@
-# 0009 — Security Model
+# 9. Security Model
 
-- **Status**: Accepted
-- **Date**: 2026-09-05
-- **Requirement IDs**: NFR-009, NFR-014, NFR-019, FR-013
+## Status
+
+Accepted
+
+Date: 2026-09-05
+
+## Requirement IDs
+
+NFR-009, NFR-014, NFR-019, FR-013
 
 ## Context
 
@@ -129,3 +135,10 @@ execute arbitrary code.
   isolation)
 - Clipboard content passes through JNI callbacks without encryption
   (acceptable for local-only IPC)
+
+## Compliance
+
+- All `unsafe` blocks have `// SAFETY:` comments (enforced by code review)
+- MCP socket permissions checked at runtime (SO_PEERCRED verification)
+- `cargo clippy --all -- --deny warnings` catches unsafe code violations
+- No special Android permissions required (no INTERNET, no READ_EXTERNAL_STORAGE)

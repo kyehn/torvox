@@ -52,12 +52,12 @@ nu scripts/test-emulator.nu                          # automated emulator tests
 ### Requirement ID Discipline
 
 When modifying the codebase, check if the change affects a requirement documented
-in `docs/srs.md`:
+in `docs/requirements/` directory (StrictDoc .sdoc files):
 
-- **New feature**: Add a new FR-xxx entry to `docs/srs.md` and corresponding
+- **New feature**: Add a new FR-xxx entry to `docs/requirements/functional_requirements.sdoc` and corresponding
   acceptance criteria to `docs/acceptance.md`
-- **Changed behavior**: Update affected requirement descriptions in `docs/srs.md`
-- **Deprecated behavior**: Mark the requirement as deprecated in `docs/srs.md`
+- **Changed behavior**: Update affected requirement descriptions in `docs/requirements/functional_requirements.sdoc`
+- **Deprecated behavior**: Mark the requirement as inactive in `docs/requirements/functional_requirements.sdoc`
 - **New design decision**: Create an ADR in `docs/adr/` referencing the relevant
   requirement ID
 
@@ -77,6 +77,17 @@ After any change to requirements, design, API, or tests:
 - **Approving**: Change status to `Accepted` after team review
 - **Replacing**: Mark old ADR as `Superseded`, create new ADR referencing it
 - **Retiring**: Mark as `Deprecated` with a note on why
+- **Format gate**: `adrs doctor` must pass before commit. ADRs use the Nygard
+  format (`# N. Title`, `Date:`, `## Status`, `## Context`, `## Decision`,
+  `## Consequences`, `## Compliance`). Run `adrs doctor --cwd .` locally; CI
+  runs it via `tool_lint.rs` (`adrs_doctor_finds_no_issues`).
+
+### Requirements Gate
+
+- Requirements live in `docs/requirements/` as StrictDoc `.sdoc` files
+  (`functional_requirements.sdoc` = FR-xxx, `non_functional_requirements.sdoc` = NFR-xxx).
+- **Format gate**: `strictdoc export docs/requirements` must pass before commit (exit 0).
+  CI runs it via `tool_lint.rs` (`strictdoc_validates_requirements`).
 
 ### Documentation Validation
 
@@ -85,6 +96,9 @@ The following checks run in CI via `tool_lint.rs`:
 - `typos_finds_no_typos` — Spelling check on all files
 - `markdownlint_finds_no_violations` — Markdown formatting
 - `vale_finds_no_violations` — Prose style and consistency
+- `adrs_doctor_finds_no_issues` — ADR Nygard format/structure gate
+- `strictdoc_validates_requirements` — Requirement item structure gate
+- `doc_srs_matches_sdoc_ids` — `docs/srs.md` ↔ `docs/requirements/*.sdoc` ID 集合一致
 - New doc-specific checks (see `tool_lint.rs` for `docs_*` test functions):
   - SRS requirement ID format validation
   - Traceability cross-reference integrity
@@ -94,7 +108,7 @@ The following checks run in CI via `tool_lint.rs`:
 
 Add the following to the pre-commit checklist:
 
-- [ ] `docs/srs.md` updated if requirements changed
+- [ ] `docs/requirements/` updated if requirements changed
 - [ ] `docs/traceability.yml` updated if requirement/design/API/test mapping changed
 - [ ] New ADR created if a design decision was made
 - [ ] All documentation lint checks pass (`cargo test -p integration-tests --test tool_lint`)

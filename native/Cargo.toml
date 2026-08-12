@@ -62,8 +62,6 @@ renderdoc = "0.12.1"
 [dev-dependencies]
 naga = { version = "30", default-features = false, features = ["wgsl-in", "spv-out"] }
 image = { workspace = true }
-quickcheck = { workspace = true }
-quickcheck_macros = { workspace = true }
 proptest = { workspace = true }
 shuttle = "0.9"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
