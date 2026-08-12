@@ -16,10 +16,16 @@ use crate::render::GpuError;
 /// bitmask. Returns `None` when the variable is unset (caller uses the
 /// platform default) and logs a warning for unrecognized values.
 ///
-/// Accepted values: `"vulkan"`, `"gl"`, `"primary"`.
+/// Accepted values: `"vulkan"`, `"primary"`.
+///
+/// `"gl"` is deliberately not accepted: FR-010 mandates Vulkan as the
+/// sole graphics backend (OpenGL/GLES and CPU software paths are not
+/// supported), so a GL override would contradict project policy even as
+/// an explicit opt-in.
 ///
 /// Absorbed from wgpu-in-app `app_surface_use_winit.rs:68`.
 #[cfg(any(target_os = "android", test))]
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
 pub(crate) fn parse_backend_env() -> Option<wgpu::Backends> {
     parse_backend_value(std::env::var("TORVOX_BACKEND").ok().as_deref())
 }
@@ -30,7 +36,6 @@ pub(crate) fn parse_backend_env() -> Option<wgpu::Backends> {
 pub(crate) fn parse_backend_value(value: Option<&str>) -> Option<wgpu::Backends> {
     match value {
         Some("vulkan") => Some(wgpu::Backends::VULKAN),
-        Some("gl") => Some(wgpu::Backends::GL),
         Some("primary") => Some(wgpu::Backends::PRIMARY),
         Some(other) => {
             log::warn!("TORVOX_BACKEND={other} unrecognized, using default");
@@ -98,17 +103,15 @@ impl raw_window_handle::HasDisplayHandle for AndroidDisplay {
 /// validation.
 pub async fn initialize_wgpu()
 -> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue), GpuError> {
-    // Android: prefer the Vulkan backend (hardware GPU on physical
-    // devices; SwiftShader software Vulkan on the emulator). Older
-    // emulator images deadlocked on vkAcquireNextImageKHR's
-    // ANativeWindow dequeueBuffer (observed -110 timeouts with
-    // gfxstream), so GL remains as the fallback backend for those
-    // images. wgpu enumerates adapters in backend-priority order, so
-    // with both enabled a Vulkan adapter wins when one exists
-    // (round-227: hardware Vulkan must never fall through to the GLES
-    // CPU path).
+    // FR-010: Vulkan is the SOLE graphics backend — no OpenGL/GLES or CPU
+    // software path is supported. NFR-018: on Android emulators without a
+    // physical GPU, SwiftShader provides the software Vulkan implementation
+    // (the legacy gfxstream GL fallback was removed; emulator deadlocks on
+    // vkAcquireNextImageKHR dequeueBuffer were a gfxstream-only issue).
+    // `parse_backend_env` still allows TORVOX_BACKEND=vulkan|primary to
+    // override the default, but never selects GL.
     #[cfg(target_os = "android")]
-    let backends = parse_backend_env().unwrap_or(wgpu::Backends::VULKAN | wgpu::Backends::GL);
+    let backends = parse_backend_env().unwrap_or(wgpu::Backends::VULKAN);
     #[cfg(not(target_os = "android"))]
     let backends = wgpu::Backends::PRIMARY;
     #[cfg(debug_assertions)]
@@ -202,8 +205,9 @@ mod tests {
     }
 
     #[test]
-    fn parse_backend_gl() {
-        assert_eq!(parse_backend_value(Some("gl")), Some(wgpu::Backends::GL));
+    fn parse_backend_gl_is_rejected() {
+        // FR-010: GL is not an accepted override — falls back to default.
+        assert_eq!(parse_backend_value(Some("gl")), None);
     }
 
     #[test]

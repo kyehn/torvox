@@ -1,8 +1,14 @@
-# 0012 — Dependency Management
+# 12. Dependency Management
 
-- **Status**: Accepted
-- **Date**: 2026-09-05
-- **Requirement IDs**: NFR-011, NFR-012, NFR-013
+## Status
+
+Accepted
+
+Date: 2026-09-05
+
+## Requirement IDs
+
+NFR-011, NFR-012, NFR-013
 
 ## Context
 
@@ -174,3 +180,11 @@ in `native/src/terminal/ghostty_terminal/`. It is not managed via
 - Dependency tree review is quarterly — vulnerabilities between audits
   may go unnoticed (mitigated by `cargo deny` advisory checks on every
   CI run)
+
+## Compliance
+
+- `cargo deny` checks licenses, bans, and advisories on every CI run
+- NDK version pinned in `flake.nix` — reproducible Android builds
+- `Cargo.lock` committed — deterministic builds for all contributors
+- Ghostty source vendored in `vendor/ghostty/` — tracked by git
+- Quarterly dependency review (manual) + automated `cargo deny` on CI

@@ -1,8 +1,14 @@
-# 0005 — MCP Architecture
+# 5. MCP Architecture
 
-- **Status**: Accepted
-- **Date**: 2026-07-27
-- **Requirement IDs**: FR-06, NFR-05
+## Status
+
+Accepted
+
+Date: 2026-07-27
+
+## Requirement IDs
+
+FR-06, NFR-05
 
 ## Context
 

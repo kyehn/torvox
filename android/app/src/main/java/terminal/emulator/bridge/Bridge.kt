@@ -57,6 +57,8 @@ data class TerminalConfig(
     val prefix: String,
     val scrollbackLines: Int,
     val font_size_tenths: Int,
+    /** User-defined environment overrides ("KEY=VALUE" semantics). */
+    val env: Map<String, String> = emptyMap(),
 )
 
 /** Create a new Bridge instance wrapping [NativeBridge] JNI exports. */
@@ -113,6 +115,16 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     fun spawnTerminal(rows: Int, cols: Int, shell: String): Long {
+        // Reference (zed-android-port util/env.rs EnvOp; Termux
+        // ExtraKeys/env passthrough): serialize user environment overrides
+        // as a "KEY=VALUE" array. null (empty) is fine — the native side
+        // skips it entirely.
+        val envArray: Array<String>? =
+            if (config.env.isEmpty()) {
+                null
+            } else {
+                config.env.entries.sortedBy { it.key }.map { "${it.key}=${it.value}" }.toTypedArray()
+            }
         sessionId =
             NativeBridge.initSession(
                 rows,
@@ -124,6 +136,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 config.workingDirectory,
                 config.prefix,
                 config.scrollbackLines,
+                envArray,
             )
         return sessionId
     }
@@ -155,6 +168,23 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             // native side throws RuntimeException for unknown sessions;
             // dropping the resize is correct — the session is gone.
             Log.d(TAG, "resize: session $sessionId already destroyed, dropping")
+        }
+    }
+
+    /**
+     * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for this
+     * session, preserving rows/cols. The Kotlin host calls this alongside
+     * each grid resize with the surface's pixel dimensions so pixel-aware
+     * programs (`icat`, fullscreen TUIs) read real pixels from TIOCGWINSZ
+     * (ghostty-android pty_jni.c:84-87).
+     */
+    fun setPixelSize(widthPx: Int, heightPx: Int) {
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setPixelSize(sessionId, widthPx, heightPx)
+        } catch (exception: RuntimeException) {
+            // Same destruction race as resize: dropping is correct.
+            Log.d(TAG, "setPixelSize: session $sessionId already destroyed, dropping")
         }
     }
 
@@ -271,6 +301,20 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             NativeBridge.setBackgroundParams(sessionId, radius, alpha)
         } catch (exception: RuntimeException) {
             LogUtil.e("Bridge", "setBackgroundParams failed: ${exception.javaClass.simpleName}")
+        }
+    }
+
+    /**
+     * Queue the bell-flash overlay phase (0..1) for the next rendered frame.
+     * The native renderer composites a full-screen quad whose alpha scales
+     * with the phase; Kotlin animates it down after a bell (BellMode.SCREEN_FLASH).
+     */
+    fun setFlashState(phase: Float) {
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setFlashState(sessionId, phase.coerceIn(0f, 1f))
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setFlashState failed: ${exception.javaClass.simpleName}")
         }
     }
 
@@ -639,6 +683,21 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
+    /**
+     * Set the independent family for a style slot — 0=bold, 1=italic,
+     * 2=bold-italic (ghostty-android TerminalFontStore 4-slot design).
+     * Empty family clears the slot.
+     */
+    fun setFontFamilyForStyle(family: String, slot: Int) {
+        Log.d(TAG, "setFontFamilyForStyle(slot=$slot, $family)")
+        if (sessionId == 0L) return
+        try {
+            NativeBridge.setFontFamilyForStyle(sessionId, family, slot)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "setFontFamilyForStyle failed: ${exception.javaClass.simpleName}")
+        }
+    }
+
     fun setFontSize(sizeTenths: Int) {
         Log.d(TAG, "setFontSize($sizeTenths)")
         setFontSizeInPlace(sizeTenths)
@@ -744,6 +803,38 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         return writeToPty(bytes)
     }
 
+    /**
+     * Whether the remote is on the alternate screen buffer (vim/less/htop).
+     * Lock-free; safe to call on every touch-scroll event. When true, touch
+     * scroll gestures must be forwarded to the remote as mouse-wheel escapes
+     * (see [TerminalSurface] onScroll) rather than scrolling local scrollback.
+     */
+    fun isAltScreenActive(): Boolean {
+        if (sessionId == 0L) return false
+        return try {
+            NativeBridge.getAltScreenState(sessionId)
+        } catch (exception: RuntimeException) {
+            Log.d(TAG, "isAltScreenActive: session $sessionId destroyed, returning false")
+            false
+        }
+    }
+
+    /**
+     * Whether the terminal is in application cursor mode (DECCKM, DEC
+     * private mode 1). Arrow keys must then be encoded SS3 (`ESC OA`)
+     * instead of CSI (`ESC [ A`) — research-haven.md:141 P2,
+     * research-zed-port.md:252. Queried only for arrow-key key events.
+     */
+    fun isAppCursorMode(): Boolean {
+        if (sessionId == 0L) return false
+        return try {
+            NativeBridge.getMode(sessionId, DEC_PRIVATE_MODE_APP_CURSOR, 0)
+        } catch (exception: RuntimeException) {
+            Log.d(TAG, "isAppCursorMode: session $sessionId destroyed, returning false")
+            false
+        }
+    }
+
     fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
         Log.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
         if (sessionId == 0L) return false
@@ -756,6 +847,13 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             val modifierBits = modifiers.toInt()
             val ctrlActive = modifierBits and 4 != 0
             val altActive = modifierBits and 2 != 0
+            // DECCKM: when the terminal is in application cursor mode
+            // (DEC private mode 1) arrow keys must be encoded SS3 (`ESC OA`)
+            // instead of CSI (`ESC [ A`) — research-haven.md:141 P2,
+            // research-zed-port.md:252. Only queried for arrow keys to avoid
+            // a mode_get round-trip on every keystroke.
+            val appCursorMode =
+                keyCode in APP_CURSOR_KEY_CODES && isAppCursorMode()
             // Route ALL hardware keys through the same encoder the IME path
             // uses. Sending the key NAME (keyCodeToName: "Up", "Home", ...)
             // as literal bytes would write the text "Up" into the PTY — the
@@ -763,7 +861,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             // Home/End, PageUp/Down and Delete were all broken.
             val encoded =
                 terminal.emulator.ui.TerminalInputEncoder
-                    .encodeKeyEvent(keyCode, unicodeChar, ctrlActive, altActive)
+                    .encodeKeyEvent(keyCode, unicodeChar, ctrlActive, altActive, appCursorMode)
             if (encoded != null) {
                 NativeBridge.feedPty(sessionId, encoded)
                 return true
@@ -862,5 +960,17 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
         /** Max events drained per pollAll() frame — bounds render-thread cost. */
         private const val MAX_EVENTS_PER_POLL = 32
+
+        /** DEC private mode 1 = application cursor keys (DECCKM). */
+        private const val DEC_PRIVATE_MODE_APP_CURSOR = 1
+
+        /** Key codes whose encoding depends on DECCKM. */
+        private val APP_CURSOR_KEY_CODES =
+            setOf(
+                android.view.KeyEvent.KEYCODE_DPAD_UP,
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+            )
     }
 }

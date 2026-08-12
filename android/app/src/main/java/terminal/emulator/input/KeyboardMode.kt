@@ -92,7 +92,17 @@ fun KeyboardMode.toSettingsString(): String = when (this) {
 
 fun String.toKeyboardMode(): KeyboardMode = when (this) {
     "secure" -> KeyboardMode.Secure
+
     "standard" -> KeyboardMode.Standard
+
     "raw" -> KeyboardMode.Raw
+
+    // Round-trip with toSettingsString(): a persisted "custom" must resolve
+    // back to a Custom mode instead of falling into the Raw default (Haven
+    // research: KeyboardMode 状态机往返一致性). Flags are not serialized —
+    // the persisted value is just the mode selector; ImeFlagSet defaults are
+    // applied on re-entry.
+    "custom" -> KeyboardMode.Custom(ImeFlagSet())
+
     else -> KeyboardMode.Raw
 }

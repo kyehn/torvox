@@ -37,8 +37,6 @@ flume = "0.12"
 # Testing infrastructure
 proptest = "1.11"
 lru = "0.18"
-quickcheck = "1.1"
-quickcheck_macros = "1.2"
 futures = "0.3"
 log = "0.4"
 toml = "1"

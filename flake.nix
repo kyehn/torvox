@@ -24,7 +24,37 @@
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
             config.allowUnfree = true;
-            overlays = [ inputs.fenix.overlays.default ];
+            overlays = [
+              inputs.fenix.overlays.default
+              (final: prev: {
+                # nixpkgs strictdoc 0.22.0 pulls Python 3.14 packages whose
+                # pythonMetadataCheckPhase fails (importlib.metadata can't find
+                # its own metadata after build): datauri 3.0.2 and the
+                # tree-sitter grammar bindings. This is an upstream packaging
+                # bug on Python 3.14, so skip the metadata check phase.
+                # NOTE: the attribute in python3.pkgs is `datauri`, not
+                # `python-datauri` (the latter name is the PyPI distribution).
+                python3 = prev.python3.override {
+                  packageOverrides = pself: pprev: {
+                    datauri = pprev.datauri.overrideAttrs (old: {
+                      dontCheck = true;
+                      dontCheckPythonMetadata = true;
+                    });
+                    tree-sitter-grammars = pprev.tree-sitter-grammars // {
+                      tree-sitter-python = pprev.tree-sitter-grammars.tree-sitter-python.overrideAttrs (old: {
+                        dontCheckPythonMetadata = true;
+                      });
+                      tree-sitter-rust = pprev.tree-sitter-grammars.tree-sitter-rust.overrideAttrs (old: {
+                        dontCheckPythonMetadata = true;
+                      });
+                      tree-sitter-cpp = pprev.tree-sitter-grammars.tree-sitter-cpp.overrideAttrs (old: {
+                        dontCheckPythonMetadata = true;
+                      });
+                    };
+                  };
+                };
+              })
+            ];
           };
           packages.rust-toolchain-latest = pkgs.fenix.combine [
             (pkgs.fenix.latest.withComponents [
@@ -107,6 +137,10 @@
               cargo-audit
               cargo-deny
               cargo-machete
+              adrs
+              # strictdoc 0.22.0 builds against the overridden python3 (see
+              # _module.args.pkgs overlay: datauri check skipped on Py 3.14).
+              (strictdoc.override { python3 = pkgs.python3; })
               cargo-mutants
               rust-analyzer
               kotlin
@@ -182,6 +216,7 @@
               # libghostty-vt-sys 0.2.1 pins ghostty a887df42, whose build.zig
               # requires Zig 0.15.2 — nixpkgs `zig_0_15` is exactly that.
               export PATH="${pkgs.lib.makeBinPath [ pkgs.zig_0_15 ]}:$PATH"
+              # strictdoc is in nixpkgs; no venv needed
               nu scripts/fetch-aosp-testkey.nu
               nu scripts/download-rapidocr-models.nu
             '';

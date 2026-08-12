@@ -9,7 +9,7 @@ use lru::LruCache;
 
 /// Collection of LRU caches for fast glyph re-lookup.
 ///
-/// All four caches are evicted together when `clear()` is called
+/// All five caches are evicted together when `clear()` is called
 /// (e.g. on font family change).
 pub struct GlyphCache {
     /// Full glyph-info cache (keyed by glyph key → rasterized info).
@@ -22,6 +22,16 @@ pub struct GlyphCache {
     pub glyph_id_cache: LruCache<u32, swash::GlyphId>,
     /// CJK glyph resolution (char → final font_id + glyph_id).
     pub cjk_glyph_cache: LruCache<char, (fontdb::ID, swash::GlyphId)>,
+    /// Same-family styled face resolution (base font, bold, italic) → the
+    /// face id that wins for that style, or None when synthesis must be
+    /// used. Caching this avoids re-running fontdb's family/weight/style
+    /// query on every styled cell every frame (round-232: styled glyph
+    /// lookup was ~20µs/cell vs ~0.2µs for plain text).
+    pub style_face_cache: LruCache<(fontdb::ID, bool, bool), Option<fontdb::ID>>,
+    /// Style-face charmap lookups ((face, codepoint) → glyph id) — avoids
+    /// re-entering `with_face_data` (font-data decompression + charmap
+    /// build) for every styled cell every frame.
+    pub style_glyph_id_cache: LruCache<(fontdb::ID, u32), swash::GlyphId>,
 }
 
 impl Default for GlyphCache {
@@ -34,12 +44,15 @@ impl GlyphCache {
     pub fn new() -> Self {
         let cache_cap = NonZeroUsize::new(GLYPH_CACHE_CAPACITY).expect("GLYPH_CACHE_CAPACITY > 0");
         let shape_cache_cap = NonZeroUsize::new(1024).expect("1024 > 0");
+        let style_face_cache_cap = NonZeroUsize::new(64).expect("64 > 0");
         Self {
             glyph_cache: LruCache::new(cache_cap),
             shape_cache: LruCache::new(shape_cache_cap),
             ascii_glyph_ids: [None; 128],
             glyph_id_cache: LruCache::new(cache_cap),
             cjk_glyph_cache: LruCache::new(cache_cap),
+            style_face_cache: LruCache::new(style_face_cache_cap),
+            style_glyph_id_cache: LruCache::new(style_face_cache_cap),
         }
     }
 
@@ -50,6 +63,8 @@ impl GlyphCache {
         self.ascii_glyph_ids = [None; 128];
         self.glyph_id_cache.clear();
         self.cjk_glyph_cache.clear();
+        self.style_face_cache.clear();
+        self.style_glyph_id_cache.clear();
     }
 }
 
@@ -76,5 +91,19 @@ mod tests {
     fn glyph_cache_default_works() {
         let gc: GlyphCache = Default::default();
         assert!(gc.glyph_cache.iter().next().is_none());
+    }
+
+    #[test]
+    fn style_face_cache_evicts_with_clear() {
+        let mut gc = GlyphCache::new();
+        gc.style_face_cache
+            .put((fontdb::ID::default(), true, false), None);
+        gc.style_glyph_id_cache
+            .put((fontdb::ID::default(), 65), swash::GlyphId::from(42u16));
+        assert!(gc.style_face_cache.len() == 1);
+        assert!(gc.style_glyph_id_cache.len() == 1);
+        gc.clear();
+        assert!(gc.style_face_cache.len() == 0);
+        assert!(gc.style_glyph_id_cache.len() == 0);
     }
 }

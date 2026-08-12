@@ -4,15 +4,29 @@
 
 const WORKSPACE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/..");
 
-/// Read all requirement IDs from docs/srs.md.
+/// Read all requirement IDs from StrictDoc .sdoc files.
 fn srs_ids() -> std::collections::BTreeSet<String> {
-    let srs_path = std::path::Path::new(WORKSPACE).join("docs/srs.md");
-    let content = std::fs::read_to_string(&srs_path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {e}", srs_path.display()));
-    let re = regex_lite::Regex::new(r"\b(FR-\d{3}|NFR-\d{3})\b").unwrap();
-    re.captures_iter(&content)
-        .map(|c| c[1].to_string())
-        .collect()
+    let req_dir = std::path::Path::new(WORKSPACE).join("docs/requirements");
+    let mut ids = std::collections::BTreeSet::new();
+
+    for sdoc_file in ["functional_requirements.sdoc", "non_functional_requirements.sdoc"] {
+        let path = req_dir.join(sdoc_file);
+        if !path.exists() {
+            continue;
+        }
+        let content = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+
+        // Parse UID: FR-001 / NFR-001 from StrictDoc format
+        let re = regex_lite::Regex::new(r"^UID:\s+(FR|NFR)-\d{3}$").unwrap();
+        for line in content.lines() {
+            if let Some(cap) = re.captures(line.trim()) {
+                ids.insert(cap[0].trim_start_matches("UID: ").to_string());
+            }
+        }
+    }
+
+    ids
 }
 
 #[test]
@@ -74,6 +88,39 @@ fn cargo_machete_finds_no_unused_deps() {
     assert!(
         output.status.success(),
         "cargo machete found unused dependencies:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn adrs_doctor_finds_no_issues() {
+    // adrs doctor validates ADR format/structure in docs/adr/
+    let output = std::process::Command::new("adrs")
+        .args(["doctor", "--cwd", WORKSPACE])
+        .current_dir(WORKSPACE)
+        .output()
+        .expect("adrs must be installed (cargo install adrs; add to flake.nix devShell)");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "adrs doctor found ADR issues:\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    );
+}
+
+#[test]
+fn strictdoc_validates_requirements() {
+    // strictdoc validates requirement structure in docs/requirements/.
+    // Export to HTML (side-effect free) catches parse errors.
+    let output = std::process::Command::new("strictdoc")
+        .args(["export", "docs/requirements", "--output-dir", "/tmp/strictdoc-export"])
+        .current_dir(WORKSPACE)
+        .output()
+        .expect("strictdoc must be installed (add to flake.nix devShell)");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "strictdoc validation failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }
 
@@ -161,6 +208,67 @@ fn doc_srs_requirement_format() {
         dupes.is_empty(),
         "duplicate requirement IDs found in docs/srs.md requirement tables:\n{}",
         dupes.join("\n")
+    );
+}
+
+#[test]
+fn doc_srs_matches_sdoc_ids() {
+    // docs/srs.md (prose) and docs/requirements/*.sdoc (StrictDoc ID source)
+    // are dual sources for requirement IDs. They MUST stay in sync: a new
+    // requirement goes into BOTH files; the StrictDoc gate alone cannot
+    // catch an ID added to only one of them.
+    let srs_path = std::path::Path::new(WORKSPACE).join("docs/srs.md");
+    let content = std::fs::read_to_string(&srs_path)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", srs_path.display()));
+
+    // Extract IDs from the requirement tables (Sections 3 and 4), skipping
+    // the verification matrix appendix (Section 5.E) which repeats IDs.
+    let appendix_line = content
+        .lines()
+        .position(|l| l.starts_with("## 5. Appendix"))
+        .unwrap_or(content.lines().count());
+    let table_re = regex_lite::Regex::new(r"(?m)^\|\s*(FR-\d{3}|NFR-\d{3})\s+\|").unwrap();
+    let mut srs_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for (lineno, line) in content.lines().enumerate() {
+        if lineno >= appendix_line {
+            break;
+        }
+        for cap in table_re.captures_iter(line) {
+            srs_set.insert(cap[1].to_string());
+        }
+    }
+    assert!(
+        !srs_set.is_empty(),
+        "no requirement IDs found in docs/srs.md"
+    );
+
+    let sdoc_set = srs_ids();
+    assert!(!sdoc_set.is_empty(), "no requirement IDs found in .sdoc files");
+
+    let only_in_srs: Vec<&String> = srs_set.difference(&sdoc_set).collect();
+    let only_in_sdoc: Vec<&String> = sdoc_set.difference(&srs_set).collect();
+    assert!(
+        only_in_srs.is_empty() && only_in_sdoc.is_empty(),
+        "docs/srs.md and docs/requirements/*.sdoc are out of sync:\n  \
+         only in srs.md: {}\n  only in .sdoc: {}",
+        if only_in_srs.is_empty() {
+            "(none)".to_string()
+        } else {
+            only_in_srs
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        },
+        if only_in_sdoc.is_empty() {
+            "(none)".to_string()
+        } else {
+            only_in_sdoc
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
+        },
     );
 }
 

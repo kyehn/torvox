@@ -1,8 +1,14 @@
-# 0006 — Build and Dependency Simplification
+# 6. Build and Dependency Simplification
 
-- **Status**: Accepted
-- **Date**: 2026-07-27
-- **Requirement IDs**: NFR-02, NFR-05
+## Status
+
+Accepted
+
+Date: 2026-07-27
+
+## Requirement IDs
+
+NFR-02, NFR-05
 
 ## Context
 

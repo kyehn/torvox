@@ -11,13 +11,16 @@ package terminal.emulator.bridge
  *  - termux-app TextSelectionCursorController.setInitialTextSelectionPosition
  *    (:93-108): whitespace stops expansion, non-blank expands to the token.
  *  - Haven SelectionToolbar.expandSelectionToWord (:40-90) + expandAcrossUrlWrap
- *    (:120-214): non-whitespace token + wrapped-URL continuation across rows —
- *    the multi-row URL case is NOT handled here yet (single-line only).
+ *    (:120-214): non-whitespace token + wrapped-URL continuation across rows.
+ *    The multi-row URL case IS handled here: [expandAcrossUrlWrap] walks
+ *    backward/forward across soft-wrapped rows and verifies the joined run
+ *    looks like a full URL before overriding the single-row word.
  *  - termlib SelectionManager.adjustSelectionForMode (:288-320): mode switch
- *    re-expands the range (WORD → word boundaries) — not yet mirrored here.
+ *    re-expands the range (WORD → word boundaries) — mirrored in
+ *    [TerminalViewModel.adjustSelectionForMode] (round-231 P2).
  *  - termlib UrlDetection.trimDetectedUrl (:12-35): trailing-punctuation trim
- *    (`,.;:!`) + bracket-pair counting for `)`/`]` — NOT yet mirrored:
- *    `https://x.com/a).` currently selects the trailing `).` (P0 gap, round-217).
+ *    (`,.;:!`) + bracket-pair counting for `)`/`]` IS mirrored here
+ *    ([TRAILING_URL_PUNCTUATION] + [countOpenLessThanClose]).
  */
 object SelectionExpander {
 

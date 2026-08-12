@@ -14,10 +14,6 @@ jobs:
   build-and-release:
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      NIXPKGS_ALLOW_UNFREE: "1"
-      NIXPKGS_ALLOW_INSECURE: "1"
-      NIXPKGS_ACCEPT_ANDROID_SDK_LICENSE: "1"
     steps:
       - uses: actions/checkout@main
       - uses: actions/checkout@main
@@ -37,10 +33,8 @@ jobs:
         with:
           name: release-apk
           path: android/app/build/outputs/apk/release/*.apk
-      - run: |
-          scripts/build-apk.nu --debug
+      - run: scripts/build-apk.nu --debug
       - uses: actions/upload-artifact@main
-        continue-on-error: true
         with:
           name: debug-apk
           path: android/app/build/outputs/apk/debug/*.apk

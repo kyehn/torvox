@@ -5,6 +5,7 @@
 use std::cell::Cell;
 use std::io;
 use std::os::unix::io::{AsRawFd, OwnedFd, RawFd};
+use std::path::Path;
 #[cfg(test)]
 use std::time::Duration;
 
@@ -71,7 +72,13 @@ pub trait Pty: Send {
     fn try_clone_reader_fd(&self) -> io::Result<OwnedFd>;
     fn wait(&self) -> nix::Result<nix::sys::wait::WaitStatus>;
     fn set_nonblocking(&self) -> Result<(), PtyError>;
-    fn spawn(shell: &str, rows: u16, cols: u16, env: &ShellEnv) -> Result<Box<dyn Pty>, PtyError>
+    fn spawn(
+        shell: &str,
+        rows: u16,
+        cols: u16,
+        env: &ShellEnv,
+        cwd: Option<&Path>,
+    ) -> Result<Box<dyn Pty>, PtyError>
     where
         Self: Sized;
 
@@ -117,12 +124,22 @@ impl PtyPair {
     ///
     /// Reference: warp-mobile-android crates/android-host/src/pty.rs:106-160
     /// — identical AS-safe discipline (pre-built CStrings, setsid +
-    /// TIOCSCTTY, 24x80 TIOCSWINSZ seed, errno via write(2) on execve
-    /// failure). torvox encodes the execve errno in the exit code
-    /// (100 + errno) decoded by the wait thread; warp writes it directly
-    /// to stderr. Both are correct; the write(2) variant is more
-    /// immediately visible in logcat.
-    pub fn spawn(shell: &str, rows: u16, cols: u16, env: &ShellEnv) -> Result<Self, PtyError> {
+    /// TIOCSCTTY, TIOCSWINSZ seed, errno via write(2) on execve failure).
+    /// The TIOCSWINSZ seed is the caller-provided rows/cols — spawn is
+    /// called with 24x80 by tests and default sessions (round-229 §3.5.1,
+    /// verified by `spawn_seeds_24x80_winsize`), mirroring warp's
+    /// non-zero seed so shells never observe 0x0 before the first resize.
+    /// torvox encodes the execve errno in the exit code (100 + errno)
+    /// decoded by the wait thread; warp writes it directly to stderr.
+    /// Both are correct; the write(2) variant is more immediately visible
+    /// in logcat.
+    pub fn spawn(
+        shell: &str,
+        rows: u16,
+        cols: u16,
+        env: &ShellEnv,
+        cwd: Option<&Path>,
+    ) -> Result<Self, PtyError> {
         let winsize = nix::pty::Winsize {
             ws_row: rows,
             ws_col: cols,
@@ -152,12 +169,20 @@ impl PtyPair {
                 })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let working_directory_cstr = std::ffi::CString::new(env.working_directory.as_str())
-            .map_err(|e| {
-                let msg = format!("working directory contains null byte: {e}");
-                log::error!("{msg}");
-                PtyError::Fork(nix::errno::Errno::EINVAL)
-            })?;
+        // chdir target: an explicit `cwd` argument overrides the ShellEnv
+        // working directory (termux createSubprocess(workingDirectory)
+        // semantics). `None` keeps the legacy behavior (chdir to
+        // env.working_directory). The child chdirs below; a missing or
+        // non-directory cwd makes chdir fail there, which is logged to
+        // stderr but does not fail spawn (matches shell behavior).
+        let chdir_target: &str = cwd.map_or(env.working_directory.as_str(), |p| {
+            p.to_str().unwrap_or(env.working_directory.as_str())
+        });
+        let working_directory_cstr = std::ffi::CString::new(chdir_target).map_err(|e| {
+            let msg = format!("working directory contains null byte: {e}");
+            log::error!("{msg}");
+            PtyError::Fork(nix::errno::Errno::EINVAL)
+        })?;
 
         // Pre-allocate argument and environment arrays before fork.
         // After fork, the child must NOT call any allocation functions.
@@ -549,8 +574,14 @@ impl Pty for PtyPair {
         PtyPair::set_nonblocking(self)
     }
 
-    fn spawn(shell: &str, rows: u16, cols: u16, env: &ShellEnv) -> Result<Box<dyn Pty>, PtyError> {
-        PtyPair::spawn(shell, rows, cols, env).map(|p| Box::new(p) as Box<dyn Pty>)
+    fn spawn(
+        shell: &str,
+        rows: u16,
+        cols: u16,
+        env: &ShellEnv,
+        cwd: Option<&Path>,
+    ) -> Result<Box<dyn Pty>, PtyError> {
+        PtyPair::spawn(shell, rows, cols, env, cwd).map(|p| Box::new(p) as Box<dyn Pty>)
     }
 }
 
@@ -818,15 +849,8 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     // execve of a Termux binary fails with EACCES (SELinux
     // execute_no_trans on app_data_file).
     //
-    // SSL_CERT_FILE + CURL_CA_BUNDLE remain a known P0 gap for
-    // cargo/npm/curl until the bootstrap layout is verified on-device.
     // Reference (std::env overlay): terminal.rs insert_zed_terminal_env
     // :123-161 copies HOME/PATH/SHELL/TMPDIR/LANG then applies the overlay.
-    // Kill-chain reference: terminal.rs kill_active_task (:2276-2288)
-    // calls pty_info.rs kill_current_process (:144-149, tcgetpgrp ->
-    // killpg SIGKILL on the foreground process GROUP) then
-    // kill_child_process (:156-158, single-pid SIGKILL); torvox
-    // session.rs send_signal() only kills the direct child pid.
     for (key, _) in &env.extra {
         result.retain(|(k, _)| k != key);
     }
@@ -852,6 +876,17 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
                 result.retain(|(k, _)| k != key);
             }
         }
+    }
+
+    // Reference (termux-kotlin TermuxAppShellEnvironment.kt:156): export the
+    // MCP capability switch into the child environment so shells / scripts /
+    // MCP clients can detect whether the embedded MCP server is live without
+    // probing the Unix socket. Value is "1" only while the server is enabled;
+    // when disabled the variable is omitted entirely.
+    #[cfg(feature = "mcp")]
+    if crate::mcp::is_enabled() {
+        result.retain(|(k, _)| k != "TORVOX__MCP_SERVER_ENABLED");
+        result.push(("TORVOX__MCP_SERVER_ENABLED".to_string(), "1".to_string()));
     }
 
     result
@@ -1031,6 +1066,43 @@ mod tests {
         );
     }
 
+    // Reference (termux-kotlin TermuxAppShellEnvironment.kt:156): the MCP
+    // capability switch must be exported when the server is enabled.
+    #[cfg(feature = "mcp")]
+    #[test]
+    fn build_env_exports_mcp_capability_when_enabled() {
+        // Point the server at a per-process temp socket so the started
+        // listener never collides with a production path. set_enabled(false)
+        // below signals graceful shutdown and joins the server thread.
+        let dir = std::env::temp_dir().join(format!("torvox-pty-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        crate::mcp::set_socket_path(dir.join("mcp.sock").to_string_lossy().into_owned());
+        crate::mcp::set_enabled(true);
+        let env = test_env();
+        let result = build_env(&env, "/bin/sh", 24, 80);
+        crate::mcp::set_enabled(false);
+        assert!(
+            result
+                .iter()
+                .any(|(k, v)| k == "TORVOX__MCP_SERVER_ENABLED" && v == "1"),
+            "enabled MCP must export TORVOX__MCP_SERVER_ENABLED=1"
+        );
+    }
+
+    #[cfg(feature = "mcp")]
+    #[test]
+    fn build_env_omits_mcp_capability_when_disabled() {
+        crate::mcp::set_enabled(false);
+        let env = test_env();
+        let result = build_env(&env, "/bin/sh", 24, 80);
+        assert!(
+            !result
+                .iter()
+                .any(|(k, _)| k == "TORVOX__MCP_SERVER_ENABLED"),
+            "disabled MCP must omit TORVOX__MCP_SERVER_ENABLED"
+        );
+    }
+
     #[test]
     fn base_env_passthrough_android_vars_from_host() {
         // Round-217: Android system env vars present in the host process
@@ -1082,7 +1154,7 @@ mod tests {
         use crate::terminal::pty::Pty;
 
         let mut pty =
-            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         pty.set_nonblocking().expect("set_nonblocking failed");
 
         Pty::write_all(&mut pty, b"echo hello_vt\n").expect("write failed");
@@ -1110,7 +1182,8 @@ mod tests {
 
     #[test]
     fn resize_succeeds() {
-        let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         pty.resize(40, 120).expect("resize failed");
     }
 
@@ -1119,7 +1192,8 @@ mod tests {
         // Round-224 (warp WarpTerminalService.kt:797-808): a TIOCGWINSZ
         // before any UI-driven resize must return the seeded 24x80, so
         // shells (zsh ZLE etc.) never see 0x0.
-        let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         let (rows, cols) = pty.get_winsize().expect("TIOCGWINSZ failed");
         assert_eq!(
             rows, 24,
@@ -1133,7 +1207,8 @@ mod tests {
 
     #[test]
     fn resize_reflected_in_get_winsize() {
-        let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         pty.resize(40, 120).expect("resize failed");
         let (rows, cols) = pty.get_winsize().expect("TIOCGWINSZ failed");
         assert_eq!(
@@ -1144,8 +1219,41 @@ mod tests {
     }
 
     #[test]
+    fn set_pixel_size_reflected_in_winsize() {
+        // ghostty-android pty_jni.c:84-87: ws_xpixel/ws_ypixel must reach
+        // the kernel so pixel-aware programs (icat, fullscreen TUIs) can
+        // size themselves; a 0 pixel field makes them misrender. The
+        // TIOCSWINSZ struct is replaced wholesale, so rows/cols must be
+        // preserved by set_pixel_size.
+        let pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        pty.set_pixel_size(640, 480).expect("set_pixel_size failed");
+        let mut winsize = nix::pty::Winsize {
+            ws_row: 0,
+            ws_col: 0,
+            ws_xpixel: 0,
+            ws_ypixel: 0,
+        };
+        // SAFETY: TIOCGWINSZ writes a well-formed Winsize struct into
+        // `winsize`; the fd is owned and valid. The return value is checked.
+        let result = unsafe { libc::ioctl(pty.master_fd(), libc::TIOCGWINSZ, &mut winsize) };
+        assert_eq!(result, 0, "TIOCGWINSZ ioctl must succeed");
+        assert_eq!(
+            (winsize.ws_row, winsize.ws_col),
+            (24, 80),
+            "set_pixel_size must preserve rows/cols"
+        );
+        assert_eq!(
+            (winsize.ws_xpixel, winsize.ws_ypixel),
+            (640, 480),
+            "set_pixel_size must write pixel fields to the kernel"
+        );
+    }
+
+    #[test]
     fn child_pid_is_positive() {
-        let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         let pid = pty.child_pid();
         assert!(
             pid.as_raw() > 0,
@@ -1157,7 +1265,8 @@ mod tests {
     fn drop_closes_master_fd() {
         // PtyPair drop must complete without blocking. Signal delivery
         // and child reaping are now the responsibility of Session::drop().
-        let _pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let _pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         // PtyPair is dropped here at end of scope — must not block.
     }
 
@@ -1169,8 +1278,8 @@ mod tests {
         // What we verify: PtyPair drop does NOT block or panic, and does NOT
         // call waitpid (reaping is Session::drop()'s job).
         let child = {
-            let pty =
-                PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+            let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None)
+                .expect("spawn failed");
             pty.child_pid()
         };
         std::thread::sleep(Duration::from_millis(100));
@@ -1219,7 +1328,7 @@ mod tests {
             ..ShellEnv::default()
         };
 
-        let mut pty = PtyPair::spawn("/bin/sh", 24, 80, &env).expect("spawn failed");
+        let mut pty = PtyPair::spawn("/bin/sh", 24, 80, &env, None).expect("spawn failed");
         pty.set_nonblocking().expect("set_nonblocking failed");
         Pty::write_all(&mut pty, b"pwd\n").expect("write failed");
 
@@ -1261,7 +1370,8 @@ mod tests {
 
     #[test]
     fn configure_raw_mode_sets_iutf8_and_clears_ixon_ixoff() {
-        let pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default()).expect("spawn failed");
+        let pty =
+            PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         let fd = pty.master_fd();
 
         // Apply the same raw-mode configuration the child uses on the slave.
@@ -1296,7 +1406,7 @@ mod tests {
     fn double_write_then_read_does_not_panic() {
         use crate::terminal::pty::Pty;
 
-        let mut pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default())
+        let mut pty = PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None)
             .expect("spawn must succeed in test env");
         pty.set_nonblocking().expect("set_nonblocking failed");
 

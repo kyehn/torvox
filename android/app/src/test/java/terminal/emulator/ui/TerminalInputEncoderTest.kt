@@ -32,11 +32,22 @@ class TerminalInputEncoderTest {
     }
 
     @Test
-    fun `ctrl 1 9 0 are dropped`() {
-        assertArrayEquals(byteArrayOf(), enc("1", ctrl = true))
-        assertArrayEquals(byteArrayOf(), enc("9", ctrl = true))
-        assertArrayEquals(byteArrayOf(), enc("0", ctrl = true))
+    fun `ctrl 1 9 0 emit csi 27 instead of being dropped`() {
+        // zed-port mappings/keys.rs: digits with no traditional caret fold
+        // are sent as `CSI 27;5;code~` (research-zed-port.md D).
+        assertArrayEquals(csi27(5, '1'.code), enc("1", ctrl = true))
+        assertArrayEquals(csi27(5, '9'.code), enc("9", ctrl = true))
+        assertArrayEquals(csi27(5, '0'.code), enc("0", ctrl = true))
     }
+
+    @Test
+    fun `ctrl alt digit prefixes esc to csi 27`() {
+        // Ctrl+Alt+1 → ESC [ 27 ; 7 ; 49 ~ (xterm/zed modifier: 1 base +
+        // alt 2 + ctrl 4 — same scheme as CSI 1;mod A arrow sequences).
+        assertArrayEquals(csi27(7, '1'.code), enc("1", ctrl = true, alt = true))
+    }
+
+    private fun csi27(modifier: Int, code: Int): ByteArray = "\u001b[27;$modifier;$code~".toByteArray(Charsets.UTF_8)
 
     @Test
     fun `alt prefixes esc`() {
@@ -84,6 +95,61 @@ class TerminalInputEncoderTest {
         assertArrayEquals(
             bytes(0x03),
             TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_C, 'c'.code, true, false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent ctrl digit emits csi 27`() {
+        // Hardware-key path mirrors the IME path (research-zed-port.md D).
+        assertArrayEquals(
+            "\u001b[27;5;49~".toByteArray(Charsets.UTF_8),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_1, '1'.code, true, false),
+        )
+        assertArrayEquals(
+            "\u001b[27;5;57~".toByteArray(Charsets.UTF_8),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_9, '9'.code, true, false),
+        )
+        assertArrayEquals(
+            "\u001b[27;5;48~".toByteArray(Charsets.UTF_8),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_0, '0'.code, true, false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent arrow uses csi in normal cursor mode`() {
+        assertArrayEquals(
+            bytes(0x1B, 0x5B, 0x41),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_UP, 0, false, false, appCursorMode = false),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent arrow uses ss3 in application cursor mode`() {
+        // DECCKM (research-haven.md:141 P2): app mode must emit ESC O A.
+        assertArrayEquals(
+            bytes(0x1B, 0x4F, 0x41),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_UP, 0, false, false, appCursorMode = true),
+        )
+        assertArrayEquals(
+            bytes(0x1B, 0x4F, 0x42),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0, false, false, appCursorMode = true),
+        )
+        assertArrayEquals(
+            bytes(0x1B, 0x4F, 0x43),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 0, false, false, appCursorMode = true),
+        )
+        assertArrayEquals(
+            bytes(0x1B, 0x4F, 0x44),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_LEFT, 0, false, false, appCursorMode = true),
+        )
+    }
+
+    @Test
+    fun `encodeKeyEvent arrow with modifier stays csi even in app mode`() {
+        // Modifier-carrying arrows use `CSI 1;mod A` regardless of DECCKM.
+        assertArrayEquals(
+            bytes(0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x41),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_UP, 0, true, false, appCursorMode = true),
         )
     }
 

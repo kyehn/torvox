@@ -7,6 +7,9 @@ plugins {
     id("com.google.devtools.ksp")
     id("io.github.takahirom.roborazzi")
     id("io.gitlab.arturbosch.detekt")
+    id("com.ncorti.ktfmt.gradle")
+    id("org.jlleitschuh.gradle.ktlint")
+    id("de.infix.testBalloon")
 }
 
 detekt {
@@ -192,11 +195,35 @@ dependencies {
     testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.70.0")
     testImplementation("androidx.test:core:1.7.0")
 
+    // DebugOverlay — zero-config runtime diagnostics for debug builds:
+    // CPU/heap/PSS/FPS metrics overlay, logcat/crash/network tabs, bug
+    // report. debugImplementation only — never ships in release.
+    // Configured + extended in TerminalAppDebug (debug source set).
+    debugImplementation("com.ms-square:debugoverlay:2.7.0")
+
     // Konsist — architecture consistency tests (guard package structure,
-    // naming conventions, dependency rules). Disabled: Konsist 0.17.x
-    // is incompatible with Kotlin 2.4.x (extension functions unresolved).
-    // Re-enable when upstream adds Kotlin 2.4 support.
-    // testImplementation("com.lemonappdev:konsist:0.17.3")
+    // naming conventions, dependency rules).
+    testImplementation("com.lemonappdev:konsist:0.17.3")
+
+    // TestBalloon — DSL-based Kotlin-first test framework for host-side
+    // (Robolectric/JVM) and device-side tests. K2.4.0 = built for Kotlin 2.4.
+    testImplementation("de.infix.testBalloon:testBalloon-framework-core:1.0.1-K2.4.0")
+
+    // Stove — JVM backend e2e testing DSL (Trendyol). Full framework
+    // targets Spring/Ktor + Testcontainers; this Android app uses only its
+    // HTTP client system (no containers) against MockWebServer to drive
+    // the bootstrap download path end-to-end. Requires JUnit5 (Jupiter)
+    // for the Stove extension; JUnit4 tests keep running alongside.
+    testImplementation("com.trendyol:stove:0.25.2")
+    testImplementation("com.trendyol:stove-http:0.25.2")
+    testImplementation("com.trendyol:stove-extensions-junit:0.25.2")
+    testImplementation("org.junit.jupiter:junit-jupiter:5.14.0")
+    testImplementation("org.junit.vintage:junit-vintage-engine:5.14.0")
+
+    // Slack Compose Lints — common Compose pitfalls (mutableStateOf, etc.)
+    lintChecks("com.slack.lint.compose:compose-lint-checks:1.4.2")
+    // Slack Lints — general Kotlin/Android lint checks
+    lintChecks("com.slack.lint:slack-lint-checks:0.9.0")
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
@@ -205,12 +232,22 @@ dependencies {
     androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:rules:1.7.0")
+    // Ultron — Espresso/Compose/UI Automator wrapper for stable Android UI
+    // tests (page objects, retries, Allure reporting).
+    androidTestImplementation("com.atiurin:ultron-android:2.6.3")
+    androidTestImplementation("com.atiurin:ultron-compose:2.6.3")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.compose.ui:ui-test-manifest")
     androidTestImplementation("com.google.dagger:hilt-android-testing:2.60.1")
     kspAndroidTest("com.google.dagger:hilt-android-compiler:2.60.1")
     androidTestImplementation("com.google.mlkit:text-recognition:16.0.1")
+
+    // testBalloon is also visible from the androidTest source set because
+    // AGP compiles the `test` (unitTest) sources while building
+    // androidTest; without this, ArgumentTokenizerTestSuite (which uses
+    // the TestBalloon DSL) fails to resolve `AbstractTestSuite`.
+    androidTestImplementation("de.infix.testBalloon:testBalloon-framework-core:1.0.1-K2.4.0")
 
     androidTestImplementation("io.cucumber:cucumber-android:7.18.1")
 
@@ -225,8 +262,9 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
     }
 }
 
-val workingDirForCargo = rootProject.projectDir.parentFile
-    ?: error("rootProject.projectDir.parentFile must exist")
+val workingDirForCargo =
+    rootProject.projectDir.parentFile
+        ?: error("rootProject.projectDir.parentFile must exist")
 check(File(workingDirForCargo, "Cargo.toml").exists()) {
     "Cargo.toml not found at $workingDirForCargo"
 }
@@ -315,4 +353,10 @@ androidComponents {
 tasks.register("pitest") {
     group = "verification"
     description = "Run PIT mutation testing on all variant unit tests"
+}
+
+// JUnit5 (Jupiter) platform for Stove tests — added alongside the JUnit4
+// vintage engine so both test styles run from the same `test` task.
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
 }

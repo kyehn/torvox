@@ -86,7 +86,7 @@ The single-crate design eliminates cross-crate boundary violations entirely.
 PTY output
     → poll()/read() [PTY Reader thread]
     → GhosttyTerminal::try_write_to_terminal()
-    → CellData (80B bytemuck Pod struct) via flume channel
+    → CellData (80B bytemuck Pod struct, 0 FFI calls/cell) via flume channel (bounded 256)
     → RenderThread:
         1. build_instances_from_cell_data() → Vec<CellInstance>
         2. wgpu write_buffer (storage)

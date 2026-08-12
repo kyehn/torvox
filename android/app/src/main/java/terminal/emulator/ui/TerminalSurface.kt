@@ -234,9 +234,11 @@ constructor(
      * `object : ActionMode.Callback2()` (constructor parens — Callback2 is an
      * abstract class, not an interface) and the system positions TYPE_FLOATING
      * reasonably even without it. Menu order/content mirrors termux
-     * (COPY/SELECT_ALL/PASTE; PASTE enabled only when the clipboard has text —
-     * ghostty-android clipboardHasText() metadata check avoids the clipboard
-     * access toast).
+     * (COPY/SELECT_ALL/PASTE; PASTE is surfaced only when the clipboard
+     * actually has text — ghostty-android TerminalView.java:1423-1505
+     * clipboardHasText() metadata check, implemented below via
+     * ClipboardAccess.hasClipboardText() so an empty clipboard never shows
+     * a dead PASTE action and we avoid the clipboard-access toast).
      */
     private inner class SelectionActionCallback : android.view.ActionMode.Callback2() {
         override fun onCreateActionMode(
@@ -245,13 +247,20 @@ constructor(
         ): Boolean {
             val selection = viewModel?.state?.value?.selection ?: return false
             val pasteOnly = selection.pasteOnly
+            // ghostty-android TerminalView.java:1423-1505 clipboardHasText()
+            // metadata check: only surface PASTE when the clipboard
+            // actually has text, so an empty clipboard never shows a dead
+            // PASTE action (and avoids the clipboard-access toast).
+            val pasteEnabled = clipboardAccess.hasClipboardText()
             if (pasteOnly) {
-                menu.add(
+                val pasteItem = menu.add(
                     android.view.Menu.NONE,
                     MENU_ACTION_PASTE,
                     0,
                     R.string.paste,
-                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                )
+                pasteItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                pasteItem.setEnabled(pasteEnabled)
             } else {
                 menu.add(
                     android.view.Menu.NONE,
@@ -265,12 +274,14 @@ constructor(
                     1,
                     R.string.select_all,
                 ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
-                menu.add(
+                val pasteItem = menu.add(
                     android.view.Menu.NONE,
                     MENU_ACTION_PASTE,
                     2,
                     R.string.paste,
-                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                )
+                pasteItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                pasteItem.setEnabled(pasteEnabled)
                 menu.add(
                     android.view.Menu.NONE,
                     MENU_ACTION_ANCHOR_LEFT,
@@ -463,6 +474,13 @@ constructor(
             )
             if (newRows != rows || newCols != cols) {
                 viewModel?.runtime?.resize(newRows, newCols)
+                // Push the pixel dimensions alongside the grid resize so the
+                // PTY winsize carries real ws_xpixel/ws_ypixel: pixel-aware
+                // programs (`icat`, fullscreen TUIs) read them from
+                // TIOCGWINSZ and misrender when they are 0 (ghostty-android
+                // pty_jni.c:84-87). availableHeight excludes the IME inset
+                // and the modifier bar — exactly the grid area rows covers.
+                viewModel?.runtime?.setPixelSize(width, availableHeight)
                 rows = newRows
                 cols = newCols
             }
@@ -975,7 +993,16 @@ constructor(
                         } else {
                             viewModel?.updateSelection(gridRow, col)
                         }
-                        repositionHandle(which, gridRow, col)
+                        // Round-217 P1 crossing flip: updateSelectionStart/
+                        // updateSelection swap start/end when the dragged
+                        // handle crosses the stationary one — reposition BOTH
+                        // handles from the resulting selection so the visuals
+                        // never invert.
+                        val selection = viewModel?.state?.value?.selection
+                        if (selection?.start != null && selection.end != null) {
+                            repositionHandle(HandleDrag.START, selection.start.row, selection.start.col)
+                            repositionHandle(HandleDrag.END, selection.end.row, selection.end.col)
+                        }
                         return true
                     }
 
@@ -1412,6 +1439,33 @@ constructor(
                 distanceY: Float,
             ): Boolean {
                 if (isSelectingText) return false
+                // Alternate-screen wheel forwarding (Haven research: altScreen
+                // wheel consumption). When the remote is on the alternate
+                // screen (vim/less/htop), a touch-scroll gesture must be sent
+                // to the remote as mouse-wheel escapes rather than scrolling
+                // local scrollback — otherwise the user cannot scroll inside
+                // those programs. Forward one wheel event per scrolled row,
+                // matching the external-mouse path in onGenericMotionEvent.
+                val altBridge = viewModel?.runtime?.bridge()
+                if (altBridge != null && altBridge.isAltScreenActive()) {
+                    val cellW = viewModel?.runtime?.cellWidth ?: 1f
+                    val cellH = viewModel?.runtime?.cellHeight ?: 1f
+                    val x = e2.x
+                    val y = e2.y
+                    // One full cell-height of travel = one wheel row, matching
+                    // the local-scroll mapping below (distanceY / cellHeight).
+                    val lines = kotlin.math.max(1, kotlin.math.abs((distanceY / cellH).toInt()))
+                    // finger up (distanceY > 0) = wheel-up(3); finger down = wheel-down(4)
+                    val button = if (distanceY > 0f) 4 else 3
+                    var forwarded = false
+                    repeat(lines) {
+                        if (altBridge.encodeMouseEvent(x, y, 0, button, cellW, cellH)) {
+                            altBridge.encodeMouseEvent(x, y, 1, button, cellW, cellH)
+                            forwarded = true
+                        }
+                    }
+                    return forwarded
+                }
                 val scrollbackLen = currentScrollbackLength()
                 if (!isScrolling) {
                     isScrolling = true
@@ -1445,6 +1499,15 @@ constructor(
                 velocityY: Float,
             ): Boolean {
                 if (isSelectingText) return false
+                // On the alternate screen (vim/less/htop), a fling must not
+                // scroll local scrollback — the gesture belongs to the remote.
+                // We drop it here (consuming it) rather than forwarding, since
+                // fling velocity has no clean wheel-line mapping; drag-scroll
+                // (onScroll) already forwards per-row wheel events.
+                val flingBridge = viewModel?.runtime?.bridge()
+                if (flingBridge != null && flingBridge.isAltScreenActive()) {
+                    return true
+                }
                 val scrollbackLen = currentScrollbackLength()
                 val absX = kotlin.math.abs(velocityX)
                 val absY = kotlin.math.abs(velocityY)
@@ -2153,6 +2216,25 @@ constructor(
         shortcutHandler?.let { handler ->
             if (handler.dispatch(event)) return true
         }
+        // Round-231 P2: while a selection is active, arrow keys move the
+        // selection START anchor (termlib moveSelection* semantics) instead
+        // of emitting escape sequences to the shell. Hardware arrows only —
+        // physical keyboards set keyCode; soft IME keys come through as text.
+        val activeSelection = viewModel?.state?.value?.selection
+        if (activeSelection?.active == true && activeSelection.start != null && activeSelection.end != null) {
+            val delta =
+                when (keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> 0 to -1
+                    KeyEvent.KEYCODE_DPAD_RIGHT -> 0 to 1
+                    KeyEvent.KEYCODE_DPAD_UP -> -1 to 0
+                    KeyEvent.KEYCODE_DPAD_DOWN -> 1 to 0
+                    else -> null
+                }
+            if (delta != null) {
+                viewModel?.moveSelectionAnchorBy(delta.first, delta.second)
+                return true
+            }
+        }
         val terminalViewModel = viewModel
         val bridge = terminalViewModel?.runtime?.bridge()
         if (bridge != null) {
@@ -2340,7 +2422,16 @@ constructor(
                         } else {
                             viewModel?.updateSelection(gridRow, col)
                         }
-                        selectionHandles.repositionHandle(handleDragState, gridRow, col)
+                        // Round-217 P1 crossing flip: updateSelectionStart/
+                        // updateSelection swap start/end when the dragged
+                        // handle crosses the stationary one — reposition BOTH
+                        // handles from the resulting selection so the visuals
+                        // never invert.
+                        val sel = viewModel?.state?.value?.selection
+                        if (sel?.start != null && sel.end != null) {
+                            selectionHandles.repositionHandle(HandleDrag.START, sel.start.row, sel.start.col)
+                            selectionHandles.repositionHandle(HandleDrag.END, sel.end.row, sel.end.col)
+                        }
                     }
                 } else if (longPressDragging && isSelectingText) {
                     val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))

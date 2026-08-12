@@ -14,7 +14,7 @@ JNI direct bridge (no boltffi/JNA).
 **Maturity**: All phases of re-architecture complete. 6 rounds of comprehensive
 code review conducted; final verdict CLEAN (no P0/P1 issues). Git history
 cleaned (unified single maintainer identity, no forbidden files,
-no Co-Authored-By trailers). See `docs/project-health.md`.
+no Co-Authored-By trailers). See `docs/rejected-technologies.md` §9 (disposition index).
 
 ## Setup and Commands
 
@@ -224,6 +224,4 @@ Prefer `scripts/` over workflows. Only modify workflows when scripts cannot solv
 | `docs/standards/STYLE.md` | Before writing any file |
 | `docs/standards/TESTING.md` | Before writing tests |
 | `docs/standards/QUALITY-GATE.md` | Before review or commit |
-| `docs/project-health.md` | For project status, known gaps, review history |
-| `docs/performance.md` | For benchmark results and thresholds |
-| `docs/reference-projects.md` | For peer project architecture comparison |
+| `docs/rejected-technologies.md` | For rejected/deferred decisions, pending-item registry (§7c), and absorbed-doc disposition index (§9) |

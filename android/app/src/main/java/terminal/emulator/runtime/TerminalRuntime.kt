@@ -121,6 +121,18 @@ internal data class SessionEntry(
     // auto-reset scroll — the user intentionally wants to stay browsing.
     @Volatile var scrollActive: Boolean = false,
     @Volatile var fastDeathRetryScheduled: Boolean = false,
+    // Round-231 P1: the shell exited and the [Process completed (code X)]
+    // prompt was fed to the terminal (see feedProcessCompletedPrompt).
+    // The session stays visible and running until the user presses Enter.
+    @Volatile var waitingForProcessCompleted: Boolean = false,
+    // Exit code captured when the [Process completed] prompt was shown;
+    // reused when Enter confirms the close.
+    @Volatile var processExitCode: Int = 0,
+    // Set by writeToPty when the user presses Enter on the prompt. The
+    // render loop detects it and re-dispatches handleSessionExit so the
+    // bridge close stays on the render thread (no UAF against a live
+    // render loop).
+    @Volatile var processCompletedConfirmed: Boolean = false,
 ) {
     // renderSignaled replaced a per-frame `CountDownLatch`, which had a
     // lost-wakeup race: after `bridge.render()` the loop published a fresh
@@ -209,6 +221,10 @@ constructor(
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    // In-flight native bell-flash animation; cancelled and restarted on each
+    // new bell so a burst always restarts from phase 1.0.
+    @Volatile private var bellFlashJob: Job? = null
 
     // Keep bell handler mode in sync with persisted setting at runtime (round-230 fix).
     init {
@@ -309,6 +325,44 @@ constructor(
     // SECTION 2: Render thread lifecycle
     // ══════════════════════════════════════════════════════════════════════
 
+    /**
+     * Round-231 P1: print the [Process completed (code X)] - press Enter
+     * prompt directly into the VT parser (the child is gone, so the PTY
+     * no longer carries writes; the screen must be updated in-band).
+     */
+    private fun feedProcessCompletedPrompt(entry: SessionEntry, exitCode: Int) {
+        val text = PROCESS_COMPLETED_PROMPT_PREFIX + exitCode + PROCESS_COMPLETED_PROMPT_SUFFIX
+        try {
+            entry.bridge?.feedTerminal(text.encodeToByteArray())
+        } catch (exception: Exception) {
+            LogUtil.w("Runtime", "feedTerminal failed for [Process completed] prompt", exception)
+        }
+        entry.notifyRender()
+    }
+
+    /**
+     * Round-231 P1: for the foreground session, keep it visible after the
+     * shell exits and show a [Process completed] prompt instead of closing
+     * immediately (termux-app TerminalSession.java:353-364 semantics). The
+     * entry stays in the session map with running=true until the user
+     * presses Enter, which then closes it. Returns true when the prompt was
+     * shown (caller should return early and NOT close the session).
+     */
+    private fun maybeShowProcessCompletedPrompt(entry: SessionEntry, exitCode: Int): Boolean {
+        if (entry.id != activeSessionId || entry.waitingForProcessCompleted) return false
+        synchronized(sessionLock) {
+            if (!sessions.containsKey(entry.id)) return false
+            entry.waitingForProcessCompleted = true
+            entry.processExitCode = exitCode
+        }
+        LogUtil.i(
+            "Runtime",
+            "session ${entry.id} exited with code $exitCode; showing [Process completed] prompt",
+        )
+        feedProcessCompletedPrompt(entry, exitCode)
+        return true
+    }
+
     private fun handleSessionExit(
         entry: SessionEntry,
         exitCode: Int,
@@ -325,7 +379,19 @@ constructor(
         // on a separate thread so the backoff delay never blocks the render
         // thread (which owns this call site). Extracted to
         // [tryFastDeathRecovery] for the detekt complexity limit.
-        if (tryFastDeathRecovery(entry, exitCode, aliveMs)) return
+        // Round-231 P1: this function runs both for the initial shell exit
+        // (from the poll.exit branch) and, after the user presses Enter on
+        // the [Process completed] prompt, for the confirmed close (render
+        // loop re-dispatch). Fast-death recovery was already ruled out when
+        // the prompt was first shown, so it is skipped for confirmed closes.
+        val confirmedClose = entry.processCompletedConfirmed
+        if (!confirmedClose) {
+            if (tryFastDeathRecovery(entry, exitCode, aliveMs)) return
+            // Foreground session: keep it visible with a [Process completed]
+            // prompt instead of closing immediately. The entry stays in
+            // sessions with running=true until Enter, which then closes it.
+            if (maybeShowProcessCompletedPrompt(entry, exitCode)) return
+        }
         LogUtil.i("Runtime", "session ${entry.id} exited with code $exitCode")
         // Phase 1 (locked): capture the possibly-hung thread; the actual
         // join runs UNLOCKED below (up to THREAD_JOIN_TIMEOUT_MS) so a hung
@@ -699,11 +765,13 @@ constructor(
                 val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
                 val fontDeferred = async { computeFontSizeTenths() }
                 val themeDeferred = async { resolveThemeName() }
+                val envDeferred = async { settingsRepository.environmentVariables.first() }
                 ConfigReads(
                     shellPath = shellDeferred.await(),
                     scrollbackLines = scrollbackDeferred.await(),
                     fontSizeTenths = fontDeferred.await(),
                     themeName = themeDeferred.await(),
+                    environmentVariables = envDeferred.await(),
                 )
             }
         val resolvedTheme = BuiltInThemes.byName(configReads.themeName)
@@ -776,6 +844,7 @@ constructor(
             path = effectivePath,
             workingDirectory = effectiveHome,
             prefix = effectivePrefix,
+            env = configReads.environmentVariables,
         )
     }
 
@@ -809,6 +878,7 @@ constructor(
         path = System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" },
         workingDirectory = homeDir,
         prefix = "",
+        env = configReads.environmentVariables,
     )
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1104,6 +1174,15 @@ constructor(
                     var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
                     LogUtil.d("Runtime", "render thread started for session ${entry.id} generation=$generation")
                     while (entry.running && renderGeneration.get() == generation) {
+                        // Round-231 P1: user pressed Enter on the
+                        // [Process completed] prompt — writeToPty only
+                        // signals; the close path runs here on the render
+                        // thread so the bridge is not destroyed under a
+                        // live render loop.
+                        if (entry.processCompletedConfirmed) {
+                            handleSessionExit(entry, entry.processExitCode, 0L)
+                            break
+                        }
                         try {
                             // Render loop pacing reference (warp-mobile §14.3):
                             // the terminal-optimal pattern is SurfaceView +
@@ -1111,8 +1190,8 @@ constructor(
                             // torvox currently polls on a render thread; if the
                             // emulator frame rate becomes a bottleneck, switch
                             // the Kotlin side to Choreographer callbacks that
-                            // wake this loop only on vsync (see
-                            // docs/reference-projects.md §14.3/§15.2).
+                            // wake this loop only on vsync (warp-mobile pattern,
+                            // see docs/rejected-technologies.md §7c D39).
                             val bridge = entry.bridge ?: break
                             val selectionSnapshot = selectionState.get()
                             if (selectionSnapshot != lastSelection) {
@@ -1277,7 +1356,14 @@ constructor(
                                                 }
                                             }
                                         }
-                                        break
+                                        if (!entry.waitingForProcessCompleted) {
+                                            break
+                                        }
+                                        // Round-231 P1: the [Process completed]
+                                        // prompt is showing — keep the session
+                                        // visible (running stays true) until the
+                                        // user presses Enter. Native exit_reported
+                                        // is set so no further exit events arrive.
                                     }
                                     eventDispatcher.handle(poll)
                                 } catch (exception: Exception) {
@@ -1454,9 +1540,33 @@ constructor(
             }
         }
 
+        /**
+         * Bell-flash overlay animation (round-231, BellMode.SCREEN_FLASH):
+         * animate the native flash phase 1.0 → 0.0 over BELL_FLASH_DURATION_MS.
+         * A fresh bell cancels and restarts the animation so a burst always
+         * re-peaks at phase 1.0 (BellHandler.debounce already coalesces
+         * sub-150ms bells before we get here).
+         */
+        private fun triggerBellFlash() {
+            if (bellHandler.currentMode.value != BellMode.SCREEN_FLASH) return
+            bellFlashJob?.cancel()
+            bellFlashJob =
+                scope.launch {
+                    val bridge = bridge() ?: return@launch
+                    var remainingMs = BELL_FLASH_DURATION_MS
+                    while (remainingMs > 0 && isActive) {
+                        bridge.setFlashState(remainingMs.toFloat() / BELL_FLASH_DURATION_MS)
+                        delay(BELL_FLASH_TICK_MS)
+                        remainingMs -= BELL_FLASH_TICK_MS
+                    }
+                    bridge.setFlashState(0f)
+                }
+        }
+
         fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
             if (poll.bel) {
                 bellHandler.fireBell(onAccessibility = { announceAccessibility(it) })
+                triggerBellFlash()
             }
             if (poll.notification != null) {
                 val (title, body) = poll.notification
@@ -1714,6 +1824,15 @@ constructor(
         private const val FONT_SIZE_HEIGHT_MAX_PX = 500
         private const val RENDER_ERROR_LOG_FREQUENCY = 60
 
+        // Round-231 P1: [Process completed] prompt fed to the terminal when
+        // a foreground session's shell exits (kept visible until Enter).
+        private const val PROCESS_COMPLETED_PROMPT_PREFIX = "\r\n[Process completed (code "
+        private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ")] - press Enter"
+
+        /** Bell-flash overlay animation (native render quad, BellMode.SCREEN_FLASH). */
+        private const val BELL_FLASH_DURATION_MS = 400L
+        private const val BELL_FLASH_TICK_MS = 16L
+
         /**
          * run_command err_code (round-227 T4, termux ExecutionCommand
          * dual-track): exitCode is the shell exit code; errCode is the
@@ -1752,6 +1871,7 @@ constructor(
         val scrollbackLines: Int,
         val fontSizeTenths: Int,
         val themeName: String,
+        val environmentVariables: Map<String, String>,
     )
 
     internal suspend fun computeFontSizeTenths(): Int {
@@ -2957,6 +3077,12 @@ constructor(
             try {
                 val familyResult = entry.bridge?.setFontFamily(effectiveFontFamily)
                 LogUtil.d("Runtime", "setFontFamily result: $familyResult")
+                // Independent bold/italic families (ghostty-android 4-slot
+                // design): empty = clear the slot (same-family fallback).
+                val boldFamily = terminal.emulator.resolveEffectiveFontFamily(settingsRepository.boldFontFamily.first())
+                val italicFamily = terminal.emulator.resolveEffectiveFontFamily(settingsRepository.italicFontFamily.first())
+                entry.bridge?.setFontFamilyForStyle(boldFamily, terminal.emulator.FONT_SLOT_BOLD)
+                entry.bridge?.setFontFamilyForStyle(italicFamily, terminal.emulator.FONT_SLOT_ITALIC)
                 entry.bridge?.setFontSizeInPlace(fontSizeTenths)
                 entry.bridge?.let { syncGridDimensions(it) }
                 // Round-215: the grid must follow the font. syncGridDimensions
@@ -2981,6 +3107,19 @@ constructor(
     fun writeToPty(data: ByteArray): Boolean {
         val entry = sessions[activeSessionId]
         if (entry != null && entry.running) {
+            // Round-231 P1: the shell exited and [Process completed] is
+            // showing — the only accepted input is Enter, which confirms
+            // the prompt and lets the render loop run the close path.
+            if (entry.waitingForProcessCompleted) {
+                if (data.any { it == '\r'.code.toByte() || it == '\n'.code.toByte() }) {
+                    synchronized(sessionLock) {
+                        entry.processCompletedConfirmed = true
+                    }
+                    entry.renderSignaled.set(true)
+                    entry.notifyRender()
+                }
+                return true
+            }
             // Round-224: any user input marks the session as interactive —
             // a later fast exit is a legitimate quick exit (e.g. `exit`),
             // so fast-death recovery must NOT fire for it.
@@ -3131,6 +3270,20 @@ constructor(
         // render thread published between read and write.
         _state.update { it.copy(rows = clampedRows, cols = clampedCols) }
         entry.notifyRender()
+    }
+
+    /**
+     * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the
+     * active session, preserving rows/cols. Called alongside every grid
+     * resize with the terminal surface's pixel dimensions, so pixel-aware
+     * programs (`icat`, fullscreen TUIs) read real pixels from TIOCGWINSZ
+     * instead of 0 (ghostty-android pty_jni.c:84-87). Values are clamped to
+     * the native u16 range like [resize]; a 0 both is legal (clears the
+     * fields) and the ioctl succeeds, so no lower-bound guard is needed.
+     */
+    fun setPixelSize(widthPx: Int, heightPx: Int) {
+        val entry = sessions[activeSessionId] ?: return
+        entry.bridge?.setPixelSize(widthPx.coerceIn(0, 0xFFFF), heightPx.coerceIn(0, 0xFFFF))
     }
 
     fun recomputeGrid(

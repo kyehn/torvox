@@ -71,6 +71,7 @@ use std::sync::atomic::Ordering;
 use crate::event::Event;
 use jni::JNIEnv;
 use jni::objects::JObject;
+use jni::objects::JObjectArray;
 use jni::objects::{JClass, JString};
 use jni::sys::{
     JNI_FALSE, JNI_TRUE, jboolean, jbyte, jbyteArray, jfloat, jint, jlong, jobjectArray, jsize,
@@ -167,6 +168,36 @@ pub(crate) fn session_exit_code(session_id: u64) -> Option<i32> {
     session.exit_code_now()
 }
 
+/// Read the current working directory of a registered session (OSC 7
+/// shell-tracked first, then the terminal's /proc-derived fallback —
+/// session.rs cwd()). Registered as the MCP `terminal_info` cwd handler
+/// so the MCP thread never holds the session lock.
+/// Lock order: SESSION_REGISTRY → Session → cwd (see module docs).
+#[cfg(feature = "mcp")]
+pub(crate) fn session_cwd(session_id: u64) -> Option<String> {
+    let registry = SESSION_REGISTRY.read();
+    let entry = registry.get(&session_id)?;
+    let session = entry.session.lock();
+    Some(session.cwd())
+}
+
+/// Drains the OSC 133 last-command-output buffer of a registered session
+/// (termlib getLastCommandOutput equivalent, research-supplement-4.md
+/// §1.2). The buffer is cleared on read, so each query sees fresh data.
+/// Lock order: SESSION_REGISTRY → Session (see module docs).
+#[cfg(feature = "mcp")]
+pub(crate) fn session_last_command_output(session_id: u64) -> Option<String> {
+    let registry = SESSION_REGISTRY.read();
+    let entry = registry.get(&session_id)?;
+    let mut session = entry.session.lock();
+    let output = session.take_last_command_output();
+    if output.is_empty() {
+        None
+    } else {
+        Some(output)
+    }
+}
+
 /// Test-only: register a session entry directly (host tests cannot go
 /// through the JNI spawn path). Dead in non-test lib builds by design.
 #[cfg(any(test, feature = "test-util"))]
@@ -227,6 +258,11 @@ struct RenderState {
     pending_bg_image: Option<(Vec<u8>, u32, u32)>,
     /// Set by `clearBackgroundImage`; consumed by the render thread.
     pending_bg_image_clear: bool,
+    /// Bell-flash overlay phase pending for the next frame: `Some(phase)`
+    /// set by `setFlashState` (any thread), consumed by `render_inner`
+    /// (same deferred pattern as the background image). `0.0` turns the
+    /// flash off. Kotlin drives the decay animation.
+    pending_flash_phase: Option<f32>,
     /// App-level cursor blink (user setting, distinct from the VT cursor
     /// visibility the terminal itself controls). `enabled` + `speed_ms`
     /// come from `setCursorBlink`; `phase_reset_ms` is updated by
@@ -287,6 +323,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             selection_bg: None,
             pending_bg_image: None,
             pending_bg_image_clear: false,
+            pending_flash_phase: None,
             cursor_blink_enabled: true,
             cursor_blink_speed_ms: 600,
             cursor_blink_phase_reset_ms: 0,
@@ -485,6 +522,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     working_directory: JString,
     prefix: JString,
     scrollback_lines: jint,
+    env_array: jobjectArray,
 ) -> jlong {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
@@ -501,6 +539,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
             working_directory,
             prefix,
             scrollback_lines,
+            env_array,
         )
     })
 }
@@ -522,6 +561,7 @@ fn init_session_inner(
     working_directory: JString,
     prefix: JString,
     scrollback_lines: jint,
+    env_array: jobjectArray,
 ) -> jlong {
     let rows = match u32::try_from(rows) {
         Ok(r) => r,
@@ -602,6 +642,31 @@ fn init_session_inner(
         Some(value) => value,
         None => return 0,
     };
+
+    // Reference (zed-android-port util/env.rs EnvOp 分层 — "user config"
+    // layer above the system/base layers): parse the optional String[] of
+    // "KEY=VALUE" user environment overrides passed by Kotlin (Settings >
+    // Environment variables). Malformed entries and JNI read failures are
+    // skipped best-effort; `parse_env_entries` keeps the first '=' split
+    // so values may contain '='.
+    let user_env: Vec<(String, String)> = if env_array.is_null() {
+        Vec::new()
+    } else {
+        // SAFETY: `env_array` is a JNI method argument, guaranteed valid
+        // by the JVM runtime for the duration of this call (same pattern
+        // as setExtraFontPaths below).
+        let array = unsafe { JObjectArray::from_raw(env_array) };
+        let len = env.get_array_length(&array).unwrap_or(0);
+        let mut entries = Vec::new();
+        for i in 0..len {
+            if let Ok(item) = env.get_object_array_element(&array, i) {
+                if let Ok(s) = env.get_string(&JString::from(item)) {
+                    entries.push(s.into());
+                }
+            }
+        }
+        crate::terminal::shell_env::parse_env_entries(&entries)
+    };
     let default = ShellEnv::default();
     let home = if home.is_empty() {
         default.home.clone()
@@ -653,6 +718,13 @@ fn init_session_inner(
                 // adding a new JNI parameter.
                 extra.extend(termux_env_vars(&prefix));
             }
+            // User-defined overrides land last: they shadow TERM /
+            // TERMUX_* defaults, and duplicate user keys collapse onto the
+            // last occurrence so build_env emits each key exactly once.
+            for (key, _) in &user_env {
+                extra.retain(|(k, _)| k != key);
+            }
+            extra.extend(user_env);
             extra
         },
     };
@@ -668,7 +740,7 @@ fn init_session_inner(
         ..Default::default()
     };
 
-    match Session::spawn_with_theme(&shell_path, rows, cols, &shell_env, theme) {
+    match Session::spawn_with_theme(&shell_path, rows, cols, &shell_env, None, theme) {
         Ok(mut session) => {
             let id = next_session_id();
             let entry = SessionEntry {
@@ -926,6 +998,66 @@ fn resize_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, rows: jint,
                 #[cfg(feature = "mcp")]
                 crate::mcp::global_state().set_terminal_dims(rows, cols);
             }
+        }
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: setPixelSize
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the
+/// specified session. Throws RuntimeException if session not found.
+///
+/// ghostty-android `pty_jni.c:84-87`: pixel-aware programs (`icat`,
+/// fullscreen TUIs) read the pixel size from TIOCGWINSZ; a 0 pixel field
+/// makes them fall back to a wrong default cell size. The Kotlin host calls
+/// this alongside every grid resize with the surface's pixel dimensions.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPixelSize(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    width_px: jint,
+    height_px: jint,
+) {
+    // A panic escaping this JNI export would abort the whole process.
+    // Convert it into a Java exception instead.
+    jni_export_guard!(&mut env, (), {
+        set_pixel_size_inner(&mut env, _class, session_id, width_px, height_px)
+    })
+}
+
+fn set_pixel_size_inner(
+    env: &mut JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    width_px: jint,
+    height_px: jint,
+) {
+    let id = session_id as u64;
+    let registry = rlock_session_registry();
+    let Some(entry) = registry.get(&id) else {
+        let _ = env.throw_new(
+            "java/lang/RuntimeException",
+            "setPixelSize: session not found",
+        );
+        return;
+    };
+    let (Ok(width), Ok(height)) = (u16::try_from(width_px), u16::try_from(height_px)) else {
+        let _ = env.throw_new(
+            "java/lang/IllegalArgumentException",
+            "setPixelSize: pixel dimensions must be in 0..=65535",
+        );
+        return;
+    };
+    let session = entry.session.lock();
+    if let Err(error) = session.set_pixel_size(width, height) {
+        if let Err(e) = env.throw_new(
+            "java/lang/RuntimeException",
+            format!("setPixelSize failed: {error}"),
+        ) {
+            log::error!("setPixelSize: throw_new failed: {e}");
         }
     }
 }
@@ -1489,9 +1621,10 @@ fn init_logger_inner(_env: &mut JNIEnv, _class: JClass) {
 
 /// Attach an Android Surface — Android only.
 ///
-/// NOTE: kept as an ADR-0007 placeholder. Kotlin currently never calls
-/// this export (surface integration is deferred; the render thread does
-/// not consume a native window yet).
+/// Called from Bridge.kt on surface attach (ADR-0007, rounds 202-204):
+/// TerminalRuntime hands the Android Surface over the JNI boundary and
+/// the render thread consumes it via the native window. The surface is
+/// detached again by `detachWindow`.
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_attachWindow(
@@ -1620,6 +1753,10 @@ fn render_inner(session_id: u64) -> jint {
                     "render_inner: consumed bg image {w}x{h}, view={}",
                     render_state.renderer.bg_image_view.is_some()
                 );
+            }
+            if let Some(phase) = render_state.pending_flash_phase.take() {
+                render_state.renderer.set_flash_phase(phase);
+                log::trace!("render_inner: flash phase={phase}");
             }
         }
     }
@@ -1785,6 +1922,28 @@ fn render_inner(session_id: u64) -> jint {
         sel.end_row -= scrollback as i32;
         sel
     });
+    // Row-level dirty mask (FR-013 / NFR-010): diff this frame's cells
+    // against the previously rendered frame so only changed rows are
+    // rebuilt. The cursor and selection rows are always rebuilt (they carry
+    // per-frame visual state that cell diffing cannot see). First frame (no
+    // baseline) or a grid resize dirties everything.
+    let dirty_mask: Vec<bool> = match &render_state.last_frame {
+        Some((old_cells, _, old_rows, old_cols)) if *old_rows == rows && *old_cols == cols => {
+            let mut mask = crate::render::cell_builder::diff_dirty_rows(old_cells, &cells, rows);
+            if cursor.visible && (cursor.row as usize) < rows as usize {
+                mask[cursor.row as usize] = true;
+            }
+            if let Some(sel) = &render_selection {
+                let start = sel.start_row.max(0) as usize;
+                let end = (sel.end_row + 1).max(0) as usize;
+                for slot in mask.iter_mut().take(end.min(rows as usize)).skip(start) {
+                    *slot = true;
+                }
+            }
+            mask
+        }
+        _ => vec![true; rows as usize],
+    };
     let result = render_state.renderer.render_cell_data(
         &cells,
         rows,
@@ -1796,6 +1955,7 @@ fn render_inner(session_id: u64) -> jint {
         render_selection,
         render_state.selection_bg,
         &render_state.search_highlights,
+        Some(&dirty_mask),
     );
     if result.is_ok() {
         render_state.last_frame = Some((cells, cursor_info, rows, cols));
@@ -1968,6 +2128,13 @@ fn set_mcp_enabled_inner(_env: &mut JNIEnv, _class: JClass, enabled: jboolean) {
                     }
                     None => format!("Session {session_id} not found"),
                 }
+            });
+            state.set_session_cwd_handler(|session_id: u64| -> Option<String> {
+                // Spec: terminal_info reports the session cwd. Resolved on
+                // the MCP worker thread WITHOUT holding the session lock:
+                // the JNI bridge reads OSC 7 tracked cwd (fallback /proc)
+                // via the registry, mirroring session_exit_code.
+                session_cwd(session_id)
             });
             state.set_run_command_handler(
                 |session_id: u64,
@@ -2378,6 +2545,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLeng
 }
 
 /// Returns a single scrollback row's trimmed text, or null for an empty row.
+///
+/// **Lazy-access semantics** — Ghostty only retains lines that have been
+/// explicitly read; most indices return null.  Do NOT use for full-text
+/// iteration — use `dump_grid` (via `getTerminalText`) instead.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine<'local>(
     mut env: JNIEnv<'local>,
@@ -2530,6 +2701,23 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
         let url = session
             .terminal()
             .hyperlink_at(row.max(0) as u32, col.max(0) as u32);
+        if url.is_none() {
+            // Plain-text URL fallback (zed-port URL_REGEX pattern): OSC 8
+            // covers hyperlinks only; a tap on a bare URL in terminal output
+            // must still open the browser. Reuse the DumpGrid text path
+            // (same data as getTerminalText) and scan the tapped row's
+            // column span.
+            if let Some(fallback) =
+                plain_text_url_at(&session, row.max(0) as u32, col.max(0) as u32)
+            {
+                drop(session);
+                drop(registry);
+                return match env.new_string(&fallback) {
+                    Ok(s) => s.into_raw(),
+                    Err(_) => std::ptr::null_mut(),
+                };
+            }
+        }
         drop(session);
         drop(registry);
         match url {
@@ -2540,6 +2728,50 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
             None => std::ptr::null_mut(),
         }
     })
+}
+
+/// Renders one terminal row (absolute grid row: scrollback first, then
+/// visible) as a string with exactly one char per column — wide chars are
+/// expanded to two copies of the same char so regex byte offsets map to
+/// column indices via char counts. Continuation cells (codepoint 0) are
+/// skipped because the leading wide cell already consumed both columns.
+fn plain_text_url_at(session: &Session, row_abs: u32, col: u32) -> Option<String> {
+    let grid = session.terminal().dump_grid();
+    let row_abs = row_abs as usize;
+    let line: Option<String> = if row_abs < grid.scrollback.len() {
+        Some(cell_line_text(&grid.scrollback[row_abs]))
+    } else {
+        let visible_row = row_abs.saturating_sub(grid.scrollback.len());
+        let cols = grid.cols as usize;
+        let start = visible_row * cols;
+        let end = start.saturating_add(cols).min(grid.visible.len());
+        if start < end {
+            Some(cell_line_text(&grid.visible[start..end]))
+        } else {
+            None
+        }
+    };
+    line.and_then(|text| crate::terminal::url_regex::url_at_column(&text, col as usize))
+}
+
+/// One char per column; wide (width>=2) cells contribute two copies so the
+/// string's char index equals the terminal column index.
+fn cell_line_text(cells: &[crate::terminal::ghostty_terminal::CellSnapshot]) -> String {
+    let mut text = String::with_capacity(cells.len());
+    for cell in cells {
+        if cell.codepoint == 0 {
+            // Continuation cell of a wide char — the leading cell already
+            // covered both columns.
+            continue;
+        }
+        if let Some(ch) = char::from_u32(cell.codepoint) {
+            text.push(ch);
+            if cell.width > 1 {
+                text.push(ch);
+            }
+        }
+    }
+    text
 }
 
 /// Returns a JSON array of `{row,start_col,end_col}` search matches, or
@@ -3027,6 +3259,28 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearBackgroun
     })
 }
 
+/// Set the bell-flash overlay phase for the next frame. `phase` is the
+/// decaying flash strength in 0..=1 (0 = no flash) — the Kotlin side
+/// animates it down after a bell; the native side just composites a white
+/// full-screen quad whose alpha scales with the phase. Deferred to the
+/// render thread like `setBackgroundImage`, so the value is consumed by
+/// the next `render_inner`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFlashState(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    phase: jfloat,
+) {
+    jni_export_guard!(&mut env, (), {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.pending_flash_phase = Some(phase.max(0.0));
+        }
+        log::info!("setFlashState: phase={phase} queued for render thread");
+    })
+}
+
 /// Set the background-image blur radius and opacity. Deferred to the
 /// render thread state (the renderer is owned by RENDER_STATE); the next
 /// `begin_frame` picks up the new values. `alpha` arrives scaled by 10
@@ -3161,6 +3415,35 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
         };
         let found = render_state.font_pipeline.set_font_family(&family_str);
         log::info!("setFontFamily: {family_str} found={found}");
+        if found { JNI_TRUE } else { JNI_FALSE }
+    })
+}
+
+/// Set the independent family for one style slot — 0=bold, 1=italic,
+/// 2=bold-italic (ghostty-android TerminalFontStore 4-slot design,
+/// research-ghostty-android-extra.md:80). Empty family clears the slot
+/// (falls back to same-family lookup + synthesis).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamilyForStyle(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    family: JString,
+    slot: jint,
+) -> jboolean {
+    jni_export_guard!(&mut env, JNI_FALSE, {
+        let family_str = match env.get_string(&family) {
+            Ok(s) => s.to_string_lossy().into_owned(),
+            Err(_) => return JNI_FALSE,
+        };
+        let mut state = render_state_mut();
+        let Some(render_state) = state.as_mut() else {
+            return JNI_FALSE;
+        };
+        let found = render_state
+            .font_pipeline
+            .set_font_family_for_style(&family_str, slot.max(0) as u8);
+        log::info!("setFontFamilyForStyle(slot={slot}): {family_str} found={found}");
         if found { JNI_TRUE } else { JNI_FALSE }
     })
 }
@@ -3448,6 +3731,94 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
             log::warn!(
                 "setScrollOffset: scroll_viewport send failed (target={target} delta={delta}); will retry"
             );
+        }
+    })
+}
+
+/// Whether the remote is currently on the alternate screen buffer
+/// (vim/less/htop). Lock-free read of the mirror maintained by the VT thread
+/// on every `Command::AltScreen` query — safe to call from the Android input
+/// path on every touch-scroll event without blocking the UI thread.
+///
+/// Backs `Bridge.isAltScreenActive` so touch-scroll gestures on the alternate
+/// screen can be forwarded to the remote as mouse-wheel escapes instead of
+/// scrolling local scrollback (Haven research: altScreen wheel consumption).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenState(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+) -> jboolean {
+    jni_export_guard!(&mut env, 0, {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&(session_id as u64)) else {
+            return 0;
+        };
+        let session = entry.session.lock();
+        if session.terminal().alt_screen_active_atomic() {
+            1
+        } else {
+            0
+        }
+    })
+}
+
+/// Queries a terminal mode (ghostty `mode_get`). `kind` selects the mode
+/// namespace: 0 = DEC private modes, non-zero = ANSI modes. Backs the
+/// DECCKM (application cursor keys, DEC private mode 1) lookup the Kotlin
+/// key encoder needs to switch arrow keys between SS3 (`ESC OA`) and CSI
+/// (`ESC [ A`) — research-haven.md:141 P2, research-zed-port.md:252.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+    mode_num: jint,
+    kind: jint,
+) -> jboolean {
+    jni_export_guard!(&mut env, 0, {
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&(session_id as u64)) else {
+            return 0;
+        };
+        let session = entry.session.lock();
+        if session
+            .terminal()
+            .mode_get(mode_num.max(0) as u16, kind.max(0) as u8)
+        {
+            1
+        } else {
+            0
+        }
+    })
+}
+
+/// Drains the OSC 133 `last_command_output` buffer of a session (termlib
+/// getLastCommandOutput equivalent, research-supplement-4.md §1.2) and
+/// returns it as a string; null when the buffer is empty or the session is
+/// gone. Reading clears the buffer, so each call sees fresh data.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getLastCommandOutput<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+) -> jstring {
+    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return std::ptr::null_mut();
+        };
+        let mut session = entry.session.lock();
+        let output = session.take_last_command_output();
+        drop(session);
+        drop(registry);
+        if output.is_empty() {
+            return std::ptr::null_mut();
+        }
+        match env.new_string(&output) {
+            Ok(s) => s.into_raw(),
+            Err(_) => std::ptr::null_mut(),
         }
     })
 }

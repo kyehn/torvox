@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -72,12 +73,17 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
+import terminal.emulator.FONT_SLOT_BOLD
+import terminal.emulator.FONT_SLOT_ITALIC
+import terminal.emulator.FONT_SLOT_REGULAR
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bell.BellMode
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
+import terminal.emulator.settings.parseEnvironmentVariables
+import terminal.emulator.settings.serializeEnvironmentVariables
 import terminal.emulator.ui.theme.TerminalTheme
 import java.io.File
 
@@ -232,6 +238,8 @@ private fun AppearanceSectionContent(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val fontSize = settings.fontSize
     val fontFamily = settings.fontFamily
+    val boldFontFamily = settings.boldFontFamily
+    val italicFontFamily = settings.italicFontFamily
     val cursorBlinkEnabled = settings.cursorBlink
     val cursorSpeedMs = settings.cursorSpeed
     val cursorStyleValue = settings.cursorStyle
@@ -247,30 +255,24 @@ private fun AppearanceSectionContent(
         accentColor = accentColor,
     )
     Spacer(modifier = Modifier.height(12.dp))
-    SystemFontSelector(
-        selectedFamily = fontFamily,
-        onFamilySelected = { viewModel.setFontFamily(it) },
-        textColor = textColor,
-        cardBackground = backgroundColor,
-        accentColor = accentColor,
-        fonts = availableFonts,
+    FontFamilySelectors(
+        regularFamily = fontFamily,
+        boldFamily = boldFontFamily,
+        italicFamily = italicFontFamily,
+        onFamilySelected = { family, slot -> viewModel.setFontFamilyForStyle(family, slot) },
+        customFontLauncher = customFontLauncher,
+        colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
+        availableFonts = availableFonts,
         defaultFontName = defaultFontName,
         fontInfo = fontInfo,
-        onPickFontFile = { customFontLauncher.launch(arrayOf("font/*", "application/octet-stream")) },
     )
-    if (fontInfo.isNotEmpty() || defaultFontName.isNotEmpty()) {
-        Spacer(modifier = Modifier.height(8.dp))
-        val densityDpi = LocalDensity.current.density
-        FontInfoSection(
-            fontInfo =
-            fontInfo.ifEmpty {
-                val pixelSize = (fontSize * densityDpi).toInt()
-                "Active: $defaultFontName\n(CJK fallback info available after session starts)\nFont size: ${fontSize.toInt()}SP (~${pixelSize}px)"
-            },
-            textColor = textColor,
-            secondaryText = secondaryText,
-        )
-    }
+    FontInfoSectionIfAvailable(
+        fontInfo = fontInfo,
+        defaultFontName = defaultFontName,
+        fontSize = fontSize,
+        textColor = textColor,
+        secondaryText = secondaryText,
+    )
     Spacer(modifier = Modifier.height(12.dp))
     SettingsSwitchRow(
         title = stringResource(R.string.cursor_blink),
@@ -599,6 +601,15 @@ private fun TerminalConfigSection(
             accentColor = accentColor,
             cardBackground = backgroundColor,
         )
+        Spacer(modifier = Modifier.height(8.dp))
+        EnvironmentVariablesEditor(
+            vars = settings.environmentVariables,
+            onSave = { viewModel.setEnvironmentVariables(it) },
+            textColor = textColor,
+            accentColor = accentColor,
+            cardBackground = cardBackground,
+            secondaryText = secondaryText,
+        )
     }
 }
 
@@ -704,6 +715,84 @@ private fun FontSizeSlider(
 }
 
 @Composable
+private fun FontInfoSectionIfAvailable(
+    fontInfo: String,
+    defaultFontName: String,
+    fontSize: Float,
+    textColor: Color,
+    secondaryText: Color,
+) {
+    if (fontInfo.isNotEmpty() || defaultFontName.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(8.dp))
+        val densityDpi = LocalDensity.current.density
+        FontInfoSection(
+            fontInfo =
+            fontInfo.ifEmpty {
+                val pixelSize = (fontSize * densityDpi).toInt()
+                "Active: $defaultFontName\n(CJK fallback info available after session starts)\nFont size: ${fontSize.toInt()}SP (~${pixelSize}px)"
+            },
+            textColor = textColor,
+            secondaryText = secondaryText,
+        )
+    }
+}
+
+@Composable
+private fun FontFamilySelectors(
+    regularFamily: String,
+    boldFamily: String,
+    italicFamily: String,
+    onFamilySelected: (String, Int) -> Unit,
+    customFontLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
+    colors: SettingsColors,
+    availableFonts: List<String>,
+    defaultFontName: String,
+    fontInfo: String,
+) {
+    val pickFont = { customFontLauncher.launch(arrayOf("font/*", "application/octet-stream")) }
+    SystemFontSelector(
+        selectedFamily = regularFamily,
+        onFamilySelected = { onFamilySelected(it, FONT_SLOT_REGULAR) },
+        textColor = colors.textColor,
+        cardBackground = colors.cardBackground,
+        accentColor = colors.accentColor,
+        fonts = availableFonts,
+        defaultFontName = defaultFontName,
+        fontInfo = fontInfo,
+        onPickFontFile = pickFont,
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    // Independent bold/italic families — ghostty-android TerminalFontStore
+    // 4-slot design (research-ghostty-android-extra.md:80). Empty selection
+    // clears the slot (falls back to same-family lookup + synthesis).
+    SystemFontSelector(
+        selectedFamily = boldFamily,
+        onFamilySelected = { onFamilySelected(it, FONT_SLOT_BOLD) },
+        textColor = colors.textColor,
+        cardBackground = colors.cardBackground,
+        accentColor = colors.accentColor,
+        fonts = availableFonts,
+        defaultFontName = defaultFontName,
+        fontInfo = fontInfo,
+        titleOverride = "Bold font family",
+        onPickFontFile = pickFont,
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    SystemFontSelector(
+        selectedFamily = italicFamily,
+        onFamilySelected = { onFamilySelected(it, FONT_SLOT_ITALIC) },
+        textColor = colors.textColor,
+        cardBackground = colors.cardBackground,
+        accentColor = colors.accentColor,
+        fonts = availableFonts,
+        defaultFontName = defaultFontName,
+        fontInfo = fontInfo,
+        titleOverride = "Italic font family",
+        onPickFontFile = pickFont,
+    )
+}
+
+@Composable
 private fun SystemFontSelector(
     selectedFamily: String,
     onFamilySelected: (String) -> Unit,
@@ -713,6 +802,7 @@ private fun SystemFontSelector(
     fonts: List<String> = emptyList(),
     defaultFontName: String = "",
     fontInfo: String = "",
+    titleOverride: String? = null,
     onPickFontFile: (() -> Unit)? = null,
 ) {
     val systemFonts = remember(fonts) { fonts.distinct().sorted() }
@@ -722,7 +812,12 @@ private fun SystemFontSelector(
     val displayName = if (defaultFontName.isEmpty()) "Noto Sans Mono" else defaultFontName
 
     Spacer(modifier = Modifier.height(4.dp))
-    Text(stringResource(R.string.font_family), style = labelStyle, color = textColor, maxLines = 1)
+    Text(
+        text = titleOverride ?: stringResource(R.string.font_family),
+        style = labelStyle,
+        color = textColor,
+        maxLines = 1,
+    )
     Spacer(modifier = Modifier.height(4.dp))
     var showFontPicker by remember { mutableStateOf(false) }
 
@@ -1313,6 +1408,125 @@ private fun McpServerToggle(
         checked = enabled,
         onToggle = onToggle,
         colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
+    )
+}
+
+/**
+ * Environment variables editor: clickable row opening a dialog with a
+ * "KEY=VALUE" (one per line) text field. Parsing mirrors the native
+ * `parse_env_entries` (shell_env.rs) so both sides agree on the shape.
+ */
+@Composable
+private fun EnvironmentVariablesEditor(
+    vars: Map<String, String>,
+    onSave: (Map<String, String>) -> Unit,
+    textColor: Color,
+    accentColor: Color,
+    cardBackground: Color,
+    secondaryText: Color,
+) {
+    var showEditor by rememberSaveable { mutableStateOf(false) }
+
+    Column {
+        Row(
+            modifier =
+            Modifier
+                .testTag("EnvironmentVariablesEditor")
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .background(cardBackground)
+                .clickable { showEditor = true }
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.environment_variables),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = textColor,
+                )
+                Text(
+                    text = stringResource(R.string.environment_variables_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = textColor.copy(alpha = 0.6f),
+                )
+            }
+            Text(
+                text = "${vars.size}",
+                color = secondaryText,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(end = 8.dp),
+            )
+            Text(
+                text = stringResource(R.string.change),
+                color = accentColor,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        if (showEditor) {
+            EnvironmentVariablesDialog(
+                initialText = serializeEnvironmentVariables(vars),
+                onSave = {
+                    onSave(parseEnvironmentVariables(it))
+                    showEditor = false
+                },
+                onDismiss = { showEditor = false },
+                textColor = textColor,
+                accentColor = accentColor,
+                cardBackground = cardBackground,
+            )
+        }
+    }
+}
+
+@Composable
+private fun EnvironmentVariablesDialog(
+    initialText: String,
+    onSave: (String) -> Unit,
+    onDismiss: () -> Unit,
+    textColor: Color,
+    accentColor: Color,
+    cardBackground: Color,
+) {
+    var text by rememberSaveable { mutableStateOf(initialText) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.environment_variables)) },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    placeholder = { Text(stringResource(R.string.environment_variables_hint)) },
+                    modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 160.dp),
+                    colors =
+                    OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = accentColor,
+                        cursorColor = accentColor,
+                        focusedTextColor = textColor,
+                        unfocusedTextColor = textColor,
+                    ),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onSave(text) },
+                modifier = Modifier.testTag("SaveEnvironmentVariables"),
+            ) {
+                Text(stringResource(R.string.environment_variables_save), color = accentColor)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(android.R.string.cancel), color = textColor)
+            }
+        },
     )
 }
 

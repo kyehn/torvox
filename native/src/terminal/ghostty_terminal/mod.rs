@@ -36,6 +36,13 @@ pub struct GhosttyTerminal {
     /// True when the last `pty_write()` chunk ended inside an unterminated
     /// OSC/DCS string; `pty_write()` closes it with ST on the next chunk.
     pub(crate) last_in_string_mode: bool,
+    /// Mirror of `Terminal::active_screen() == Alternate`, updated lock-free
+    /// by the VT thread on every `Command::AltScreen` query (internal.rs).
+    /// Lets the Android input path detect the alternate screen buffer
+    /// (vim/less/htop) without a blocking RPC, so touch-scroll gestures can
+    /// be forwarded as mouse-wheel escapes instead of scrolling local
+    /// scrollback (Haven research: altScreen wheel consumption).
+    pub(crate) alt_screen_active: Arc<AtomicBool>,
 }
 
 impl Drop for GhosttyTerminal {

@@ -6,9 +6,10 @@
 # Links: requirement → design → API → test
 #
 # Generated from:
-#   - docs/srs.md          (requirements)
-#   - docs/architecture.md (design decisions, module architecture)
-#   - codebase test files  (test coverage)
+#   - docs/requirements/*.sdoc  (requirement IDs, StrictDoc source)
+#   - docs/srs.md               (requirement prose)
+#   - docs/architecture.md      (design decisions, module architecture)
+#   - codebase test files       (test coverage)
 #
 # Verification commands use `cargo test --workspace` for the full suite
 # or `cargo test --package native` for the crate-specific verification.

@@ -1,8 +1,14 @@
-# 0003 — Bridge and Rendering Strategy
+# 3. Bridge and Rendering Strategy
 
-- **Status**: Accepted
-- **Date**: 2026-07-27
-- **Requirement IDs**: FR-02, NFR-01, NFR-04
+## Status
+
+Accepted
+
+Date: 2026-07-27
+
+## Requirement IDs
+
+FR-02, NFR-01, NFR-04
 
 ## Context
 

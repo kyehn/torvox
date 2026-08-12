@@ -114,6 +114,12 @@
     <string name="mcp_server">MCP Server</string>
     <string name="mcp_server_desc">Expose terminal via Model Context Protocol socket</string>
 
+    <!-- Environment Variables -->
+    <string name="environment_variables">Environment Variables</string>
+    <string name="environment_variables_desc">Extra KEY=VALUE vars (one per line) for new sessions</string>
+    <string name="environment_variables_hint">KEY=VALUE\none per line</string>
+    <string name="environment_variables_save">Save</string>
+
     <!-- Text Search -->
     <string name="text_search">Text Search</string>
     <string name="text_search_desc">Search terminal output</string>
@@ -165,10 +171,6 @@
     <string name="search_no_results_accessible">No results found</string>
 
     <!-- Paste confirmation -->
-    <string name="paste_confirm_title">Confirm Paste</string>
-    <string name="paste_confirm_detail">Pasting %1$d lines (%2$d characters).\nThis will be sent to the terminal.</string>
-    <string name="paste_confirm_yes">Paste</string>
-    <string name="paste_confirm_no">Cancel</string>
 
     <!-- Keyboard Shortcuts -->
     <string name="keyboard_shortcuts">Keyboard Shortcuts</string>
