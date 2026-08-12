@@ -7,7 +7,7 @@ package terminal.emulator.bridge;
  */
 public class NativeBridge {
     // ── native method declarations (matching ffi.rs exports) ──
-    static native long initSession(int rows, int cols, String shell, String home, String user, String path, String workingDirectory, String prefix);
+    static native long initSession(int rows, int cols, String shell, String home, String user, String path, String workingDirectory, String prefix, int scrollbackLines, String[] envArray);
     static native boolean destroySession(long sessionId);
     static native boolean switchSession(long sessionId);
     static native int getSessionCount();
@@ -63,13 +63,13 @@ public class NativeBridge {
         int before = getSessionCount();
         check("initial count is 0", before >= 0);
 
-        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "", 2000, null);
         check("initSession returns positive id", sid > 0);
 
         int afterCreate = getSessionCount();
         check("count increased after create", afterCreate > before);
 
-        long sid2 = initSession(40, 120, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        long sid2 = initSession(40, 120, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "", 2000, null);
         check("second session has different id", sid2 != sid);
         check("two sessions created", getSessionCount() >= 2);
 
@@ -89,14 +89,14 @@ public class NativeBridge {
     static void testInitInvalidArgs() {
         System.out.println("-- Init with invalid args --");
         // 0 rows/cols should still work (VT handles minimum internally)
-        long sid = initSession(0, 0, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        long sid = initSession(0, 0, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "", 2000, null);
         check("initSession(0,0) succeeds", sid > 0);
         destroySession(sid);
     }
 
     static void testResize() {
         System.out.println("-- Resize --");
-        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "", 2000, null);
         check("session created for resize", sid > 0);
         resize(sid, 50, 150);
         // resize does not throw (no crash = pass)
@@ -105,7 +105,7 @@ public class NativeBridge {
 
     static void testFeedPty() {
         System.out.println("-- Feed PTY --");
-        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "", 2000, null);
         check("session created for feedPty", sid > 0);
         feedPty(sid, "echo hello\n".getBytes(java.nio.charset.StandardCharsets.UTF_8));
         // feedPty does not crash
@@ -114,7 +114,7 @@ public class NativeBridge {
 
     static void testPollEvent() {
         System.out.println("-- Poll event --");
-        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "", 2000, null);
         check("session created for pollEvent", sid > 0);
 
         // pollEvent should return null initially (no events)
@@ -135,8 +135,8 @@ public class NativeBridge {
 
     static void testMultiSession() {
         System.out.println("-- Multi-session --");
-        long a = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
-        long b = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        long a = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "", 2000, null);
+        long b = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "", 2000, null);
         check("session A created", a > 0);
         check("session B created", b > 0);
         check("A != B", a != b);
@@ -167,7 +167,7 @@ public class NativeBridge {
         }
         check("getTitle(unknown) throws IllegalArgumentException", threw);
 
-        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "");
+        long sid = initSession(24, 80, "/bin/sh", "/", "root", "/usr/bin:/bin", "/", "", 2000, null);
         check("session created for queries", sid > 0);
         try { Thread.sleep(100); } catch (InterruptedException e) {}
         // Live session: getters do not throw (data may be empty for a bare sh).

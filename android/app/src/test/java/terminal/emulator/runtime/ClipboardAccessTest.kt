@@ -81,4 +81,22 @@ class ClipboardAccessTest {
     fun `empty clipboard reports null`() {
         assertNull(access.clipboardText())
     }
+
+    @Test
+    fun `hasClipboardText is false on empty clipboard`() {
+        // Pre-condition: a prior test may have left clip text; clear it.
+        org.junit.Assert.assertFalse(
+            "empty/fresh clipboard must report no text",
+            access.hasClipboardText(),
+        )
+    }
+
+    @Test
+    fun `hasClipboardText is true after a write`() {
+        access.setClipboardText("paste-me")
+        org.junit.Assert.assertTrue(
+            "clipboard with text must report hasClipboardText",
+            access.hasClipboardText(),
+        )
+    }
 }

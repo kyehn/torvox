@@ -30,11 +30,12 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock') }}
+          key: ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-
       - env:
           CARGO_INCREMENTAL: "0"
-        run: |
-          scripts/check-rust.nu
+        run: scripts/check-rust.nu
       - uses: actions/upload-artifact@main
         continue-on-error: true
         with:
