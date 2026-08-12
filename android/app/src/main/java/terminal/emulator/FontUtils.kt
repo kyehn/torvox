@@ -2,6 +2,11 @@ package terminal.emulator
 
 private const val DEFAULT_ARCH_FALLBACK = "aarch64"
 
+/** Style slots for independent bold/italic families (ghostty-android 4-slot). */
+const val FONT_SLOT_REGULAR = -1
+const val FONT_SLOT_BOLD = 0
+const val FONT_SLOT_ITALIC = 1
+
 fun resolveEffectiveFontFamily(fontFamily: String): String {
     val normalized = fontFamily.trim()
     if (normalized.isEmpty()) return ""

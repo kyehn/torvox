@@ -1,0 +1,153 @@
+[DOCUMENT]
+TITLE: Non-Functional Requirements
+PREFIX: NFR-
+
+[REQUIREMENT]
+UID: NFR-001
+STATEMENT: >>>
+The native terminal module SHALL contain zero `unsafe` blocks, verified by audit.
+<<<
+
+[REQUIREMENT]
+UID: NFR-002
+STATEMENT: >>>
+All `unsafe` blocks in the codebase SHALL be preceded by a `// SAFETY:` comment explaining the invariants.
+<<<
+
+[REQUIREMENT]
+UID: NFR-003
+STATEMENT: >>>
+The system SHALL not panic in error paths. Library functions SHALL return `Result` or `Option` rather than panicking.
+<<<
+
+[REQUIREMENT]
+UID: NFR-004
+STATEMENT: >>>
+The system SHALL use `thiserror 2` (not `anyhow`) for error types in library crates.
+<<<
+
+[REQUIREMENT]
+UID: NFR-005
+STATEMENT: >>>
+The system SHALL handle thread panics gracefully: the PTY reader thread, process waiter thread, and render thread SHALL NOT bring down the entire process on panic.
+<<<
+
+[REQUIREMENT]
+UID: NFR-006
+STATEMENT: >>>
+The render thread SHALL use wgpu (Vulkan) for GPU-accelerated rendering. Software rendering via CPU text drawing (`Canvas.drawText`) is forbidden.
+<<<
+
+[REQUIREMENT]
+UID: NFR-007
+STATEMENT: >>>
+The glyph atlas SHALL be managed by `guillotiere` with a cache capacity of at least 10,000 glyph entries and eviction when full.
+<<<
+
+[REQUIREMENT]
+UID: NFR-008
+STATEMENT: >>>
+The scrollback buffer SHALL be bounded to a configurable maximum (default 50,000 lines) with automatic eviction of oldest entries. SHALL NOT exhibit unbounded memory growth.
+<<<
+
+[REQUIREMENT]
+UID: NFR-009
+STATEMENT: >>>
+Each terminal session SHALL use a bounded number of threads (4): PTY reader, input writer, process waiter, and render thread.
+<<<
+
+[REQUIREMENT]
+UID: NFR-010
+STATEMENT: >>>
+The frame pipeline SHALL only repaint dirty rows as tracked by the `DirtyMask` bitfield, avoiding full-grid redraws on every frame.
+<<<
+
+[REQUIREMENT]
+UID: NFR-011
+STATEMENT: >>>
+The shaped text cache SHALL be capped at 4,096 entries to avoid unbounded memory growth from repeated shaping of different text runs.
+<<<
+
+[REQUIREMENT]
+UID: NFR-012
+STATEMENT: >>>
+The crate dependency graph SHALL be strictly one-way with no circular dependencies. The build SHALL fail on cycle detection.
+<<<
+
+[REQUIREMENT]
+UID: NFR-013
+STATEMENT: >>>
+The codebase SHALL pass `cargo clippy --all -- --deny warnings` with zero warnings. No `#[allow]` attributes in production source code.
+<<<
+
+[REQUIREMENT]
+UID: NFR-014
+STATEMENT: >>>
+The codebase SHALL pass `cargo fmt --check` with consistent formatting.
+<<<
+
+[REQUIREMENT]
+UID: NFR-015
+STATEMENT: >>>
+The Kotlin codebase SHALL pass `./gradlew spotlessCheck detekt` with zero violations.
+<<<
+
+[REQUIREMENT]
+UID: NFR-016
+STATEMENT: >>>
+When native terminal types change, the JNI bridge in `native/src/android/ffi.rs` and `NativeBridge.kt` SHALL be updated correspondingly.
+<<<
+
+[REQUIREMENT]
+UID: NFR-017
+STATEMENT: >>>
+The system SHALL target Android as the primary platform, using Kotlin + Compose for the UI layer.
+<<<
+
+[REQUIREMENT]
+UID: NFR-018
+STATEMENT: >>>
+The system SHALL use Vulkan via wgpu for rendering. On systems without a physical GPU, Mesa's Lavapipe (software Vulkan) SHALL be used as the Vulkan implementation. On Android emulators, SwiftShader SHALL be used.
+<<<
+
+[REQUIREMENT]
+UID: NFR-019
+STATEMENT: >>>
+The build SHALL be deterministic via Nix flake, pinning all dependencies including the Zig compiler (for Ghostty), Rust toolchain, and Android SDK.
+<<<
+
+[REQUIREMENT]
+UID: NFR-020
+STATEMENT: >>>
+The Ghostty library (libghostty-vt) SHALL be linked as a dynamic library (dylib) with the SONAME versioned suffix stripped for Android compatibility.
+<<<
+
+[REQUIREMENT]
+UID: NFR-021
+STATEMENT: >>>
+The APK SHALL use the application ID `com.termux` and SHALL be signed with the AOSP testkey (not self-signed certificates).
+<<<
+
+[REQUIREMENT]
+UID: NFR-022
+STATEMENT: >>>
+The render thread SHALL detect GPU surface loss (Android configuration change, activity restart) and recreate the wgpu pipeline automatically. After 100 consecutive errors (~10 seconds), the thread SHALL exit permanently and require a new surface to restart.
+<<<
+
+[REQUIREMENT]
+UID: NFR-023
+STATEMENT: >>>
+The OSC handler SHALL cap payload size at 1 MB (`MAX_PAYLOAD_BYTES`) to prevent denial-of-service via oversized OSC sequences.
+<<<
+
+[REQUIREMENT]
+UID: NFR-024
+STATEMENT: >>>
+The system SHALL recover from PTY read errors without crashing the session. The reader thread SHALL log errors and continue reading.
+<<<
+
+[REQUIREMENT]
+UID: NFR-025
+STATEMENT: >>>
+The system SHALL provide unified logging infrastructure that writes to both logcat and a rotating file, with log levels configurable independently for each output.
+<<<

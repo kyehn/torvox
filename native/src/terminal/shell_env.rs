@@ -51,6 +51,23 @@ pub fn terminal_env_overlay() -> &'static [(String, EnvOp)] {
     TERMINAL_ENV_OVERLAY.get().map_or(&[], |v| v.as_slice())
 }
 
+/// Parse "KEY=VALUE" entries into (key, value) pairs. The first '=' splits
+/// key from value (values may contain '='); entries without '=' or with an
+/// empty/whitespace-only key are skipped. Trimmed keys, untrimmed values —
+/// the same shape the Kotlin Settings editor serializes.
+pub fn parse_env_entries(entries: &[String]) -> Vec<(String, String)> {
+    let mut out = Vec::with_capacity(entries.len());
+    for entry in entries {
+        if let Some((key, value)) = entry.split_once('=') {
+            let key = key.trim();
+            if !key.is_empty() {
+                out.push((key.to_string(), value.to_string()));
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,6 +147,49 @@ mod tests {
     #[test]
     fn env_op_remove_is_unique() {
         assert_eq!(EnvOp::Remove, EnvOp::Remove);
+    }
+
+    #[test]
+    fn parse_env_entries_splits_on_first_equals() {
+        let entries = vec![
+            "KEY=value".to_string(),
+            "URL=https://x.test/a=b".to_string(),
+        ];
+        let parsed = parse_env_entries(&entries);
+        assert_eq!(
+            parsed,
+            vec![
+                ("KEY".to_string(), "value".to_string()),
+                ("URL".to_string(), "https://x.test/a=b".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_env_entries_skips_malformed_and_blank_keys() {
+        let entries = vec![
+            "no_equals_here".to_string(),
+            "   =value".to_string(),
+            "=value".to_string(),
+            "GOOD=1".to_string(),
+        ];
+        let parsed = parse_env_entries(&entries);
+        assert_eq!(parsed, vec![("GOOD".to_string(), "1".to_string())]);
+    }
+
+    #[test]
+    fn parse_env_entries_trims_key_keeps_value() {
+        let entries = vec!["  MY_KEY =  padded value  ".to_string()];
+        let parsed = parse_env_entries(&entries);
+        assert_eq!(
+            parsed,
+            vec![("MY_KEY".to_string(), "  padded value  ".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_env_entries_empty_input() {
+        assert!(parse_env_entries(&[]).is_empty());
     }
 
     #[test]
