@@ -2891,7 +2891,8 @@ fn all_static_pipelines_create_without_validation_errors() {
     // backend available in the dev shell (Mesa Lavapipe software Vulkan).
     // Pipeline creation is where WGSL compile errors surface; rendering
     // tests below already exercise cell/background paths, this guards the
-    // less-travelled KGP and flash pipelines.
+    // less-travelled KGP and flash pipelines. (Blur pipelines are built
+    // lazily by ensure_bg_pipeline and are not covered here.)
     let Some((_instance, _adapter, device, _queue)) = create_test_device() else {
         eprintln!("SKIP: no GPU available for pipeline creation test");
         return;

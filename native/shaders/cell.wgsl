@@ -79,7 +79,7 @@ fn fs_main(
         // World-space cell pixel coordinates in PHYSICAL surface pixels:
         // quad_size is already physical (surface/rows), so multiplying by
         // raster_scale again would shrink the glyph to font_size logical
-        // pixels (round-216: glyphs rendered 25px instead of 66px at 420dpi).
+        // pixels (glyphs rendered 25px instead of 66px at 420dpi).
         let cell_px = cell_uv * quad_size;
         // X: glyph advance width is in logical pixels; convert to physical
         // (× raster_scale) so scaled_x spans the full rasterized bitmap

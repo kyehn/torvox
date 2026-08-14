@@ -6,7 +6,7 @@
     <color name="titlebar">#1A3355</color>
     <color name="window">#0D1B2A</color>
     <color name="accent">#22D3EE</color>
-    <!-- Round-217: ActionMode (selection context menu) toolbar background —
+    <!-- ActionMode (selection context menu) toolbar background —
          terminal panel color so the menu reads as a neutral system toolbar
          instead of the system dynamic accent banner. -->
     <color name="action_mode_background">#21222C</color>
