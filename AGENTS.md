@@ -14,7 +14,7 @@ JNI direct bridge (no boltffi/JNA).
 **Maturity**: All phases of re-architecture complete. 6 rounds of comprehensive
 code review conducted; final verdict CLEAN (no P0/P1 issues). Git history
 cleaned (unified single maintainer identity, no forbidden files,
-no Co-Authored-By trailers). See `docs/rejected-technologies.md` §9 (disposition index).
+no Co-Authored-By trailers). See `docs/rejected-technologies.md` §3.3 (disposition index).
 
 ## Setup and Commands
 
@@ -34,13 +34,15 @@ nu scripts/test-android-gradle.nu  # Android CI script
 
 ## Before Commit
 
-Checklist:
+Run the full gate before commit; the authoritative checklist lives in
+`docs/standards/QUALITY-GATE.md` (incl. docs/requirements/ADR/traceability gates):
 
 1. `cargo test --workspace` exits 0
 2. `cargo clippy --all -- --deny warnings` exits 0
 3. `cargo fmt --check` exits 0
 4. `cd android && ./gradlew spotlessCheck detekt` exits 0
-5. Bridge type sync: if `ffi.rs` JNI signatures changed, update `NativeBridge.kt`
+5. `cargo test -p integration-tests --test tool_lint` exits 0 (vale/markdownlint/typos/adrs/strictdoc/docs structure)
+6. Bridge type sync: if `ffi.rs` JNI signatures changed, update `NativeBridge.kt`
 
 ---
 
@@ -78,7 +80,7 @@ No pre-installed hooks. Run checks manually before commit.
 
 ## Architecture — Summary
 
-See `docs/architecture.md` for the full architecture document.
+See `docs/architecture.md` (arc42, 12 sections) for the full architecture document.
 
 Key architecture features:
 
@@ -94,6 +96,9 @@ Key architecture features:
 
 ## When Writing Code
 
+Full style rules: `docs/standards/STYLE.md`. Operational rules below are the
+high-frequency subset — keep them here so agents see them without a detour:
+
 - Read `docs/standards/STYLE.md` before writing any file
 - `native/src/android/ffi.rs` is the single JNI export location — keep `NativeBridge.kt` in sync
 - Lint after every file change: `cargo clippy --all -- --deny warnings`
@@ -106,9 +111,9 @@ Key architecture features:
 - Rust: use `std::hint::black_box` not deprecated `criterion::black_box`
 - Kotlin: use `SharingStarted.WhileSubscribed(TIMEOUT_MILLIS)` with named constant
 
----
-
 ## When Testing
+
+Full guide: `docs/standards/TESTING.md`. Core rules:
 
 - Read `docs/standards/TESTING.md` before writing tests
 - Test public API only, not internal implementation
@@ -224,4 +229,4 @@ Prefer `scripts/` over workflows. Only modify workflows when scripts cannot solv
 | `docs/standards/STYLE.md` | Before writing any file |
 | `docs/standards/TESTING.md` | Before writing tests |
 | `docs/standards/QUALITY-GATE.md` | Before review or commit |
-| `docs/rejected-technologies.md` | For rejected/deferred decisions, pending-item registry (§7c), and absorbed-doc disposition index (§9) |
+| `docs/rejected-technologies.md` | For rejected decisions (§1), deferred registry (§2), and absorbed-doc disposition index (§3.3) |

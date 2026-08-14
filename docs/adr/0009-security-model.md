@@ -104,16 +104,19 @@ execute arbitrary code.
 ## Alternatives Considered
 
 ### SELinux policies / app-level sandboxing
+
 - **Not applicable**: Torvox runs as a standard Android app. Custom
   SELinux policies require system-level changes that are outside the
   scope of an app.
 
 ### Capability-based security (Linux capabilities)
+
 - **Deferred**: Android already applies capability restrictions per-app.
   Adding Linux capabilities would require root or system partition
   access.
 
 ### Encrypting MCP socket traffic
+
 - **Rejected**: The socket is local-only (abstract namespace on Android)
   and protected by UID checks. Encryption adds complexity without
   meaningful security benefit for local IPC.

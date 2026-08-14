@@ -16,7 +16,7 @@ cargo test -p native                                   # native crate only
 cargo test -p native prop_tests                        # property/concurrency tests
 ```
 
-> 注：`cargo-nextest` 经评估**不引入**（`docs/rejected-technologies.md` §8b R 表与
+> 注：`cargo-nextest` 经评估**不引入**（`docs/rejected-technologies.md` §1.8 R 表与
 > `docs/dependencies.md`：`check-rust.nu` 依赖 `cargo test` 的
 > `--test-threads 1` 串行语义，bench 断言基准模型不匹配 nextest 并行隔离）。
 
@@ -37,7 +37,7 @@ All Rust code lives in the single `native` crate, with tests inside each module:
 Property-based testing uses **proptest 1.11**（主力）for state-machine invariants
 （`native/src/prop_tests.rs`：OSC 52 roundtrip、任意 escape 流不 panic、网格/滚动不变式、
 UTF-8 边界切割），并发调度测试用 **shuttle 0.9**（`shuttle::check_random`：事件队列并发
-push/pop、锁序）。工具选型依据见 `docs/rejected-technologies.md` §8b（loom 不引入——
+push/pop、锁序）。工具选型依据见 `docs/rejected-technologies.md` §1.8（loom 不引入——
 shuttle 已选定、async 原生；quickcheck 已移除——proptest 覆盖属性测试）。
 
 Benchmarks 用 **criterion 0.8**（`native/benches/cell_builder.rs`、`vt_typing.rs`，
@@ -101,7 +101,7 @@ maintained in `docs/traceability.yml`.
 | **unit** | Rust unit/integration test | `cargo test --workspace` |
 | **doctest** | Rust doc-test (executable examples in `///` comments) | `cargo test --doc` |
 | **property** | Property-based test (proptest, `native/src/prop_tests.rs`) | `cargo test -p native prop_tests` |
-| **fuzz** | Fuzz target | (not used — VT parsing inherited from libghostty-vt upstream; see `docs/rejected-technologies.md` §4 LibAFL) |
+| **fuzz** | Fuzz target | (not used — VT parsing inherited from libghostty-vt upstream; no fuzz target) |
 | **lint** | Lint/static analysis check | `cargo clippy --all -- --deny warnings` |
 | **android-unit** | Android unit test (Robolectric) | `./gradlew testDebugUnitTest` |
 | **ocr-screenshot** | Emulator screenshot + OCR | `nu scripts/test-emulator.nu` (rapidocr) |
@@ -138,11 +138,11 @@ These checks run as part of `tool_lint.rs` (see `cargo test -p integration-tests
 ## Test Pyramid & Coverage Snapshot
 
 （吸收自 `docs/test-strategy-research.md` 与 `docs/test-coverage-audit.md`，
-原文已删除；未落地项的登记见 `docs/rejected-technologies.md` §7c。）
+原文已删除；未落地项的登记见 `docs/rejected-technologies.md` §2。）
 
 ### 五层测试金字塔（用例数量占比）
 
-```
+```text
         ▲  E2E (maestro)  ~5%    ← 贵、慢、只保关键旅程（发布前门槛）
        ▲  Instrumented   ~10%    ← 真机/模拟器：渲染/JNI/IME/像素/跨应用
       ▲  Compose-Robolectric ~15% ← JVM：Compose 语义交互（无像素断言）
@@ -160,10 +160,13 @@ These checks run as part of `tool_lint.rs` (see `cargo test -p integration-tests
 
 ### 覆盖率基线（审计时点）
 
-约 1640 测试点：Rust 单测 1052 + integration-tests 79 + terminal_render_test 47 +
-tool_lint 15 + jni_bridge_test 2 + exec-bin 3 + Kotlin JVM 7 + Kotlin instrumented 331
-（10 @Ignore）+ Cucumber 64 scenario（42 @wip、22 有效）+ Maestro 30 flow + Macrobenchmark 3
-+ baselineprofile 1。分层判定：VT/OSC/网格/PTY/字体/渲染逻辑可无头证明；真实 JNI 符号、
+约 1891 测试点：Rust 运行用例 1455（`cargo test --workspace -- --list` 实测，含
+integration-tests 与 tool_lint 21；静态 `#[test]` 计数 1447 由 `tool_lint`
+`rust_test_count_within_baseline` 守护，偏差 >25% 即失败）+ Kotlin JVM 7 + Kotlin
+instrumented 331（10 @Ignore）+ Cucumber 64 scenario（42 @wip、22 有效）+ Maestro 30
+flow + Macrobenchmark 3 + baselineprofile 1
+
+- 分层判定：VT/OSC/网格/PTY/字体/渲染逻辑可无头证明；真实 JNI 符号、
 渲染到屏幕、IME、系统服务协同只能 instrumented/真机证明（原 `docs/test-coverage-audit.md`
 §5 的判定结论，已吸收至本条）。
 
@@ -196,7 +199,7 @@ Lavapipe `.json` ICD（由 `nix develop` shell 提供）；无设备时 GPU 依�
 
 **已知环境回归**：`gpu_render_colored_text` / `vt_color_background_blue` /
 `vt_color_foreground_red` / `vt_color_reset` 在 Lavapipe fp16 blend 下颜色精度 0.9→0.8
-（真机 Adreno/Mali 通过），阈值已放宽，见 `docs/rejected-technologies.md` §7c-A D28。
+（真机 Adreno/Mali 通过），阈值已放宽，见 `docs/rejected-technologies.md` §3.1 D28。
 
 **模拟器性能基线**（emulator-5554，1080x2400, 420dpi, SwiftShader）：
 1.8fps 是软件渲染 1080x2400（约 8.3M 像素/帧）的硬件极限，**不是 app 缺陷**：
@@ -217,4 +220,4 @@ CellData 增量传输（dirty 行）——SwiftShader 下无意义，GPU 设备�
 `process_output` 无直接单测（VT 输出通道处理，集成测试间接覆盖）；`save_session` /
 `restore_session` 无持久化往返测试（小范围，格式由 Ghostty 控制）；GPU pipeline 创建
 （`pipeline.rs` 0 单测、`context.rs` 1 个 Send/Sync、`cell_builder.rs` 10 个）由 GPU 集成
-测试端到端覆盖。PIT 变异测试已注册未接 CI（`docs/rejected-technologies.md` §7c-B D26）。
+测试端到端覆盖。PIT 变异测试已注册未接 CI（`docs/rejected-technologies.md` §2.2 D26）。

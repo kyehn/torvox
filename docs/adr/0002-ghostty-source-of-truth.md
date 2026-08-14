@@ -48,11 +48,13 @@ terminal state:
 ## Alternatives Considered
 
 ### Keep terminal-core but delegate to Ghostty for syncing
+
 - **Rejected**: Either Ghostty owns the state or we do. Hybrid ownership
   creates synchronization bugs. The C API has no "export to GridSnapshot" that
   stays in sync — every snapshot is a point-in-time copy.
 
 ### Keep terminal-core for no_std safety guarantees
+
 - **Rejected** (ADR-0006): no_std is removed. The safety value of re-verifying
   something Ghostty already handles is near zero. Ghostty itself is
   production C code with extensive fuzzing.

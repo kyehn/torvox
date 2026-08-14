@@ -39,7 +39,7 @@ separate crate.
 
 The resulting crate structure:
 
-```
+```text
 torvox/
 ├── native/            ← single Rust crate (lib + cdylib)
 │   ├── Cargo.toml
@@ -58,10 +58,12 @@ torvox/
 ## Alternatives Considered
 
 ### Keep all 5 crates (status quo)
+
 - **Rejected**: Creates the costs listed above with no measurable benefit.
   The project has one developer and one deliverable (an Android APK).
 
 ### Keep 2 crates: `core/` (no_std types) + `native/` (everything else)
+
 - **Rejected**: The no_std types (`GridSnapshot`, `Cell`, `DirtyMask`) are
   Ghostty data model replicas that will be removed per ADR-0002. No reason to
   preserve the boundary.
