@@ -657,7 +657,7 @@ private data class ModifierBarStates(
 
 /** Long-press action for a key: an explicit secondary sequence, or the
  *  DRAWER paste popup (termux default). */
-private fun drawerSecondaryAction(
+private fun secondaryLongPressAction(
     item: ToolbarItem,
     actions: ModifierBarActions,
     isDrawer: Boolean,
@@ -706,7 +706,7 @@ private fun toolbarItemPresentation(
     val secondaryLabel =
         item.secondaryLabel ?: if (isDrawer && actions.onPaste != null) "PASTE" else null
     val secondaryAction =
-        drawerSecondaryAction(item, actions, isDrawer)
+        secondaryLongPressAction(item, actions, isDrawer)
     return ToolbarItemPresentation(
         label = itemLabel,
         onClick = toolbarItemKeyHandler(item, actions),
