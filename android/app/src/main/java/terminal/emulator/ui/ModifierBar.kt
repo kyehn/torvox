@@ -154,7 +154,8 @@ fun rememberToolbarLayout(): List<ToolbarItem>? {
  * Row 1: ESC, DRAWER, SCROLL, HOME, ↑, END, PGUP
  * Row 2: TAB, CTRL, ALT, ←, ↓, →, PGDN
  *
- * Session button (DRAWER) is on the LEFT as the second button.
+ * Session button (DRAWER) is on the LEFT as the second button and has the
+ * termux default `popup: 'PASTE'` (long-press pastes the clipboard).
  * All buttons are borderless with transparent background.
  * Each button has equal weight for uniform sizing.
  */
@@ -270,6 +271,7 @@ fun ModifierBar(
             onToggleFn = onToggleFn,
             composeActive = composeActive,
             onToggleCompose = ::toggleCompose,
+            onPaste = onPaste,
             textColor = textColor,
             backgroundColor = backgroundColor,
             modifier = modifier,
@@ -537,6 +539,7 @@ private fun ConfigurableModifierBar(
     onToggleFn: () -> Unit,
     composeActive: Boolean,
     onToggleCompose: () -> Unit,
+    onPaste: (() -> Unit)?,
     textColor: Color,
     backgroundColor: Color,
     modifier: Modifier,
@@ -567,6 +570,7 @@ private fun ConfigurableModifierBar(
             onToggleAlt = onToggleAlt,
             onToggleFn = onToggleFn,
             onToggleCompose = onToggleCompose,
+            onPaste = onPaste,
         )
     val modifierStates =
         ModifierBarStates(
@@ -639,6 +643,8 @@ private data class ModifierBarActions(
     val onToggleAlt: () -> Unit,
     val onToggleFn: () -> Unit,
     val onToggleCompose: () -> Unit,
+    /** Long-press paste on DRAWER (termux default `popup: 'PASTE'`). */
+    val onPaste: (() -> Unit)?,
 )
 
 /** The live toggle states of the modifier keys. */
@@ -683,6 +689,15 @@ private fun toolbarItemPresentation(
             is ToolbarItem.Default -> contentDescriptionResolver(item.key)
             is ToolbarItem.Custom -> item.label
         }
+    val isDrawer = (item as? ToolbarItem.Default)?.key == ToolbarKey.DRAWER
+    // DRAWER long-press = paste (termux default `popup: 'PASTE'`); an
+    // explicit per-item secondary sequence wins over the default popup.
+    val secondaryLabel = item.secondaryLabel ?: if (isDrawer && actions.onPaste != null) "PASTE" else null
+    val secondaryAction =
+        item.secondarySequence
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { { actions.onKeyClick(it) } }
+            ?: if (isDrawer) actions.onPaste else null
     return ToolbarItemPresentation(
         label = itemLabel,
         onClick = toolbarItemKeyHandler(item, actions),
@@ -691,9 +706,8 @@ private fun toolbarItemPresentation(
         contentDescription = contentDescription,
         onRepeat = onRepeat,
         widthWeight = item.width,
-        secondaryLabel = item.secondaryLabel,
-        secondaryAction = item.secondarySequence?.takeIf { it.isNotEmpty() }
-            ?.let { { actions.onKeyClick(it) } },
+        secondaryLabel = secondaryLabel,
+        secondaryAction = secondaryAction,
     )
 }
 
