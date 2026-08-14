@@ -93,7 +93,7 @@ calls never reach the formatting path.
 
 ### 6. Panic routing
 
-`android/logging.rs` installs a custom `std::panic::set_hook` that
+`native/src/android/logging.rs` installs a custom `std::panic::set_hook` that
 routes panic information (message + backtrace) through the log system
 (`log::error!`). This ensures panics appear in logcat rather than being
 silently lost on Android.
@@ -102,7 +102,7 @@ silently lost on Android.
 
 On non-Android targets (integration tests, desktop development), the
 standard `env_logger` or `env_logger`-compatible backend is used via the
-`log` crate's no-op default. The `android/logging.rs` code is
+`log` crate's no-op default. The `native/src/android/logging.rs` code is
 `#[cfg(target_os = "android")]` gated.
 
 ## Alternatives Considered

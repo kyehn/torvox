@@ -5,7 +5,7 @@
 | Layer | Technology | Version | Purpose |
 |-------|-----------|---------|---------|
 | Rust edition | Rust 2024 | 1.97+ | Main language for terminal, render, bridge |
-| Android UI | Kotlin + Jetpack Compose | Android 14+ (API 34+) | UI layer, TextureView, JNI client |
+| Android UI | Kotlin + Jetpack Compose | minSdk 33 / targetSdk 34 / compileSdk 37 | UI layer, TextureView, JNI client |
 | GPU | wgpu 30 | Vulkan-only | Graphics API — Vulkan via wgpu, Lavapipe (Linux) / SwiftShader (emulator) |
 | VT engine | libghostty-vt | vendored Zig (0.16) | Ghostty's VT5xx+ parser, vendored as dynamic lib |
 | Text shaping | cosmic-text 0.19 | | Unicode text shaping and line layout |
@@ -69,7 +69,7 @@
   ```
 
 - No crate boundary violations possible — all code in one `native/` crate
-- Upstream `libghostty-rs` pinned via git commit URL in `[workspace.dependencies]` (no crates.io release)
+- Upstream `libghostty-vt` / `libghostty-vt-sys` pinned at crates.io `0.2.1` in `[workspace.dependencies]` (no git patches)
 - Key native crate (`Cargo.toml`) dependencies:
   - **GPU**: `wgpu 30` (Vulkan/GLES), `guillotiere 0.7` (atlas packing)
   - **Font**: `cosmic-text 0.19` (text shaping/layout), `swash 0.2` (glyph rasterization), `fontdb 0.23` (font discovery)
@@ -99,7 +99,7 @@
 - Dependency injection: `com.google.dagger:hilt-android:2.60.1` with KSP compiler
 - Direct JNI (no JNA or boltffi)
 - MCP / IPC: `tower-mcp 0.14` (MCP protocol), `axum 0.8` (HTTP), `tokio 1` (async), `schemars 1` (JSON Schema)
-- Test frameworks: JUnit 4, MockK, Turbine, Robolectric, Roborazzi, Cucumber, Espresso, UI Automator, ArchUnit
+- Test frameworks: JUnit 4/5, MockK, Turbine, Robolectric, Roborazzi, Cucumber, Espresso, UI Automator, ArchUnit, Stove
 
 ## 2. Vulnerability Scanning
 
@@ -128,7 +128,7 @@
 
 ## 5. Supply Chain
 
-- **Upstream libghostty-rs**: crates.io releases pinned in `Cargo.toml` `[workspace.dependencies]` (lines 47–49):
+- **Upstream libghostty-vt**: crates.io `0.2.1` pinned in `Cargo.toml` `[workspace.dependencies]`:
 
   ```toml
   libghostty-vt = "0.2.1"
