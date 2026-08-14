@@ -22,7 +22,7 @@ fn vs_main(@location(0) pos: vec2<f32>) -> VertexOutput {
     var out: VertexOutput;
     out.position = vec4<f32>(pos, 0.0, 1.0);
     // NDC y=+1 is the top of the screen; texture v=0 is the first (top)
-    // row. Flipping v keeps the wallpaper upright (, verified by
+    // row. Flipping v keeps the wallpaper upright (emulator-verified
     // quadrant-color pixel checks on the emulator).
     let uv_surface = vec2<f32>(pos.x * 0.5 + 0.5, 0.5 - pos.y * 0.5);
     // Cover (center-crop) mapping: scale the source image so it covers the
@@ -50,7 +50,7 @@ fn vs_main(@location(0) pos: vec2<f32>) -> VertexOutput {
 fn gaussian(x: f32, sigma: f32) -> f32 {
     // sigma = 0 (blur_radius = 0) must degenerate to a pure center sample:
     // exp(-0.5*x*x/0) is NaN in WGSL, which makes the whole blur output
-    // undefined (wallpaper invisible — emulator-verified, ).
+    // undefined (wallpaper invisible — emulator-verified).
     if (sigma < 0.001) {
         return select(0.0, 1.0, abs(x) < 0.5);
     }
