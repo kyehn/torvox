@@ -7,7 +7,7 @@ import org.junit.runner.RunWith
 import terminal.emulator.runtime.LogUtil
 
 /**
- * Round-227 T2 emulator verification: a log message longer than logcat's
+ * Emulator verification: a log message longer than logcat's
  * per-entry payload cap (4068 bytes) must be split into chunks that each
  * stay under the cap and are cut at UTF-8 code-point boundaries only.
  *

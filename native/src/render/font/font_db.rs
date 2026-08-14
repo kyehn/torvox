@@ -1,6 +1,6 @@
 //! System font database loading and resolution.
 
-/// Android system font directories, in scan order. Round-224: /odm/fonts/
+/// Android system font directories, in scan order. /odm/fonts/
 /// and /data/fonts/ added — OEMs place custom fonts there and
 /// ASystemFontIterator (the NDK reference, warp font_render.rs:133-155)
 /// enumerates them. `cfg(any(target_os = "android", test))`: compiled for
@@ -42,7 +42,7 @@ pub fn set_extra_font_paths(paths: Vec<std::path::PathBuf>) {
 pub(crate) fn load_font_database() -> fontdb::Database {
     let db = CACHED_FONT_DB.get_or_init(|| {
         let font_paths = CACHED_FONT_PATHS.get_or_init(|| {
-            // Round-231 T5: prefer the NDK ASystemFontIterator API (API 29+,
+            // Prefer the NDK ASystemFontIterator API (API 29+,
             // minSdk 33) — it enumerates every system-installed font the
             // platform knows about, including OEM paths, without guessing a
             // static directory list. Fall back to the FONT_DIRS scan when the
@@ -135,7 +135,7 @@ fn is_font_file(entry: &std::path::Path) -> bool {
 mod tests {
     use super::FONT_DIRS;
 
-    /// Round-224: the scan list must include the OEM font directories that
+    /// The scan list must include the OEM font directories that
     /// ASystemFontIterator (NDK reference) would enumerate — /odm/fonts/
     /// and /data/fonts/ — so OEM-custom fonts are not missed on devices
     /// that keep them outside /system/fonts.
@@ -179,7 +179,7 @@ mod tests {
 }
 
 /// NDK `ASystemFontIterator` bindings (android/font.h + android/system_fonts.h,
-/// API 29+; minSdk is 33). Round-231 T5: enumerate every system-installed
+/// API 29+; minSdk is 33). Enumerate every system-installed
 /// font the platform knows about instead of relying on a static directory
 /// list, which misses OEM font locations and new partitions.
 #[cfg(target_os = "android")]

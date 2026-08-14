@@ -8,7 +8,7 @@ import org.junit.Test
  * Verifies [pollEventJson] can decode the exact JSON shape Rust emits
  * (`native/src/event.rs`, `#[serde(tag = "event", rename_all = "snake_case")]`).
  *
- * Round-213 regression: the Json instance lacked `classDiscriminator =
+ * Regression: the Json instance lacked `classDiscriminator =
  * "event"`, so kotlinx.serialization looked for the default "type" field,
  * rejected every event with "Class discriminator was missing", and the
  * poll loop dropped bell/clipboard/exit/notification silently — a dead

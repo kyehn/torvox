@@ -1163,7 +1163,7 @@ fn gpu_background_solid_image_transparent() {
         "bg transparent render output size"
     );
     let idx = (25 * 50 + 25) * 4;
-    // Round-204: bg pass now alpha-blends the wallpaper over the cleared
+    // Bg pass alpha-blends the wallpaper over the cleared
     // bg_color (Catppuccin ~30,30,46). At alpha=0.5 the center pixel is
     // 255*0.5 + 30*0.5 = 142 (red), 0*0.5 + 30*0.5 = 15 (green),
     // 0*0.5 + 46*0.5 = 23 (blue). The alpha channel composites over the

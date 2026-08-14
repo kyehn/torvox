@@ -10,7 +10,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * Round-225 T3 — CopyAccess smart-copy processor semantics
+ * CopyAccess smart-copy processor semantics
  * (Haven SmartTerminalClipboard:407-430):
  *   1. a non-null processor transforms the written text;
  *   2. a null/blank processor result falls back to the caller's text

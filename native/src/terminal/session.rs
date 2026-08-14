@@ -151,7 +151,7 @@ pub struct Session {
     /// reports it exactly once.
     exit_reported: Arc<AtomicBool>,
     bel_triggered: Arc<AtomicBool>,
-    /// Round-P0: timestamp of the last delivered BEL, for the 500 ms
+    /// Timestamp of the last delivered BEL, for the 500 ms
     /// `poll_bel` debounce (prevents a burst of BELs from ringing the
     /// bell more than once per half second).
     last_bel_at: std::sync::Mutex<Option<std::time::Instant>>,

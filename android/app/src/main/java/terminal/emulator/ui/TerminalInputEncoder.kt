@@ -116,7 +116,7 @@ object TerminalInputEncoder {
         return when (keyCode) {
             KeyEvent.KEYCODE_TAB ->
                 when {
-                    // Round-210 P2-9: with Alt held, xterm sends ESC TAB
+                    // With Alt held, xterm sends ESC TAB
                     // (Meta prefix), not a bare tab; with Ctrl held it
                     // sends CSI 9;mod~ (xterm/kitty convention).
                     ctrlActive || altActive -> {
