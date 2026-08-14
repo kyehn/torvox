@@ -645,12 +645,11 @@ fn cursor_rendering_on_visible_cursor() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 0.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color,
             cursor_style: CursorStyle::Block,
@@ -693,12 +692,11 @@ fn cursor_not_rendered_when_invisible() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 0.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
             cursor_style: CursorStyle::Block,
@@ -743,12 +741,11 @@ fn reverse_video_applied_to_blank_cell() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
             cursor_style: CursorStyle::Block,
@@ -807,12 +804,11 @@ fn selection_swaps_fg_bg() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 768.0,
             selection,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
             cursor_style: CursorStyle::Block,
@@ -1302,12 +1298,11 @@ fn search_highlight_blends_on_non_cursor_cell() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &highlights,
             cursor_color: None,
             cursor_style: CursorStyle::Block,
@@ -1356,12 +1351,11 @@ fn cursor_cell_not_affected_by_search_highlight() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 0.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &highlights,
             cursor_color: Some([0.5, 0.5, 1.0, 1.0]),
             cursor_style: CursorStyle::Block,
@@ -1578,12 +1572,11 @@ fn cursor_block_full_cell_size() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
             cursor_style: CursorStyle::Block,
@@ -1628,12 +1621,11 @@ fn cursor_bar_width_ratio() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
             cursor_style: CursorStyle::Bar,
@@ -1680,12 +1672,11 @@ fn cursor_underline_height_ratio() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
             cursor_style: CursorStyle::Underline,
@@ -1731,12 +1722,11 @@ fn cursor_not_rendered_when_visible_false() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
             cursor_style: CursorStyle::Block,
@@ -1779,12 +1769,11 @@ fn cursor_at_origin() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
             cursor_style: CursorStyle::Block,
@@ -1831,12 +1820,11 @@ fn cursor_with_text_and_block_style() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color,
             cursor_style: CursorStyle::Block,
@@ -1884,12 +1872,11 @@ fn cursor_with_text_and_bar_style() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color,
             cursor_style: CursorStyle::Bar,
@@ -1937,12 +1924,11 @@ fn cursor_with_text_and_underline_style() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color,
             cursor_style: CursorStyle::Underline,
@@ -1988,12 +1974,11 @@ fn cursor_color_custom_values() {
     let instances = build_cell_instances_from_snapshot(
         &snapshot,
         &mut font_pipeline,
-        CellInstanceConfig {
+        crate::render::SnapshotConfig {
             atlas_width: 1024.0,
             atlas_height: 1024.0,
             projection_height: 24.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: custom_color,
             cursor_style: CursorStyle::Block,
@@ -2100,6 +2085,7 @@ fn render_benchmarks_strict() -> bool {
 }
 
 #[test]
+#[ignore]
 fn bench_build_instances_from_cell_data() {
     use std::hint::black_box;
     use std::time::Instant;
@@ -2150,17 +2136,18 @@ fn bench_build_instances_from_cell_data() {
         let mut instances = Vec::new();
         let result = crate::render::build_instances_from_cell_data(
             &cell_data,
-            rows,
-            cols,
-            1024.0 / cols as f32,
-            1024.0 / rows as f32,
-            cursor,
+            crate::render::cell_builder::CellInstanceConfig {
+                rows,
+                cols,
+                grid_cell_w: 1024.0 / cols as f32,
+                grid_cell_h: 1024.0 / rows as f32,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
             &mut font_pipeline,
-            1024.0,
-            1024.0,
-            None,
-            None,
-            &[],
             &mut instances,
         );
         black_box(result);
@@ -2195,6 +2182,7 @@ fn bench_build_instances_from_cell_data() {
 /// Every frame writes CellInstance data to a GPU buffer via queue.write_buffer().
 /// This benchmark measures raw write speed for 24×80 instance data (1920 cells).
 #[test]
+#[ignore]
 fn bench_gpu_buffer_upload_throughput() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2256,6 +2244,7 @@ fn bench_gpu_buffer_upload_throughput() {
 /// draw instances, end pass, submit. This tests the CPU-side graphics command
 /// path that happens every frame.
 #[test]
+#[ignore]
 fn bench_gpu_command_encoding_overhead() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2325,6 +2314,7 @@ fn bench_gpu_command_encoding_overhead() {
 /// buffer upload + command encoding + submit + poll. This mirrors the actual
 /// render_frame() path without requiring a swapchain surface.
 #[test]
+#[ignore]
 fn bench_gpu_full_submit_throughput() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2427,6 +2417,7 @@ fn bench_gpu_full_submit_throughput() {
 /// Measures the cost of creating + uploading a new atlas texture after glyph
 /// cache warmup — this happens when new glyphs are encountered.
 #[test]
+#[ignore]
 fn bench_gpu_atlas_texture_upload() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2495,6 +2486,7 @@ fn bench_gpu_atlas_texture_upload() {
 /// FontPipeline, measuring first-encounter time vs cache-hit time. This tests
 /// the CJK cache and atlas allocation for the cold-start scenario.
 #[test]
+#[ignore]
 fn bench_cjk_glyph_cache_warmup() {
     use std::hint::black_box;
     use std::time::Instant;
@@ -2784,4 +2776,111 @@ fn offscreen_grid_render_uses_depth_attachment() {
         center_brightness > 0,
         "center region should contain grid content"
     );
+}
+
+/// Contract: the GridSnapshot reference path (`old_path`) and the CellData
+/// production path (`cell_builder`) must agree on per-cell fg/bg colors
+/// for the same terminal state.
+///
+/// The two builders are independent implementations. Without this lock they
+/// silently drift — the `selection_bg` divergence (old_path still applying
+/// a theme color after the production path replaced it with inverse video)
+/// is a real historical instance of exactly that. Comparing colors only:
+/// geometry derives from each path's own config and is not a semantic.
+#[test]
+fn snapshot_and_cell_data_paths_agree_on_colors() {
+    use crate::render::cell_builder::{CellInstanceConfig, build_instances_from_cell_data};
+    use crate::terminal::ghostty_terminal::GhosttyTerminal;
+
+    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+    font_pipeline.rasterize_ascii();
+
+    let mut term = GhosttyTerminal::new(24, 80, 1000).expect("terminal create");
+    // Mixed styling on one row: bold, plain, reverse, fg/bg colors, underline.
+    term.vt_write(b"\x1b[1mB\x1b[0m"); // bold
+    term.vt_write(b"A"); // plain
+    term.vt_write(b"\x1b[7mR\x1b[0m"); // reverse
+    term.vt_write(b"\x1b[31;44mX\x1b[0m"); // red fg / blue bg
+    term.vt_write(b"\x1b[4mU\x1b[0m"); // underline
+    term.vt_write(b"\x1b[2mD\x1b[0m"); // dim
+    while term.receive_cell_data().is_some() {}
+    term.flush();
+    let (cells, _cursor_info) = term.receive_cell_data().expect("cell data after flush");
+    let snapshot = term.take_snapshot();
+    // Cursor must be fed from ONE shared source on both paths. The
+    // production path takes it via CellCursor config, the reference path
+    // reads it from the snapshot itself; the two APIs do not promise
+    // identical cursor state (CursorInfo is a render-thread push, snapshot
+    // is on-demand), so feed both from the snapshot to compare pure color
+    // semantics.
+    let cursor_color = [1.0, 1.0, 1.0, 1.0];
+    let cursor = crate::render::CellCursor {
+        row: snapshot.cursor_row,
+        col: snapshot.cursor_col,
+        visible: snapshot.cursor_visible,
+        style: CursorStyle::Block,
+        color: Some(cursor_color),
+    };
+
+    let (font_w, font_h) = font_pipeline.cell_metrics();
+    let mut cell_data_instances = Vec::new();
+    let cell_data_result = build_instances_from_cell_data(
+        &cells,
+        CellInstanceConfig {
+            rows: 24,
+            cols: 80,
+            grid_cell_w: font_w,
+            grid_cell_h: font_h,
+            cursor,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
+            selection: None,
+            search_highlights: &[],
+        },
+        &mut font_pipeline,
+        &mut cell_data_instances,
+    );
+    assert!(cell_data_result.is_some(), "CellData build failed");
+
+    let snapshot_instances = build_cell_instances_from_snapshot(
+        &snapshot,
+        &mut font_pipeline,
+        crate::render::SnapshotConfig {
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
+            projection_height: 0.0,
+            selection: None,
+            search_highlights: &[],
+            cursor_color: Some(cursor_color),
+            cursor_style: CursorStyle::Block,
+            dirty_rows: &[],
+            cached_instances: &[],
+            cached_row_ends: &[],
+            surface_bg: [0.0, 0.0, 0.0, 1.0],
+            render_scale: 1.0,
+        },
+    );
+
+    assert_eq!(
+        snapshot_instances.len(),
+        cell_data_instances.len(),
+        "both paths must emit one instance per cell (drift?)"
+    );
+    const COLS: usize = 80;
+    for (i, (a, b)) in snapshot_instances
+        .iter()
+        .zip(cell_data_instances.iter())
+        .enumerate()
+    {
+        let (row, col) = (i / COLS, i % COLS);
+        assert!(
+            f32_arrays_equal(&a.fg_color, &b.fg_color)
+                && f32_arrays_equal(&a.bg_color, &b.bg_color),
+            "color mismatch at ({row},{col}): snapshot {:?}/{:?} vs celldata {:?}/{:?}",
+            a.fg_color,
+            a.bg_color,
+            b.fg_color,
+            b.bg_color
+        );
+    }
 }

@@ -32,6 +32,25 @@ pub struct CellCursor {
     pub color: Option<[f32; 4]>,
 }
 
+/// Configuration for a cell-instance build pass.
+///
+/// Shared by the full ([`build_instances_from_cell_data`]) and incremental
+/// ([`build_instances_cached`]) builders. Bulk data stays as separate
+/// arguments: the cell buffer, the mutable font pipeline, and the output
+/// instance buffer.
+#[derive(Debug, Clone, Copy)]
+pub struct CellInstanceConfig<'a> {
+    pub rows: u32,
+    pub cols: u32,
+    pub grid_cell_w: f32,
+    pub grid_cell_h: f32,
+    pub cursor: CellCursor,
+    pub atlas_width: f32,
+    pub atlas_height: f32,
+    pub selection: Option<SelectionRange>,
+    pub search_highlights: &'a [SearchHighlight],
+}
+
 /// A selected range of characters to highlight with a background color.
 ///
 /// Supports Char/Word/Semantic (box), Line (full rows), and Block modes.
@@ -269,37 +288,11 @@ pub(crate) fn diff_dirty_rows(
 #[allow(clippy::too_many_arguments)]
 pub fn build_instances_from_cell_data(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
-    rows: u32,
-    cols: u32,
-    grid_cell_w: f32,
-    grid_cell_h: f32,
-    cursor: CellCursor,
+    config: CellInstanceConfig<'_>,
     font_pipeline: &mut crate::render::font::FontPipeline,
-    atlas_width: f32,
-    atlas_height: f32,
-    selection: Option<SelectionRange>,
-    // no longer applied — classic inverse video (fg<->bg swap)
-    // renders the highlight; the parameter is kept for API stability.
-    _selection_bg: Option<[f32; 4]>,
-    search_highlights: &[SearchHighlight],
     instances: &mut Vec<CellInstance>,
 ) -> Option<()> {
-    build_row_instances_into(
-        cell_data,
-        rows,
-        cols,
-        grid_cell_w,
-        grid_cell_h,
-        cursor,
-        font_pipeline,
-        atlas_width,
-        atlas_height,
-        selection,
-        search_highlights,
-        None,
-        None,
-        instances,
-    )
+    build_row_instances_into(cell_data, config, font_pipeline, None, None, instances)
 }
 
 /// Incremental variant of [`build_instances_from_cell_data`] (row-level
@@ -308,37 +301,18 @@ pub fn build_instances_from_cell_data(
 /// in place so the next frame can reuse it. A dirty mask shorter than
 /// `rows`, or a cache incompatible with the grid size, degrades to a full
 /// rebuild of every row.
-#[allow(clippy::too_many_arguments)]
 pub fn build_instances_cached(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
-    rows: u32,
-    cols: u32,
-    grid_cell_w: f32,
-    grid_cell_h: f32,
-    cursor: CellCursor,
+    config: CellInstanceConfig<'_>,
     font_pipeline: &mut crate::render::font::FontPipeline,
-    atlas_width: f32,
-    atlas_height: f32,
-    selection: Option<SelectionRange>,
-    // kept for API symmetry with build_instances_from_cell_data.
-    _selection_bg: Option<[f32; 4]>,
-    search_highlights: &[SearchHighlight],
     dirty_rows: &[bool],
     cache: &mut CachedInstances,
     instances: &mut Vec<CellInstance>,
 ) -> Option<()> {
     build_row_instances_into(
         cell_data,
-        rows,
-        cols,
-        grid_cell_w,
-        grid_cell_h,
-        cursor,
+        config,
         font_pipeline,
-        atlas_width,
-        atlas_height,
-        selection,
-        search_highlights,
         Some(dirty_rows),
         Some(cache),
         instances,
@@ -350,23 +324,25 @@ pub fn build_instances_cached(
 /// Builds quad instances for every grid row. When `dirty_rows` and `cache`
 /// are supplied and coherent, clean rows copy their cached instances
 /// instead of re-walking their cells through the font atlas.
-#[allow(clippy::too_many_arguments)]
 fn build_row_instances_into(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
-    rows: u32,
-    cols: u32,
-    grid_cell_w: f32,
-    grid_cell_h: f32,
-    cursor: CellCursor,
+    config: CellInstanceConfig<'_>,
     font_pipeline: &mut crate::render::font::FontPipeline,
-    atlas_width: f32,
-    atlas_height: f32,
-    selection: Option<SelectionRange>,
-    search_highlights: &[SearchHighlight],
     dirty_rows: Option<&[bool]>,
     mut cache: Option<&mut CachedInstances>,
     instances: &mut Vec<CellInstance>,
 ) -> Option<()> {
+    let CellInstanceConfig {
+        rows,
+        cols,
+        grid_cell_w,
+        grid_cell_h,
+        cursor,
+        atlas_width,
+        atlas_height,
+        selection,
+        search_highlights,
+    } = config;
     // Quad geometry uses GRID cell dimensions (surface/rows, surface/cols),
     // not font metrics: font cell height (~20px) is smaller than the grid
     // row height (~92px on a 2209px surface / 24 rows), so quads sized by
@@ -750,24 +726,24 @@ mod tests {
         cells: &[CellData],
         cursor: CellCursor,
         selection: Option<SelectionRange>,
-        selection_bg: Option<[f32; 4]>,
         highlights: &[SearchHighlight],
     ) -> Vec<CellInstance> {
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
         let mut instances = Vec::new();
         let result = build_instances_from_cell_data(
             cells,
-            24,
-            80,
-            1024.0 / 80.0,
-            1024.0 / 24.0,
-            cursor,
+            CellInstanceConfig {
+                rows: 24,
+                cols: 80,
+                grid_cell_w: 1024.0 / 80.0,
+                grid_cell_h: 1024.0 / 24.0,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection,
+                search_highlights: highlights,
+            },
             &mut font_pipeline,
-            1024.0,
-            1024.0,
-            selection,
-            selection_bg,
-            highlights,
             &mut instances,
         );
         assert!(
@@ -788,7 +764,7 @@ mod tests {
             [0.0, 0.0, 1.0, 1.0],
             0,
         )];
-        let instances = build(&cells, CellCursor::default(), None, None, &[]);
+        let instances = build(&cells, CellCursor::default(), None, &[]);
         assert_eq!(instances.len(), 1);
         assert_eq!(instances[0].fg_color, [1.0, 0.0, 0.0, 1.0]);
         assert_eq!(instances[0].bg_color, [0.0, 0.0, 1.0, 1.0]);
@@ -806,7 +782,7 @@ mod tests {
             [0.0, 0.0, 1.0, 1.0],
             1 << REVERSE_BIT,
         )];
-        let instances = build(&cells, CellCursor::default(), None, None, &[]);
+        let instances = build(&cells, CellCursor::default(), None, &[]);
         assert_eq!(instances[0].fg_color, [0.0, 0.0, 1.0, 1.0]);
         assert_eq!(instances[0].bg_color, [1.0, 0.0, 0.0, 1.0]);
     }
@@ -831,7 +807,7 @@ mod tests {
             mode: SelectionMode::Char,
             ..Default::default()
         };
-        let instances = build(&cells, CellCursor::default(), Some(selection), None, &[]);
+        let instances = build(&cells, CellCursor::default(), Some(selection), &[]);
         assert_eq!(
             instances[0].fg_color,
             [0.0, 1.0, 0.0, 1.0],
@@ -863,13 +839,7 @@ mod tests {
             mode: SelectionMode::Char,
             ..Default::default()
         };
-        let instances = build(
-            &cells,
-            CellCursor::default(),
-            Some(selection),
-            Some([0.5, 0.5, 0.0, 1.0]),
-            &[],
-        );
+        let instances = build(&cells, CellCursor::default(), Some(selection), &[]);
         // Inverse video: fg<->bg swapped (selection_bg arg ignored).
         assert_eq!(instances[0].bg_color, [1.0, 1.0, 1.0, 1.0]);
         assert_eq!(instances[0].fg_color, [0.1, 0.1, 0.1, 1.0]);
@@ -892,7 +862,7 @@ mod tests {
             end_col_exclusive: 4,
             color: [0xFF, 0xFF, 0x00, 0xFF], // opaque yellow
         };
-        let instances = build(&cells, CellCursor::default(), None, None, &[hl]);
+        let instances = build(&cells, CellCursor::default(), None, &[hl]);
         // Alpha >= 128 → swap fg/bg, then bg = blend(bg, yellow, alpha=1) = yellow.
         assert_eq!(
             instances[0].fg_color,
@@ -923,7 +893,7 @@ mod tests {
             end_col_exclusive: 1,
             color: [0xFF, 0x00, 0x00, 0x7F], // alpha ~0.5 red (below the 128 swap threshold)
         };
-        let instances = build(&cells, CellCursor::default(), None, None, &[hl]);
+        let instances = build(&cells, CellCursor::default(), None, &[hl]);
         assert_eq!(
             instances[0].fg_color,
             [0.0, 0.0, 0.0, 1.0],
@@ -959,7 +929,7 @@ mod tests {
             style: CursorStyle::Block,
             color: Some([0.0, 1.0, 0.0, 1.0]),
         };
-        let instances = build(&cells, cursor, None, None, &[]);
+        let instances = build(&cells, cursor, None, &[]);
         assert_eq!(
             instances[0].fg_color,
             [1.0, 0.0, 0.0, 1.0],
@@ -991,7 +961,7 @@ mod tests {
             style: CursorStyle::Bar,
             color: Some([1.0, 0.0, 0.0, 1.0]),
         };
-        let instances = build(&cells, cursor, None, None, &[]);
+        let instances = build(&cells, cursor, None, &[]);
         assert!(
             instances.len() >= 2,
             "glyph + bar marker expected, got {}",
@@ -1025,7 +995,7 @@ mod tests {
             [0.1, 0.1, 0.1, 1.0],
             0,
         )];
-        let instances = build(&cells, CellCursor::default(), None, None, &[]);
+        let instances = build(&cells, CellCursor::default(), None, &[]);
         assert_eq!(instances.len(), 1);
         assert_eq!(
             instances[0].atlas_size, [0.0; 2],
@@ -1124,23 +1094,24 @@ mod tests {
         let all_dirty = vec![true; 24];
         let ok = build_instances_cached(
             &cells,
-            24,
-            80,
-            1024.0 / 80.0,
-            1024.0 / 24.0,
-            cursor,
+            CellInstanceConfig {
+                rows: 24,
+                cols: 80,
+                grid_cell_w: 1024.0 / 80.0,
+                grid_cell_h: 1024.0 / 24.0,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
             &mut font_pipeline,
-            1024.0,
-            1024.0,
-            None,
-            None,
-            &[],
             &all_dirty,
             &mut cache,
             &mut instances,
         );
         assert!(ok.is_some(), "initial full build should succeed");
-        let full_frame1 = build(&cells, cursor, None, None, &[]);
+        let full_frame1 = build(&cells, cursor, None, &[]);
         assert!(
             instances_equal(&instances, &full_frame1),
             "initial build equals a full build"
@@ -1155,23 +1126,24 @@ mod tests {
         instances.clear();
         let ok = build_instances_cached(
             &cells2,
-            24,
-            80,
-            1024.0 / 80.0,
-            1024.0 / 24.0,
-            cursor,
+            CellInstanceConfig {
+                rows: 24,
+                cols: 80,
+                grid_cell_w: 1024.0 / 80.0,
+                grid_cell_h: 1024.0 / 24.0,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
             &mut font_pipeline,
-            1024.0,
-            1024.0,
-            None,
-            None,
-            &[],
             &dirty,
             &mut cache,
             &mut instances,
         );
         assert!(ok.is_some(), "incremental build should succeed");
-        let full_frame2 = build(&cells2, cursor, None, None, &[]);
+        let full_frame2 = build(&cells2, cursor, None, &[]);
         assert!(
             instances_equal(&instances, &full_frame2),
             "incremental result must match a full rebuild"
@@ -1199,24 +1171,25 @@ mod tests {
             color: None,
         };
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-        let full = build(&cells, cursor, None, None, &[]);
+        let full = build(&cells, cursor, None, &[]);
 
         // Stale cache: built for a 12-row grid while the grid has 24 rows.
         let mut cache = CachedInstances::new(12, 80);
         let mut instances = Vec::new();
         let ok = build_instances_cached(
             &cells,
-            24,
-            80,
-            1024.0 / 80.0,
-            1024.0 / 24.0,
-            cursor,
+            CellInstanceConfig {
+                rows: 24,
+                cols: 80,
+                grid_cell_w: 1024.0 / 80.0,
+                grid_cell_h: 1024.0 / 24.0,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
             &mut font_pipeline,
-            1024.0,
-            1024.0,
-            None,
-            None,
-            &[],
             &vec![true; 24],
             &mut cache,
             &mut instances,
@@ -1232,17 +1205,18 @@ mod tests {
         instances.clear();
         let ok = build_instances_cached(
             &cells,
-            24,
-            80,
-            1024.0 / 80.0,
-            1024.0 / 24.0,
-            cursor,
+            CellInstanceConfig {
+                rows: 24,
+                cols: 80,
+                grid_cell_w: 1024.0 / 80.0,
+                grid_cell_h: 1024.0 / 24.0,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
             &mut font_pipeline,
-            1024.0,
-            1024.0,
-            None,
-            None,
-            &[],
             &[true; 10],
             &mut cache2,
             &mut instances,
@@ -1275,7 +1249,7 @@ mod tests {
             color: None,
         };
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-        let full = build(&cells, cursor, None, None, &[]);
+        let full = build(&cells, cursor, None, &[]);
 
         // Simulate the resize frame: cache was built for 24x40 but the grid
         // is now 24x80 (cols-only change). A re-created empty cache for
@@ -1288,17 +1262,18 @@ mod tests {
         mask[2] = true;
         let ok = build_instances_cached(
             &cells,
-            24,
-            80,
-            1024.0 / 80.0,
-            1024.0 / 24.0,
-            cursor,
+            CellInstanceConfig {
+                rows: 24,
+                cols: 80,
+                grid_cell_w: 1024.0 / 80.0,
+                grid_cell_h: 1024.0 / 24.0,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
             &mut font_pipeline,
-            1024.0,
-            1024.0,
-            None,
-            None,
-            &[],
             &mask,
             &mut cache,
             &mut instances,

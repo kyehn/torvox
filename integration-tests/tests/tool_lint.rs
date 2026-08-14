@@ -228,7 +228,9 @@ fn static_test_count() -> usize {
         let root = std::path::Path::new(WORKSPACE).join(dir);
         let mut stack = vec![root];
         while let Some(dir) = stack.pop() {
-            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
@@ -236,7 +238,9 @@ fn static_test_count() -> usize {
                         stack.push(path);
                     }
                 } else if path.extension().map(|e| e == "rs").unwrap_or(false) {
-                    let Ok(content) = std::fs::read_to_string(&path) else { continue };
+                    let Ok(content) = std::fs::read_to_string(&path) else {
+                        continue;
+                    };
                     count += content.matches("#[test]").count();
                 }
             }

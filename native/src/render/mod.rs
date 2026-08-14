@@ -50,8 +50,8 @@ pub use invalidation::{FrameInvalidation, InvalidationLevel};
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
 pub(crate) use old_path::{
-    CellInstanceConfig, FlatGrid, build_cell_instances_from_flat,
-    build_cell_instances_from_snapshot, build_cell_instances_into, color_f32x4_eq,
+    FlatGrid, SnapshotConfig, build_cell_instances_from_flat, build_cell_instances_from_snapshot,
+    build_cell_instances_into, color_f32x4_eq,
 };
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
@@ -182,23 +182,20 @@ impl KittyGraphicsInstance {
     }
 }
 
-// ── Backward-Compatible Re-exports ───────────────────────────────────────
-// Allow `native::render::gpu::Renderer` to keep working.
-// `GpuContext` kept as type alias for backward compat.
+// ── Test-util surface for integration-tests ──────────────────────────────
+// integration-tests enables `test-util` and reaches the render internals
+// (reference snapshot path + instance types) through this single module.
 pub mod gpu {
-    #![allow(unused_imports)]
     pub use super::cell_builder::{CellCursor, build_instances_from_cell_data};
     pub use super::cell_builder::{SearchHighlight, SelectionRange};
     pub use super::context::{Renderer, orthographic_projection};
     #[cfg(any(test, feature = "test-util"))]
     pub use super::old_path::{
-        CellInstanceConfig, FlatGrid, build_cell_instances_from_flat,
+        FlatGrid, SnapshotConfig, build_cell_instances_from_flat,
         build_cell_instances_from_snapshot, build_cell_instances_into,
     };
     pub use super::pipeline::{GpuUniforms, image_active_value};
     pub use super::{
         CATPPUCCIN_MOCHA_BG, CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE,
     };
-    /// Opaque name kept for backward compatibility with integration-tests.
-    pub type GpuContext = Renderer;
 }

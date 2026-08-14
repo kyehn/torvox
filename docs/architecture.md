@@ -154,7 +154,7 @@ native/                          ← single cdylib + lib crate
 │   │   ├── cell_builder.rs      ← CellData → CellInstance → GPU instance construction
 │   │   └── surface.rs           ← ANativeWindow surface management
 │   ├── android/                 ← JNI FFI exports (no boltffi)
-│   ├── mcp.rs                   ← tower-mcp server (Unix socket + stdio)
+│   ├── mcp/                     ← tower-mcp server (Unix socket + stdio)
 │   └── lock_util.rs             ← poison recovery
 ├── shaders/                     ← WGSL shader sources (3 files)
 └── Cargo.toml
@@ -172,7 +172,7 @@ native/                          ← single cdylib + lib crate
 | `terminal/` | PTY master/slave, Ghostty VT wrapper, Session orchestration, keyboard encoding, shell env setup | `libghostty-vt` (vendored Zig), `nix`, `flume` |
 | `render/` | wgpu device/surface, cosmic-text shaping, swash rasterization, guillotiere atlas, WGSL pipelines, CellInstance construction | `wgpu`, `cosmic-text`, `swash`, `guillotiere`, `bytemuck` |
 | `android/` | 14 JNI `#[no_mangle]` functions: session lifecycle, surface attach/detach, input, polling, dialog result, MCP toggle, persistence | `jni` crate |
-| `mcp.rs` | 7 MCP tools via tower-mcp (terminal_info, clipboard_get, clipboard_set, notify, toast, open_url, pick_file) | `tower-mcp`, `axum`, `tokio`, `schemars` |
+| `mcp/` | MCP tools via tower-mcp (terminal_info, clipboard_get, clipboard_set, notify, toast, open_url, pick_file) | `tower-mcp`, `axum`, `tokio`, `schemars` |
 | `lock_util.rs` | `lock_or_recover()`, `write_or_recover()` — mutex/poison recovery helpers | None |
 
 ### 5.3 Dependency Graph
@@ -268,7 +268,7 @@ MCP Listener (tokio runtime, one per process)
 │  │ Kotlin UI         │◄──────────────►│ Rust native.so       │  │
 │  │ (Compose +        │  pollEvent()   │                      │  │
 │  │  TextureView)     │  JSON events   │ terminal/  render/  │  │
-│  └──────────────────┘                │ android/  mcp.rs     │  │
+│  └──────────────────┘                │ android/  mcp/      │  │
 │         │                            └──────────┬───────────┘  │
 │         │ ANativeWindow (Vulkan surface)          │ PTY master  │
 │         ▼                                        ▼              │
