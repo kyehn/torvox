@@ -1,7 +1,5 @@
 name: Release
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * *'
@@ -55,13 +53,6 @@ jobs:
           script: |
             set -e
             nix develop --command nu ${{ github.workspace }}/scripts/test-emulator.nu
-      - uses: actions/upload-artifact@main
-        continue-on-error: true
-        with:
-          name: emulator-results
-          path: |
-            emulator-results/
-            build/compare-results/
       - if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@master
         with:
