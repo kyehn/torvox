@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.SelectionExpander
 import terminal.emulator.input.KeyModifiers
@@ -945,7 +946,7 @@ constructor(
                     _availableFonts.value = allFonts
                     _defaultFontName.value = bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
                     _fontInfo.value =
-                        bridge?.getFontInfo() ?: "Font: ${_defaultFontName.value}\n(CJK fallback info available after session starts)"
+                        bridge?.getFontInfo() ?: FontInfoDto.placeholderJson(_defaultFontName.value)
                 } catch (exception: Exception) {
                     Log.e("TerminalViewModel", "Failed to load font list", exception)
                     _availableFonts.value = emptyList()
@@ -959,7 +960,7 @@ constructor(
                 runtime.applyFontSettings()
                 val bridge = runtime.bridge()
                 if (bridge != null) {
-                    _fontInfo.value = bridge.getFontInfo() ?: "No font loaded"
+                    _fontInfo.value = bridge.getFontInfo() ?: context.getString(R.string.no_font_loaded)
                 }
             }
         }
@@ -972,13 +973,13 @@ constructor(
                     runtime.applyFontSettings()
                     val bridge = runtime.bridge()
                     val fontName = bridge?.getDefaultFontName() ?: "monospace"
-                    val fontInfo = bridge?.getFontInfo() ?: "No font loaded"
+                    val fontInfo = bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
                     _defaultFontName.value = fontName
                     _fontInfo.value = fontInfo
                     android.util.Log.d("Font", "Font applied: $fontName")
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
                         android.widget.Toast
-                            .makeText(context, "Font applied: $fontName", android.widget.Toast.LENGTH_SHORT)
+                            .makeText(context, context.getString(R.string.font_applied, fontName), android.widget.Toast.LENGTH_SHORT)
                             .show()
                     }
                 } catch (exception: Exception) {
@@ -987,7 +988,7 @@ constructor(
                         android.widget.Toast
                             .makeText(
                                 context,
-                                "Font apply failed: ${exception.message}",
+                                context.getString(R.string.font_apply_failed, exception.message ?: ""),
                                 android.widget.Toast.LENGTH_SHORT,
                             ).show()
                     }
@@ -1043,7 +1044,7 @@ constructor(
                     } ?: run {
                         kotlinx.coroutines.withContext(Dispatchers.Main) {
                             android.widget.Toast
-                                .makeText(context, "Failed to read font file", android.widget.Toast.LENGTH_SHORT)
+                                .makeText(context, context.getString(R.string.font_read_failed), android.widget.Toast.LENGTH_SHORT)
                                 .show()
                         }
                         return@launch
@@ -1059,14 +1060,14 @@ constructor(
                         loadFonts()
                         kotlinx.coroutines.withContext(Dispatchers.Main) {
                             android.widget.Toast
-                                .makeText(context, "Font installed: $familyName", android.widget.Toast.LENGTH_SHORT)
+                                .makeText(context, context.getString(R.string.font_installed, familyName), android.widget.Toast.LENGTH_SHORT)
                                 .show()
                         }
                     } else {
                         android.util.Log.e("Font", "Font load failed: null family from ${destFile.absolutePath}")
                         kotlinx.coroutines.withContext(Dispatchers.Main) {
                             android.widget.Toast
-                                .makeText(context, "Font not supported or corrupted", android.widget.Toast.LENGTH_SHORT)
+                                .makeText(context, context.getString(R.string.font_not_supported), android.widget.Toast.LENGTH_SHORT)
                                 .show()
                         }
                     }
@@ -1076,7 +1077,7 @@ constructor(
                         android.widget.Toast
                             .makeText(
                                 context,
-                                "Font installation failed: ${exception.message}",
+                                context.getString(R.string.font_install_failed, exception.message ?: ""),
                                 android.widget.Toast.LENGTH_SHORT,
                             ).show()
                     }
@@ -1157,7 +1158,7 @@ constructor(
     private val _defaultFontName = MutableStateFlow("")
     val defaultFontName: StateFlow<String> = _defaultFontName.asStateFlow()
 
-    private val _fontInfo = MutableStateFlow("Active: monospace\n(CJK fallback info available after session starts)")
+    private val _fontInfo = MutableStateFlow(FontInfoDto.placeholderJson("monospace"))
     val fontInfo: StateFlow<String> = _fontInfo.asStateFlow()
 
     init {
@@ -1187,7 +1188,7 @@ constructor(
                 val sortedIds = runtimeState.sessionIds.sorted()
                 val sessions =
                     sortedIds.mapIndexed { index, id ->
-                        SessionInfo(id = id, title = "Session ${index + 1}")
+                        SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
                     }
                 val active = runtimeState.activeSessionId
                 if (active != 0L) {
@@ -1196,7 +1197,7 @@ constructor(
                         if (runtimeState.title.isNotEmpty()) {
                             runtimeState.title
                         } else {
-                            "Session $displayIndex"
+                            context.getString(R.string.session_number, displayIndex)
                         }
                     // _state.update (CAS) instead of read-modify-write:
                     // createSession/switchSession on the IO dispatcher also
@@ -1221,7 +1222,7 @@ constructor(
                         } else {
                             val bridge = runtime.bridge()
                             _defaultFontName.value = bridge?.getDefaultFontName() ?: ""
-                            _fontInfo.value = bridge?.getFontInfo() ?: "No font loaded"
+                            _fontInfo.value = bridge?.getFontInfo() ?: context.getString(R.string.no_font_loaded)
                         }
                     }
                 } else {
@@ -1348,6 +1349,36 @@ constructor(
     val bootstrapProgress: StateFlow<terminal.emulator.installer.BootstrapProgress?> =
         _bootstrapProgress.asStateFlow()
 
+    /** Maps a bootstrap result to localized user text; failure payloads are
+     *  machine-readable keys (see [BootstrapOrchestrator]). */
+    private fun bootstrapOutcomeText(result: Result<String>): String = result.fold(
+        onSuccess = { diagnostics ->
+            val headline = context.getString(R.string.bootstrap_installed_success)
+            if (diagnostics.isEmpty()) {
+                headline
+            } else {
+                context.getString(R.string.bootstrap_postinst_errors) + "\n" + diagnostics
+            }
+        },
+        onFailure = { exception ->
+            when (exception.message) {
+                terminal.emulator.installer.BootstrapOrchestrator.ERROR_PRIMARY_USER_REQUIRED ->
+                    context.getString(R.string.bootstrap_primary_user_required)
+
+                terminal.emulator.installer.BootstrapOrchestrator.ERROR_ALREADY_IN_PROGRESS ->
+                    context.getString(R.string.bootstrap_already_in_progress)
+
+                terminal.emulator.installer.BootstrapOrchestrator.ERROR_NO_URL ->
+                    context.getString(R.string.bootstrap_no_url)
+
+                terminal.emulator.installer.BootstrapOrchestrator.ERROR_CANCELLED ->
+                    context.getString(R.string.bootstrap_cancelled)
+
+                else -> context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
+            }
+        },
+    )
+
     fun runBootstrap() {
         // CAS so a rapid double-tap of the Install button cannot start two
         // concurrent installs.
@@ -1396,9 +1427,9 @@ constructor(
                         settingsRepository.bootstrapUrl.first()
                     }
                 val result = orchestrator.ensureBootstrap(url)
-                _bootstrapResult.value = result.getOrNull() ?: "Error: ${result.exceptionOrNull()?.javaClass?.simpleName}"
+                _bootstrapResult.value = bootstrapOutcomeText(result)
             } catch (exception: Exception) {
-                _bootstrapResult.value = "Error: ${exception.javaClass.simpleName}"
+                _bootstrapResult.value = context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
             } finally {
                 _bootstrapRunning.value = false
             }
@@ -1449,18 +1480,23 @@ constructor(
                 if (result.isSuccess) {
                     _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Complete
                     val secondResult = secondStage.run()
-                    val messages = mutableListOf("Bootstrap installed from file")
-                    if (secondResult.errors.isNotEmpty()) {
-                        messages.add("${secondResult.errors.size} postinst scripts had errors")
-                    }
-                    _bootstrapResult.value = messages.joinToString("; ")
+                    val headline = context.getString(R.string.bootstrap_installed_from_file)
+                    val diagnostics = secondResult.errors.take(3).joinToString("\n") { "- $it" }
+                    val details =
+                        if (secondResult.errors.isNotEmpty()) {
+                            context.getString(R.string.bootstrap_postinst_errors) + "\n" + diagnostics
+                        } else {
+                            ""
+                        }
+                    _bootstrapResult.value =
+                        if (details.isEmpty()) headline else "$headline\n$details"
                 } else {
-                    _bootstrapResult.value = "Error: ${result.exceptionOrNull()?.javaClass?.simpleName}"
+                    _bootstrapResult.value = context.getString(R.string.bootstrap_error, result.exceptionOrNull()?.javaClass?.simpleName)
                 }
                 cacheFile.delete()
             } catch (exception: Exception) {
                 LogUtil.e("ViewModel", "Offline install failed", exception)
-                _bootstrapResult.value = "Error: ${exception.javaClass.simpleName}"
+                _bootstrapResult.value = context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
             } finally {
                 _bootstrapRunning.value = false
             }
@@ -1889,12 +1925,12 @@ constructor(
                         val displayIndex = sortedIds.indexOf(newId) + 1
                         val sessions =
                             sortedIds.mapIndexed { index, id ->
-                                SessionInfo(id = id, title = "Session ${index + 1}")
+                                SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
                             }
                         current.copy(
                             sessionId = newId,
                             isRunning = true,
-                            title = "Session $displayIndex",
+                            title = context.getString(R.string.session_number, displayIndex),
                             selection = SelectionState(),
                             sessions = sessions,
                             activeSessionId = newId,
@@ -1942,7 +1978,7 @@ constructor(
                                 current.sessions
                                     .map { it.id }
                                     .sorted()
-                            "Session ${sortedIds.indexOf(id) + 1}"
+                            context.getString(R.string.session_number, sortedIds.indexOf(id) + 1)
                         },
                     activeSessionId = id,
                     selection = SelectionState(),
@@ -1981,7 +2017,7 @@ constructor(
                     } else {
                         val renumbered =
                             remaining.sortedBy { it.id }.mapIndexed { index, session ->
-                                session.copy(title = "Session ${index + 1}")
+                                session.copy(title = context.getString(R.string.session_number, index + 1))
                             }
                         val newActive =
                             if (current.activeSessionId == id) {
@@ -1996,7 +2032,7 @@ constructor(
                             sessionId = newActive,
                             title =
                             runtime.state.value.title
-                                .ifEmpty { "Session ${newActiveIndex + 1}" },
+                                .ifEmpty { context.getString(R.string.session_number, newActiveIndex + 1) },
                             selection = SelectionState(),
                         )
                     }
