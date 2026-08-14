@@ -74,7 +74,7 @@ within the app's process:
 
 ### 4. JNI FFI boundary
 
-JNI functions in `android/ffi.rs` are the bridge between Kotlin and Rust.
+JNI functions in `native/src/android/ffi.rs` are the bridge between Kotlin and Rust.
 Security-relevant practices:
 
 - Every `unsafe` block carries a `// SAFETY:` comment documenting the
