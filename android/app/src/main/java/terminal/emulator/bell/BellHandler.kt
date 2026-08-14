@@ -111,9 +111,15 @@ class BellHandler(private val context: Context) {
                         }
                 } else {
                     // Fallback to sound when no view is available (runtime singleton).
+                    // ToneGenerator is unavailable on devices without an audio
+                    // output (e.g. emulators with no audio HAL); silence is the
+                    // only sensible fallback, so the failure is intentionally
+                    // swallowed.
                     try {
                         toneGenerator?.startTone(TONE_TYPE, 200)
-                    } catch (_: Exception) { }
+                    } catch (_: Exception) {
+                        // No audio HAL — bell stays silent.
+                    }
                 }
             }
 
