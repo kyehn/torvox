@@ -2,7 +2,7 @@
 # Run Android Kotlin/Gradle checks
 # Note: connectedAndroidTest requires an emulator — use test-emulator.nu instead.
 # Usage:
-#   scripts/test-android-gradle.nu  # lint + unit tests + verify screenshots
+#   scripts/test-gradle.nu  # lint + unit tests + verify screenshots
 
 def main [] {
     cd android
