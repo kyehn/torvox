@@ -78,6 +78,7 @@ internal fun paginateToolbarKeys(
         }
     return columns.chunked(maxColumnsPerPage)
 }
+
 private const val REPEAT_TIMEOUT_MS = 500L
 private const val DWELL_GUARD_MS = 100L
 private const val LONG_PRESS_MS = 500L
