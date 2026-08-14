@@ -656,7 +656,7 @@ private data class ModifierBarStates(
 )
 
 /** Long-press action for a key: an explicit secondary sequence, or the
- *  DRAWER paste popup (termux default). */
+ *  DRAWER paste popup (termux default) as fallback. */
 private fun secondaryLongPressAction(
     item: ToolbarItem,
     actions: ModifierBarActions,
