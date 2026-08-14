@@ -287,8 +287,8 @@ check(File(workingDirForCargo, "Cargo.toml").exists()) {
 }
 
 tasks.withType<Test>().matching { it.name == "testDebugUnitTest" }.configureEach {
-    // src/test hosts 7 JVM test classes (encoder, mouse-mode, url detector,
-    // search, nerd-key labels, batch buffer, coalescer) plus robolectric
+    // src/test hosts 40+ JVM test files (bridge codecs, selection, search,
+    // installer, runtime, UI state, TestBalloon suite) plus robolectric
     // config; Gradle 9.6 fails the task when no tests are discovered, so
     // the failure is disabled as a safety net.
     jvmArgs("-Djava.library.path=")

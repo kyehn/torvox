@@ -89,7 +89,7 @@ val ArgumentTokenizerTestSuite by testSuite("ArgumentTokenizer") {
         assertEquals(listOf("a", "", "b"), ArgumentTokenizer.tokenize("a '' b"))
     }
 
-    // ── b: edge-case coverage (spec d16) ─────────────────────
+    // ── b: trailing-backslash edge cases (termux-app guard) ─────
 
     test("trailing backslash inside double quotes does not crash") {
         // torvox guard: upstream termux-app throws
