@@ -116,7 +116,7 @@ class BootstrapOrchestrator(
             }
         } catch (exception: Exception) {
             // Class name only: the underlying failure may embed the
-            // bootstrap URL .
+            // bootstrap URL.
             val message = "Bootstrap orchestration failed: ${exception.javaClass.simpleName}"
             onProgress?.onProgress(BootstrapProgress.Error(message))
             state.set(Status.ERROR)

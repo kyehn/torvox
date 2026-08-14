@@ -18,7 +18,7 @@ data class AccessibilityLine(
 
 /**
  * Builds the visible-screen line list used for TalkBack line-by-line
- * navigation (, termlib AccessibilityOverlay pattern). Pure
+ * navigation, termlib AccessibilityOverlay pattern). Pure
  * Kotlin: unit-tested on the JVM with a fake [AccessibilityLineSource].
  */
 class AccessibilityLineProvider(
