@@ -7,7 +7,7 @@ import kotlinx.serialization.json.Json
  * Native-backed [TerminalQueryPort]: every method maps 1:1 to a JNI
  * export (see `native/src/android/ffi.rs`, "JNI Exports:
  * TerminalQueryPort"). Used by [Bridge] for the live session; there is
- * no stub anymore (round-205).
+ * no stub anymore.
  *
  * Contract for callers: null/0/empty means "no data" from the engine —
  * never fake data. Single-row/font queries are cheap; bulk queries
@@ -31,7 +31,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         // Selection is rendered through the render path (SelectionRange),
         // driven by TerminalSurface.consumeSelectionState. Forward to the
         // native render state so the GPU shader swaps the background
-        // color of the selected cells (round-214).
+        // color of the selected cells.
         val active = hasSelection ?: true
         NativeBridge.setSelection(
             sessionIdProvider(),
@@ -57,7 +57,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         }
         val (startCol, endCol) = SelectionExpander.expandBounds(line, col)
 
-        // Round-225: expandAcrossUrlWrap walks wrap-continuation rows
+        // expandAcrossUrlWrap walks wrap-continuation rows
         // (Haven SelectionToolbar:120-214). Fetch the adjacent rows and
         // apply the multi-row span through setSelection so the selection
         // highlight and copied text both cover the full wrapped URL.
@@ -103,7 +103,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         ?.let { parseSearchMatches(it) }
 
     override fun setScrollOffset(offset: Int) {
-        // Round-205: the native side applies the delta on the VT thread
+        // the native side applies the delta on the VT thread
         // via scroll_viewport, so the next CellData push carries the
         // scrolled view. Previously a no-op — scrollback browsing did
         // nothing.

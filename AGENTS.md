@@ -8,7 +8,7 @@ Ghostty is the single source of truth for all terminal state — no separate
 data-model crate.
 
 Single crate (`native/`) with 2 thin workspace members (`exec-bin`,
-`integration-tests`), ~13.7k LOC Rust (31 thematic commits),
+`integration-tests`), ~13.7k LOC Rust (52 thematic commits),
 JNI direct bridge (no boltffi/JNA).
 
 **Maturity**: All phases of re-architecture complete. 6 rounds of comprehensive

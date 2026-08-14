@@ -69,7 +69,7 @@ class UserThemeStore(
          * forbids two active instances on the same file — a fresh
          * `PreferenceDataStoreFactory.create` per UserThemeStore instance
          * crashed the app with "multiple DataStores active" whenever the
-         * ViewModel was recreated (round-227). The app context also keeps
+         * ViewModel was recreated. The app context also keeps
          * the store alive across activity recreation.
          */
         private val dataStores =

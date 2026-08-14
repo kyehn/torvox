@@ -5,7 +5,7 @@ import org.junit.Assert.assertSame
 import org.junit.Test
 
 /**
- * Pure selection-state helpers (round-231 P2): arrow-key anchor movement and
+ * Pure selection-state helpers: arrow-key anchor movement and
  * handle-drag crossing flips. No native engine involved — the rules are
  * exercised directly on [SelectionState].
  */

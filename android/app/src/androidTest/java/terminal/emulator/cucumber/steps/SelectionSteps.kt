@@ -57,7 +57,7 @@ constructor(
     @When("^the user long-presses on an empty area$")
     fun userLongPressesOnEmptyArea() {
         val s = surface()
-        // Round-119: press near the bottom. After "the terminal displays
+        // press near the bottom. After "the terminal displays
         // text" the prompt occupies the top rows, so height*0.1 lands on
         // text and triggers word-selection instead of the paste popup.
         injectLongPress(s, s.width / 2f, s.height * 0.9f)
@@ -65,7 +65,7 @@ constructor(
 
     @When("^the user double-taps on a word$")
     fun userDoubleTapsOnWord() {
-        // STUB (round-104): GestureDetector cannot detect double-tap with
+        // STUB: GestureDetector cannot detect double-tap with
         // simulated events (Android removes the TAP handler on the first UP,
         // making hadTapMessage=false when the second DOWN arrives). Fall
         // back to long-press which triggers handleLongPress with semantic
@@ -91,7 +91,7 @@ constructor(
     fun userTriggersCopy() {
         // Route through the selection menu's Copy item, which calls
         // viewModel.copySelectionToClipboard() (the TerminalSurface
-        // getSelectedText accessor was removed with the implemented (native query path wired since round-130)s).
+        // getSelectedText accessor was removed with the implemented (native query path is wired)).
         composeRuleHolder.composeRule
             .onNodeWithText("Copy", useUnmergedTree = true)
             .performClick()
@@ -125,7 +125,7 @@ constructor(
     @Then("^the paste popup appears$")
     fun pastePopupAppears() {
         composeRuleHolder.composeRule.waitForIdle()
-        // Round-231: the PasteChipOverlay was removed together with paste
+        // the PasteChipOverlay was removed together with paste
         // confirmation; an empty-area long-press now produces a paste-only
         // selection (SelectionManager.showPastePopup) with its floating
         // Paste menu.

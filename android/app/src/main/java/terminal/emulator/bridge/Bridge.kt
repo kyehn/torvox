@@ -78,9 +78,9 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  *
  * The rendering path is live: `render`/`attachSurface`/`releaseGpuSurface`
  * map to the wgpu renderer via JNI, and the background-image, cursor-blink
- * and render-pause settings are wired end-to-end (rounds 202-204). The
+ * and render-pause settings are wired end-to-end. The
  * remaining log-only helpers (`recomputeGrid`, `getCellWidth/Height`,
- * `loadFontFile`, `setSystemLocale`, ...) are either superseded by other
+ * `loadFontFile`, `setSystemLocale`,...) are either superseded by other
  * channels (attachSurface carries the size; events carry grid dims) or are
  * query-path stubs backed by [NativeQueryPort].
  */
@@ -90,7 +90,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     /**
      * ADR-0007: native query path wired — all queries delegate to
      * [NativeQueryPort], which maps 1:1 to the JNI query exports
-     * (native/src/android/ffi.rs, "TerminalQueryPort" section). The stub
+     * native/src/android/ffi.rs, "TerminalQueryPort" section). The stub
      * only backs the no-session window (sessionId == 0, before spawn).
      */
     private val queryPort: TerminalQueryPort = NativeQueryPort { sessionId }
@@ -176,7 +176,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * session, preserving rows/cols. The Kotlin host calls this alongside
      * each grid resize with the surface's pixel dimensions so pixel-aware
      * programs (`icat`, fullscreen TUIs) read real pixels from TIOCGWINSZ
-     * (ghostty-android pty_jni.c:84-87).
+     * ghostty-android pty_jni.c:84-87).
      */
     fun setPixelSize(widthPx: Int, heightPx: Int) {
         if (sessionId == 0L) return
@@ -193,7 +193,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * lives in Rust: the renderer derives cell metrics from the font
      * pipeline, and [TerminalRuntime.syncGridDimensions] pulls the real
      * grid via [getGridRowsColsPacked] after a resize. This method only
-     * logs (round-204: the native side resolves rows/cols from events).
+     * logs: the native side resolves rows/cols from events).
      */
     fun recomputeGrid(width: Int, height: Int) {
         Log.d(TAG, "recomputeGrid($width,$height) — native resolves rows/cols from events")
@@ -230,7 +230,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── Rendering ─────────────────────────────────────────────────────
-    // ADR-0007 surface integration is implemented (rounds 202-204):
+    // ADR-0007 surface integration is implemented:
     // render/attachSurface/releaseGpuSurface/setRenderPaused map to the
     // wgpu renderer via JNI.
 
@@ -240,7 +240,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         return try {
             NativeBridge.render(sessionId, lastSurfaceWidth, lastSurfaceHeight)
         } catch (exception: RuntimeException) {
-            // Class only: exception messages can embed session data (round-108).
+            // Class only: exception messages can embed session data.
             LogUtil.e("Bridge", "render failed: ${exception.javaClass.simpleName}")
             -1
         }
@@ -359,7 +359,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         try {
             NativeBridge.setBackgroundImage(sessionId, rgbaData, width, height)
         } catch (exception: RuntimeException) {
-            // Class only: exception messages can embed session data (round-108).
+            // Class only: exception messages can embed session data.
             LogUtil.e("Bridge", "setBackgroundImage failed: ${exception.javaClass.simpleName}")
         }
     }
@@ -380,7 +380,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val clipboard: String? = null,
         val exit: Boolean = false,
         val exitCode: Int = 0,
-        // Round-224: native-measured child lifetime for the first exit.
+        // native-measured child lifetime for the first exit.
         val exitAliveMs: Long = 0,
         val sessionId: Long = 0L,
         val dialogs: List<DialogRequest> = emptyList(),
@@ -408,7 +408,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             exit = exit || later.exit,
             // exitCode belongs to the same (first) exit as sessionId.
             exitCode = if (later.exit && !exit) later.exitCode else exitCode,
-            // Round-224: alive_ms travels with its exit event.
+            // alive_ms travels with its exit event.
             exitAliveMs = if (later.exit && !exit) later.exitAliveMs else exitAliveMs,
             // sessionId only serves exit attribution. The FIRST exit
             // seen in a frame wins: a later non-exit event (e.g. a
@@ -435,7 +435,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     data class ExitInfo(
         val sessionId: Long,
         val exitCode: Int,
-        // Round-224: child lifetime (ms) measured natively — the
+        // child lifetime (ms) measured natively — the
         // fast-death decision uses this, not Kotlin event latency.
         val exitAliveMs: Long = 0,
     )
@@ -446,7 +446,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val selection: String = "",
     )
 
-    /** MCP `run_command` request dispatched from a poll event (round-226 D1). */
+    /** MCP `run_command` request dispatched from a poll event  D1). */
     data class RunCommandRequest(
         val sessionId: Long,
         val requestId: Long,
@@ -625,7 +625,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     }
 
     // ── Theme / appearance ────────────────────────────────────────────
-    // Wired end-to-end (rounds 202-204): setTheme packs 54 bytes
+    // Wired end-to-end: setTheme packs 54 bytes
     // (bg3 fg3 ansi48) for the native palette; OSC 10/11/4 color handling
     // lives in the terminal engine and is applied via the palette API.
     fun setTheme(theme: BridgeTheme) {
@@ -807,7 +807,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * Whether the remote is on the alternate screen buffer (vim/less/htop).
      * Lock-free; safe to call on every touch-scroll event. When true, touch
      * scroll gestures must be forwarded to the remote as mouse-wheel escapes
-     * (see [TerminalSurface] onScroll) rather than scrolling local scrollback.
+     * see [TerminalSurface] onScroll) rather than scrolling local scrollback.
      */
     fun isAltScreenActive(): Boolean {
         if (sessionId == 0L) return false
@@ -822,7 +822,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     /**
      * Whether the terminal is in application cursor mode (DECCKM, DEC
      * private mode 1). Arrow keys must then be encoded SS3 (`ESC OA`)
-     * instead of CSI (`ESC [ A`) — research-haven.md:141 P2,
+     * instead of CSI (`ESC [ A`) — research-haven.md:141,
      * research-zed-port.md:252. Queried only for arrow-key key events.
      */
     fun isAppCursorMode(): Boolean {
@@ -849,13 +849,13 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             val altActive = modifierBits and 2 != 0
             // DECCKM: when the terminal is in application cursor mode
             // (DEC private mode 1) arrow keys must be encoded SS3 (`ESC OA`)
-            // instead of CSI (`ESC [ A`) — research-haven.md:141 P2,
+            // instead of CSI (`ESC [ A`) — research-haven.md:141,
             // research-zed-port.md:252. Only queried for arrow keys to avoid
             // a mode_get round-trip on every keystroke.
             val appCursorMode =
                 keyCode in APP_CURSOR_KEY_CODES && isAppCursorMode()
             // Route ALL hardware keys through the same encoder the IME path
-            // uses. Sending the key NAME (keyCodeToName: "Up", "Home", ...)
+            // uses. Sending the key NAME (keyCodeToName: "Up", "Home",...)
             // as literal bytes would write the text "Up" into the PTY — the
             // native writeKey does not parse key names, so vim/less arrows,
             // Home/End, PageUp/Down and Delete were all broken.
@@ -882,7 +882,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                 NativeBridge.writeKey(sessionId, ch, modifierBits, null)
                 return true
             }
-            // Round-216: some IMEs (Gboard under InputType.TYPE_NULL) emit
+            // some IMEs (Gboard under InputType.TYPE_NULL) emit
             // key events with unicodeChar == 0 even though the key is a
             // printable letter. Derive the character from the virtual
             // keyboard's key character map as a fallback so those key

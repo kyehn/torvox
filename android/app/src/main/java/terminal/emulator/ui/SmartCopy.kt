@@ -1,7 +1,7 @@
 package terminal.emulator.ui
 
 /**
- * Smart copy processing (round-225) — mirrors Haven SelectionToolbar
+ * Smart copy processing  — mirrors Haven SelectionToolbar
  * smartCopy (:357-405) + SmartTerminalClipboard (:407-430):
  *
  *  1. TUI border stripping: when vertical box-drawing border characters
@@ -120,7 +120,7 @@ object SmartCopy {
 
     /**
      * Whether a whitespace-free string looks like a *complete* URL token
-     * (scheme- or `www.`-prefixed, a dotted host, optional path/query).
+     * scheme- or `www.`-prefixed, a dotted host, optional path/query).
      */
     private val URL_TOKEN_RE =
         Regex(

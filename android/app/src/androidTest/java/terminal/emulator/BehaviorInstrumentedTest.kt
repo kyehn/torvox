@@ -85,7 +85,7 @@ class BehaviorInstrumentedTest {
     @Test
     fun behavior_app_stays_in_foreground() {
         // Smoke check only: no color/rendering assertion is possible while
-        // Bridge.setTheme is a log-only implemented (native query path wired since round-130) (round-112).
+        // Bridge.setTheme is a log-only implemented (native query path is wired).
         val output = device.executeShellCommand("dumpsys activity top | grep -i $PACKAGE")
         assertTrue("App should be in foreground", output.isNotEmpty())
     }
@@ -108,7 +108,7 @@ class BehaviorInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while isCellEmpty/expandAndSetSelection are implemented (native query path wired since round-130)s (long-press routes to the paste popup), so the Copy toolbar button never appears on a fresh process; round-110 turned the old vacuous skip into a guaranteed failure (round-111)")
+    @org.junit.Ignore("Selection cannot be activated while isCellEmpty/expandAndSetSelection are implemented (native query path is wired) (long-press routes to the paste popup), so the Copy toolbar button never appears on a fresh process;  turned the old vacuous skip into a guaranteed failure ")
     fun behavior_selection_toolbar_shows_copy_select_all() {
         openSettings()
         scrollTo("Keyboard Mode")
@@ -121,7 +121,7 @@ class BehaviorInstrumentedTest {
         Thread.sleep(2000)
         // Hard assertion: the test's purpose is verifying the selection
         // toolbar, so a missing Copy button is a failure, not a skip
-        // (round-110).
+        //
         val copy = device.findObject(By.text("Copy"))
         assertNotNull("Copy button should be visible when text selected", copy)
         assertFalse(

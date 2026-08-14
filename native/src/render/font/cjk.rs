@@ -198,7 +198,7 @@ impl FontPipeline {
     /// Resolve the emoji layer (moke: emoji via system chain; here the
     /// color fonts are collected so the lookup at least TRIES them —
     /// swash cannot outline color glyphs, so they are skipped at render
-    /// time and the database scan / .notdef takes over).
+    /// time and the database scan /.notdef takes over).
     pub(crate) fn find_emoji_fallback_fonts(&mut self) {
         const MAX_EMOJI_FALLBACK_FONTS: usize = 1;
         let ids = self.scan_fallback_candidates(
@@ -373,7 +373,7 @@ impl FontPipeline {
         }
         // Return the first candidate that actually renders (charmap hits
         // in color fonts such as Noto Color Emoji cannot be outlined by
-        // swash and must be skipped — round-227 T5).
+        // swash and must be skipped —).
         for (id, gid) in candidates {
             if let Some(info) = self.glyph_information_from_font(id, ch, gid)
                 && info.width > 0

@@ -31,7 +31,7 @@ sealed class BootstrapProgress {
             if (totalEntries > 0) {
                 // Capped at 0.97 so CreatingSymlinks (0.99) and
                 // RunningPostInstall (0.97..1.0) never regress the bar
-                // (round-108).
+                //
                 (entriesExtracted.toFloat() / totalEntries) * 0.12f
             } else {
                 0f
@@ -51,7 +51,7 @@ sealed class BootstrapProgress {
             if (totalScripts > 0) {
                 // Starts at 0.99 (range 0.99..1.0) so the bar never regresses
                 // from CreatingSymlinks (0.99); Complete (1.0) is the final
-                // step (round-109).
+                // step.
                 (scriptsCompleted.toFloat() / totalScripts) * 0.01f
             } else {
                 0f

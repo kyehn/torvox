@@ -17,11 +17,11 @@ class BootstrapInstaller(
     private val onProgress: BootstrapProgressCallback? = null,
 ) {
     // Atomic-install reference: warp-mobile-android crates/android-host/src/bootstrap.rs:1-48
-    // — extract to usr.tmp/ then write a .bootstrap-version.json marker whose
+    // — extract to usr.tmp/ then write a.bootstrap-version.json marker whose
     // value is the bootstrap zip's sha256, so a kill-mid-extract can never look
     // "installed" and a corrupted zip is detected on next launch. torvox stages
     // into stagingDir then renames (see installBootstrap); the marker makes
-    // the corrupted-zip detection deterministic (round-224).
+    // the corrupted-zip detection deterministic.
     companion object {
         private const val TAG = "BootstrapInstaller"
         const val COPY_BUFFER_SIZE = 8096
@@ -127,7 +127,7 @@ class BootstrapInstaller(
             File(prefixDir, "etc/termux/termux.env").exists()
 
     suspend fun install(zipFile: File): Result<Unit> = withContext(Dispatchers.IO) {
-        // Round-224: hash BEFORE extraction so a corrupted zip is detected
+        // hash BEFORE extraction so a corrupted zip is detected
         // even if extraction never completes (and so needsInstall(zipSha256)
         // can compare). ~1s per 300MB on emulator — first-launch-only.
         val zipSha256 =
@@ -155,8 +155,8 @@ class BootstrapInstaller(
             Result.success(Unit)
         } catch (exception: Exception) {
             // Log the class only, consistent with BootstrapDownloader: the
-            // exception message can embed user-supplied paths (round-104).
-            // TEMP-DEBUG (round-215): include the message truncated to
+            // exception message can embed user-supplied paths.
+            // TEMP-DEBUG: include the message truncated to
             // diagnose the emulator IOException.
             Log.e(
                 "BootstrapInstaller",
@@ -344,7 +344,7 @@ class BootstrapInstaller(
             //     (`../term_entry.h` from `include/ncurses/` resolves to
             //     `include/term_entry.h`, inside staging) — the naive
             //     startsWith("../") check wrongly rejected those
-            //     (round-215);
+            //     ;
             //  2. ABSOLUTE targets into the final prefix
             //     (`/data/data/com.termux/files/usr/share/...`), which are
             //     broken during staging but become valid once the staging

@@ -34,7 +34,7 @@ class TextSearchOcrTest {
     private val uniqueMarker = "OCR_${java.util.UUID.randomUUID().toString().take(8).uppercase()}"
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path wired since round-130) (no real results; assertions only check UI presence) (round-108)")
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
     fun a_generateContent_thenSearch_highlightsVisible() {
         composeTestRule.waitForSession()
         val bridge: Bridge = composeTestRule.getBridge()!!
@@ -46,7 +46,7 @@ class TextSearchOcrTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path wired since round-130) (no real results; assertions only check UI presence) (round-108)")
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
     fun b_searchNext_scrollsAndChangesPosition() {
         composeTestRule.waitForSession()
         val bridge: Bridge = composeTestRule.getBridge()!!
@@ -64,7 +64,7 @@ class TextSearchOcrTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path wired since round-130) (no real results; assertions only check UI presence) (round-108)")
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
     fun c_searchClose_restoresModifierBar() {
         composeTestRule.waitForSession()
         val bridge: Bridge = composeTestRule.getBridge()!!
@@ -79,7 +79,7 @@ class TextSearchOcrTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path wired since round-130) (no real results; assertions only check UI presence) (round-108)")
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
     fun d_searchCaseToggle_changesResults() {
         composeTestRule.waitForSession()
         val bridge: Bridge = composeTestRule.getBridge()!!

@@ -4,7 +4,7 @@ import android.util.Log
 import terminal.emulator.BuildConfig
 
 /**
- * Logcat-only logger (round-227 T2, mirrors termux-kotlin Logger).
+ * Logcat-only logger, mirrors termux-kotlin Logger).
  *
  * Long messages are chunked so no single logcat entry exceeds the
  * platform payload cap (4068 bytes) — logcat silently truncates anything
@@ -88,12 +88,12 @@ object LogUtil {
 
     /**
      * Split [message] into logcat-sized chunks. Exposed for unit tests.
-     * Mirrors native `log_chunk::chunk_message` (round-227 T2).
+     * Mirrors native `log_chunk::chunk_message`.
      *
      * The budget is measured in UTF-8 bytes (logcat counts bytes, not
      * UTF-16 code units) and chunks are only ever cut at code point
      * boundaries, so multi-byte CJK characters and emoji surrogate pairs
-     * are never split (round-227 T2 audit fix).
+     * are never split audit fix).
      */
     internal fun chunkMessage(tag: String, message: String): List<String> {
         val budget = maxEntrySize(tag.toByteArray(Charsets.UTF_8).size)
@@ -194,7 +194,7 @@ object LogUtil {
     private const val LOGGER_ENTRY_MAX_PAYLOAD = 4068
 
     // logd per-entry header (logger_entry struct + tag length field).
-    // Measured on-device (round-227 T2): a 4036-byte payload with a
+    // Measured on-device: a 4036-byte payload with a
     // 12-byte tag surfaces truncated at 4022 bytes — the old 8-byte
     // estimate let logd silently cut chunks.
     private const val LOGGER_PREFIX_OVERHEAD = 32

@@ -48,7 +48,7 @@ pub mod render;
 // ── Android JNI bridge (ex android-gui) ──────────────────────────────────
 pub mod android;
 
-/// Platform-independent logcat chunking (round-227 T2). Kept outside the
+/// Platform-independent logcat chunking. Kept outside the
 /// `android` module so the exact algorithm is unit-testable on the host.
 pub mod log_chunk;
 

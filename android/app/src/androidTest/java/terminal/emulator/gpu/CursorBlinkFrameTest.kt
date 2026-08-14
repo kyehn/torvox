@@ -12,7 +12,7 @@ import terminal.emulator.MainActivity
 import terminal.emulator.getBridge
 import terminal.emulator.waitForSession
 
-@org.junit.Ignore("All four tests call Bridge.setCursorBlink*/resetCursorBlink/setCursorStyle which are log-only implemented (native query path wired since round-130)s — nothing reaches JNI, so the tests have zero assertion value (round-112)")
+@org.junit.Ignore("All four tests call Bridge.setCursorBlink*/resetCursorBlink/setCursorStyle which are log-only implemented (native query path is wired) — nothing reaches JNI, so the tests have zero assertion value ")
 class CursorBlinkFrameTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()

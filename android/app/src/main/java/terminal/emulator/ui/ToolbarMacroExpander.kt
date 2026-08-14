@@ -1,8 +1,7 @@
 package terminal.emulator.ui
 
 /**
- * Expands a Termux-style extra-keys macro into a list of key sequences
- * (round-227 T3).
+ * Expands a Termux-style extra-keys macro into a list of key sequences.
  *
  * Mirrors termux-kotlin `TerminalExtraKeys.onExtraKeyButtonClick` macro
  * semantics:
@@ -14,7 +13,7 @@ package terminal.emulator.ui
  *    when a modifier is active), or text code points (Ctrl folded via the
  *    ANSI control table, Alt prefixed with ESC).
  *  - Alias table (`CONTROL_CHARS_ALIASES`) normalizes alternate spellings
- *    (PAGEUP → PGUP, BACKSPACE → BKSP, …).
+ * PAGEUP → PGUP, BACKSPACE → BKSP, …).
  *
  * Pure function: no Android dependencies, unit-testable on the JVM.
  */
@@ -131,7 +130,7 @@ object ToolbarMacroExpander {
     fun expand(macro: String): List<String> {
         if (macro.isBlank()) return emptyList()
         // Filter empty tokens so double spaces cannot consume a sticky
-        // modifier or emit a phantom empty key (round-227 T3 audit fix).
+        // modifier or emit a phantom empty key audit fix).
         val tokens = macro.split(" ").filter { it.isNotEmpty() }
         var ctrl = false
         var alt = false

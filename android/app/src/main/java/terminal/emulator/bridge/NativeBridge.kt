@@ -80,7 +80,7 @@ object NativeBridge {
     /**
      * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the
      * specified session, preserving rows/cols. pixel-aware programs
-     * (`icat`, fullscreen TUIs) read the pixel size from TIOCGWINSZ.
+     * `icat`, fullscreen TUIs) read the pixel size from TIOCGWINSZ.
      */
     @JvmStatic
     external fun setPixelSize(sessionId: Long, widthPx: Int, heightPx: Int)
@@ -111,7 +111,7 @@ object NativeBridge {
      * mouse encoder (SGR/X10/UTF-8 per the application's DECSET selection).
      * Position is in surface pixels; cellW/cellH are the live cell dims.
      * Returns an empty array when mouse reporting is off or encoding fails
-     * (the event is dropped — zelland renderer/mod.rs pattern).
+     * the event is dropped — zelland renderer/mod.rs pattern).
      */
     @JvmStatic
     external fun encodeMouseEvent(
@@ -161,7 +161,7 @@ object NativeBridge {
     /**
      * Reply to an MCP `clipboard_get` request with the system clipboard text.
      * Like [dialogResult], a request must be answered exactly once: a second
-     * reply for the same request id is a native no-op (round-101).
+     * reply for the same request id is a native no-op.
      */
     @JvmStatic
     external fun clipboardResult(sessionId: Long, requestId: Long, text: String)
@@ -197,7 +197,7 @@ object NativeBridge {
 
     /**
      * Render one frame for the session from the CellData fast path
-     * (ADR-0007). Returns 1 if output was presented, 0 if idle, -1 on error.
+     * ADR-0007). Returns 1 if output was presented, 0 if idle, -1 on error.
      */
     @JvmStatic
     external fun render(sessionId: Long, width: Int, height: Int): Int
@@ -217,7 +217,7 @@ object NativeBridge {
     external fun dialogResult(sessionId: Long, requestId: Long, result: String)
 
     /**
-     * Answer an MCP `run_command` request (round-226 D1). `result` is the
+     * Answer an MCP `run_command` request  D1). `result` is the
      * JSON payload `{"exit_code":N,"stdout":...,"stderr":...}` produced by
      * [terminal.emulator.runtime.TerminalRuntime.dispatchRunCommandRequest].
      * Like [dialogResult], must be answered exactly once.
@@ -320,7 +320,7 @@ object NativeBridge {
     @JvmStatic
     external fun getDefaultFontName(): String?
 
-    /** Human-readable font information ("Active: ... / CJK fallback: ..."). */
+    /** Human-readable font information ("Active:... / CJK fallback:..."). */
     @JvmStatic
     external fun getFontInfo(): String?
 

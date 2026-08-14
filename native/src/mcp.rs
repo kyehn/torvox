@@ -19,7 +19,7 @@
 //!                                  ▼
 //!                          McpRouter (tower-mcp)
 //!                           │       │       │
-//!                    clipboard  notify  terminal_info  ... (8 tools)
+//!                    clipboard  notify  terminal_info... (8 tools)
 //!                           │       │       │
 //!                           ▼       ▼       ▼
 //!                       McpState — JNI callbacks — Android host
@@ -85,7 +85,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-// ── SO_PEERCRED peer validation (round-227 T1, termux AmSocketServer) ──
+// ── SO_PEERCRED peer validation, termux AmSocketServer) ──
 
 /// Maximum number of consecutive rejected (foreign-uid) connections before
 /// the accept loop logs a warning, to avoid log spam from a malicious or
@@ -199,7 +199,7 @@ impl axum::serve::Listener for PeerCheckedListener {
                                 // getsockopt failed: treat as untrusted and
                                 // throttle like the foreign-uid branch so a
                                 // persistently failing SO_PEERCRED cannot
-                                // flood the log (round-227 T1 audit fix).
+                                // flood the log audit fix).
                                 self.consecutive_rejections =
                                     self.consecutive_rejections.saturating_add(1);
                                 if self.consecutive_rejections
@@ -252,7 +252,7 @@ static MCP_ENABLED: AtomicBool = AtomicBool::new(false);
 /// before calling `join()`. This prevents a deadlock if `start()` is called
 /// concurrently while a prior thread is still joining.
 /// Join handle + shutdown signal for the running MCP server thread
-/// (round-210, P1-2): `UnixSocketTransport::serve` blocks forever in the
+/// `UnixSocketTransport::serve` blocks forever in the
 /// accept loop, and deleting the socket file does NOT wake it — the old
 /// code detached the thread on stop, leaking a thread + tokio runtime +
 /// listening fd per toggle. The transport is now built manually with
@@ -675,7 +675,7 @@ fn send_signal_tool() -> Tool {
     ToolBuilder::new("send_signal")
         .title("Send signal to terminal")
         .description("Send a POSIX signal (by number) to the foreground process in the active terminal session. Common signals: 2 (SIGINT), 3 (SIGQUIT), 9 (SIGKILL), 15 (SIGTERM), 20 (SIGTSTP).")
-        // Round-98 note: the handler synchronously takes the session
+        //  note: the handler synchronously takes the session
         // registry read lock + the session lock on the MCP worker thread
         // (no await inside). It blocks up to a pollEvent frame or a 50ms
         // focus-event query while the UI thread holds the session lock —
@@ -817,7 +817,7 @@ fn dialog_tool() -> Tool {
 
 // ── Router construction ──────────────────────────────────────────────────
 
-/// Risk classification for `run_command` input (round-231 T3).
+/// Risk classification for `run_command` input.
 ///
 /// Modeled on the three-level classifier in sushi-ssh's CommandSafety
 /// (SAFE / CONFIRM / BLOCKED). torvox has no CONFIRM dialog (excluded by
@@ -921,8 +921,8 @@ pub(crate) fn classify_command(command: &str) -> CommandRisk {
     }
 
     // 4. Fork bombs: bash function definitions that recurse in the
-    //    background (`:(){ :|:& };:`, `f() { f | f & }; f`). The `(){`
-    //    signature (or `() {` with a background `&`) is unmistakable.
+    //    background (`:{:|:& };:`, `f() { f | f & }; f`). The `{`
+    //    signature (or ` {` with a background `&`) is unmistakable.
     if normalized.contains("(){") || (normalized.contains("() {") && normalized.contains('&')) {
         return CommandRisk::Blocked;
     }
@@ -970,7 +970,7 @@ fn run_command_tool() -> Tool {
              stdout/stderr. Shell metacharacters are NOT interpreted.",
         )
         .handler(|input: RunCommandInput| async move {
-            // Round-231 T3: refuse destructive commands before the Kotlin
+            // refuse destructive commands before the Kotlin
             // host executes anything. The error text is returned directly
             // to the MCP client.
             if classify_command(&input.command) == CommandRisk::Blocked {
@@ -1068,10 +1068,10 @@ fn build_router() -> McpRouter {
 
 // ── Server lifecycle ─────────────────────────────────────────────────────
 
-/// Overridable socket path (round-210 P2-13): the Android default is
+/// Overridable socket path: the Android default is
 /// derived from the app data dir which is `applicationId`-dependent —
 /// hardcoding `/data/data/com.termux` breaks if the package is renamed.
-/// Kotlin calls `setMcpSocketPath(context.filesDir/... )` at startup.
+/// Kotlin calls `setMcpSocketPath(context.filesDir/...)` at startup.
 static MCP_SOCKET_PATH: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 pub(crate) fn set_socket_path(path: String) {
@@ -1143,7 +1143,7 @@ pub fn start() {
         }
     };
 
-    // Per-server shutdown signal (round-210, P1-2): a fresh Notify per
+    // Per-server shutdown signal: a fresh Notify per
     // start, so a previous stop() cannot leave it permanently notified.
     let shutdown = std::sync::Arc::new(tokio::sync::Notify::new());
     let shutdown_for_thread = shutdown.clone();
@@ -1203,7 +1203,7 @@ pub fn stop() {
     };
     // guard dropped here — lock released before join
 
-    // Signal the accept loop to shut down (round-210, P1-2): without this,
+    // Signal the accept loop to shut down: without this,
     // the thread blocked in axum::serve never returns and would be leaked.
     shutdown.notify_one();
 
@@ -1254,7 +1254,7 @@ mod tests {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tower_mcp::testing::TestClient;
 
-    // ── Round-231 T3: command safety classifier ────────────────────────────
+    // ──: command safety classifier ────────────────────────────
 
     #[test]
     fn classifier_blocks_root_deletion() {
@@ -1392,7 +1392,7 @@ mod tests {
 
     /// Clear every handler and the active session id so a freshly built
     /// router sees pristine global state. Must be called while holding
-    /// MCP_TEST_LOCK (i.e. right after `let _guard = ...`).
+    /// MCP_TEST_LOCK (i.e. right after `let _guard =...`).
     fn reset_global_state() {
         let state = global_state();
         *state.0.on_notify.lock() = None;
@@ -1796,7 +1796,7 @@ mod tests {
         assert_eq!(result.content.first().unwrap().as_text().unwrap(), "yes");
     }
 
-    // ── round-227 T1: SO_PEERCRED peer validation ──
+    // ──: SO_PEERCRED peer validation ──
 
     #[test]
     fn peer_uid_allowed_accepts_own_uid_and_root() {
@@ -1957,7 +1957,7 @@ mod tests {
         }
     }
 
-    /// Round-210 P1-2 regression: `stop()` must signal the accept loop via
+    /// Regression: `stop()` must signal the accept loop via
     /// `with_graceful_shutdown` and join the thread — previously it
     /// detached a thread blocked forever in `serve()`, leaking a thread +
     /// tokio runtime + listening fd on every MCP toggle. This test toggles

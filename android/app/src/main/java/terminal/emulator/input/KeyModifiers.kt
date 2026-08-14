@@ -4,7 +4,7 @@ import android.view.KeyEvent
 
 /**
  * Modifier bit masks shared by the key-encoder and hardware-key paths
- * (R5: round-3 architecture). Previously the mask constants and the
+ * (architecture). Previously the mask constants and the
  * sticky-state OR logic were duplicated across TerminalSurface.modifierBitmask
  * and TerminalViewModel.handleLayoutAwareHardwareKey.
  */
@@ -16,7 +16,7 @@ object KeyModifiers {
 
     /**
      * Mask contribution from the sticky toolbar modifier states only
-     * (used by the layout-aware hardware-key path where Shift is already
+     * used by the layout-aware hardware-key path where Shift is already
      * baked into the produced character).
      */
     fun fromStickyStates(

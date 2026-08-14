@@ -241,8 +241,8 @@ constructor(
             .assertIsDisplayed()
     }
 
-    // NOTE (round-116): these four steps assert only the result counter
-    // while Bridge.searchAllInScrollback is an implemented (native query path wired since round-130) (no real
+    // NOTE: these four steps assert only the result counter
+    // while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real
     // highlights exist to inspect). They live in @wip scenarios today; the
     // assertions MUST be strengthened (pixel/semantics highlight checks)
     // before those scenarios are un-wipped.
@@ -298,7 +298,7 @@ constructor(
     @Then("^the terminal scrolls to show the match$")
     fun terminalScrollsToShowMatch() {
         composeRuleHolder.composeRule.waitForIdle()
-        // NOTE (round-116): stub-limited — only proves the terminal is still
+        // NOTE: stub-limited — only proves the terminal is still
         // displayed, not that it scrolled. Strengthen when scroll offset is
         // readable through the bridge.
         composeRuleHolder.composeRule

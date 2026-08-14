@@ -6,7 +6,7 @@ use crate::render::Renderer;
 
 pub(crate) const QUAD_VERTEX_COUNT: u32 = 6;
 pub(crate) const DEFAULT_BG_ALPHA: f32 = 0.8;
-/// Bell-flash peak opacity in the 0-255 alpha space (round-211: a subtle
+/// Bell-flash peak opacity in the 0-255 alpha space: a subtle
 /// white flash; 96/255 ≈ 0.38 at the bell's first frame, decaying with the
 /// phase driven by Kotlin). Scaled by phase before the shader uniform.
 pub(crate) const BELL_FLASH_ALPHA_255: f32 = 96.0;
@@ -237,7 +237,7 @@ impl Renderer {
                     // setting) actually composites the wallpaper over the
                     // cleared bg_color. Was REPLACE: the alpha channel was
                     // written but the RGB never mixed, so the opacity
-                    // slider had zero visual effect (round-204,
+                    // slider had zero visual effect,
                     // emulator-verified: alpha 0.1 vs 0.8 produced
                     // byte-identical pixels).
                     blend: Some(wgpu::BlendState {
@@ -340,7 +340,7 @@ impl Renderer {
                 entry_point: Some("fs_main"),
                 targets: &[Some(wgpu::ColorTargetState {
                     format,
-                    // Round-210 P2-3: kitty graphics protocol images may
+                    // kitty graphics protocol images may
                     // carry alpha (semi-transparent PNG); REPLACE painted
                     // the image RGB over the background, producing black
                     // fringes on transparent areas. SrcAlpha blend lets
@@ -528,7 +528,7 @@ impl Renderer {
                             // Alpha blend: fs_blur_v outputs
                             // alpha = uniforms.alpha, so the opacity
                             // setting composites the blurred wallpaper
-                            // over the cleared bg_color (round-204).
+                            // over the cleared bg_color.
                             blend: Some(wgpu::BlendState {
                                 color: wgpu::BlendComponent {
                                     src_factor: wgpu::BlendFactor::SrcAlpha,
@@ -655,7 +655,7 @@ impl Renderer {
 
         // Two-pass blur intermediate: the H pass renders into this texture
         // and the V pass samples it (previously both passes wrote the
-        // surface, so the H result was overwritten — round-203). Created
+        // surface, so the H result was overwritten —). Created
         // lazily and recreated when the surface size changes.
         if self.bg_blur_radius >= 0.5 {
             let needs_texture = match &self.bg_blur_texture {

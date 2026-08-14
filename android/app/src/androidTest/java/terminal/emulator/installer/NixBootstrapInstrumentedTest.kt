@@ -18,7 +18,7 @@ import java.io.File
  * Why shell commands (UiAutomation.executeShellCommand) instead of direct
  * file access: the instrumentation process carries the TEST package's
  * SELinux category, so it can neither write nor read the app's filesDir
- * (mkdirs silently fails / EACCES — emulator-verified round-223). Shell
+ * (mkdirs silently fails / EACCES — emulator-verified). Shell
  * commands run with the shell uid, and `am start` launches MainActivity in
  * the REAL app process, which installs inside its own sandbox.
  *
@@ -26,7 +26,7 @@ import java.io.File
  * EXTRA_INSTALL_BOOTSTRAP intent (install runs in a throwaway prefix
  * files/usr-nix-test, keeping any existing termux bootstrap untouched).
  *
- * Verifies the round-223 contract:
+ * Verifies the  contract:
  *  - absolute /nix/store/... symlink targets are accepted
  *  - EXECUTABLES.txt entries are chmod'ed
  *  - bin/login is a real ELF and isInstalled() recognizes it
@@ -77,7 +77,7 @@ class NixBootstrapInstrumentedTest {
         Assert.assertTrue("install must succeed: $result", result.startsWith("OK "))
         Assert.assertTrue("login shell must be selected: $result", result.contains("shell=bin/login"))
         Assert.assertTrue("isInstalled must be true: $result", result.contains("installed=true"))
-        // Round-224: the sha256 version-pin sidecar must round-trip.
+        // the sha256 version-pin sidecar must round-trip.
         Assert.assertTrue("version pin must match: $result", result.contains("pinned=true"))
         Assert.assertTrue("needsInstall must be false with matching pin: $result", result.contains("needsInstall=false"))
 

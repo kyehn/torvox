@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Smart-copy rules (round-225, Haven smartCopy:357-405). */
+/** Smart-copy rules, Haven smartCopy:357-405). */
 class SmartCopyTest {
 
     @Test

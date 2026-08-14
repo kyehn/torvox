@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Host-side tests for [SearchDebouncer] (round-231): rapid typing must
+ * Host-side tests for [SearchDebouncer]: rapid typing must
  * collapse to a single search, spaced input must search per keystroke,
  * and the IME flush must bypass the debounce.
  */

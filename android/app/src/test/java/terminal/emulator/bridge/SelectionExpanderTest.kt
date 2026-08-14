@@ -4,7 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
-/** Boundary rules for smart text selection (round-214). */
+/** Boundary rules for smart text selection. */
 class SelectionExpanderTest {
 
     @Test
@@ -113,7 +113,7 @@ class SelectionExpanderTest {
         assert(selected == "https://x.com/a") { "expected url without semicolon, got '$selected'" }
     }
 
-    // ─── Round-225: expandAcrossUrlWrap (Haven SelectionToolbar:120-214) ───
+    // ─── expandAcrossUrlWrap (Haven SelectionToolbar:120-214) ───
 
     @Test
     fun `url wrapped forward across rows expands`() {

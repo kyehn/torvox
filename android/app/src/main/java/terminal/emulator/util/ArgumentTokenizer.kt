@@ -176,7 +176,7 @@ object ArgumentTokenizer {
         // Iterate in reverse so that insert() indices stay valid. The
         // character just inserted sits at index 0, so control-char
         // replacement deletes index 0 before inserting the two-char escape
-        // (round-227 T1b: this was deleteCharAt(1), which dropped the NEXT
+        // this was deleteCharAt(1), which dropped the NEXT
         // already-processed character and corrupted \t/\r/\b/\f/\n output).
         for (i in s.indices.reversed()) {
             buf.insert(0, s[i])

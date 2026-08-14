@@ -7,7 +7,7 @@ import android.content.IntentFilter
 import android.util.Log
 
 /**
- * Test-backdoor broadcast receivers (R6: round-3 architecture; extracted
+ * Test-backdoor broadcast receivers (R6:  architecture; extracted
  * from MainActivity). Instrumentation and Maestro flows trigger terminal
  * actions via same-process broadcasts; all receivers are registered with
  * RECEIVER_NOT_EXPORTED so third-party apps cannot reach them.

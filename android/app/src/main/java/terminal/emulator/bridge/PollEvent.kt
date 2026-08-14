@@ -51,7 +51,7 @@ sealed class PollEvent {
     data class Exit(
         @SerialName("session_id") val sessionId: Long = 0,
         val code: Int = 0,
-        // Round-224: child lifetime (ms, fork → waitpid) measured natively.
+        // child lifetime (ms, fork → waitpid) measured natively.
         @SerialName("alive_ms") val aliveMs: Long = 0,
     ) : PollEvent()
 
@@ -126,7 +126,7 @@ sealed class PollEvent {
  *
  * - `ignoreUnknownKeys`: Rust may add fields without breaking this side.
  * - `coerceInputValues`: missing/illegal values fall back to defaults
- *   (matches the previous `opt*` tolerance).
+ * matches the previous `opt*` tolerance).
  * - `exceptionsWithDebugInfo = false`: decode errors must not embed the
  *   offending JSON (which may contain clipboard text / URLs) in logs.
  */
@@ -138,7 +138,7 @@ val pollEventJson: Json =
         // reject every event with "Class discriminator was missing" and
         // silently drop bell/clipboard/exit/notification — the exit event
         // never reached Kotlin, so a dead shell left the terminal frozen
-        // with the render thread running forever (round-213, emulator-
+        // with the render thread running forever, emulator-
         // verified via `kill -9 <shell>`).
         classDiscriminator = "event"
         ignoreUnknownKeys = true

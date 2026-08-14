@@ -60,7 +60,7 @@ class RunCommandPayloadTest {
         assertEquals("err\tline", json["stderr"])
     }
 
-    // ── round-227 T4b: full C0 control escaping (spec d4) ────────────────
+    // ── b: full C0 control escaping (spec d4) ────────────────
 
     @Test
     fun `backspace and formfeed are escaped`() {

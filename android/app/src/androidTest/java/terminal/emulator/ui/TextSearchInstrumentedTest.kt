@@ -45,7 +45,7 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path wired since round-130) (no real results; assertions only check UI presence) (round-108)")
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
     fun search_result_count_displayed_after_input() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -95,7 +95,7 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path wired since round-130) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node (round-109)")
+    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path is wired) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node ")
     fun search_previous_clickable() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -108,7 +108,7 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path wired since round-130) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node (round-109)")
+    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path is wired) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node ")
     fun search_next_clickable() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()

@@ -9,7 +9,7 @@ import org.junit.Test
 import terminal.emulator.TerminalViewModel
 
 /**
- * Tests for [KeyShortcutHandler] — verifies the P0 fix (round-230) where
+ * Tests for [KeyShortcutHandler] — verifies the fix  where
  * [setBindings] maps ACTION_ID_* constants to actions correctly.
  *
  * Before the fix, `idToAction` was keyed by enum name ("Paste") while
@@ -132,7 +132,7 @@ class KeyShortcutHandlerTest {
 
     @Test
     fun `idToAction maps all 5 ACTION_ID constants`() {
-        // The P0 fix: verify all ACTION_ID_* constants map to correct Actions.
+        // The fix: verify all ACTION_ID_* constants map to correct Actions.
         // Before the fix, only enum names ("Paste") mapped, not action IDs ("paste").
         val handler = KeyShortcutHandler(createViewModel())
         handler.setBindings(KeyShortcutHandler.Defaults.all())

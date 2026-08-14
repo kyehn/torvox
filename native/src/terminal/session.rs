@@ -83,7 +83,7 @@ pub enum SessionError {
 /// Result of a resize: whether the ghostty grid accepted the command.
 /// `Applied` — PTY and grid both resized. `Dropped` — PTY winsize changed
 /// but the grid command was dropped (channel full/wedged VT thread); the
-/// caller must not publish the new dims as authoritative (round-113).
+/// caller must not publish the new dims as authoritative.
 pub enum ResizeOutcome {
     Applied,
     Dropped,
@@ -160,7 +160,7 @@ pub struct Session {
     /// [`Session::answer_clipboard_read`].
     clipboard_read: Arc<Mutex<Option<String>>>,
     notification: Arc<Mutex<Option<(String, String)>>>,
-    /// Round-230: ConEmu progress from OSC 9;4 (state, value).
+    /// ConEmu progress from OSC 9;4 (state, value).
     progress: Arc<Mutex<Option<(u8, u8)>>>,
     cwd: Arc<Mutex<Option<String>>>,
 
@@ -171,11 +171,11 @@ pub struct Session {
     // ── Runtime state ────────────────────────────────────────────────
     /// Exit code captured from waitpid, `None` while process runs.
     pub(crate) exit_code: Arc<Mutex<Option<i32>>>,
-    /// Round-224: child alive duration (ms, fork → waitpid), written by
+    /// child alive duration (ms, fork → waitpid), written by
     /// the wait thread on exit. Consumed by ffi::poll_event for the
     /// fast-death Exit event payload.
     pub(crate) exit_alive_ms: Arc<Mutex<Option<u64>>>,
-    /// Round-224: fork timestamp, the start point for [Self::exit_alive_ms].
+    /// fork timestamp, the start point for [Self::exit_alive_ms].
     spawned_at: std::time::Instant,
 
     // ── Cached grid size ─────────────────────────────────────────────
@@ -189,7 +189,7 @@ pub struct Session {
     /// Set when a grid resize command was dropped while the PTY was already
     /// resized. Cleared on the next successful grid resize. Prevents the
     /// size short-circuit from permanently masking the PTY/grid divergence
-    /// (round-113).
+    ///
     grid_dirty: AtomicBool,
 }
 
@@ -374,14 +374,14 @@ impl Session {
         let wait_handle = std::thread::spawn(move || {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
-            // Round-224: record the child's real lifetime (fork → waitpid)
+            // record the child's real lifetime (fork → waitpid)
             // for the fast-death Exit event — Kotlin event handling latency
             // must not skew the fast-death decision.
             *exit_alive_ms.lock() = Some(spawned_at.elapsed().as_millis() as u64);
             if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result
                 && code >= 100
             {
-                // Round-215: codes >= 100 encode execve errno + 100.
+                // codes >= 100 encode execve errno + 100.
                 log::error!(
                     "wait thread: child execve FAILED errno={} (exit code {code})",
                     code - 100
@@ -481,14 +481,14 @@ impl Session {
     ///
     /// Returns the outcome: when the grid command was dropped the PTY
     /// winsize is still updated (ioctl already succeeded) but the caller
-    /// must not publish the new dims as authoritative (round-113).
+    /// must not publish the new dims as authoritative.
     pub fn resize(&mut self, rows: u32, cols: u32) -> Result<ResizeOutcome, SessionError> {
         let (Ok(rows), Ok(cols)) = (u16::try_from(rows), u16::try_from(cols)) else {
             return Err(SessionError::InvalidDimensions);
         };
         // Short-circuit identical sizes UNLESS a previous grid resize was
         // dropped: the cached size then no longer matches the grid, so the
-        // same dims must be re-sent to heal the divergence (round-113).
+        // same dims must be re-sent to heal the divergence.
         let dirty = self.grid_dirty.load(Ordering::Acquire);
         if !dirty && (rows as u32, cols as u32) == self.grid_size() {
             return Ok(ResizeOutcome::Applied);
@@ -498,7 +498,7 @@ impl Session {
             // PTY winsize changed but the ghostty grid did not (command
             // dropped). Cache keeps the OLD size and grid_dirty is set so
             // the next resize event (even with identical dims) retries
-            // instead of short-circuiting (round-112/113).
+            // instead of short-circuiting /113).
             self.grid_dirty.store(true, Ordering::Release);
             log::warn!(
                 "session: ghostty grid resize to {rows}x{cols} dropped; PTY updated, grid lags — retry on next resize"
@@ -999,7 +999,7 @@ mod tests {
         let outcome = session.resize(24, 80).expect("resize failed");
         assert!(matches!(outcome, ResizeOutcome::Applied));
         assert!(!session.grid_dirty.load(Ordering::Acquire));
-        // The PTY must be untouched by the short-circuit (round-115).
+        // The PTY must be untouched by the short-circuit.
         assert_eq!(
             handle.resize_count(),
             before,
@@ -1271,7 +1271,7 @@ mod tests {
         // /proc/<pid>/cwd is Linux-only; other hosts fall back to OSC 7.
         if std::path::Path::new("/proc/self/cwd").exists() {
             let cwd = Session::read_proc_cwd(nix::unistd::Pid::from_raw(
-                std::process::id() as libc::pid_t,
+                std::process::id() as libc::pid_t
             ))
             .expect("live /proc/<pid>/cwd must resolve");
             assert!(cwd.starts_with('/'), "cwd must be absolute: {cwd}");
@@ -1281,7 +1281,10 @@ mod tests {
     #[test]
     fn read_proc_cwd_invalid_pid_returns_none() {
         // Above PID_MAX_LIMIT — same sentinel MockPty uses — always ESRCH.
-        assert_eq!(Session::read_proc_cwd(nix::unistd::Pid::from_raw(4_194_305)), None);
+        assert_eq!(
+            Session::read_proc_cwd(nix::unistd::Pid::from_raw(4_194_305)),
+            None
+        );
     }
 
     #[test]

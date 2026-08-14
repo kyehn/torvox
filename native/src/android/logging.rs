@@ -3,7 +3,7 @@
 //! Initialised from Kotlin via JNI (`Java_..._initLogger`).
 //!
 //! Messages longer than logcat's per-entry payload cap (4068 bytes) are
-//! split into chunks (round-227 T2) — logcat silently truncates any entry
+//! split into chunks  — logcat silently truncates any entry
 //! past that limit, so the tail of a long log line would otherwise be
 //! lost. Chunking math lives in [`crate::log_chunk`] and is unit-tested
 //! on the host.
@@ -11,7 +11,7 @@
 //! Replaces the previous `android_logger::init_once()` call in `bridge.rs`.
 //!
 //! # Requirements
-//! - NFR-025 — Unified logging infrastructure (logcat; round-227 T2:
+//! - NFR-025 — Unified logging infrastructure (logcat;:
 //!   logcat-only, no file sink — mirrors termux-kotlin Logger)
 
 #![cfg(target_os = "android")]
@@ -64,7 +64,7 @@ impl Log for AndroidLogger {
             // SAFETY: "Rust" has no interior NUL bytes
             CString::new("Rust").expect("hardcoded string without NUL")
         });
-        // Split long messages so logcat does not truncate them (T2).
+        // Split long messages so logcat does not truncate them.
         for chunk in crate::log_chunk::chunk_message(tag, &msg) {
             let msg_c = CString::new(chunk.as_str()).unwrap_or_else(|_| {
                 // SAFETY: Vec::<u8>::new() contains no NUL bytes

@@ -95,7 +95,7 @@ internal data class SessionEntry(
     // thread polling a destroyed native session (global event queue
     // double-consumer, native UAF risk).
     @Volatile var closing: Boolean = false,
-    // Round-224 fast-death recovery (warp WarpTerminalService.kt:906-915):
+    //  fast-death recovery (warp WarpTerminalService.kt:906-915):
     // spawn timestamp (elapsedRealtime) so a shell that dies within
     // FAST_DEATH_THRESHOLD_MS can be detected and retried with
     // /system/bin/sh. Reset on every (re)spawn.
@@ -113,15 +113,15 @@ internal data class SessionEntry(
     // window: the old thread's exit event is consumed, polling the dead
     // session would re-trigger fast-death (double respawn race) — the
     // respawn thread restarts the render thread itself.
-    // Round-230: auto-reset scroll offset when new PTY output arrives while
+    // auto-reset scroll offset when new PTY output arrives while
     // the user is scrolled up (browsing history). The render thread sets this;
     // TerminalSurface reads and clears it during composition.
     @Volatile var scrollResetRequested: Boolean = false,
-    // Round-230: when true (SCROLL button active), new output should NOT
+    // when true (SCROLL button active), new output should NOT
     // auto-reset scroll — the user intentionally wants to stay browsing.
     @Volatile var scrollActive: Boolean = false,
     @Volatile var fastDeathRetryScheduled: Boolean = false,
-    // Round-231 P1: the shell exited and the [Process completed (code X)]
+    // the shell exited and the [Process completed (code X)]
     // prompt was fed to the terminal (see feedProcessCompletedPrompt).
     // The session stays visible and running until the user presses Enter.
     @Volatile var waitingForProcessCompleted: Boolean = false,
@@ -203,8 +203,8 @@ constructor(
     private val bellHandler = BellHandler(context)
 
     /**
-     * Round-232: invoked from the render loop after every presented frame
-     * (render thread). Lets the SurfaceView refresh its accessibility
+     * invoked from the render loop after every presented frame
+     * render thread). Lets the SurfaceView refresh its accessibility
      * contentDescription — the SurfaceView is self-drawn and has no text
      * nodes, so the render loop is the only content-changed signal.
      * Must return quickly; the callback may post to the main thread.
@@ -226,7 +226,7 @@ constructor(
     // new bell so a burst always restarts from phase 1.0.
     @Volatile private var bellFlashJob: Job? = null
 
-    // Keep bell handler mode in sync with persisted setting at runtime (round-230 fix).
+    // Keep bell handler mode in sync with persisted setting at runtime  fix).
     init {
         scope.launch {
             settingsRepository.bellMode.collect { modeId ->
@@ -252,7 +252,7 @@ constructor(
         ((sessionId: Long, requestId: Long, startingPath: String, filter: String) -> Unit)? =
         null
 
-    // Round-210 P2-14: called when the native MCP tool call times out
+    // called when the native MCP tool call times out
     // (300s) so the still-visible dialog is dismissed. Wired by the UI
     // layer alongside dialogRequestHandler.
     @Volatile
@@ -326,7 +326,7 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Round-231 P1: print the [Process completed (code X)] - press Enter
+     * print the [Process completed (code X)] - press Enter
      * prompt directly into the VT parser (the child is gone, so the PTY
      * no longer carries writes; the screen must be updated in-band).
      */
@@ -341,7 +341,7 @@ constructor(
     }
 
     /**
-     * Round-231 P1: for the foreground session, keep it visible after the
+     * for the foreground session, keep it visible after the
      * shell exits and show a [Process completed] prompt instead of closing
      * immediately (termux-app TerminalSession.java:353-364 semantics). The
      * entry stays in the session map with running=true until the user
@@ -366,12 +366,12 @@ constructor(
     private fun handleSessionExit(
         entry: SessionEntry,
         exitCode: Int,
-        // Round-224: native-measured child lifetime (ms); 0 when the
+        // native-measured child lifetime (ms); 0 when the
         // event predates the field (or is a sweep). Fast-death uses this
         // instead of Kotlin event-latency timing.
         aliveMs: Long,
     ) {
-        // Round-224 fast-death recovery (warp WarpTerminalService.kt:906-915):
+        //  fast-death recovery (warp WarpTerminalService.kt:906-915):
         // a shell that dies within FAST_DEATH_THRESHOLD_MS of spawn with no
         // user input is almost certainly a broken bootstrap/prefix shell
         // (or a misconfigured login binary). Retry with /system/bin/sh and
@@ -379,7 +379,7 @@ constructor(
         // on a separate thread so the backoff delay never blocks the render
         // thread (which owns this call site). Extracted to
         // [tryFastDeathRecovery] for the detekt complexity limit.
-        // Round-231 P1: this function runs both for the initial shell exit
+        // this function runs both for the initial shell exit
         // (from the poll.exit branch) and, after the user presses Enter on
         // the [Process completed] prompt, for the confirmed close (render
         // loop re-dispatch). Fast-death recovery was already ruled out when
@@ -474,7 +474,7 @@ constructor(
     }
 
     /**
-     * Round-224 fast-death detection: when the child's native lifetime is
+     *  fast-death detection: when the child's native lifetime is
      * within [FAST_DEATH_THRESHOLD_MS], the user typed nothing, and the
      * retry budget is not exhausted, log + schedule the /system/bin/sh
      * respawn and return true (the exit is consumed). Extracted from
@@ -517,7 +517,7 @@ constructor(
     }
 
     /**
-     * Round-224 fast-death recovery (warp WarpTerminalService.kt:906-915):
+     *  fast-death recovery (warp WarpTerminalService.kt:906-915):
      * after the backoff delay, clear the grid, kill the dead child, respawn
      * with /system/bin/sh and restart the render thread. Runs on its own
      * thread so the delay never blocks the render/poll loop. On respawn
@@ -637,7 +637,7 @@ constructor(
     }
 
     private fun stopForegroundService() {
-        // NO flag gate (round-95): MainActivity.onCreate starts the service
+        // NO flag gate: MainActivity.onCreate starts the service
         // directly via the static TerminalForegroundService.start() without
         // setting this flag, so a flag-gated stop would leak the service and
         // its PARTIAL_WAKE_LOCK when the Activity is destroyed before the
@@ -707,7 +707,7 @@ constructor(
             SelectionStateSnapshot(0, 0, 0, 0, false, 0),
         )
 
-    /** Active session's scroll offset (round-209 P2-8): read by the
+    /** Active session's scroll offset: read by the
      *  surface on session switch to resync its local selection-math
      *  offset. */
     fun activeSessionScrollOffset(): Int {
@@ -727,7 +727,7 @@ constructor(
         entry.notifyRender()
     }
 
-    /** Round-230: consume the scroll-reset flag set by the render thread when
+    /** consume the scroll-reset flag set by the render thread when
      *  new PTY output arrives while the user is browsing history. Returns true
      *  once, then clears the flag. TerminalSurface calls this to sync its local
      *  scrollOffset with the reset. */
@@ -738,7 +738,7 @@ constructor(
         }
     }
 
-    /** Round-230: sync scroll-active state from TerminalViewModel so the render
+    /** sync scroll-active state from TerminalViewModel so the render
      *  thread knows whether to auto-reset scroll on new output. */
     fun setScrollActive(active: Boolean) {
         val entry = sessions[activeSessionId] ?: return
@@ -797,7 +797,7 @@ constructor(
         // Only ELF candidates are eligible: termux also ships a bin/login
         // *script* (motd + exec, shebang #!/data/.../usr/bin/sh) which the
         // linker-wrapper spawn path cannot load ("bad ELF magic" —
-        // emulator-verified round-223), so it must not be selected.
+        // emulator-verified), so it must not be selected.
         val prefixShell =
             listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
                 .firstOrNull { candidate ->
@@ -850,7 +850,7 @@ constructor(
 
     /**
      * Failsafe session config: system shell, system PATH, no PREFIX.
-     * Extracted from buildConfig (round-223) so the failsafe branch does
+     * Extracted from buildConfig  so the failsafe branch does
      * not push buildConfig past the detekt LongMethod limit.
      */
     private fun buildFailsafeConfig(
@@ -889,7 +889,7 @@ constructor(
      * Owns render-thread lifecycle: monitor loop, dead-thread detection,
      * restart/backoff, and thread start/stop.
      *
-     * Extracted from TerminalRuntime (kotlin-architecture-deepening C6) so
+     * Extracted from TerminalRuntime so
      * the supervision logic has one home and the orchestrator stays thin.
      * Inner class: accesses TerminalRuntime's session registry/locks without
      * threading them through constructors (pure code move, zero behavior
@@ -974,7 +974,7 @@ constructor(
             // holding sessionLock across a join blocks every session operation.
             synchronized(sessionLock) {
                 if (!entry.running) return
-                // Round-224: while a fast-death respawn is pending the
+                // while a fast-death respawn is pending the
                 // render thread must stay dead — the respawn thread starts
                 // it with the fresh /system/bin/sh session. Restarting now
                 // would poll the consumed-exit session and double-respawn.
@@ -1174,7 +1174,7 @@ constructor(
                     var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
                     LogUtil.d("Runtime", "render thread started for session ${entry.id} generation=$generation")
                     while (entry.running && renderGeneration.get() == generation) {
-                        // Round-231 P1: user pressed Enter on the
+                        // user pressed Enter on the
                         // [Process completed] prompt — writeToPty only
                         // signals; the close path runs here on the render
                         // thread so the bridge is not destroyed under a
@@ -1213,7 +1213,7 @@ constructor(
                             }
                             entry.lastRenderStart = System.nanoTime()
                             val count = bridge.render()
-                            // Round-230: auto-reset scroll when new output arrives
+                            // auto-reset scroll when new output arrives
                             // while user is browsing history (scrollOffset > 0).
                             // Only on count > 0 (actual new CellData, not idle repaint).
                             // Skip when scrollActive (SCROLL button) — user wants to stay browsing.
@@ -1286,7 +1286,7 @@ constructor(
                                                     NativeBridge
                                                         .clipboardResult(request.sessionId, request.requestId, text)
                                                 } catch (exception: Exception) {
-                                                    // Class only: exception messages can embed clipboard text (round-108).
+                                                    // Class only: exception messages can embed clipboard text.
                                                     LogUtil.e("Runtime", "clipboard_read request dispatch failed: ${exception.javaClass.simpleName}")
                                                     NativeBridge
                                                         .clipboardResult(request.sessionId, request.requestId, "")
@@ -1359,7 +1359,7 @@ constructor(
                                         if (!entry.waitingForProcessCompleted) {
                                             break
                                         }
-                                        // Round-231 P1: the [Process completed]
+                                        // the [Process completed]
                                         // prompt is showing — keep the session
                                         // visible (running stays true) until the
                                         // user presses Enter. Native exit_reported
@@ -1394,7 +1394,7 @@ constructor(
                                     }
                                 }
                                 entry.lastRenderDone = System.nanoTime()
-                                // Round-232: accessibility hook — the render loop
+                                // accessibility hook — the render loop
                                 // is the only signal that terminal content
                                 // changed, and the SurfaceView has no text nodes.
                                 // The listener runs on the render thread and must
@@ -1506,11 +1506,11 @@ constructor(
      * Dispatches non-exit poll events (bell, notification, clipboard,
      * MCP dialogs/pick-file, toast, open-url, clipboard_get replies).
      *
-     * Extracted from the render loop (kotlin-architecture-round2 K3) so the
+     * Extracted from the render loop so the
      * loop body stays a tight poll → handle → wait cycle. Inner class:
      * accesses TerminalRuntime's handlers/context/clipboard without
      * threading them through constructors. Exit reaping stays in the loop
-     * (it owns the break/cleanup control flow).
+     * it owns the break/cleanup control flow).
      */
     inner class EventDispatcher {
         /**
@@ -1541,7 +1541,7 @@ constructor(
         }
 
         /**
-         * Bell-flash overlay animation (round-231, BellMode.SCREEN_FLASH):
+         * Bell-flash overlay animation, BellMode.SCREEN_FLASH):
          * animate the native flash phase 1.0 → 0.0 over BELL_FLASH_DURATION_MS.
          * A fresh bell cancels and restarts the animation so a burst always
          * re-peaks at phase 1.0 (BellHandler.debounce already coalesces
@@ -1581,7 +1581,7 @@ constructor(
                     .showNotification(title, body)
                 announceAccessibility(if (title.isNotEmpty()) title else body)
             }
-            // Round-230: ConEmu progress (OSC 9;4). Log the event;
+            // ConEmu progress (OSC 9;4). Log the event;
             // a progress bar UI can be added later if needed.
             poll.progress?.let { (state, value) ->
                 LogUtil.d("Runtime", "OSC 9;4 progress: state=$state value=$value")
@@ -1615,7 +1615,7 @@ constructor(
                     // stack: both may carry token/query
                     // parameters and LogUtil writes the
                     // persistent log file unconditionally
-                    // (round-103).
+                    //
                     LogUtil.e("Runtime", "open_url failed: ${exception.javaClass.simpleName}")
                 }
             }
@@ -1625,7 +1625,7 @@ constructor(
                     NativeBridge
                         .clipboardResult(request.sessionId, request.requestId, text)
                 } catch (exception: Exception) {
-                    // Class only: exception messages can embed clipboard text (round-108).
+                    // Class only: exception messages can embed clipboard text.
                     LogUtil.e("Runtime", "clipboard_read request dispatch failed: ${exception.javaClass.simpleName}")
                     NativeBridge
                         .clipboardResult(request.sessionId, request.requestId, "")
@@ -1637,7 +1637,7 @@ constructor(
                     NativeBridge
                         .clipboardResult(request.sessionId, request.requestId, text)
                 } catch (exception: Exception) {
-                    // Class only: exception messages can embed clipboard text (round-108).
+                    // Class only: exception messages can embed clipboard text.
                     LogUtil.e("Runtime", "clipboard_get request dispatch failed: ${exception.javaClass.simpleName}")
                     NativeBridge
                         .clipboardResult(request.sessionId, request.requestId, "")
@@ -1646,7 +1646,7 @@ constructor(
             poll.runCommands.forEach { request ->
                 // run_command may take up to 30 s; run it on the IO scope
                 // so the poll loop keeps servicing keyboard / clipboard /
-                // signal requests meanwhile (round-227 T4c).
+                // signal requests meanwhile).
                 scope.launch { dispatchRunCommandRequest(request) }
             }
             poll.screenshots.forEach { request ->
@@ -1698,13 +1698,13 @@ constructor(
     }
 
     /**
-     * Dispatch one MCP `run_command` request (round-226 D1). The raw
+     * Dispatch one MCP `run_command` request  D1). The raw
      * command string is tokenized to argv with [ArgumentTokenizer] (no
      * shell, no metacharacter interpretation) and executed in the app's
      * process. The captured stdout/stderr and exit code are returned to
      * the native MCP tool via `NativeBridge.runCommandResult`.
      *
-     * Runs on the IO scope (round-227 T4c): the poll loop launches it
+     * Runs on the IO scope): the poll loop launches it
      * without awaiting so a 30 s command cannot freeze keyboard /
      * clipboard / signal polling.
      */
@@ -1814,7 +1814,7 @@ constructor(
     private companion object {
         private const val TENTHS_PER_UNIT = 10
 
-        /** ModifierBar overlay height reserved when recomputing the grid from font metrics (round-214). */
+        /** ModifierBar overlay height reserved when recomputing the grid from font metrics. */
         private const val MODIFIER_BAR_HEIGHT_DP = 80f
         private const val FONT_SIZE_DISPLAY_RATIO = 0.6f
         private const val FONT_SIZE_MIN_PX = 300
@@ -1824,7 +1824,7 @@ constructor(
         private const val FONT_SIZE_HEIGHT_MAX_PX = 500
         private const val RENDER_ERROR_LOG_FREQUENCY = 60
 
-        // Round-231 P1: [Process completed] prompt fed to the terminal when
+        // [Process completed] prompt fed to the terminal when
         // a foreground session's shell exits (kept visible until Enter).
         private const val PROCESS_COMPLETED_PROMPT_PREFIX = "\r\n[Process completed (code "
         private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ")] - press Enter"
@@ -1834,12 +1834,12 @@ constructor(
         private const val BELL_FLASH_TICK_MS = 16L
 
         /**
-         * run_command err_code (round-227 T4, termux ExecutionCommand
+         * run_command err_code, termux ExecutionCommand
          * dual-track): exitCode is the shell exit code; errCode is the
          * app-level failure classification. 0 = none (command ran),
          * 1 = timeout, 2 = internal exception. Destructive commands are
          * refused by the native safety classifier before they reach the
-         * host (round-231 T3), so no blocked err_code exists on this side.
+         * host, so no blocked err_code exists on this side.
          */
         private const val ERR_CODE_NONE = 0
         private const val ERR_CODE_TIMEOUT = 1
@@ -1880,7 +1880,7 @@ constructor(
         // sp directly — the raster scale applies the density). Multiplying
         // by density here double-scaled the font (10sp → 225 tenths = 22.5sp)
         // and made the Settings slider disagree with the rendered size
-        // (round-218: "font size setting vs actual mismatch").
+        // "font size setting vs actual mismatch").
         val userFontSize = settingsRepository.fontSize.first()
         return (userFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
     }
@@ -1980,7 +1980,7 @@ constructor(
             }
             return
         }
-        // Round-210 P2-13: point the MCP socket at our real data dir (the
+        // point the MCP socket at our real data dir (the
         // native default hardcodes /data/data/com.termux, which breaks if
         // the package is ever renamed).
         runCatching {
@@ -1988,7 +1988,7 @@ constructor(
                 context.filesDir.resolve("run/mcp.sock").absolutePath,
             )
         }
-        // Round-213: restore the persisted MCP server toggle. The switch in
+        // restore the persisted MCP server toggle. The switch in
         // SettingsScreen only writes the DataStore flag; nothing replayed it
         // on startup, so the server never came back after an app restart
         // even though the setting said enabled (emulator-verified: socket
@@ -2051,7 +2051,7 @@ constructor(
             // Allow test override via system property (no DataStore dependency)
             val testUrl = System.getProperty("test.bootstrapUrl")
             val bootstrapUrl = if (testUrl != null) testUrl else settingsRepository.bootstrapUrl.first()
-            // Round-215: install when NOT installed even with an empty
+            // install when NOT installed even with an empty
             // configured URL — the orchestrator falls back to the default
             // Termux bootstrap URL. Previously the whole install flow was
             // skipped unless the user typed a URL, so a fresh app could
@@ -2073,7 +2073,7 @@ constructor(
                 // Log only the origin (scheme://host), never the full URL:
                 // private bootstrap URLs can carry token/query parameters,
                 // and LogUtil writes the persistent log file unconditionally
-                // (round-101).
+                //
                 val origin =
                     runCatching {
                         val uri = android.net.Uri.parse(bootstrapUrl)
@@ -2103,7 +2103,7 @@ constructor(
                         // Result message may embed the full bootstrap URL on
                         // failure (downloader exceptions include it); log only
                         // the outcome class — the persistent log file must not
-                        // capture private tokens (round-102).
+                        // capture private tokens.
                         val outcome = result.fold({ it }, { "failed: ${it.javaClass.simpleName}" })
                         LogUtil.d("Runtime", "Bootstrap result: $outcome")
                     }
@@ -2142,7 +2142,7 @@ constructor(
             // NOTE: bridge.setExtraFontPaths is intentionally NOT called
             // here — Bridge skips it while sessionId == 0 (before
             // spawnTerminal), which silently dropped the extra font paths
-            // (round-227: Nerd Font in filesDir/fonts never loaded,
+            // Nerd Font in filesDir/fonts never loaded,
             // NERD_FALLBACK found 0). It is called again right after
             // spawnTerminal below.
 
@@ -2181,26 +2181,22 @@ constructor(
                 return
             }
 
-            // Round-227: sessionId is now non-zero — extra font paths
+            // sessionId is now non-zero — extra font paths
             // (filesDir/fonts, e.g. user-installed Nerd Fonts) actually
             // reach the native font database here. Called before
             // spawnTerminal it was a silent no-op.
-            // Bundle-extract Nerd Font on first launch so PUA glyphs
-            // (U+E0A0, U+E0B0, etc.) work out-of-the-box without
-            // requiring the user to manually install a Nerd Font.
-            extractBundledNerdFont(context, fontsDir)
             bridge.setExtraFontPaths(listOf(fontsDir.absolutePath))
 
             try {
                 val initialFontFamily = settingsRepository.fontFamily.first()
                 val effectiveFont = terminal.emulator.resolveEffectiveFontFamily(initialFontFamily)
                 bridge.setFontFamily(effectiveFont)
-                // Round-214: the native renderer starts with a hardcoded
+                // the native renderer starts with a hardcoded
                 // 14.0px font; without this the user's font-size setting
                 // never reached the GPU path — glyphs stayed tiny and
                 // "setting did nothing / got worse after restart".
                 bridge.setFontSizeInPlace(config.font_size_tenths)
-                // Round-215: rasterize glyphs at device density so text is
+                // rasterize glyphs at device density so text is
                 // crisp on high-density screens (swash bitmaps are scaled by
                 // raster_scale; the shader samples the atlas at that scale).
                 val density = context.resources.displayMetrics.density
@@ -2275,7 +2271,7 @@ constructor(
             // real render thread once it starts.
             // ADR-0007: attach the surface now that the bridge exists.
             attachPendingSurface(bridge)
-            // Round-224 (warp WarpTerminalService.kt:797-808): the first
+            //  (warp WarpTerminalService.kt:797-808): the first
             // resize with grid dims must be issued right after spawn —
             // attachPendingSurface → recomputeGridFromFontMetrics does it;
             // anchor the grid dims in the spawn sequence for verification.
@@ -2313,7 +2309,7 @@ constructor(
                 }
 
                 // Publish the state BEFORE starting the thread: the render
-                // thread's title CAS (round-91) would otherwise be overwritten
+                // thread's title CAS  would otherwise be overwritten
                 // by this direct assignment on its first frame.
                 _state.value =
                     RuntimeState(
@@ -2347,7 +2343,7 @@ constructor(
                 renderSupervisor.startRenderThread(startedEntry)
                 renderSupervisor.startRenderMonitor()
             }
-            // Round-214: recompute the grid AFTER the session is registered
+            // recompute the grid AFTER the session is registered
             // — the earlier attempt (pre-insertion) was a silent no-op, so
             // the 24x80 startup grid stayed even though the native font was
             // 47px, leaving huge vertical gaps (92px rows vs 36px glyphs).
@@ -2368,7 +2364,7 @@ constructor(
             }
             LogUtil.e("Runtime", "Failed to start terminal", exception)
             // The full stack trace reaches logcat via LogUtil (chunked if
-            // needed, round-227 T2), with a stable FAILED grep anchor.
+            // needed), with a stable FAILED grep anchor.
             // Any failure after createBridge() (settings, attachSurface,
             // spawnTerminal throwing instead of returning 0) would otherwise
             // leak the native session and its PTY child forever.
@@ -2414,7 +2410,7 @@ constructor(
 
     /**
      * Creates a new terminal session. Serialized against concurrent calls
-     * (double-tap on the new-session button) and against [start]: two
+     * double-tap on the new-session button) and against [start]: two
      * concurrent creations would each spawn a native session and start a
      * render thread, and two render threads consuming the single global
      * event queue misroute events (exit events dropped, sessions leaked).
@@ -2563,7 +2559,7 @@ constructor(
                 )
             } catch (exception: Exception) {
                 LogUtil.e("Runtime", "Failed to switch to new session $nextId, rolling back", exception)
-                // Structural map change under the lock (round-93 invariant);
+                // Structural map change under the lock  invariant);
                 // the bridge close below stays OUTSIDE the lock (Session::drop
                 // joins threads).
                 synchronized(sessionLock) {
@@ -2590,7 +2586,7 @@ constructor(
             // and without it there is no foreground notification and no
             // PARTIAL_WAKE_LOCK — background sessions can be killed.
             // Service start + liveness re-check happen in ONE sessionLock
-            // section (round-93, symmetric with start()): serializes with
+            // section, symmetric with start(): serializes with
             // concurrent close paths, so a close can neither land between
             // the service start and the re-check (resurrecting the
             // notification underneath teardown) nor clear the map
@@ -2646,7 +2642,7 @@ constructor(
             }
             LogUtil.e("Runtime", "Failed to create session $nextId", exception)
             // The full stack trace reaches logcat via LogUtil (chunked if
-            // needed, round-227 T2), with a stable FAILED grep anchor.
+            // needed), with a stable FAILED grep anchor.
             // If the failure happened before the entry was inserted (settings
             // application, spawnTerminal throwing), the bridge was never
             // rolled back above — close it to avoid leaking the native
@@ -2703,8 +2699,8 @@ constructor(
             // extracts the ANativeWindow inside Rust). This is LAZY: it only
             // stores the reference — the wgpu surface is created on the
             // first render frame, which happens after the old session's
-            // thread is stopped and its surface released below (round-210
-            // P2-17: the release order is therefore attach-stored → stop
+            // thread is stopped and its surface released below
+            // the release order is therefore attach-stored → stop
             // old thread → release old surface → new surface created on
             // first frame; the same ANativeWindow is never held by two
             // live wgpu surfaces).
@@ -2717,7 +2713,7 @@ constructor(
 
             val current = sessions[activeSessionId]
             if (current != null) {
-                // NOTE (round-92/93): stopRenderThread joins the OLD render
+                // NOTE /93): stopRenderThread joins the OLD render
                 // thread while holding sessionLock (up to THREAD_JOIN_TIMEOUT_MS
                 // = 1s). switchSession runs on an IO-dispatcher coroutine
                 // (TerminalViewModel), so this does NOT ANR the UI thread —
@@ -2859,12 +2855,12 @@ constructor(
                     LogUtil.e("Runtime", "switchSession: native switchSession failed for session $id", exception)
                 }
                 target.bridge?.let { syncGridDimensions(it) }
-                // Round-108 stopped applySettings from resizing background
+                //  stopped applySettings from resizing background
                 // sessions, so the newly active session must be aligned to the
                 // current window size here: syncGridDimensions reads the
                 // native grid (an ADR-0007 stub returning 0) and can't tell us
                 // the real dims, so resize unconditionally with the latest UI
-                // state (round-109).
+                // state.
                 target.bridge?.resize(_state.value.rows.coerceAtLeast(1), _state.value.cols.coerceAtLeast(1))
                 LogUtil.d("Runtime", "switched to session $id")
                 // DECSET 1004 focus reporting is per-window and the new
@@ -2889,10 +2885,10 @@ constructor(
      * flag and its exception protection).
      *
      * The count read and the stop decision both happen inside sessionLock
-     * (round-94): a createSession landing between the snapshot and the stop
+     *: a createSession landing between the snapshot and the stop
      * would otherwise leave a live session without its foreground service.
      *
-     * Round-96 note: if onDestroy runs while runtime.start() is mid-bootstrap
+     * note: if onDestroy runs while runtime.start() is mid-bootstrap
      * (no session inserted yet), this stops the service and start() later
      * re-inserts a session and re-starts the service. That is the intended
      * background-session semantics (Termux-style: sessions outlive the
@@ -3015,7 +3011,7 @@ constructor(
         // size instead.
         // Floor of 1, not 24: with the IME open the visible grid can
         // legitimately be smaller, and inflating it fires a spurious
-        // SIGWINCH + shell reflow (round-110).
+        // SIGWINCH + shell reflow.
         val currentRows = _state.value.rows.coerceAtLeast(1)
         val currentCols = _state.value.cols.coerceAtLeast(1)
         sessions.values.forEach { entry ->
@@ -3036,7 +3032,7 @@ constructor(
      * metrics: rows = (surface - ModifierBar) / cell_height, cols =
      * surface / cell_width. No-op when the surface size or metrics aren't
      * known yet (fonts applied pre-attach). Called after every font-size
-     * change and after the initial font application (round-214).
+     * change and after the initial font application.
      */
     private fun recomputeGridFromFontMetrics() {
         val density = context.resources.displayMetrics.density
@@ -3060,7 +3056,7 @@ constructor(
         )
         // Resize only the active session: background sessions keep their own
         // grid dimensions; resizing every session with the active one's size
-        // would fire spurious SIGWINCH + reflow on them (round-108).
+        // would fire spurious SIGWINCH + reflow on them.
         sessions[activeSessionId]?.bridge?.resize(newRows, newCols)
         _state.update { it.copy(rows = newRows, cols = newCols) }
     }
@@ -3085,7 +3081,7 @@ constructor(
                 entry.bridge?.setFontFamilyForStyle(italicFamily, terminal.emulator.FONT_SLOT_ITALIC)
                 entry.bridge?.setFontSizeInPlace(fontSizeTenths)
                 entry.bridge?.let { syncGridDimensions(it) }
-                // Round-215: the grid must follow the font. syncGridDimensions
+                // the grid must follow the font. syncGridDimensions
                 // only reads the existing native grid (still the default
                 // 80x24 after a restart); without recomputing rows/cols from
                 // the surface and the new font metrics the renderer lays the
@@ -3107,7 +3103,7 @@ constructor(
     fun writeToPty(data: ByteArray): Boolean {
         val entry = sessions[activeSessionId]
         if (entry != null && entry.running) {
-            // Round-231 P1: the shell exited and [Process completed] is
+            // the shell exited and [Process completed] is
             // showing — the only accepted input is Enter, which confirms
             // the prompt and lets the render loop run the close path.
             if (entry.waitingForProcessCompleted) {
@@ -3120,7 +3116,7 @@ constructor(
                 }
                 return true
             }
-            // Round-224: any user input marks the session as interactive —
+            // any user input marks the session as interactive —
             // a later fast exit is a legitimate quick exit (e.g. `exit`),
             // so fast-death recovery must NOT fire for it.
             entry.userTypedSinceSpawn = true
@@ -3164,7 +3160,7 @@ constructor(
         // otherwise an async pause could stop the render thread that a
         // synchronous resume just started (fixed-size device rotation).
         //
-        // Round-99 note: the per-session join happens INSIDE sessionLock
+        //  note: the per-session join happens INSIDE sessionLock
         // (up to 1s each), so with several sessions every sessionLock
         // operation (close/switch/stopForegroundServiceIfIdle) stalls for
         // the sum — same accepted tradeoff as switchSession's locked join
@@ -3200,7 +3196,7 @@ constructor(
                         LogUtil.e("Runtime", "resumeRendering failed for session ${activeEntry.id}", exception)
                     }
                 }
-                // Inside the lock (round-93): serializing here means the
+                // Inside the lock: serializing here means the
                 // monitor starts before any concurrent close path's
                 // stopRenderMonitor and gets cancelled by it — never a
                 // monitor resurrected after teardown completed.
@@ -3242,7 +3238,7 @@ constructor(
     /**
      * Resize the active session's terminal grid. Values are clamped to the
      * native u16 range (1..=65535) BEFORE the bridge call so the PTY/MCP
-     * dimensions and the UI state agree (round-107).
+     * dimensions and the UI state agree.
      */
     fun resize(
         rows: Int,
@@ -3258,7 +3254,7 @@ constructor(
         // holds the REQUESTED size while native keeps the old cached size;
         // the divergence self-heals on the next resize event, and once
         // getGridRowsColsPacked is real, syncGridDimensions would rewrite
-        // this state back to the native value (round-115). Note the
+        // this state back to the native value. Note the
         // upper bound is the u16 protocol limit, NOT a display-size sanity
         // limit: the UI paths (window insets, applySettings) supply real
         // grid sizes, so a 65535×65535 grid can only be requested by a
@@ -3266,7 +3262,7 @@ constructor(
         val clampedRows = rows.coerceIn(1, 0xFFFF)
         val clampedCols = cols.coerceIn(1, 0xFFFF)
         entry.bridge?.resize(clampedRows, clampedCols)
-        // CAS (round-94): a plain copy would overwrite a title update the
+        // CAS: a plain copy would overwrite a title update the
         // render thread published between read and write.
         _state.update { it.copy(rows = clampedRows, cols = clampedCols) }
         entry.notifyRender()
@@ -3313,7 +3309,7 @@ constructor(
     private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
         val surface = pendingSurface ?: return
         bridge.attachSurface(surface, pendingSurfaceWidth, pendingSurfaceHeight)
-        // Round-215: the grid must match the font cell metrics against the
+        // the grid must match the font cell metrics against the
         // real surface. attachSurface makes the surface size authoritative;
         // syncGridDimensions pulls the native font cell metrics, then
         // recomputeGridFromFontMetrics resizes the grid so the renderer's
@@ -3328,10 +3324,10 @@ constructor(
     /**
      * Activate [newId] as the foreground session after its predecessor
      * closed: final hung-thread join, native ACTIVE_SESSION_ID sync
-     * (switchSession), render-thread restart and focus re-send.
+     * switchSession), render-thread restart and focus re-send.
      *
      * Shared by handleSessionExit, closeDeadSession and closeSession
-     * (kotlin-architecture-round3 R1) so this lock-held sequence lives in
+     * so this lock-held sequence lives in
      * exactly one place instead of three drifting copies.
      *
      * Must be called with sessionLock held; the caller already removed the
@@ -3372,7 +3368,7 @@ constructor(
         // Final join of any hung thread: if it exited meanwhile, clear the
         // flag so a later close() destroys the native session (no leak).
         // Guard against joining ourselves: the exit paths run on a render
-        // thread (poll.exit), and with background-session reaping (round-61)
+        // thread (poll.exit), and with background-session reaping
         // ANY session's render thread can end up here — including the
         // replacement's own, if it was previously recorded as hung. Joining
         // self always times out and would freeze every session operation
@@ -3476,7 +3472,7 @@ constructor(
         // real metrics computed from the surface.
         // Native metrics are in LOGICAL pixels (font pipeline units);
         // touch/anchor math in TerminalSurface works in physical pixels, so
-        // scale by density here (round-214 — fixes long-press hit-testing
+        // scale by density here  — fixes long-press hit-testing
         // landing on wrong cells and the font-size mismatch reports).
         val density = context.resources.displayMetrics.density
         val rawCellWidth = bridge.getCellWidth()
@@ -3489,7 +3485,7 @@ constructor(
         val newCellHeight = rawCellHeight * density
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
-        // CAS with the size check INSIDE the lambda (round-94): the old code
+        // CAS with the size check INSIDE the lambda: the old code
         // read rows/cols outside the update, so a concurrent title CAS could
         // land between the check and the write. rows/cols are a snapshot
         // read from the bridge BEFORE the CAS: on a retry they may overwrite
@@ -3583,7 +3579,7 @@ internal fun isElf(file: java.io.File): Boolean = try {
     false
 }
 
-// Round-224 fast-death recovery (warp WarpTerminalService.kt:906-915).
+//  fast-death recovery (warp WarpTerminalService.kt:906-915).
 // Top-level (not on the private companion) so the unit tests can reach
 // the pure decision/backoff logic.
 
@@ -3610,28 +3606,6 @@ internal fun shouldRetryFastDeath(
  */
 internal fun fastDeathBackoffMs(attempt: Int): Long = minOf(500L shl (attempt - 1), 5000L)
 
-/**
- * Bundle-extract JetBrainsMono Nerd Font into [fontsDir] on first launch.
- * The font is shipped in `assets/fonts/` and provides PUA glyphs (U+E0A0,
- * U+E0B0, etc.) needed by the Nerd fallback layer in cjk.rs.  Skips if
- * the file already exists (idempotent — user may have placed their own).
- */
-internal fun extractBundledNerdFont(context: android.content.Context, fontsDir: java.io.File) {
-    val target = java.io.File(fontsDir, "JetBrainsMonoNerdFont-Regular.ttf")
-    if (target.exists()) return
-    try {
-        fontsDir.mkdirs()
-        context.assets.open("fonts/JetBrainsMonoNerdFont-Regular.ttf").use { input ->
-            target.outputStream().use { output ->
-                input.copyTo(output)
-            }
-        }
-        LogUtil.i("Runtime", "Extracted bundled Nerd Font: ${target.absolutePath}")
-    } catch (exception: IOException) {
-        LogUtil.w("Runtime", "Failed to extract bundled Nerd Font: ${exception.javaClass.simpleName}")
-    }
-}
-
 internal fun runCommandPayload(
     exitCode: Int,
     errCode: Int,
@@ -3650,7 +3624,7 @@ internal fun runCommandPayload(
 }
 
 private fun jsonString(value: String): String {
-    // Full JSON string escaping (round-227 T4b): every C0 control byte
+    // Full JSON string escaping): every C0 control byte
     // (0x00-0x1F) must be escaped — previously \b, \f and the rest were
     // embedded raw, producing invalid JSON. \uXXXX keeps the data intact.
     val sb = StringBuilder(value.length + 16)
@@ -3683,16 +3657,16 @@ private fun jsonString(value: String): String {
     return sb.toString()
 }
 
-// ── MCP run_command execution (round-227 T4c) ────────────────────────────
+// ── MCP run_command execution) ────────────────────────────
 
-/** MCP run_command process timeout (round-226 D1). */
+/** MCP run_command process timeout  D1). */
 private const val RUN_COMMAND_TIMEOUT_MS = 30_000L
 
 /**
  * Grace period for draining stdout/stderr after the process exits or is
  * killed. A grandchild that inherited the pipe fds keeps the read open
- * forever; bounding the drain keeps the caller from hanging (round-227
- * T4c — previously the two `await()` calls were unbounded).
+ * forever; bounding the drain keeps the caller from hanging
+ * — previously the two `await()` calls were unbounded).
  */
 private const val RUN_COMMAND_DRAIN_MS = 2_000L
 
@@ -3722,7 +3696,7 @@ internal fun executeRunCommand(
     drainMs: Long = RUN_COMMAND_DRAIN_MS,
     prefixDir: String? = null,
 ): RunCommandResult {
-    // Round-227 T6: Android 15+ SELinux denies execve of app_data_file
+    // Android 15+ SELinux denies execve of app_data_file
     // binaries (execute_no_trans) for untrusted_app. termux-exec's
     // LD_PRELOAD hook wraps child execs for the shell, but run_command
     // spawns directly via ProcessBuilder — so a $PREFIX binary (echo,
@@ -3732,7 +3706,7 @@ internal fun executeRunCommand(
     val process = try {
         ProcessBuilder(wrapped).redirectErrorStream(false).start()
     } catch (e: java.io.IOException) {
-        // Round-227 T4d: process spawn failure (e.g. invalid binary) must
+        // d: process spawn failure (e.g. invalid binary) must
         // not crash the MCP server — return an error result instead.
         return RunCommandResult(
             stdout = "",
@@ -3745,7 +3719,7 @@ internal fun executeRunCommand(
     // timeout+drain: they poll via ready() (never blocking on a read that
     // cannot be interrupted) so a grandchild inheriting the pipe fds can
     // at most delay the result until the deadline — it can never hang the
-    // caller (round-227 T4c).
+    // caller).
     val readBudgetMs = timeoutMs + drainMs
     val out = BoundedStreamRead(process.inputStream, readBudgetMs)
     val err = BoundedStreamRead(process.errorStream, readBudgetMs)
@@ -3770,8 +3744,8 @@ internal fun executeRunCommand(
 }
 
 /**
- * Wrap a `$PREFIX` executable in the system linker when needed
- * (round-227 T6). Android 15+ SELinux denies untrusted_app from exec'ing
+ * Wrap a `$PREFIX` executable in the system linker when needed.
+ * Android 15+ SELinux denies untrusted_app from exec'ing
  * app_data_file binaries directly (`execute_no_trans`); the system linker
  * path is allowed because it only maps the file (`execute`). This mirrors
  * the native `PtyPair::spawn` SPAWN_LINKER logic.
@@ -3800,7 +3774,7 @@ internal fun wrapTermuxExec(
  * ready()-based polling (ready() returns false on EOF). When a grandchild
  * holds the pipe open, [get] joins with a bounded timeout and returns the
  * partial output; the daemon reader is then abandoned (it dies with the
- * process), so the caller can never hang (round-227 T4c).
+ * process), so the caller can never hang).
  */
 private class BoundedStreamRead(
     private val stream: java.io.InputStream,

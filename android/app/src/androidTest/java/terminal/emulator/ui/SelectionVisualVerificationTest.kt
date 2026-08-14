@@ -35,9 +35,9 @@ import java.io.FileOutputStream
 /**
  * Comprehensive visual verification of text selection functionality.
  *
- * @Ignore (round-106): these tests require the native data path — selection
+ * @Ignore: these tests require the native data path — selection
  * cannot be activated while Bridge.isCellEmpty/expandAndSetSelection are
- * implemented (native query path wired since round-130)s (long-press always routes to the paste popup), and the OCR
+ * implemented (native query path is wired) (long-press always routes to the paste popup), and the OCR
  * tests require the rapidocr binary. Re-enable when rendering lands.
  *
  * Tests:

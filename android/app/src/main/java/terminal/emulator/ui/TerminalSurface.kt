@@ -53,7 +53,7 @@ import kotlin.math.roundToInt
 // buttons + padding + navigationBarsPadding; 80dp is a deliberately safe
 // over-estimate. Inert while Bridge.getCellWidth is an ADR-0007 stub;
 // recalibrate against the real ModifierBar layout when rendering lands
-// (round-113).
+//
 private val modifierBarHeightPx: Int by lazy {
     android.content.res.Resources.getSystem().displayMetrics.density.let { density ->
         (80f * density + 0.5f).toInt()
@@ -145,7 +145,7 @@ constructor(
         super.onDetachedFromWindow()
         surfaceScope?.cancel()
         surfaceScope = null
-        // Round-232: release the render-loop accessibility hook; the view
+        // release the render-loop accessibility hook; the view
         // is being destroyed and the runtime should not keep calling into
         // it (activity recreation builds a fresh TerminalSurface).
         viewModel?.runtime?.onFrameRendered = null
@@ -231,10 +231,10 @@ constructor(
      * instead of pinning to the top. The full anchoring (Callback2 +
      * onGetContentRect — exact selection rect, single-line narrowing,
      * handle-height offset) is deferred: Kotlin requires
-     * `object : ActionMode.Callback2()` (constructor parens — Callback2 is an
+     * `object: ActionMode.Callback2()` (constructor parens — Callback2 is an
      * abstract class, not an interface) and the system positions TYPE_FLOATING
      * reasonably even without it. Menu order/content mirrors termux
-     * (COPY/SELECT_ALL/PASTE; PASTE is surfaced only when the clipboard
+     * COPY/SELECT_ALL/PASTE; PASTE is surfaced only when the clipboard
      * actually has text — ghostty-android TerminalView.java:1423-1505
      * clipboardHasText() metadata check, implemented below via
      * ClipboardAccess.hasClipboardText() so an empty clipboard never shows
@@ -305,7 +305,7 @@ constructor(
 
         /**
          * Anchor the floating toolbar exactly over the selection
-         * (termux-app TextSelectionCursorController.java:194-213).
+         * termux-app TextSelectionCursorController.java:194-213).
          *
          * Out-rect = selection rect expanded one cell each side
          * vertically (so the toolbar never covers the selected text)
@@ -339,7 +339,7 @@ constructor(
             val left = leftCol * cw
             val right = (rightCol + 1) * cw
             // One cell of breathing room above/below + handle-height
-            // offset (termux :203-206).
+            // offset (termux:203-206).
             val top = (visibleTop - ch) + HANDLE_HEIGHT_OFFSET
             val bottom = visibleBottom + ch + HANDLE_HEIGHT_OFFSET
             outRect.set(
@@ -399,12 +399,12 @@ constructor(
      * Show the selection context menu as the system [android.view.ActionMode]
      * toolbar (Termux pattern): the system positions it at the top, colors it
      * from the platform theme and renders the items — no custom popup, no
-     * accent-colored text, no dividers (round-216).
+     * accent-colored text, no dividers.
      */
     fun showSelectionMenu(pasteOnly: Boolean) {
         hideSelectionMenu()
         if (!isAttachedToWindow) return
-        // Round-218: TYPE_FLOATING (FloatingToolbar) does not render on the
+        // TYPE_FLOATING (FloatingToolbar) does not render on the
         // API-35 emulator (verified: whole-view anchor still invisible).
         // Fall back to the default top ActionMode — the standard system
         // toolbar used by Termux; the system colors it and positions it.
@@ -451,7 +451,7 @@ constructor(
     /**
      * Owns grid/size computation: view-size → rows/cols → PTY resize and
      * swapchain reconfigure. Extracted from TerminalSurface
-     * (kotlin-architecture-round2 K4). Inner class: accesses the outer
+     * inner class: accesses the outer
      * view's rows/cols/lastConfigured* fields directly.
      */
     inner class ResizeManager {
@@ -519,7 +519,7 @@ constructor(
             terminalViewModel.surfaceHeight = height
 
             // Size is handed to native via attachSurface below; there is
-            // no separate surface-size channel (round-204).
+            // no separate surface-size channel.
             applyResizeNormal(width, height, terminalViewModel)
         }
 
@@ -556,7 +556,7 @@ constructor(
             lastConfiguredHeight = height
             // Rotation / window-size changes (without an IME event) never reach
             // runtime.resize: the only other trigger is onApplyWindowInsets.
-            // Use the shared formula so both paths agree on the grid (round-112).
+            // Use the shared formula so both paths agree on the grid.
             // Effective only once real cell metrics arrive (Bridge.getCellWidth
             // is an ADR-0007 stub returning 0, so this is a no-op until then).
             applyGridResize(width, height, lastImeBottom)
@@ -578,7 +578,7 @@ constructor(
     /**
      * Owns the IME InputConnection: composition tracking, commit/delete
      * handling and the keyboardMode-to-EditorInfo mapping. Extracted from
-     * TerminalSurface (kotlin-architecture-round2 K4). The outer class
+     * TerminalSurface. The outer class
      * exposes finishComposing/restoreKeyboardFocus as thin forwards.
      */
     inner class ImeConnection {
@@ -618,7 +618,7 @@ constructor(
                             return true
                         }
                         val newComposing = text?.toString() ?: ""
-                        // Round-224: pure reconciliation (ComposingDiff),
+                        // pure reconciliation (ComposingDiff),
                         // unit-tested — grow/contract/diverged in one place.
                         val edit = ComposingDiff.reconcile(composingBuffer, newComposing)
                         if (edit.backspaces > 0) {
@@ -662,7 +662,7 @@ constructor(
                             if (committedText == composingBuffer) {
                                 // Already forwarded via composing deltas; do not resend.
                             } else {
-                                // Round-224: reuse the pure reconciliation to
+                                // reuse the pure reconciliation to
                                 // compute the code-point backspace count.
                                 val clear = ComposingDiff.reconcile(composingBuffer, "")
                                 terminalViewModel?.writeToPty(
@@ -750,7 +750,7 @@ constructor(
     /**
      * Owns the selection/cursor handle PopupWindows: show, reposition,
      * drag and dismiss. Extracted from TerminalSurface
-     * (kotlin-architecture-round2 K4). handleDragState/HandleDrag stay on
+     * handleDragState/HandleDrag stay on
      * the outer class (the touch path reads them).
      */
     inner class SelectionHandles {
@@ -993,7 +993,7 @@ constructor(
                         } else {
                             viewModel?.updateSelection(gridRow, col)
                         }
-                        // Round-217 P1 crossing flip: updateSelectionStart/
+                        // crossing flip: updateSelectionStart/
                         // updateSelection swap start/end when the dragged
                         // handle crosses the stationary one — reposition BOTH
                         // handles from the resulting selection so the visuals
@@ -1080,9 +1080,9 @@ constructor(
     /**
      * Selection context menu as a [PopupWindow].
      *
-     * Round-217: the previous Compose-drawn menu lived inside the same
+     * the previous Compose-drawn menu lived inside the same
      * window as the terminal SurfaceView, so the SurfaceView's surface
-     * (which punches a hole over the whole terminal area) covered it —
+     * which punches a hole over the whole terminal area) covered it —
      * the menu was invisible on device. PopupWindows are separate system
      * windows that always render above the SurfaceView and the
      * ModifierBar, exactly like the selection handles.
@@ -1124,7 +1124,7 @@ constructor(
         // input). One line is more than any real IME requests at once.
         // Upper bound for deleteSurroundingText arguments (untrusted
         // IME input). 4096 covers select-all delete of a large committed
-        // block (round-210 P2-10: 256 left >256-char selections
+        // block: 256 left >256-char selections
         // half-deleted) while still bounding the PTY write size.
         private const val MAX_SURROUNDING_DELETES = 4096
 
@@ -1145,7 +1145,7 @@ constructor(
     private var shortcutHandler: terminal.emulator.shortcut.KeyShortcutHandler? = null
     private var surfaceScope: kotlinx.coroutines.CoroutineScope? = null
 
-    // Round-232: accessibility integration — the SurfaceView is self-drawn
+    // accessibility integration — the SurfaceView is self-drawn
     // with no text nodes, so the visible terminal lines are surfaced via a
     // dynamic contentDescription (debounced) plus Next/Previous line custom
     // actions. The scrollback length is queried on the render thread (never
@@ -1173,7 +1173,7 @@ constructor(
     private var scrollOffset: Int = 0
     private var lastImeBottom: Int = 0
 
-    // Scrollback-length cache (round-209, P1-3): `scrollbackLength()` is a
+    // Scrollback-length cache: `scrollbackLength()` is a
     // synchronous JNI query that can block up to 500 ms when the VT thread
     // is busy parsing a large write. The gesture path calls it on every
     // MotionEvent, so it is throttled to ~10 Hz and the cached value is
@@ -1223,7 +1223,7 @@ constructor(
             if (value) {
                 selectionHandles.hideSelectionHandles()
             } else {
-                // Round-215: ModalNavigationDrawer's scrim click closes the
+                // ModalNavigationDrawer's scrim click closes the
                 // drawer, but during the close animation the tap can fall
                 // through to the TerminalSurface — a terminal tap clears
                 // the selection, so closing the drawer would silently wipe
@@ -1252,7 +1252,7 @@ constructor(
             // NOT used for hit-testing: the renderer draws glyphs at the
             // font cell size and stretches the grid, so dividing the
             // surface by the grid would double-count the stretch and land
-            // long-presses on the wrong cells (round-214 regression, fixed
+            // long-presses on the wrong cells  regression, fixed
             // again here: the surface÷grid ratio self-amplifies — a wider
             // cell shrinks the grid, which widens the cell further).
             val viewModelCellWidth = viewModel?.runtime?.cellWidth ?: 0f
@@ -1306,7 +1306,7 @@ constructor(
     // anchor semantics plus a CROSSING FLIP — when the dragged handle crosses
     // the stationary one, ownership swaps and the stationary handle returns to
     // its pre-cross position. torvox currently only coerceIn-clamps (no flip);
-    // mirrored as P1 gap (round-217, research-termlib.md deep-v4).
+    // mirrored as gap, research-termlib.md deep-v4).
     private var dragAnchorRow = 0
     private var dragAnchorCol = 0
 
@@ -1526,7 +1526,7 @@ constructor(
                 // the newest content (offset decreases); onScroll's
                 // distanceY has the opposite sign convention (positive =
                 // finger moved UP = older content). Negate here so fling
-                // and drag scroll in the same direction (round-211,
+                // and drag scroll in the same direction,
                 // emulator-verified: fast downward flings jumped to older
                 // history while slow drags scrolled correctly).
                 val flingAmount = (-velocityY / FLING_VELOCITY_DIVISOR).toInt().coerceIn(-FLING_MAX_LINES, FLING_MAX_LINES)
@@ -1562,7 +1562,7 @@ constructor(
                     longPressDragging = false
                     return true
                 }
-                // Round-215: the drawer close animation lets a scrim tap
+                // the drawer close animation lets a scrim tap
                 // fall through to the surface; do not treat it as a
                 // terminal tap (which would clear the selection).
                 if (System.nanoTime() < suppressUntilNanos) {
@@ -1690,7 +1690,7 @@ constructor(
         val hasText = line != null && col < (line?.length ?: 0) && line?.getOrNull(col)?.isWhitespace() != true
         // Blank rows (scrollbackLine == null) are paste-only targets: there
         // is nothing to select, so long-press inverts the single cell and
-        // offers Paste (round-215).
+        // offers Paste.
         val isOnWhitespace =
             line == null || (col < (line?.length ?: 0) && line?.getOrNull(col)?.isWhitespace() == true)
 
@@ -1867,7 +1867,7 @@ constructor(
             lastImeBottom = imeBottom
             // Inert while runtime.cellWidth/cellHeight are 0 (Bridge
             // getCellWidth is an ADR-0007 stub); activates with real cell
-            // metrics (round-113).
+            // metrics.
             resizeManager.applyGridResize(width, height, imeBottom)
         }
         return result
@@ -1877,12 +1877,12 @@ constructor(
      * Compute the grid from the window size and the current IME inset, then
      * align the PTY. Single formula shared by the insets path and
      * applySurfaceResize so both can never diverge: rows exclude the IME
-     * inset and the ModifierBar overlay (round-112).
+     * inset and the ModifierBar overlay.
      */
 
     fun initialize(viewModel: TerminalViewModel) {
         this.viewModel = viewModel
-        // Round-232: wire the render-loop frame hook so the accessibility
+        // wire the render-loop frame hook so the accessibility
         // description tracks terminal output (the SurfaceView is drawn by
         // native code — no other content-changed signal exists).
         viewModel.runtime.onFrameRendered = { accessibilityRenderTick() }
@@ -1890,7 +1890,7 @@ constructor(
         handler.setBindings(viewModel.shortcutBindings.value)
         this.shortcutHandler = handler
         // Reactive subscription: re-push bindings when the user edits shortcuts
-        // in Settings (round-230 fix for stale handler snapshot).
+        // in Settings  fix for stale handler snapshot).
         surfaceScope?.cancel()
         val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
         this.surfaceScope = scope
@@ -1902,7 +1902,7 @@ constructor(
     }
 
     /**
-     * Round-232: called from the render loop (render thread) after each
+     * called from the render loop (render thread) after each
      * presented frame. Refreshes the accessibility contentDescription so
      * TalkBack reads live terminal output. The blocking JNI scrollback
      * query runs here (never on the main thread) and is throttled; the
@@ -2071,8 +2071,8 @@ constructor(
         }
     }
 
-    /** Reset the local scroll offset to the session's offset (round-209
-     *  P2-8): called on session switch so selection coordinate math does
+    /** Reset the local scroll offset to the session's offset
+     *): called on session switch so selection coordinate math does
      *  not use the previous session's offset. */
     fun resetScrollOffset() {
         val sessionOffset = viewModel?.runtime?.activeSessionScrollOffset() ?: 0
@@ -2216,7 +2216,7 @@ constructor(
         shortcutHandler?.let { handler ->
             if (handler.dispatch(event)) return true
         }
-        // Round-231 P2: while a selection is active, arrow keys move the
+        // while a selection is active, arrow keys move the
         // selection START anchor (termlib moveSelection* semantics) instead
         // of emitting escape sequences to the shell. Hardware arrows only —
         // physical keyboards set keyCode; soft IME keys come through as text.
@@ -2287,7 +2287,7 @@ constructor(
         if (event.action == MotionEvent.ACTION_DOWN) {
             parent?.requestDisallowInterceptTouchEvent(true)
         }
-        // Round-215: the drawer's swipe-from-edge gesture starts in the
+        // the drawer's swipe-from-edge gesture starts in the
         // screen-edge slop (~32dp). The surface must not consume those
         // touches: when drawerOpen is false the surface would otherwise
         // receive DOWN + UP without MOVEs (the drawer gesture takes the
@@ -2306,7 +2306,7 @@ constructor(
 
         val fromMouse = event.isFromSource(InputDevice.SOURCE_MOUSE)
 
-        // Round-230: when the render thread detects new output while the user
+        // when the render thread detects new output while the user
         // is scrolled up, it resets entry.scrollOffset to 0 and sets the flag.
         // Consume it here so TerminalSurface's local scrollOffset stays in sync
         // with the bridge/native scroll position.
@@ -2377,7 +2377,7 @@ constructor(
                         // Only latch the drag: the handle window hangs below
                         // its anchor cell, so updating the selection with raw
                         // touch pixels would extend it by a row the moment the
-                        // user grabs the handle (round-215). The selection
+                        // user grabs the handle. The selection
                         // follows the finger from the first MOVE via
                         // dragTargetFromTouch.
                         latchDragAnchor(HandleDrag.START)
@@ -2422,7 +2422,7 @@ constructor(
                         } else {
                             viewModel?.updateSelection(gridRow, col)
                         }
-                        // Round-217 P1 crossing flip: updateSelectionStart/
+                        // crossing flip: updateSelectionStart/
                         // updateSelection swap start/end when the dragged
                         // handle crosses the stationary one — reposition BOTH
                         // handles from the resulting selection so the visuals
@@ -2462,7 +2462,7 @@ constructor(
                         // Paste-only selections (empty-cell / whitespace
                         // long-press) must NOT get drag handles: the handle
                         // PopupWindows would overlap the paste menu and eat
-                        // its taps (round-214).
+                        // its taps.
                         if (!sel.pasteOnly) {
                             selectionHandles.showSelectionHandles(sel.start.row, sel.start.col, sel.end.row, sel.end.col, getAccentColor())
                         }

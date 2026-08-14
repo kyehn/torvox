@@ -929,7 +929,7 @@ mod linux_ansi_sequences {
     }
 
     /// Bring up a raw-mode echo child. The session's default line discipline
-    /// deliberately keeps kernel ECHO+ECHOCTL on (round-217: termux.c
+    /// deliberately keeps kernel ECHO+ECHOCTL on: termux.c
     /// parity — readline echoes typed input itself), so bytes written before
     /// raw mode is active come back twice: once as the kernel ECHO stream
     /// (control chars expanded, `\x1b` → `^[`) and once as the child's own
@@ -999,7 +999,7 @@ while True:\n    b = os.read(0, 4096)\n    if not b: break\n    os.write(1, b)\n
     fn cursor_movement() {
         // /bin/cat echoes stdin back to the PTY, so the ANSI sequences
         // written below reach the VT parser. The session's default line
-        // discipline keeps kernel ECHO on (round-217: termux.c parity —
+        // discipline keeps kernel ECHO on: termux.c parity —
         // readline echoes input itself), which would add a *second* copy of
         // every byte with ECHOCTL control-character expansion (`\x1b` →
         // `^[`) and make the position assertion below ambiguous. Switch to

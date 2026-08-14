@@ -14,7 +14,7 @@ package terminal.emulator.ui
  *
  * Handles partial sequences across buffer boundaries via a simple state machine.
  *
- * NOTE (round-217): the production mouse path no longer needs this scanner —
+ * NOTE: the production mouse path no longer needs this scanner —
  * mouse events are encoded by the Rust-side Ghostty mouse encoder
  * (`GhosttyTerminal::encode_mouse_event`, native/src/terminal/ghostty_terminal/
  * public_api.rs), which reads the tracking mode directly from the terminal via
@@ -56,7 +56,7 @@ class MouseModeTracker {
     companion object {
         // applyMode recognises 4 modes; anything beyond this is garbage.
         // Cap the parameter list so a pathological ESC[?1;1;1;... run
-        // cannot grow it unboundedly (round-116).
+        // cannot grow it unboundedly.
         private const val MAX_PENDING_MODES = 8
         private val MOUSE_MODES = setOf(1000, 1002, 1003)
         private const val BRACKET_PASTE_MODE = 2004
@@ -120,7 +120,7 @@ class MouseModeTracker {
                 // Cap the digit run: an absurdly long numeric parameter
                 // (e.g. ESC[?99999...9h) would otherwise wrap Int and become
                 // an arbitrary mode. applyMode only recognises 4 modes, so
-                // anything past 6 digits is garbage anyway (round-115).
+                // anything past 6 digits is garbage anyway.
                 if (modeAccumulator < 1_000_000) {
                     modeAccumulator = modeAccumulator * 10 + (byte - '0'.code)
                 }
@@ -129,7 +129,7 @@ class MouseModeTracker {
             byte == ';'.code -> {
                 // Cap the parameter list: applyMode only recognises 4 modes,
                 // so a pathological ESC[?1;1;1;... run must not grow the
-                // list unboundedly (round-116).
+                // list unboundedly.
                 if (pendingModes.size < MAX_PENDING_MODES) {
                     pendingModes.add(modeAccumulator)
                 }

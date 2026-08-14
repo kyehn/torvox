@@ -5,7 +5,7 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * Host-side tests for the accessibility line reading logic (round-231):
+ * Host-side tests for the accessibility line reading logic:
  * visible-line extraction, line-by-line navigation and the 500ms
  * contentDescription throttle.
  */
@@ -46,7 +46,7 @@ class TerminalAccessibilityTest {
 
     @Test
     fun `visible lines still expose the viewport when scrollback is empty`() {
-        // Round-232 regression: the surface used to bail out when
+        //  regression: the surface used to bail out when
         // scrollbackLength == 0, so TalkBack never read the visible screen
         // before the first scrollback line piled up. The provider must map
         // rows 0..rows-1 to the grid even with zero scrollback.

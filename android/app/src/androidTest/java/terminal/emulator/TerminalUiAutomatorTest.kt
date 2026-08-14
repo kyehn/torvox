@@ -31,14 +31,14 @@ class TerminalUiAutomatorTest {
 
     @Test
     fun appLaunches() {
-        // 10s: cold start on slow emulators can exceed 3s (round-114).
+        // 10s: cold start on slow emulators can exceed 3s.
         val termuxApp = device.wait(Until.findObject(By.pkg("com.termux")), 10_000)
         assertNotNull("App should be running", termuxApp)
     }
 
     @Test
     fun keyboardInputSmoke_noCrash() {
-        // 10s: cold start on slow emulators can exceed 3s (round-114).
+        // 10s: cold start on slow emulators can exceed 3s.
         device.wait(Until.hasObject(By.pkg("com.termux")), 10_000)
         val terminal = checkNotNull(device.findObject(By.pkg("com.termux"))) {
             "Terminal app must be running to send keystrokes"

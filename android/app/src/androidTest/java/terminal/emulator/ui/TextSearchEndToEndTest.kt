@@ -137,7 +137,7 @@ class TextSearchEndToEndTest {
         // Also verify ctrl+f does NOT open the search bar. This is an
         // intentional negative assertion on current behaviour (no ctrl+F
         // shortcut): it must be updated if a shortcut is ever added
-        // (round-110).
+        //
         composeTestRule.activity.runOnUiThread {
             composeTestRule.activity.dispatchKeyEvent(
                 android.view.KeyEvent(

@@ -269,7 +269,7 @@ impl Renderer {
         {
             {
                 // H pass renders the horizontal blur into the intermediate
-                // texture (round-203: it previously wrote the surface and
+                // texture: it previously wrote the surface and
                 // was immediately overwritten by the V pass).
                 let mut h_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Blur H Pass"),
@@ -504,13 +504,13 @@ impl Renderer {
         // Grid cell dimensions from the attached surface: quads must cover
         // the full grid (surface_w/cols x surface_h/rows), not the font
         // cell metrics — otherwise rows show gaps of the clear color.
-        // Round-216: quad geometry uses the FONT cell size (logical cell
+        // quad geometry uses the FONT cell size (logical cell
         // metrics × raster_scale, i.e. the same physical values the Kotlin
         // side computes as cellWidth/cellHeight), NOT surface/rows. The
         // Kotlin grid derives rows from the CONTENT area (surface minus IME
         // and ModifierBar), so surface/rows would stretch each quad to the
         // full surface height whenever the IME is open (2209/14 = 157.8px
-        // around 66px glyphs — reported as "row spacing way too large" and
+        // apx glyphs — reported as "row spacing way too large" and
         // "content overflows without scrolling"). With font-cell quads the
         // glyph fills the quad regardless of how many rows fit on screen.
         let (font_w, font_h) = font_pipeline.cell_metrics();
@@ -532,7 +532,7 @@ impl Renderer {
                     // Cache no longer matches the grid (resize): the new
                     // cache starts EMPTY, so serving "clean" rows from it
                     // would copy 0 instances and drop rows. Force a full
-                    // rebuild for this frame (round-231 P2 regression: a
+                    // rebuild for this frame regression: a
                     // cols-only change kept the diff path alive but the
                     // rebuilt cache had no data).
                     *cache = crate::render::cell_builder::CachedInstances::new(rows, cols);
@@ -611,7 +611,7 @@ impl Renderer {
             height: h,
             depth_or_array_layers: 1,
         };
-        // Round-210 P2-2: the readback texture must match the pipeline
+        // the readback texture must match the pipeline
         // format (the cell/bg/kgp pipelines are created against the surface
         // format, which is usually Bgra8Unorm on Android) — a hardcoded
         // Rgba8Unorm triggered a wgpu validation error when used as the

@@ -80,7 +80,7 @@ constructor(
         val fontsDir = File(context.filesDir, "fonts")
         // TerminalScreen becomes visible before TerminalRuntime.start()
         // finishes (it creates filesDir/fonts asynchronously), so poll
-        // instead of asserting immediately (round-119 race).
+        // instead of asserting immediately  race).
         composeRuleHolder.composeRule.waitUntil(timeoutMillis = 15_000) {
             fontsDir.isDirectory
         }

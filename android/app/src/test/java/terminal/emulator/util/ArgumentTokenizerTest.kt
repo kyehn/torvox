@@ -84,7 +84,7 @@ class ArgumentTokenizerTest {
         assertEquals(listOf("a", "", "b"), ArgumentTokenizer.tokenize("a '' b"))
     }
 
-    // ── round-227 T1b: edge-case coverage (spec d16) ─────────────────────
+    // ── b: edge-case coverage (spec d16) ─────────────────────
 
     @Test
     fun `trailing backslash inside double quotes does not crash`() {

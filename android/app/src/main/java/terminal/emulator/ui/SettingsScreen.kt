@@ -130,7 +130,7 @@ fun SettingsScreen(
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
             // Fixed header: SettingsHeader must stay visible while the
             // LazyColumn scrolls, otherwise the back button scrolls out of
-            // reach (round-119: maestro open-settings flow failed to find
+            // reach: maestro open-settings flow failed to find
             // SettingsBackButton after scrolling down).
             SettingsHeader(onBack, textColor, isSmallScreen)
             LazyColumn(
@@ -495,7 +495,7 @@ private fun BackgroundSection(
     // persisted: without FLAG_GRANT_PERSISTABLE_URI_PERMISSION +
     // takePersistableUriPermission the read permission is lost on app
     // restart and the wallpaper silently disappears (emulator-verified,
-    // round-203: `consumed bg image` never logged after a relaunch).
+    // `consumed bg image` never logged after a relaunch).
     val imagePickerLauncher =
         rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) { result ->
             val uri = result.data?.data
@@ -546,7 +546,7 @@ private fun BackgroundSection(
             Slider(
                 value = backgroundBlurRadius.toFloat(),
                 onValueChange = { viewModel.setBackgroundBlurRadius(it.toInt()) },
-                // Round-210 P1-3: kernel taps scale linearly with radius
+                // kernel taps scale linearly with radius
                 // (2*ceil(r)+1 per pass); 20 was 82 taps/frame on a
                 // Mali-G57 — capped at 10 (42 taps) for interactive
                 // framerates. Downsampled blur is a future optimization.
@@ -1288,7 +1288,7 @@ private fun BootstrapSection(
     Spacer(modifier = Modifier.height(8.dp))
     BootstrapInstallButton(onRunBootstrap, bootstrapRunning, bootstrapResult, bootstrapProgress, accentColor, textColor)
 
-    // Offline install: pick a .zip file via SAF, no network required
+    // Offline install: pick a.zip file via SAF, no network required
     Spacer(modifier = Modifier.height(8.dp))
     val offlineLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument(),
@@ -2124,7 +2124,7 @@ private fun itemLabel(item: ToolbarItem): String = when (item) {
     is ToolbarItem.Custom -> item.label
 }
 
-/** Returns a copy of this item with a new row weight (round-231 T10). */
+/** Returns a copy of this item with a new row weight. */
 private fun ToolbarItem.withWidth(width: Int): ToolbarItem = when (this) {
     is ToolbarItem.Default -> copy(width = width)
     is ToolbarItem.Custom -> copy(width = width)
@@ -2142,7 +2142,7 @@ private fun ToolbarItem.withSecondary(label: String): ToolbarItem {
     }
 }
 
-/** Replaces the first item equal to `old` with `new` (round-231 T10). */
+/** Replaces the first item equal to `old` with `new`. */
 private fun List<ToolbarItem>.replace(old: ToolbarItem, new: ToolbarItem): List<ToolbarItem> {
     val index = indexOf(old)
     if (index < 0) return this

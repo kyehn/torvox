@@ -34,7 +34,7 @@ class BootstrapDownloader(
         url: String,
         arch: String,
     ): Result<File> = withContext(Dispatchers.IO) {
-        // Integrity gate: the bootstrap zip is extracted and its .postinst
+        // Integrity gate: the bootstrap zip is extracted and its.postinst
         // script is executed, so the download must be authenticated.
         // Plain-http is trivially MITM-able; the default URL already ships
         // https, so rejecting http costs nothing for legitimate users.
@@ -58,7 +58,7 @@ class BootstrapDownloader(
                     return@withContext Result.failure(
                         // Log only the final protocol, never the URL itself:
                         // it may carry token/query parameters that would end up
-                        // in the persistent log via the orchestrator (round-102).
+                        // in the persistent log via the orchestrator.
                         Exception("Bootstrap redirect to non-https URL rejected (final protocol: $finalScheme)"),
                     )
                 }
@@ -124,7 +124,7 @@ class BootstrapDownloader(
         } catch (exception: Exception) {
             // Log the exception class only, not the exception itself: HTTP
             // error messages embed the full URL (with any token/query) and
-            // this log can be captured by crash reporters (round-103).
+            // this log can be captured by crash reporters.
             Log.e("BootstrapDownloader", "Download failed: ${exception.javaClass.simpleName}")
             Result.failure(exception)
         }

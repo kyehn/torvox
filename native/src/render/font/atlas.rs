@@ -23,7 +23,7 @@ impl FontPipeline {
         self.glyph_information_from_font_with_synthesis(font_id, glyph_id, GlyphSynthesis::None)
     }
 
-    /// Style-aware glyph lookup (round-231 T6): when the requested synthesis
+    /// Style-aware glyph lookup: when the requested synthesis
     /// is bold/italic and the primary font has no matching face, the alpha
     /// mask is post-processed — embolden for bold, shear for italic. When a
     /// matching bold/italic face exists (e.g. Roboto-Bold.ttf), the caller
@@ -58,13 +58,13 @@ impl FontPipeline {
                 // Hinting aligns TrueType stems to the pixel grid. With a
                 // raster_scale > 1 (device density) the bitmap is large
                 // enough that hinting is unnecessary and can distort the
-                // glyph shapes (round-215: emulator OCR failed on hinted
+                // glyph shapes: emulator OCR failed on hinted
                 // 124px bitmaps); hint only when rendering at 1:1.
                 .hint(self.raster_scale <= 1.01)
                 .build();
             let image = {
                 let mut render = Render::new(&[Source::Outline]);
-                // Round-231 T6: font synthesis at the outline level (swash
+                // font synthesis at the outline level (swash
                 // native) — faux bold via embolden(), synthetic italic via
                 // an affine shear, both applied while rasterizing so the
                 // anti-aliasing quality is preserved.
@@ -108,7 +108,7 @@ impl FontPipeline {
             }
         };
 
-        // Round-231 T6: font synthesis is applied at the outline level by
+        // font synthesis is applied at the outline level by
         // the Render builder above (embolden/shear); the image returned here
         // is already styled.
         let width = image.placement.width as i32;

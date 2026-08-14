@@ -50,7 +50,7 @@ pub enum Event {
     Exit {
         session_id: u64,
         code: i32,
-        /// Round-224: how long the child actually lived (ms, from fork to
+        /// how long the child actually lived (ms, from fork to
         /// waitpid). Native-side measurement — immune to Kotlin event
         /// handling latency — so fast-death recovery can rely on it.
         alive_ms: u64,
@@ -80,7 +80,7 @@ pub enum Event {
     /// answer via `clipboardResult()` JNI.
     #[cfg(feature = "mcp")]
     GetClipboard { session_id: u64, request_id: u64 },
-    /// MCP dialog/pick_file timed out (round-210 P2-14): the native tool
+    /// MCP dialog/pick_file timed out: the native tool
     /// call gives up after 300s and cancels the registry entry; Kotlin
     /// receives this event so the still-visible dialog is dismissed
     /// instead of hanging on screen unresponsive.

@@ -80,7 +80,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path wired since round-130)s; screenshots contain no selection (round-108)")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
     fun selection_highlightActive_rendersInverseVideo() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'select this text segment'\n".toByteArray())
@@ -100,7 +100,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path wired since round-130)s; screenshots contain no selection (round-108)")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
     fun selection_longPress_wordSelection() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'word_selection_test'\n".toByteArray())
@@ -118,7 +118,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path wired since round-130)s; screenshots contain no selection (round-108)")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
     fun selection_dragEndHandle_repositionsHighlight() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'drag handle across this'\n".toByteArray())
@@ -141,7 +141,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path wired since round-130)s; screenshots contain no selection (round-108)")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
     fun selection_clearSelection_returnsToNormal() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'temporary selection'\n".toByteArray())
@@ -164,7 +164,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path wired since round-130)s; screenshots contain no selection (round-108)")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
     fun selection_toolbarVisible_withSelectionActive() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'toolbar test content'\n".toByteArray())
@@ -194,7 +194,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path wired since round-130)s; screenshots contain no selection (round-108)")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
     fun selection_modifierBar_visibleDuringSelection() {
         composeTestRule
             .onNodeWithTag("ModifierBar")
@@ -202,7 +202,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path wired since round-130)s; screenshots contain no selection (round-108)")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
     fun selection_clearedAndReSelected() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'reselect demo'\n".toByteArray())
@@ -230,7 +230,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path wired since round-130)s; screenshots contain no selection (round-108)")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
     fun selection_multipleLines_highlighted() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'line one'\n".toByteArray())

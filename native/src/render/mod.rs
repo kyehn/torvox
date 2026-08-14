@@ -62,7 +62,7 @@ pub use pipeline::{GpuUniforms, image_active_value};
 /// each test creates its own wgpu device, and parallel benchmarks contend
 /// for CPU so hard throughput thresholds become flaky. The lock is held
 /// for the whole benchmark body, guaranteeing one benchmark at a time
-/// (round-204: scroll bench joined the lock for the same reason).
+/// scroll bench joined the lock for the same reason).
 #[cfg(any(test, feature = "test-util"))]
 // Only referenced from #[cfg(test)] benches; the lib build with
 // `--features test-util` (clippy) has no callers.

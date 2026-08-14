@@ -259,7 +259,7 @@ impl super::GhosttyTerminal {
         // The C `ghostty_terminal_new` ABI consumes `Options.max_scrollback`
         // directly (ghostty a887df42, libghostty-vt 0.2.1): `Screen.init`
         // sets `no_scrollback = max_scrollback == 0`, so a non-zero value
-        // enables scrollback (round-205: scrollback_rows query returned 0
+        // enables scrollback: scrollback_rows query returned 0
         // when scrollback was disabled).
 
         // Initialize Kitty Graphics Protocol (KGP) support
@@ -270,7 +270,7 @@ impl super::GhosttyTerminal {
         // stabilized across libghostty-vt versions. KGP image storage still accepts
         // pre-decoded raw RGBA data from external PNG decoders.
         //
-        // Upgrade path (P2 doc item): (1) track libghostty-vt upstream and
+        // Upgrade path (doc item): (1) track libghostty-vt upstream and
         // re-enable the RustPngDecoder once its API stabilizes (gate on the
         // png/image feature); or (2) register an `image`-crate decoder via the
         // terminal's kitty image-decoder hook so kitty `a=Z`/`a=T` payloads are
@@ -727,7 +727,7 @@ impl super::GhosttyTerminal {
                             event.set_unshifted_codepoint(cp);
                         }
                         // RK2: when SHIFT only changed the printed character
-                        // (e.g. Shift+; -> :), strip SHIFT so the Kitty
+                        // (e.g. Shift+; ->:), strip SHIFT so the Kitty
                         // keyboard protocol does not emit a spurious
                         // `\033[59;2u` for plain printable input. Requires the
                         // unshifted codepoint to detect the shift-only change.
@@ -1270,7 +1270,7 @@ impl super::GhosttyTerminal {
         _palette: &[[u8; 3]; 16],
         scroll_offset: u32,
     ) -> GridSnapshot {
-        // NOTE (round-209): a scrolled snapshot returns an EMPTY fallback
+        // NOTE: a scrolled snapshot returns an EMPTY fallback
         // grid — the CellData path does not expose scrollback content, and
         // `take_snapshot_with_scroll` is only exercised by tests. Any
         // future query/MCP caller passing a non-zero offset will get an

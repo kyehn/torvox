@@ -12,7 +12,7 @@ import java.util.Locale
 import java.util.regex.Pattern
 
 /**
- * Persists a filtered logcat capture to app-private storage (R6: round-3
+ * Persists a filtered logcat capture to app-private storage (R6:
  * architecture; extracted from MainActivity).
  *
  * Owns the logcat process, the capture thread and the writer. The captured

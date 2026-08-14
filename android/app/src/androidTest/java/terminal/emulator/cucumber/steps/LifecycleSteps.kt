@@ -32,7 +32,7 @@ constructor(
     fun appIsForceStoppedAndRelaunched() {
         // Instrumentation cannot kill the process; recreate() only restarts
         // the activity in the same process, so "force-stopped" semantics are
-        // approximated by an activity recreation (round-104).
+        // approximated by an activity recreation.
         composeRuleHolder.composeRule.activityRule.scenario
             .recreate()
         composeRuleHolder.composeRule.waitForIdle()
