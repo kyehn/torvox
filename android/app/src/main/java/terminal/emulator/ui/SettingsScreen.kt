@@ -79,6 +79,8 @@ import terminal.emulator.FONT_SLOT_REGULAR
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bell.BellMode
+import terminal.emulator.bridge.FontActiveDto
+import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
@@ -414,7 +416,7 @@ private fun TerminalThemeSection(
             OutlinedTextField(
                 value = saveThemeName,
                 onValueChange = { saveThemeName = it },
-                placeholder = { Text("New theme name", color = secondaryText) },
+                placeholder = { Text(stringResource(R.string.new_theme_name), color = secondaryText) },
                 singleLine = true,
                 modifier = Modifier.weight(1f).testTag("SaveThemeName"),
             )
@@ -511,7 +513,7 @@ private fun BackgroundSection(
                 viewModel.setBackgroundImagePath(it.toString())
             }
         }
-    SectionHeader("Background", sectionTitleColor)
+    SectionHeader(stringResource(R.string.background), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         Text(
             text = if (backgroundImagePath.isNotEmpty()) stringResource(R.string.bg_image_set) else stringResource(R.string.bg_image_none),
@@ -537,7 +539,7 @@ private fun BackgroundSection(
                 modifier = Modifier.testTag("ChooseImageButton"),
             ) { Text(stringResource(R.string.bg_image_choose), color = MaterialTheme.colorScheme.onPrimary) }
             if (backgroundImagePath.isNotEmpty()) {
-                TextButton(onClick = { viewModel.setBackgroundImagePath("") }) { Text("Clear", color = accentColor) }
+                TextButton(onClick = { viewModel.setBackgroundImagePath("") }) { Text(stringResource(R.string.clear), color = accentColor) }
             }
         }
         if (backgroundImagePath.isNotEmpty()) {
@@ -725,15 +727,35 @@ private fun FontInfoSectionIfAvailable(
     if (fontInfo.isNotEmpty() || defaultFontName.isNotEmpty()) {
         Spacer(modifier = Modifier.height(8.dp))
         val densityDpi = LocalDensity.current.density
-        FontInfoSection(
-            fontInfo =
-            fontInfo.ifEmpty {
-                val pixelSize = (fontSize * densityDpi).toInt()
-                "Active: $defaultFontName\n(CJK fallback info available after session starts)\nFont size: ${fontSize.toInt()}SP (~${pixelSize}px)"
-            },
-            textColor = textColor,
-            secondaryText = secondaryText,
-        )
+        val dto = FontInfoDto.fromJson(fontInfo)
+        when {
+            dto != null ->
+                FontInfoSection(
+                    fontInfo = dto,
+                    pixelPerSp = densityDpi,
+                    textColor = textColor,
+                    secondaryText = secondaryText,
+                )
+
+            fontInfo.isEmpty() ->
+                FontInfoSection(
+                    fontInfo = FontInfoDto(
+                        active = FontActiveDto(name = defaultFontName, monospaced = false),
+                        fontSizePx = fontSize * densityDpi,
+                    ),
+                    pixelPerSp = densityDpi,
+                    textColor = textColor,
+                    secondaryText = secondaryText,
+                )
+
+            else -> {
+                Text(
+                    text = stringResource(R.string.no_font_loaded),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondaryText,
+                )
+            }
+        }
     }
 }
 
@@ -774,7 +796,7 @@ private fun FontFamilySelectors(
         fonts = availableFonts,
         defaultFontName = defaultFontName,
         fontInfo = fontInfo,
-        titleOverride = "Bold font family",
+        titleOverride = stringResource(R.string.bold_font_family),
         onPickFontFile = pickFont,
     )
     Spacer(modifier = Modifier.height(12.dp))
@@ -787,7 +809,7 @@ private fun FontFamilySelectors(
         fonts = availableFonts,
         defaultFontName = defaultFontName,
         fontInfo = fontInfo,
-        titleOverride = "Italic font family",
+        titleOverride = stringResource(R.string.italic_font_family),
         onPickFontFile = pickFont,
     )
 }
@@ -861,15 +883,15 @@ private fun SystemFontSelector(
         }
     }
 
-    val parsed = parseFontInfo(fontInfo)
-    if (hasRealCjkFallback(parsed)) {
+    val fontInfoDto = FontInfoDto.fromJson(fontInfo)
+    if (fontInfoDto?.hasRealCjkFallback == true) {
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "CJK: ${parsed.cjkValue}",
+            text = stringResource(R.string.cjk_value_label, fontInfoDto.cjkFallbackText() ?: ""),
             style = MaterialTheme.typography.bodySmall,
             color = textColor.copy(alpha = 0.6f),
         )
-    } else if (parsed.cjkValue == "none" && !parsed.primaryIsCjk) {
+    } else if (fontInfoDto?.cjkState == "none") {
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = stringResource(R.string.cjk_fallback_missing_warning),
@@ -1150,11 +1172,11 @@ internal fun ThemeSelector(
             items(themes) { theme ->
                 ThemePreview(
                     theme = theme,
-                    isSelected =
-                    theme.name == selectedTheme ||
-                        terminal.emulator.ui.theme.BuiltInThemes
-                            .byName(selectedTheme)
-                            .name == theme.name,
+                    // `selectedTheme` is always a theme *name* (built-in or
+                    // user-created); do NOT fall back through byName() here —
+                    // its default returns Catppuccin Mocha, which would
+                    // highlight that card whenever a user theme is selected.
+                    isSelected = theme.name == selectedTheme,
                     onClick = { onThemeSelected(theme.name) },
                     isSmallScreen = isSmallScreen,
                     textColor = textColor,
@@ -1305,6 +1327,57 @@ private fun BootstrapSection(
     }
 }
 
+private const val BYTES_PER_KB = 1024L
+private const val BYTES_PER_MB = BYTES_PER_KB * 1024
+
+@Composable
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= BYTES_PER_MB -> stringResource(R.string.byte_unit_mb, bytes / BYTES_PER_MB)
+    bytes >= BYTES_PER_KB -> stringResource(R.string.byte_unit_kb, bytes / BYTES_PER_KB)
+    else -> stringResource(R.string.byte_unit_b, bytes)
+}
+
+@Composable
+private fun bootstrapStepText(progress: BootstrapProgress): String = when (progress) {
+    is BootstrapProgress.Downloading -> {
+        val pct =
+            if (progress.contentLength > 0) {
+                " (${(progress.bytesWritten * 100 / progress.contentLength)}%)"
+            } else {
+                ""
+            }
+        stringResource(
+            R.string.bootstrap_downloading,
+            pct,
+            formatBytes(progress.bytesWritten),
+            if (progress.contentLength > 0) formatBytes(progress.contentLength) else "",
+        )
+    }
+
+    is BootstrapProgress.Extracting -> {
+        val pct =
+            if (progress.totalEntries > 0) {
+                " (${(progress.entriesExtracted * 100 / progress.totalEntries)}%)"
+            } else {
+                ""
+            }
+        stringResource(R.string.bootstrap_extracting, pct, progress.entriesExtracted, progress.totalEntries)
+    }
+
+    is BootstrapProgress.RunningPostInstall ->
+        stringResource(
+            R.string.bootstrap_running_postinstall,
+            progress.scriptsCompleted,
+            progress.totalScripts,
+        )
+
+    BootstrapProgress.CreatingSymlinks -> stringResource(R.string.bootstrap_creating_symlinks)
+
+    BootstrapProgress.Complete -> stringResource(R.string.bootstrap_complete)
+
+    is BootstrapProgress.Error -> progress.message
+}
+
 @Composable
 private fun BootstrapInstallButton(
     onRunBootstrap: () -> Unit,
@@ -1334,7 +1407,7 @@ private fun BootstrapInstallButton(
             Text(
                 text =
                 if (bootstrapRunning) {
-                    progress?.stepDescription()
+                    progress?.let { bootstrapStepText(it) }
                         ?: stringResource(R.string.bootstrap_installing)
                 } else {
                     stringResource(R.string.bootstrap_install)
@@ -1602,105 +1675,63 @@ private fun ClearAppDataSection(
     }
 }
 
-/** Parsed font-info lines shared by FontInfoSection and the font picker. */
-private data class FontInfoParsed(
-    val activeLine: String?,
-    val cjkValue: String,
-    val primaryIsCjk: Boolean,
-)
-
-private fun parseFontInfo(fontInfo: String): FontInfoParsed {
-    val lines = fontInfo.lines()
-    val activeLine = lines.firstOrNull { it.startsWith("Active:") }
-    val cjkValue =
-        lines
-            .firstOrNull { it.startsWith("CJK fallback:") }
-            ?.substringAfter("CJK fallback:")
-            ?.trim()
-            ?: ""
-    val primaryIsCjk =
-        activeLine != null && (
-            activeLine.contains("CJK", ignoreCase = true) ||
-                activeLine.contains("SC", ignoreCase = true) ||
-                activeLine.contains("TC", ignoreCase = true) ||
-                activeLine.contains("JP", ignoreCase = true) ||
-                activeLine.contains("KR", ignoreCase = true)
-            )
-    return FontInfoParsed(activeLine, cjkValue, primaryIsCjk)
-}
-
-/**
- * True when the CJK fallback line names a real font (not empty/none/skipped).
- */
-private fun hasRealCjkFallback(parsed: FontInfoParsed): Boolean = parsed.cjkValue.isNotEmpty() && parsed.cjkValue != "none" && parsed.cjkValue != "skipped"
-
 @Composable
 private fun FontInfoSection(
-    fontInfo: String,
+    fontInfo: FontInfoDto,
+    pixelPerSp: Float,
     textColor: Color,
     secondaryText: Color,
 ) {
-    if (fontInfo.isEmpty()) return
-
-    val parsed = parseFontInfo(fontInfo)
     Column(modifier = Modifier.testTag("FontInfoSection")) {
-        for (line in fontInfo.lines()) {
+        fontInfo.active?.let { active ->
+            Text(
+                text = stringResource(R.string.font_info_active, active.name),
+                style = MaterialTheme.typography.bodyMedium,
+                color = textColor,
+            )
+        }
+        val cjkText = fontInfo.cjkFallbackText()
+        val cjkCoveredByPrimary = fontInfo.cjkState == "skipped"
+        val hasCjk = fontInfo.hasRealCjkFallback
+        val cjkDisplayColor =
             when {
-                line.startsWith("Active:") -> {
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = textColor,
-                    )
-                }
-
-                line.startsWith("CJK fallback:") -> {
-                    val hasCjk = hasRealCjkFallback(parsed)
-                    val displayColor =
-                        when {
-                            hasCjk -> secondaryText
-                            parsed.primaryIsCjk -> secondaryText
-                            else -> WARNING_ORANGE
-                        }
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = displayColor,
-                    )
-                    if (!hasCjk && !parsed.primaryIsCjk) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = stringResource(R.string.cjk_fallback_missing_warning),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = WARNING_ORANGE,
-                        )
-                    }
-                }
-
-                line.startsWith("Cell:") -> {
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = secondaryText,
-                    )
-                }
-
-                line.startsWith("Font size:") -> {
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = secondaryText,
-                    )
-                }
-
-                else -> {
-                    Text(
-                        text = line,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = secondaryText,
-                    )
-                }
+                hasCjk -> secondaryText
+                cjkCoveredByPrimary -> secondaryText
+                else -> WARNING_ORANGE
             }
+        val cjkLine =
+            when {
+                cjkText != null -> stringResource(R.string.font_info_cjk_fallback, cjkText)
+                cjkCoveredByPrimary -> stringResource(R.string.font_info_cjk_skipped)
+                else -> stringResource(R.string.font_info_cjk_none)
+            }
+        Text(
+            text = cjkLine,
+            style = MaterialTheme.typography.bodySmall,
+            color = cjkDisplayColor,
+        )
+        if (!hasCjk && !cjkCoveredByPrimary) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.cjk_fallback_missing_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = WARNING_ORANGE,
+            )
+        }
+        if (fontInfo.cellWidthPx > 0f && fontInfo.cellHeightPx > 0f) {
+            Text(
+                text = stringResource(R.string.font_info_cell, fontInfo.cellWidthPx, fontInfo.cellHeightPx),
+                style = MaterialTheme.typography.bodySmall,
+                color = secondaryText,
+            )
+        }
+        if (fontInfo.fontSizePx > 0f) {
+            val sizeSp = fontInfo.fontSizePx / pixelPerSp
+            Text(
+                text = stringResource(R.string.font_info_size_sp, sizeSp, fontInfo.fontSizePx),
+                style = MaterialTheme.typography.bodySmall,
+                color = secondaryText,
+            )
         }
     }
 }
@@ -1738,9 +1769,9 @@ private fun CursorStyleSelector(
 ) {
     val styles =
         listOf(
-            "block" to "Block",
-            "bar" to "Bar",
-            "underline" to "Underline",
+            "block" to stringResource(R.string.cursor_block),
+            "bar" to stringResource(R.string.cursor_bar),
+            "underline" to stringResource(R.string.cursor_underline),
         )
     SettingsSelectorRow(
         title = stringResource(R.string.cursor_style_label),
@@ -1814,11 +1845,11 @@ private fun KeyboardShortcutsSection(
             }
             val binding = bindings[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY
             val actionLabel = when (action) {
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste -> "Paste"
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession -> "New Session"
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession -> "Close Session"
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy -> "Copy"
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll -> "Toggle Scroll"
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste -> stringResource(R.string.paste)
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession -> stringResource(R.string.cd_new_session)
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession -> stringResource(R.string.close_session)
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy -> stringResource(R.string.copy)
+                terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll -> stringResource(R.string.toggle_scroll)
             }
 
             Row(
@@ -1881,10 +1912,10 @@ private fun ModifierBarSettingsSection(
     var layout by remember { mutableStateOf(toolbarPreferences.getLayout()) }
     var showEditor by rememberSaveable { mutableStateOf(false) }
 
-    SectionHeader("Modifier Bar", sectionTitleColor)
+    SectionHeader(stringResource(R.string.modifier_bar), sectionTitleColor)
     SettingsCard(cardBackground, isSmallScreen) {
         Text(
-            text = "Current layout",
+            text = stringResource(R.string.modifier_bar_current_layout),
             color = secondaryText,
             style = MaterialTheme.typography.bodySmall,
         )
@@ -1895,7 +1926,7 @@ private fun ModifierBarSettingsSection(
             onClick = { showEditor = true },
             modifier = Modifier.testTag("EditModifierBarButton"),
         ) {
-            Text("Edit", color = MaterialTheme.colorScheme.primary)
+            Text(stringResource(R.string.edit), color = MaterialTheme.colorScheme.primary)
         }
     }
 
@@ -1957,7 +1988,7 @@ private fun ModifierBarEditorDialog(
 
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Edit Modifier Bar") },
+        title = { Text(stringResource(R.string.edit_modifier_bar)) },
         text = {
             Column(
                 modifier =
@@ -1966,7 +1997,7 @@ private fun ModifierBarEditorDialog(
                     .testTag("ModifierBarEditorDialog"),
             ) {
                 Text(
-                    text = "Current layout (tap a key to remove)",
+                    text = stringResource(R.string.modifier_bar_edit_hint_remove),
                     color = secondaryText,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -1980,7 +2011,7 @@ private fun ModifierBarEditorDialog(
                 )
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "Available keys (tap to add)",
+                    text = stringResource(R.string.modifier_bar_available_keys),
                     color = secondaryText,
                     style = MaterialTheme.typography.bodySmall,
                 )
@@ -1997,7 +2028,7 @@ private fun ModifierBarEditorDialog(
                     onClick = onReset,
                     modifier = Modifier.testTag("ResetModifierBarButton"),
                 ) {
-                    Text("Reset to Default", color = MaterialTheme.colorScheme.primary)
+                    Text(stringResource(R.string.reset_to_default), color = MaterialTheme.colorScheme.primary)
                 }
             }
         },

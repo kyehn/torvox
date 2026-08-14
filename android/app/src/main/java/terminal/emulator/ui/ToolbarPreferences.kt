@@ -3,9 +3,11 @@ package terminal.emulator.ui
 import android.content.Context
 import android.content.SharedPreferences
 import android.util.Log
+import androidx.annotation.StringRes
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
+import terminal.emulator.R
 import terminal.emulator.bridge.pollEventJson
 
 enum class ToolbarKey(
@@ -15,29 +17,29 @@ enum class ToolbarKey(
     val symbol: String? = null,
     /** Test-tag override; defaults to "Key_<defaultLabel>". */
     val testTag: String? = null,
-    /** Accessibility description; defaults to defaultLabel. */
-    val contentDescription: String? = null,
+    /** Accessibility description resource; defaults to defaultLabel. */
+    @StringRes val contentDescriptionRes: Int? = null,
     /** Repeats the key sequence while held (arrow keys). */
     val repeatable: Boolean = false,
     /** Toggle modifier key (CTRL/ALT) driven by ModifierState. */
     val modifier: Boolean = false,
 ) {
-    ESC("ESC", "\u001b", contentDescription = "Escape"),
-    DRAWER("\u2261", "", symbol = "\u2630", testTag = "Key_DRAWER", contentDescription = "Open session drawer"),
-    SCROLL("SCROLL", "", contentDescription = "Toggle scroll"),
-    HOME("HOME", "\u001b[H", contentDescription = "Home"),
-    ARROW_UP("\u2191", "\u001b[A", contentDescription = "Arrow up", repeatable = true),
-    END("END", "\u001b[F", contentDescription = "End"),
-    PGUP("PGUP", "\u001b[5~", contentDescription = "Page up"),
-    TAB("TAB", "\t", contentDescription = "Tab"),
-    CTRL("CTRL", "", contentDescription = "Control toggle", modifier = true),
-    ALT("ALT", "", contentDescription = "Alt toggle", modifier = true),
-    ARROW_LEFT("\u2190", "\u001b[D", contentDescription = "Arrow left", repeatable = true),
-    ARROW_DOWN("\u2193", "\u001b[B", contentDescription = "Arrow down", repeatable = true),
-    ARROW_RIGHT("\u2192", "\u001b[C", contentDescription = "Arrow right", repeatable = true),
-    PGDN("PGDN", "\u001b[6~", contentDescription = "Page down"),
-    FN("FN", "", contentDescription = "Function key layer"),
-    COMPOSE("COMPOSE", "", contentDescription = "Compose key"),
+    ESC("ESC", "\u001b", contentDescriptionRes = R.string.escape),
+    DRAWER("\u2261", "", symbol = "\u2630", testTag = "Key_DRAWER", contentDescriptionRes = R.string.open_session_drawer),
+    SCROLL("SCROLL", "", contentDescriptionRes = R.string.toggle_scroll),
+    HOME("HOME", "\u001b[H", contentDescriptionRes = R.string.home_key),
+    ARROW_UP("\u2191", "\u001b[A", contentDescriptionRes = R.string.arrow_up, repeatable = true),
+    END("END", "\u001b[F", contentDescriptionRes = R.string.end_key),
+    PGUP("PGUP", "\u001b[5~", contentDescriptionRes = R.string.page_up),
+    TAB("TAB", "\t", contentDescriptionRes = R.string.tab_key),
+    CTRL("CTRL", "", contentDescriptionRes = R.string.control_toggle, modifier = true),
+    ALT("ALT", "", contentDescriptionRes = R.string.alt_toggle, modifier = true),
+    ARROW_LEFT("\u2190", "\u001b[D", contentDescriptionRes = R.string.arrow_left, repeatable = true),
+    ARROW_DOWN("\u2193", "\u001b[B", contentDescriptionRes = R.string.arrow_down, repeatable = true),
+    ARROW_RIGHT("\u2192", "\u001b[C", contentDescriptionRes = R.string.arrow_right, repeatable = true),
+    PGDN("PGDN", "\u001b[6~", contentDescriptionRes = R.string.page_down),
+    FN("FN", "", contentDescriptionRes = R.string.function_key_layer),
+    COMPOSE("COMPOSE", "", contentDescriptionRes = R.string.compose_key),
     PIPE("|", "|"),
     SLASH("/", "/"),
     DASH("-", "-"),
@@ -99,6 +101,23 @@ class ToolbarPreferences(
 ) {
     private val sharedPreferences: SharedPreferences by lazy {
         context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
+    }
+
+    /** Observe layout changes written by other parts of the app (e.g. the
+     *  settings screen) so the modifier bar can recompose live. */
+    fun registerLayoutListener(
+        listener: (List<ToolbarItem>) -> Unit,
+    ): SharedPreferences.OnSharedPreferenceChangeListener {
+        val changeListener =
+            SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+                if (key == "layout") listener(getLayout())
+            }
+        sharedPreferences.registerOnSharedPreferenceChangeListener(changeListener)
+        return changeListener
+    }
+
+    fun unregisterLayoutListener(listener: SharedPreferences.OnSharedPreferenceChangeListener) {
+        sharedPreferences.unregisterOnSharedPreferenceChangeListener(listener)
     }
 
     fun getLayout(): List<ToolbarItem> {

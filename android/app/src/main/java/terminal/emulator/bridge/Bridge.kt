@@ -14,6 +14,15 @@ sealed interface Shell {
     data class Custom(val path: String) : Shell
 }
 
+/** ARGB → linear RGB floats (0..1 per channel) for the JNI cursor-color
+ *  channel. The alpha byte is intentionally dropped (the renderer treats
+ *  the cursor as opaque). */
+internal fun argbToRgbFloats(argb: Int): FloatArray = floatArrayOf(
+    (argb shr 16 and 0xFF) / 255f,
+    (argb shr 8 and 0xFF) / 255f,
+    (argb and 0xFF) / 255f,
+)
+
 /**
  * Terminal theme expressed as ARGB ints for the native renderer.
  * Matches [terminal.emulator.ui.theme.TerminalTheme] conversion in makeBridgeTheme().
@@ -446,7 +455,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val selection: String = "",
     )
 
-    /** MCP `run_command` request dispatched from a poll event  D1). */
+    /** MCP `run_command` request dispatched from a poll event. */
     data class RunCommandRequest(
         val sessionId: Long,
         val requestId: Long,
@@ -628,6 +637,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     // Wired end-to-end: setTheme packs 54 bytes
     // (bg3 fg3 ansi48) for the native palette; OSC 10/11/4 color handling
     // lives in the terminal engine and is applied via the palette API.
+    // The cursor color rides a separate [setCursorColor] channel so the
+    // 54-byte layout stays stable (ffi.rs validates the exact length).
     fun setTheme(theme: BridgeTheme) {
         Log.d(TAG, "setTheme: ${theme.name}")
         if (sessionId == 0L) return
@@ -648,9 +659,22 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         ansi.forEachIndexed { i, c -> packColor(6 + i * 3, c) }
         try {
             NativeBridge.setTheme(sessionId, data)
+            setCursorColor(theme.cursor)
         } catch (exception: RuntimeException) {
             // Race: session destroyed between the check and the call.
             Log.d(TAG, "setTheme: session $sessionId already destroyed, dropping")
+        }
+    }
+
+    /** App-level cursor color override, applied on top of the theme's own
+     *  cursor color. */
+    fun setCursorColor(argb: Int) {
+        if (sessionId == 0L) return
+        try {
+            val rgb = argbToRgbFloats(argb)
+            NativeBridge.setCursorColor(sessionId, rgb[0], rgb[1], rgb[2])
+        } catch (exception: RuntimeException) {
+            Log.d(TAG, "setCursorColor: session $sessionId already destroyed, dropping")
         }
     }
 
