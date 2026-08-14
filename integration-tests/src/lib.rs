@@ -320,7 +320,7 @@ mod config_driven_session {
     }
 
     #[test]
-    fn ghostty_resize_no_crash() {
+    fn ghostty_resize_terminal_survives() {
         let mut t = GhosttyTerminal::new(10, 10, 0).unwrap();
         t.resize(50, 100);
         t.resize(1, 1);
