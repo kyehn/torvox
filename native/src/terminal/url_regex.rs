@@ -17,7 +17,9 @@ use std::sync::OnceLock;
 
 /// Scheme-only protocols with no `//` host part that linkify's URL scanner
 /// skips but terminal taps must still open (mail client, dialer, ...).
-const SCHEME_ONLY_PROTOCOLS: &[&str] = &["mailto", "tel", "sms", "callto"];
+/// `ipfs`/`ipns` are included for the colon form (`ipfs:<cid>`), which the
+/// previous hand-written regex also matched.
+const SCHEME_ONLY_PROTOCOLS: &[&str] = &["mailto", "tel", "sms", "callto", "ipfs", "ipns"];
 
 fn finder() -> LinkFinder {
     let mut finder = LinkFinder::new();
@@ -112,6 +114,15 @@ mod tests {
         assert_eq!(
             url_at_column("call tel:+1234567890 now", 6),
             Some("tel:+1234567890".to_string())
+        );
+        // ipfs/ipns colon form (no `//`) must keep matching — the old
+        // SCHEMES_COLON list covered it and taps must still open the CID.
+        assert_eq!(
+            url_at_column(
+                "get ipfs:QmTzQ1a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t now",
+                5
+            ),
+            Some("ipfs:QmTzQ1a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t".to_string())
         );
         assert_eq!(
             url_at_column("text sms:+1234567890 now", 6),

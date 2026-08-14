@@ -861,14 +861,44 @@ private fun RowScope.ExtraKeyButton(
                 isPressed = true
                 try {
                     var gestureValid = true
-                    var upConsumed = false
-                    // Keys with a secondary action wait LONG_PRESS_MS for a
-                    // long-press before falling back to the click path; keys
-                    // without one keep the original DWELL_GUARD_MS window so
-                    // auto-repeat latency is unchanged.
-                    val waitWindow = if (secondaryAction != null) LONG_PRESS_MS else DWELL_GUARD_MS
-                    val waitResult =
-                        withTimeoutOrNull(waitWindow) {
+                    if (secondaryAction != null) {
+                        // Keys with a secondary action (DRAWER → paste):
+                        // a quick tap fires onClick IMMEDIATELY (no
+                        // long-press confirmation window), while a
+                        // sustained press past LONG_PRESS_MS triggers
+                        // secondaryAction once. Mirrors Android's
+                        // onClick/onLongClick split.
+                        var longPressTriggered = false
+                        val downTime = System.currentTimeMillis()
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val ch = ev.changes.first()
+                            if (!ch.pressed) break
+                            if ((ch.position - downPos).getDistance() > slop) {
+                                gestureValid = false
+                                break
+                            }
+                            if (!longPressTriggered &&
+                                System.currentTimeMillis() - downTime >= LONG_PRESS_MS
+                            ) {
+                                longPressTriggered = true
+                                view.performHapticFeedback(
+                                    android.view.HapticFeedbackConstants.LONG_PRESS,
+                                )
+                                secondaryAction()
+                            }
+                        }
+                        if (!longPressTriggered && gestureValid && enabled) {
+                            view.performHapticFeedback(
+                                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                            )
+                            onClick()
+                        }
+                    } else {
+                        // No secondary action: keep the DWELL_GUARD_MS
+                        // window so auto-repeat latency is unchanged.
+                        var upConsumed = false
+                        withTimeoutOrNull(DWELL_GUARD_MS) {
                             while (true) {
                                 val ev = awaitPointerEvent()
                                 val ch = ev.changes.first()
@@ -883,16 +913,7 @@ private fun RowScope.ExtraKeyButton(
                             }
                             false
                         }
-                    val longPressTriggered =
-                        secondaryAction != null && gestureValid && !upConsumed && waitResult == null
-                    if (longPressTriggered) {
-                        view.performHapticFeedback(
-                            android.view.HapticFeedbackConstants.LONG_PRESS,
-                        )
-                        secondaryAction()
-                        waitForUpOrCancellation()
-                    } else if (gestureValid) {
-                        if (enabled) {
+                        if (gestureValid && enabled) {
                             view.performHapticFeedback(
                                 android.view.HapticFeedbackConstants.KEYBOARD_TAP,
                             )
