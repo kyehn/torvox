@@ -166,7 +166,7 @@ not bundled as binary blobs in git.
 - ❌ **Banned**: Any `.ttf`, `.otf`, `.woff`, `.woff2`, or `.eot` file in any
   directory of the repository
 
-### Enforcement
+### Enforcement (Docs)
 
 - `*.ttf`, `*.otf`, `*.woff`, `*.woff2`, `*.eot` are in `.gitignore`.
 - CI has no local font file dependency — all fonts come from the Nix store.

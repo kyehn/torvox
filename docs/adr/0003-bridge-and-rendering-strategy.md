@@ -16,7 +16,7 @@ The original torvox used **boltffi** (a multi-language FFI binding generator)
 to serialize the entire terminal grid as a wire format and pass it to Kotlin
 via JNA. This created a heavy data path:
 
-```
+```text
 Ghostty C → Rust GridSnapshot → boltffi wire_encode → [u8] →
 JNA → Kotlin WireReader deserialize → Kotlin data class → Compose TreeUI
 ```
@@ -43,7 +43,7 @@ through direct JNI.**
 
 ### Data path
 
-```
+```text
 Ghostty C → CellIterator → flat bytemuck CellData[]
 → queue.write_buffer() → render_pass.draw(0..4, 0..instances) → surface.present()
 ```
@@ -71,11 +71,13 @@ No grid data crosses the FFI boundary. Kotlin interacts only via:
 ## Alternatives Considered
 
 ### JNI flat int[] array (ghostty-android-terminal pattern)
+
 - **Rejected**: Slightly simpler than boltffi but still sends grid data to
   Kotlin. If Kotlin doesn't need grid data (GPU renders in Rust), there's no
   reason to send it.
 
 ### UniFFI
+
 - **Rejected**: ~625 ns/call overhead × 1,920 cells ≈ 1.2 ms/frame just for
   FFI. Intolerable for 60 fps rendering. UniFFI is designed for occasional
   API calls, not real-time data.

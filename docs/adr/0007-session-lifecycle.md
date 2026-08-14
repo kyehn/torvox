@@ -13,6 +13,7 @@ FR-03, FR-04, NFR-03
 ## Context
 
 Android's Activity lifecycle requires the app to handle:
+
 - **Activity recreation** (screen rotation, config change): Surface destroyed
   and recreated. The old `ANativeWindow` pointer becomes invalid.
 - **Process death**: The OS can kill the app process. All Rust state and PTY
@@ -48,7 +49,7 @@ Terminal, and the render loop are all Rust-managed.
 
 ### Lifecycle protocol (Kotlin ↔ Rust)
 
-```
+```text
 Activity.onResume():
   Kotlin: attachWindow(ANativeWindow*) → JNI
   Rust: create wgpu::Surface from ANativeWindow
@@ -75,7 +76,7 @@ Process death + recovery:
 Each session is identified by a `u64` handle returned from
 `createSession()`:
 
-```
+```text
 createSession() → u64  (Rust allocates SessionThread + PTY)
 destroySession(u64)     (Rust cleanup)
 switchSession(u64)      (RenderThread switches active surface)
@@ -92,11 +93,13 @@ switchSession(u64)      (RenderThread switches active surface)
 ## Alternatives Considered
 
 ### Session in Kotlin side
+
 - **Rejected**: Since GPU rendering is in Rust, the rendering thread needs
   the session to produce cell data. Splitting session management across
   the JNI boundary adds complexity without benefit.
 
 ### Keep session alive across Activity destroy (foreground service)
+
 - **Deferred**: This is a future concern when torvox needs multi-tasking.
   For v1, sessions survive rotation/configuration changes (Activity
   recreation) but not process death. A foreground service can be added

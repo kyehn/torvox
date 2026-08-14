@@ -1,0 +1,14 @@
+extends: existence
+message: "Legacy/removed name '%s' — use only in historical context, prefer current name."
+ignorecase: false
+level: suggestion
+tokens:
+  - terminal-core
+  - terminal-engine
+  - gpu-renderer
+  - mcp-server
+  - boltffi
+  - rkyv
+  - JNA
+  - rust-android-gradle
+  - portable-pty
