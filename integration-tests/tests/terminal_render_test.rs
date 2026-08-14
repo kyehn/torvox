@@ -728,7 +728,7 @@ fn auto_scroll_visible_when_filling_terminal() {
 // ========== OSC 133 Shell Integration ==========
 
 #[test]
-fn osc133_prompt_marking_no_crash() {
+fn osc133_prompt_marking_terminal_survives() {
     // OSC 133 sequences (FinalTerm protocol) should not cause errors or visible artifacts
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
     terminal.vt_write(b"\x1b]133;A\x07"); // prompt start
@@ -814,7 +814,7 @@ fn cjk_double_width_grid_correctness() {
 // ========== Kitty Graphics Protocol (grid-level) ==========
 
 #[test]
-fn kitty_image_apc_sequence_no_crash() {
+fn kitty_image_apc_sequence_terminal_survives() {
     // Kitty graphics protocol uses APC sequences: \x1b_G...\x1b\
     // At minimum, the sequence shouldn't crash the terminal
     let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
