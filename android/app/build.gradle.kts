@@ -312,6 +312,16 @@ val excludedUnitTests =
     listOf<String>()
 
 // Register pitest tasks for debug-only Android build variants
+//
+// KNOWN ISSUE: the PIT minion JVM cannot resolve androidx
+// framework classes (ComponentActivity, lifecycle-viewmodel, Compose
+// Modifier) from the AGP unit-test runtime classpath, so pitestDebug
+// fails during class transformation. Migrating to the PIT Gradle plugin
+// (org.pitest:gradle) or passing `--classPathFile` with the resolved
+// runtime classpath are the two candidate fixes; until then the task is
+// a manual diagnostic tool, not part of CI.
+val androidSdkDir: java.io.File =
+    File(System.getenv("ANDROID_HOME") ?: error("ANDROID_HOME must be set for pitest"))
 androidComponents {
     onVariants { variant ->
         if (!variant.name.contains("debug", ignoreCase = true)) {
@@ -328,7 +338,12 @@ androidComponents {
             classpath = pitestClasspath + runtime.get() +
                 files(
                     compileOutput.map { (it as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory },
-                )
+                ) +
+                // android.jar stubs: Robolectric unit tests run against the
+                // android-all jar (which shadows these), but PIT's mutation
+                // engine loads classes directly and needs the framework
+                // stubs on the classpath.
+                files(File(androidSdkDir, "platforms/android-34/android.jar"))
 
             mainClass.set("org.pitest.mutationtest.commandline.MutationCoverageReport")
 
