@@ -8,7 +8,7 @@ use libghostty_vt::style::{PaletteIndex, StyleColor};
 use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate};
 use libghostty_vt::{Terminal, TerminalOptions};
 
-use super::commands::{Command, RunConfig};
+use super::commands::{Command, Query, RunConfig};
 use super::keymap::map_android_key_code;
 use super::types::*;
 use flume::Sender;
@@ -95,61 +95,65 @@ pub(crate) fn snapshot_needs_rebuild(
 // ── impl GhosttyTerminal ──────────────────────────────────────
 impl super::GhosttyTerminal {
     pub(crate) fn process_query(
-        query: Command,
+        query: Query,
         terminal: &mut Terminal,
         alt_screen_active: &Arc<AtomicBool>,
+        encoder: &mut Option<key::Encoder>,
+        event: &mut Option<key::Event>,
+        mouse_encoder: &mut Option<mouse::Encoder>,
+        mouse_event: &mut Option<mouse::Event>,
     ) {
         match query {
-            Command::Rows(tx) => {
+            Query::Rows(tx) => {
                 if let Err(error) =
                     tx.send(terminal.rows().unwrap_or(DISCONNECTED_ROWS as u16) as u32)
                 {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
-            Command::Cols(tx) => {
+            Query::Cols(tx) => {
                 if let Err(error) =
                     tx.send(terminal.cols().unwrap_or(DISCONNECTED_COLS as u16) as u32)
                 {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
-            Command::CursorX(tx) => {
+            Query::CursorX(tx) => {
                 if let Err(error) =
                     tx.send(terminal.cursor_x().unwrap_or(DISCONNECTED_CURSOR_X as u16) as u32)
                 {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
-            Command::CursorY(tx) => {
+            Query::CursorY(tx) => {
                 if let Err(error) =
                     tx.send(terminal.cursor_y().unwrap_or(DISCONNECTED_CURSOR_Y as u16) as u32)
                 {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
-            Command::CursorVisible(tx) => {
+            Query::CursorVisible(tx) => {
                 try_send(
                     &tx,
                     terminal.is_cursor_visible().unwrap_or(true),
                     "query channel send failed",
                 );
             }
-            Command::OriginMode(tx) => {
+            Query::OriginMode(tx) => {
                 if let Err(error) =
                     tx.send(terminal.mode(Mode::new(6, ModeKind::Dec)).unwrap_or(false))
                 {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
-            Command::Autowrap(tx) => {
+            Query::Autowrap(tx) => {
                 if let Err(error) =
                     tx.send(terminal.mode(Mode::new(7, ModeKind::Dec)).unwrap_or(false))
                 {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
-            Command::AltScreen(tx) => {
+            Query::AltScreen(tx) => {
                 let is_alt = terminal
                     .active_screen()
                     .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate);
@@ -160,21 +164,21 @@ impl super::GhosttyTerminal {
                 alt_screen_active.store(is_alt, Ordering::Release);
                 try_send(&tx, is_alt, "ghostty_terminal: query channel send failed");
             }
-            Command::Title(tx) => {
+            Query::Title(tx) => {
                 try_send(
                     &tx,
                     terminal.title().unwrap_or("").to_string(),
                     "query channel send failed",
                 );
             }
-            Command::Cwd(tx) => {
+            Query::Cwd(tx) => {
                 if let Err(error) =
                     tx.send(terminal.pwd().map(|p| p.to_string()).unwrap_or_default())
                 {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
-            Command::ModeGet(num, kind, tx) => {
+            Query::ModeGet(num, kind, tx) => {
                 let mode_kind = match kind {
                     0 => ModeKind::Dec,
                     _ => ModeKind::Ansi,
@@ -185,19 +189,19 @@ impl super::GhosttyTerminal {
                     log::error!("ghostty_terminal: query channel send failed: {error}");
                 }
             }
-            Command::ScrollbackLength(tx) => {
+            Query::ScrollbackLength(tx) => {
                 let len = terminal.scrollback_rows().unwrap_or(0) as u32;
                 log::debug!("ghostty_terminal: scrollback_rows query returned {len}");
                 try_send(&tx, len, "ghostty_terminal: query channel send failed");
             }
-            Command::ReadLineText { row, tx } => {
+            Query::ReadLineText { row, tx } => {
                 try_send(
                     &tx,
                     Self::read_line_text_impl(terminal, row),
                     "query channel send failed",
                 );
             }
-            Command::ReadVisibleText(tx) => {
+            Query::ReadVisibleText(tx) => {
                 let rows = terminal.rows().unwrap_or(24) as u32;
                 let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
                 let mut text = String::new();
@@ -210,7 +214,7 @@ impl super::GhosttyTerminal {
                 }
                 try_send(&tx, text, "ghostty_terminal: query channel send failed");
             }
-            Command::SelectionText {
+            Query::SelectionText {
                 start,
                 end,
                 rectangle,
@@ -224,11 +228,193 @@ impl super::GhosttyTerminal {
                 let text = Self::selection_text_impl(terminal, start, end, rectangle);
                 try_send(&tx, text, "selection text response send failed");
             }
-            Command::HyperlinkAt { row, col, tx } => {
+            Query::HyperlinkAt { row, col, tx } => {
                 let url = Self::hyperlink_at_impl(terminal, row, col);
                 try_send(&tx, url, "hyperlink_at response send failed");
             }
-            _ => {}
+            Query::SearchInScrollback { query, tx } => {
+                let result = Self::search_in_scrollback_impl(terminal, &query);
+                try_send(&tx, result, "ghostty_terminal: query channel send failed");
+            }
+            Query::SearchInScrollbackAll {
+                query,
+                case_sensitive,
+                fuzzy,
+                tx,
+            } => {
+                let results =
+                    Self::search_in_scrollback_all_impl(terminal, &query, case_sensitive, fuzzy);
+                try_send(&tx, results, "ghostty_terminal: query channel send failed");
+            }
+            Query::DumpGrid { tx } => {
+                let dumped = Self::build_dumped_grid(terminal);
+                try_send(&tx, dumped, "ghostty_terminal: query channel send failed");
+            }
+            Query::TakeKittyGraphicsImage { id, tx } => {
+                let kitty_graphics_data = (|| -> Option<KittyGraphicsImageData> {
+                    let graphics = terminal.kitty_graphics().ok()?;
+                    let image = graphics.image(id)?;
+                    let width = image.width().ok()?;
+                    let height = image.height().ok()?;
+                    let data = image.data().ok()?;
+                    Some(KittyGraphicsImageData {
+                        id,
+                        width,
+                        height,
+                        data: data.to_vec(),
+                    })
+                })();
+                try_send(
+                    &tx,
+                    kitty_graphics_data,
+                    "ghostty_terminal: query channel send failed",
+                );
+            }
+            Query::KeyEncode {
+                key_code,
+                modifiers,
+                action,
+                unicode_char,
+                unshifted_char,
+                tx,
+            } => {
+                let (encoder, event) = match (encoder.as_mut(), event.as_mut()) {
+                    (Some(enc), Some(evt)) => (enc, evt),
+                    _ => {
+                        log::warn!(
+                            "ghostty_terminal: key encoder/event unavailable — dropping key"
+                        );
+                        let _ = tx.send(Vec::new());
+                        return;
+                    }
+                };
+
+                let ghostty_key = map_android_key_code(key_code);
+                let mods = Mods::from_bits_retain(modifiers);
+                let encoder_action = match action {
+                    1 => key::Action::Release,
+                    2 => key::Action::Repeat,
+                    _ => key::Action::Press,
+                };
+
+                encoder.set_options_from_terminal(terminal);
+                event.set_action(encoder_action);
+                event.set_key(ghostty_key);
+                event.set_consumed_mods(Mods::empty());
+                // Clear text state left over from the previous keystroke.
+                event.set_utf8(None::<&str>);
+                event.set_unshifted_codepoint('\0');
+
+                // Per libghostty-vt key/event.h:
+                // - `utf8` is the produced text WITHOUT Ctrl/Alt
+                //   transformations. C0 control characters
+                //   (U+0000..U+001F, U+007F) must NOT be passed; pass NULL
+                //   so the encoder uses the logical key instead.
+                // - `unshifted_codepoint` is the base key with NO modifiers.
+                // The Kotlin bridge supplies `unshifted_char`; when absent we
+                // fall back to `unicode_char` for both fields.
+                let is_c0 = unicode_char <= 0x1F || unicode_char == 0x7F;
+                if !is_c0 {
+                    if let Some(character) = char::from_u32(unicode_char) {
+                        let mut utf8_buf = [0u8; 4];
+                        event.set_utf8(Some(character.encode_utf8(&mut utf8_buf)));
+                    }
+                    let unshifted_cp = char::from_u32(if unshifted_char > 0 {
+                        unshifted_char
+                    } else {
+                        unicode_char
+                    });
+                    if let Some(cp) = unshifted_cp {
+                        event.set_unshifted_codepoint(cp);
+                    }
+                    // RK2: when SHIFT only changed the printed character
+                    // (e.g. Shift+; ->:), strip SHIFT so the Kitty
+                    // keyboard protocol does not emit a spurious
+                    // `\033[59;2u` for plain printable input. Requires the
+                    // unshifted codepoint to detect the shift-only change.
+                    let final_mods = if mods.contains(Mods::SHIFT)
+                        && unshifted_char > 0
+                        && unicode_char != unshifted_char
+                    {
+                        mods & !Mods::SHIFT
+                    } else {
+                        mods
+                    };
+                    event.set_mods(final_mods);
+                } else {
+                    event.set_mods(mods);
+                }
+
+                let mut response = Vec::new();
+                if let Err(error) = encoder.encode_to_vec(event, &mut response) {
+                    log::warn!("ghostty_terminal: encoder.encode_to_vec failed: {error}");
+                }
+                try_send(&tx, response, "key_encode response send failed");
+            }
+            Query::EncodeMouseEvent {
+                position,
+                action,
+                button,
+                cell_w,
+                cell_h,
+                tx,
+            } => {
+                // Reference: zelland src-tauri/src/terminal.rs
+                // `encode_mouse_event` — uses the Ghostty mouse encoder
+                // with the renderer's live cell size, and drops the
+                // event when mouse reporting is off. The encoder takes
+                // options from the terminal (tracking mode + format) so
+                // SGR/X10/UTF-8 output follows the application's
+                // DECSET selection.
+                let (mouse_encoder, mouse_event) = match (
+                    mouse_encoder.as_mut(),
+                    mouse_event.as_mut(),
+                ) {
+                    (Some(enc), Some(evt)) => (enc, evt),
+                    _ => {
+                        log::warn!(
+                            "ghostty_terminal: mouse encoder/event unavailable — dropping mouse event"
+                        );
+                        let _ = tx.send(Vec::new());
+                        return;
+                    }
+                };
+                mouse_encoder.set_options_from_terminal(terminal);
+                let cols = terminal.cols().unwrap_or(80) as u32;
+                let rows = terminal.rows().unwrap_or(24) as u32;
+                let size = mouse::EncoderSize {
+                    screen_width: cols.saturating_mul(cell_w.max(1.0) as u32),
+                    screen_height: rows.saturating_mul(cell_h.max(1.0) as u32),
+                    cell_width: cell_w.max(1.0) as u32,
+                    cell_height: cell_h.max(1.0) as u32,
+                    padding_top: 0,
+                    padding_bottom: 0,
+                    padding_right: 0,
+                    padding_left: 0,
+                };
+                mouse_encoder.set_size(size);
+                mouse_event.set_position(mouse::Position {
+                    x: position.0,
+                    y: position.1,
+                });
+                mouse_event.set_action(match action {
+                    1 => mouse::Action::Release,
+                    2 => mouse::Action::Motion,
+                    _ => mouse::Action::Press,
+                });
+                mouse_event.set_button(match button {
+                    1 => Some(mouse::Button::Right),
+                    2 => Some(mouse::Button::Middle),
+                    3 => Some(mouse::Button::Four),
+                    4 => Some(mouse::Button::Five),
+                    _ => Some(mouse::Button::Left),
+                });
+                let mut response = Vec::new();
+                if let Err(error) = mouse_encoder.encode_to_vec(mouse_event, &mut response) {
+                    log::warn!("ghostty_terminal: mouse encode failed: {error}");
+                }
+                try_send(&tx, response, "mouse encode response send failed");
+            }
         }
     }
 
@@ -400,21 +586,25 @@ impl super::GhosttyTerminal {
                     // No bounded commands pending — drain query channel so
                     // queries sent between commands don't wait indefinitely.
                     while let Ok(query) = query_receiver.try_recv() {
-                        Self::process_query(query, &mut terminal, &config.alt_screen_active);
+                        Self::process_query(
+                            query,
+                            &mut terminal,
+                            &config.alt_screen_active,
+                            &mut encoder,
+                            &mut event,
+                            &mut mouse_encoder,
+                            &mut mouse_event,
+                        );
                     }
                     // ── Auto-push CellData (also sent on each state change above) ──
-                    #[allow(clippy::collapsible_if)]
-                    if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(
-                            &terminal,
-                            default_fg,
-                            default_bg,
-                            &mut row_cache,
-                            &config.alt_screen_active,
-                        )
-                    {
-                        let _ = tx.try_send(data);
-                    }
+                    Self::push_cell_data(
+                        config.cell_data_tx.as_ref(),
+                        &config.alt_screen_active,
+                        &terminal,
+                        default_fg,
+                        default_bg,
+                        &mut row_cache,
+                    );
                     continue;
                 }
                 Err(flume::RecvTimeoutError::Disconnected) => break,
@@ -426,18 +616,14 @@ impl super::GhosttyTerminal {
                 Command::Write(data) => {
                     terminal.vt_write(&data);
                     grid_dirty = true;
-                    #[allow(clippy::collapsible_if)]
-                    if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(
-                            &terminal,
-                            default_fg,
-                            default_bg,
-                            &mut row_cache,
-                            &config.alt_screen_active,
-                        )
-                    {
-                        let _ = tx.try_send(data);
-                    }
+                    Self::push_cell_data(
+                        config.cell_data_tx.as_ref(),
+                        &config.alt_screen_active,
+                        &terminal,
+                        default_fg,
+                        default_bg,
+                        &mut row_cache,
+                    );
                 }
                 Command::FlushAck(tx) => {
                     try_send(&tx, (), "command channel send failed");
@@ -487,18 +673,14 @@ impl super::GhosttyTerminal {
                         let _ = terminal.set_default_color_palette(Some(palette));
                     }
                     grid_dirty = true;
-                    #[allow(clippy::collapsible_if)]
-                    if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(
-                            &terminal,
-                            default_fg,
-                            default_bg,
-                            &mut row_cache,
-                            &config.alt_screen_active,
-                        )
-                    {
-                        let _ = tx.try_send(data);
-                    }
+                    Self::push_cell_data(
+                        config.cell_data_tx.as_ref(),
+                        &config.alt_screen_active,
+                        &terminal,
+                        default_fg,
+                        default_bg,
+                        &mut row_cache,
+                    );
                 }
                 Command::Resize { rows, cols } => {
                     // Ghostty's C API takes u16 dimensions; reject out-of-
@@ -519,21 +701,14 @@ impl super::GhosttyTerminal {
                     // zelland row-cache pattern: row count changed on resize,
                     // the row cache is stale and must be invalidated.
                     row_cache.clear();
-                    // zelland row-cache pattern: row count changed on resize,
-                    // the row cache is stale and must be invalidated.
-                    row_cache.clear();
-                    #[allow(clippy::collapsible_if)]
-                    if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(
-                            &terminal,
-                            default_fg,
-                            default_bg,
-                            &mut row_cache,
-                            &config.alt_screen_active,
-                        )
-                    {
-                        let _ = tx.try_send(data);
-                    }
+                    Self::push_cell_data(
+                        config.cell_data_tx.as_ref(),
+                        &config.alt_screen_active,
+                        &terminal,
+                        default_fg,
+                        default_bg,
+                        &mut row_cache,
+                    );
                 }
                 Command::ScrollViewport(delta) => {
                     // C ABI returns void; viewport failures surface as a
@@ -543,17 +718,14 @@ impl super::GhosttyTerminal {
                     grid_dirty = true;
                     // Rebuild + repush CellData so the renderer draws the
                     // scrolled view immediately.
-                    if let Some(tx) = config.cell_data_tx.as_ref()
-                        && let Some(data) = Self::build_cell_data(
-                            &terminal,
-                            default_fg,
-                            default_bg,
-                            &mut row_cache,
-                            &config.alt_screen_active,
-                        )
-                    {
-                        let _ = tx.try_send(data);
-                    }
+                    Self::push_cell_data(
+                        config.cell_data_tx.as_ref(),
+                        &config.alt_screen_active,
+                        &terminal,
+                        default_fg,
+                        default_bg,
+                        &mut row_cache,
+                    );
                 }
                 Command::TakeSnapshot { tx, scroll_offset } => {
                     let needs_rebuild = snapshot_needs_rebuild(
@@ -597,266 +769,24 @@ impl super::GhosttyTerminal {
                         "ghostty_terminal: command channel send failed",
                     );
                 }
-                Command::ScrollbackLength(tx) => {
-                    try_send(
-                        &tx,
-                        terminal.scrollback_rows().unwrap_or(0) as u32,
-                        "command channel send failed",
-                    );
-                }
-                Command::ReadLineText { row, tx } => {
-                    let text = Self::read_line_text_impl(&terminal, row);
-                    try_send(&tx, text, "ghostty_terminal: command channel send failed");
-                }
-                Command::ReadVisibleText(tx) => {
-                    let rows = terminal.rows().unwrap_or(24) as u32;
-                    let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
-                    let mut text = String::new();
-                    for row in 0..rows {
-                        // read_line_text_impl expects an absolute row (history + viewport).
-                        if let Some(line) =
-                            Self::read_line_text_impl(&terminal, scrollback_rows + row)
-                        {
-                            text.push_str(&line);
-                            text.push('\n');
-                        }
-                    }
-                    try_send(&tx, text, "ghostty_terminal: command channel send failed");
-                }
-                Command::SearchInScrollback { query, tx } => {
-                    let result = Self::search_in_scrollback_impl(&terminal, &query);
-                    try_send(&tx, result, "ghostty_terminal: command channel send failed");
-                }
-                Command::SearchInScrollbackAll {
-                    query,
-                    case_sensitive,
-                    fuzzy,
-                    tx,
-                } => {
-                    let results = Self::search_in_scrollback_all_impl(
-                        &terminal,
-                        &query,
-                        case_sensitive,
-                        fuzzy,
-                    );
-                    try_send(
-                        &tx,
-                        results,
-                        "ghostty_terminal: command channel send failed",
-                    );
-                }
-                Command::DumpGrid { tx } => {
-                    let dumped = Self::build_dumped_grid(&terminal);
-                    try_send(&tx, dumped, "ghostty_terminal: command channel send failed");
-                }
-                Command::TakeKittyGraphicsImage { id, tx } => {
-                    let kitty_graphics_data = (|| -> Option<KittyGraphicsImageData> {
-                        let graphics = terminal.kitty_graphics().ok()?;
-                        let image = graphics.image(id)?;
-                        let width = image.width().ok()?;
-                        let height = image.height().ok()?;
-                        let data = image.data().ok()?;
-                        Some(KittyGraphicsImageData {
-                            id,
-                            width,
-                            height,
-                            data: data.to_vec(),
-                        })
-                    })();
-                    try_send(
-                        &tx,
-                        kitty_graphics_data,
-                        "ghostty_terminal: command channel send failed",
-                    );
-                }
-                Command::KeyEncode {
-                    key_code,
-                    modifiers,
-                    action,
-                    unicode_char,
-                    unshifted_char,
-                    tx,
-                } => {
-                    let (encoder, event) = match (encoder.as_mut(), event.as_mut()) {
-                        (Some(enc), Some(evt)) => (enc, evt),
-                        _ => {
-                            log::warn!(
-                                "ghostty_terminal: key encoder/event unavailable — dropping key"
-                            );
-                            let _ = tx.send(Vec::new());
-                            continue;
-                        }
-                    };
-
-                    let ghostty_key = map_android_key_code(key_code);
-                    let mods = Mods::from_bits_retain(modifiers);
-                    let encoder_action = match action {
-                        1 => key::Action::Release,
-                        2 => key::Action::Repeat,
-                        _ => key::Action::Press,
-                    };
-
-                    encoder.set_options_from_terminal(&terminal);
-                    event.set_action(encoder_action);
-                    event.set_key(ghostty_key);
-                    event.set_consumed_mods(Mods::empty());
-                    // Clear text state left over from the previous keystroke.
-                    event.set_utf8(None::<&str>);
-                    event.set_unshifted_codepoint('\0');
-
-                    // Per libghostty-vt key/event.h:
-                    // - `utf8` is the produced text WITHOUT Ctrl/Alt
-                    //   transformations. C0 control characters
-                    //   (U+0000..U+001F, U+007F) must NOT be passed; pass NULL
-                    //   so the encoder uses the logical key instead.
-                    // - `unshifted_codepoint` is the base key with NO modifiers.
-                    // The Kotlin bridge supplies `unshifted_char`; when absent we
-                    // fall back to `unicode_char` for both fields.
-                    let is_c0 = unicode_char <= 0x1F || unicode_char == 0x7F;
-                    if !is_c0 {
-                        if let Some(character) = char::from_u32(unicode_char) {
-                            let mut utf8_buf = [0u8; 4];
-                            event.set_utf8(Some(character.encode_utf8(&mut utf8_buf)));
-                        }
-                        let unshifted_cp = char::from_u32(if unshifted_char > 0 {
-                            unshifted_char
-                        } else {
-                            unicode_char
-                        });
-                        if let Some(cp) = unshifted_cp {
-                            event.set_unshifted_codepoint(cp);
-                        }
-                        // RK2: when SHIFT only changed the printed character
-                        // (e.g. Shift+; ->:), strip SHIFT so the Kitty
-                        // keyboard protocol does not emit a spurious
-                        // `\033[59;2u` for plain printable input. Requires the
-                        // unshifted codepoint to detect the shift-only change.
-                        let final_mods = if mods.contains(Mods::SHIFT)
-                            && unshifted_char > 0
-                            && unicode_char != unshifted_char
-                        {
-                            mods & !Mods::SHIFT
-                        } else {
-                            mods
-                        };
-                        event.set_mods(final_mods);
-                    } else {
-                        event.set_mods(mods);
-                    }
-
-                    let mut response = Vec::new();
-                    if let Err(error) = encoder.encode_to_vec(event, &mut response) {
-                        log::warn!("ghostty_terminal: encoder.encode_to_vec failed: {error}");
-                    }
-                    try_send(&tx, response, "key_encode response send failed");
-                }
-                Command::EncodeMouseEvent {
-                    position,
-                    action,
-                    button,
-                    cell_w,
-                    cell_h,
-                    tx,
-                } => {
-                    // Reference: zelland src-tauri/src/terminal.rs
-                    // `encode_mouse_event` — uses the Ghostty mouse encoder
-                    // with the renderer's live cell size, and drops the
-                    // event when mouse reporting is off. The encoder takes
-                    // options from the terminal (tracking mode + format) so
-                    // SGR/X10/UTF-8 output follows the application's
-                    // DECSET selection.
-                    let (mouse_encoder, mouse_event) = match (
-                        mouse_encoder.as_mut(),
-                        mouse_event.as_mut(),
-                    ) {
-                        (Some(enc), Some(evt)) => (enc, evt),
-                        _ => {
-                            log::warn!(
-                                "ghostty_terminal: mouse encoder/event unavailable — dropping mouse event"
-                            );
-                            let _ = tx.send(Vec::new());
-                            continue;
-                        }
-                    };
-                    mouse_encoder.set_options_from_terminal(&terminal);
-                    let cols = terminal.cols().unwrap_or(80) as u32;
-                    let rows = terminal.rows().unwrap_or(24) as u32;
-                    let size = mouse::EncoderSize {
-                        screen_width: cols.saturating_mul(cell_w.max(1.0) as u32),
-                        screen_height: rows.saturating_mul(cell_h.max(1.0) as u32),
-                        cell_width: cell_w.max(1.0) as u32,
-                        cell_height: cell_h.max(1.0) as u32,
-                        padding_top: 0,
-                        padding_bottom: 0,
-                        padding_right: 0,
-                        padding_left: 0,
-                    };
-                    mouse_encoder.set_size(size);
-                    mouse_event.set_position(mouse::Position {
-                        x: position.0,
-                        y: position.1,
-                    });
-                    mouse_event.set_action(match action {
-                        1 => mouse::Action::Release,
-                        2 => mouse::Action::Motion,
-                        _ => mouse::Action::Press,
-                    });
-                    mouse_event.set_button(match button {
-                        1 => Some(mouse::Button::Right),
-                        2 => Some(mouse::Button::Middle),
-                        3 => Some(mouse::Button::Four),
-                        4 => Some(mouse::Button::Five),
-                        _ => Some(mouse::Button::Left),
-                    });
-                    let mut response = Vec::new();
-                    if let Err(error) = mouse_encoder.encode_to_vec(mouse_event, &mut response) {
-                        log::warn!("ghostty_terminal: mouse encode failed: {error}");
-                    }
-                    try_send(&tx, response, "mouse encode response send failed");
-                }
-                // Query-only commands — never reach command_receiver in
-                // normal operation (they go via query_receiver), but we
-                // must still handle them for match exhaustiveness.
-                Command::Rows(_)
-                | Command::Cols(_)
-                | Command::CursorX(_)
-                | Command::CursorY(_)
-                | Command::CursorVisible(_)
-                | Command::OriginMode(_)
-                | Command::Autowrap(_)
-                | Command::AltScreen(_)
-                | Command::Title(_)
-                | Command::Cwd(_)
-                | Command::ModeGet(..)
-                | Command::SelectionText { .. }
-                | Command::HyperlinkAt { .. } => {
-                    log::warn!("ghostty_terminal: unexpected query on command channel, skipping");
-                }
                 Command::Terminate => break,
             }
             // After processing the bounded command, drain any pending queries
             // so they see the updated terminal state.
             while let Ok(query) = query_receiver.try_recv() {
-                Self::process_query(query, &mut terminal, &config.alt_screen_active);
+                Self::process_query(
+                    query,
+                    &mut terminal,
+                    &config.alt_screen_active,
+                    &mut encoder,
+                    &mut event,
+                    &mut mouse_encoder,
+                    &mut mouse_event,
+                );
             }
         }
     }
 
-    pub(crate) fn recv_or_fallback<T: core::fmt::Debug>(
-        rx: flume::Receiver<T>,
-        fallback: T,
-        method: &str,
-    ) -> T {
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(value) => value,
-            Err(_) => {
-                log::warn!(
-                    "ghostty_terminal: {method} timed out — returning fallback: {fallback:?}"
-                );
-                fallback
-            }
-        }
-    }
     pub(crate) fn apply_style_to_snapshot(
         data: &mut CellSnapshot,
         style: &libghostty_vt::style::Style,
@@ -1004,6 +934,31 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// Rebuild CellData from current terminal state and push it to the render
+    /// thread's channel (no-op when no consumer is attached). Single call
+    /// site for the frame-emission block shared by Write/SetTheme/Resize/
+    /// ScrollViewport.
+    fn push_cell_data(
+        cell_data_tx: Option<&Sender<(Vec<CellData>, CursorInfo)>>,
+        alt_screen_active: &Arc<AtomicBool>,
+        terminal: &Terminal,
+        default_fg: [f32; 4],
+        default_bg: [f32; 4],
+        row_cache: &mut Vec<Vec<CellData>>,
+    ) {
+        if let Some(tx) = cell_data_tx
+            && let Some(data) = Self::build_cell_data(
+                terminal,
+                default_fg,
+                default_bg,
+                row_cache,
+                alt_screen_active,
+            )
+        {
+            let _ = tx.try_send(data);
+        }
+    }
+
     /// Builds the full `CellData` grid for rendering, skipping clean rows.
     ///
     /// Reference: zelland src-tauri/src/renderer/mod.rs `draw_ghostty_state`
@@ -1021,7 +976,7 @@ impl super::GhosttyTerminal {
         alt_screen_active: &Arc<AtomicBool>,
     ) -> Option<(Vec<CellData>, CursorInfo)> {
         // Keep the lock-free alternate-screen mirror in sync on every frame
-        // the VT thread emits (not only when a `Command::AltScreen` query
+        // the VT thread emits (not only when a `Query::AltScreen` query
         // arrives — no production caller issues that query, so a query-only
         // update would leave the mirror stale at `false` forever). The
         // Android input path reads this mirror lock-free on every touch-scroll
@@ -1228,15 +1183,16 @@ impl super::GhosttyTerminal {
     /// 5=strikethrough, 6=overline, 7=dim, 8=double_underline
     /// Bits 4,9+ reserved for future use (not read by current shader).
     fn pack_style_flags(style: &libghostty_vt::style::Style) -> u32 {
+        use crate::terminal::ghostty_terminal::cell_flags;
         let mut flags = 0u32;
         if style.bold {
-            flags |= 1 << 0;
+            flags |= 1 << cell_flags::BOLD;
         }
         if style.italic {
-            flags |= 1 << 1;
+            flags |= 1 << cell_flags::ITALIC;
         }
         if style.inverse {
-            flags |= 1 << 2;
+            flags |= 1 << cell_flags::REVERSE;
         }
         if matches!(
             style.underline,
@@ -1246,19 +1202,19 @@ impl super::GhosttyTerminal {
                 | libghostty_vt::style::Underline::Dashed
                 | libghostty_vt::style::Underline::Dotted
         ) {
-            flags |= 1 << 3;
+            flags |= 1 << cell_flags::UNDERLINE;
         }
         if style.strikethrough {
-            flags |= 1 << 5;
+            flags |= 1 << cell_flags::STRIKETHROUGH;
         }
         if style.overline {
-            flags |= 1 << 6;
+            flags |= 1 << cell_flags::OVERLINE;
         }
         if style.faint {
-            flags |= 1 << 7;
+            flags |= 1 << cell_flags::FAINT;
         }
         if style.underline == libghostty_vt::style::Underline::Double {
-            flags |= 1 << 8;
+            flags |= 1 << cell_flags::DOUBLE_UNDERLINE;
         }
         flags
     }

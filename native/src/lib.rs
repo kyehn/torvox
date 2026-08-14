@@ -11,7 +11,7 @@
 //! | `mcp`     | tower-mcp, axum, tokio, schemars | Embed MCP server (dialog/pickfile/clipboard tools) | **on** (default) |
 //! | `test-util` | `mcp` + bytemuck | Enable test-only types (FlatGrid, SearchHighlight) | off |
 //!
-//! ```ignore
+//! ```text
 //! # Dev / CI (run tests with MCP support)
 //! cargo test --features test-util
 //!

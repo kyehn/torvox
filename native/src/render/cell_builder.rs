@@ -6,21 +6,10 @@ use crate::render::CellInstance;
 
 use crate::terminal::CursorStyle;
 use crate::terminal::SelectionMode;
+use crate::terminal::ghostty_terminal::cell_flags;
 
 use foldhash::fast::RandomState;
 use std::collections::HashMap;
-
-/// Bit position of reverse video (SGR 7) in CellData.flags.
-/// Must match the bit layout used by pack_style_flags() and shader/cell.wgsl.
-const REVERSE_BIT: u8 = 2;
-
-/// Bit position of bold (SGR 1) in CellData.flags — drives styled glyph
-/// lookup.
-const BOLD_BIT: u8 = 0;
-
-/// Bit position of italic (SGR 3) in CellData.flags — drives styled glyph
-/// lookup.
-const ITALIC_BIT: u8 = 1;
 
 /// Cursor state passed to build_instances_from_cell_data() for cursor rendering.
 #[derive(Debug, Clone, Copy, Default)]
@@ -451,7 +440,7 @@ fn append_row_instances(
         // Matches termux TerminalRenderer.java:182-187 (selection &
         // reverseVideo fold into the same fg/bg swap) and Ghostty's
         // renderer inverse-video handling.
-        if (cd.flags >> REVERSE_BIT) & 1 == 1 {
+        if (cd.flags >> cell_flags::REVERSE) & 1 == 1 {
             std::mem::swap(&mut fg_color, &mut bg_color);
         }
 
@@ -583,8 +572,8 @@ fn append_row_instances(
         // is visible over the glyph.
         // Primary glyph — styled when the cell carries bold/italic flags
         // same-family styled face preferred, else synthesis).
-        let cell_bold = (cd.flags >> BOLD_BIT) & 1 == 1;
-        let cell_italic = (cd.flags >> ITALIC_BIT) & 1 == 1;
+        let cell_bold = (cd.flags >> cell_flags::BOLD) & 1 == 1;
+        let cell_italic = (cd.flags >> cell_flags::ITALIC) & 1 == 1;
         if let Some(info) = font_pipeline.glyph_information_styled(ch, cell_bold, cell_italic) {
             let uv_x = info.atlas_x as f32 / atlas_width;
             let uv_y = info.atlas_y as f32 / atlas_height;
@@ -780,7 +769,7 @@ mod tests {
             'A',
             [1.0, 0.0, 0.0, 1.0],
             [0.0, 0.0, 1.0, 1.0],
-            1 << REVERSE_BIT,
+            1 << cell_flags::REVERSE,
         )];
         let instances = build(&cells, CellCursor::default(), None, &[]);
         assert_eq!(instances[0].fg_color, [0.0, 0.0, 1.0, 1.0]);
