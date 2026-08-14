@@ -27,8 +27,6 @@ decid = "decid"
 Secon = "Secon"
 Thir = "Thir"
 logcat = "logcat"
-# docs/reference/ research notes: project names, code identifiers, and
-# British spellings that typos misreports.
 rin = "rin"
 Rin = "Rin"
 LOD = "LOD"
