@@ -116,7 +116,7 @@ boundaries.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | Scroll up/down within a DECSTBM region scrolls only the specified lines | `cargo test --package native -- decstbm_preserves_outside` ([test source](../native/src/terminal/vt_conformance.rs)) |
-| 2 | Insert/delete lines shift content as expected with configurable boundaries | `cargo test --package native -- delete_insert_lines_no_crash` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 2 | Insert/delete lines shift content as expected with configurable boundaries | `cargo test --package native -- delete_insert_lines_terminal_survives` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 
 ### FR-008: Tab Stops
 
@@ -249,7 +249,7 @@ rendering inline images as textured quads.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | KGP sequences (`_Gi`) produce textured quads in the instance buffer | `cargo test --package native -- kitty_image_apc_sequence_no_crash` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | KGP sequences (`_Gi`) are consumed without corrupting the grid | `cargo test --package native -- apc_consumed_silently` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 | 2 | KGP images are rendered at the correct cell-aligned position and size | Deferred: KGP (kitty graphics) support removed; requirement stale |
 | 3 | KGP images are stored with bounded memory and rendered via the dedicated KGP pass | Code review: `native/src/terminal/ghostty_terminal/internal.rs` — `set_kitty_image_storage_limit`; `native/src/render/pass.rs` — KGP instance buffer and render pass |
 

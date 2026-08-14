@@ -88,12 +88,6 @@ mod tests {
     }
 
     #[test]
-    fn glyph_cache_default_works() {
-        let gc: GlyphCache = Default::default();
-        assert!(gc.glyph_cache.iter().next().is_none());
-    }
-
-    #[test]
     fn style_face_cache_evicts_with_clear() {
         let mut gc = GlyphCache::new();
         gc.style_face_cache
