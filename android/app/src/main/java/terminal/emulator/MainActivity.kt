@@ -59,7 +59,7 @@ class MainActivity : ComponentActivity() {
 
         /**
          * Test-only extra: install a bootstrap zip from a local path
-         * (used by NixBootstrapInstrumentedTest — the instrumentation
+         * used by NixBootstrapInstrumentedTest — the instrumentation
          * process cannot write the app filesDir, SELinux app_data
          * category). Mirrors the INSTALL_BOOTSTRAP broadcast backdoor.
          */
@@ -84,14 +84,14 @@ class MainActivity : ComponentActivity() {
     // order. ActivityResult delivers exactly one callback per launch, in
     // order, so the queue head identifies the request being answered. A
     // single-slot key would misanswer the FIRST request when a second
-    // launch happens before the first result returns . Only
+    // launch happens before the first result returns. Only
     // touched on the main thread.
     private val pendingPickFileLaunchKeys = kotlin.collections.ArrayDeque<Pair<Long, Long>>()
 
     // The key of the picker currently on screen, if any. Guards against a
     // stale ActivityResult callback from a previous activity instance
     // consuming a new request's key after a configuration change
-    // . Main thread only.
+    // Main thread only.
     private var inFlightPickFileKey: Pair<Long, Long>? = null
 
     // A dialog currently shown by wireMcpRequestHandlers. The dialog event
@@ -100,7 +100,7 @@ class MainActivity : ComponentActivity() {
     // hang forever — onDestroy replies with an empty result.
     private var pendingDialogRequest: Pair<Long, Long>? = null
 
-    // P2-14: the visible AlertDialog instance, held so a native
+    // the visible AlertDialog instance, held so a native
     // MCP timeout (DialogCancel event) can dismiss it.
     private var activeDialog: android.app.AlertDialog? = null
 
@@ -214,7 +214,7 @@ class MainActivity : ComponentActivity() {
             terminal.emulator.service.TerminalForegroundService
                 .start(this)
         } catch (serviceException: Exception) {
-            // Defensive : a ROM SecurityException or similar must
+            // Defensive: a ROM SecurityException or similar must
             // not crash onCreate. A live session created later starts the
             // service itself via the runtime's guarded path.
             LogUtil.e("MainActivity", "Failed to start foreground service in onCreate", serviceException)
@@ -222,7 +222,7 @@ class MainActivity : ComponentActivity() {
         // Note: TerminalForegroundService.start() (static) unconditionally
         // starts the service (which acquires a PARTIAL_WAKE_LOCK on start).
         // onDestroy routes through runtime.stopForegroundServiceIfIdle(),
-        // which stops it unconditionally (no flag gate, ) when no
+        // which stops it unconditionally (no flag gate) when no
         // session is running, so the wake lock is not held forever after
         // the user leaves the app.
         // Android 13+ requires the POST_NOTIFICATIONS runtime permission;
@@ -285,7 +285,7 @@ class MainActivity : ComponentActivity() {
      * [terminal.emulator.installer.BootstrapInstallService], which runs in
      * its own `:install` process: when the main process is an
      * instrumentation target it carries the TEST package's SELinux
-     * category and cannot write filesDir (, emulator-verified).
+     * category and cannot write filesDir, emulator-verified).
      * The service writes files/nix-install-result.txt on completion.
      */
     private fun installBootstrapFromPath(zipPath: String) {
@@ -373,7 +373,7 @@ class MainActivity : ComponentActivity() {
                         // concurrent pickers could cross their results. Only
                         // launch when the queue was empty (i.e. this is the
                         // only outstanding picker); the callback launches the
-                        // next one after answering .
+                        // next one after answering.
                         if (pendingPickFileLaunchKeys.size == 1) {
                             inFlightPickFileKey = Pair(sessionId, requestId)
                             pickFileLauncher.launch(mimeTypesForFilter(filter))
@@ -382,13 +382,13 @@ class MainActivity : ComponentActivity() {
                         pendingPickFileRequests.remove(Pair(sessionId, requestId))
                         // The queued key must not linger: a later callback
                         // would otherwise consume it and misanswer a live
-                        // request .
+                        // request.
                         pendingPickFileLaunchKeys.removeAll { it == Pair(sessionId, requestId) }
                         inFlightPickFileKey = null
                         Log.e(TAG, "MCP pick_file launch failed", exception)
                         terminal.emulator.bridge.NativeBridge.dialogResult(sessionId, requestId, "")
                         // Keep the serialization invariant: the next queued
-                        // request gets its picker .
+                        // request gets its picker.
                         launchNextQueuedPickFile()
                     }
                 }
@@ -399,7 +399,7 @@ class MainActivity : ComponentActivity() {
      * Convert an MCP file pattern to an Android MIME-type filter array.
      * Comma-separated patterns are split and each item mapped: items that
      * are already MIME types (`image/*`) pass through; glob patterns
-     * (`*.txt`) cannot be mapped reliably to MIME types, so they fall back
+     * `*.txt`) cannot be mapped reliably to MIME types, so they fall back
      * to the unfiltered picker (`*/*`).
      */
     private fun mimeTypesForFilter(filter: String): Array<String> {
@@ -433,7 +433,7 @@ class MainActivity : ComponentActivity() {
             // A stale callback from a PREVIOUS activity instance (picker
             // still up across a configuration change) would otherwise
             // consume a NEW request's key and cross-deliver the old
-            // selection .
+            // selection.
             if (key != inFlightPickFileKey) {
                 Log.w(TAG, "pick_file: stale ActivityResult callback ignored (key=$key, in-flight=$inFlightPickFileKey)")
                 inFlightPickFileKey = null
@@ -445,7 +445,7 @@ class MainActivity : ComponentActivity() {
             if (uri == null) {
                 // User cancelled: answer empty, then relay the next queued
                 // request — the serialization invariant requires a picker in
-                // flight whenever the queue is non-empty .
+                // flight whenever the queue is non-empty.
                 terminal.emulator.bridge.NativeBridge.dialogResult(sessionId, requestId, "")
                 launchNextQueuedPickFile()
                 return@registerForActivityResult
@@ -479,7 +479,7 @@ class MainActivity : ComponentActivity() {
     /**
      * Launch the next queued pick_file request, if any. Called after a
      * picker callback answers the current request, keeping launches
-     * serialized .
+     * serialized.
      */
     private fun launchNextQueuedPickFile() {
         val next = pendingPickFileLaunchKeys.firstOrNull() ?: return
@@ -522,7 +522,7 @@ class MainActivity : ComponentActivity() {
         // Answer every outstanding request (map is the authoritative set;
         // the queue only mirrors keys whose picker may still be up).
         // Empty replies so the native MCP call does not hang until the 300s
-        // request timeout .
+        // request timeout.
         pendingPickFileRequests.forEach { (key, _) ->
             try {
                 terminal.emulator.bridge.NativeBridge.dialogResult(key.first, key.second, "")

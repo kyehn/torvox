@@ -99,7 +99,7 @@ class LogUtilChunkingTest {
         )
     }
 
-    // ── T2 audit fix: UTF-8 byte budget (spec d2) ──────────────
+    // ──  audit fix: UTF-8 byte budget (spec d2) ──────────────
 
     @Test
     fun `cjk message chunks never exceed 4068 bytes`() {

@@ -28,7 +28,7 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
-@org.junit.Ignore("Requires the native data path: searchAllInScrollback is an implemented (native query path wired since ) (null results, no highlights drawn), so the pixel assertions fail or are vacuous ")
+@org.junit.Ignore("Requires the native data path: searchAllInScrollback is an implemented (native query path is wired) (null results, no highlights drawn), so the pixel assertions fail or are vacuous ")
 class TextSearchColorVerificationTest {
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()

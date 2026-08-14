@@ -120,7 +120,7 @@ object SmartCopy {
 
     /**
      * Whether a whitespace-free string looks like a *complete* URL token
-     * (scheme- or `www.`-prefixed, a dotted host, optional path/query).
+     * scheme- or `www.`-prefixed, a dotted host, optional path/query).
      */
     private val URL_TOKEN_RE =
         Regex(

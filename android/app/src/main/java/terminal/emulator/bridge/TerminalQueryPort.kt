@@ -3,7 +3,7 @@ package terminal.emulator.bridge
 /**
  * Kotlin-side query port for terminal content.
  *
- * ADR-0007 (surface integration) is implemented (rounds 202-205): the
+ * ADR-0007 (surface integration) is implemented: the
  * native query path exists and is backed by JNI. Instead of sprinkling
  * `?: ""` / try-catch defense across the UI, every caller depends on
  * this interface. The live implementation is [NativeQueryPort] (JNI);

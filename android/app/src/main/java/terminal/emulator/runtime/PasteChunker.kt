@@ -14,7 +14,7 @@ import android.util.Log
  * This is the single implementation used by both the view layer
  * ([terminal.emulator.ui.TerminalSurface]) and the view-model layer
  * ([terminal.emulator.TerminalViewModel]) — previously the identical
- * constants + loop existed twice (round: kotlin-architecture-deepening C2).
+ * constants + loop existed twice.
  */
 class PasteChunker(
     private val maxChars: Int = MAX_PASTE_CHARS,

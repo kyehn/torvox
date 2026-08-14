@@ -51,7 +51,7 @@ sealed class BootstrapProgress {
             if (totalScripts > 0) {
                 // Starts at 0.99 (range 0.99..1.0) so the bar never regresses
                 // from CreatingSymlinks (0.99); Complete (1.0) is the final
-                // step .
+                // step.
                 (scriptsCompleted.toFloat() / totalScripts) * 0.01f
             } else {
                 0f
