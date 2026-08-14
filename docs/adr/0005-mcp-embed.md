@@ -13,6 +13,7 @@ FR-06, NFR-05
 ## Context
 
 The original `mcp-server/` was a ~3.1 KLOC standalone Rust binary:
+
 - CLI argument parsing (`clap`)
 - JSON-RPC protocol implementation (serde + manual dispatch)
 - Three store modes (NoOp, Mock, Live)
@@ -56,11 +57,13 @@ pub async fn run_stdio() -> Result<()> { ... }
 ## Alternatives Considered
 
 ### Standalone server (status quo)
+
 - **Rejected**: 3.1 KLOC for what's effectively a PTY proxy. The standalone
   process would need IPC to access terminal state anyway, negating the
   architectural independence.
 
 ### Remove entirely
+
 - **Rejected**: AI integration is a stated differentiator for torvox
   (see AGENTS.md). Embedding keeps the capability while removing the cost.
 

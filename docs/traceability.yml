@@ -26,8 +26,8 @@ requirements:
   FR-001:
     description: "The system SHALL process VT/xterm escape sequences using the Ghostty parser (libghostty-vt)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
-      - "docs/architecture.md#2.1-crate-structure"
+      - "docs/architecture.md#52-module-responsibilities"
+      - "docs/architecture.md#51-crate-structure"
     api: []
     tests:
       - "native/src/terminal/ghostty_terminal/tests.rs"
@@ -38,7 +38,7 @@ requirements:
   FR-002:
     description: "The system SHALL maintain a terminal grid data model (GridSnapshot) consisting of rows of CellSnapshot, each with a character code, foreground/background color, and text attributes."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/types.rs"
     api: []
     tests:
@@ -49,7 +49,7 @@ requirements:
   FR-003:
     description: "The system SHALL support SGR (Select Graphic Rendition) parameters: bold, dim, italic, underline, double underline, blink, reverse, hidden, strikethrough, overline, and protected."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/sgr_parser.rs"
     api: []
     tests:
@@ -60,7 +60,7 @@ requirements:
   FR-004:
     description: "The system SHALL support 16 ANSI color palette indices plus 256-color and truecolor (24-bit RGB) foreground/background specifications."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/sgr_parser.rs"
     api: []
     tests:
@@ -71,7 +71,7 @@ requirements:
   FR-005:
     description: "The system SHALL support alternate screen buffer mode (SM/RM 1049) for full-screen applications (e.g., vim, less)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/commands.rs"
     api: []
     tests:
@@ -81,7 +81,7 @@ requirements:
   FR-006:
     description: "The system SHALL support cursor positioning and movement (CUU, CUD, CUF, CUB, CUP, HVP, etc.) and cursor style (block, bar, underline, beam) with visible/hidden state."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/cursor_cmds.rs"
       - "native/src/terminal/ghostty_terminal/types.rs"
     api: []
@@ -93,7 +93,7 @@ requirements:
   FR-007:
     description: "The system SHALL support scrolling regions (scroll_up, scroll_down, insert_lines, delete_lines) with configurable top/bottom boundaries."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/commands.rs"
     api: []
     tests:
@@ -104,7 +104,7 @@ requirements:
   FR-008:
     description: "The system SHALL support tab stops (set, clear, move)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/action_parser.rs"
     api: []
     tests:
@@ -114,7 +114,7 @@ requirements:
   FR-009:
     description: "The system SHALL report terminal size changes via SIGWINCH to the child process."
     design:
-      - "docs/architecture.md#4-thread-model"
+      - "docs/architecture.md#63-thread-model"
       - "native/src/terminal/session.rs"
     api: []
     tests:
@@ -128,8 +128,8 @@ requirements:
   FR-010:
     description: "The system SHALL render the terminal grid using wgpu (Vulkan) as the sole graphics backend. OpenGL and CPU software paths are not supported."
     design:
-      - "docs/architecture.md#2.1-crate-structure"
-      - "docs/architecture.md#5-key-design-decisions"
+      - "docs/architecture.md#51-crate-structure"
+      - "docs/architecture.md#9-architecture-decisions"
     api: []
     tests:
       - "native/src/render/tests.rs"
@@ -139,7 +139,7 @@ requirements:
   FR-011:
     description: "The system SHALL shape text runs using cosmic-text and rasterize glyphs using swash, caching results in a GPU atlas."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/font/shaping.rs"
       - "native/src/render/font/rasterization.rs"
     api: []
@@ -151,7 +151,7 @@ requirements:
   FR-012:
     description: "The system SHALL pack glyph bitmaps into a GPU texture atlas using guillotiere for dynamic rectangle allocation and eviction."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/font/atlas.rs"
       - "native/src/render/atlas.rs"
     api: []
@@ -162,7 +162,7 @@ requirements:
   FR-013:
     description: "The system SHALL maintain a dirty mask that tracks which rows of the grid have changed and limit rendering to those rows."
     design:
-      - "docs/architecture.md#3.1-render-path-fast-path-per-frame"
+      - "docs/architecture.md#61-render-path-fast-path"
       - "native/src/render/cell_builder.rs"
     api: []
     tests:
@@ -172,7 +172,7 @@ requirements:
   FR-014:
     description: "The system SHALL render a cell cursor (block, bar, underline, beam) with configurable color and blink behavior."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/cell_builder.rs"
     api: []
     tests:
@@ -182,7 +182,7 @@ requirements:
   FR-015:
     description: "The system SHALL render text selection highlights (character, word, line, block modes) as colored overlays on the affected cells."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/cell_builder.rs"
     api: []
     tests:
@@ -192,7 +192,7 @@ requirements:
   FR-016:
     description: "The system SHALL support font configuration: family, size, line spacing, and fallback to preferred monospace fonts (Roboto Mono, JetBrains Mono, etc.)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/font/font_db.rs"
     api: []
     tests:
@@ -202,7 +202,7 @@ requirements:
   FR-017:
     description: "The system SHALL render the terminal background, foreground, and 16-color ANSI palette from the active theme configuration."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/pipeline.rs"
       - "native/src/render/mod.rs"
     api: []
@@ -214,7 +214,7 @@ requirements:
   FR-018:
     description: "The system SHALL recover from GPU surface destruction (e.g., Android activity restart) by recreating the render pipeline and continuing without data loss."
     design:
-      - "docs/architecture.md#6-error-handling"
+      - "docs/architecture.md#81-error-handling"
       - "native/src/render/context.rs"
       - "native/src/android/ffi.rs"
     api: []
@@ -225,7 +225,7 @@ requirements:
   FR-019:
     description: "The system SHALL support the Kitty Graphics Protocol (KGP) for rendering inline images as textured quads."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/mod.rs"
     api: []
     tests:
@@ -239,7 +239,7 @@ requirements:
   FR-020:
     description: "The system SHALL encode physical keyboard input using the Kitty Keyboard Protocol (KBP) for extended modifier and key reporting."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/keymap.rs"
     api: []
     tests:
@@ -249,7 +249,7 @@ requirements:
   FR-021:
     description: "The system SHALL support IME (Input Method Editor) text input for composing CJK and other complex characters, with Composing state management."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/public_api.rs"
     api: []
     tests:
@@ -260,7 +260,7 @@ requirements:
   FR-022:
     description: "The system SHALL support terminal selection in four modes: character (Char), word (Word), line (Line), and block (Block)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/types.rs"
     api: []
     tests:
@@ -270,7 +270,7 @@ requirements:
   FR-023:
     description: "The system SHALL automatically expand word-mode selections to word boundaries and detect URLs (http://, https://, ftp://, www.) for URL-aware selection expansion."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/internal.rs"
     api: []
     tests:
@@ -280,7 +280,7 @@ requirements:
   FR-024:
     description: "The system SHALL support touch input gestures: tap to place cursor, long-press for selection handles, and swipe for scrollback navigation."
     design:
-      - "docs/architecture.md#2.1-crate-structure"
+      - "docs/architecture.md#51-crate-structure"
       - "native/src/render/context.rs"
     api: []
     tests:
@@ -290,7 +290,7 @@ requirements:
   FR-025:
     description: "The system SHALL support configurable backspace mode (DEL 0x7f or BS 0x08) and right-Alt mode (character modifier or meta)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/keymap.rs"
     api: []
     tests:
@@ -304,7 +304,7 @@ requirements:
   FR-026:
     description: "The system SHALL spawn a child process (shell or custom executable) connected to a pseudo-terminal (PTY) via fork/exec."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/pty.rs"
     api: []
     tests:
@@ -315,7 +315,7 @@ requirements:
   FR-027:
     description: "The system SHALL read PTY output on a dedicated reader thread and forward parsed output to the grid update pipeline via a flume channel."
     design:
-      - "docs/architecture.md#4-thread-model"
+      - "docs/architecture.md#63-thread-model"
       - "native/src/terminal/session.rs"
     api: []
     tests:
@@ -325,7 +325,7 @@ requirements:
   FR-028:
     description: "The system SHALL wait for child process exit on a dedicated waiter thread and emit a ProcessExited event on termination."
     design:
-      - "docs/architecture.md#4-thread-model"
+      - "docs/architecture.md#63-thread-model"
       - "native/src/terminal/session.rs"
     api: []
     tests:
@@ -335,7 +335,7 @@ requirements:
   FR-029:
     description: "The system SHALL support resizing a terminal session (changing rows and columns) and forwarding the new size to the child process via SIGWINCH."
     design:
-      - "docs/architecture.md#4-thread-model"
+      - "docs/architecture.md#63-thread-model"
       - "native/src/terminal/session.rs"
     api: []
     tests:
@@ -345,7 +345,7 @@ requirements:
   FR-030:
     description: "The system SHALL maintain a bounded scrollback buffer with a configurable maximum (default 50,000 lines), evicting oldest entries when the limit is exceeded."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/internal.rs"
     api: []
     tests:
@@ -355,7 +355,7 @@ requirements:
   FR-031:
     description: "The system SHALL support a scrollback search feature that finds text matching a pattern (regex or literal) within the scrollback history."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/public_api.rs"
     api: []
     tests:
@@ -366,7 +366,7 @@ requirements:
   FR-032:
     description: "The system SHALL clear the scrollback buffer when entering the alternate screen and restore it on exit."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/internal.rs"
     api: []
     tests:
@@ -380,7 +380,7 @@ requirements:
   FR-033:
     description: "The system SHALL intercept OSC 7 sequences (ESC ] 7 ; <uri> ST) and extract the current working directory path as a CwdEvent."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/osc_handler.rs"
     api: []
     tests:
@@ -390,7 +390,7 @@ requirements:
   FR-034:
     description: "The system SHALL intercept OSC 8 sequences (ESC ] 8 ; <params> ; <url> ST) and extract hyperlink open/close events as HyperlinkEvent."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/osc_handler.rs"
     api: []
     tests:
@@ -400,7 +400,7 @@ requirements:
   FR-035:
     description: "The system SHALL intercept OSC 52 sequences (ESC ] 52 ; <selection> ; <base64> ST) and decode clipboard content as a ClipboardEvent."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/osc_handler.rs"
     api: []
     tests:
@@ -410,7 +410,7 @@ requirements:
   FR-036:
     description: "The system SHALL intercept OSC 9 (iTerm2) and OSC 777 (rxvt) sequences and extract notification title/body as NotificationEvent."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/osc_handler.rs"
     api: []
     tests:
@@ -420,7 +420,7 @@ requirements:
   FR-037:
     description: "The system SHALL pass through unrecognised OSC sequences (e.g., OSC 0 for title, OSC 4 for palette change) to the VT parser unchanged."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/osc_handler.rs"
     api: []
     tests:
@@ -430,7 +430,7 @@ requirements:
   FR-038:
     description: "The system SHALL handle partial OSC sequences that arrive split across multiple input chunks, accumulating state across process() calls."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/osc_handler.rs"
     api: []
     tests:
@@ -444,7 +444,7 @@ requirements:
   FR-039:
     description: "The system SHALL copy selected text to the system clipboard on user request (e.g., copy action from selection)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/session.rs"
       - "native/src/android/ffi.rs"
     api: []
@@ -455,7 +455,7 @@ requirements:
   FR-040:
     description: "The system SHALL read clipboard content when requested by terminal applications via OSC 52 (paste)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/osc_handler.rs"
     api: []
     tests:
@@ -465,7 +465,7 @@ requirements:
   FR-041:
     description: "The system SHALL display Android notifications for terminal-emitted OSC 9/777 notification sequences."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/osc_handler.rs"
     api: []
     tests:
@@ -479,7 +479,7 @@ requirements:
   FR-042:
     description: "The system SHALL provide an executable (exec-bin) capable of establishing SSH and Mosh connections."
     design:
-      - "docs/architecture.md#2.1-crate-structure"
+      - "docs/architecture.md#51-crate-structure"
       - "exec-bin/src/main.rs"
     api: []
     tests:
@@ -489,7 +489,7 @@ requirements:
   FR-043:
     description: "The system SHALL integrate SSH/Mosh sessions with the terminal session lifecycle (PTY management, resize forwarding)."
     design:
-      - "docs/architecture.md#2.1-crate-structure"
+      - "docs/architecture.md#51-crate-structure"
       - "exec-bin/src/main.rs"
       - "native/src/terminal/session.rs"
     api: []
@@ -504,7 +504,7 @@ requirements:
   FR-044:
     description: "The system SHALL run an MCP (Model Context Protocol) server over a Unix domain socket, communicating via JSON-RPC 2.0 with newline-delimited JSON."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/mcp.rs"
     api: []
     tests:
@@ -514,7 +514,7 @@ requirements:
   FR-045:
     description: "The MCP server SHALL expose tools for listing sessions, reading grid state, reading scrollback, reading cursor position, and reading selected text."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/mcp.rs"
     api: []
     tests:
@@ -524,7 +524,7 @@ requirements:
   FR-046:
     description: "The MCP server SHALL expose tools for writing to the PTY, sending signals, resizing the terminal, and setting clipboard content (gated behind --mcp-allow-write)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/mcp.rs"
     api: []
     tests:
@@ -534,7 +534,7 @@ requirements:
   FR-047:
     description: "The MCP server SHALL expose a scrollback search tool that matches a regex pattern and returns matching line numbers, text, and column ranges."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/mcp.rs"
     api: []
     tests:
@@ -544,7 +544,7 @@ requirements:
   FR-048:
     description: "The MCP server SHALL expose an input queue mechanism that watches for a prompt pattern in scrollback and automatically injects queued text (AI agent automation)."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/mcp.rs"
     api: []
     tests:
@@ -576,7 +576,7 @@ requirements:
   FR-051:
     description: "The system SHALL support ProGuard/R8 obfuscation with -dontoptimize to preserve direct JNI function names."
     design:
-      - "docs/architecture.md#5-key-design-decisions"
+      - "docs/architecture.md#9-architecture-decisions"
     api: []
     tests:
       - "android/app/build.gradle.kts"
@@ -589,7 +589,7 @@ requirements:
   FR-052:
     description: "The system SHALL provide 16 built-in color themes: Catppuccin Mocha, Catppuccin Latte, Dracula+, Nord, Tokyo Night, Rose Pine, Gruvbox Dark, Gruvbox Light, Everforest Dark, One Dark, One Light, Monokai, Ayu Dark, Ayu Light, Kanagawa Wave, and Night Owl."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/public_api.rs"
     api: []
     tests:
@@ -599,7 +599,7 @@ requirements:
   FR-053:
     description: "The system SHALL support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/commands.rs"
       - "native/src/terminal/ghostty_terminal/internal.rs"
     api: []
@@ -610,7 +610,7 @@ requirements:
   FR-054:
     description: "The system SHALL support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via GhosttyTerminal configuration."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/public_api.rs"
     api: []
     tests:
@@ -708,8 +708,8 @@ requirements:
   NFR-001:
     description: "native crate SHALL contain zero unsafe blocks in the terminal module. The build MUST fail if cargo geiger --package native reports any unsafe usage."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
-      - "docs/architecture.md#6-error-handling"
+      - "docs/architecture.md#52-module-responsibilities"
+      - "docs/architecture.md#81-error-handling"
     api: []
     tests:
       - "integration-tests/tests/tool_lint.rs"
@@ -718,7 +718,7 @@ requirements:
   NFR-002:
     description: "All unsafe blocks in the codebase SHALL be preceded by a // SAFETY: comment explaining the invariants."
     design:
-      - "docs/architecture.md#6-error-handling"
+      - "docs/architecture.md#81-error-handling"
     api: []
     tests:
       - "integration-tests/tests/tool_lint.rs"
@@ -727,7 +727,7 @@ requirements:
   NFR-003:
     description: "The system SHALL not panic in error paths. Library functions SHALL return Result or Option rather than panicking."
     design:
-      - "docs/architecture.md#6-error-handling"
+      - "docs/architecture.md#81-error-handling"
     api: []
     tests:
       - "integration-tests/tests/tool_lint.rs"
@@ -736,7 +736,7 @@ requirements:
   NFR-004:
     description: "The system SHALL use thiserror 2 (not anyhow) for error types in library crates."
     design:
-      - "docs/architecture.md#6-error-handling"
+      - "docs/architecture.md#81-error-handling"
     api: []
     tests:
       - "integration-tests/tests/tool_lint.rs"
@@ -745,8 +745,8 @@ requirements:
   NFR-005:
     description: "The system SHALL handle thread panics gracefully: the PTY reader thread, process waiter thread, and render thread SHALL NOT bring down the entire process on panic."
     design:
-      - "docs/architecture.md#4-thread-model"
-      - "docs/architecture.md#6-error-handling"
+      - "docs/architecture.md#63-thread-model"
+      - "docs/architecture.md#81-error-handling"
       - "native/src/terminal/session.rs"
     api: []
     tests:
@@ -760,8 +760,8 @@ requirements:
   NFR-006:
     description: "The render thread SHALL use wgpu (Vulkan) for GPU-accelerated rendering. Software rendering via CPU text drawing (Canvas.drawText) is forbidden."
     design:
-      - "docs/architecture.md#5-key-design-decisions"
-      - "docs/architecture.md#2.1-crate-structure"
+      - "docs/architecture.md#9-architecture-decisions"
+      - "docs/architecture.md#51-crate-structure"
     api: []
     tests:
       - "native/src/render/tests.rs"
@@ -771,7 +771,7 @@ requirements:
   NFR-007:
     description: "The glyph atlas SHALL be managed by guillotiere with a cache capacity of at least 10,000 glyph entries and eviction when full."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/font/atlas.rs"
     api: []
     tests:
@@ -781,7 +781,7 @@ requirements:
   NFR-008:
     description: "The scrollback buffer SHALL be bounded to a configurable maximum (default 50,000 lines) with automatic eviction of oldest entries. SHALL NOT exhibit unbounded memory growth."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/terminal/ghostty_terminal/internal.rs"
     api: []
     tests:
@@ -791,7 +791,7 @@ requirements:
   NFR-009:
     description: "Each terminal session SHALL use a bounded number of threads (4 per session: PTY reader, input writer, process waiter, render thread) plus shared threads (MCP listener)."
     design:
-      - "docs/architecture.md#4-thread-model"
+      - "docs/architecture.md#63-thread-model"
     api: []
     tests:
       - "native/src/terminal/session.rs"
@@ -800,7 +800,7 @@ requirements:
   NFR-010:
     description: "The frame pipeline SHALL only repaint dirty rows as tracked by the DirtyMask bitfield, avoiding full-grid redraws on every frame."
     design:
-      - "docs/architecture.md#3.1-render-path-fast-path-per-frame"
+      - "docs/architecture.md#61-render-path-fast-path"
       - "native/src/render/cell_builder.rs"
     api: []
     tests:
@@ -810,7 +810,7 @@ requirements:
   NFR-011:
     description: "The shaped text cache SHALL be capped at 4,096 entries to avoid unbounded memory growth from repeated shaping of different text runs."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
+      - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/font/mod.rs"
     api: []
     tests:
@@ -824,7 +824,7 @@ requirements:
   NFR-012:
     description: "The crate dependency graph SHALL be strictly one-way with no circular dependencies. The build SHALL fail on cycle detection."
     design:
-      - "docs/architecture.md#2.3-dependency-graph"
+      - "docs/architecture.md#53-dependency-graph"
     api: []
     tests:
       - "integration-tests/tests/tool_lint.rs"
@@ -833,7 +833,7 @@ requirements:
   NFR-013:
     description: "The codebase SHALL pass cargo clippy --all -- --deny warnings with zero warnings. No #[allow] attributes in production source code."
     design:
-      - "docs/architecture.md#7-testing"
+      - "docs/architecture.md#appendix-testing-quick-reference"
     api: []
     tests:
       - "integration-tests/tests/tool_lint.rs"
@@ -842,7 +842,7 @@ requirements:
   NFR-014:
     description: "The codebase SHALL pass cargo fmt --check with consistent formatting."
     design:
-      - "docs/architecture.md#7-testing"
+      - "docs/architecture.md#appendix-testing-quick-reference"
     api: []
     tests:
       - "integration-tests/tests/tool_lint.rs"
@@ -859,8 +859,8 @@ requirements:
   NFR-016:
     description: "When native terminal types change, the JNI bridge in native/src/android/ffi.rs and NativeBridge.kt SHALL be updated correspondingly."
     design:
-      - "docs/architecture.md#2.2-module-responsibilities"
-      - "docs/architecture.md#5-key-design-decisions"
+      - "docs/architecture.md#52-module-responsibilities"
+      - "docs/architecture.md#9-architecture-decisions"
     api: []
     tests:
       - "native/src/android/ffi.rs"
@@ -873,7 +873,7 @@ requirements:
   NFR-017:
     description: "The system SHALL target Android as the primary platform, using Kotlin + Compose for the UI layer."
     design:
-      - "docs/architecture.md#2.1-crate-structure"
+      - "docs/architecture.md#51-crate-structure"
     api: []
     tests:
       - "android/app/src/androidTest/java/terminal/emulator/ui/*.kt"
@@ -882,7 +882,7 @@ requirements:
   NFR-018:
     description: "The system SHALL use Vulkan via wgpu for rendering. On systems without a physical GPU, Mesa's Lavapipe (software Vulkan) SHALL be used. On Android emulators, SwiftShader SHALL be used."
     design:
-      - "docs/architecture.md#5-key-design-decisions"
+      - "docs/architecture.md#9-architecture-decisions"
     api: []
     tests:
       - "native/src/render/tests.rs"
@@ -891,7 +891,7 @@ requirements:
   NFR-019:
     description: "The build SHALL be deterministic via Nix flake, pinning all dependencies including the Zig compiler (for Ghostty), Rust toolchain, and Android SDK."
     design:
-      - "docs/architecture.md#5-key-design-decisions"
+      - "docs/architecture.md#9-architecture-decisions"
     api: []
     tests:
       - "flake.nix"
@@ -900,7 +900,7 @@ requirements:
   NFR-020:
     description: "The Ghostty library (libghostty-vt) SHALL be linked as a dynamic library (dylib) with the SONAME versioned suffix stripped for Android compatibility."
     design:
-      - "docs/architecture.md#5-key-design-decisions"
+      - "docs/architecture.md#9-architecture-decisions"
     api: []
     tests:
       - "native/Cargo.toml"
@@ -921,7 +921,7 @@ requirements:
   NFR-022:
     description: "The render thread SHALL detect GPU surface loss and recreate the wgpu pipeline automatically. After 100 consecutive errors (~10 seconds), the thread SHALL exit permanently and require a new surface to restart."
     design:
-      - "docs/architecture.md#6-error-handling"
+      - "docs/architecture.md#81-error-handling"
       - "native/src/render/context.rs"
     api: []
     tests:
@@ -940,7 +940,7 @@ requirements:
   NFR-024:
     description: "The system SHALL recover from PTY read errors without crashing the session. The reader thread SHALL log errors and continue reading."
     design:
-      - "docs/architecture.md#6-error-handling"
+      - "docs/architecture.md#81-error-handling"
       - "native/src/terminal/session.rs"
     api: []
     tests:
