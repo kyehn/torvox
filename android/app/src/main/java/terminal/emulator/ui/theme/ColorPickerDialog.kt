@@ -134,9 +134,9 @@ fun ColorPickerDialog(
                 Text(title, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.height(12.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    SwatchWithCaption("Old", initialColor, Modifier.weight(1f))
+                    SwatchWithCaption(stringResource(R.string.color_old), initialColor, Modifier.weight(1f))
                     Spacer(Modifier.width(10.dp))
-                    SwatchWithCaption("New", currentColor, Modifier.weight(1f))
+                    SwatchWithCaption(stringResource(R.string.color_new), currentColor, Modifier.weight(1f))
                     Spacer(Modifier.width(10.dp))
                     Text(
                         colorToHex(currentColor),
@@ -170,7 +170,7 @@ fun ColorPickerDialog(
                             value = hsv[2]
                         }
                     },
-                    label = { Text("Hex") },
+                    label = { Text(stringResource(R.string.hex)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
                     modifier = Modifier

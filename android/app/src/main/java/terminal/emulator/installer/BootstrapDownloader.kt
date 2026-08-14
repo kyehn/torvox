@@ -85,7 +85,7 @@ class BootstrapDownloader(
                         while (true) {
                             if (!isActive) {
                                 cachedDir.delete()
-                                return@withContext Result.failure(Exception("Download cancelled"))
+                                return@withContext Result.failure(Exception(BootstrapOrchestrator.ERROR_CANCELLED))
                             }
                             val bytesRead = input.read(buffer)
                             if (bytesRead == -1) break

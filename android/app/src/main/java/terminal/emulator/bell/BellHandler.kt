@@ -10,6 +10,7 @@ import android.os.VibratorManager
 import android.view.View
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -31,6 +32,15 @@ class BellHandler(private val context: Context) {
     val currentMode: StateFlow<BellMode> = _currentMode
     private var lastBellTime = 0L
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    /** Restores the view background after a screen-flash bell. Tracked so a
+     *  second bell cancels the first restore — otherwise the two restore
+     *  coroutines race and the older one can clear the newer flash early. */
+    private var flashRestoreJob: Job? = null
+
+    /** Pre-flash background, remembered so a cancelled restore does not
+     *  capture white as the "original" and permanently wash the view. */
+    private var flashOriginalBackground: android.graphics.drawable.Drawable? = null
     private val toneGenerator: ToneGenerator? by lazy {
         try {
             ToneGenerator(TONE_STREAM, TONE_VOLUME)
@@ -86,12 +96,19 @@ class BellHandler(private val context: Context) {
             BellMode.SCREEN_FLASH -> {
                 val v = targetView
                 if (v != null) {
-                    val originalBg = v.background
+                    flashRestoreJob?.cancel()
+                    // Capture the pre-flash background ONCE: taking it after
+                    // cancel could read a still-white view (previous flash's
+                    // restore was cancelled), permanently restoring white.
+                    val originalBg = flashOriginalBackground ?: v.background
+                    flashOriginalBackground = originalBg
                     v.setBackgroundColor(android.graphics.Color.WHITE)
-                    scope.launch {
-                        delay(FLASH_DURATION_MS)
-                        v.background = originalBg
-                    }
+                    flashRestoreJob =
+                        scope.launch {
+                            delay(FLASH_DURATION_MS)
+                            v.background = originalBg
+                            flashOriginalBackground = null
+                        }
                 } else {
                     // Fallback to sound when no view is available (runtime singleton).
                     try {

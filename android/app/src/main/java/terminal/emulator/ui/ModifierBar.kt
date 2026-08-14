@@ -20,6 +20,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -42,6 +44,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
+import terminal.emulator.R
 import terminal.emulator.input.ModifierState
 
 private const val BUTTON_HEIGHT_DP = 36
@@ -158,7 +161,12 @@ val defaultModifierKeys: List<ModifierKey> =
 fun rememberToolbarLayout(): List<ToolbarItem>? {
     val context = LocalContext.current
     val toolbarPreferences = remember { ToolbarPreferences(context) }
-    return remember { toolbarPreferences.getLayout() }
+    var layout by remember { mutableStateOf(toolbarPreferences.getLayout()) }
+    DisposableEffect(toolbarPreferences) {
+        val listener = toolbarPreferences.registerLayoutListener { layout = it }
+        onDispose { toolbarPreferences.unregisterLayoutListener(listener) }
+    }
+    return layout
 }
 
 /**
@@ -301,16 +309,16 @@ fun ModifierBar(
         ) {
             ExtraKeyButton(text = label("ESC"), onClick = {
                 dispatchKey("\u001b")
-            }, textColor = textColor, testTag = "Key_ESC", contentDescription = "Escape")
+            }, textColor = textColor, testTag = "Key_ESC", contentDescription = stringResource(R.string.escape))
             ExtraKeyButton(text = "\u2630", onClick = {
                 onDrawerClick()
-            }, textColor = textColor, testTag = "Key_DRAWER", contentDescription = "Open session drawer")
+            }, textColor = textColor, testTag = "Key_DRAWER", contentDescription = stringResource(R.string.open_session_drawer))
             ExtraKeyButton(text = label("SCROLL"), onClick = {
                 onScrollClick()
-            }, textColor = textColor, testTag = "Key_SCROLL", contentDescription = "Toggle scroll")
+            }, textColor = textColor, testTag = "Key_SCROLL", contentDescription = stringResource(R.string.toggle_scroll))
             ExtraKeyButton(text = label("HOME"), onClick = {
                 dispatchKey("\u001b[H")
-            }, textColor = textColor, testTag = "Key_HOME", contentDescription = "Home")
+            }, textColor = textColor, testTag = "Key_HOME", contentDescription = stringResource(R.string.home_key))
             ExtraKeyButton(
                 text = "\u2191",
                 onClick = {
@@ -318,15 +326,15 @@ fun ModifierBar(
                 },
                 textColor = textColor,
                 testTag = "Key_↑",
-                contentDescription = "Arrow up",
+                contentDescription = stringResource(R.string.arrow_up),
                 onRepeat = { dispatchKey("\u001b[A") },
             )
             ExtraKeyButton(text = label("END"), onClick = {
                 dispatchKey("\u001b[F")
-            }, textColor = textColor, testTag = "Key_END", contentDescription = "End")
+            }, textColor = textColor, testTag = "Key_END", contentDescription = stringResource(R.string.end_key))
             ExtraKeyButton(text = label("PGUP"), onClick = {
                 dispatchKey("\u001b[5~")
-            }, textColor = textColor, testTag = "Key_PGUP", contentDescription = "Page up")
+            }, textColor = textColor, testTag = "Key_PGUP", contentDescription = stringResource(R.string.page_up))
         }
 
         Row(
@@ -340,7 +348,7 @@ fun ModifierBar(
                 textColor = textColor,
                 modifierState = fnState,
                 testTag = "Key_FN",
-                contentDescription = "Function key layer",
+                contentDescription = stringResource(R.string.function_key_layer),
             )
             ExtraKeyButton(
                 text = label("COMPOSE"),
@@ -348,14 +356,14 @@ fun ModifierBar(
                 textColor = textColor,
                 modifierState = if (composeActive) ModifierState.Locked else null,
                 testTag = "Key_COMPOSE",
-                contentDescription = "Compose key",
+                contentDescription = stringResource(R.string.compose_key),
             )
             ExtraKeyButton(
                 text = label("TAB"),
                 onClick = { dispatchKey("\t") },
                 textColor = textColor,
                 testTag = "Key_TAB",
-                contentDescription = "Tab",
+                contentDescription = stringResource(R.string.tab_key),
             )
             ExtraKeyButton(
                 text = label("CTRL"),
@@ -363,7 +371,7 @@ fun ModifierBar(
                 textColor = textColor,
                 modifierState = ctrlState,
                 testTag = "Key_CTRL",
-                contentDescription = "Control toggle",
+                contentDescription = stringResource(R.string.control_toggle),
             )
             ExtraKeyButton(
                 text = label("ALT"),
@@ -371,7 +379,7 @@ fun ModifierBar(
                 textColor = textColor,
                 modifierState = altState,
                 testTag = "Key_ALT",
-                contentDescription = "Alt toggle",
+                contentDescription = stringResource(R.string.alt_toggle),
             )
             ExtraKeyButton(
                 text = "\u2190",
@@ -380,7 +388,7 @@ fun ModifierBar(
                 },
                 textColor = textColor,
                 testTag = "Key_←",
-                contentDescription = "Arrow left",
+                contentDescription = stringResource(R.string.arrow_left),
                 onRepeat = { dispatchKey("\u001b[D") },
             )
             ExtraKeyButton(
@@ -390,7 +398,7 @@ fun ModifierBar(
                 },
                 textColor = textColor,
                 testTag = "Key_↓",
-                contentDescription = "Arrow down",
+                contentDescription = stringResource(R.string.arrow_down),
                 onRepeat = { dispatchKey("\u001b[B") },
             )
             ExtraKeyButton(
@@ -400,12 +408,12 @@ fun ModifierBar(
                 },
                 textColor = textColor,
                 testTag = "Key_→",
-                contentDescription = "Arrow right",
+                contentDescription = stringResource(R.string.arrow_right),
                 onRepeat = { dispatchKey("\u001b[C") },
             )
             ExtraKeyButton(text = label("PGDN"), onClick = {
                 dispatchKey("\u001b[6~")
-            }, textColor = textColor, testTag = "Key_PGDN", contentDescription = "Page down")
+            }, textColor = textColor, testTag = "Key_PGDN", contentDescription = stringResource(R.string.page_down))
         }
     }
 }
@@ -470,7 +478,7 @@ private fun FnKeyRows(
                 textColor = textColor,
                 modifierState = ModifierState.Locked,
                 testTag = "Key_FN",
-                contentDescription = "Function key layer",
+                contentDescription = stringResource(R.string.function_key_layer),
             )
         }
     }
@@ -498,10 +506,10 @@ private fun SelectionActionsBar(
     val actionList = mutableListOf<Triple<String, () -> Unit, Boolean>>()
     if (actions.onAnchorLeft != null) actionList.add(Triple("\u25c0", actions.onAnchorLeft, true))
     if (actions.onAnchorRight != null) actionList.add(Triple("\u25b6", actions.onAnchorRight, true))
-    if (actions.onCopy != null) actionList.add(Triple("Copy", actions.onCopy, actions.copyEnabled))
-    if (actions.onSelectAll != null) actionList.add(Triple("Select All", actions.onSelectAll, true))
-    if (actions.onPaste != null) actionList.add(Triple("Paste", actions.onPaste, true))
-    if (actions.onShare != null) actionList.add(Triple("Share", actions.onShare, true))
+    if (actions.onCopy != null) actionList.add(Triple(stringResource(R.string.copy), actions.onCopy, actions.copyEnabled))
+    if (actions.onSelectAll != null) actionList.add(Triple(stringResource(R.string.select_all), actions.onSelectAll, true))
+    if (actions.onPaste != null) actionList.add(Triple(stringResource(R.string.paste), actions.onPaste, true))
+    if (actions.onShare != null) actionList.add(Triple(stringResource(R.string.share), actions.onShare, true))
 
     Row(
         modifier =
@@ -528,7 +536,7 @@ private fun SelectionActionsBar(
                 onClick = actions.onDismiss,
                 textColor = textColor,
                 testTag = "Action_Dismiss",
-                contentDescription = "Dismiss selection",
+                contentDescription = stringResource(R.string.dismiss_selection),
             )
         }
     }
@@ -576,12 +584,19 @@ private fun ConfigurableModifierBar(
             fnState = fnState,
             composeActive = composeActive,
         )
+    val defaultContentDescriptions: Map<ToolbarKey, String> =
+        ToolbarKey.entries.associateWith { key ->
+            key.contentDescriptionRes?.let { stringResource(it) } ?: key.defaultLabel
+        }
     val presentation = { item: ToolbarItem ->
         toolbarItemPresentation(
             item = item,
             actions = actions,
             modifierStates = modifierStates,
             label = label,
+            contentDescriptionResolver = { key ->
+                defaultContentDescriptions[key] ?: key.defaultLabel
+            },
         )
     }
 
@@ -641,6 +656,7 @@ private fun toolbarItemPresentation(
     actions: ModifierBarActions,
     modifierStates: ModifierBarStates,
     label: (String) -> String,
+    contentDescriptionResolver: (ToolbarKey) -> String,
 ): ToolbarItemPresentation {
     val modifierState =
         when ((item as? ToolbarItem.Default)?.key) {
@@ -666,7 +682,7 @@ private fun toolbarItemPresentation(
         }
     val contentDescription =
         when (item) {
-            is ToolbarItem.Default -> item.key.contentDescription ?: item.key.defaultLabel
+            is ToolbarItem.Default -> contentDescriptionResolver(item.key)
             is ToolbarItem.Custom -> item.label
         }
     return ToolbarItemPresentation(

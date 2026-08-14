@@ -1,9 +1,10 @@
 package terminal.emulator.installer
 
+/** Progress of a bootstrap install, surfaced on the settings screen.
+ *  All user-facing text is formatted in the UI layer from the raw
+ *  numbers below (string resources), so this file stays text-free. */
 sealed class BootstrapProgress {
     abstract fun overallProgress(): Float
-
-    abstract fun stepDescription(): String
 
     data class Downloading(
         val bytesWritten: Long,
@@ -13,13 +14,6 @@ sealed class BootstrapProgress {
             (bytesWritten.toFloat() / contentLength) * 0.85f
         } else {
             0f
-        }
-
-        override fun stepDescription(): String {
-            val pct = if (contentLength > 0) " (${(bytesWritten * 100 / contentLength)}%)" else ""
-            val mb = formatBytes(bytesWritten)
-            val total = if (contentLength > 0) " / ${formatBytes(contentLength)}" else ""
-            return "Downloading$pct ($mb$total)"
         }
     }
 
@@ -36,11 +30,6 @@ sealed class BootstrapProgress {
             } else {
                 0f
             }
-
-        override fun stepDescription(): String {
-            val pct = if (totalEntries > 0) " (${(entriesExtracted * 100 / totalEntries)}%)" else ""
-            return "Extracting$pct ($entriesExtracted / $totalEntries)"
-        }
     }
 
     data class RunningPostInstall(
@@ -56,39 +45,20 @@ sealed class BootstrapProgress {
             } else {
                 0f
             }
-
-        override fun stepDescription(): String = "Running post-install scripts... ($scriptsCompleted / $totalScripts)"
     }
 
     data object CreatingSymlinks : BootstrapProgress() {
         override fun overallProgress(): Float = 0.99f
-
-        override fun stepDescription(): String = "Creating symlinks..."
     }
 
     data object Complete : BootstrapProgress() {
         override fun overallProgress(): Float = 1f
-
-        override fun stepDescription(): String = "Bootstrap complete!"
     }
 
     data class Error(
         val message: String,
     ) : BootstrapProgress() {
         override fun overallProgress(): Float = 0f
-
-        override fun stepDescription(): String = message
-    }
-
-    companion object {
-        private const val KB = 1024L
-        private const val MB = KB * 1024
-
-        private fun formatBytes(bytes: Long): String = when {
-            bytes >= MB -> "${bytes / MB} MB"
-            bytes >= KB -> "${bytes / KB} KB"
-            else -> "$bytes B"
-        }
     }
 }
 

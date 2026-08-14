@@ -17,6 +17,11 @@ class ThermalMonitor(
     private val onCritical: (() -> Unit)? = null,
 ) {
     private val pm = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+
+    // Written from the system thermal callback thread, read from the main
+    // thread (onThermalStatusChanged) — cross-thread visibility requires
+    // volatile or the dedup may log duplicate transitions.
+    @Volatile
     private var lastStatus = PowerManager.THERMAL_STATUS_NONE
     private var thermalExecutor: java.util.concurrent.ExecutorService? = null
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null

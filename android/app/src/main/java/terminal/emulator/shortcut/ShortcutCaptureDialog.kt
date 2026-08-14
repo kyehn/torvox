@@ -47,7 +47,7 @@ fun ShortcutCaptureDialog(
     onSave: (ShortcutBinding) -> Unit,
 ) {
     var captured by remember { mutableStateOf(current) }
-    var feedback by remember { mutableStateOf<String?>(null) }
+    var feedbackRes by remember { mutableStateOf<Int?>(null) }
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) { focusRequester.requestFocus() }
 
@@ -57,22 +57,13 @@ fun ShortcutCaptureDialog(
         Modifier
             .focusRequester(focusRequester)
             .onPreviewKeyEvent { composeEvent ->
-                // Extract the native android.view.KeyEvent from the Compose wrapper.
-                // nativeKeyEvent is a member property of androidx.compose.ui.input.key.KeyEvent.
-                @Suppress("UNCHECKED_CAST")
-                val nativeEvent = try {
-                    composeEvent.javaClass
-                        .getMethod("getNativeKeyEvent")
-                        .invoke(composeEvent) as? android.view.KeyEvent
-                } catch (_: Exception) {
-                    null
-                }
-
-                if (nativeEvent != null) {
-                    captureKeyEvent(nativeEvent, captured, conflictDetector) { newBinding, newFeedback ->
-                        captured = newBinding
-                        feedback = newFeedback
-                    }
+                // Extract the native android.view.KeyEvent from the Compose
+                // wrapper. nativeKeyEvent is the public API — no reflection
+                // (getMethod on the class breaks under R8 shrinking).
+                val nativeEvent = composeEvent.nativeKeyEvent
+                captureKeyEvent(nativeEvent, captured, conflictDetector) { newBinding, newFeedbackRes ->
+                    captured = newBinding
+                    feedbackRes = newFeedbackRes
                 }
                 true
             },
@@ -90,10 +81,10 @@ fun ShortcutCaptureDialog(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                feedback?.let { msg ->
+                feedbackRes?.let { resourceId ->
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        text = msg,
+                        text = stringResource(resourceId),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                         textAlign = TextAlign.Center,
@@ -125,17 +116,17 @@ private fun captureKeyEvent(
     event: android.view.KeyEvent,
     current: ShortcutBinding,
     conflictDetector: (ShortcutBinding) -> Boolean,
-    onResult: (ShortcutBinding, String?) -> Unit,
+    onResult: (ShortcutBinding, Int?) -> Unit,
 ) {
     if (event.action != android.view.KeyEvent.ACTION_DOWN || event.repeatCount > 0) {
         return
     }
     if (event.keyCode in ShortcutBinding.RESERVED_KEY_CODES) {
-        onResult(current, "Reserved key")
+        onResult(current, R.string.shortcut_reserved_key)
         return
     }
     if (!event.isCtrlPressed && !event.isShiftPressed && !event.isAltPressed && !event.isMetaPressed) {
-        onResult(current, "Press a modifier + key")
+        onResult(current, R.string.shortcut_need_modifier)
         return
     }
     val binding = ShortcutBinding(
@@ -146,7 +137,7 @@ private fun captureKeyEvent(
         meta = event.isMetaPressed,
     )
     if (conflictDetector(binding)) {
-        onResult(current, "Already in use")
+        onResult(current, R.string.shortcut_already_in_use)
         return
     }
     onResult(binding, null)

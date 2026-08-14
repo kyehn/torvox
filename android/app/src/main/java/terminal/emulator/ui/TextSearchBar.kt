@@ -197,6 +197,12 @@ private fun SearchToggleButtons(
             autoCaseSensitive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         }
+    val fuzzyMatchDescription =
+        if (fuzzyMatch) {
+            stringResource(R.string.disable_fuzzy_match)
+        } else {
+            stringResource(R.string.enable_fuzzy_match)
+        }
 
     IconButton(
         onClick = { onCaseSensitiveToggle(!caseSensitive) },
@@ -216,7 +222,7 @@ private fun SearchToggleButtons(
             .size(32.dp)
             .testTag("SearchFuzzyMatch")
             .semantics {
-                contentDescription = if (fuzzyMatch) "Disable fuzzy match" else "Enable fuzzy match"
+                contentDescription = fuzzyMatchDescription
             },
     ) {
         Text(
