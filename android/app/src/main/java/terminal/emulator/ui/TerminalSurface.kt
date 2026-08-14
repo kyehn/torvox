@@ -1327,8 +1327,8 @@ constructor(
      */
     private fun openLinkAt(px: Float, py: Float): Boolean {
         if (cellWidth <= 0f || cellHeight <= 0f) return false
-        val col = (px / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-        val row = (py / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+        val col = pixelToCell(px, cellWidth, cols)
+        val row = pixelToCell(py, cellHeight, rows)
         val gridRow = currentScrollbackLength() - scrollOffset + row
         val bridge = viewModel?.runtime?.bridge() ?: return false
         val url = bridge.hyperlinkAt(gridRow, col) ?: return false
@@ -1395,21 +1395,7 @@ constructor(
                     cachedWideCharLineAtMs = nowMs
                 }
             } ?: return col
-        var cell = 0
-        var i = 0
-        while (i < line.length) {
-            val cp = line.codePointAt(i)
-            val width = if (isWideCodePoint(cp)) 2 else 1
-            if (cell + width > col) {
-                // col is inside this char: snap back only when it falls on
-                // the trailing half of a wide char.
-                if (width == 2 && col == cell + 1) return col - 1
-                return col
-            }
-            cell += width
-            i += Character.charCount(cp)
-        }
-        return col
+        return snapColToWideChar(line, col)
     }
 
     private fun latchDragAnchor(which: HandleDrag) {
@@ -1570,11 +1556,7 @@ constructor(
                 // Multi-tap selection (ghostty-android pattern): count
                 // rapid taps and handle word/line/select-all on tap 2/3/4+.
                 val now = SystemClock.uptimeMillis()
-                if (now - lastTapTime < DOUBLE_TAP_WINDOW_MS) {
-                    tapCount++
-                } else {
-                    tapCount = 1
-                }
+                tapCount = nextTapCount(now, lastTapTime, tapCount, DOUBLE_TAP_WINDOW_MS)
                 lastTapTime = now
 
                 if (handleMultiTap(event)) return true
@@ -2124,24 +2106,26 @@ constructor(
      * Returns true if the event was consumed (tapCount >= 2).
      */
     private fun handleMultiTap(event: MotionEvent): Boolean {
-        when {
-            tapCount >= 4 -> {
+        when (multiTapAction(tapCount)) {
+            MultiTapAction.SELECT_ALL -> {
                 viewModel?.selectAll()
                 showHandlesIfActive()
                 return true
             }
 
-            tapCount == 3 -> {
+            MultiTapAction.LINE -> {
                 startSelectionAt(event, selectLine = true)
                 showHandlesIfActive()
                 return true
             }
 
-            tapCount == 2 -> {
+            MultiTapAction.WORD -> {
                 startSelectionAt(event, expandToWord = true)
                 showHandlesIfActive()
                 return true
             }
+
+            MultiTapAction.NOT_A_MULTI_TAP -> return false
         }
         return false
     }
@@ -2164,8 +2148,8 @@ constructor(
         expandToWord: Boolean = false,
         selectLine: Boolean = false,
     ) {
-        val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-        val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+        val col = pixelToCell(event.x, cellWidth, cols)
+        val row = pixelToCell(event.y, cellHeight, rows)
 
         if (selectLine) {
             // Triple-tap line selection: select the entire line at the tap row.
@@ -2409,47 +2393,53 @@ constructor(
 
             MotionEvent.ACTION_MOVE -> {
                 if (isSelectingText && handleDragState != HandleDrag.NONE) {
-                    val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-                    val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+                    val col = pixelToCell(event.x, cellWidth, cols)
+                    val row = pixelToCell(event.y, cellHeight, rows)
                     currentTouchX = event.x
                     currentTouchY = event.y
 
-                    if (event.y < cellHeight / 2) {
-                        if (!edgeScrollRunning) {
-                            edgeScrollRunning = true
-                            pendingEdgeScroll = 1
-                            edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
+                    when (edgeScrollDirection(event.y, surfaceHeightPixels.toFloat(), cellHeight)) {
+                        EdgeScrollDirection.UP -> {
+                            if (!edgeScrollRunning) {
+                                edgeScrollRunning = true
+                                pendingEdgeScroll = 1
+                                edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
+                            }
                         }
-                    } else if (event.y >= surfaceHeightPixels - cellHeight / 2) {
-                        if (!edgeScrollRunning) {
-                            edgeScrollRunning = true
-                            pendingEdgeScroll = -1
-                            edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
+
+                        EdgeScrollDirection.DOWN -> {
+                            if (!edgeScrollRunning) {
+                                edgeScrollRunning = true
+                                pendingEdgeScroll = -1
+                                edgeScrollHandler.postDelayed(edgeScrollRunnable, EDGE_SCROLL_INTERVAL_MS)
+                            }
                         }
-                    } else {
-                        edgeScrollRunning = false
-                        pendingEdgeScroll = 0
-                        edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
-                        val (gridRow, col) = dragTargetFromTouch(event.x, event.y)
-                        if (handleDragState == HandleDrag.START) {
-                            viewModel?.updateSelectionStart(gridRow, col)
-                        } else {
-                            viewModel?.updateSelection(gridRow, col)
-                        }
-                        // crossing flip: updateSelectionStart/
-                        // updateSelection swap start/end when the dragged
-                        // handle crosses the stationary one — reposition BOTH
-                        // handles from the resulting selection so the visuals
-                        // never invert.
-                        val sel = viewModel?.state?.value?.selection
-                        if (sel?.start != null && sel.end != null) {
-                            selectionHandles.repositionHandle(HandleDrag.START, sel.start.row, sel.start.col)
-                            selectionHandles.repositionHandle(HandleDrag.END, sel.end.row, sel.end.col)
+
+                        EdgeScrollDirection.STOP -> {
+                            edgeScrollRunning = false
+                            pendingEdgeScroll = 0
+                            edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
+                            val (gridRow, col) = dragTargetFromTouch(event.x, event.y)
+                            if (handleDragState == HandleDrag.START) {
+                                viewModel?.updateSelectionStart(gridRow, col)
+                            } else {
+                                viewModel?.updateSelection(gridRow, col)
+                            }
+                            // crossing flip: updateSelectionStart/
+                            // updateSelection swap start/end when the dragged
+                            // handle crosses the stationary one — reposition BOTH
+                            // handles from the resulting selection so the visuals
+                            // never invert.
+                            val sel = viewModel?.state?.value?.selection
+                            if (sel?.start != null && sel.end != null) {
+                                selectionHandles.repositionHandle(HandleDrag.START, sel.start.row, sel.start.col)
+                                selectionHandles.repositionHandle(HandleDrag.END, sel.end.row, sel.end.col)
+                            }
                         }
                     }
                 } else if (longPressDragging && isSelectingText) {
-                    val col = (event.x / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-                    val row = (event.y / cellHeight).toInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+                    val col = pixelToCell(event.x, cellWidth, cols)
+                    val row = pixelToCell(event.y, cellHeight, rows)
                     val gridRow = currentScrollbackLength() - scrollOffset + row
                     Log.d("Selection", "MOVE longPressDragging: row=$gridRow col=$col")
                     viewModel?.updateSelection(gridRow, col)
@@ -2650,4 +2640,62 @@ constructor(
         lastConfiguredHeight = 0
         viewModel?.currentSurface = null
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Pure helpers (top-level, unit-testable without a view / bridge)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Next multi-tap count: rapid tap within [windowMs] increments, older
+ *  resets to 1 (strict `<` — a tap exactly at the window edge starts a
+ *  fresh click). Backs onSingleTapUp's tap counter. */
+internal fun nextTapCount(now: Long, lastTapTime: Long, tapCount: Int, windowMs: Long): Int = if (now - lastTapTime < windowMs) tapCount + 1 else 1
+
+/** Selection action for a tap count (ghostty-android pattern): 2 taps → word,
+ *  3 → line, 4+ → select-all; 1 is not consumed. Backs handleMultiTap. */
+internal enum class MultiTapAction { NOT_A_MULTI_TAP, WORD, LINE, SELECT_ALL }
+
+internal fun multiTapAction(tapCount: Int): MultiTapAction = when {
+    tapCount >= 4 -> MultiTapAction.SELECT_ALL
+    tapCount == 3 -> MultiTapAction.LINE
+    tapCount == 2 -> MultiTapAction.WORD
+    else -> MultiTapAction.NOT_A_MULTI_TAP
+}
+
+/** Edge-scroll zone for a drag y: top half-cell → scroll up, bottom
+ *  half-cell → scroll down, middle → stop. Matches the asymmetrical
+ *  boundaries in the drag handler (`<` top vs `>=` bottom) so a
+ *  degenerate surface (height < cellHeight) favors the top zone. */
+internal enum class EdgeScrollDirection { UP, DOWN, STOP }
+
+internal fun edgeScrollDirection(y: Float, surfaceHeightPx: Float, cellHeight: Float): EdgeScrollDirection = when {
+    y < cellHeight / 2 -> EdgeScrollDirection.UP
+    y >= surfaceHeightPx - cellHeight / 2 -> EdgeScrollDirection.DOWN
+    else -> EdgeScrollDirection.STOP
+}
+
+/** Pixel offset → clamped grid cell (0..maxCells-1; maxCells 0 stays 0).
+ *  Backs openLinkAt and the drag target mapping. */
+internal fun pixelToCell(px: Float, cellSize: Float, maxCells: Int): Int = (px / cellSize).toInt().coerceIn(0, (maxCells - 1).coerceAtLeast(0))
+
+/** Snap a selection column left of a wide character's trailing half
+ *  (the pure core of snapToWideCharBoundary given a fetched line; the
+ *  bridge/row-cache part stays in the surface). */
+internal fun snapColToWideChar(line: String, col: Int): Int {
+    if (col <= 0) return col
+    var cell = 0
+    var i = 0
+    while (i < line.length) {
+        val cp = line.codePointAt(i)
+        val width = if (isWideCodePoint(cp)) 2 else 1
+        if (cell + width > col) {
+            // col inside this char: snap back only on a wide char's
+            // trailing half — the leading half and ASCII stay in place.
+            if (width == 2 && col == cell + 1) return col - 1
+            return col
+        }
+        cell += width
+        i += Character.charCount(cp)
+    }
+    return col
 }
