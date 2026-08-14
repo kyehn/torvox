@@ -2,7 +2,6 @@ package terminal.emulator.cucumber.steps
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -25,38 +24,6 @@ constructor(
             .assertIsDisplayed()
     }
 
-    @Given("^a terminal session is active with visible text$")
-    fun terminalSessionIsActiveWithVisibleText() {
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen")
-            .assertIsDisplayed()
-    }
-
-    @Given("^a terminal session is active with mixed case text$")
-    fun terminalSessionIsActiveWithMixedCaseText() {
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen")
-            .assertIsDisplayed()
-    }
-
-    @Given("^the terminal has multiple \"([^\"]+)\" matches visible$")
-    fun terminalHasMultipleMatchesVisible(query: String) {
-        // Open search bar and search for the term to populate results
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchButton")
-            .performClick()
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .performClick()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .performTextInput(query)
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
     @Given("^the terminal has search highlights active$")
     fun terminalHasSearchHighlightsActive() {
         // Open search bar and search for something common
@@ -70,11 +37,6 @@ constructor(
         composeRuleHolder.composeRule
             .onNodeWithTag("SearchTextField")
             .performTextInput("the")
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
-    @Given("^the terminal has scrolled content with \"([^\"]+)\"$")
-    fun terminalHasScrolledContentWith(marker: String) {
         composeRuleHolder.composeRule.waitForIdle()
     }
 
@@ -102,99 +64,6 @@ constructor(
         // After SearchButton click, handle the drawer close coroutine launch timing
         // The onClose launches a coroutine; wait for animations
         composeRule.waitForIdle()
-    }
-
-    @When("^the user searches for \"([^\"]+)\"$")
-    fun userSearchesFor(query: String) {
-        // Ensure search bar is open first
-        val nodes =
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("SearchTextField"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-        if (nodes.isEmpty()) {
-            // Open search bar from session panel
-            composeRuleHolder.composeRule
-                .onNodeWithTag("SearchButton")
-                .performClick()
-            composeRuleHolder.composeRule.waitForIdle()
-        }
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .performClick()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .performTextInput(query)
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
-    @When("^searches for \"([^\"]+)\"$")
-    fun searchesFor(query: String) {
-        // Ensure search bar is open first
-        val nodes =
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("SearchTextField"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-        if (nodes.isEmpty()) {
-            // Open search bar from session panel
-            composeRuleHolder.composeRule
-                .onNodeWithTag("SearchButton")
-                .performClick()
-            composeRuleHolder.composeRule.waitForIdle()
-        }
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .performClick()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .performTextInput(query)
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
-    @When("^the user presses \"([^\"]+)\"$")
-    fun userPressesNavigation(nav: String) {
-        when (nav.lowercase()) {
-            "next" -> {
-                composeRuleHolder.composeRule
-                    .onNodeWithTag("SearchNext")
-                    .performClick()
-            }
-
-            "previous" -> {
-                composeRuleHolder.composeRule
-                    .onNodeWithTag("SearchPrevious")
-                    .performClick()
-            }
-
-            "close" -> {
-                composeRuleHolder.composeRule
-                    .onNodeWithTag("SearchClose")
-                    .performClick()
-            }
-
-            else -> {
-                throw IllegalArgumentException("Unknown navigation: $nav")
-            }
-        }
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
-    @When("^the user enables case-sensitive search$")
-    fun userEnablesCaseSensitive() {
-        // Open search bar first if not already open
-        val nodes =
-            composeRuleHolder.composeRule
-                .onAllNodes(hasTestTag("SearchCaseSensitive"), useUnmergedTree = true)
-                .fetchSemanticsNodes()
-        if (nodes.isEmpty()) {
-            composeRuleHolder.composeRule
-                .onNodeWithTag("SearchButton")
-                .performClick()
-            composeRuleHolder.composeRule.waitForIdle()
-        }
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchCaseSensitive", useUnmergedTree = true)
-            .performClick()
-        composeRuleHolder.composeRule.waitForIdle()
     }
 
     @When("^the user closes the search bar$")
@@ -241,39 +110,6 @@ constructor(
             .assertIsDisplayed()
     }
 
-    // NOTE: these four steps assert only the result counter
-    // while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real
-    // highlights exist to inspect). They live in @wip scenarios today; the
-    // assertions MUST be strengthened (pixel/semantics highlight checks)
-    // before those scenarios are un-wipped.
-    @Then("^at least one match is highlighted on screen$")
-    fun atLeastOneMatchHighlighted() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchResultCount")
-            .assertIsDisplayed()
-    }
-
-    @Then("^the current match indicator changes$")
-    fun currentMatchIndicatorChanges() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchResultCount")
-            .assertIsDisplayed()
-    }
-
-    @Then("^the current match indicator returns$")
-    fun currentMatchIndicatorReturns() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchResultCount")
-            .assertIsDisplayed()
-    }
-
-    @Then("^only uppercase matches are highlighted$")
-    fun onlyUppercaseMatchesHighlighted() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchResultCount")
-            .assertIsDisplayed()
-    }
-
     @Then("^all search highlights disappear$")
     fun allSearchHighlightsDisappear() {
         composeRuleHolder.composeRule.waitForIdle()
@@ -287,22 +123,6 @@ constructor(
     fun searchBarRemainsVisibleAboveKeyboard() {
         composeRuleHolder.composeRule
             .onNodeWithTag("SearchTextField")
-            .assertIsDisplayed()
-    }
-
-    @Given("^the match is not visible on the current screen$")
-    fun matchIsNotVisibleOnCurrentScreen() {
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
-    @Then("^the terminal scrolls to show the match$")
-    fun terminalScrollsToShowMatch() {
-        composeRuleHolder.composeRule.waitForIdle()
-        // NOTE: stub-limited — only proves the terminal is still
-        // displayed, not that it scrolled. Strengthen when scroll offset is
-        // readable through the bridge.
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen")
             .assertIsDisplayed()
     }
 }
