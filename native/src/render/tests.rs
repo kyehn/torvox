@@ -2936,3 +2936,40 @@ fn all_static_pipelines_create_without_validation_errors() {
         );
     }
 }
+
+// ── Context setter coverage (pure logic, no surface needed) ─────────────
+
+#[test]
+fn background_params_clamped_to_supported_range() {
+    let mut context = Renderer::new_with_no_surface();
+    // Defaults.
+    assert_eq!(context.background_params(), (0.0, 0.8));
+    // Clamp: blur radius capped at 10 (kernel-tap budget), alpha in [0,1].
+    context.set_background_params(50.0, 2.0);
+    assert_eq!(context.background_params(), (10.0, 1.0));
+    context.set_background_params(-5.0, -1.0);
+    assert_eq!(context.background_params(), (0.0, 0.0));
+    // In-range values pass through.
+    context.set_background_params(4.5, 0.3);
+    assert_eq!(context.background_params(), (4.5, 0.3));
+}
+
+#[test]
+fn flash_phase_clamps_below_zero() {
+    let mut context = Renderer::new_with_no_surface();
+    context.set_flash_phase(0.8);
+    assert_eq!(context.flash_phase, 0.8);
+    context.set_flash_phase(-1.0);
+    assert_eq!(context.flash_phase, 0.0);
+}
+
+#[test]
+fn kgp_atlas_zero_size_clears_texture() {
+    let mut context = Renderer::new_with_no_surface();
+    // Zero-size upload must clear any prior atlas instead of panicking.
+    context.set_kgp_atlas(&[], 0, 0);
+    assert!(context.kgp_texture.is_none());
+    assert!(context.kgp_bind_group.is_none());
+    assert_eq!(context.kgp_atlas_width, 0);
+    assert_eq!(context.kgp_atlas_height, 0);
+}
