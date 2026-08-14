@@ -15,7 +15,7 @@ pub struct FontInfo {
     /// CJK fallback state: "fallback" (families listed), "skipped"
     /// (primary font covers CJK) or "none".
     pub cjk_state: String,
-    /// CJK fallback family names when [cjk_state] is "fallback".
+    /// CJK fallback family names when `cjk_state` is "fallback".
     pub cjk_families: Vec<String>,
     pub cell_width_px: f32,
     pub cell_height_px: f32,

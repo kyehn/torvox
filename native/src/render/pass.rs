@@ -168,6 +168,107 @@ impl Renderer {
         }
     }
 
+    /// Grow-if-needed and upload cell instance data to the instance buffer.
+    /// Associated function on the exact fields (not `&mut self`) so callers
+    /// can invoke it while holding other field borrows (e.g. the cell
+    /// pipeline) for the rest of the frame. Shared by the surface frame and
+    /// the readback (screenshot) paths; `label` distinguishes them in debug
+    /// tooling.
+    fn upload_cell_instances(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        instance_buffer: &mut Option<wgpu::Buffer>,
+        instances: &[crate::render::CellInstance],
+        label: &str,
+    ) {
+        if instances.is_empty() {
+            return;
+        }
+        let instance_data = bytemuck::cast_slice(instances);
+        let needed_size = instance_data.len() as u64;
+        let resize_buffer = instance_buffer
+            .as_ref()
+            .is_none_or(|buf| buf.size() < needed_size);
+        if resize_buffer {
+            *instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: needed_size.max(MIN_ATLAS_BUFFER_SIZE),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+        }
+        if let Some(buf) = instance_buffer.as_ref() {
+            queue.write_buffer(buf, 0, instance_data);
+        }
+    }
+
+    /// Grow-if-needed and upload KGP instance data, mirroring
+    /// [`Self::upload_cell_instances`].
+    fn upload_kgp_instances(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        kgp_instance_buffer: &mut Option<wgpu::Buffer>,
+        kgp_instances: &[crate::render::KittyGraphicsInstance],
+        label: &str,
+    ) {
+        if kgp_instances.is_empty() {
+            return;
+        }
+        let kgp_instance_data = bytemuck::cast_slice(kgp_instances);
+        let needed_size = kgp_instance_data.len() as u64;
+        let resize_buffer = kgp_instance_buffer
+            .as_ref()
+            .is_none_or(|buf| buf.size() < needed_size);
+        if resize_buffer {
+            *kgp_instance_buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(label),
+                size: needed_size.max(MIN_ATLAS_BUFFER_SIZE),
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+        }
+        if let Some(buf) = kgp_instance_buffer.as_ref() {
+            queue.write_buffer(buf, 0, kgp_instance_data);
+        }
+    }
+
+    /// Begin the background render pass: clear with the configured bg color
+    /// and draw the fullscreen background quad. Shared by the surface frame
+    /// and the readback path.
+    fn draw_background_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        view: &wgpu::TextureView,
+        width: u32,
+        height: u32,
+    ) {
+        let (Some(bg_pipeline), Some(bg_bind_group)) =
+            (self.bg_pipeline.as_ref(), self.bg_bind_group.as_ref())
+        else {
+            return;
+        };
+        let mut bg_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Background Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(self.bg_color),
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+        bg_pass.set_pipeline(bg_pipeline);
+        bg_pass.set_bind_group(0, bg_bind_group, &[]);
+        bg_pass.set_viewport(0.0, 0.0, width as f32, height as f32, 0.0, 1.0);
+        bg_pass.set_scissor_rect(0, 0, width, height);
+        bg_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+        bg_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
+    }
+
     pub fn render_frame(
         &mut self,
         instances: &[crate::render::CellInstance],
@@ -206,50 +307,24 @@ impl Renderer {
         #[cfg(debug_assertions)]
         encoder.push_debug_group("Frame");
 
-        if !instances.is_empty() {
-            #[cfg(debug_assertions)]
-            encoder.push_debug_group("Instance Uploads");
-            let instance_data = bytemuck::cast_slice(instances);
-            let needed_size = instance_data.len() as u64;
-            let resize_buffer = self
-                .instance_buffer
-                .as_ref()
-                .is_none_or(|buf| buf.size() < needed_size);
-            if resize_buffer {
-                self.instance_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Instance Buffer"),
-                    size: needed_size.max(MIN_ATLAS_BUFFER_SIZE),
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }));
-            }
-            if let Some(ref buf) = self.instance_buffer {
-                self.queue.write_buffer(buf, 0, instance_data);
-            }
-            #[cfg(debug_assertions)]
-            encoder.pop_debug_group(); // Instance Uploads
-        }
-
-        if !kgp_instances.is_empty() {
-            let kgp_instance_data = bytemuck::cast_slice(kgp_instances);
-            let needed_size = kgp_instance_data.len() as u64;
-            let resize_buffer = self
-                .kgp_instance_buffer
-                .as_ref()
-                .is_none_or(|buf| buf.size() < needed_size);
-            if resize_buffer {
-                self.kgp_instance_buffer =
-                    Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("KGP Instance Buffer"),
-                        size: needed_size.max(MIN_ATLAS_BUFFER_SIZE),
-                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    }));
-            }
-            if let Some(ref buf) = self.kgp_instance_buffer {
-                self.queue.write_buffer(buf, 0, kgp_instance_data);
-            }
-        }
+        #[cfg(debug_assertions)]
+        encoder.push_debug_group("Instance Uploads");
+        Self::upload_cell_instances(
+            &self.device,
+            &self.queue,
+            &mut self.instance_buffer,
+            instances,
+            "Instance Buffer",
+        );
+        Self::upload_kgp_instances(
+            &self.device,
+            &self.queue,
+            &mut self.kgp_instance_buffer,
+            kgp_instances,
+            "KGP Instance Buffer",
+        );
+        #[cfg(debug_assertions)]
+        encoder.pop_debug_group(); // Instance Uploads
 
         #[cfg(debug_assertions)]
         encoder.push_debug_group("Draw Background");
@@ -316,35 +391,12 @@ impl Renderer {
                 v_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
                 v_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
             }
-        } else if let (Some(bg_pipeline), Some(bg_bind_group)) =
-            (&self.bg_pipeline, &self.bg_bind_group)
-        {
+        } else if self.bg_pipeline.is_some() && self.bg_bind_group.is_some() {
             log::debug!(
                 "render_frame: drawing bg image (blur={})",
                 self.blur_h_pipeline.is_some()
             );
-            {
-                let mut bg_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Background Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(self.bg_color),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    ..Default::default()
-                });
-                bg_pass.set_pipeline(bg_pipeline);
-                bg_pass.set_bind_group(0, bg_bind_group, &[]);
-                bg_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
-                bg_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
-                bg_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-                bg_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
-            }
+            self.draw_background_pass(&mut *encoder, view, cfg_width, cfg_height);
         }
         #[cfg(debug_assertions)]
         encoder.pop_debug_group(); // Draw Background
@@ -669,71 +721,22 @@ impl Renderer {
                 label: Some("Readback Encoder"),
             });
 
-        if !instances.is_empty() {
-            let instance_data = bytemuck::cast_slice(instances);
-            let needed_size = instance_data.len() as u64;
-            let resize = self
-                .instance_buffer
-                .as_ref()
-                .is_none_or(|b| b.size() < needed_size);
-            if resize {
-                self.instance_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                    label: Some("Instance Buffer (readback)"),
-                    size: needed_size.max(MIN_ATLAS_BUFFER_SIZE),
-                    usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                    mapped_at_creation: false,
-                }));
-            }
-            if let Some(ref buf) = self.instance_buffer {
-                self.queue.write_buffer(buf, 0, instance_data);
-            }
-        }
+        Self::upload_cell_instances(
+            &self.device,
+            &self.queue,
+            &mut self.instance_buffer,
+            instances,
+            "Instance Buffer (readback)",
+        );
+        Self::upload_kgp_instances(
+            &self.device,
+            &self.queue,
+            &mut self.kgp_instance_buffer,
+            kgp_instances,
+            "KGP Instance Buffer (readback)",
+        );
 
-        if !kgp_instances.is_empty() {
-            let kgp_instance_data = bytemuck::cast_slice(kgp_instances);
-            let needed_size = kgp_instance_data.len() as u64;
-            let resize = self
-                .kgp_instance_buffer
-                .as_ref()
-                .is_none_or(|b| b.size() < needed_size);
-            if resize {
-                self.kgp_instance_buffer =
-                    Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                        label: Some("KGP Instance Buffer (readback)"),
-                        size: needed_size.max(MIN_ATLAS_BUFFER_SIZE),
-                        usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
-                        mapped_at_creation: false,
-                    }));
-            }
-            if let Some(ref buf) = self.kgp_instance_buffer {
-                self.queue.write_buffer(buf, 0, kgp_instance_data);
-            }
-        }
-
-        if let (Some(bg_pipeline), Some(bg_bind_group)) =
-            (self.bg_pipeline.as_ref(), self.bg_bind_group.as_ref())
-        {
-            let mut bg_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Background Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.bg_color),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-            bg_pass.set_pipeline(bg_pipeline);
-            bg_pass.set_bind_group(0, bg_bind_group, &[]);
-            bg_pass.set_viewport(0.0, 0.0, w as f32, h as f32, 0.0, 1.0);
-            bg_pass.set_scissor_rect(0, 0, w, h);
-            bg_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-            bg_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
-        }
+        self.draw_background_pass(&mut encoder, &view, w, h);
 
         if let (Some(kgp_pipeline), Some(kgp_bind_group)) =
             (self.kgp_pipeline.as_ref(), self.kgp_bind_group.as_ref())
