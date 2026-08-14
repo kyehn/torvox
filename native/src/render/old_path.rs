@@ -22,13 +22,17 @@ use crate::render::cell_builder::{apply_search_highlight, cell_highlight};
 use crate::terminal::CursorStyle;
 
 /// Configuration passed to `build_cell_instances_from_snapshot()`.
+///
+/// Named `SnapshotConfig` (not `CellInstanceConfig`) because it configures
+/// the GridSnapshot reference path, whose fields (projection_height,
+/// render_scale, surface_bg, dirty_rows, cached_*) are unrelated to the
+/// nine-field production `cell_builder::CellInstanceConfig`.
 #[cfg(any(test, feature = "test-util"))]
-pub struct CellInstanceConfig<'a> {
+pub struct SnapshotConfig<'a> {
     pub atlas_width: f32,
     pub atlas_height: f32,
     pub projection_height: f32,
     pub selection: Option<super::SelectionRange>,
-    pub selection_bg: Option<[f32; 4]>,
     pub search_highlights: &'a [super::SearchHighlight],
     pub cursor_color: Option<[f32; 4]>,
     pub cursor_style: CursorStyle,
@@ -51,7 +55,7 @@ pub(crate) fn color_f32x4_eq(a: [f32; 4], b: [f32; 4]) -> bool {
 pub fn build_cell_instances_from_snapshot(
     snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
     font_pipeline: &mut crate::render::font::FontPipeline,
-    config: CellInstanceConfig<'_>,
+    config: SnapshotConfig<'_>,
 ) -> Vec<CellInstance> {
     let mut instances = Vec::new();
     let mut _row_ends = Vec::new();
@@ -69,7 +73,7 @@ pub fn build_cell_instances_from_snapshot(
 pub fn build_cell_instances_into(
     snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
     font_pipeline: &mut crate::render::font::FontPipeline,
-    config: CellInstanceConfig<'_>,
+    config: SnapshotConfig<'_>,
     instances: &mut Vec<CellInstance>,
     row_ends: &mut Vec<usize>,
 ) {
@@ -77,7 +81,6 @@ pub fn build_cell_instances_into(
     let atlas_height = config.atlas_height;
     let projection_height = config.projection_height * config.render_scale;
     let selection = config.selection.filter(|s| !s.is_empty);
-    let selection_bg = config.selection_bg;
     let search_highlights = config.search_highlights;
     let cursor_color = config.cursor_color;
     let cursor_style = config.cursor_style;
@@ -167,11 +170,7 @@ pub fn build_cell_instances_into(
 
             if cell.codepoint == 0 || cell.codepoint == 0x20 {
                 if selection.unwrap_or_default().contains(row, col, cols) {
-                    if let Some(sbg) = selection_bg {
-                        bg = sbg;
-                    } else {
-                        std::mem::swap(&mut fg, &mut bg);
-                    }
+                    std::mem::swap(&mut fg, &mut bg);
                 }
                 if let Some(hl) = cell_highlight(row, col, &highlights_by_row) {
                     apply_search_highlight(&mut fg, &mut bg, *hl);
@@ -318,11 +317,7 @@ pub fn build_cell_instances_into(
                         (ref_cell.foreground, ref_cell.background)
                     };
                     if selection.unwrap_or_default().contains(row, gcol, cols) {
-                        if let Some(sbg) = selection_bg {
-                            gbg = sbg;
-                        } else {
-                            std::mem::swap(&mut gfg, &mut gbg);
-                        }
+                        std::mem::swap(&mut gfg, &mut gbg);
                     }
                     if let Some(hl) = cell_highlight(row, gcol, &highlights_by_row) {
                         apply_search_highlight(&mut gfg, &mut gbg, *hl);
@@ -412,11 +407,7 @@ pub fn build_cell_instances_into(
             };
 
             if selection.unwrap_or_default().contains(row, col, cols) {
-                if let Some(sbg) = selection_bg {
-                    bg = sbg;
-                } else {
-                    std::mem::swap(&mut fg, &mut bg);
-                }
+                std::mem::swap(&mut fg, &mut bg);
             }
             if let Some(hl) = cell_highlight(row, col, &highlights_by_row) {
                 apply_search_highlight(&mut fg, &mut bg, *hl);
