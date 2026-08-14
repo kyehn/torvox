@@ -260,6 +260,39 @@ mod tests {
     }
 
     #[test]
+    fn param_or_default_maps_missing_and_zero() {
+        // Missing param → default.
+        let csi = CsiSeq::parse(b"\x1b[H").unwrap();
+        assert_eq!(csi.param_or_default(0, 1), 1);
+        // Explicit 0 → default (ECMA-48: 0 behaves as 1 for cursor moves).
+        let csi = CsiSeq::parse(b"\x1b[0B").unwrap();
+        assert_eq!(csi.param_or_default(0, 1), 1);
+        // Present non-zero param wins.
+        let csi = CsiSeq::parse(b"\x1b[5B").unwrap();
+        assert_eq!(csi.param_or_default(0, 1), 5);
+        // Index beyond the parameter list → default.
+        let csi = CsiSeq::parse(b"\x1b[H").unwrap();
+        assert_eq!(csi.param_or_default(3, 7), 7);
+    }
+
+    #[test]
+    fn has_private_marker_matches_and_misses() {
+        let csi = CsiSeq::parse(b"\x1b[?25h").unwrap();
+        assert!(csi.has_private_marker(b'?'));
+        assert!(!csi.has_private_marker(b'>'));
+        let csi = CsiSeq::parse(b"\x1b[H").unwrap();
+        assert!(!csi.has_private_marker(b'?'));
+    }
+
+    #[test]
+    fn csi_seq_display_roundtrip() {
+        let csi = CsiSeq::parse(b"\x1b[?25h").unwrap();
+        assert_eq!(csi.to_string(), "CSI ?25 h");
+        let csi = CsiSeq::parse(b"\x1b[1;31;42m").unwrap();
+        assert_eq!(csi.to_string(), "CSI 1;31;42 m");
+    }
+
+    #[test]
     fn parse_leading_zeros() {
         // Ghostty treats leading zeros as regular numbers
         let csi = CsiSeq::parse(b"\x1b[001;003;004m").unwrap();

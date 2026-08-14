@@ -914,10 +914,9 @@ fn da_primary_response() {
     t.vt_write(b"\x1b[c");
     t.flush();
     let r = t.drain_pty_write_responses();
-    if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
-        assert!(resp.starts_with("\x1b[?"), "DA1: starts with CSI ?");
-    }
+    assert!(!r.is_empty(), "DA1: terminal must respond to \\x1b[c");
+    let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
+    assert!(resp.starts_with("\x1b[?"), "DA1: starts with CSI ?");
 }
 
 #[test]
@@ -926,10 +925,9 @@ fn da_secondary_response() {
     t.vt_write(b"\x1b[>c");
     t.flush();
     let r = t.drain_pty_write_responses();
-    if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
-        assert!(resp.starts_with("\x1b[>"), "DA2: starts with CSI >");
-    }
+    assert!(!r.is_empty(), "DA2: terminal must respond to \\x1b[>c");
+    let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
+    assert!(resp.starts_with("\x1b[>"), "DA2: starts with CSI >");
 }
 
 #[test]
@@ -938,10 +936,9 @@ fn dsr_device_status() {
     t.vt_write(b"\x1b[5n");
     t.flush();
     let r = t.drain_pty_write_responses();
-    if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
-        assert!(resp.contains("\x1b["), "DSR: CSI response");
-    }
+    assert!(!r.is_empty(), "DSR: terminal must respond to \\x1b[5n");
+    let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
+    assert!(resp.contains("\x1b["), "DSR: CSI response");
 }
 
 #[test]
@@ -950,10 +947,9 @@ fn cpr_cursor_report() {
     t.vt_write(b"\x1b[5;10H\x1b[6n");
     t.flush();
     let r = t.drain_pty_write_responses();
-    if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
-        assert!(resp.contains("\x1b["), "CPR: CSI response");
-    }
+    assert!(!r.is_empty(), "CPR: terminal must respond to \\x1b[6n");
+    let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
+    assert!(resp.contains("\x1b["), "CPR: CSI response");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1065,10 +1061,12 @@ fn kitty_keyboard_push_pop() {
     t.vt_write(b"\x1b[?u"); // query
     t.flush();
     let r = t.drain_pty_write_responses();
-    if !r.is_empty() {
-        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
-        assert!(resp.contains('?'), "Kitty query: '?' in response");
-    }
+    assert!(
+        !r.is_empty(),
+        "Kitty query: terminal must respond to \\x1b[?u"
+    );
+    let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
+    assert!(resp.contains('?'), "Kitty query: '?' in response");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1083,10 +1081,12 @@ fn decrqm_response_format() {
         t.vt_write(format!("\x1b[?{};$p", mode).as_bytes());
         t.flush();
         let r = t.drain_pty_write_responses();
-        if !r.is_empty() {
-            let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
-            assert!(resp.starts_with("\x1b[?"), "DECRQM {mode}: CSI ?");
-        }
+        assert!(
+            !r.is_empty(),
+            "DECRQM {mode}: terminal must respond to \\x1b[?{mode};$p"
+        );
+        let resp = String::from_utf8_lossy(r.last().expect("expected at least one response"));
+        assert!(resp.starts_with("\x1b[?"), "DECRQM {mode}: CSI ?");
     }
 }
 
@@ -1367,18 +1367,34 @@ fn sgr_24_underline_off_after_underline() {
 #[test]
 fn sgr_37_39_default_fg_behavior() {
     let mut t = sized_term(5, 40, 100);
-    t.vt_write(b"\x1b[38;5;10mF\x1b[39mD");
-    t.flush();
-    // SGR 39 resets fg to default (should not crash)
-    check_invariants(&t);
+    let snap = process_and_snapshot(&mut t, b"\x1b[38;5;10mF\x1b[39mD");
+    // SGR 39 resets fg back to the default foreground.
+    const DEFAULT_FG: [f32; 4] = [0.8039216, 0.8392157, 0.95686275, 1.0];
+    const COLORED_FG: [f32; 4] = [0.6509804, 0.8901961, 0.6313726, 1.0];
+    assert_color_close(snap.cells[0].foreground, &COLORED_FG, "SGR 38;5;10 fg");
+    assert_color_close(snap.cells[1].foreground, &DEFAULT_FG, "SGR 39 fg reset");
 }
 
 #[test]
 fn sgr_47_49_default_bg_behavior() {
     let mut t = sized_term(5, 40, 100);
-    t.vt_write(b"\x1b[48;5;10mF\x1b[49mD");
-    t.flush();
-    check_invariants(&t);
+    let snap = process_and_snapshot(&mut t, b"\x1b[48;5;10mF\x1b[49mD");
+    // SGR 49 resets bg back to the default background.
+    const DEFAULT_BG: [f32; 4] = [0.11764706, 0.11764706, 0.18039216, 1.0];
+    const COLORED_BG: [f32; 4] = [0.6509804, 0.8901961, 0.6313726, 1.0];
+    assert_color_close(snap.cells[0].background, &COLORED_BG, "SGR 48;5;10 bg");
+    assert_color_close(snap.cells[1].background, &DEFAULT_BG, "SGR 49 bg reset");
+}
+
+/// Assert two RGBA colors are equal within a small epsilon (snapshot
+/// colors are 8-bit-quantized, so exact f32 equality is too strict).
+fn assert_color_close(actual: [f32; 4], expected: &[f32; 4], context: &str) {
+    for (i, (&a, &e)) in actual.iter().zip(expected.iter()).enumerate() {
+        assert!(
+            (a - e).abs() < 1e-4,
+            "{context}: channel {i} expected {e}, got {a}"
+        );
+    }
 }
 
 #[test]
@@ -1633,6 +1649,9 @@ fn xtwinops_11_report_window_state_detection() {
     t.vt_write(b"\x1b[11t");
     t.flush();
     let responses = t.drain_pty_write_responses();
+    // libghostty-vt does not implement XTWINOPS window-state reporting
+    // (probe: no response), so an empty response is expected here — the
+    // assertion only guards the shape if a response ever appears.
     if !responses.is_empty() {
         let resp =
             String::from_utf8_lossy(responses.last().expect("expected at least one response"));
@@ -1978,12 +1997,18 @@ sgr_toggle_test!(sgr_55_resets_overline, 53, 55, overline);
 #[test]
 fn sgr_39_resets_fg_to_default() {
     let mut t = term();
-    t.vt_write(b"\x1b[31m");
+    t.vt_write(b"\x1b[31mR\x1b[39mD");
     t.flush();
-    t.vt_write(b"\x1b[39mX");
-    t.flush();
-    let _snap = t.take_snapshot();
-    // After reset, fg should match default (not special red)
+    let snap = t.take_snapshot();
+    // After reset, fg should match default (not special red).
+    assert_ne!(
+        snap.cells[0].foreground, snap.cells[1].foreground,
+        "SGR 39: colored and reset cells must differ"
+    );
+    const DEFAULT_FG: [f32; 4] = [0.8039216, 0.8392157, 0.95686275, 1.0];
+    const RED_FG: [f32; 4] = [0.9529412, 0.54509807, 0.65882355, 1.0];
+    assert_color_close(snap.cells[0].foreground, &RED_FG, "SGR 31 fg");
+    assert_color_close(snap.cells[1].foreground, &DEFAULT_FG, "SGR 39 fg reset");
     check_invariants(&t);
 }
 
@@ -1991,11 +2016,18 @@ fn sgr_39_resets_fg_to_default() {
 #[test]
 fn sgr_49_resets_bg_to_default() {
     let mut t = term();
-    t.vt_write(b"\x1b[41m");
+    t.vt_write(b"\x1b[41mR\x1b[49mD");
     t.flush();
-    t.vt_write(b"\x1b[49mX");
-    t.flush();
-    let _snap = t.take_snapshot();
+    let snap = t.take_snapshot();
+    // After reset, bg should match default (not special red bg).
+    assert_ne!(
+        snap.cells[0].background, snap.cells[1].background,
+        "SGR 49: colored and reset cells must differ"
+    );
+    const DEFAULT_BG: [f32; 4] = [0.11764706, 0.11764706, 0.18039216, 1.0];
+    const RED_BG: [f32; 4] = [0.9529412, 0.54509807, 0.65882355, 1.0];
+    assert_color_close(snap.cells[0].background, &RED_BG, "SGR 41 bg");
+    assert_color_close(snap.cells[1].background, &DEFAULT_BG, "SGR 49 bg reset");
     check_invariants(&t);
 }
 
@@ -2854,18 +2886,21 @@ fn dec_modes_exhaustive() {
             assert!(after_set, "DECSET mode {mode}: should be true");
             assert!(!after_rst, "DECRST mode {mode}: should be false");
         }
-        // DECRQM query
+        // DECRQM query: every mode 1..=80 produces a response (verified
+        // against libghostty-vt), so an empty response is a regression.
         t.vt_write(format!("\x1b[?{};$p", mode).as_bytes());
         t.flush();
         let responses = t.drain_pty_write_responses();
-        if !responses.is_empty() {
-            let resp =
-                String::from_utf8_lossy(responses.last().expect("expected at least one response"));
-            assert!(
-                resp.contains(&format!("{}", mode)),
-                "DECRQM mode {mode}: response contains mode"
-            );
-        }
+        assert!(
+            !responses.is_empty(),
+            "DECRQM mode {mode}: terminal must respond"
+        );
+        let resp =
+            String::from_utf8_lossy(responses.last().expect("expected at least one response"));
+        assert!(
+            resp.contains(&format!("{}", mode)),
+            "DECRQM mode {mode}: response contains mode"
+        );
         check_invariants(&t);
     }
 }
@@ -2936,14 +2971,30 @@ fn osc_queries_exhaustive() {
         t.vt_write(format!("\x1b]{q};?\x1b\\\\").as_bytes());
         t.flush();
         let resp = t.drain_pty_write_responses();
-        if !resp.is_empty() {
-            let text =
-                String::from_utf8_lossy(resp.last().expect("expected at least one response"));
+        // Ghostty implements responses for the three core dynamic colors
+        // (10/11/12) and explicitly reports "not implemented" for the
+        // pointer/tektronix/highlight targets (13-15, 17-19), so those
+        // queries legitimately produce no response.
+        if q <= 12 {
             assert!(
-                text.contains(&format!("{}", q)),
-                "OSC {q} query: response mentions {q}"
+                !resp.is_empty(),
+                "OSC {q} query: terminal must respond to \\x1b]{q};?\\x1b\\\\"
             );
+        } else if resp.is_empty() {
+            t.vt_write(b"OK");
+            t.flush();
+            assert!(
+                t.read_line_text(0).unwrap_or_default().contains("OK"),
+                "OSC {q} query: text still visible"
+            );
+            check_invariants(&t);
+            continue; // unimplemented target: nothing to assert
         }
+        let text = String::from_utf8_lossy(resp.last().expect("expected at least one response"));
+        assert!(
+            text.contains(&format!("{}", q)),
+            "OSC {q} query: response mentions {q}"
+        );
         t.vt_write(b"OK");
         t.flush();
         assert!(

@@ -846,6 +846,63 @@ mod tests {
         }
     }
 
+    #[test]
+    fn classifier_blocks_wrapper_argument_escapes() {
+        // A wrapper prefix must be peeled together with its own options
+        // and arguments, repeatedly for chains, or the dangerous command
+        // hides behind the wrapper's argv (e.g. `nice -n 5 rm -rf /`
+        // runs nice with argv[1..] = `-n 5 rm -rf /` — still a root
+        // deletion once the args are passed through).
+        for cmd in [
+            // nice: option -n takes an argument.
+            "nice -n 5 rm -rf /",
+            "nice --adjustment=5 rm -rf /",
+            "nice -5 rm -rf /",
+            // sudo: -n (no arg), -u (arg), long options.
+            "sudo -n rm -rf /",
+            "sudo -u root rm -rf /",
+            "sudo --user root rm -rf /",
+            "sudo -- rm -rf /",
+            "sudo -k rm -rf /",
+            // env: -i, -u NAME, -C DIR, VAR=value assignments.
+            "env -i rm -rf /",
+            "env -u HOME rm -rf /",
+            "env FOO=bar rm -rf /",
+            "env -C / rm -rf /",
+            // command: -p / -v take no argument.
+            "command -p rm -rf /",
+            "command -v rm -rf /",
+            // Chains: each layer must be peeled.
+            "sudo nice rm -rf /",
+            "env sudo rm -rf /",
+            "nice -n 5 sudo rm -rf /",
+            "sudo env -i rm -rf /",
+            "command sudo nice rm -rf /",
+            // Whitespace variants around the wrapper.
+            "sudo    rm -rf /",
+        ] {
+            assert_eq!(
+                classify_command(cmd),
+                CommandRisk::Blocked,
+                "must block: {cmd}"
+            );
+        }
+        // Wrapper arguments that are NOT a dangerous command stay safe.
+        for cmd in [
+            "nice -n 5 echo hi",
+            "sudo -n echo hi",
+            "env -i echo hi",
+            "command -v echo",
+            "sudo nice echo hi",
+        ] {
+            assert_eq!(
+                classify_command(cmd),
+                CommandRisk::Safe,
+                "must allow: {cmd}"
+            );
+        }
+    }
+
     // `global_state()` is a process-wide singleton; the tools read the
     // handlers from it. Tests that register handlers MUST run serially or
     // one test's handler leaks into the next. This lock is held for the

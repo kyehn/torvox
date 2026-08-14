@@ -1667,3 +1667,140 @@ impl super::GhosttyTerminal {
         results
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::terminal::ghostty_terminal::GhosttyTerminal;
+    use libghostty_vt::style::{PaletteIndex, Style, StyleColor, Underline};
+
+    const PALETTE: [[u8; 3]; 16] = [
+        [0, 0, 0],       // black
+        [205, 49, 49],   // red
+        [13, 188, 121],  // green
+        [229, 229, 16],  // yellow
+        [36, 114, 200],  // blue
+        [188, 63, 188],  // magenta
+        [17, 168, 205],  // cyan
+        [229, 229, 229], // white
+        [102, 102, 102], // bright black
+        [255, 0, 0],     // bright red
+        [0, 255, 0],     // bright green
+        [255, 255, 0],   // bright yellow
+        [0, 0, 255],     // bright blue
+        [255, 0, 255],   // bright magenta
+        [0, 255, 255],   // bright cyan
+        [255, 255, 255], // bright white
+    ];
+
+    #[test]
+    fn byte_to_float_scales_255() {
+        assert_eq!(GhosttyTerminal::byte_to_float(0), 0.0);
+        assert_eq!(GhosttyTerminal::byte_to_float(255), 1.0);
+        assert!((GhosttyTerminal::byte_to_float(128) - 128.0 / 255.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn byte_color_to_float_includes_opaque_alpha() {
+        let color = GhosttyTerminal::byte_color_to_float([13, 188, 121]);
+        assert!((color[0] - 13.0 / 255.0).abs() < 1e-6);
+        assert!((color[1] - 188.0 / 255.0).abs() < 1e-6);
+        assert!((color[2] - 121.0 / 255.0).abs() < 1e-6);
+        assert_eq!(color[3], 1.0, "alpha must be opaque");
+    }
+
+    #[test]
+    fn palette_index_to_float_maps_16_color_palette() {
+        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex::RED, &PALETTE);
+        let expected = GhosttyTerminal::byte_color_to_float(PALETTE[1]);
+        assert_eq!(color, expected);
+    }
+
+    #[test]
+    fn palette_index_to_float_extended_cube() {
+        // Index 16 = (0,0,0) of the 6x6x6 cube → black.
+        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(16), &PALETTE);
+        assert_eq!(color, [0.0, 0.0, 0.0, 1.0]);
+        // Index 17 = offset 1 → (red=0, green=0, blue=1) → blue 95.
+        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(17), &PALETTE);
+        let expected = GhosttyTerminal::byte_color_to_float([0, 0, 95]);
+        assert_eq!(color, expected);
+        // Index 55 = offset 39 → (red=1, green=0, blue=3) → 95/0/175.
+        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(55), &PALETTE);
+        let expected = GhosttyTerminal::byte_color_to_float([95, 0, 175]);
+        assert_eq!(color, expected);
+    }
+
+    #[test]
+    fn palette_index_to_float_extended_grayscale() {
+        // Index 232 = gray 8.
+        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(232), &PALETTE);
+        let expected = GhosttyTerminal::byte_color_to_float([8, 8, 8]);
+        assert_eq!(color, expected);
+        // Index 255 = gray 238.
+        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(255), &PALETTE);
+        let expected = GhosttyTerminal::byte_color_to_float([238, 238, 238]);
+        assert_eq!(color, expected);
+    }
+
+    fn style_with_flags() -> Style {
+        Style {
+            bold: true,
+            italic: true,
+            faint: true,
+            blink: false,
+            inverse: true,
+            invisible: false,
+            strikethrough: true,
+            overline: true,
+            underline: Underline::Double,
+            fg_color: StyleColor::None,
+            bg_color: StyleColor::None,
+            underline_color: StyleColor::None,
+        }
+    }
+
+    #[test]
+    fn pack_style_flags_sets_expected_bits() {
+        let flags = GhosttyTerminal::pack_style_flags(&style_with_flags());
+        assert_ne!(flags & (1 << cell_flags::BOLD), 0, "bold bit");
+        assert_ne!(flags & (1 << cell_flags::ITALIC), 0, "italic bit");
+        assert_ne!(flags & (1 << cell_flags::REVERSE), 0, "reverse bit");
+        assert_ne!(flags & (1 << cell_flags::UNDERLINE), 0, "underline bit");
+        assert_ne!(
+            flags & (1 << cell_flags::DOUBLE_UNDERLINE),
+            0,
+            "double underline bit"
+        );
+        assert_ne!(
+            flags & (1 << cell_flags::STRIKETHROUGH),
+            0,
+            "strikethrough bit"
+        );
+        assert_ne!(flags & (1 << cell_flags::OVERLINE), 0, "overline bit");
+        assert_ne!(flags & (1 << cell_flags::FAINT), 0, "faint bit");
+    }
+
+    #[test]
+    fn pack_style_flags_double_underline_sets_underline_too() {
+        // Double underline must also set the plain underline bit so the
+        // shader's highlight path treats the cell as underlined.
+        let flags = GhosttyTerminal::pack_style_flags(&style_with_flags());
+        let both = (1 << cell_flags::UNDERLINE) | (1 << cell_flags::DOUBLE_UNDERLINE);
+        assert_eq!(flags & both, both);
+    }
+
+    #[test]
+    fn pack_style_flags_default_style_is_zero() {
+        let flags = GhosttyTerminal::pack_style_flags(&Style::default());
+        assert_eq!(flags, 0);
+    }
+
+    #[test]
+    fn pack_style_flags_plain_underline_sets_only_underline_bit() {
+        let mut style = Style::default();
+        style.underline = Underline::Single;
+        let flags = GhosttyTerminal::pack_style_flags(&style);
+        assert_eq!(flags, 1 << cell_flags::UNDERLINE);
+    }
+}
