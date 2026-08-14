@@ -189,6 +189,37 @@ internal fun shouldCreateDefaultSession(
     uiSessions.isEmpty() &&
     runtimeSessionIds.isEmpty()
 
+/**
+ * Copies a `content://` URI into `dst` (app-private storage) so the
+ * wallpaper never depends on a revocable SAF grant. Returns false when
+ * the stream cannot be opened or the copy fails — the caller keeps the
+ * original path in that case, and any partially-written `dst` is
+ * removed so a failed copy never leaves a corrupt wallpaper file.
+ */
+internal fun copyContentUriToPrivateFile(
+    contentResolver: android.content.ContentResolver,
+    uri: android.net.Uri,
+    dst: java.io.File,
+): Boolean {
+    fun copyStream(input: java.io.InputStream): Boolean = java.io.FileOutputStream(dst).use { output ->
+        val buf = ByteArray(COPY_BUFFER_SIZE)
+        while (true) {
+            val n = input.read(buf)
+            if (n <= 0) break
+            output.write(buf, 0, n)
+        }
+        true
+    }
+    return try {
+        contentResolver.openInputStream(uri)?.let(::copyStream) ?: false
+    } catch (_: Exception) {
+        dst.delete()
+        false
+    }
+}
+
+private const val COPY_BUFFER_SIZE = 64 * 1024
+
 // ═══════════════════════════════════════════════════════════════════════════
 // SECTION 1: Fields & constructor
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1543,22 +1574,12 @@ constructor(
             // on restore (self-heal, see applyBackgroundImageFromPath).
             var effectivePath = path
             if (path.startsWith("content://")) {
-                try {
-                    val dst = java.io.File(context.filesDir, "terminal_background")
-                    context.contentResolver.openInputStream(android.net.Uri.parse(path))?.use { input ->
-                        java.io.FileOutputStream(dst).use { output ->
-                            val buf = ByteArray(64 * 1024)
-                            while (true) {
-                                val n = input.read(buf)
-                                if (n <= 0) break
-                                output.write(buf, 0, n)
-                            }
-                        }
-                    }
+                val dst = java.io.File(context.filesDir, "terminal_background")
+                if (copyContentUriToPrivateFile(context.contentResolver, android.net.Uri.parse(path), dst)) {
                     effectivePath = dst.absolutePath
                     LogUtil.d(TAG, "background image copied to private storage: $effectivePath")
-                } catch (e: Throwable) {
-                    LogUtil.e(TAG, "background image private copy failed, keeping original path", e)
+                } else {
+                    LogUtil.e(TAG, "background image private copy failed, keeping original path")
                 }
             }
             settingsRepository.setBackgroundImagePath(effectivePath)

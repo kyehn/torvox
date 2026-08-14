@@ -9,7 +9,7 @@ import org.junit.Test
 /**
  * Tests for [ShortcutBinding] serialization, deserialization, and key matching.
  *
- * Round-230: validates the serialize/deserialize round-trip and reserved-key guards.
+ * Validates the serialize/deserialize round-trip and reserved-key guards.
  */
 class ShortcutBindingTest {
 

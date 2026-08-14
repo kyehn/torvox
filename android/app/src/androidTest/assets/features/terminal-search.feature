@@ -5,7 +5,7 @@ Feature: Text Search
 
   NOTE: scenarios are @wip until the native data path lands — search has no
   injectable terminal content while Bridge.getTerminalText is a stub, so the
-  match-based assertions are vacuous (round-105).
+  match-based assertions are vacuous.
 
   @REQ_SEARCH_001
   @wip

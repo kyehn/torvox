@@ -313,15 +313,14 @@ val excludedUnitTests =
 
 // Register pitest tasks for debug-only Android build variants
 //
-// KNOWN ISSUE: the PIT minion JVM cannot resolve androidx
-// framework classes (ComponentActivity, lifecycle-viewmodel, Compose
-// Modifier) from the AGP unit-test runtime classpath, so pitestDebug
-// fails during class transformation. Migrating to the PIT Gradle plugin
+// KNOWN ISSUE: the PIT minion JVM cannot resolve androidx framework
+// classes (ComponentActivity, lifecycle-viewmodel, Compose Modifier)
+// from the AGP unit-test runtime classpath, so pitestDebug fails during
+// class transformation. The android.jar stubs below only cover the
+// android.* framework classes. Migrating to the PIT Gradle plugin
 // (org.pitest:gradle) or passing `--classPathFile` with the resolved
-// runtime classpath are the two candidate fixes; until then the task is
-// a manual diagnostic tool, not part of CI.
-val androidSdkDir: java.io.File =
-    File(System.getenv("ANDROID_HOME") ?: error("ANDROID_HOME must be set for pitest"))
+// runtime classpath are the candidate fixes; until then the task is a
+// manual diagnostic tool, not part of CI.
 androidComponents {
     onVariants { variant ->
         if (!variant.name.contains("debug", ignoreCase = true)) {
@@ -341,9 +340,13 @@ androidComponents {
                 ) +
                 // android.jar stubs: Robolectric unit tests run against the
                 // android-all jar (which shadows these), but PIT's mutation
-                // engine loads classes directly and needs the framework
-                // stubs on the classpath.
-                files(File(androidSdkDir, "platforms/android-34/android.jar"))
+                // engine loads classes directly and needs the android.*
+                // framework stubs on the classpath. Resolved lazily so a
+                // missing ANDROID_HOME never breaks other Gradle tasks.
+                files(
+                    providers.environmentVariable("ANDROID_HOME")
+                        .map { home -> File(home, "platforms/android-34/android.jar") },
+                )
 
             mainClass.set("org.pitest.mutationtest.commandline.MutationCoverageReport")
 

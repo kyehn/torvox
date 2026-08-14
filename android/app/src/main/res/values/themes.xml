@@ -4,7 +4,7 @@
         <item name="android:windowBackground">#1E1E2E</item>
         <item name="android:statusBarColor">#1E1E2E</item>
         <item name="android:navigationBarColor">#1E1E2E</item>
-        <!-- Round-217: pin the ActionMode toolbar (selection context menu)
+        <!-- Pin the ActionMode toolbar (selection context menu)
              to the terminal panel color instead of the system dynamic
              accent. User requirement: the menu must look like a system
              toolbar with neutral colors, not an accent-colored banner. -->

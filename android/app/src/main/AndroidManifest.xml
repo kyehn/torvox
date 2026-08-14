@@ -39,7 +39,7 @@
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
-        <!-- Test-only install helper (round-223): runs in its OWN process
+        <!-- Test-only install helper: runs in its OWN process
              (:install) so the app's SELinux domain applies even when the
              main process is an instrumentation target (whose domain is the
              TEST package's — it cannot write filesDir). -->
