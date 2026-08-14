@@ -783,6 +783,32 @@ impl Renderer {
         }
     }
 
+    /// Build the cell-pipeline uniform block for the given projection and
+    /// atlas dimensions. Single construction site so projection/atlas/
+    /// image-active/background fields stay in lockstep across the write,
+    /// refresh, and swapchain-reconfigure paths.
+    pub(crate) fn cell_uniforms(
+        &self,
+        projection_width: f32,
+        projection_height: f32,
+        atlas_width: f32,
+        atlas_height: f32,
+    ) -> crate::render::pipeline::GpuUniforms {
+        let proj = crate::render::orthographic_projection(projection_width, projection_height);
+        crate::render::pipeline::GpuUniforms {
+            projection: proj,
+            atlas_size: [atlas_width, atlas_height],
+            raster_scale: self.raster_scale,
+            image_active: crate::render::pipeline::image_active_value(self.bg_bind_group.is_some()),
+            default_bg: [
+                self.bg_color.r as f32,
+                self.bg_color.g as f32,
+                self.bg_color.b as f32,
+                1.0,
+            ],
+        }
+    }
+
     /// Write uniforms and rebuild the cell bind group.
     ///
     /// Shared by [`update_bind_group`] and [`initialize_pipeline_and_bind_group`]
@@ -808,19 +834,12 @@ impl Renderer {
             }));
         }
 
-        let proj = crate::render::orthographic_projection(projection_width, projection_height);
-        let uniforms = crate::render::pipeline::GpuUniforms {
-            projection: proj,
-            atlas_size: [atlas_width, atlas_height],
-            raster_scale: self.raster_scale,
-            image_active: crate::render::pipeline::image_active_value(self.bg_bind_group.is_some()),
-            default_bg: [
-                self.bg_color.r as f32,
-                self.bg_color.g as f32,
-                self.bg_color.b as f32,
-                1.0,
-            ],
-        };
+        let uniforms = self.cell_uniforms(
+            projection_width,
+            projection_height,
+            atlas_width,
+            atlas_height,
+        );
 
         let uniform_buffer = match self.cell_uniform_buffer.as_ref() {
             Some(buf) => buf,
@@ -871,19 +890,7 @@ impl Renderer {
             .atlas_texture
             .as_ref()
             .map_or((0.0, 0.0), |t| (t.width() as f32, t.height() as f32));
-        let proj = crate::render::orthographic_projection(projection_width, projection_height);
-        let uniforms = crate::render::pipeline::GpuUniforms {
-            projection: proj,
-            atlas_size: [aw, ah],
-            raster_scale: self.raster_scale,
-            image_active: crate::render::pipeline::image_active_value(self.bg_bind_group.is_some()),
-            default_bg: [
-                self.bg_color.r as f32,
-                self.bg_color.g as f32,
-                self.bg_color.b as f32,
-                1.0,
-            ],
-        };
+        let uniforms = self.cell_uniforms(projection_width, projection_height, aw, ah);
         self.queue
             .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
     }
@@ -983,22 +990,12 @@ impl Renderer {
         if let Some(buf) = &self.cell_uniform_buffer {
             let aw = self.atlas_texture.as_ref().map_or(0, |t| t.width());
             let ah = self.atlas_texture.as_ref().map_or(0, |t| t.height());
-            let proj =
-                crate::render::orthographic_projection(scaled_width as f32, scaled_height as f32);
-            let uniforms = crate::render::pipeline::GpuUniforms {
-                projection: proj,
-                atlas_size: [aw as f32, ah as f32],
-                raster_scale: self.raster_scale,
-                image_active: crate::render::pipeline::image_active_value(
-                    self.bg_bind_group.is_some(),
-                ),
-                default_bg: [
-                    self.bg_color.r as f32,
-                    self.bg_color.g as f32,
-                    self.bg_color.b as f32,
-                    1.0,
-                ],
-            };
+            let uniforms = self.cell_uniforms(
+                scaled_width as f32,
+                scaled_height as f32,
+                aw as f32,
+                ah as f32,
+            );
             self.queue
                 .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
         }

@@ -74,6 +74,8 @@ pub enum SessionError {
     Io(#[from] std::io::Error),
     #[error("ghostty error: {0}")]
     Ghostty(String),
+    #[error("ghostty terminal error: {0}")]
+    Terminal(#[from] crate::terminal::ghostty_terminal::TerminalError),
     #[error("session closed")]
     Closed,
     #[error("invalid dimensions (out of u16 range)")]
@@ -433,7 +435,7 @@ impl Session {
             theme.foreground,
             theme.ansi,
         )
-        .map_err(SessionError::Ghostty)?;
+        .map_err(SessionError::Terminal)?;
 
         let notification = Arc::new(Mutex::new(None));
         let progress = Arc::new(Mutex::new(None));

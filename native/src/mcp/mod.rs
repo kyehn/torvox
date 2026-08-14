@@ -19,7 +19,7 @@
 //!                                  ▼
 //!                          McpRouter (tower-mcp)
 //!                           │       │       │
-//!                    clipboard  notify  terminal_info... (8 tools)
+//!                    clipboard  notify  terminal_info... (12 tools)
 //!                           │       │       │
 //!                           ▼       ▼       ▼
 //!                       McpState — JNI callbacks — Android host
@@ -274,6 +274,13 @@ type CallbackScreenshot =
 /// Registered by the JNI bridge so MCP tools can query the session registry
 /// without taking its lock (mirrors ffi.rs session_exit_code).
 type CallbackSessionCwd = Box<dyn Fn(u64) -> Option<String> + Send + Sync + 'static>;
+/// Resolves a session's exit code (None while it is still running).
+type CallbackSessionExitCode = Box<dyn Fn(u64) -> Option<i32> + Send + Sync + 'static>;
+/// Drains a session's last OSC 133 command output (None when empty).
+type CallbackSessionLastCommandOutput = Box<dyn Fn(u64) -> Option<String> + Send + Sync + 'static>;
+/// Cancels a pending async request (drops registry entries, dismisses the
+/// still-visible Kotlin dialog).
+type CallbackCancelRequest = Box<dyn Fn(u64, u64) + Send + Sync + 'static>;
 
 /// Thread-safe state shared between JNI bridge and MCP tools.
 #[derive(Clone)]
@@ -291,6 +298,9 @@ struct McpStateInner {
     on_run_command: Mutex<Option<CallbackRunCommand>>,
     on_screenshot: Mutex<Option<CallbackScreenshot>>,
     on_session_cwd: Mutex<Option<CallbackSessionCwd>>,
+    on_session_exit_code: Mutex<Option<CallbackSessionExitCode>>,
+    on_session_last_command_output: Mutex<Option<CallbackSessionLastCommandOutput>>,
+    on_cancel_request: Mutex<Option<CallbackCancelRequest>>,
     terminal_rows: AtomicU32,
     terminal_cols: AtomicU32,
     active_session_id: AtomicU64,
@@ -310,6 +320,9 @@ impl McpState {
             on_run_command: Mutex::new(None),
             on_screenshot: Mutex::new(None),
             on_session_cwd: Mutex::new(None),
+            on_session_exit_code: Mutex::new(None),
+            on_session_last_command_output: Mutex::new(None),
+            on_cancel_request: Mutex::new(None),
             terminal_rows: AtomicU32::new(24),
             terminal_cols: AtomicU32::new(80),
             active_session_id: AtomicU64::new(0),
@@ -428,6 +441,59 @@ impl McpState {
         F: Fn(u64) -> Option<String> + Send + Sync + 'static,
     {
         *self.0.on_session_cwd.lock() = Some(Box::new(f));
+    }
+    /// Register the live session-exit-code resolver (JNI bridge).
+    pub fn set_session_exit_code_handler<F>(&self, f: F)
+    where
+        F: Fn(u64) -> Option<i32> + Send + Sync + 'static,
+    {
+        *self.0.on_session_exit_code.lock() = Some(Box::new(f));
+    }
+
+    /// Register the OSC 133 last-command-output resolver (JNI bridge).
+    pub fn set_session_last_command_output_handler<F>(&self, f: F)
+    where
+        F: Fn(u64) -> Option<String> + Send + Sync + 'static,
+    {
+        *self.0.on_session_last_command_output.lock() = Some(Box::new(f));
+    }
+
+    /// Register the request-cancellation callback (JNI bridge).
+    pub fn set_cancel_request_handler<F>(&self, f: F)
+    where
+        F: Fn(u64, u64) + Send + Sync + 'static,
+    {
+        *self.0.on_cancel_request.lock() = Some(Box::new(f));
+    }
+
+    /// Resolve a session's exit code via the registered handler (None when
+    /// unregistered or the session is still running). MCP tools call this
+    /// instead of touching the JNI bridge directly, keeping the dependency
+    /// direction ffi → mcp.
+    pub fn session_exit_code(&self, session_id: u64) -> Option<i32> {
+        self.0
+            .on_session_exit_code
+            .lock()
+            .as_ref()
+            .and_then(|f| f(session_id))
+    }
+
+    /// Drain a session's last OSC 133 command output via the registered
+    /// handler (None when unregistered or no output pending).
+    pub fn session_last_command_output(&self, session_id: u64) -> Option<String> {
+        self.0
+            .on_session_last_command_output
+            .lock()
+            .as_ref()
+            .and_then(|f| f(session_id))
+    }
+
+    /// Cancel a pending async request via the registered handler. No-op
+    /// when the bridge has not registered one.
+    pub fn cancel_request(&self, session_id: u64, request_id: u64) {
+        if let Some(f) = self.0.on_cancel_request.lock().as_ref() {
+            f(session_id, request_id);
+        }
     }
 }
 
@@ -801,6 +867,9 @@ mod tests {
         *state.0.on_send_signal.lock() = None;
         *state.0.on_run_command.lock() = None;
         *state.0.on_session_cwd.lock() = None;
+        *state.0.on_session_exit_code.lock() = None;
+        *state.0.on_session_last_command_output.lock() = None;
+        *state.0.on_cancel_request.lock() = None;
         state.set_active_session_id(0);
     }
 
@@ -908,6 +977,11 @@ mod tests {
         }
         let handle = std::sync::Arc::new(parking_lot::Mutex::new(session));
         crate::android::ffi::register_session_for_test(42, handle);
+        // Mirrors the JNI bridge registration (ffi.rs mcp init): without the
+        // handler the tool resolves exit_code via a None callback and would
+        // report null.
+        crate::mcp::global_state()
+            .set_session_exit_code_handler(crate::android::ffi::session_exit_code);
         crate::mcp::global_state().set_active_session_id(42);
 
         let router = build_router();
@@ -1109,6 +1183,62 @@ mod tests {
             r#"{"exit_code":0,"stderr":"","stdout":"echo \"hi\""}"#
         );
         assert_eq!(rx.try_recv().unwrap(), (7u64, "echo \"hi\"".to_string()));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_last_command_output_tool() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+        state.set_active_session_id(7);
+
+        // No handler registered → empty text (drained-buffer semantics).
+        let result = client.call_tool("last_command_output", json!({})).await;
+        assert!(!result.is_error);
+        assert_eq!(result.content.first().unwrap().as_text().unwrap(), "");
+
+        // Handler registered → drains the buffer.
+        state.set_session_last_command_output_handler(|_sid| Some("ls\nfile.txt".to_string()));
+        let result = client.call_tool("last_command_output", json!({})).await;
+        assert!(!result.is_error);
+        assert_eq!(
+            result.content.first().unwrap().as_text().unwrap(),
+            "ls\nfile.txt"
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_cancel_request_handler_invoked() {
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
+        let router = build_router();
+        let mut client = TestClient::from_router(router);
+        client.initialize().await;
+        let state = global_state();
+        state.set_active_session_id(7);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        state.set_cancel_request_handler(move |sid, req_id| {
+            tx.send((sid, req_id)).unwrap();
+        });
+        // clipboard_get with a handler that answers with a dropped channel:
+        // the tool's timeout branch immediately resolves (Err(dropped)) and
+        // must cancel the request via the registered handler.
+        state.set_clipboard_get_handler(|| {
+            // Registry entry with a live sender; the answer channel's sender
+            // is dropped so the tool's `rx.await` resolves Err instantly —
+            // the timeout/cancel branch must then invoke cancel_request.
+            let (req_id, _rx) = crate::android::ffi::register_request(7);
+            let (tx, rx) = tokio::sync::oneshot::channel::<String>();
+            drop(tx);
+            (req_id, rx)
+        });
+        let result = client.call_tool("clipboard_get", json!({})).await;
+        assert!(result.is_error);
+        assert_eq!(rx.try_recv().unwrap(), (7u64, 1u64));
     }
 
     #[tokio::test(flavor = "current_thread")]

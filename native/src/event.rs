@@ -131,8 +131,8 @@ pub enum Event {
 /// `pop()` removes from the front.
 ///
 /// # Lock ordering
-/// If both [`crate::android::ffi::SESSION_REGISTRY`] and this queue
-/// must be held, always lock SESSION_REGISTRY first, then the queue.
+/// If both the JNI `SESSION_REGISTRY` and this queue must be held, always
+/// lock SESSION_REGISTRY first, then the queue.
 /// The reverse order will deadlock.
 pub struct EventQueue {
     inner: Mutex<VecDeque<Event>>,

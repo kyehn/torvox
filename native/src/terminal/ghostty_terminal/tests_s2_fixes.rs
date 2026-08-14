@@ -1,6 +1,5 @@
 use super::*;
 use crate::terminal::test_helpers::assert_invariants;
-use flume::bounded;
 use libghostty_vt::key::{self};
 
 /// Enable the Kitty keyboard protocol so the encoder reports
@@ -121,33 +120,6 @@ fn pty_write_complete_st_resets_string_mode() {
         "'h' must render at row0 col0 — complete ST must exit string mode"
     );
     assert_invariants(&snap);
-}
-
-// ── R7: take_snapshot_with_scroll routes through recv_or_fallback ─
-
-/// `recv_or_fallback` returns the channel value when the terminal thread
-/// is alive and responds (the normal path used by
-/// `take_snapshot_with_scroll`).
-#[test]
-fn recv_or_fallback_returns_value_when_present() {
-    let (tx, rx) = bounded(1);
-    tx.send(99u32).expect("send");
-    let result = GhosttyTerminal::recv_or_fallback(rx, 7u32, "unit");
-    assert_eq!(result, 99, "recv_or_fallback must return the sent value");
-}
-
-/// `recv_or_fallback` returns the fallback when the channel is
-/// disconnected (terminal thread dead — the "no surface" path
-/// `take_snapshot_with_scroll` must take when the surface is gone).
-#[test]
-fn recv_or_fallback_returns_fallback_when_disconnected() {
-    let (tx, rx) = bounded::<u32>(1);
-    drop(tx); // simulate a dead terminal thread
-    let result = GhosttyTerminal::recv_or_fallback(rx, 42u32, "unit");
-    assert_eq!(
-        result, 42,
-        "recv_or_fallback must return the fallback when disconnected"
-    );
 }
 
 /// With a live terminal, `take_snapshot_with_scroll` returns a

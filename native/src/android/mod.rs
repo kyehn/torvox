@@ -4,6 +4,7 @@
 //! - FR-049 — JNI NDK bridge: direct JNI exports for the Android platform
 
 pub mod ffi;
+pub(crate) mod text_utils;
 
 #[cfg(target_os = "android")]
 pub mod logging;

@@ -16,12 +16,13 @@ mod public_api;
 mod types;
 
 pub use commands::Command;
+pub use commands::Query;
 pub(crate) use commands::SnapshotCache;
 pub use types::*;
 
 pub struct GhosttyTerminal {
     pub(crate) cmd_tx: Sender<Command>,
-    pub(crate) query_tx: Sender<Command>,
+    pub(crate) query_tx: Sender<Query>,
     pub(crate) cell_data_rx: Option<flume::Receiver<(Vec<CellData>, CursorInfo)>>,
     pub(crate) handle: Option<thread::JoinHandle<()>>,
     pub(crate) pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
@@ -37,7 +38,7 @@ pub struct GhosttyTerminal {
     /// OSC/DCS string; `pty_write()` closes it with ST on the next chunk.
     pub(crate) last_in_string_mode: bool,
     /// Mirror of `Terminal::active_screen() == Alternate`, updated lock-free
-    /// by the VT thread on every `Command::AltScreen` query (internal.rs).
+    /// by the VT thread on every `Query::AltScreen` query (internal.rs).
     /// Lets the Android input path detect the alternate screen buffer
     /// (vim/less/htop) without a blocking RPC, so touch-scroll gestures can
     /// be forwarded as mouse-wheel escapes instead of scrolling local
