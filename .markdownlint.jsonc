@@ -17,7 +17,7 @@
   "MD046": false,
   "no-inline-html": false,
   "MD060": false,
-  "ignores": [
-    "ultragoal/**"
-  ]
+  "MD029": {
+    "style": "ordered"
+  }
 }
