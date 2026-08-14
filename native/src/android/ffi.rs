@@ -274,10 +274,8 @@ struct RenderState {
     /// Active text selection for the next frame. Set by `setSelection`
     /// (row/col bounds in visible-grid coordinates), consumed by
     /// `render_inner`; same deferred-consume pattern as
-    /// `search_highlights`. `selection_bg` is the theme's selection
-    /// background color (ARGB from Kotlin, converted to linear f32).
+    /// `search_highlights`.
     selection: Option<crate::render::cell_builder::SelectionRange>,
-    selection_bg: Option<[f32; 4]>,
     /// Last rendered frame (cells + cursor + dims). Needed for app-level
     /// cursor blink: `render()` only draws when the terminal produced new
     /// CellData, so an idle terminal would never repaint the cursor phase.
@@ -320,7 +318,6 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             font_pipeline,
             search_highlights: Vec::new(),
             selection: None,
-            selection_bg: None,
             pending_bg_image: None,
             pending_bg_image_clear: false,
             pending_flash_phase: None,
@@ -505,6 +502,7 @@ fn active_session_id() -> u64 {
     ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire)
 }
 
+// ── Session 生命周期 ──────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: initSession
 // ══════════════════════════════════════════════════════════════════════════
@@ -926,6 +924,7 @@ fn get_session_count_inner(_env: &mut JNIEnv, _class: JClass) -> jint {
     rlock_session_registry().len() as i32
 }
 
+// ── 输入、调整与键鼠编码 ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: resize
 // ══════════════════════════════════════════════════════════════════════════
@@ -1358,6 +1357,7 @@ fn encode_mouse_event_inner(
         .unwrap_or_else(|_| empty())
 }
 
+// ── 事件轮询 ────────────────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: pollEvent
 // ══════════════════════════════════════════════════════════════════════════
@@ -1589,6 +1589,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
     }
 }
 
+// ── 日志与渲染生命周期 ──────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: initLogger
 // ══════════════════════════════════════════════════════════════════════════
@@ -1953,7 +1954,6 @@ fn render_inner(session_id: u64) -> jint {
         ATLAS_SIZE as f32,
         ATLAS_SIZE as f32,
         render_selection,
-        render_state.selection_bg,
         &render_state.search_highlights,
         Some(&dirty_mask),
     );
@@ -2034,6 +2034,7 @@ fn detach_window_inner(_env: &mut JNIEnv, _class: JClass, _session_id: jlong) {
     }
 }
 
+// ── MCP 桥接与异步结果 ──────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: setMcpEnabled
 // ══════════════════════════════════════════════════════════════════════════
@@ -2522,6 +2523,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'loca
     })
 }
 
+// ── 文本与滚动查询 ──────────────────────────────────────────────
 /// Returns the number of scrollback rows for a session.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLength(
@@ -2774,6 +2776,7 @@ fn cell_line_text(cells: &[crate::terminal::ghostty_terminal::CellSnapshot]) -> 
     text
 }
 
+// ── 搜索与选择 ──────────────────────────────────────────────────
 /// Returns a JSON array of `{row,start_col,end_col}` search matches, or
 /// `[]` on timeout/disconnect. Column indices are character columns.
 #[unsafe(no_mangle)]
@@ -2892,6 +2895,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
     })
 }
 
+// ── 字体与主题 ──────────────────────────────────────────────────
 /// Returns the list of monospace font families the pipeline knows.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamilies<'local>(
@@ -3064,7 +3068,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     end_col: jint,
     has_selection: jboolean,
     mode: jbyte,
-    selection_bg_argb: jint,
+    _selection_bg_argb: jint,
 ) {
     jni_export_guard!(&mut env, (), {
         // Kotlin SelectionMode ordinal → Rust SelectionMode.
@@ -3076,13 +3080,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
             4 => crate::terminal::SelectionMode::Semantic,
             _ => crate::terminal::SelectionMode::Char,
         };
-        let argb = selection_bg_argb as u32;
-        let selection_bg = [
-            ((argb >> 16) & 0xFF) as f32 / 255.0,
-            ((argb >> 8) & 0xFF) as f32 / 255.0,
-            (argb & 0xFF) as f32 / 255.0,
-            ((argb >> 24) & 0xFF) as f32 / 255.0,
-        ];
+        // `selection_bg_argb` is accepted for Kotlin contract stability but
+        // no longer stored: classic inverse video (fg<->bg swap) renders
+        // the selection highlight (see rejected-technologies §1.7 #33).
         let selection = if has_selection == jni::sys::JNI_TRUE {
             Some(crate::render::cell_builder::SelectionRange {
                 start_row,
@@ -3100,11 +3100,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.selection = selection;
-            render_state.selection_bg = if selection.is_some() {
-                Some(selection_bg)
-            } else {
-                None
-            };
         }
     });
 }
@@ -3635,6 +3630,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPa
     })
 }
 
+// ── 网格尺寸查询 ────────────────────────────────────────────────
 /// Current cell width in pixels (from the renderer's font pipeline).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
@@ -3688,6 +3684,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsCol
     })
 }
 
+// ── 滚动、模式与状态查询 ────────────────────────────────────────
 /// Set the viewport scroll offset (rows into scrollback; 0 = active
 /// screen). The difference from the previous offset is applied on the VT
 /// thread via `scroll_viewport(Delta)`, so the next CellData push carries
