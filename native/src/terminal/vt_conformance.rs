@@ -1204,12 +1204,11 @@ fn dec_double_high_lines_detection() {
     let mut t = sized_term(5, 20, 100);
     t.vt_write(b"\x1b#3TOP\x1b#4");
     t.flush();
-    // DECDHL: if implemented, cursor row would change or text would be different
-    let snap = t.take_snapshot();
-    let has_content = snap.cells[0].codepoint > 0;
-    if !has_content && snap.cursor_col == 0 {
-        // Ghostty likely doesn't implement DECDHL
-    }
+    // DECDHL probe: xterm duplicates the line and shifts the cursor; Ghostty
+    // may render the double-height cells via SGR attributes instead, so no
+    // behavioral assertion is made yet. If a future Ghostty changes the
+    // layout, assert it here (snapshot cells / cursor row); the invariant
+    // check stays active either way.
     check_invariants(&t);
 }
 
@@ -1602,11 +1601,10 @@ fn xtwinops_3_window_title_detection() {
     let mut t = term();
     t.vt_write(b"\x1b[3;XTWinTitle\x1b\\");
     t.flush();
-    // If CSI 3 t is implemented, title changes
-    let ttl = t.title();
-    if ttl.contains("XTWinTitle") {
-        // title was set by CSI 3 t
-    }
+    // XTWINOPS 3 probe: xterm sets the window title; Ghostty currently
+    // ignores CSI 3 t, so no behavioral assertion is made yet. If a future
+    // Ghostty implements it, assert t.title().contains("XTWinTitle") here;
+    // the invariant check stays active either way.
     check_invariants(&t);
 }
 
