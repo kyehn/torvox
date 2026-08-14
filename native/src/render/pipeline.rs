@@ -274,6 +274,110 @@ impl Renderer {
         (pipeline, bg_bind_group_layout)
     }
 
+    /// Creates the two-pass background blur pipelines (horizontal then
+    /// vertical). Both reuse the background bind group layout and the
+    /// `background.wgsl` shader: `fs_blur_h` downsamples, `fs_blur_v`
+    /// re-upsamples with the alpha blend that composites the blurred
+    /// wallpaper at `uniforms.alpha` opacity.
+    pub(crate) fn create_blur_pipelines(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        bind_group_layout: &wgpu::BindGroupLayout,
+    ) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
+        let blur_wgsl_source = include_str!("../../shaders/background.wgsl");
+        let blur_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Background Blur Shader"),
+            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(blur_wgsl_source)),
+        });
+        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("Blur Pipeline Layout"),
+            bind_group_layouts: &[Some(bind_group_layout)],
+            immediate_size: 0,
+        });
+        let blur_h = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Background Blur H Pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &blur_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Some(quad_corner_buffer_layout())],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blur_shader,
+                entry_point: Some("fs_blur_h"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::REPLACE),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let blur_v = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Background Blur V Pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &blur_shader,
+                entry_point: Some("vs_main"),
+                buffers: &[Some(quad_corner_buffer_layout())],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &blur_shader,
+                entry_point: Some("fs_blur_v"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    // Alpha blend: fs_blur_v outputs
+                    // alpha = uniforms.alpha, so the opacity
+                    // setting composites the blurred wallpaper
+                    // over the cleared bg_color.
+                    blend: Some(wgpu::BlendState {
+                        color: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::SrcAlpha,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                        alpha: wgpu::BlendComponent {
+                            src_factor: wgpu::BlendFactor::One,
+                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                            operation: wgpu::BlendOperation::Add,
+                        },
+                    }),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                strip_index_format: None,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                polygon_mode: wgpu::PolygonMode::Fill,
+                unclipped_depth: false,
+                conservative: false,
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        (blur_h, blur_v)
+    }
+
     pub(crate) fn create_kgp_pipeline(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -456,110 +560,12 @@ impl Renderer {
         }
 
         if self.blur_h_pipeline.is_none() {
-            let blur_wgsl_source = include_str!("../../shaders/background.wgsl");
-            let blur_shader = self
-                .device
-                .create_shader_module(wgpu::ShaderModuleDescriptor {
-                    label: Some("Background Blur Shader"),
-                    source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(blur_wgsl_source)),
-                });
-            let bg_pipeline_layout = self.bg_bind_group_layout.as_ref().map(|layout| {
-                self.device
-                    .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                        label: Some("Blur Pipeline Layout"),
-                        bind_group_layouts: &[Some(layout)],
-                        immediate_size: 0,
-                    })
-            });
-            let layout = match bg_pipeline_layout.as_ref() {
-                Some(l) => l,
-                None => return,
+            let Some(layout) = self.bg_bind_group_layout.as_ref() else {
+                return;
             };
-            self.blur_h_pipeline = Some(self.device.create_render_pipeline(
-                &wgpu::RenderPipelineDescriptor {
-                    label: Some("Background Blur H Pipeline"),
-                    layout: Some(layout),
-                    vertex: wgpu::VertexState {
-                        module: &blur_shader,
-                        entry_point: Some("vs_main"),
-                        buffers: &[Some(quad_corner_buffer_layout())],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &blur_shader,
-                        entry_point: Some("fs_blur_h"),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format,
-                            blend: Some(wgpu::BlendState::REPLACE),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    }),
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
-                        strip_index_format: None,
-                        front_face: wgpu::FrontFace::Ccw,
-                        cull_mode: None,
-                        polygon_mode: wgpu::PolygonMode::Fill,
-                        unclipped_depth: false,
-                        conservative: false,
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview_mask: None,
-                    cache: None,
-                },
-            ));
-            self.blur_v_pipeline = Some(self.device.create_render_pipeline(
-                &wgpu::RenderPipelineDescriptor {
-                    label: Some("Background Blur V Pipeline"),
-                    layout: Some(layout),
-                    vertex: wgpu::VertexState {
-                        module: &blur_shader,
-                        entry_point: Some("vs_main"),
-                        buffers: &[Some(quad_corner_buffer_layout())],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &blur_shader,
-                        entry_point: Some("fs_blur_v"),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format,
-                            // Alpha blend: fs_blur_v outputs
-                            // alpha = uniforms.alpha, so the opacity
-                            // setting composites the blurred wallpaper
-                            // over the cleared bg_color.
-                            blend: Some(wgpu::BlendState {
-                                color: wgpu::BlendComponent {
-                                    src_factor: wgpu::BlendFactor::SrcAlpha,
-                                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                                    operation: wgpu::BlendOperation::Add,
-                                },
-                                alpha: wgpu::BlendComponent {
-                                    src_factor: wgpu::BlendFactor::One,
-                                    dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                                    operation: wgpu::BlendOperation::Add,
-                                },
-                            }),
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                        compilation_options: wgpu::PipelineCompilationOptions::default(),
-                    }),
-                    primitive: wgpu::PrimitiveState {
-                        topology: wgpu::PrimitiveTopology::TriangleList,
-                        strip_index_format: None,
-                        front_face: wgpu::FrontFace::Ccw,
-                        cull_mode: None,
-                        polygon_mode: wgpu::PolygonMode::Fill,
-                        unclipped_depth: false,
-                        conservative: false,
-                    },
-                    depth_stencil: None,
-                    multisample: wgpu::MultisampleState::default(),
-                    multiview_mask: None,
-                    cache: None,
-                },
-            ));
+            let (blur_h, blur_v) = Self::create_blur_pipelines(&self.device, format, layout);
+            self.blur_h_pipeline = Some(blur_h);
+            self.blur_v_pipeline = Some(blur_v);
         }
 
         let pipeline = match self.bg_pipeline.as_ref() {
