@@ -3,6 +3,7 @@
 //! # Requirements
 //! - FR-055 — Repository SHALL NOT contain golden images; rendering verification uses assertions or OCR.
 
+use crate::terminal::ghostty_terminal::cell_flags;
 use crate::terminal::ghostty_terminal::{CellData, CursorInfo, CursorStyle};
 
 /// CPU-side terminal cell for screenshot generation (no GPU needed).
@@ -66,14 +67,8 @@ impl CpuFrame {
         for cd in cells {
             let codepoint = char::from_u32(cd.codepoint).unwrap_or('\0');
 
-            // Check flags (bit positions from CellData.flags)
-            const REVERSE_BIT: u32 = 2;
-            const BOLD_BIT: u32 = 0;
-            const ITALIC_BIT: u32 = 1;
-            const UNDERLINE_BIT: u32 = 3;
-            const STRIKETHROUGH_BIT: u32 = 4;
-            const DIM_BIT: u32 = 5;
-
+            // Check flags (bit positions from cell_flags — single source of
+            // truth shared with pack_style_flags and shaders/cell.wgsl).
             let fg = f32_colors_to_u8(&cd.fg_color);
             let bg = f32_colors_to_u8(&cd.bg_color);
 
@@ -81,12 +76,12 @@ impl CpuFrame {
                 codepoint,
                 fg,
                 bg,
-                bold: cd.flags & (1 << BOLD_BIT) != 0,
-                italic: cd.flags & (1 << ITALIC_BIT) != 0,
-                underline: cd.flags & (1 << UNDERLINE_BIT) != 0,
-                strikethrough: cd.flags & (1 << STRIKETHROUGH_BIT) != 0,
-                reverse_video: cd.flags & (1 << REVERSE_BIT) != 0,
-                dim: cd.flags & (1 << DIM_BIT) != 0,
+                bold: cd.flags & (1 << cell_flags::BOLD) != 0,
+                italic: cd.flags & (1 << cell_flags::ITALIC) != 0,
+                underline: cd.flags & (1 << cell_flags::UNDERLINE) != 0,
+                strikethrough: cd.flags & (1 << cell_flags::STRIKETHROUGH) != 0,
+                reverse_video: cd.flags & (1 << cell_flags::REVERSE) != 0,
+                dim: cd.flags & (1 << cell_flags::FAINT) != 0,
             });
         }
 
@@ -217,6 +212,7 @@ fn f32_colors_to_u8(colors: &[f32; 4]) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::terminal::ghostty_terminal::cell_flags;
     use crate::terminal::ghostty_terminal::{CellData, CursorInfo, CursorStyle};
 
     fn make_cell(codepoint: u32, row: u32, col: u32) -> CellData {
@@ -341,7 +337,7 @@ mod tests {
     #[test]
     fn reverse_video_swaps_fg_bg() {
         let mut cell = make_cell('X' as u32, 0, 0);
-        cell.flags = 1 << 2; // REVERSE_BIT
+        cell.flags = 1 << cell_flags::REVERSE;
         let cells = vec![cell];
         let cursor = make_cursor(0, 0);
         let frame = CpuFrame::from_cell_data(&cells, 1, 1, &cursor);
@@ -381,7 +377,8 @@ mod tests {
     #[test]
     fn flags_bold_italic_underline() {
         let mut cell = make_cell('T' as u32, 0, 0);
-        cell.flags = (1 << 0) | (1 << 1) | (1 << 3); // bold | italic | underline
+        cell.flags =
+            (1 << cell_flags::BOLD) | (1 << cell_flags::ITALIC) | (1 << cell_flags::UNDERLINE); // bold | italic | underline
         let cells = vec![cell];
         let cursor = make_cursor(0, 0);
         let frame = CpuFrame::from_cell_data(&cells, 1, 1, &cursor);

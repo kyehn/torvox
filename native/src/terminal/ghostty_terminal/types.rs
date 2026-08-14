@@ -1,3 +1,14 @@
+/// Errors returned by [GhosttyTerminal](crate::terminal::ghostty_terminal::GhosttyTerminal) construction.
+///
+/// The only fallible step is spawning the VT thread; runtime query failures
+/// are non-fatal and surface as fallback values, not errors (see
+/// `public_api::query`).
+#[derive(Debug, thiserror::Error)]
+pub enum TerminalError {
+    #[error("failed to spawn terminal thread: {0}")]
+    Spawn(#[from] std::io::Error),
+}
+
 /// A single match from search_all_in_scrollback.
 /// Row is a scrollback row; start_col/end_col are character columns in the
 /// line (NOT byte offsets) — they align with CellData.col used by the
@@ -32,6 +43,22 @@ pub enum SelectionMode {
     Block,
 }
 
+/// Bit positions in `CellData::flags`, the single source of truth shared by
+/// the style packer (`ghostty_terminal::internal::pack_style_flags`), the GPU
+/// cell builder (`render::cell_builder`), the CPU fallback (`render::cpu_frame`)
+/// and the shader `cell.wgsl`. Keep in sync with `pack_style_flags` and
+/// `shaders/cell.wgsl` (which reads bits 3/5/6/7/8 for decorations).
+pub mod cell_flags {
+    pub const BOLD: u32 = 0;
+    pub const ITALIC: u32 = 1;
+    pub const REVERSE: u32 = 2;
+    pub const UNDERLINE: u32 = 3;
+    pub const STRIKETHROUGH: u32 = 5;
+    pub const OVERLINE: u32 = 6;
+    pub const FAINT: u32 = 7;
+    pub const DOUBLE_UNDERLINE: u32 = 8;
+}
+
 /// Cursor info — terminal cursor state sent alongside CellData for
 /// same-frame cursor rendering. Produced by build_cell_data, consumed
 /// by the render thread as CellCursor.
@@ -43,48 +70,11 @@ pub struct CursorInfo {
     pub style: CursorStyle,
 }
 
-/// Check if a character is East Asian Wide (double-width CJK).
-/// Replaces the deleted terminal_core::unicode::is_wide.
-pub fn is_wide(c: char) -> bool {
-    let cp = c as u32;
-    // East Asian Width — W / F characters as defined by Unicode Annex #11.
-    // This covers CJK, Hangul, fullwidth forms, and related blocks.
-    matches!(cp,
-        0x1100..=0x115F | // Hangul Jamo
-        0x2329..=0x232A | // Angle brackets
-        0x2E80..=0x2EFF | // CJK Radicals Supplement
-        0x2F00..=0x2FDF | // Kangxi Radicals
-        0x2FF0..=0x2FFF | // Ideographic Description Characters
-        0x3000..=0x303E | // CJK Symbols & Punctuation
-        0x3041..=0x3096 | // Hiragana
-        0x3099..=0x30FF | // Katakana
-        0x3105..=0x312F | // Bopomofo
-        0x3131..=0x318E | // Hangul Compatibility Jamo
-        0x3190..=0x31E3 | // Kanbun, CJK Strokes, Bopomofo Extended
-        0x31F0..=0x321E | // Katakana Phonetic Extensions
-        0x3220..=0x3247 | // Enclosed CJK Letters
-        0x3250..=0x4DBF | // CJK Extension A
-        0x4E00..=0xA4CF | // CJK Unified Ideographs + Yi
-        0xA960..=0xA97C | // Hangul Jamo Extended-A
-        0xAC00..=0xD7A3 | // Hangul Syllables
-        0xF900..=0xFAFF | // CJK Compatibility Ideographs
-        0xFE10..=0xFE19 | // Vertical Forms
-        0xFE30..=0xFE6B | // CJK Compatibility Forms
-        0xFF01..=0xFF60 | // Fullwidth Forms
-        0xFFE0..=0xFFE6 | // Fullwidth Signs
-        0x1B000..=0x1B0FF | // Kana Supplement
-        0x1B100..=0x1B12F | // Kana Extended-A
-        0x1F200..=0x1F2FF | // Enclosed Ideographic Supplement
-        0x20000..=0x2FFFF | // CJK Extension B+
-        0x30000..=0x3FFFF   // CJK Extension G+
-    )
-}
-
 /// Cell data — the per-cell payload transported from the Session thread
 /// (where it's produced via Ghostty CellIterator) to the Render thread
 /// (where it's converted to CellInstance for GPU upload).
 ///
-/// This is a fixed-size bytemuck struct (80 bytes) so Vec<CellData> can be
+/// This is a fixed-size bytemuck struct (80 bytes) so `Vec<CellData>` can be
 /// sent across a flume channel with zero copying overhead per cell.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -100,7 +90,10 @@ pub struct CellData {
     pub fg_color: [f32; 4],
     /// Resolved background color as [R, G, B, A] in 0..1.
     pub bg_color: [f32; 4],
-    /// Packed style flags (reserved for bold/italic/underline/etc bitmask).
+    /// Packed style flags; bit positions are defined by [`cell_flags`]
+    /// (bold/italic/reverse/underline/strikethrough/overline/faint/double
+    /// underline), packed by `pack_style_flags` and consumed by the GPU and
+    /// CPU cell builders plus `shaders/cell.wgsl`.
     pub flags: u32,
     /// Grid row (for screen-space position computation on render thread).
     pub row: u32,

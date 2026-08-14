@@ -1328,12 +1328,6 @@ constructor(
         createSession()
     }
 
-    fun setTouchBehavior(behavior: String) {
-        viewModelScope.launch {
-            settingsRepository.setTouchBehavior(behavior)
-        }
-    }
-
     fun setBootstrapUrl(url: String) {
         bootstrapUrlDebounce.value = url
         bootstrapUrlEdited = true
@@ -1506,12 +1500,6 @@ constructor(
     fun setUseNerdFontGlyphs(enabled: Boolean) {
         viewModelScope.launch {
             settingsRepository.setUseNerdFontGlyphs(enabled)
-        }
-    }
-
-    fun setUseSemanticSelection(enabled: Boolean) {
-        viewModelScope.launch {
-            settingsRepository.setUseSemanticSelection(enabled)
         }
     }
 

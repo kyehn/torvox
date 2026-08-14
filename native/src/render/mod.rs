@@ -3,8 +3,8 @@
 //! The only rendering path — there is no CPU/Canvas fallback. The [`font`]
 //! sub-module performs text shaping (cosmic-text), glyph rasterization (swash),
 //! and atlas packing (guillotiere); [`context`] owns the `Renderer` struct;
-//! [`pipeline`] builds wgpu pipelines; [`pass`] drives per-frame rendering;
-//! [`surface`] manages Android surface lifecycle.
+//! `pipeline` builds wgpu pipelines; `pass` drives per-frame rendering;
+//! `surface` manages Android surface lifecycle.
 //!
 //! The atlas alpha-coverage texture uses `Rgba8Unorm` (R channel = coverage,
 //! GBA = 0), a **linear** (non-sRGB) format; glyph coverage data is already in

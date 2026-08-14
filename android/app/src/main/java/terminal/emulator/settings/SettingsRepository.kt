@@ -29,10 +29,8 @@ constructor(
         val SHELL = stringPreferencesKey("shell")
         val SCROLLBACK_LINES = intPreferencesKey("scrollback_lines")
         val APP_THEME_MODE = stringPreferencesKey("app_theme_mode")
-        val TOUCH_BEHAVIOR = stringPreferencesKey("touch_behavior")
         val BOOTSTRAP_URL = stringPreferencesKey("bootstrap_url")
         val USE_NERD_FONT_GLYPHS = booleanPreferencesKey("use_nerd_font_glyphs")
-        val USE_SEMANTIC_SELECTION = booleanPreferencesKey("use_semantic_selection")
         val KEYBOARD_MODE = stringPreferencesKey("keyboard_mode")
         val MCP_SERVER_ENABLED = booleanPreferencesKey("mcp_server_enabled")
         val ENVIRONMENT_VARIABLES = stringPreferencesKey("environment_variables")
@@ -57,7 +55,6 @@ constructor(
         const val DEFAULT_DAY_THEME_NAME = "Catppuccin Latte"
         const val DEFAULT_FOLLOW_SYSTEM = "follow_system"
         const val DEFAULT_THEME_MODE = "fixed"
-        const val DEFAULT_TOUCH_BEHAVIOR = "right_click"
         const val DEFAULT_KEYBOARD_MODE = "secure"
         const val DEFAULT_SHELL = "/system/bin/sh"
         const val DEFAULT_BACKGROUND_BLUR_RADIUS = 0
@@ -77,10 +74,8 @@ constructor(
     val themeMode: Flow<String> = provider.dataStore.data.map { it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE }
     val shell: Flow<String> = provider.dataStore.data.map { it[Keys.SHELL] ?: DEFAULT_SHELL }
     val scrollbackLines: Flow<Int> = provider.dataStore.data.map { it[Keys.SCROLLBACK_LINES] ?: DEFAULT_SCROLLBACK_LINES }
-    val touchBehavior: Flow<String> = provider.dataStore.data.map { it[Keys.TOUCH_BEHAVIOR] ?: DEFAULT_TOUCH_BEHAVIOR }
     val bootstrapUrl: Flow<String> = provider.dataStore.data.map { it[Keys.BOOTSTRAP_URL] ?: "" }
     val useNerdFontGlyphs: Flow<Boolean> = provider.dataStore.data.map { it[Keys.USE_NERD_FONT_GLYPHS] ?: false }
-    val useSemanticSelection: Flow<Boolean> = provider.dataStore.data.map { it[Keys.USE_SEMANTIC_SELECTION] ?: false }
     val keyboardMode: Flow<String> = provider.dataStore.data.map { it[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE }
     val mcpServerEnabled: Flow<Boolean> = provider.dataStore.data.map { it[Keys.MCP_SERVER_ENABLED] ?: false }
 
@@ -119,10 +114,8 @@ constructor(
         val themeMode: String = DEFAULT_THEME_MODE,
         val shell: String = DEFAULT_SHELL,
         val scrollbackLines: Int = DEFAULT_SCROLLBACK_LINES,
-        val touchBehavior: String = DEFAULT_TOUCH_BEHAVIOR,
         val bootstrapUrl: String = "",
         val useNerdFontGlyphs: Boolean = false,
-        val useSemanticSelection: Boolean = false,
         val keyboardMode: String = DEFAULT_KEYBOARD_MODE,
         val mcpServerEnabled: Boolean = false,
         val environmentVariables: Map<String, String> = emptyMap(),
@@ -153,10 +146,8 @@ constructor(
             themeMode = prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
             shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
             scrollbackLines = prefs[Keys.SCROLLBACK_LINES] ?: DEFAULT_SCROLLBACK_LINES,
-            touchBehavior = prefs[Keys.TOUCH_BEHAVIOR] ?: DEFAULT_TOUCH_BEHAVIOR,
             bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
             useNerdFontGlyphs = prefs[Keys.USE_NERD_FONT_GLYPHS] ?: false,
-            useSemanticSelection = prefs[Keys.USE_SEMANTIC_SELECTION] ?: false,
             keyboardMode = prefs[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE,
             mcpServerEnabled = prefs[Keys.MCP_SERVER_ENABLED] ?: false,
             environmentVariables = parseEnvironmentVariables(prefs[Keys.ENVIRONMENT_VARIABLES].orEmpty()),
@@ -197,13 +188,9 @@ constructor(
 
     suspend fun setScrollbackLines(lines: Int) = put(Keys.SCROLLBACK_LINES, lines)
 
-    suspend fun setTouchBehavior(behavior: String) = put(Keys.TOUCH_BEHAVIOR, behavior)
-
     suspend fun setBootstrapUrl(url: String) = put(Keys.BOOTSTRAP_URL, url)
 
     suspend fun setUseNerdFontGlyphs(enabled: Boolean) = put(Keys.USE_NERD_FONT_GLYPHS, enabled)
-
-    suspend fun setUseSemanticSelection(enabled: Boolean) = put(Keys.USE_SEMANTIC_SELECTION, enabled)
 
     suspend fun setKeyboardMode(mode: String) = put(Keys.KEYBOARD_MODE, mode)
 

@@ -30,7 +30,6 @@ import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.runtime.LogcatDumpWriter
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.runtime.TestBackdoorReceivers
 import terminal.emulator.ui.SettingsScreen
@@ -74,8 +73,6 @@ class MainActivity : ComponentActivity() {
     @Inject
     @Suppress("LateinitUsage") // Dagger injection
     lateinit var runtime: TerminalRuntime
-
-    private val logcatDumpWriter = LogcatDumpWriter(this)
 
     private var previousNightMode: Int? = null
 
@@ -213,7 +210,6 @@ class MainActivity : ComponentActivity() {
             .setDecorFitsSystemWindows(window, false)
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.setFormat(PixelFormat.TRANSPARENT)
-        logcatDumpWriter.start()
         testBackdoorReceivers.register()
         try {
             terminal.emulator.service.TerminalForegroundService
@@ -550,7 +546,6 @@ class MainActivity : ComponentActivity() {
         activeDialog = null
         super.onDestroy()
         testBackdoorReceivers.unregister()
-        logcatDumpWriter.stop()
         // Stop the foreground service when no session is running. Without
         // this, the service (and its PARTIAL_WAKE_LOCK) stays alive forever
         // after the user leaves the app, draining the battery and pinning a
