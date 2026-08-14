@@ -63,7 +63,7 @@ pub struct OutputSnapshot {
     pub bel: bool,
     /// Shell integration marker detected in this chunk.
     pub shell_integration: ShellIntegration,
-    /// Exit code from OSC 133;D[;exit_code] (None unless D carried one).
+    /// Exit code from OSC 133;D `[;exit_code]` (None unless D carried one).
     pub shell_exit_code: Option<i32>,
     /// Filtered output bytes for the VT parser.
     pub filtered: Vec<u8>,

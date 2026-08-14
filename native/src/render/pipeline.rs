@@ -757,20 +757,12 @@ impl Renderer {
             None => return,
         };
 
-        let proj =
-            crate::render::orthographic_projection(surface_width as f32, surface_height as f32);
-        let uniforms = GpuUniforms {
-            projection: proj,
-            atlas_size: [self.kgp_atlas_width as f32, self.kgp_atlas_height as f32],
-            raster_scale: self.raster_scale,
-            image_active: image_active_value(self.bg_bind_group.is_some()),
-            default_bg: [
-                self.bg_color.r as f32,
-                self.bg_color.g as f32,
-                self.bg_color.b as f32,
-                1.0,
-            ],
-        };
+        let uniforms = self.cell_uniforms(
+            surface_width as f32,
+            surface_height as f32,
+            self.kgp_atlas_width as f32,
+            self.kgp_atlas_height as f32,
+        );
         self.queue
             .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
 

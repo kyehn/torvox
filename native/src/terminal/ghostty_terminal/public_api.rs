@@ -4,11 +4,11 @@ use std::thread;
 
 use flume::{Sender, bounded};
 
-use super::commands::{Command, RunConfig, SnapshotCache};
+use super::commands::{Command, Query, RunConfig, SnapshotCache};
 use super::types::*;
 
 impl super::GhosttyTerminal {
-    pub fn new(rows: u32, cols: u32, scrollback_lines: u32) -> Result<Self, String> {
+    pub fn new(rows: u32, cols: u32, scrollback_lines: u32) -> Result<Self, TerminalError> {
         let (ansi, background, foreground) = Self::catppuccin_mocha_palette();
         Self::new_with_theme(rows, cols, scrollback_lines, background, foreground, ansi)
     }
@@ -42,9 +42,9 @@ impl super::GhosttyTerminal {
         initial_bg: [u8; 3],
         initial_fg: [u8; 3],
         initial_ansi: [[u8; 3]; 16],
-    ) -> Result<Self, String> {
+    ) -> Result<Self, TerminalError> {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
-        let (query_tx, query_rx) = flume::bounded::<Command>(256);
+        let (query_tx, query_rx) = flume::bounded::<Query>(256);
         let (cell_data_tx, cell_data_rx) = flume::bounded::<(Vec<CellData>, CursorInfo)>(4);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = pty_write_responses.clone();
@@ -85,7 +85,7 @@ impl super::GhosttyTerminal {
                     panicked_for_run.store(true, Ordering::Release);
                 }
             })
-            .map_err(|e| format!("failed to spawn terminal thread: {e}"))?;
+            .map_err(TerminalError::Spawn)?;
 
         Ok(Self {
             cmd_tx,
@@ -145,9 +145,9 @@ impl super::GhosttyTerminal {
     /// without carriage return, which produces incorrect line advancement for
     /// typical terminal output.
     ///
-    /// Unlike [`vt_write`], this method applies text-level `\n`→`\r\n` conversion
+    /// Unlike [`Self::vt_write`], this method applies text-level `\n`→`\r\n` conversion
     /// suitable for PTY output. VT control sequences, DEC rectangle operations,
-    /// and binary VT data should use [`vt_write`] instead.
+    /// and binary VT data should use [`Self::vt_write`] instead.
     pub fn pty_write(&mut self, data: &[u8]) {
         let mut buf = Vec::with_capacity(data.len() + 4);
         // Use last byte from previous call to detect `\r`/`\n` split across
@@ -249,10 +249,6 @@ impl super::GhosttyTerminal {
         }
     }
 
-    /// Returns true when the resize command was accepted by the VT thread.
-    /// A `false` result means the grid was NOT resized (PTY may still have
-    /// been updated by the caller's `pty.resize`); the caller must not cache
-    /// the new size so the next resize event retries.
     /// Scroll the terminal viewport by a delta (up is negative). The
     /// delta is applied on the VT thread via `scroll_viewport`; the next
     /// CellData push carries the scrolled view.
@@ -264,6 +260,10 @@ impl super::GhosttyTerminal {
         true
     }
 
+    /// Returns true when the resize command was accepted by the VT thread.
+    /// A `false` result means the grid was NOT resized (PTY may still have
+    /// been updated by the caller's `pty.resize`); the caller must not cache
+    /// the new size so the next resize event retries.
     pub fn resize(&mut self, rows: u32, cols: u32) -> bool {
         // try_send, not send: a wedged VT thread must not block the caller
         // (switchSession holds the Kotlin sessionLock across this call).
@@ -279,19 +279,11 @@ impl super::GhosttyTerminal {
     }
 
     pub fn rows(&self) -> u32 {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::Rows(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped for rows: {error}");
-        }
-        Self::recv_or_fallback(rx, DISCONNECTED_ROWS, "rows")
+        self.query(Query::Rows, DISCONNECTED_ROWS, "rows")
     }
 
     pub fn cols(&self) -> u32 {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::Cols(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        Self::recv_or_fallback(rx, DISCONNECTED_COLS, "cols")
+        self.query(Query::Cols, DISCONNECTED_COLS, "cols")
     }
 
     pub fn take_snapshot(&self) -> GridSnapshot {
@@ -385,46 +377,27 @@ impl super::GhosttyTerminal {
     }
 
     pub fn take_kitty_graphics_image(&self, image_id: u32) -> Option<KittyGraphicsImageData> {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self
-            .cmd_tx
-            .send(Command::TakeKittyGraphicsImage { id: image_id, tx })
-        {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(result) => result,
-            Err(error) => {
-                log::warn!(
-                    "ghostty_terminal: take_kitty_graphics_image timed out or disconnected — terminal may be dead: {error}"
-                );
-                None
-            }
-        }
+        self.query(
+            |tx| Query::TakeKittyGraphicsImage { id: image_id, tx },
+            None,
+            "take_kitty_graphics_image",
+        )
     }
 
     pub fn cursor_x(&self) -> u32 {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::CursorX(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        Self::recv_or_fallback(rx, DISCONNECTED_CURSOR_X, "cursor_x")
+        self.query(Query::CursorX, DISCONNECTED_CURSOR_X, "cursor_x")
     }
 
     pub fn cursor_y(&self) -> u32 {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::CursorY(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        Self::recv_or_fallback(rx, DISCONNECTED_CURSOR_Y, "cursor_y")
+        self.query(Query::CursorY, DISCONNECTED_CURSOR_Y, "cursor_y")
     }
 
     pub fn cursor_visible(&self) -> bool {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::CursorVisible(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        Self::recv_or_fallback(rx, DISCONNECTED_CURSOR_VISIBLE, "cursor_visible")
+        self.query(
+            Query::CursorVisible,
+            DISCONNECTED_CURSOR_VISIBLE,
+            "cursor_visible",
+        )
     }
 
     /// Receive the most recent CellData snapshot from the ghostty thread
@@ -441,17 +414,7 @@ impl super::GhosttyTerminal {
     }
 
     pub fn cwd(&self) -> String {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::Cwd(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(cwd) => cwd,
-            Err(_) => {
-                log::warn!("ghostty_terminal: cwd timed out or disconnected — returning empty cwd");
-                String::new()
-            }
-        }
+        self.query(Query::Cwd, String::new(), "cwd")
     }
 
     pub fn key_encode(
@@ -475,7 +438,7 @@ impl super::GhosttyTerminal {
     /// are the renderer's live cell dimensions so the pixel→cell mapping
     /// matches what is displayed (zelland `get_cell_size()` pattern).
     ///
-    /// Returns an empty Vec when mouse reporting is disabled (no DECSET
+    /// Returns `None` when mouse reporting is disabled (no DECSET
     /// 1000/1002/1003) or encoding fails — the caller drops the event.
     pub fn encode_mouse_event(
         &self,
@@ -485,22 +448,19 @@ impl super::GhosttyTerminal {
         cell_w: f32,
         cell_h: f32,
     ) -> Option<Vec<u8>> {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.cmd_tx.try_send(Command::EncodeMouseEvent {
-            position,
-            action,
-            button,
-            cell_w,
-            cell_h,
-            tx,
-        }) {
-            log::warn!(
-                "ghostty_terminal: cmd_tx full/dropped failed for EncodeMouseEvent: {error}"
-            );
-            return None;
-        }
-        rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS))
-            .ok()
+        self.query(
+            |tx| Query::EncodeMouseEvent {
+                position,
+                action,
+                button,
+                cell_w,
+                cell_h,
+                tx,
+            },
+            Vec::new(),
+            "encode_mouse_event",
+        )
+        .into()
     }
 
     /// Submit a key for encoding and return a receiver for the result.
@@ -516,16 +476,17 @@ impl super::GhosttyTerminal {
         let (tx, rx) = flume::bounded(1);
         // try_send: consistent with resize/set_theme — a wedged VT thread
         // must not block the caller.
-        self.cmd_tx
-            .try_send(Command::KeyEncode {
-                key_code,
-                modifiers,
-                action,
-                unicode_char,
-                unshifted_char,
-                tx,
-            })
-            .ok()?;
+        if let Err(error) = self.query_tx.try_send(Query::KeyEncode {
+            key_code,
+            modifiers,
+            action,
+            unicode_char,
+            unshifted_char,
+            tx,
+        }) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed for key_encode: {error}");
+            return None;
+        }
         Some(rx)
     }
 
@@ -548,7 +509,7 @@ impl super::GhosttyTerminal {
         timeout: std::time::Duration,
     ) -> bool {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::ModeGet(mode_num, kind, tx)) {
+        if let Err(error) = self.query_tx.try_send(Query::ModeGet(mode_num, kind, tx)) {
             log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
         }
         match rx.recv_timeout(timeout) {
@@ -563,35 +524,15 @@ impl super::GhosttyTerminal {
     }
 
     pub fn origin_mode(&self) -> bool {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::OriginMode(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        Self::recv_or_fallback(rx, DISCONNECTED_MODE_ORIGIN, "origin_mode")
+        self.query(Query::OriginMode, DISCONNECTED_MODE_ORIGIN, "origin_mode")
     }
 
     pub fn autowrap(&self) -> bool {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::Autowrap(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        Self::recv_or_fallback(rx, DISCONNECTED_MODE_AUTOWRAP, "autowrap")
+        self.query(Query::Autowrap, DISCONNECTED_MODE_AUTOWRAP, "autowrap")
     }
 
     pub fn alt_screen(&self) -> bool {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::AltScreen(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(alt) => alt,
-            Err(_) => {
-                log::warn!(
-                    "ghostty_terminal: alt_screen timed out or disconnected — returning false"
-                );
-                false
-            }
-        }
+        self.query(Query::AltScreen, false, "alt_screen")
     }
 
     pub fn is_mouse_tracking_active(&self) -> bool {
@@ -619,7 +560,7 @@ impl super::GhosttyTerminal {
     }
 
     /// Lock-free read of the alternate-screen mirror, updated by the VT thread
-    /// on every `Command::AltScreen` query. Safe to call from the Android
+    /// on every `Query::AltScreen` query. Safe to call from the Android
     /// input path on every touch-scroll event without blocking the UI thread
     /// (unlike `is_alt_screen_active`, which round-trips through the VT
     /// thread via a query RPC).
@@ -627,56 +568,45 @@ impl super::GhosttyTerminal {
         self.alt_screen_active.load(Ordering::Acquire)
     }
 
-    pub fn title(&self) -> String {
+    /// Send a stateless [`Query`] to the VT thread and wait for its reply,
+    /// falling back to `fallback` on send failure or timeout. Single call
+    /// site for the bounded-channel + recv_timeout boilerplate shared by
+    /// every query method (see also `Query` docs for the channel design).
+    fn query<T>(&self, build: impl FnOnce(Sender<T>) -> Query, fallback: T, method: &str) -> T {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::Title(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
+        if let Err(error) = self.query_tx.try_send(build(tx)) {
+            log::warn!("ghostty_terminal: query_tx full/dropped failed for {method}: {error}");
+            return fallback;
         }
-        Self::recv_or_fallback(rx, DISCONNECTED_TITLE.to_string(), "title")
+        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
+            Ok(value) => value,
+            Err(_) => {
+                log::warn!(
+                    "ghostty_terminal: {method} timed out or disconnected — returning fallback"
+                );
+                fallback
+            }
+        }
+    }
+
+    pub fn title(&self) -> String {
+        self.query(Query::Title, DISCONNECTED_TITLE.to_string(), "title")
     }
 
     pub fn scrollback_length(&self) -> u32 {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::ScrollbackLength(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(len) => len,
-            Err(_) => {
-                log::warn!("ghostty_terminal: scrollback_length timed out, returning cached value");
-                DISCONNECTED_SCROLLBACK
-            }
-        }
+        self.query(
+            Query::ScrollbackLength,
+            DISCONNECTED_SCROLLBACK,
+            "scrollback_length",
+        )
     }
 
     pub fn read_line_text(&self, row: u32) -> Option<String> {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::ReadLineText { row, tx }) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed for ReadLineText: {error}");
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(text) => text,
-            Err(_) => {
-                log::warn!("ghostty_terminal: read_line_text({row}) timed out or disconnected");
-                None
-            }
-        }
+        self.query(|tx| Query::ReadLineText { row, tx }, None, "read_line_text")
     }
 
     pub fn read_visible_text(&self) -> String {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::ReadVisibleText(tx)) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed: {error}");
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(text) => text,
-            Err(_) => {
-                log::warn!(
-                    "ghostty_terminal: read_visible_text timed out or disconnected — returning empty string"
-                );
-                String::new()
-            }
-        }
+        self.query(Query::ReadVisibleText, String::new(), "read_visible_text")
     }
 
     /// Extract selection text with Ghostty's native formatter (wrap-aware,
@@ -684,62 +614,37 @@ impl super::GhosttyTerminal {
     /// (absolute: scrollback row 0 is the top of history; the caller's
     /// gridRow from scrollbackLine is exactly this). Returns "" on error.
     pub fn selection_text(&self, start: (u32, u32), end: (u32, u32), rectangle: bool) -> String {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.query_tx.try_send(Command::SelectionText {
-            start,
-            end,
-            rectangle,
-            tx,
-        }) {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed for SelectionText: {error}");
-            return String::new();
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(text) => text,
-            Err(_) => {
-                log::warn!("ghostty_terminal: selection_text timed out or disconnected");
-                String::new()
-            }
-        }
+        self.query(
+            |tx| Query::SelectionText {
+                start,
+                end,
+                rectangle,
+                tx,
+            },
+            String::new(),
+            "selection_text",
+        )
     }
 
     /// Query the OSC 8 hyperlink URI at a grid cell (row 0 = top of
     /// scrollback, matching scrollbackLine). None when no link.
     pub fn hyperlink_at(&self, row: u32, col: u32) -> Option<String> {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self
-            .query_tx
-            .try_send(Command::HyperlinkAt { row, col, tx })
-        {
-            log::warn!("ghostty_terminal: query_tx full/dropped failed for HyperlinkAt: {error}");
-            return None;
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(url) => url,
-            Err(_) => {
-                log::warn!("ghostty_terminal: hyperlink_at timed out or disconnected");
-                None
-            }
-        }
+        self.query(
+            |tx| Query::HyperlinkAt { row, col, tx },
+            None,
+            "hyperlink_at",
+        )
     }
 
     pub fn search_in_scrollback(&self, query: &str) -> Option<(u32, u32)> {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.cmd_tx.send(Command::SearchInScrollback {
-            query: query.to_string(),
-            tx,
-        }) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(result) => result,
-            Err(_) => {
-                log::warn!(
-                    "ghostty_terminal: search_in_scrollback timed out or disconnected — returning None"
-                );
-                None
-            }
-        }
+        self.query(
+            |tx| Query::SearchInScrollback {
+                query: query.to_string(),
+                tx,
+            },
+            None,
+            "search_in_scrollback",
+        )
     }
 
     pub fn search_all_in_scrollback(
@@ -748,45 +653,29 @@ impl super::GhosttyTerminal {
         case_sensitive: bool,
         fuzzy: bool,
     ) -> Vec<SearchMatch> {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.cmd_tx.send(Command::SearchInScrollbackAll {
-            query: query.to_string(),
-            case_sensitive,
-            fuzzy,
-            tx,
-        }) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(result) => result,
-            Err(_) => {
-                log::warn!(
-                    "ghostty_terminal: search_all_in_scrollback timed out or disconnected — returning empty results"
-                );
-                Vec::new()
-            }
-        }
+        self.query(
+            |tx| Query::SearchInScrollbackAll {
+                query: query.to_string(),
+                case_sensitive,
+                fuzzy,
+                tx,
+            },
+            Vec::new(),
+            "search_all_in_scrollback",
+        )
     }
 
     pub fn dump_grid(&self) -> DumpedGrid {
-        let (tx, rx) = bounded(1);
-        if let Err(error) = self.cmd_tx.send(Command::DumpGrid { tx }) {
-            log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
-        }
-        match rx.recv_timeout(std::time::Duration::from_millis(QUERY_TIMEOUT_MS)) {
-            Ok(grid) => grid,
-            Err(_) => {
-                log::warn!(
-                    "ghostty_terminal: dump_grid timed out or disconnected — returning empty grid"
-                );
-                DumpedGrid {
-                    rows: 0,
-                    cols: 0,
-                    visible: Vec::new(),
-                    scrollback: Vec::new(),
-                }
-            }
-        }
+        self.query(
+            |tx| Query::DumpGrid { tx },
+            DumpedGrid {
+                rows: 0,
+                cols: 0,
+                visible: Vec::new(),
+                scrollback: Vec::new(),
+            },
+            "dump_grid",
+        )
     }
 
     /// DECFRA: Fill rectangle with char_code (rows top..bottom, cols left..right, 1-indexed).
