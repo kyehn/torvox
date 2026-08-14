@@ -89,9 +89,9 @@ class SmartCopyTest {
 
     @Test
     fun `looksLikeFullUrl gates url shapes`() {
-        assertTrue(SmartCopy.looksLikeFullUrl("https://example.com/path"))
-        assertTrue(SmartCopy.looksLikeFullUrl("www.example.com/path"))
-        assertTrue(!SmartCopy.looksLikeFullUrl("ordinary text"))
-        assertTrue(!SmartCopy.looksLikeFullUrl("not-a-url"))
+        assertTrue(terminal.emulator.util.UrlToken.looksLikeFullUrl("https://example.com/path"))
+        assertTrue(terminal.emulator.util.UrlToken.looksLikeFullUrl("www.example.com/path"))
+        assertTrue(!terminal.emulator.util.UrlToken.looksLikeFullUrl("ordinary text"))
+        assertTrue(!terminal.emulator.util.UrlToken.looksLikeFullUrl("not-a-url"))
     }
 }

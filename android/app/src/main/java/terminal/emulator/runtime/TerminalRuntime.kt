@@ -1898,14 +1898,21 @@ constructor(
     )
 
     internal suspend fun computeFontSizeTenths(): Int {
-        // fontSize is in sp (SettingsRepository default 10f). fontSizeTenths
-        // is the same value in tenths of a sp (native font pipeline consumes
-        // sp directly — the raster scale applies the density). Multiplying
-        // by density here double-scaled the font (10sp → 225 tenths = 22.5sp)
-        // and made the Settings slider disagree with the rendered size
-        // "font size setting vs actual mismatch").
         val userFontSize = settingsRepository.fontSize.first()
-        return (userFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
+        if (settingsRepository.fontSizeExplicitlySet.first()) {
+            // fontSize is in sp (SettingsRepository default 10f). fontSizeTenths
+            // is the same value in tenths of a sp (native font pipeline consumes
+            // sp directly — the raster scale applies the density). Multiplying
+            // by density here double-scaled the font (10sp → 225 tenths = 22.5sp)
+            // and made the Settings slider disagree with the rendered size
+            // "font size setting vs actual mismatch").
+            return (userFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
+        }
+        // Fresh install: derive a sensible default from the screen width so a
+        // phone (~360dp) and a tablet (~600dp) both show roughly 55-60 columns
+        // (a monospace glyph is ~0.6em wide: sp = widthDp / (0.6 * 60)).
+        val widthDp = context.resources.configuration.screenWidthDp
+        return (derivedDefaultFontSp(widthDp) * TENTHS_PER_UNIT.toFloat()).toInt()
     }
 
     internal suspend fun resolveThemeName(): String {
@@ -2071,28 +2078,15 @@ constructor(
         }
 
         try {
-            // Allow test override via system property (no DataStore dependency)
+            // Bootstrap is strictly opt-in: a fresh app runs the system
+            // shell and downloads nothing unless the user explicitly
+            // configured a bootstrap URL in settings. Auto-downloading a
+            // Termux bootstrap (~150 MB) on first launch would be
+            // intrusive and unbounded. Test override via system property
+            // (no DataStore dependency).
             val testUrl = System.getProperty("test.bootstrapUrl")
             val bootstrapUrl = if (testUrl != null) testUrl else settingsRepository.bootstrapUrl.first()
-            // install when NOT installed even with an empty
-            // configured URL — the orchestrator falls back to the default
-            // Termux bootstrap URL. Previously the whole install flow was
-            // skipped unless the user typed a URL, so a fresh app could
-            // never bootstrap (shell showed "not accessible" errors).
-            val orchestrator =
-                terminal.emulator.installer.BootstrapOrchestrator(
-                    terminal.emulator.installer.BootstrapDownloader(context),
-                    terminal.emulator.installer.BootstrapInstaller(
-                        prefixDir = java.io.File(context.filesDir, "usr"),
-                        homeDir = java.io.File(context.filesDir, "home"),
-                        stagingDir = java.io.File(context.filesDir, "usr-staging"),
-                    ),
-                    terminal.emulator.installer.SecondStageRunner(
-                        prefixDir = java.io.File(context.filesDir, "usr"),
-                        homeDir = java.io.File(context.filesDir, "home"),
-                    ),
-                )
-            if (bootstrapUrl.isNotEmpty() || orchestrator.getInstallStatus() != terminal.emulator.installer.BootstrapOrchestrator.Status.INSTALLED) {
+            if (bootstrapUrl.isNotEmpty()) {
                 // Log only the origin (scheme://host), never the full URL:
                 // private bootstrap URLs can carry token/query parameters,
                 // and LogUtil writes the persistent log file unconditionally
@@ -3849,3 +3843,16 @@ private class BoundedStreamRead(
         }
     }
 }
+
+/**
+ * Fresh-install default font size (sp) for a screen of [widthDp]: targets
+ * roughly [DEFAULT_FONT_COLUMNS_TARGET] visible columns (a monospace glyph
+ * is ~0.6em wide), clamped to a readable range. Pure so it is unit-testable
+ * without an Activity context.
+ */
+internal fun derivedDefaultFontSp(widthDp: Int): Float = (widthDp / DEFAULT_FONT_COLUMNS_TARGET / MONOSPACE_CHAR_ASPECT).coerceIn(MIN_FONT_SP, MAX_FONT_SP)
+
+private const val DEFAULT_FONT_COLUMNS_TARGET = 60f
+private const val MONOSPACE_CHAR_ASPECT = 0.6f
+private const val MIN_FONT_SP = 8f
+private const val MAX_FONT_SP = 18f

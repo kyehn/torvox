@@ -24,6 +24,7 @@ foldhash = "0.2"
 parking_lot = "0.12"
 log = { workspace = true }
 regex = "1"
+linkify = "0.10"
 lru = { workspace = true }
 strsim = { workspace = true }
 futures = { workspace = true }

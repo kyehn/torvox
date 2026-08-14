@@ -89,7 +89,7 @@ object SmartCopy {
             if (from < to) sb.append(line.substring(from, to).trim())
         }
         val joined = sb.toString()
-        return if (looksLikeFullUrl(joined)) joined else null
+        return if (terminal.emulator.util.UrlToken.looksLikeFullUrl(joined)) joined else null
     }
 
     /**
@@ -117,16 +117,4 @@ object SmartCopy {
         }
         return verbatim ?: ""
     }
-
-    /**
-     * Whether a whitespace-free string looks like a *complete* URL token
-     * scheme- or `www.`-prefixed, a dotted host, optional path/query).
-     */
-    private val URL_TOKEN_RE =
-        Regex(
-            "^(?:https?://|www\\.)[\\w-]+(?:\\.[\\w-]+)+(?:[/:?#@!\$&'()*+,;=._~%\\[\\]-]\\S*)?$",
-            RegexOption.IGNORE_CASE,
-        )
-
-    internal fun looksLikeFullUrl(s: String): Boolean = URL_TOKEN_RE.matches(s)
 }
