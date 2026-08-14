@@ -20,7 +20,7 @@ import java.io.File
  *   1. Asserts the floating menu (Copy/Select All/Paste) appears.
  *   2. Captures a screenshot for external OCR / frame-analysis.
  *
- * GPU-frame inverted-cell verification was removed in round-102: the render
+ * GPU-frame inverted-cell verification was removed in the render
  * path is not wired yet (ADR-0007), so an RGBA frame cannot be produced.
  */
 class SelectionUiAutomatorTest {
@@ -36,7 +36,7 @@ class SelectionUiAutomatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Requires the native data path: isCellEmpty is an implemented (native query path wired since round-130) so long-press always routes to the paste popup and the selection menu never appears; also needs a >=400ms hold to be a real long-press (round-107)")
+    @org.junit.Ignore("Requires the native data path: isCellEmpty is an implemented (native query path is wired) so long-press always routes to the paste popup and the selection menu never appears; also needs a >=400ms hold to be a real long-press ")
     fun longPressShowsMenuAndInvertedCellNearTap() {
         val longPressX = 200
         val longPressY = 300
@@ -54,8 +54,8 @@ class SelectionUiAutomatorTest {
         device.takeScreenshot(shot)
         assertTrue("Screenshot must be written", shot.exists())
 
-        // NOTE (round-102): the GPU-frame inverted-cell verification was
-        // removed — saveTestFrame was deleted in round-77 as dead code (the
+        // NOTE: the GPU-frame inverted-cell verification was
+        // removed — saveTestFrame was deleted as dead code (the
         // render path is not wired yet, ADR-0007), so the RGBA frame cannot
         // be produced. The floating-menu assertion above still covers the
         // selection entry point; inverted-cell rendering is verified on

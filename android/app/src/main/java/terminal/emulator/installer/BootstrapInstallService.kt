@@ -12,7 +12,7 @@ import java.io.File
  * Installs a bootstrap zip from a local path inside its OWN process
  * (`android:process=":install"`).
  *
- * Why a separate process (round-223): when the app is started as an
+ * Why a separate process: when the app is started as an
  * instrumentation target, the main process carries the TEST package's
  * SELinux category, so every write to the app's filesDir is denied
  * (mkdirs silently fails, open() EACCES — emulator-verified). A process

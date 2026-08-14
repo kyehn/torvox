@@ -258,7 +258,7 @@ fun TerminalScreen(
             val selection = state.selection
             val selectionActive = selection.active && selection.start != null && selection.end != null
 
-            // Round-219: with the legacy View.startActionMode(Callback) the
+            // with the legacy View.startActionMode(Callback) the
             // system does NOT intercept BACK to finish the ActionMode (only
             // TYPE_FLOATING modes do); BACK therefore fell through to the
             // Activity and exited the app while a selection was active
@@ -281,7 +281,7 @@ fun TerminalScreen(
                 showTextSearch = false
                 searchState = SearchState()
                 surfaceRef.value?.searchActive = false
-                // Round-209 P2-8: the surface keeps a private scrollOffset
+                // the surface keeps a private scrollOffset
                 // used for selection coordinate math; it must follow the
                 // session's own offset on switch, otherwise the first
                 // gesture after a switch computes wrong grid rows.
@@ -503,7 +503,7 @@ fun TerminalScreen(
                     }
 
                     // ── Selection context menu (PopupWindow) ──
-                    // Round-217: the menu must be a PopupWindow, not a
+                    // the menu must be a PopupWindow, not a
                     // Compose overlay — the terminal is a SurfaceView whose
                     // surface punches a hole over the whole terminal area,
                     // hiding any in-window Compose drawing. PopupWindows are
@@ -542,7 +542,7 @@ fun TerminalScreen(
                                         (color.blue * 255).toInt(),
                                     )
                                 }
-                            // Round-216: the selection menu is the system
+                            // the selection menu is the system
                             // ActionMode toolbar (like Termux): the system
                             // positions it, colors it from the theme, and
                             // handles item layout — no custom popup, no
@@ -644,7 +644,7 @@ fun TerminalScreen(
             val imeBottomPx = WindowInsets.ime.getBottom(LocalDensity.current)
             val animatedImeBottom by animateDpAsState(
                 targetValue = with(LocalDensity.current) { imeBottomPx.toDp() },
-                // Round-215: a fixed 220ms tween restarts on EVERY inset
+                // a fixed 220ms tween restarts on EVERY inset
                 // change, and the IME reports its height in steps (measured
                 // 380->850->881->883dp, ~270ms apart on this device). Each
                 // restart + slow frame pacing made the bar jump in big
@@ -664,7 +664,7 @@ fun TerminalScreen(
                 Modifier
                     .fillMaxWidth()
                     .align(Alignment.BottomCenter)
-                    // Round-216: the background must be applied BEFORE the
+                    // the background must be applied BEFORE the
                     // IME padding so it covers the animated inset area —
                     // with background after padding, the spring-animated
                     // gap between the ModifierBar and the keyboard showed
@@ -742,7 +742,7 @@ fun TerminalScreen(
                     // never covering it, rendered as a PopupWindow) already
                     // offers Copy/Select All/Paste. Switching the whole bar
                     // to SelectionActions rendered a SECOND, redundant menu
-                    // at the bottom (round-214).
+                    // at the bottom.
                     val barMode = terminal.emulator.ui.ModifierBarMode.Normal
                     val clipboardManager =
                         context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
@@ -882,7 +882,7 @@ internal fun computeMenuPosition(
     val selRect = RectF(selLeft, selTop, selRight, selBottom)
 
     val menuW =
-        // Round-215: adapt to narrow screens — a fixed 260px menu occupies
+        // adapt to narrow screens — a fixed 260px menu occupies
         // more than half of a 480px (360dp) display. Three buttons
         // (Copy/Select All/Paste) at ~76px each plus padding fit in 240px;
         // clamp to the screen so the clamp math below never goes negative.
@@ -893,7 +893,7 @@ internal fun computeMenuPosition(
     // Place the menu BELOW the drag handles (which sit at the bottom edge
     // of the selection, ~handleWidthPx tall): a menu at selBottom+8 was
     // covered by the start-handle PopupWindow, so taps on Copy/Select All
-    // dragged the handle instead (round-214). Paste-only popups have no
+    // dragged the handle instead. Paste-only popups have no
     // handles, so they hug the selection directly.
     var menuY = selBottom + 8f + if (pasteOnly) 0f else handleWidthPx
     val flipAbove = menuY + menuH > screenHeightPx && (selTop - menuH - 8f) >= 0f

@@ -25,7 +25,7 @@ pub struct GlyphCache {
     /// Same-family styled face resolution (base font, bold, italic) → the
     /// face id that wins for that style, or None when synthesis must be
     /// used. Caching this avoids re-running fontdb's family/weight/style
-    /// query on every styled cell every frame (round-232: styled glyph
+    /// query on every styled cell every frame: styled glyph
     /// lookup was ~20µs/cell vs ~0.2µs for plain text).
     pub style_face_cache: LruCache<(fontdb::ID, bool, bool), Option<fontdb::ID>>,
     /// Style-face charmap lookups ((face, codepoint) → glyph id) — avoids

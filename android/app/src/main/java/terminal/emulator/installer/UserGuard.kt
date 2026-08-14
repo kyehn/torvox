@@ -5,7 +5,7 @@ import android.os.UserManager
 
 /**
  * Guards bootstrap installation against secondary (non-primary) Android
- * users (round-231, termux-app TermuxInstaller pattern). The bootstrap
+ * users, termux-app TermuxInstaller pattern). The bootstrap
  * writes into the primary user's private app-data directory; a secondary
  * user cannot access it (silent SELinux denials, broken exec), so the
  * install must fail fast with a clear message instead of a mysterious

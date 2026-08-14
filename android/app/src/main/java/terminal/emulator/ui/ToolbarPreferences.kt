@@ -54,10 +54,10 @@ enum class ToolbarKey(
 }
 
 sealed class ToolbarItem {
-    /** Row weight — wider keys take proportionally more space (round-231 T10). */
+    /** Row weight — wider keys take proportionally more space. */
     abstract val width: Int
 
-    /** Secondary key label shown on long press (round-231 T10). */
+    /** Secondary key label shown on long press. */
     abstract val secondaryLabel: String?
 
     /** Secondary key sequence sent on long press. */
@@ -65,9 +65,9 @@ sealed class ToolbarItem {
 
     data class Default(
         val key: ToolbarKey,
-        /** Row weight — wider keys take proportionally more space (round-231 T10). */
+        /** Row weight — wider keys take proportionally more space. */
         override val width: Int = 1,
-        /** Secondary key label shown on long press (round-231 T10). */
+        /** Secondary key label shown on long press. */
         override val secondaryLabel: String? = null,
         /** Secondary key sequence sent on long press. */
         override val secondarySequence: String? = null,
@@ -80,12 +80,12 @@ sealed class ToolbarItem {
         val label: String,
         val sequence: String,
         val id: String = "custom_${System.currentTimeMillis()}",
-        /** Space-separated macro (round-227 T3, termux extra-keys
+        /** Space-separated macro, termux extra-keys
          *  semantics); when non-null the sequence field is ignored. */
         val macro: String? = null,
-        /** Row weight — wider keys take proportionally more space (round-231 T10). */
+        /** Row weight — wider keys take proportionally more space. */
         override val width: Int = 1,
-        /** Secondary key label shown on long press (round-231 T10). */
+        /** Secondary key label shown on long press. */
         override val secondaryLabel: String? = null,
         /** Secondary key sequence sent on long press. */
         override val secondarySequence: String? = null,

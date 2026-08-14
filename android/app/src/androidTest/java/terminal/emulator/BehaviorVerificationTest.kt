@@ -174,7 +174,7 @@ class BehaviorVerificationTest {
     fun ctrl_key_toggle_doesNotCrash() {
         // Smoke only: toggling CTRL twice must not crash. No appearance
         // assertion is possible while the modifier state has no visible
-        // render path (round-112).
+        // render path.
         composeRule.waitForSession()
         composeRule.onNodeWithText("CTRL").performClick()
         device.waitForIdle(1000)

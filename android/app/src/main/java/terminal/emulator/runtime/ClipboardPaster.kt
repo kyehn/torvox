@@ -1,7 +1,7 @@
 package terminal.emulator.runtime
 
 /**
- * One paste implementation for both call layers (K2: round-2 architecture).
+ * One paste implementation for both call layers (K2:  architecture).
  *
  * Previously TerminalViewModel.pasteFromClipboard and
  * TerminalSurface.pasteFromClipboardDirect each had their own
@@ -19,8 +19,8 @@ class ClipboardPaster(
      *
      * Returns the number of characters queued up to the last successful
      * chunk boundary (post-truncation); a chunk dropped by PTY backpressure
-     * (EAGAIN) is still counted — the xterm-style "accepted" count, not
-     * byte-exact delivery (round-112 semantics).
+     * EAGAIN) is still counted — the xterm-style "accepted" count, not
+     * byte-exact delivery  semantics).
      */
     fun pasteTo(sink: (ByteArray) -> Unit): Int {
         val text = clipboard.clipboardText() ?: return 0

@@ -252,7 +252,7 @@ class BootstrapInstallerTest {
         )
     }
 
-    // ── Round-224: sha256 version-pin sidecar (warp bootstrap.rs) ────────
+    // ── sha256 version-pin sidecar (warp bootstrap.rs) ────────
 
     @Test
     fun install_writes_version_pin_with_zip_sha256() {
@@ -309,12 +309,12 @@ class BootstrapInstallerTest {
         prefixDir.mkdirs()
         BootstrapInstaller.writeVersionPin(prefixDir, "0123456789abcdef")
         assertEquals("0123456789abcdef", BootstrapInstaller.readVersionPin(prefixDir))
-        // No .tmp leftover.
+        // No.tmp leftover.
         assertFalse(File(prefixDir, "${BootstrapInstaller.VERSION_PIN_FILENAME}.tmp").exists())
     }
 
     /**
-     * Real nix-on-droid bootstrap-aarch64.zip layout (round-227 T6): the
+     * Real nix-on-droid bootstrap-aarch64.zip layout: the
      * SYMLINKS.txt mixes absolute `/nix/store/...` targets and relative
      * store-internal targets (`libsystemd.so.0.44.0←nix/store/.../lib/...`),
      * and EXECUTABLES.txt lists deep store paths (real archive: 2132/2132
@@ -403,7 +403,7 @@ class BootstrapInstallerNormalizePathTest {
     fun normalizePath_keeps_leading_escape() {
         // Multiple leading ".." segments are preserved (they escape staging).
         assertEquals("../../escape", installer.normalizePath("../../escape"))
-        // a/../../b resolves to ../b (one level escapes after consuming a).
+        // a/../../b resolves to../b (one level escapes after consuming a).
         assertEquals("../b", installer.normalizePath("a/../../b"))
     }
 

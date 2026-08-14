@@ -159,7 +159,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // Exact match of ParcelFileDescriptor.parseMode semantics: only
         // "w"/"wt"/"rwt" truncate, "wa" appends, "rw" is a plain
         // read-modify-write. Any "contains" heuristic misclassifies at
-        // least one of these (round-61 truncated "rw"/"wa"; round-62
+        // least one of these  truncated "rw"/"wa";
         // stopped truncating plain "w", corrupting save-with-shorter-
         // content).
         val fileMode =

@@ -98,7 +98,7 @@ class BootstrapOrchestrator(
                 // CreatingSymlinks progress is emitted inside
                 // BootstrapInstaller.install() where the symlinks are
                 // actually created; a duplicate here would be out of order
-                // (round-107).
+                //
                 val messages = mutableListOf("Bootstrap installed successfully")
                 if (secondStageResult.errors.isNotEmpty()) {
                     // Include up to 3 failure details for diagnosis (each
@@ -116,12 +116,12 @@ class BootstrapOrchestrator(
             }
         } catch (exception: Exception) {
             // Class name only: the underlying failure may embed the
-            // bootstrap URL (round-105).
+            // bootstrap URL.
             val message = "Bootstrap orchestration failed: ${exception.javaClass.simpleName}"
             onProgress?.onProgress(BootstrapProgress.Error(message))
             state.set(Status.ERROR)
             // No cause chain: the original exception may embed the bootstrap
-            // URL/host (round-106); consumers only see the redacted message.
+            // URL/host ; consumers only see the redacted message.
             return Result.failure(Exception(message))
         }
     }

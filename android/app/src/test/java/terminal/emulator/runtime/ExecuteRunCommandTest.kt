@@ -6,7 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Host-side tests for [executeRunCommand] (round-227 T4c): the bounded
+ * Host-side tests for [executeRunCommand]): the bounded
  * drain guarantees a grandchild holding the stdout/stderr fds cannot hang
  * the caller, and the timeout kills runaway processes.
  */

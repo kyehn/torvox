@@ -56,7 +56,7 @@ pub trait Pty: Send {
         Ok(())
     }
     /// Query the current terminal window size (rows x cols) via
-    /// TIOCGWINSZ. Round-224: used to verify the 24x80 spawn seed.
+    /// TIOCGWINSZ. used to verify the 24x80 spawn seed.
     fn get_winsize(&self) -> Result<(u16, u16), PtyError>;
     fn child_pid(&self) -> nix::unistd::Pid;
     /// Return the foreground process group PID (via tcgetpgrp), or None on error.
@@ -126,7 +126,7 @@ impl PtyPair {
     /// — identical AS-safe discipline (pre-built CStrings, setsid +
     /// TIOCSCTTY, TIOCSWINSZ seed, errno via write(2) on execve failure).
     /// The TIOCSWINSZ seed is the caller-provided rows/cols — spawn is
-    /// called with 24x80 by tests and default sessions (round-229 §3.5.1,
+    /// called with 24x80 by tests and default sessions  §3.5.1,
     /// verified by `spawn_seeds_24x80_winsize`), mirroring warp's
     /// non-zero seed so shells never observe 0x0 before the first resize.
     /// torvox encodes the execve errno in the exit code (100 + errno)
@@ -186,14 +186,14 @@ impl PtyPair {
 
         // Pre-allocate argument and environment arrays before fork.
         // After fork, the child must NOT call any allocation functions.
-        // Round-215: Android 15+ SELinux denies `execute_no_trans` on
+        // Android 15+ SELinux denies `execute_no_trans` on
         // app_data_file for untrusted_app, so execve() of Termux binaries
         // under $PREFIX fails with EACCES. The Termux solution: exec the
         // system linker with the ELF path as its argument
         // (`/system/bin/linker64 $PREFIX/bin/bash`) — the linker runs in
         // system_linker_exec domain and loads app-data ELFs fine. The
         // child also gets LD_PRELOAD=$PREFIX/lib/libtermux-exec.so so
-        // *its own* execve() calls (running `ls`, `apt`, ...) go through
+        // *its own* execve() calls (running `ls`, `apt`,...) go through
         // the same linker indirection.
         let prefix = env.prefix.as_deref().unwrap_or("");
         let use_linker =
@@ -278,7 +278,7 @@ impl PtyPair {
                 // Detect a fork-time orphan: if the app process died between
                 // fork() and this check, the child was reparented to init
                 // (PPid == 1). Exit instead of leaking a permanent orphan.
-                // NOTE (round-213): PR_SET_PDEATHSIG is deliberately NOT
+                // NOTE: PR_SET_PDEATHSIG is deliberately NOT
                 // used. It binds to the fork thread (a Kotlin
                 // Dispatchers.IO worker), and when that thread times out
                 // and exits after ~60s of idle (kotlinx KEEP_ALIVE), the
@@ -371,7 +371,7 @@ impl PtyPair {
                 // (async-signal-safe: static buffer + manual itoa) so a
                 // failing shell path is diagnosable on-device, then _exit
                 // (not exit) to avoid running atexit handlers from the
-                // parent process (round-215: bash exited 4 with no output).
+                // parent process: bash exited 4 with no output).
                 unsafe {
                     // nix::errno::errno() reads the thread-local errno
                     // (no allocation); platform-specific underneath.
@@ -402,7 +402,7 @@ impl PtyPair {
                     let _ = libc::write(2, buf.as_ptr() as *const libc::c_void, i);
                     // Encode errno in the exit code (>= 100) so the parent's
                     // wait thread can log the exact failure cause even when
-                    // the PTY output is lost to a destroy race (round-215).
+                    // the PTY output is lost to a destroy race.
                     let code = 100 + (errno as i32).min(155);
                     libc::_exit(code);
                 }
@@ -487,7 +487,7 @@ impl PtyPair {
         Ok(())
     }
 
-    /// Query the current terminal window size via TIOCGWINSZ. Round-224:
+    /// Query the current terminal window size via TIOCGWINSZ.
     /// verifies the 24x80 spawn seed is in place before any resize.
     pub fn get_winsize(&self) -> Result<(u16, u16), PtyError> {
         let mut winsize = nix::pty::Winsize {
@@ -633,7 +633,7 @@ fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     //     usable by the application running in the PTY.
     //   * IUTF8: tell the kernel the input is UTF-8 so it correctly handles
     //     erase/word-erase and character width on Android.
-    // NOTE (round-217): we deliberately do NOT clear ECHO/ICANON/ISIG here.
+    // NOTE: we deliberately do NOT clear ECHO/ICANON/ISIG here.
     // Termux leaves the line discipline canonical with echo on; bash readline
     // (which re-configures the tty itself on startup) then echoes typed
     // characters. A full raw mask breaks readline echo (see
@@ -661,7 +661,7 @@ fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
 /// (vim, less) put the tty into raw mode themselves when they start.
 ///
 /// A full cfmakeraw() here (ECHO|ICANON|ISIG off) breaks bash readline:
-/// round-217 observed typed characters reaching the shell (commands
+///  observed typed characters reaching the shell (commands
 /// executed) with zero echo — readline does not re-enable echo when the
 /// termios it inherits already has ECHO cleared, and with ISIG off it
 /// skips its signal setup. Termux intentionally avoids this.
@@ -690,7 +690,7 @@ fn configure_raw_mode_child(fd: std::os::unix::io::RawFd) {
 /// unavailable. Kept small enough to bound syscall volume on any platform.
 /// Maximum fd number to scan in `close_stray_fds`. Chosen as a safe
 /// upper bound that prevents pathological scan times on systems where
-/// `sysconf(_SC_OPEN_MAX)` reports a very large value (e.g. 1 M+).
+/// `sysconf(_SC_OPEN_MAX)` reports a very large value (e.g. 1 M+).
 const STRAY_FD_SCAN_LIMIT: libc::c_int = 65536;
 
 /// Close every open file descriptor in the child except the standard streams
@@ -754,7 +754,7 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
         ),
         ("LANG".to_string(), DEFAULT_LANG.to_string()),
     ];
-    // Round-217 (recheck round-3): passthrough of Android system env vars.
+    //  (recheck): passthrough of Android system env vars.
     // Reference (termux-kotlin AndroidShellEnvironment.kt:19-66,
     // https://github.com/reapercanuk39/termux-kotlin-app):
     //   ANDROID_ASSETS/ANDROID_DATA/ANDROID_ROOT/ANDROID_STORAGE/
@@ -805,8 +805,8 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
 pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<(String, String)> {
     let prefix_str = env.prefix.as_deref();
     let mut result = base_env(prefix_str);
-    // Round-215: LD_PRELOAD libtermux-exec for $PREFIX shells — it
-    // wraps execve() so child processes of the shell (ls, apt, ...) are
+    // LD_PRELOAD libtermux-exec for $PREFIX shells — it
+    // wraps execve() so child processes of the shell (ls, apt,...) are
     // executed via the system linker, which Android 15+ SELinux allows
     // (direct execute_no_trans of app_data_file is denied).
     //
@@ -832,14 +832,14 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     result.push(("LINES".to_string(), rows.to_string()));
     result.push(("COLUMNS".to_string(), cols.to_string()));
     // Reference (zed-android-port adapters/bootstrap.rs env_for_terminal
-    // :386-434, https://github.com/GeneralKaos666/zed-android-port):
+    //:386-434, https://github.com/GeneralKaos666/zed-android-port):
     // a Termux-bootstrap PTY also needs TERMUX__ROOTFS / TERMUX__PREFIX /
     // TERMUX__HOME / TERMUX_APP__PACKAGE_NAME / HOME=$termux_home and,
     // when $PREFIX/etc/tls/cert.pem exists, SSL_CERT_FILE + CURL_CA_BUNDLE
     // so cargo/npm/curl don't fail with "unable to get local issuer
     // certificate".
     //
-    // Round-227 (T6): the TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR
+    // the TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR
     // / TERMUX__ROOTFS / TERMUX__PREFIX / TERMUX__HOME /
     // TERMUX_APP__PACKAGE_NAME variables are injected by the JNI layer
     // (initSession) when a prefix is configured. Without
@@ -850,13 +850,13 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     // execute_no_trans on app_data_file).
     //
     // Reference (std::env overlay): terminal.rs insert_zed_terminal_env
-    // :123-161 copies HOME/PATH/SHELL/TMPDIR/LANG then applies the overlay.
+    //:123-161 copies HOME/PATH/SHELL/TMPDIR/LANG then applies the overlay.
     for (key, _) in &env.extra {
         result.retain(|(k, _)| k != key);
     }
     result.extend(env.extra.iter().cloned());
 
-    // P0: SSL cert bundle for cargo/npm/curl
+    // SSL cert bundle for cargo/npm/curl
     if let Some(p) = prefix_str {
         let cert_path = format!("{p}/etc/tls/cert.pem");
         if std::path::Path::new(&cert_path).exists() {
@@ -1105,7 +1105,7 @@ mod tests {
 
     #[test]
     fn base_env_passthrough_android_vars_from_host() {
-        // Round-217: Android system env vars present in the host process
+        // Android system env vars present in the host process
         // env must be forwarded (termux-kotlin AndroidShellEnvironment
         // pattern). Set one and verify it appears; unset others stay absent.
         unsafe {
@@ -1189,7 +1189,7 @@ mod tests {
 
     #[test]
     fn spawn_seeds_24x80_winsize() {
-        // Round-224 (warp WarpTerminalService.kt:797-808): a TIOCGWINSZ
+        //  (warp WarpTerminalService.kt:797-808): a TIOCGWINSZ
         // before any UI-driven resize must return the seeded 24x80, so
         // shells (zsh ZLE etc.) never see 0x0.
         let pty =
@@ -1440,7 +1440,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod round215_tests {
+mod pdeathsig_tests {
     use super::*;
 
     #[test]

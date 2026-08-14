@@ -5,22 +5,22 @@ package terminal.emulator.bridge
  * tapped column, expands to a whole word / URL / path run.
  *
  * Pure Kotlin so the boundary rules are unit-testable without the native
- * engine (round-214). Used by [NativeQueryPort.expandAndSetSelection].
+ * engine. Used by [NativeQueryPort.expandAndSetSelection].
  *
  * References:
  *  - termux-app TextSelectionCursorController.setInitialTextSelectionPosition
- *    (:93-108): whitespace stops expansion, non-blank expands to the token.
+ *:93-108): whitespace stops expansion, non-blank expands to the token.
  *  - Haven SelectionToolbar.expandSelectionToWord (:40-90) + expandAcrossUrlWrap
- *    (:120-214): non-whitespace token + wrapped-URL continuation across rows.
+ *:120-214): non-whitespace token + wrapped-URL continuation across rows.
  *    The multi-row URL case IS handled here: [expandAcrossUrlWrap] walks
  *    backward/forward across soft-wrapped rows and verifies the joined run
  *    looks like a full URL before overriding the single-row word.
  *  - termlib SelectionManager.adjustSelectionForMode (:288-320): mode switch
  *    re-expands the range (WORD → word boundaries) — mirrored in
- *    [TerminalViewModel.adjustSelectionForMode] (round-231 P2).
+ *    [TerminalViewModel.adjustSelectionForMode].
  *  - termlib UrlDetection.trimDetectedUrl (:12-35): trailing-punctuation trim
- *    (`,.;:!`) + bracket-pair counting for `)`/`]` IS mirrored here
- *    ([TRAILING_URL_PUNCTUATION] + [countOpenLessThanClose]).
+ * `,.;:!`) + bracket-pair counting for `)`/`]` IS mirrored here
+ * [TRAILING_URL_PUNCTUATION] + [countOpenLessThanClose]).
  */
 object SelectionExpander {
 
@@ -109,7 +109,7 @@ object SelectionExpander {
         while (start > 0 && !line[start - 1].isWhitespace()) start--
         while (end < line.length - 1 && !line[end + 1].isWhitespace()) end++
         // Trim an enclosing quote/bracket pair so `"hello"` selects
-        // `hello` (smart-selection behavior, round-214). Each side is
+        // `hello` (smart-selection behavior). Each side is
         // trimmed independently: `"hello` (opening quote, tap inside)
         // selects `hello`, `world"` selects `world`.
         if (end > start && line[start] in charArrayOf('"', '\'', '(', '[') && c > start) {
@@ -123,7 +123,7 @@ object SelectionExpander {
 
     /**
      * Strip trailing whitespace AND NUL padding that the renderer uses for
-     * empty cells (torvox CellData fast path, round-224).
+     * empty cells (torvox CellData fast path).
      */
     private fun String.trimTerminalPadding(): String = trimEnd { it.isWhitespace() || it == '\u0000' }
 
@@ -273,7 +273,7 @@ object SelectionExpander {
 
     /**
      * Whether a whitespace-free string looks like a *complete* URL token
-     * (scheme- or `www.`-prefixed, a dotted host, optional path/query). Pure
+     * scheme- or `www.`-prefixed, a dotted host, optional path/query). Pure
      * Kotlin on purpose — `android.util.Patterns.WEB_URL`'s class initializer
      * isn't available in plain JVM unit tests.
      */

@@ -126,13 +126,13 @@ class TerminalForegroundService : Service() {
             // vendor ROMs) makes startForeground throw SecurityException on
             // the main onStartCommand path — the static updateSessionCount
             // path already guards; this one must not crash the process.
-            // KNOWN LIMITATION (round-92): the runtime's
+            // KNOWN LIMITATION: the runtime's
             // foregroundServiceRunning flag was already set true by
             // startForegroundServiceIfNeeded before this call, and no
             // failure signal is sent back — a subsequent
             // startForegroundServiceIfNeeded will skip starting (stale
             // flag) until the count hits 0 via updateForegroundSessionCount
-            // (round-82 reset) or stopForegroundService runs. The service
+            //  reset) or stopForegroundService runs. The service
             // itself is still bound by the runtime's startService call, so
             // the wake lock and process-foreground guarantees hold; only
             // the notification is missing. Closing all sessions heals it.

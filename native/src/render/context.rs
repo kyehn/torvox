@@ -125,7 +125,7 @@ pub struct Renderer {
     /// Reusable all-true dirty mask (length = current grid rows) for the
     /// frame where `cell_cache` was just rebuilt from scratch (resize):
     /// serving "clean" rows from an empty cache would drop them
-    /// (round-231 P2 regression fix).
+    /// regression fix).
     pub(crate) cell_full_mask_cache: Vec<bool>,
     pub(crate) flash_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) flash_uniform_buffer: Option<wgpu::Buffer>,
@@ -156,7 +156,7 @@ pub struct Renderer {
     pub(crate) bg_blur_radius: f32,
     pub(crate) bg_alpha: f32,
     /// Intermediate texture for the two-pass blur: the H pass renders into
-    /// it, the V pass samples it (round-203: previously both passes wrote
+    /// it, the V pass samples it: previously both passes wrote
     /// the surface and the V pass sampled the original image, so the H
     /// pass was overwritten — blur was effectively vertical-only).
     pub(crate) bg_blur_texture: Option<wgpu::Texture>,
@@ -231,7 +231,7 @@ impl Renderer {
         // the cell shader must know whether default-background cells should
         // be transparent so the wallpaper shows through. Only the uniform
         // buffer content is rewritten — the bind group is bound by object
-        // identity and stays valid (round-203, emulator-verified: wallpaper
+        // identity and stays valid, emulator-verified: wallpaper
         // was drawn every frame but opaque cell backgrounds covered it).
         self.refresh_cell_uniforms(cfg_width as f32, cfg_height as f32);
 
@@ -451,7 +451,7 @@ impl Renderer {
         // GL backend (SwiftShader-on-emulator, ADR-0007) cannot create a
         // second EGLSurface on a window whose previous surface is still
         // live — get_current_texture then fails with "Surface is not
-        // configured for presentation" forever (round-212, emulator-
+        // configured for presentation" forever, emulator-
         // verified: every session after the first rendered black; the
         // first attach worked only because no surface existed yet).
         // Callers guarantee no render thread is mid-frame (switchSession
@@ -496,7 +496,7 @@ impl Renderer {
         // full platform matrix — webgl/Android empty, desktop srgb±; format ==
         // view_formats is also ignored by configure per the spec). Verified on
         // the API-35 emulator: Rgba8Unorm + empty view_formats renders.
-        // wgpu 30's configure returns () (errors surface asynchronously via
+        // wgpu 30's configure returns (errors surface asynchronously via
         // get_current_texture's Lost state), so there is no Result to
         // propagate; the acquire path already reconfigure+retries on Lost.
         surface.configure(&self.device, &config);
@@ -563,7 +563,7 @@ impl Renderer {
     }
 
     pub fn set_background_params(&mut self, blur_radius: f32, alpha: f32) {
-        // Cap at 10 (round-210 P1-3): kernel taps = 2*ceil(r)+1 per pass;
+        // Cap at 10: kernel taps = 2*ceil(r)+1 per pass;
         // 20 → 82 taps/frame is not interactive on Mali-class GPUs.
         self.bg_blur_radius = blur_radius.clamp(0.0, 10.0);
         self.bg_alpha = alpha.clamp(0.0, 1.0);

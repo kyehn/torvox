@@ -27,12 +27,12 @@ class AnrWatchDog(
 
     // Bumped on every start(); a watchdog thread whose generation no longer
     // matches exits — so a stop()→start() cycle where the old thread
-    // survived the join timeout cannot leave two watchers alive (round-115).
+    // survived the join timeout cannot leave two watchers alive.
     private val generation = AtomicInteger(0)
 
     fun start() {
         // CAS: two concurrent callers must not start two watchdog threads
-        // (each may kill the process) (round-114).
+        // (each may kill the process).
         if (!running.compareAndSet(false, true)) return
         val myGeneration = generation.incrementAndGet()
         completed.set(false)
@@ -46,7 +46,7 @@ class AnrWatchDog(
 
     // Defensive API: no production caller today (the watchdog lives for the
     // whole process). Keep the generation handshake so a future caller
-    // cannot leak a stale watcher (round-115).
+    // cannot leak a stale watcher.
     fun stop() {
         running.set(false)
         generation.incrementAndGet()

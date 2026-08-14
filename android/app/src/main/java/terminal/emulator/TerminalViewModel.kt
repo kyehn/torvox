@@ -83,7 +83,7 @@ data class SelectionState(
     val selectedText: String = "",
     val touchClass: TouchClass = TouchClass.Unknown,
     // Set when a menu action (Copy/Select All/Share) was taken: the
-    // floating menu closes while the selection highlight stays (round-214).
+    // floating menu closes while the selection highlight stays.
     // Reset on the next long-press or drag-handle move.
     val menuDismissed: Boolean = false,
 ) {
@@ -113,7 +113,7 @@ data class SelectionState(
     }
 
     /**
-     * Round-231 P2 (arrow-key selection navigation, termlib moveSelection*
+     * arrow-key selection navigation, termlib moveSelection*
      * semantics): move the START anchor by [deltaRow]/[deltaCol], clamped to
      * the grid so it never crosses the END anchor (the end stays put as the
      * moving end sweeps up to it). Pure and unit-testable.
@@ -204,7 +204,7 @@ constructor(
 
     private val selectionManager = SelectionManager()
 
-    // Round-231 P2: last grid size seen from the runtime; a shrink clamps
+    // last grid size seen from the runtime; a shrink clamps
     // the active selection (see runtime.state collector).
     @Volatile private var lastGridRows = 0
 
@@ -312,7 +312,7 @@ constructor(
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
 
     /**
-     * Round-231 P2: clamp a selection's anchors onto [rows]×[cols] after a
+     * clamp a selection's anchors onto [rows]×[cols] after a
      * grid resize so native setSelection never receives out-of-bounds cells.
      */
     private fun clampSelectionToGrid(selection: SelectionState, rows: Int, cols: Int): SelectionState {
@@ -371,7 +371,7 @@ constructor(
      * Owns selection state transitions: start/update/end, clipboard
      * copy/share, select-all and the extraction heuristics (URL joining,
      * TUI-border detection). Extracted from TerminalViewModel
-     * (kotlin-architecture-round2 K5). Inner class: accesses _state,
+     * inner class: accesses _state,
      * runtime and clipboardPaster via the outer view model.
      */
     inner class SelectionManager {
@@ -381,11 +381,11 @@ constructor(
             touchClass: TouchClass = TouchClass.Unknown,
         ) {
             val anchor = SelectionAnchor(row, col)
-            // CAS (round-98): selection is touched from the main thread but
+            // CAS: selection is touched from the main thread but
             // _state is also written by IO coroutines; a plain RMW could lose
             // one of their updates. mode is read inside the lambda. (The old
             // EmptyArea override to Char mode was dead — no caller passes
-            // EmptyArea; round-99.)
+            // EmptyArea;.)
             _state.update { state ->
                 state.copy(
                     selection =
@@ -406,11 +406,11 @@ constructor(
             row: Int,
             col: Int,
         ) {
-            // CAS with the active-check inside the lambda (round-98): the
+            // CAS with the active-check inside the lambda: the
             // selection read and the write are atomic against concurrent _state
             // updates. Paste-only selections (empty-cell/whitespace long-press)
             // are immutable — a finger micro-move during the long-press must
-            // not drift the single cell (round-214).
+            // not drift the single cell.
             _state.update { state ->
                 val current = state.selection
                 if (!current.active || current.pasteOnly) {
@@ -465,11 +465,11 @@ constructor(
             val text = extractSelectedText(current)
             // Only write when the selection is unchanged since our read: a
             // concurrent selection update must not be clobbered with stale text.
-            // CAS loop (round-101): compareAndSet retries while the state is
+            // CAS loop: compareAndSet retries while the state is
             // still ours and aborts as soon as a concurrent write lands — the
             // native boundary sync below runs only for a genuinely committed
             // snapshot (no side-effect flag that could leak across retries).
-            // Note (round-100): extractSelectedText itself reads the bridge and
+            // Note: extractSelectedText itself reads the bridge and
             // cols across a snapshot — those can also go stale mid-extraction if
             // an IO coroutine switches sessions; the result is bounded by the
             // substring guards and is never written unless this CAS commits.
@@ -503,8 +503,8 @@ constructor(
         }
 
         /**
-         * Round-231 P2: mode switch re-expands the range (termlib
-         * SelectionManager.adjustSelectionForMode :288-320): WORD expands
+         * mode switch re-expands the range (termlib
+         * SelectionManager.adjustSelectionForMode:288-320): WORD expands
          * both ends onto word boundaries, LINE spans the full rows, CHAR
          * keeps the current range as-is.
          */
@@ -545,7 +545,7 @@ constructor(
         fun copySelectionToClipboard() {
             val rawText = _state.value.selection.selectedText
             if (rawText.isEmpty()) return
-            // Smart processing (round-225, Haven smartCopy:357-405) applies
+            // Smart processing, Haven smartCopy:357-405) applies
             // border-strip / wrapped-URL rebuild to the selection text; the
             // ClipboardAccess.smartCopyProcessor hook stays null here (OSC 52
             // programmatic writes from the runtime stay verbatim).
@@ -557,7 +557,7 @@ constructor(
         }
 
         /**
-         * Round-225: route the copy through smart processing (TUI border
+         * route the copy through smart processing (TUI border
          * stripping + wrapped-URL rebuild, Haven smartCopy:357-405). Fetch
          * the selection's rows from the snapshot; on any bridge failure
          * fall back to the raw text.
@@ -599,7 +599,7 @@ constructor(
             row: Int,
             col: Int,
         ) {
-            // Round-214: an empty-cell long-press now creates a single-cell
+            // an empty-cell long-press now creates a single-cell
             // selection (inverted background via the GPU path) with a
             // paste-only floating menu — matching the text-selection UX
             // instead of a detached chip with no highlight.
@@ -637,7 +637,7 @@ constructor(
         fun shareSelection() {
             val rawText = _state.value.selection.selectedText
             if (rawText.isEmpty()) return
-            // Round-225: share the smart-copied text (border strip / URL rebuild).
+            // share the smart-copied text (border strip / URL rebuild).
             val text = smartCopySelection(rawText)
             val shareIntent =
                 Intent.createChooser(
@@ -649,7 +649,7 @@ constructor(
                 )
             shareIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             context.startActivity(shareIntent)
-            // Close the floating menu after the action (round-214).
+            // Close the floating menu after the action.
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
         }
 
@@ -703,7 +703,7 @@ constructor(
         }
 
         /**
-         * Round-231 P2: arrow-key selection movement — move the START anchor
+         * arrow-key selection movement — move the START anchor
          * by [deltaRow]/[deltaCol] (pure [SelectionState.moveSelectionAnchorBy]),
          * re-extract the selected text and sync to native. Called from
          * TerminalSurface.onKeyDown while a selection is active.
@@ -730,7 +730,7 @@ constructor(
             // scrollback), matching the Ghostty formatter's grid rows.
             //
             // Wrap-aware extraction (termux TerminalBuffer.getSelectedText
-            // semantics, round-218): soft-wrapped rows are joined without
+            // semantics): soft-wrapped rows are joined without
             // '\n' (unwrap) and trailing whitespace is trimmed, and the
             // formatter maps grid columns to char indices internally so CJK
             // wide glyphs are never split (TerminalRow.findStartOfColumn
@@ -891,7 +891,7 @@ constructor(
 
     /**
      * Owns font loading, size/family settings and font-file installation.
-     * Extracted from TerminalViewModel (kotlin-architecture-round3 R4).
+     * Extracted from TerminalViewModel.
      * Inner class: accesses the font StateFlows, runtime, settingsRepository
      * and context via the outer view model. loadFonts() refreshes the flows
      * after install.
@@ -998,7 +998,7 @@ constructor(
         /**
          * Set the independent family for a style slot (0=bold, 1=italic,
          * 2=bold-italic) — ghostty-android TerminalFontStore 4-slot design
-         * (research-ghostty-android-extra.md:80). Empty clears the slot.
+         * research-ghostty-android-extra.md:80). Empty clears the slot.
          */
         fun setFontFamilyForStyle(family: String, slot: Int) {
             viewModelScope.launch(Dispatchers.IO) {
@@ -1161,7 +1161,7 @@ constructor(
     val fontInfo: StateFlow<String> = _fontInfo.asStateFlow()
 
     init {
-        // Load persisted shortcut bindings from DataStore (round-230 fix).
+        // Load persisted shortcut bindings from DataStore  fix).
         viewModelScope.launch {
             settings.map {
                 it.shortcutPaste to it.shortcutNewSession to
@@ -1172,7 +1172,7 @@ constructor(
         }
         viewModelScope.launch {
             runtime.state.collect { runtimeState ->
-                // Round-231 P2: a grid resize can shrink below the current
+                // a grid resize can shrink below the current
                 // selection bounds; clamp start/end onto the new grid so
                 // native setSelection never sees out-of-bounds cells.
                 if (runtimeState.rows != lastGridRows || runtimeState.cols != lastGridCols) {
@@ -1244,7 +1244,7 @@ constructor(
             // Same cold-start race as applyBackgroundImageFromPath: the
             // bridge may not exist yet, and dropping the params here would
             // leave blur/alpha at their defaults until the user touches
-            // the sliders (round-203, emulator-verified).
+            // the sliders, emulator-verified).
             val bridge = withTimeoutOrNull(15_000) {
                 while (runtime.bridge() == null) {
                     delay(100)
@@ -1350,7 +1350,7 @@ constructor(
 
     fun runBootstrap() {
         // CAS so a rapid double-tap of the Install button cannot start two
-        // concurrent installs (round-109).
+        // concurrent installs.
         if (!_bootstrapRunning.compareAndSet(false, true)) return
         viewModelScope.launch(Dispatchers.IO) {
             _bootstrapResult.value = null
@@ -1388,7 +1388,7 @@ constructor(
                 // Read the debounced value directly: the DataStore write is
                 // debounced by 500ms, so first() could still return the old
                 // URL if the user taps Install right after typing. An edited
-                // (even if cleared) field wins over the stored URL (round-109).
+                // (even if cleared) field wins over the stored URL.
                 val url =
                     if (bootstrapUrlEdited) {
                         bootstrapUrlDebounce.value
@@ -1406,7 +1406,7 @@ constructor(
     }
 
     /**
-     * Offline bootstrap install from a SAF URI.  The user picks a .zip file
+     * Offline bootstrap install from a SAF URI.  The user picks a.zip file
      * via [android.activity.result.contract.ActivityResultContracts.OpenDocument];
      * the content is copied to a cache file, then fed to the same installer
      * pipeline as the online path (installer.install → secondStage.run).
@@ -1547,7 +1547,7 @@ constructor(
             // The first session may still be spawning (bootstrap install,
             // shell start) when this runs after a cold start — `bridge()`
             // is null then and the wallpaper would be silently dropped.
-            // Wait up to 15s for a bridge (emulator-verified, round-203:
+            // Wait up to 15s for a bridge (emulator-verified:
             // after relaunch the DataStore path survived but the image was
             // never applied because the bridge was not ready yet).
             val bridge = withTimeoutOrNull(15_000) {
@@ -1572,7 +1572,7 @@ constructor(
                             // copyPixelsToBuffer() below throws
                             // IllegalStateException on those. Force a
                             // software bitmap so the RGBA bytes can be
-                            // read (round-202, emulator-verified).
+                            // read, emulator-verified).
                             .allowHardware(false)
                             .build()
                     val image = imageLoader.execute(request).image
@@ -1583,11 +1583,11 @@ constructor(
                         val buffer = java.nio.ByteBuffer.allocate(bitmapWidth * bitmapHeight * 4)
                         bitmap.copyPixelsToBuffer(buffer)
                         val rgbaData = buffer.array()
-                        // Byte order note (round-211, emulator-verified):
-                        // Coil 3 with .allowHardware(false) returns a bitmap
+                        // Byte order note, emulator-verified):
+                        // Coil 3 with.allowHardware(false) returns a bitmap
                         // whose copyPixelsToBuffer() output is already RGBA
                         // byte order on this pipeline. The earlier BGRA→RGBA
-                        // swap (round-210) double-swapped and rendered the
+                        // swap  double-swapped and rendered the
                         // wallpaper with red/blue exchanged (quadrant-color
                         // pixel checks). No swap is applied here.
                         bridge.setBackgroundImage(rgbaData, bitmapWidth, bitmapHeight)
@@ -1652,7 +1652,7 @@ constructor(
 
     /**
      * Persist a cursor setting then push it to the bridge and force a
-     * render. Shared by the three cursor setters (R10: round-3
+     * render. Shared by the three cursor setters (R10:
      * architecture).
      */
     private fun applyCursorSetting(
@@ -1735,7 +1735,7 @@ constructor(
 
     /**
      * Persist a theme setting then re-apply the whole theme to the bridge.
-     * Shared by the five theme setters (R10: round-3 architecture).
+     * Shared by the five theme setters (R10:  architecture).
      */
     private fun applyThemeSettings(persist: suspend () -> Unit) {
         viewModelScope.launch {
@@ -1751,7 +1751,7 @@ constructor(
 
     // Written on the UI thread, read on an IO coroutine; volatile makes the
     // visibility explicit instead of relying on implicit happens-before
-    // (round-110).
+    //
     @Volatile
     private var bootstrapUrlEdited = false
 
@@ -1835,7 +1835,7 @@ constructor(
 
         // The unshifted codepoint is the base key with no modifiers applied:
         // recompute the character with SHIFT removed so the encoder can detect a
-        // shift-only change (e.g. Shift+; -> :) and avoid a spurious Kitty shift.
+        // shift-only change (e.g. Shift+; ->:) and avoid a spurious Kitty shift.
         val unshiftedChar = event.getUnicodeChar(meta and KeyEvent.META_SHIFT_MASK.inv())
         val success = bridge.processKeyEvent(keyCode, mask.toByte(), 0, unicodeChar, unshiftedChar)
         if (success) {
@@ -1857,7 +1857,7 @@ constructor(
 
     fun toggleScrollMode() {
         _state.update { it.copy(scrollActive = !it.scrollActive) }
-        // Round-230: sync scrollActive to SessionEntry so the render thread
+        // sync scrollActive to SessionEntry so the render thread
         // knows whether to auto-reset scroll on new output.
         runtime.setScrollActive(_state.value.scrollActive)
     }

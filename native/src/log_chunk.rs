@@ -1,4 +1,4 @@
-//! Platform-independent logcat chunking (round-227 T2).
+//! Platform-independent logcat chunking.
 //!
 //! Android logcat truncates any single log entry payload beyond ~4068
 //! bytes (LOGGER_ENTRY_MAX_PAYLOAD). Long messages must be split into
@@ -21,7 +21,7 @@ pub const LOGGER_ENTRY_MAX_PAYLOAD: usize = 4068;
 /// Bytes reserved for the logd per-entry header (logger_entry struct +
 /// tag length field) that counts toward the 4068-byte entry limit.
 ///
-/// On-device measurement (round-227 T2, emulator API 35): writing a
+/// On-device measurement, emulator API 35): writing a
 /// 4036-byte payload with a 12-byte tag surfaces as a 4022-byte logcat
 /// line — the entry is truncated to `4068 - header - tag`. The old
 /// estimate of 8 bytes (logcat display prefix) was too small, so chunks
@@ -54,7 +54,7 @@ pub fn max_entry_size(tag_len: usize) -> usize {
 ///
 /// The prefix budget is dynamic: `(N/N)\n` exceeds 8 bytes once N >= 100,
 /// so the split re-runs with the real prefix length in that case
-/// (round-227 T2 audit fix, mirrored by the Kotlin port).
+/// audit fix, mirrored by the Kotlin port).
 pub fn chunk_message(tag: &str, message: &str) -> Vec<String> {
     let budget = max_entry_size(tag.len());
     if message.len() <= budget {

@@ -16,7 +16,7 @@ import java.util.concurrent.Executors
  * those drops off the IME main thread and the Choreographer frame
  * callback (an ANR is treated as a process kill). Direct callers
  * (TerminalSurface key/soft-keyboard paths via viewModel.writeToPty)
- * have the same drop-on-EAGAIN behavior on the caller's thread (round-105).
+ * have the same drop-on-EAGAIN behavior on the caller's thread.
  * All sink invocations run on a single daemon sender thread: the caller
  * never blocks, and the single-threaded executor preserves drain order
  * across concurrent writers.
@@ -95,7 +95,7 @@ class InputBatchBuffer(
      * TerminalSurface instance).
      */
     fun close() {
-        // Round-210 P2-11: flush buffered bytes BEFORE shutting down —
+        // flush buffered bytes BEFORE shutting down —
         // otherwise keystrokes typed in the final frame before detach are
         // silently dropped (the buffer is drained only by the frame
         // callback or an explicit flush).

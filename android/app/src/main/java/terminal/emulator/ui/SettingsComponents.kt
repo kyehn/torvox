@@ -4,7 +4,7 @@ package terminal.emulator.ui
 // row skeletons that previously existed per setting (3 slider rows, 2 switch
 // rows, 3 selector rows — each with the same isSmallScreen/labelStyle/
 // valueStyle/color logic). Modeled on ghostty-android's declarative Setting
-// pattern (kotlin-architecture-deepening C4).
+// pattern.
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable

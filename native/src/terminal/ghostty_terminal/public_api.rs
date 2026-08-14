@@ -239,7 +239,7 @@ impl super::GhosttyTerminal {
     }
 
     pub fn set_theme(&self, background: [u8; 3], foreground: [u8; 3], ansi: [[u8; 3]; 16]) {
-        // try_send: same non-blocking policy as resize (round-111).
+        // try_send: same non-blocking policy as resize.
         if let Err(error) = self.cmd_tx.try_send(Command::SetTheme {
             background,
             foreground,
@@ -252,10 +252,10 @@ impl super::GhosttyTerminal {
     /// Returns true when the resize command was accepted by the VT thread.
     /// A `false` result means the grid was NOT resized (PTY may still have
     /// been updated by the caller's `pty.resize`); the caller must not cache
-    /// the new size so the next resize event retries (round-112).
+    /// the new size so the next resize event retries.
     /// Scroll the terminal viewport by a delta (up is negative). The
     /// delta is applied on the VT thread via `scroll_viewport`; the next
-    /// CellData push carries the scrolled view (round-205).
+    /// CellData push carries the scrolled view.
     pub fn scroll_viewport(&self, delta: isize) -> bool {
         if let Err(error) = self.cmd_tx.try_send(Command::ScrollViewport(delta)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for scroll: {error}");
@@ -270,7 +270,7 @@ impl super::GhosttyTerminal {
         // NOTE: a dropped resize is NOT replayed — the PTY/grid keep the old
         // size until the next resize event arrives (IME change, rotation,
         // settings change, session switch). The channel capacity (1024) makes
-        // loss unlikely outside a VT-thread stall (round-110/111).
+        // loss unlikely outside a VT-thread stall /111).
         if let Err(error) = self.cmd_tx.try_send(Command::Resize { rows, cols }) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed for resize: {error}");
             return false;
@@ -515,7 +515,7 @@ impl super::GhosttyTerminal {
     ) -> Option<flume::Receiver<Vec<u8>>> {
         let (tx, rx) = flume::bounded(1);
         // try_send: consistent with resize/set_theme — a wedged VT thread
-        // must not block the caller (round-112).
+        // must not block the caller.
         self.cmd_tx
             .try_send(Command::KeyEncode {
                 key_code,

@@ -75,7 +75,7 @@ class SelectionEspressoTest {
             putExtra("row", 10)
             putExtra("col", 0)
         }
-        // Round-231: the PasteChipOverlay was removed; an empty-area
+        // the PasteChipOverlay was removed; an empty-area
         // long-press now shows a paste-only selection state.
         composeTestRule.activityRule.scenario.onActivity { activity ->
             val sel = activity.terminalViewModel.state.value.selection
@@ -85,7 +85,7 @@ class SelectionEspressoTest {
     }
 
     @Test
-    @org.junit.Ignore("Requires the native data path: scrollbackLine is an implemented (native query path wired since round-130), so extractSelectedText yields an empty string and Copy never writes the clipboard (round-107)")
+    @org.junit.Ignore("Requires the native data path: scrollbackLine is an implemented (native query path is wired), so extractSelectedText yields an empty string and Copy never writes the clipboard ")
     fun copyActionPlacesTextOnClipboard() {
         // Select a known range, then click Copy and verify the clipboard.
         sendSelectionBroadcast("terminal.emulator.PARTIAL_SELECT") {

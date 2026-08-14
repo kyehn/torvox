@@ -29,7 +29,7 @@ class AppStartupBenchmark {
         // Macrobenchmark (re)installs the target app, which resets
         // runtime permissions; MainActivity.onCreate() then shows the
         // POST_NOTIFICATIONS dialog and startup metrics read zero
-        // (round-119). Grant before measuring — idempotent.
+        // Grant before measuring — idempotent.
         device.executeShellCommand("pm grant com.termux android.permission.POST_NOTIFICATIONS")
     }
 

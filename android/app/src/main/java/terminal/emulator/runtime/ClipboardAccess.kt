@@ -6,7 +6,7 @@ import android.content.Context
 import android.util.Log
 
 /**
- * Single clipboard access point (K2: round-2 architecture).
+ * Single clipboard access point (K2:  architecture).
  *
  * All clipboard reads/writes in the app previously went through 5 ad-hoc
  * `getSystemService` calls and 2 parallel paste implementations. This
@@ -20,7 +20,7 @@ class ClipboardAccess(
 ) {
     /**
      * Optional smart-copy transformation applied on every
-     * [setClipboardText] write (round-225, Haven
+     * [setClipboardText] write, Haven
      * SmartTerminalClipboard:407-430): the terminal selection copy path
      * installs a border-strip / URL-rebuild processor; OSC 52 programmatic
      * writes keep the default null → verbatim passthrough. When the

@@ -14,7 +14,7 @@ struct MockPtyInner {
     rows: u16,
     cols: u16,
     /// Number of resize() calls, for tests asserting the short-circuit does
-    /// not touch the PTY (round-115).
+    /// not touch the PTY.
     resize_count: usize,
 }
 
@@ -90,7 +90,7 @@ impl MockPtyHandle {
         self.inner.lock().expect("mock mutex poisoned").rows
     }
 
-    /// Number of resize calls made to this mock (round-115).
+    /// Number of resize calls made to this mock.
     pub fn resize_count(&self) -> usize {
         self.inner.lock().expect("mock mutex poisoned").resize_count
     }

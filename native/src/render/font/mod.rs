@@ -48,7 +48,7 @@ pub enum FontError {
     AtlasAllocationFailed,
 }
 
-/// Glyph synthesis mode (round-231 T6): how a glyph is styled when the
+/// Glyph synthesis mode: how a glyph is styled when the
 /// font has no matching bold/italic face. Pixels are post-processed on the
 /// rasterized alpha mask — bold emboldens, italic shears.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -113,7 +113,7 @@ mod tests {
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_data");
     const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test_fonts");
 
-    // ── Round-224: emoji classification boundary tests ────────────────────
+    // ── emoji classification boundary tests ────────────────────
     // Mirrors warp lib.rs:2192-2307 (classify_char + boundary pins). The
     // production shaper is cosmic-text; this helper documents the SAME
     // Unicode ranges the pipeline treats as emoji (routed through the
@@ -1251,7 +1251,7 @@ mod tests {
         );
     }
 
-    // ── round-227 T5: layered fallback (moke chain, spec d7) ─────────────
+    // ──: layered fallback (moke chain, spec d7) ─────────────
 
     #[test]
     fn fallback_layer_family_predicates() {
@@ -1327,7 +1327,7 @@ mod tests {
     #[test]
     fn private_use_glyph_renders_notdef_without_panic() {
         // U+E0A0 (powerline separator PUA) exists in no host font: the
-        // chain must end at .notdef without panicking (spec d7 scenario 3).
+        // chain must end at.notdef without panicking (spec d7 scenario 3).
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let info = pipeline.glyph_information('\u{e0a0}');
         assert!(info.is_some(), ".notdef fallback must return a glyph");
@@ -1550,7 +1550,7 @@ mod tests {
         let _ = std::fs::remove_file(&corrupt_path);
     }
 
-    // ── Round-231 T6: bold/italic glyph synthesis ─────────────────────────
+    // ──: bold/italic glyph synthesis ─────────────────────────
 
     /// Count non-zero alpha pixels in the glyph's atlas region (RGBA atlas).
     fn glyph_pixel_count(info: &GlyphInfo, bitmap: &[u8], atlas_width: usize) -> usize {

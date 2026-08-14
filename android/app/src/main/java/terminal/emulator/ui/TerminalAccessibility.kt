@@ -18,7 +18,7 @@ data class AccessibilityLine(
 
 /**
  * Builds the visible-screen line list used for TalkBack line-by-line
- * navigation (round-231, termlib AccessibilityOverlay pattern). Pure
+ * navigation, termlib AccessibilityOverlay pattern). Pure
  * Kotlin: unit-tested on the JVM with a fake [AccessibilityLineSource].
  */
 class AccessibilityLineProvider(
@@ -85,7 +85,7 @@ class AccessibilityLineNavigator(
         // The remembered row wins while it stays visible; otherwise fall
         // back to the top visible line. Either way the chosen line becomes
         // the new current row so a following next()/previous() continues
-        // from where the user actually is (round-231 fix: current() must
+        // from where the user actually is (fix: current() must
         // also position the cursor).
         val line =
             if (currentRow != null) {

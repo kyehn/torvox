@@ -15,7 +15,7 @@ import java.io.File
 import java.io.FileOutputStream
 
 /**
- * ghostty-android BackgroundImageStore adoption (round-217):
+ * ghostty-android BackgroundImageStore adoption:
  * - picked content:// URIs are copied into app-private storage so the
  *   persisted path never depends on a revocable SAF grant
  * - a missing private file self-heals: the setting is cleared and the

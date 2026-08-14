@@ -9,7 +9,10 @@ fn srs_ids() -> std::collections::BTreeSet<String> {
     let req_dir = std::path::Path::new(WORKSPACE).join("docs/requirements");
     let mut ids = std::collections::BTreeSet::new();
 
-    for sdoc_file in ["functional_requirements.sdoc", "non_functional_requirements.sdoc"] {
+    for sdoc_file in [
+        "functional_requirements.sdoc",
+        "non_functional_requirements.sdoc",
+    ] {
         let path = req_dir.join(sdoc_file);
         if !path.exists() {
             continue;
@@ -112,7 +115,12 @@ fn strictdoc_validates_requirements() {
     // strictdoc validates requirement structure in docs/requirements/.
     // Export to HTML (side-effect free) catches parse errors.
     let output = std::process::Command::new("strictdoc")
-        .args(["export", "docs/requirements", "--output-dir", "/tmp/strictdoc-export"])
+        .args([
+            "export",
+            "docs/requirements",
+            "--output-dir",
+            "/tmp/strictdoc-export",
+        ])
         .current_dir(WORKSPACE)
         .output()
         .expect("strictdoc must be installed (add to flake.nix devShell)");
@@ -243,7 +251,10 @@ fn doc_srs_matches_sdoc_ids() {
     );
 
     let sdoc_set = srs_ids();
-    assert!(!sdoc_set.is_empty(), "no requirement IDs found in .sdoc files");
+    assert!(
+        !sdoc_set.is_empty(),
+        "no requirement IDs found in .sdoc files"
+    );
 
     let only_in_srs: Vec<&String> = srs_set.difference(&sdoc_set).collect();
     let only_in_sdoc: Vec<&String> = sdoc_set.difference(&srs_set).collect();

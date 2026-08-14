@@ -26,7 +26,7 @@ pub enum Command {
         scroll_offset: u32,
     },
     /// Scroll the terminal viewport by a delta (up is negative). Backs
-    /// the app's scrollback browsing (round-205: previously a Kotlin-side
+    /// the app's scrollback browsing: previously a Kotlin-side
     /// no-op — the CellData render path had no scroll support at all).
     ScrollViewport(isize),
     ScrollbackLength(Sender<u32>),

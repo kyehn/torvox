@@ -9,7 +9,7 @@ import org.junit.runner.RunWith
 /**
  * Measures logd's exact truncation boundary for a given tag so the
  * chunking budget in LogUtil / native log_chunk can be calibrated from
- * real device behavior (round-227 T2).
+ * real device behavior.
  */
 @RunWith(AndroidJUnit4::class)
 class LogcatBoundaryProbeTest {

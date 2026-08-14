@@ -144,7 +144,7 @@ class ToolbarMacroExpanderTest {
         assertEquals(listOf("\u001b", "q"), ToolbarMacroExpander.expand("ESC q"))
     }
 
-    // ── round-227 T3 audit fix: full alias table (spec d3) ───────────────
+    // ──  audit fix: full alias table (spec d3) ───────────────
 
     @Test
     fun `CONTROL alias behaves identically to CTRL`() {
@@ -200,7 +200,7 @@ class ToolbarMacroExpanderTest {
         assertEquals(emptyList<String>(), ToolbarMacroExpander.expand("  "))
     }
 
-    // ── T3 edge-case additions: robustness ─────────────────────────────
+    // ── edge-case additions: robustness ─────────────────────────────
 
     @Test
     fun `unknown modifier falls back to literal token`() {

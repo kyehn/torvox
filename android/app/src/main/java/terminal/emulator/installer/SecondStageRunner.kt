@@ -32,7 +32,7 @@ class SecondStageRunner(
             // would permanently skip postinst while dpkg stays half-
             // configured. The postinst scripts are idempotent (dpkg
             // "configure" reruns), so delete the stale lock and retry.
-            // NOTE (round-103): this stale-detection cannot distinguish a
+            // NOTE: this stale-detection cannot distinguish a
             // live concurrent runner from a stale lock — a second process
             // would delete the active lock and run postinst concurrently.
             // This is best-effort by design: process-local concurrency is
@@ -90,7 +90,7 @@ class SecondStageRunner(
 
     /**
      * Execute one dpkg postinst script with the DPKG_* environment and the
-     * linker-wrapped interpreter (round-215; extracted from runPostInstalls
+     * linker-wrapped interpreter ; extracted from runPostInstalls
      * for the detekt LongMethod limit).
      */
     private suspend fun runOnePostinst(
@@ -123,7 +123,7 @@ class SecondStageRunner(
                     "PREFIX" to prefixDir.absolutePath,
                     "LD_PRELOAD" to File(prefixDir, "lib/libtermux-exec.so").absolutePath,
                 )
-            // Round-215: postinst scripts start with
+            // postinst scripts start with
             // `#!/data/data/com.termux/files/usr/bin/sh`, and Android
             // 15+ SELinux denies execute_no_trans of app_data_file —
             // direct exec of the script fails EACCES even when the

@@ -5572,7 +5572,7 @@ mod tests_phase0 {
         t.flush();
         // NOTE: \x1b[?i is consumed as a complete private CSI (final byte 0x69 = 'i').
         // Remaining "nvalid" = 6 printable chars rendered on screen.
-        // After \r\n$ , cursor ends at (1, 2).
+        // After \r\n$, cursor ends at (1, 2).
         // The B4 error-offset bug needs a trigger that ghostty genuinely cannot parse.
         tc(&mut t)
             .write(b"\x1b[?invalid\r\n$ ")
@@ -8289,7 +8289,7 @@ fn bench_scroll_throughput() {
     // Serialize against the GPU benches: in parallel runs the shared CPU
     // (Lavapipe software rasterizer + this CPU-bound bench) drops the
     // measured throughput below the threshold — 400-500 MB/s vs 725 MB/s
-    // in isolation (round-204). Each bench is fast (<1s) so the lock is
+    // in isolation. Each bench is fast (<1s) so the lock is
     // uncontended in practice.
     let _serial = crate::render::GPU_BENCH_LOCK.lock();
     let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
@@ -8476,7 +8476,7 @@ fn bench_end_to_end_cpu_pipeline_latency() {
 }
 
 /// Verify that `scroll_viewport(Delta)` scrolls the CellData view and
-/// that the delta accumulates on repeated calls (round-205: scrollback
+/// that the delta accumulates on repeated calls: scrollback
 /// browsing previously did nothing).
 #[test]
 fn scroll_viewport_delta_scrolls_cell_data() {

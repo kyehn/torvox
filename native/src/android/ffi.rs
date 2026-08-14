@@ -28,14 +28,14 @@
 //! EXCEPTION A: `focusEvent` runs on the main UI thread (window focus
 //! change). Its mode query is bounded to 50ms (FOCUS_MODE_QUERY_TIMEOUT_MS)
 //! and the session lock is held only for that window, so the UI thread is
-//! never frozen for long (round-98 documents this in the session focus_event
+//! never frozen for long  documents this in the session focus_event
 //! docs too).
 //!
 //! EXCEPTION B: `dialogResult` and `clipboardResult` arrive from
 //! AlertDialog / ActivityResult callbacks (main thread) and from the render
 //! thread (empty replies on session exit). All call sites only take the
 //! REQUEST_REGISTRY mutex briefly (no session locks, no blocking waits), so
-//! the multi-thread entry is safe (round-116).
+//! the multi-thread entry is safe.
 //!
 //! `pollEvent` is called at frame rate from ONE render thread per active
 //! session (TerminalRuntime render loop) — never on the main thread.
@@ -146,7 +146,7 @@ unsafe extern "C" {
 /// A registered session with its ID and thread-safe handle.
 struct SessionEntry {
     session: Arc<Mutex<Session>>,
-    /// Last scroll offset applied for THIS session (round-209: previously
+    /// Last scroll offset applied for THIS session: previously
     /// the delta was computed against a single global value, so switching
     /// sessions could move the old session's viewport when its render
     /// thread resumed with the other session's offset).
@@ -267,7 +267,7 @@ struct RenderState {
     /// visibility the terminal itself controls). `enabled` + `speed_ms`
     /// come from `setCursorBlink`; `phase_reset_ms` is updated by
     /// `resetCursorBlink` so a user interaction restarts the blink phase
-    /// with the cursor visible (round-204).
+    /// with the cursor visible.
     cursor_blink_enabled: bool,
     cursor_blink_speed_ms: u64,
     cursor_blink_phase_reset_ms: u64,
@@ -282,7 +282,7 @@ struct RenderState {
     /// cursor blink: `render()` only draws when the terminal produced new
     /// CellData, so an idle terminal would never repaint the cursor phase.
     /// When blink is enabled and the phase flips, the cached frame is
-    /// redrawn with the cursor visibility toggled (round-204).
+    /// redrawn with the cursor visibility toggled.
     last_frame: Option<(
         Vec<crate::terminal::ghostty_terminal::CellData>,
         crate::terminal::ghostty_terminal::CursorInfo,
@@ -489,7 +489,7 @@ pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
     SCREENSHOT_REQUEST_REGISTRY
         .lock()
         .remove(&(session_id, request_id));
-    // Round-210 P2-14: tell Kotlin to dismiss the still-visible dialog
+    // tell Kotlin to dismiss the still-visible dialog
     // (the MCP tool call has given up; without this the dialog hangs on
     // screen unresponsive until the process dies).
     push_event(crate::event::Event::DialogCancel {
@@ -699,14 +699,14 @@ fn init_session_inner(
             Some(prefix.clone())
         },
         extra: {
-            // Round-217: without TERM, bash's readline treats the terminal
+            // without TERM, bash's readline treats the terminal
             // as "dumb" and disables input echo entirely — typed characters
             // reach the shell (commands execute) but are never shown.
             // xterm-256color is the standard value for terminal emulators
             // (Termux uses it).
             let mut extra = vec![("TERM".to_string(), "xterm-256color".to_string())];
             if !prefix.is_empty() {
-                // Round-227 (T6): termux-exec's execve hook only forwards
+                // termux-exec's execve hook only forwards
                 // app-data executables to the system linker when the path is
                 // under TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR.
                 // The nix-on-droid bootstrap is compiled with the built-in
@@ -991,7 +991,7 @@ fn resize_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, rows: jint,
             // grid disagree, so the dims stay at the cached (old)
             // values — publishing the new ones would make MCP
             // dims flip-flop between resize and switch paths
-            // (round-113).
+            //
             if matches!(outcome, crate::terminal::session::ResizeOutcome::Applied)
                 && id == ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire)
             {
@@ -1399,7 +1399,7 @@ fn wait_exit_code(session: &Arc<Mutex<Session>>) -> i32 {
     0
 }
 
-/// Read the child's recorded lifetime (fork → waitpid, ms). Round-224:
+/// Read the child's recorded lifetime (fork → waitpid, ms).
 /// the wait thread writes it at exit, so this returns immediately; 0 is
 /// the fallback for an exotic session without the field populated yet.
 fn wait_exit_alive_ms(session: &Arc<Mutex<Session>>) -> u64 {
@@ -1621,7 +1621,7 @@ fn init_logger_inner(_env: &mut JNIEnv, _class: JClass) {
 
 /// Attach an Android Surface — Android only.
 ///
-/// Called from Bridge.kt on surface attach (ADR-0007, rounds 202-204):
+/// Called from Bridge.kt on surface attach (ADR-0007):
 /// TerminalRuntime hands the Android Surface over the JNI boundary and
 /// the render thread consumes it via the native window. The surface is
 /// detached again by `detachWindow`.
@@ -1815,7 +1815,7 @@ fn render_inner(session_id: u64) -> jint {
         }
     }
     // Collect cell data (session lock), then render (render-state lock).
-    // NOTE (round-209, P2-4): the idle branch below DOES hold the session
+    // NOTE: the idle branch below DOES hold the session
     // lock while touching render state — the lock order is strictly
     // SESSION_REGISTRY → session → render_state everywhere (never the
     // reverse), so there is no deadlock cycle, but the session lock's
@@ -1911,7 +1911,7 @@ fn render_inner(session_id: u64) -> jint {
             return 0;
         }
     }
-    // Round-216: selection rows are stored in GRID coordinates (the Kotlin
+    // selection rows are stored in GRID coordinates (the Kotlin
     // side uses scrollbackLine(gridRow)), but CellData rows are VISIBLE
     // rows (0..rows-1 of the viewport). Translate here each frame so the
     // highlight follows the text as the user scrolls. Done under the
@@ -2038,7 +2038,7 @@ fn detach_window_inner(_env: &mut JNIEnv, _class: JClass, _session_id: jlong) {
 // JNI Export: setMcpEnabled
 // ══════════════════════════════════════════════════════════════════════════
 
-/// Override the MCP Unix socket path (round-210 P2-13). Kotlin derives it
+/// Override the MCP Unix socket path. Kotlin derives it
 /// from `context.filesDir` so it follows the real `applicationId` instead
 /// of the hardcoded `/data/data/com.termux` default.
 #[unsafe(no_mangle)]
@@ -2116,7 +2116,7 @@ fn set_mcp_enabled_inner(_env: &mut JNIEnv, _class: JClass, enabled: jboolean) {
             );
             state.set_send_signal_handler(|session_id: u64, signum: i32| -> String {
                 // Recover-on-poison helper, same policy as every other
-                // registry read in this file (round-99).
+                // registry read in this file.
                 let guard = rlock_session_registry();
                 match guard.get(&session_id) {
                     Some(entry) => {
@@ -2867,7 +2867,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
         let mut empty = true;
         if (absolute as u32) < visible_rows + scrollback {
             if let Some(line) = session.terminal().read_line_text(row) {
-                // Round-209 P2-5: `col` is a CHARACTER column, but the raw
+                // `col` is a CHARACTER column, but the raw
                 // line is UTF-8 — comparing against line.len() (bytes)
                 // misjudged multi-byte cells (CJK/emoji) as empty. Count
                 // code points instead.
@@ -3166,7 +3166,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         // theme (e.g. #151515) never matches the renderer default
         // (#1E1E2E Catppuccin), `is_default_bg` stays false, and the
         // wallpaper is hidden behind opaque cell backgrounds
-        // (emulator-verified, round-203: checkerboard probe proved the bg
+        // (emulator-verified: checkerboard probe proved the bg
         // pass and cell transparency both work; only the default_bg
         // comparison failed).
         {
@@ -3474,7 +3474,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
 
 /// Set the font rasterization scale (device pixel density). Glyph bitmaps
 /// are rasterized at font_size * raster_scale so text stays crisp on
-/// high-density screens (round-215).
+/// high-density screens.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale(
     mut env: JNIEnv,
@@ -3488,7 +3488,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale
         }
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            // Round-215: BOTH pipelines must agree on raster_scale — the
+            // BOTH pipelines must agree on raster_scale — the
             // font pipeline rasterizes glyph bitmaps at font_size*scale,
             // while the renderer feeds the same scale to the cell shader
             // uniform. Desync made the shader sample glyph bitmaps at 1x
@@ -3668,7 +3668,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellHeight(
 }
 
 /// Current grid dimensions as (rows << 32) | cols, or 0 when the session
-/// is unknown. Backs `Bridge.getGridRowsColsPacked` (round-204: the
+/// is unknown. Backs `Bridge.getGridRowsColsPacked`: the
 /// Kotlin stub returned 0 forever, so syncGridDimensions could never
 /// converge on the native grid after a dropped resize).
 #[unsafe(no_mangle)]
@@ -3691,7 +3691,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsCol
 /// Set the viewport scroll offset (rows into scrollback; 0 = active
 /// screen). The difference from the previous offset is applied on the VT
 /// thread via `scroll_viewport(Delta)`, so the next CellData push carries
-/// the scrolled view (round-205: previously a Kotlin-side no-op).
+/// the scrolled view: previously a Kotlin-side no-op).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffset(
     mut env: JNIEnv,
@@ -3705,7 +3705,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
         let Some(entry) = registry.get_mut(&(_session_id as u64)) else {
             return;
         };
-        // Per-session delta (round-209): the previous code computed the
+        // Per-session delta: the previous code computed the
         // delta against a single global `render_state.scroll_offset`, so
         // switching sessions polluted the resumed session's viewport.
         let delta = target - entry.last_scroll_offset;
@@ -3716,7 +3716,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
         // scroll_viewport delta semantics (verified on host + emulator):
         // NEGATIVE = scroll up into history, POSITIVE = back toward the
         // bottom. Kotlin's scrollOffset grows when the user swipes up
-        // (into history), so the delta must be negated here (round-207:
+        // (into history), so the delta must be negated here:
         // previously the sign was wrong — swiping down to the bottom sent
         // a negative delta that scrolled INTO history instead).
         if session.terminal().scroll_viewport(-(delta as isize)) {
@@ -3725,8 +3725,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
         } else {
             // Command channel full or VT thread gone: do NOT advance
             // last_scroll_offset, so the next call with the same target
-            // retries the delta instead of silently dropping it (round-209,
-            // P1-2: previously the global offset was advanced first and a
+            // retries the delta instead of silently dropping it,
+            // previously the global offset was advanced first and a
             // failed send left the viewport permanently stale).
             log::warn!(
                 "setScrollOffset: scroll_viewport send failed (target={target} delta={delta}); will retry"
@@ -3767,7 +3767,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenSt
 /// namespace: 0 = DEC private modes, non-zero = ANSI modes. Backs the
 /// DECCKM (application cursor keys, DEC private mode 1) lookup the Kotlin
 /// key encoder needs to switch arrow keys between SS3 (`ESC OA`) and CSI
-/// (`ESC [ A`) — research-haven.md:141 P2, research-zed-port.md:252.
+/// (`ESC [ A`) — research-haven.md:141, research-zed-port.md:252.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
     mut env: JNIEnv,
@@ -3824,7 +3824,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getLastCommand
 }
 
 /// Derive the Termux environment variables that termux-exec's execve hook
-/// needs to recognize `$PREFIX` paths (round-227 T6).
+/// needs to recognize `$PREFIX` paths.
 ///
 /// Without `TERMUX_APP__DATA_DIR` / `TERMUX_APP__LEGACY_DATA_DIR`,
 /// termux-exec falls back to the package name baked into the bootstrap
@@ -3894,7 +3894,7 @@ mod tests {
 
     #[test]
     fn termux_env_vars_unusual_prefix_keeps_package_fallback() {
-        // A prefix that is not under .../files/usr must not panic and must
+        // A prefix that is not under.../files/usr must not panic and must
         // still produce a usable package name.
         let vars_vec = termux_env_vars("/custom/root/usr");
         let vars = env_map(&vars_vec);

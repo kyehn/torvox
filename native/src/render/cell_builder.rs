@@ -15,11 +15,11 @@ use std::collections::HashMap;
 const REVERSE_BIT: u8 = 2;
 
 /// Bit position of bold (SGR 1) in CellData.flags — drives styled glyph
-/// lookup (round-231 T6).
+/// lookup.
 const BOLD_BIT: u8 = 0;
 
 /// Bit position of italic (SGR 3) in CellData.flags — drives styled glyph
-/// lookup (round-231 T6).
+/// lookup.
 const ITALIC_BIT: u8 = 1;
 
 /// Cursor state passed to build_instances_from_cell_data() for cursor rendering.
@@ -154,7 +154,7 @@ pub struct CachedInstances {
     /// Whether a build has ever populated this cache. A freshly created
     /// cache (e.g. right after a resize) is dimensionally "compatible"
     /// with the new grid but holds NO row data: serving "clean" rows from
-    /// it would copy 0 instances and drop rows (round-231 P2 regression).
+    /// it would copy 0 instances and drop rows regression).
     built: bool,
 }
 
@@ -278,7 +278,7 @@ pub fn build_instances_from_cell_data(
     atlas_width: f32,
     atlas_height: f32,
     selection: Option<SelectionRange>,
-    // Round-216: no longer applied — classic inverse video (fg<->bg swap)
+    // no longer applied — classic inverse video (fg<->bg swap)
     // renders the highlight; the parameter is kept for API stability.
     _selection_bg: Option<[f32; 4]>,
     search_highlights: &[SearchHighlight],
@@ -320,7 +320,7 @@ pub fn build_instances_cached(
     atlas_width: f32,
     atlas_height: f32,
     selection: Option<SelectionRange>,
-    // Round-216: kept for API symmetry with build_instances_from_cell_data.
+    // kept for API symmetry with build_instances_from_cell_data.
     _selection_bg: Option<[f32; 4]>,
     search_highlights: &[SearchHighlight],
     dirty_rows: &[bool],
@@ -391,7 +391,7 @@ fn build_row_instances_into(
     // foldhash (0.2, already in the dependency tree) instead of the std
     // SipHash13 default: this map is rebuilt and queried every frame
     // (~1920 hashes/frame @60fps); foldhash is ~5-10x faster on i32 keys.
-    // Round-210 P2-6: skip the per-frame HashMap rebuild when there are
+    // skip the per-frame HashMap rebuild when there are
     // no highlights (the common case) — ~1920 hashes/frame saved.
     let mut highlights_by_row: HashMap<i32, Vec<&SearchHighlight>, RandomState> =
         HashMap::with_hasher(RandomState::default());
@@ -483,7 +483,7 @@ fn append_row_instances(
         // cell shows the background color as its text color and the
         // foreground color as its background (fg<->bg swap), so the text
         // visibly inverts instead of just getting a background tint
-        // (round-216, reported as "text does not change color when
+        //, reported as "text does not change color when
         // selected"). selection_bg is deliberately not applied here: on a
         // dark theme it would keep the text dark on a dark highlight and
         // break readability; the swap uses the terminal's own fg/bg which
@@ -501,7 +501,7 @@ fn append_row_instances(
         let mut cursor_marker: Option<([f32; 2], [f32; 2], [f32; 4])> = None;
         // Default quad size (used for Block cursor and empty cells)
         let quad_size = [cell_w * cell_span, cell_h];
-        // Round-216: Block cursor height tracks the glyph (ascent+descent in
+        // Block cursor height tracks the glyph (ascent+descent in
         // physical pixels), not the full grid cell — a cell-high block at
         // 420dpi looks like a giant filled rectangle around a ~66px glyph in
         // a 79px cell.
@@ -606,7 +606,7 @@ fn append_row_instances(
         // (if any; for Bar/Underline) on top so the thin bar/underline
         // is visible over the glyph.
         // Primary glyph — styled when the cell carries bold/italic flags
-        // (round-231 T6: same-family styled face preferred, else synthesis).
+        // same-family styled face preferred, else synthesis).
         let cell_bold = (cd.flags >> BOLD_BIT) & 1 == 1;
         let cell_italic = (cd.flags >> ITALIC_BIT) & 1 == 1;
         if let Some(info) = font_pipeline.glyph_information_styled(ch, cell_bold, cell_italic) {
@@ -618,7 +618,7 @@ fn append_row_instances(
             // info.height is the rasterized bitmap height in PHYSICAL pixels
             // (already × raster_scale). Compare against the physical grid
             // cell height; the centering fallback is then in physical
-            // pixels too (round-216: units must not mix).
+            // pixels too: units must not mix).
             let glyph_h_px = info.height as f32;
             let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
             let bearing_y = if glyph_h_px > cell_h {
@@ -628,7 +628,7 @@ fn append_row_instances(
             };
             let mut origin = glyph_quad_origin;
             let mut size = glyph_quad_size;
-            // Round-216: Block cursor quad tracks the glyph bitmap: same
+            // Block cursor quad tracks the glyph bitmap: same
             // height AND top edge as the glyph. Centering the cursor in the
             // cell misaligned it with the text because the glyph sits on the
             // font baseline, not at the cell center (reported as "input
@@ -841,7 +841,7 @@ mod tests {
     }
 
     /// Selection with an explicit bg color still uses classic inverse video
-    /// (round-216): the explicit selection bg no longer overrides the swap —
+    /// the explicit selection bg no longer overrides the swap —
     /// the terminal's own fg/bg are theme-derived, so the swap keeps the
     /// selected text readable on both light and dark themes.
     #[test]
@@ -1254,7 +1254,7 @@ mod tests {
         );
     }
 
-    /// Round-231 P2 regression: a cache that no longer matches the grid
+    /// regression: a cache that no longer matches the grid
     /// (e.g. a cols-only resize keeps rows identical) combined with a
     /// PARTIAL dirty mask must still produce a full rebuild. A freshly
     /// re-created empty cache looks "compatible" (same rows/cols fields),

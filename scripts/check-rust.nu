@@ -10,7 +10,7 @@ def main [] {
     # Performance benchmarks are #[ignore]d in the full-suite run above:
     # parallel CPU contention (software Vulkan benches + tokio tests) makes
     # their wall-clock measurements flaky. They are verified here serially,
-    # which gives stable single-run numbers (round-204).
+    # which gives stable single-run numbers.
     cargo test -p native --lib --features test-util -- --ignored bench --test-threads 1
     print "Check completed successfully."
 }

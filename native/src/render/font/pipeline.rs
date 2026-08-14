@@ -23,7 +23,7 @@ pub struct FontPipeline {
     /// 2=bold-italic.
     pub(crate) styled_font_ids: [Option<fontdb::ID>; 3],
     pub(crate) cjk_fallback_ids: Vec<fontdb::ID>,
-    /// Symbol layer (round-227 T5, moke chain: primary → CJK → symbols →
+    /// Symbol layer, moke chain: primary → CJK → symbols →
     /// Nerd → emoji → db scan): generic symbol fonts (Noto Sans Symbols 2
     /// and friends) for ▶ ⏵ ♥ ★ and similar terminal glyphs.
     pub(crate) symbol_fallback_ids: Vec<fontdb::ID>,
@@ -33,7 +33,7 @@ pub struct FontPipeline {
     /// Emoji layer: NotoColorEmoji-style families. swash cannot outline
     /// color glyphs, so these are tried and skipped at render time; the
     /// layer exists so the chain matches moke's "try emoji" semantics
-    /// and the database scan / .notdef takes over.
+    /// and the database scan /.notdef takes over.
     pub(crate) emoji_fallback_ids: Vec<fontdb::ID>,
     pub(crate) font_size: f32,
     pub(crate) raster_scale: f32,
@@ -55,7 +55,7 @@ impl FontPipeline {
             for path in extra.iter() {
                 if path.is_file() {
                     if let Err(error) = db.load_font_file(path) {
-                        // File name only: the full path can embed a user home dir (round-109).
+                        // File name only: the full path can embed a user home dir.
                         log::warn!(
                             "font: failed to load font file {}: {error}",
                             path.file_name().unwrap_or_default().to_string_lossy()
@@ -70,7 +70,7 @@ impl FontPipeline {
                         let file_path = entry.path();
                         if is_font_file(&file_path) {
                             if let Err(error) = db.load_font_file(&file_path) {
-                                // File name only: the full path can embed a user home dir (round-109).
+                                // File name only: the full path can embed a user home dir.
                                 log::warn!(
                                     "font: failed to load font file {}: {error}",
                                     file_path.file_name().unwrap_or_default().to_string_lossy()
@@ -156,7 +156,7 @@ impl FontPipeline {
                     .is_some_and(|e| e.eq_ignore_ascii_case("ttf") || e.eq_ignore_ascii_case("otf"))
                     && let Err(error) = db.load_font_file(&file_path)
                 {
-                    // File name only: the full path can embed a user home dir (round-109).
+                    // File name only: the full path can embed a user home dir.
                     log::warn!(
                         "font: failed to load font file {}: {error}",
                         file_path.file_name().unwrap_or_default().to_string_lossy()
@@ -682,7 +682,7 @@ impl FontPipeline {
         self.glyph_information_with_synthesis(ch, GlyphSynthesis::None)
     }
 
-    /// Style-aware glyph lookup (round-231 T6): prefers a real bold/italic
+    /// Style-aware glyph lookup: prefers a real bold/italic
     /// face of the same family when one exists, otherwise rasterizes the
     /// base face with font synthesis (embolden/shear).
     pub fn glyph_information_styled(
@@ -880,8 +880,8 @@ impl FontPipeline {
 
         // ── Check glyph_cache before expensive CJK ops ──────────────────────
         // PUA (Nerd Font) characters skip this fast path: the cache may
-        // hold the primary font's .notdef (tofu) from before a Nerd Font
-        // was installed/loaded (round-227 T5).
+        // hold the primary font's.notdef (tofu) from before a Nerd Font
+        // was installed/loaded.
         let is_nerd_pua = (ch as u32) >= 0xE000 && (ch as u32) <= 0xF8FF;
         if !is_nerd_pua {
             let key = GlyphKey {
@@ -913,12 +913,12 @@ impl FontPipeline {
         }
 
         // ── glyph_id == 0: search the layered fallback chain ────────────────
-        // (round-227 T5, moke chain: primary → CJK → symbols → Nerd →
+        //, moke chain: primary → CJK → symbols → Nerd →
         // emoji → whole-database scan; spec d7)
         //
         // PUA (Nerd Font private-use area U+E000..U+F8FF) characters must
         // also route through the chain even when the primary font maps
-        // them: most fonts map the PUA to .notdef (the tofu box), so a
+        // them: most fonts map the PUA to.notdef (the tofu box), so a
         // non-zero glyph_id from the primary is not a real glyph.
         if glyph_id == 0 || is_nerd_pua {
             // Collect the layered ids first: the chain borrows self's
@@ -968,7 +968,7 @@ impl FontPipeline {
                     return Some(result);
                     // Rendering failed (e.g. a color font swash cannot
                     // outline): try the next layer instead of returning a
-                    // 0x0 placeholder (round-227 T5).
+                    // 0x0 placeholder.
                 }
             }
             // Whole-database scan tail of the chain (spec d7: "ending with

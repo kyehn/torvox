@@ -87,7 +87,7 @@ class UserThemeStoreTest {
 
     @Test
     fun `two instances on the same store name do not crash`() = runBlocking {
-        // Regression (round-227): a fresh PreferenceDataStoreFactory per
+        // Regression: a fresh PreferenceDataStoreFactory per
         // UserThemeStore instance crashed with "multiple DataStores active
         // for the same file" when the ViewModel was recreated. The store
         // is now a process singleton per name; a second instance must be

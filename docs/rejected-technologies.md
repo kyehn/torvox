@@ -32,7 +32,7 @@
 | 9 | bootstrap zip 的 sha256 sidecar 校验 | `research-warp-extra.md` §9.3、`research-warp.md` §5 | 用户明确不需要；bootstrap 通过 HTTP 下载，安装路径已有状态机保证原子性（BootstrapInstaller staging），sha256 校验增加部署复杂度且不解决核心风险 |
 | 10 | bootstrap zip 内嵌离线安装 | `research-termux-app-extra.md` §5.7、`research-warp-extra.md` §11 | 用户明确不需要；禁止内嵌，bootstrap 必须支持**外部下载**和本地文件安装两种来源。注：下载通道为 **https-only**（`BootstrapDownloader.kt` 拒绝明文 http + redirect 跨协议守卫）——zip 会被 `.postinst` 执行，明文 http 可被 MITM 篡改；用户"支持 http 下载"的裁决语义为"支持网络下载（区别于内嵌）"，https 即其安全实现，不接受明文 http |
 | 11 | ply 的 `curl \| sh` 无校验安装（反模式） | `research-small-repos.md` §2.5 | 安全反模式；torvox bootstrap 走独立安装器 |
-| 12 | ~~多用户检查~~ **（误判，已实现）** | `research-termux-app-extra.md` §5.7 | 原裁决"与 torvox 单用户终端定位冲突"系误读：reference 指 TermuxInstaller.java:80-90 的**主用户检查**（防止 secondary user 安装破坏主用户数据），非"多用户支持"功能。torvox 已实现：`UserGuard.kt`（round-231，`installer/UserGuard.kt:17-47`，isSystemUser + UID 算术回退） |
+| 12 | ~~多用户检查~~ **（误判，已实现）** | `research-termux-app-extra.md` §5.7 | 原裁决"与 torvox 单用户终端定位冲突"系误读：reference 指 TermuxInstaller.java:80-90 的**主用户检查**（防止 secondary user 安装破坏主用户数据），非"多用户支持"功能。torvox 已实现：`UserGuard.kt`（，`installer/UserGuard.kt:17-47`，isSystemUser + UID 算术回退） |
 | 13 | 跨仓库 path 依赖结构 | `research-warp-extra.md` §11 | torvox 单仓库 + generated-patches 更优，跨仓库破坏原子提交 |
 
 ## 4. 网络/SSH 层
@@ -48,11 +48,11 @@
 
 | # | 拒绝项 | 出处 | 原因 |
 |---|--------|------|------|
-| 18 | MCP 同意门控弹窗（AgentConsentManager 模型） | `research-haven-extra.md` §2、§19（:333-364, :425） | 用户明确不需要；torvox 的 MCP server 开关即足够，弹窗打断流水线操作 |
-| 19 | 隐私黑屏覆盖（切后台黑层防截屏） | `research-small-repos.md` §3.5、§5（:413, :427, :601, :610） | 用户明确不需要；与终端应用"切后台保持可见状态"的体验冲突 |
+| 18 | MCP 同意门控弹窗（AgentConsentManager 模型） | `research-haven-extra.md` §2、§19（:333-364,:425） | 用户明确不需要；torvox 的 MCP server 开关即足够，弹窗打断流水线操作 |
+| 19 | 隐私黑屏覆盖（切后台黑层防截屏） | `research-small-repos.md` §3.5、§5（:413,:427,:601,:610） | 用户明确不需要；与终端应用"切后台保持可见状态"的体验冲突 |
 | 20 | 指纹锁（AppLock） | `research-mid-repos-a.md` §2.6 | 用户明确不需要；与终端快速切换体验冲突 |
 | 21 | 指纹/隐私（悬浮窗终端、开机脚本） | `research-mid-repos-a.md` §5.2 | 用户明确不需要 |
-| 22 | jni_fn 宏消除手写导出名风险 | `research-wgpu-in-app.md` §6-2（:101, :156, :176, :184, :188） | 用户明确不需要；torvox 手写导出名已有测试覆盖，宏引入第 3 方代码生成依赖 |
+| 22 | jni_fn 宏消除手写导出名风险 | `research-wgpu-in-app.md` §6-2（:101,:156,:176,:184,:188） | 用户明确不需要；torvox 手写导出名已有测试覆盖，宏引入第 3 方代码生成依赖 |
 | 22b | TORVOX_BACKEND 环境变量 GPU 覆盖 | `research-wgpu-in-app.md` §6-2（app-surface_use_winit.rs:68） | 用户明确不需要；FR-010 强制 Vulkan 为唯一后端，不接受 GL/GLES/CPU 降级。`wgpu_backend.rs` 仅允许 `vulkan`/`primary` 且**显式拒绝 `gl`**，env 仅是 Vulkan 兜底 override，不作为可配置特性暴露 |
 | 22c | TORVOX_POWER 环境变量功率偏好 | `research-wgpu-in-app.md` §6-3（lib.rs:371-372） | 用户明确不需要；功率偏好不影响 Vulkan 强制后端，不暴露为可配置特性 |
 
@@ -61,8 +61,8 @@
 | # | 拒绝项 | 出处 | 原因 |
 |---|--------|------|------|
 | 23 | 会话元数据持久化/重启恢复 | `research-mid-repos-a.md` §3.6 | 用户明确不需要；终端会话重启恢复价值低，状态丢失风险高 |
-| 24 | 输出导出到文件 | `research-mid-repos-a.md` §2.6 | 用户明确不需要；终端输出导出可通过重定向自行完成。审计发现代码已实现（SAF CreateDocument），2026-08 经用户裁决后删除 |
-| 25 | 粘贴确认对话框 | `research-gnome-console.md` §4 | 用户明确不需要；打断粘贴流水线。审计发现代码已实现（PasteChipOverlay + 多行对话框），2026-08 经用户裁决后删除 |
+| 24 | 输出导出到文件 | `research-mid-repos-a.md` §2.6 | 用户明确不需要；终端输出导出可通过重定向自行完成。审计发现代码已实现（SAF CreateDocument），经用户裁决后删除 |
+| 25 | 粘贴确认对话框 | `research-gnome-console.md` §4 | 用户明确不需要；打断粘贴流水线。审计发现代码已实现（PasteChipOverlay + 多行对话框），经用户裁决后删除 |
 
 ## 7. UI/功能层
 
@@ -98,12 +98,12 @@
 | S10 | rin `ENV`/mkshrc 初始化 | `research-rin.md` §7、`research-mid-repos-a.md` | 更小/未核实：审计未定位对应符号；torvox 引导为 termux bootstrap + `HOME`/`PWD`/`LINES`/`COLUMNS` 注入，无 mkshrc 依赖，暂缓 |
 | S11 | `MouseModeTracker` 参考实现未接入生产输入路径 | `research-haven.md`、`research-mid-repos-a.md` | P3：`ui/MouseModeTracker.kt` 保留为 DECSET 参考实现（`activeMouseMode` 区分 1000/1002/1003、`altScreen` 字段），已写好但零生产调用点——生产路径用 JNI `Bridge.isAltScreenActive()`/`isAppCursorMode()`（`getMode`）直接查 libghostty 状态。保留作对照，不删除 |
 
-## 7c. 未实施 / 暂缓 / 环境限制（吸收自 `docs/reference-deferred-items.md`，2026-08 末轮，原文已删除）
+## 7c. 未实施 / 暂缓 / 环境限制（吸收自 `docs/reference-deferred-items.md`，原文已删除）
 
 > 本节承接原 `docs/reference-deferred-items.md` D1-D39 的全部有效条目。**已解决
 > 条目先更正状态**（D5/D16 等曾误标未实现，代码核实为已实现或本轮已实现），
 > 其余保留为决策记录，防止内容随文档删除而遗忘。出处（research-*.md）见 git
-> 历史 `945be187:docs/reference/`。
+> 历史 `493fad5:docs/reference/`。
 
 ### 7c-A. 状态更正（曾标"未实现/待办"，代码核实已解决）
 
@@ -147,11 +147,11 @@
 | D38 | 插件架构、多通道分发、绑定生成器 | 不实施（P3） | 超出终端核心价值（#15 精神）；手工 libghostty-vt 包装已稳定 |
 | D39 | zed 方法论模板、warp vsync/DECSET1049、kgx needs-attention | 评估后不采用 | 已有 ADR/文档体系/thiserror；vsync 升级路径注释在 `TerminalRuntime.kt`；无多标签 UI |
 
-## 8b. 依赖选型研究（非 reference 来源，2026-08 吸收自 `docs/dependency-research-*.md`，原文已删除）
+## 8b. 依赖选型研究（非 reference 来源，吸收自 `docs/dependency-research-*.md`，原文已删除）
 
 > 本节记录两轮 Rust 依赖研究（保守版 + 激进版）与两轮 Kotlin/Android 依赖研究（保守版 + 激进版）中
 > **明确不引入**的依赖及原因。已引入的推荐项见 `docs/dependencies.md` §1。
-> 原文为临时调研文档，2026-08 末轮吸收本节后删除；已引入的推荐项见
+> 原文为临时调研文档，吸收本节后删除；已引入的推荐项见
 > `docs/dependencies.md` §1。
 
 ### Rust 侧（native crate）
@@ -203,11 +203,11 @@
 | A3 | 捏合缩放 | `android/.../TerminalSurface.kt`（已实现） |
 | A4 | 自定义主题链路 | `android/.../TerminalTheme.kt` / `SettingsRepository.kt`（已实现） |
 | A5 | 多击选择（双击选词/三击选行） | `android/.../TerminalSurface.kt`（已实现） |
-| A6 | 背景图（设置路径 + 复制私有存储 + 失效自愈，全部已实现） | `android/.../SettingsScreen.kt`（设置路径）；`TerminalViewModel.setBackgroundImagePath`（`content://` → `filesDir/terminal_background` 私有拷贝，见 ghostty-android BackgroundImageStore 注释）+ `applyBackgroundImageFromPath`（文件缺失时清空设置自愈）。2026-08 复读曾误标"仅设置路径实现"，代码核实为完整实现（§7c-A D16） |
+| A6 | 背景图（设置路径 + 复制私有存储 + 失效自愈，全部已实现） | `android/.../SettingsScreen.kt`（设置路径）；`TerminalViewModel.setBackgroundImagePath`（`content://` → `filesDir/terminal_background` 私有拷贝，见 ghostty-android BackgroundImageStore 注释）+ `applyBackgroundImageFromPath`（文件缺失时清空设置自愈）。复读曾误标"仅设置路径实现"，代码核实为完整实现（§7c-A D16） |
 | A7 | 搜索覆盖层 + 防抖 | `android/.../TextSearchBar.kt`（已实现） |
-| A8 | 同族 bold/italic 面查找 + 像素合成 | `native/src/render/font/pipeline.rs` `glyph_information_styled` + `resolve_style_face`（round-231 T6） |
+| A8 | 同族 bold/italic 面查找 + 像素合成 | `native/src/render/font/pipeline.rs` `glyph_information_styled` + `resolve_style_face` |
 | A9 | log_panics hook（panic → logcat） | `native/src/android/logging.rs` `install_panic_hook`（吸收自 wgpu-in-app） |
-| A10 | 独立 bold/italic 族槽（族名级多族设置，ghostty-android TerminalFontStore 4 槽族名设计） | `native/src/render/font/pipeline.rs` `styled_font_ids` + `set_font_family_for_style`；`ffi.rs` `setFontFamilyForStyle`；`SettingsScreen.kt` `FontFamilySelectors`（regular/bold/italic 三选择器）；`FontUtils.kt` `FONT_SLOT_*`（round-231+ 补全；**拒绝的仅是 #31 文件导入形态**，族名级设置已实现） |
+| A10 | 独立 bold/italic 族槽（族名级多族设置，ghostty-android TerminalFontStore 4 槽族名设计） | `native/src/render/font/pipeline.rs` `styled_font_ids` + `set_font_family_for_style`；`ffi.rs` `setFontFamilyForStyle`；`SettingsScreen.kt` `FontFamilySelectors`（regular/bold/italic 三选择器）；`FontUtils.kt` `FONT_SLOT_*`（+ 补全；**拒绝的仅是 #31 文件导入形态**，族名级设置已实现） |
 
 ---
 
@@ -224,8 +224,8 @@
 | 未实现 / 评估后不实现 | 本文档 §7c（D1-D39 全部有效条目） |
 | 测试策略 / 覆盖率基线 / 性能基准 / 已知测试缺口 | `docs/standards/TESTING.md`（Test Pyramid & Coverage Snapshot + Benchmarks 节） |
 | 可选/必选依赖评估（含版本与理由） | `docs/dependencies.md` §1 |
-| 轮次验证证据 | `docs/media/`（截图保留）；修复点已进代码（如 `TerminalSurface.kt` `DRAWER_CLOSE_TAP_GRACE_NANOS`） |
-| 评审历史 / 项目状态 | git log（31 thematic commits）+ 本文 §9 注；状态事实以代码与测试为准 |
+| 轮次验证证据 | 已删除（`*.png`/`*.mp4` 遵循 FR-055 与.gitignore 从 git 历史清除）；修复点已进代码（如 `TerminalSurface.kt` `DRAWER_CLOSE_TAP_GRACE_NANOS`） |
+| 评审历史 / 项目状态 | git log（52 thematic commits）+ 本文 §9 注；状态事实以代码与测试为准 |
 
 已删除目录/文档：`docs/reference/`（47 个 research/analysis 文件）、openspec 工作区
 （15 change + 43 spec）、`docs/progress/`、`docs/_audit/`、`docs/` 顶层 11 个临时文档、
@@ -237,17 +237,17 @@
 `docs/lessons/`（教训已并入 standards/与代码注释）、
 OpenSpec 归档去向见 §9 注2。
 
-> 注1：`docs/reference/` 47 个文件完整保留在 git 历史提交 `945be187`（`git show
-> 945be187:docs/reference/<file>`）；其余已删文档保留在各自删除提交的父提交，可随时恢复对照。
+> 注1：`docs/reference/` 47 个文件完整保留在 git 历史提交 `493fad5`（`git show
+> 493fad5:docs/reference/<file>`）；其余已删文档保留在各自删除提交的父提交，可随时恢复对照。
 > 注2：OpenSpec 工作区（15 changes）已全部实现并归档，删除前逐项核对的吸收位置表
 > 已随原文档删除——各 change 主题均已落在对应 ADR 与代码注释（ADR-0002…0009、
 > `ffi.rs`/`mcp.rs`/`ComposingDiff.kt` 等），不再单独维护去向表。
 
 ## 变更记录
 
-- 2026-08（本轮）：初版建立，汇总 docs/reference 中全部明确拒绝项；同族 bold/italic 面查找吸收并在 §8 登记；TORVOX_BACKEND/TORVOX_POWER + log_panics 吸收登记。
-- 2026-08（修正）：#31 和 #39 措辞修正——"多字体族名设置"改为"同族 bold/italic 面查找 + 像素合成"（FontPipeline 只有单一 fontFamily，通过 resolve_style_face 在同族内查找 bold/italic face）。新增 #40（环境变量 GPU 覆盖）、#41（log_panics hook）。
-- 2026-08（终轮吸收核对）：§7 新增 #38（Haven Popup ActionMode 坑位）、§7b 新增 S5（shashlik fps.rs 暂缓）、§8 新增 A10（独立 bold/italic 族槽族名级设置已实现——修正此前"不引入多字体族名设置"的过时记录，拒绝的仅是 #31 文件导入形态）。
+- 初版建立，汇总 docs/reference 中全部明确拒绝项；同族 bold/italic 面查找吸收并在 §8 登记；TORVOX_BACKEND/TORVOX_POWER + log_panics 吸收登记。
+- 修正：#31 和 #39 措辞修正——"多字体族名设置"改为"同族 bold/italic 面查找 + 像素合成"（FontPipeline 只有单一 fontFamily，通过 resolve_style_face 在同族内查找 bold/italic face）。新增 #40（环境变量 GPU 覆盖）、#41（log_panics hook）。
+- 终轮吸收核对：§7 新增 #38（Haven Popup ActionMode 坑位）、§7b 新增 S5（shashlik fps.rs 暂缓）、§8 新增 A10（独立 bold/italic 族槽族名级设置已实现——修正此前"不引入多字体族名设置"的过时记录，拒绝的仅是 #31 文件导入形态）。
 - 本轮（用户裁决）：**删除 §8 #40（TORVOX_BACKEND/TORVOX_POWER 已吸收）登记**——用户明确要求这两项不需要；FR-010 强制 Vulkan 为唯一后端，代码 `wgpu_backend.rs` 已显式拒绝 `gl` 且只接受 `vulkan`/`primary` 兜底，env 不构成可配置特性。改为 §1/#22b、#22c 登记为"明确不需要"。log_panics 保留为已吸收（§8 A9）。
 - 本轮（一致性修正）：§8 已吸收条目原用与 §7 拒绝项重叠的纯数字编号（#32-#39/#41），改为 A 前缀独立编号（A1-A9），消除歧义；§7 #31 引用同步为「§8 A8」。
-- 2026-08（末轮临时文档处置）：新增 §8b「依赖选型研究（非 reference 来源）」——吸收 `docs/dependency-research-rust.md`、`docs/dependency-research-rust-aggressive.md`、`docs/dependency-research-kotlin.md`、`docs/dependency-research-kotlin-aggressive.md` 四份临时调研文档的全部"明确不引入"决定（Rust R1-R19 + Kotlin K1-K11，含 memchr/EVENT_QUEUE/Molecule/mimalloc 等未落地或放弃项），原文删除。已引入推荐项（parking_lot/criterion/proptest/shuttle/foldhash/panic hook/cell_builder 跨帧复用、lifecycle-runtime-compose/okhttp/kotlinx-serialization/Coil/java.time/baseline profile/删除 navigation-compose）分别在 `dependencies.md`、代码注释中落实。
+- 末轮临时文档处置：新增 §8b「依赖选型研究（非 reference 来源）」——吸收 `docs/dependency-research-rust.md`、`docs/dependency-research-rust-aggressive.md`、`docs/dependency-research-kotlin.md`、`docs/dependency-research-kotlin-aggressive.md` 四份临时调研文档的全部"明确不引入"决定（Rust R1-R19 + Kotlin K1-K11，含 memchr/EVENT_QUEUE/Molecule/mimalloc 等未落地或放弃项），原文删除。已引入推荐项（parking_lot/criterion/proptest/shuttle/foldhash/panic hook/cell_builder 跨帧复用、lifecycle-runtime-compose/okhttp/kotlinx-serialization/Coil/java.time/baseline profile/删除 navigation-compose）分别在 `dependencies.md`、代码注释中落实。

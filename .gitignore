@@ -69,5 +69,5 @@ generated-patches/
 .cache/
 
 # round-214: user-mandated test artifacts (screenshots/video for selection verification)
-!test-artifacts/
+# NOTE: exception removed — media files (png/mp4) are banned from git (FR-055); deleted from history
 
