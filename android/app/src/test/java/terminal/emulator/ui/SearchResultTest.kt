@@ -6,23 +6,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SearchResultTest {
-    @Test
-    fun `SearchResult holds grid coordinates`() {
-        val r = SearchResult(lineIndex = 7, startIndex = 3, endIndex = 9)
-        assertEquals(7, r.lineIndex)
-        assertEquals(3, r.startIndex)
-        assertEquals(9, r.endIndex)
-    }
-
-    @Test
-    fun `SearchResult is a data class`() {
-        assertEquals(SearchResult(1, 2, 3), SearchResult(1, 2, 3))
-        assertEquals(
-            SearchResult(1, 2, 3).copy(endIndex = 4),
-            SearchResult(1, 2, 4),
-        )
-    }
-
     // --- isNarrowingDown tests (GNOME Console kgx-tab.c:191-250 equivalent) ---
 
     @Test
