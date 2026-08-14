@@ -866,17 +866,10 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     }
 
     // Apply registered env overlay (zed-port pattern)
-    for (key, op) in crate::terminal::shell_env::terminal_env_overlay() {
-        match op {
-            crate::terminal::shell_env::EnvOp::Set(val) => {
-                result.retain(|(k, _)| k != key);
-                result.push((key.clone(), val.clone()));
-            }
-            crate::terminal::shell_env::EnvOp::Remove => {
-                result.retain(|(k, _)| k != key);
-            }
-        }
-    }
+    crate::terminal::shell_env::apply_env_overlay(
+        &mut result,
+        crate::terminal::shell_env::terminal_env_overlay(),
+    );
 
     // Reference (termux-kotlin TermuxAppShellEnvironment.kt:156): export the
     // MCP capability switch into the child environment so shells / scripts /
@@ -1185,6 +1178,9 @@ mod tests {
         let pty =
             PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         pty.resize(40, 120).expect("resize failed");
+        let (rows, cols) = pty.get_winsize().expect("TIOCGWINSZ failed");
+        assert_eq!(rows, 40, "resize must apply rows=40, got {rows}");
+        assert_eq!(cols, 120, "resize must apply cols=120, got {cols}");
     }
 
     #[test]
@@ -1299,8 +1295,18 @@ mod tests {
     fn pty_error_display_works() {
         let display = format!("{}", PtyError::Open(nix::errno::Errno::EINVAL.into()));
         assert!(
-            !display.is_empty(),
-            "PtyError Display should produce non-empty string"
+            display.contains("failed to open pseudoterminal"),
+            "PtyError::Open Display should describe the failure, got: {display}"
+        );
+        let fork_display = format!("{}", PtyError::Fork(nix::errno::Errno::EINVAL));
+        assert!(
+            fork_display.contains("fork failed"),
+            "PtyError::Fork Display should describe the failure, got: {fork_display}"
+        );
+        let resize_display = format!("{}", PtyError::Resize(nix::errno::Errno::EINVAL));
+        assert!(
+            resize_display.contains("TIOCSWINSZ"),
+            "PtyError::Resize Display should describe the failure, got: {resize_display}"
         );
     }
 

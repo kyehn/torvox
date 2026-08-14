@@ -372,18 +372,95 @@ pub(crate) enum CommandRisk {
 }
 
 /// Normalize a command for matching: lowercase, collapse whitespace,
-/// strip a leading `sudo`/`env`/`nice` prefix so `sudo rm -rf /` and
-/// `rm -rf /` classify identically.
+/// strip leading wrapper prefixes (`sudo`/`env`/`nice`/`command`) along
+/// with each wrapper's own options and arguments, so `sudo rm -rf /`,
+/// `sudo -n rm -rf /`, `nice -n 5 rm -rf /`, and even chains like
+/// `sudo nice rm -rf /` all classify identically to `rm -rf /`.
 pub(crate) fn normalized_command(command: &str) -> String {
-    let mut normalized = command.trim().to_lowercase();
-    for prefix in ["sudo ", "env ", "nice ", "command "] {
-        if let Some(rest) = normalized.strip_prefix(prefix) {
-            normalized = rest.trim_start().to_string();
+    let mut tokens: Vec<&str> = command.split_whitespace().collect();
+    // Peel wrappers repeatedly: a chain like `sudo nice rm -rf /` must
+    // shed both layers, not just the first.
+    while let Some(&first) = tokens.first() {
+        if !matches!(first, "sudo" | "env" | "nice" | "command") {
             break;
         }
+        let consumed = 1 + wrapper_option_span(first, &tokens[1..]);
+        tokens = tokens[consumed..].to_vec();
     }
-    // Collapse runs of whitespace so `rm -rf  /` matches `rm -rf /`.
-    normalized.split_whitespace().collect::<Vec<_>>().join(" ")
+    // Lowercase so `-R` matches `-r`, then collapse runs of whitespace
+    // so `rm -rf  /` matches `rm -rf /`.
+    tokens
+        .iter()
+        .map(|token| token.to_lowercase())
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Does `option` consume a following argument for this wrapper?
+/// (Long options written with `=` already carry their value in one
+/// token, so only the space-separated forms need listing.)
+fn wrapper_option_takes_arg(wrapper: &str, option: &str) -> bool {
+    match wrapper {
+        "sudo" => matches!(
+            option,
+            "-u" | "-g"
+                | "-C"
+                | "-p"
+                | "-c"
+                | "-r"
+                | "-t"
+                | "-T"
+                | "-D"
+                | "-R"
+                | "-P"
+                | "--user"
+                | "--group"
+                | "--prompt"
+                | "--command"
+                | "--role"
+                | "--type"
+                | "--timeout"
+                | "--chdir"
+                | "--shell"
+                | "--host"
+        ),
+        "env" => matches!(
+            option,
+            "-u" | "-C" | "-S" | "--unset" | "--chdir" | "--split-string"
+        ),
+        "nice" => matches!(option, "-n" | "--adjustment"),
+        // `command -p|-v|-V` never takes an argument.
+        _ => false,
+    }
+}
+
+/// Number of leading tokens consumed by a wrapper's own options (flags
+/// plus any argument each flag takes). Stops at the first token that is
+/// not an option of the wrapper; for `env`, `VAR=value` assignments are
+/// peeled too. `--` ends option parsing and is itself consumed.
+fn wrapper_option_span(wrapper: &str, tokens: &[&str]) -> usize {
+    let mut i = 0;
+    while i < tokens.len() {
+        let token = tokens[i];
+        if token == "--" {
+            return i + 1;
+        }
+        if wrapper == "env" && token.contains('=') && !token.starts_with('-') {
+            // Environment assignment, e.g. `env FOO=bar rm -rf /`.
+            i += 1;
+            continue;
+        }
+        if !token.starts_with('-') {
+            break;
+        }
+        // `-<digits>` is the legacy `nice` adjustment (no argument).
+        if wrapper_option_takes_arg(wrapper, token) {
+            i += 2; // flag + its argument
+        } else {
+            i += 1;
+        }
+    }
+    i
 }
 
 /// The first whitespace-delimited token, used as argv[0] for system

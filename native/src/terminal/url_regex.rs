@@ -178,4 +178,39 @@ mod tests {
         assert_eq!(url_at_column(line, 33), None);
         assert_eq!(url_at_column("no url here", 5), None);
     }
+
+    #[test]
+    fn url_at_column_counts_wide_char_columns() {
+        // Input lines are "one char per column": cell_line_text expands a
+        // width-2 cell into two copies, so a wide char before the URL
+        // occupies two chars and the URL's column span shifts accordingly.
+        let line = "中中中中https://example.com"; // 2 wide chars = 4 cols
+        // URL starts at column 4 (after 4 wide-char columns).
+        assert_eq!(
+            url_at_column(line, 4),
+            Some("https://example.com".to_string())
+        );
+        assert_eq!(
+            url_at_column(line, 4 + "https://example.com".len() - 1),
+            Some("https://example.com".to_string())
+        );
+        // A column inside the wide chars (col 1..3) must not match.
+        assert_eq!(url_at_column(line, 1), None);
+        assert_eq!(url_at_column(line, 3), None);
+    }
+
+    #[test]
+    fn clean_url_strips_trailing_question_and_bang() {
+        assert_eq!(clean_url("https://example.com?"), "https://example.com");
+        assert_eq!(clean_url("https://example.com!"), "https://example.com");
+        assert_eq!(
+            clean_url("https://example.com/path?!,"),
+            "https://example.com/path"
+        );
+        // Query strings keep interior '?'.
+        assert_eq!(
+            clean_url("https://example.com/a?q=1"),
+            "https://example.com/a?q=1"
+        );
+    }
 }

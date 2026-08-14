@@ -574,15 +574,13 @@ mod tests {
         t.vt_write(b"\x1b[5n");
         t.flush();
         let responses = t.drain_pty_write_responses();
-        if !responses.is_empty() {
-            let last = responses.last().expect("non-empty");
-            let text = String::from_utf8_lossy(last);
-            assert!(
-                text.contains("\x1b[0n"),
-                "DSR should respond with status, got: {text}"
-            );
-        }
-        // DSR may not be supported by all backends — skip assertion if no response
+        assert!(!responses.is_empty(), "DSR should produce a response");
+        let last = responses.last().expect("non-empty");
+        let text = String::from_utf8_lossy(last);
+        assert!(
+            text.contains("\x1b[0n"),
+            "DSR should respond with status, got: {text}"
+        );
     }
 
     #[test]
@@ -608,6 +606,9 @@ mod tests {
         t.vt_write(b"\x1b[?6n");
         t.flush();
         let responses = t.drain_pty_write_responses();
+        // libghostty-vt does not implement DECXCPR (probe: no response),
+        // so an empty response is expected — the assertion only guards
+        // the shape if a response ever appears.
         if !responses.is_empty() {
             let last = responses.last().expect("non-empty");
             let text = String::from_utf8_lossy(last);
@@ -616,7 +617,6 @@ mod tests {
                 "DECXCPR should start with ESC[?, got: {text}"
             );
         }
-        // DECXCPR may not be supported by all terminal backends — skip if no response
     }
 
     #[test]
