@@ -149,7 +149,7 @@ Support touch input gestures: tap to place cursor, long-press for selection hand
 [REQUIREMENT]
 UID: FR-025
 STATEMENT: >>>
-Support configurable backspace mode (DEL `0x7f` or BS `0x08`) and right-Alt mode (character modifier or meta).
+Send DEL (`0x7F`) for the backspace key and encode modifier keys (Ctrl/Shift/Alt/Super) per the Kitty keyboard protocol.
 <<<
 
 [REQUIREMENT]
@@ -293,7 +293,7 @@ Expose an input queue mechanism that watches for a prompt pattern in scrollback 
 [REQUIREMENT]
 UID: FR-049
 STATEMENT: >>>
-Use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction) via `jni_bridge.rs`.
+Use JNI for NDK-level functions (ANativeWindow lifecycle, surface creation/destruction) via `ffi.rs`.
 <<<
 
 [REQUIREMENT]
@@ -317,13 +317,13 @@ Provide 16 built-in color themes: Catppuccin Mocha, Catppuccin Latte, Dracula+, 
 [REQUIREMENT]
 UID: FR-053
 STATEMENT: >>>
-Support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots.
+Support user-defined custom themes persisted in DataStore with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots.
 <<<
 
 [REQUIREMENT]
 UID: FR-054
 STATEMENT: >>>
-Support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via `TerminalConfig`.
+Support configuration of terminal dimensions (rows, cols), scrollback size, shell path, and font size via `TerminalConfig`.
 <<<
 
 [REQUIREMENT]
@@ -368,14 +368,3 @@ STATEMENT: >>>
 Toolbar keys SHALL support a width (flex weight) and an optional secondary key (long-press action); the layout editor SHALL allow editing both; serialization SHALL be backward compatible with existing layouts.
 <<<
 
-[REQUIREMENT]
-UID: FR-062
-STATEMENT: >>>
-`PlatformCapabilities` SHALL expose `Memory` and `Unsupported` capability variants so callers can distinguish a memory-limited device from an unsupported configuration without panicking.
-<<<
-
-[REQUIREMENT]
-UID: FR-063
-STATEMENT: >>>
-Terminal surface URL detection SHALL route through the scroll-position LRU cache (`UrlCache.getOrCompute`) so repeated queries at the same scroll offset reuse cached results.
-<<<

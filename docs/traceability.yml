@@ -153,7 +153,7 @@ requirements:
     design:
       - "docs/architecture.md#52-module-responsibilities"
       - "native/src/render/font/atlas.rs"
-      - "native/src/render/atlas.rs"
+      - "native/src/render/font/atlas.rs"
     api: []
     tests:
       - "native/src/render/font/mod.rs"
@@ -288,14 +288,14 @@ requirements:
     verification: "cd android && ./gradlew connectedDebugAndroidTest"
 
   FR-025:
-    description: "The system SHALL support configurable backspace mode (DEL 0x7f or BS 0x08) and right-Alt mode (character modifier or meta)."
+    description: "The system SHALL send DEL (0x7F) for the backspace key and encode modifier keys (Ctrl/Shift/Alt/Super) per the Kitty keyboard protocol."
     design:
-      - "docs/architecture.md#52-module-responsibilities"
+      - "android/app/src/main/java/terminal/emulator/ui/TerminalInputEncoder.kt"
       - "native/src/terminal/ghostty_terminal/keymap.rs"
     api: []
     tests:
-      - "native/src/terminal/ghostty_terminal/tests.rs"
-    verification: "cargo test --package native"
+      - "native/src/terminal/ghostty_terminal/tests_s2_fixes.rs"
+    verification: "cargo test --package native -- key_encode_shift_a_uses_utf8_char"
 
   # ==========================================================================
   # 3.4 Session Management (FR-026 — FR-032)
@@ -505,50 +505,50 @@ requirements:
     description: "The system SHALL run an MCP (Model Context Protocol) server over a Unix domain socket, communicating via JSON-RPC 2.0 with newline-delimited JSON."
     design:
       - "docs/architecture.md#52-module-responsibilities"
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     api: []
     tests:
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     verification: "cargo test --package native"
 
   FR-045:
     description: "The MCP server SHALL expose tools for listing sessions, reading grid state, reading scrollback, reading cursor position, and reading selected text."
     design:
       - "docs/architecture.md#52-module-responsibilities"
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     api: []
     tests:
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     verification: "cargo test --package native"
 
   FR-046:
     description: "The MCP server SHALL expose tools for writing to the PTY, sending signals, resizing the terminal, and setting clipboard content (gated behind --mcp-allow-write)."
     design:
       - "docs/architecture.md#52-module-responsibilities"
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     api: []
     tests:
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     verification: "cargo test --package native"
 
   FR-047:
     description: "The MCP server SHALL expose a scrollback search tool that matches a regex pattern and returns matching line numbers, text, and column ranges."
     design:
       - "docs/architecture.md#52-module-responsibilities"
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     api: []
     tests:
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     verification: "cargo test --package native"
 
   FR-048:
     description: "The MCP server SHALL expose an input queue mechanism that watches for a prompt pattern in scrollback and automatically injects queued text (AI agent automation)."
     design:
       - "docs/architecture.md#52-module-responsibilities"
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     api: []
     tests:
-      - "native/src/mcp.rs"
+      - "native/src/mcp/mod.rs"
     verification: "cargo test --package native"
 
   FR-049:
@@ -587,35 +587,31 @@ requirements:
   # ==========================================================================
 
   FR-052:
-    description: "The system SHALL provide 16 built-in color themes: Catppuccin Mocha, Catppuccin Latte, Dracula+, Nord, Tokyo Night, Rose Pine, Gruvbox Dark, Gruvbox Light, Everforest Dark, One Dark, One Light, Monokai, Ayu Dark, Ayu Light, Kanagawa Wave, and Night Owl."
+    description: "The system SHALL provide 16 built-in color themes defined in Kotlin BuiltInThemes."
     design:
-      - "docs/architecture.md#52-module-responsibilities"
-      - "native/src/terminal/ghostty_terminal/public_api.rs"
+      - "android/app/src/main/java/terminal/emulator/ui/theme/TerminalTheme.kt"
     api: []
     tests:
-      - "native/src/render/screenshot_tests.rs"
-    verification: "cargo test --package native"
+      - "android/app/src/test/java/terminal/emulator/ui/theme/UserThemeStoreTest.kt"
+    verification: "cd android && ./gradlew testDebugUnitTest"
 
   FR-053:
-    description: "The system SHALL support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots."
+    description: "The system SHALL support user-defined custom themes persisted in DataStore with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots."
     design:
-      - "docs/architecture.md#52-module-responsibilities"
-      - "native/src/terminal/ghostty_terminal/commands.rs"
-      - "native/src/terminal/ghostty_terminal/internal.rs"
+      - "android/app/src/main/java/terminal/emulator/ui/theme/UserThemeStore.kt"
     api: []
     tests:
-      - "native/src/terminal/ghostty_terminal/tests.rs"
-    verification: "cargo test --package native"
+      - "android/app/src/test/java/terminal/emulator/ui/theme/UserThemeStoreTest.kt"
+    verification: "cd android && ./gradlew testDebugUnitTest"
 
   FR-054:
-    description: "The system SHALL support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via GhosttyTerminal configuration."
+    description: "The system SHALL support configuration of terminal dimensions (rows, cols), scrollback size, shell path, and font size via TerminalConfig."
     design:
-      - "docs/architecture.md#52-module-responsibilities"
-      - "native/src/terminal/ghostty_terminal/public_api.rs"
+      - "android/app/src/main/java/terminal/emulator/bridge/Bridge.kt"
     api: []
     tests:
-      - "native/src/terminal/ghostty_terminal/tests.rs"
-    verification: "cargo test --package native"
+      - "android/app/src/test/java/terminal/emulator/ui/TerminalInputEncoderTest.kt"
+    verification: "cd android && ./gradlew testDebugUnitTest"
 
   FR-055:
     description: "The repository SHALL NOT contain golden images or font file blobs. All rendering verification SHALL use logical assertions (pixel-coordinate checks, OCR text detection, Nix font paths) instead of image comparison or bundled binaries."
@@ -644,7 +640,7 @@ requirements:
       - "android/app/src/main/java/terminal/emulator/ui/TextSearchBar.kt"
     api: []
     tests:
-      - "android/app/src/test/java/terminal/emulator/ui/TextSearchBarDebounceTest.kt"
+      - "android/app/src/test/java/terminal/emulator/ui/SearchDebouncerTest.kt"
     verification: "cd android && ./gradlew testDebugUnitTest"
 
   FR-058:
@@ -680,26 +676,10 @@ requirements:
       - "android/app/src/main/java/terminal/emulator/ui/ModifierBar.kt"
     api: []
     tests:
-      - "android/app/src/test/java/terminal/emulator/ui/ToolbarPreferencesTest.kt"
+      - "android/app/src/test/java/terminal/emulator/ui/ToolbarMacroExpanderTest.kt"
     verification: "cd android && ./gradlew testDebugUnitTest"
 
-  FR-062:
-    description: "PlatformCapabilities SHALL expose Memory and Unsupported capability variants so callers can distinguish a memory-limited device from an unsupported configuration without panicking."
-    design:
-      - "native/src/platform/capabilities.rs"
-    api: []
-    tests:
-      - "native/src/platform/capabilities.rs"
-    verification: "cargo test --package native"
 
-  FR-063:
-    description: "Terminal surface URL detection SHALL route through the scroll-position LRU cache (UrlCache.getOrCompute) so repeated queries at the same scroll offset reuse cached results."
-    design:
-      - "android/app/src/main/java/terminal/emulator/ui/UrlCache.kt"
-    api: []
-    tests:
-      - "android/app/src/test/java/terminal/emulator/ui/UrlCacheTest.kt"
-    verification: "cd android && ./gradlew testDebugUnitTest"
 
   # ==========================================================================
   # 4.1 Safety (NFR-001 — NFR-005)
@@ -876,7 +856,7 @@ requirements:
       - "docs/architecture.md#51-crate-structure"
     api: []
     tests:
-      - "android/app/src/androidTest/java/terminal/emulator/ui/*.kt"
+      - "android/app/src/androidTest/java/terminal/emulator/*.kt"
     verification: "cd android && ./gradlew assembleDebug"
 
   NFR-018:
