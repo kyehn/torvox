@@ -8,6 +8,7 @@ class RenderWatchDog(
     private val isRunning: () -> Boolean,
     private val onHangDetected: () -> Unit,
     private val hangTimeoutNanos: Long = 10_000_000_000L,
+    private val checkIntervalMs: Long = CHECK_INTERVAL_MS,
 ) {
     companion object {
         private const val CHECK_INTERVAL_MS = 2000L
@@ -35,7 +36,7 @@ class RenderWatchDog(
     private fun watchLoop() {
         while (!Thread.currentThread().isInterrupted) {
             try {
-                Thread.sleep(CHECK_INTERVAL_MS)
+                Thread.sleep(checkIntervalMs)
             } catch (_: InterruptedException) {
                 Thread.currentThread().interrupt()
                 break
