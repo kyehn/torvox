@@ -130,19 +130,14 @@
                 fenix.targets.x86_64-linux-android.stable.rust-std
                 fenix.targets.aarch64-linux-android.stable.rust-std
               ])
-              cargo-nextest
               cargo-fuzz
-              cargo-llvm-cov
               cargo-geiger
               cargo-audit
-              cargo-deny
               cargo-machete
               adrs
               # strictdoc 0.22.0 builds against the overridden python3 (see
               # _module.args.pkgs overlay: datauri check skipped on Py 3.14).
               (strictdoc.override { python3 = pkgs.python3; })
-              cargo-mutants
-              rust-analyzer
               kotlin
               gradle_9
               jdk
@@ -160,25 +155,27 @@
               vulkan-loader
               vulkan-tools
               nixfmt-rs
-              statix
-              deadnix
               pkg-config
               openssl
               zig_0_15
               cargo-ndk
               maestro
               semgrep
-              systemd
-              imagemagick
+              systemdLibs
               fontconfig
-              noto-fonts-cjk-sans
+              (maple-mono.Normal-NF-CN.overrideAttrs (_: {
+                installPhase = ''
+                  runHook preInstall
+
+                  install MapleMonoNormal-NF-CN-Medium.ttf -D --target-directory $out/share/fonts/truetype
+
+                  runHook postInstall
+                '';
+              }))
               libpulseaudio
               (lib.getLib stdenv.cc.cc)
               (python3.withPackages (
                 ps: with ps; [
-                  pyte
-                  sphinx
-                  sphinx-rtd-theme
                   pip
                   (rapidocr.overridePythonAttrs (oldAttrs: {
                     postPatch = (oldAttrs.postPatch or "") + ''
@@ -190,12 +187,6 @@
                   }))
                 ]
               ))
-              git
-              curl
-              jq
-              gnutar
-              gzip
-              patch
             ];
             env = {
               LD_LIBRARY_PATH = pkgs.lib.makeLibraryPath (
@@ -216,7 +207,6 @@
               # libghostty-vt-sys 0.2.1 pins ghostty a887df42, whose build.zig
               # requires Zig 0.15.2 — nixpkgs `zig_0_15` is exactly that.
               export PATH="${pkgs.lib.makeBinPath [ pkgs.zig_0_15 ]}:$PATH"
-              # strictdoc is in nixpkgs; no venv needed
               nu scripts/fetch-aosp-testkey.nu
               nu scripts/download-rapidocr-models.nu
             '';
