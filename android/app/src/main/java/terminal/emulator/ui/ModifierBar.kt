@@ -54,6 +54,30 @@ private const val BUTTON_FONT_SIZE_SP = 10
 
 /** Key columns per horizontal page (default layout = 7 columns = 1 page). */
 private const val MAX_COLUMNS_PER_PAGE = 7
+
+/** One toolbar column: (top key, bottom key); either slot may be empty. */
+internal typealias ToolbarColumn = Pair<ToolbarItem?, ToolbarItem?>
+
+/**
+ * Splits the flat toolbar layout into horizontal pages (termux ViewPager
+ * behaviour): the list is split at the midpoint into two rows, paired into
+ * top/bottom columns, then chunked so each page holds up to
+ * [maxColumnsPerPage] columns; swipe left/right reaches the rest. The
+ * default 14-key layout is a single 7-column page.
+ */
+internal fun paginateToolbarKeys(
+    keys: List<ToolbarItem>,
+    maxColumnsPerPage: Int = MAX_COLUMNS_PER_PAGE,
+): List<List<ToolbarColumn>> {
+    val midpoint = (keys.size + 1) / 2
+    val row1 = keys.take(midpoint)
+    val row2 = keys.drop(midpoint)
+    val columns: List<ToolbarColumn> =
+        (0 until maxOf(row1.size, row2.size)).map { index ->
+            row1.getOrNull(index) to row2.getOrNull(index)
+        }
+    return columns.chunked(maxColumnsPerPage)
+}
 private const val REPEAT_TIMEOUT_MS = 500L
 private const val DWELL_GUARD_MS = 100L
 private const val LONG_PRESS_MS = 500L
@@ -547,19 +571,9 @@ private fun ConfigurableModifierBar(
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
     val allKeys = toolbarLayout.toList()
-    val midpoint = (allKeys.size + 1) / 2
-    val row1 = allKeys.take(midpoint)
-    val row2 = allKeys.drop(midpoint)
     // Page the layout horizontally so more keys can be added than fit one
-    // screen width (termux ViewPager behaviour): a page holds up to
-    // MAX_COLUMNS_PER_PAGE key columns (a column = one top + one bottom key);
-    // swipe left/right to reach the rest. The default 14-key layout is a
-    // single 7-column page.
-    val columns: List<Pair<ToolbarItem?, ToolbarItem?>> =
-        (0 until maxOf(row1.size, row2.size)).map { index ->
-            row1.getOrNull(index) to row2.getOrNull(index)
-        }
-    val pages = columns.chunked(MAX_COLUMNS_PER_PAGE)
+    // screen width (termux ViewPager behaviour): see paginateToolbarKeys.
+    val pages = paginateToolbarKeys(allKeys)
     val pagerState = rememberPagerState(pageCount = { pages.size })
     val actions =
         ModifierBarActions(
