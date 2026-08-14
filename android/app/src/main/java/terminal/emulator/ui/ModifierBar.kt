@@ -655,6 +655,17 @@ private data class ModifierBarStates(
     val composeActive: Boolean,
 )
 
+/** Long-press action for a key: an explicit secondary sequence, or the
+ *  DRAWER paste popup (termux default). */
+private fun drawerSecondaryAction(
+    item: ToolbarItem,
+    actions: ModifierBarActions,
+    isDrawer: Boolean,
+): (() -> Unit)? = item.secondarySequence
+    ?.takeIf { it.isNotEmpty() }
+    ?.let { { actions.onKeyClick(it) } }
+    ?: if (isDrawer) actions.onPaste else null
+
 private fun toolbarItemPresentation(
     item: ToolbarItem,
     actions: ModifierBarActions,
@@ -692,12 +703,10 @@ private fun toolbarItemPresentation(
     val isDrawer = (item as? ToolbarItem.Default)?.key == ToolbarKey.DRAWER
     // DRAWER long-press = paste (termux default `popup: 'PASTE'`); an
     // explicit per-item secondary sequence wins over the default popup.
-    val secondaryLabel = item.secondaryLabel ?: if (isDrawer && actions.onPaste != null) "PASTE" else null
+    val secondaryLabel =
+        item.secondaryLabel ?: if (isDrawer && actions.onPaste != null) "PASTE" else null
     val secondaryAction =
-        item.secondarySequence
-            ?.takeIf { it.isNotEmpty() }
-            ?.let { { actions.onKeyClick(it) } }
-            ?: if (isDrawer) actions.onPaste else null
+        drawerSecondaryAction(item, actions, isDrawer)
     return ToolbarItemPresentation(
         label = itemLabel,
         onClick = toolbarItemKeyHandler(item, actions),

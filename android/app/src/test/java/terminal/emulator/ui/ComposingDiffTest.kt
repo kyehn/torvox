@@ -7,7 +7,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * Round-224: composing-region reconciliation (warp WarpInputView.kt:587-615
+ * Composing-region reconciliation (warp WarpInputView.kt:587-615
  * forwardComposingDiff) — pure function tests: grow / contract
  * (emoji-aware code-point counting) / diverged / no-op.
  */

@@ -1,7 +1,7 @@
 package terminal.emulator.ui
 
 /**
- * Round-224: composing-region reconciliation extracted from
+ * Composing-region reconciliation extracted from
  * TerminalSurface's InputConnection into a pure, unit-testable function.
  *
  * Mirrors warp WarpInputView.kt:587-615 (forwardComposingDiff) with the

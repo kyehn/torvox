@@ -8,7 +8,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * Round-224 fast-death recovery (warp WarpTerminalService.kt:906-915):
+ * Fast-death recovery (warp WarpTerminalService.kt:906-915):
  * pure decision/backoff logic extracted from handleSessionExit.
  * Same-package as the top-level constants/functions — no imports needed.
  */

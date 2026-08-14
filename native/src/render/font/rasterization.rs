@@ -14,7 +14,7 @@ pub(super) const CELL_HEIGHT_FALLBACK_RATIO: f32 = 1.2;
 /// the cell height far beyond the glyph metrics. Maximum 25% of
 /// ascent+descent, mirroring Termux/Ghostty row-height behavior.
 ///
-/// Round-216: no longer used in the cell-height computation (row height is
+/// No longer used in the cell-height computation (row height is
 /// now ascent+descent exactly, like Termux/Ghostty/Kitty); retained for the
 /// unit tests that pin the cap semantics.
 #[cfg(test)]
@@ -90,7 +90,7 @@ impl FontPipeline {
                 let scale = self.font_size / upem;
                 let ascent = metrics.ascent * scale;
                 let descent = metrics.descent.abs() * scale;
-                // Round-216: standard terminal row height is ascent+descent
+                // Standard terminal row height is ascent+descent
                 // WITHOUT the font's line gap. Droid Sans Mono ships a huge
                 // leading (~2000 units); even capped at 25% it inflated the
                 // cell to 1.465em, leaving ~2x the glyph height of empty
