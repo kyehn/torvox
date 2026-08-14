@@ -156,7 +156,7 @@ object SelectionExpander {
     )
 
     @JvmStatic
-    internal fun looksLikeFullUrl(s: String): Boolean = URL_TOKEN_RE.matches(s)
+    internal fun looksLikeFullUrl(s: String): Boolean = terminal.emulator.util.UrlToken.looksLikeFullUrl(s)
 
     @JvmStatic
     internal fun expandAcrossUrlWrap(
@@ -270,16 +270,4 @@ object SelectionExpander {
         }
         return currentRow to currentCol
     }
-
-    /**
-     * Whether a whitespace-free string looks like a *complete* URL token
-     * scheme- or `www.`-prefixed, a dotted host, optional path/query). Pure
-     * Kotlin on purpose — `android.util.Patterns.WEB_URL`'s class initializer
-     * isn't available in plain JVM unit tests.
-     */
-    private val URL_TOKEN_RE =
-        Regex(
-            "^(?:https?://|www\\.)[\\w-]+(?:\\.[\\w-]+)+(?:[/:?#@!\$&'()*+,;=._~%\\[\\]-]\\S*)?$",
-            RegexOption.IGNORE_CASE,
-        )
 }

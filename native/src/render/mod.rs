@@ -22,9 +22,9 @@ pub mod renderdoc_capture;
 
 pub(crate) mod cell_builder;
 pub mod context;
-pub(crate) mod old_path;
 mod pass;
 mod pipeline;
+pub(crate) mod snapshot_reference;
 // Off-screen render-verification path (research-wgpu-example §6.1/§6.2):
 // procedural geometry + depth-attached LOD grid are crate-test-only — the
 // production `Renderer` keeps zero depth attachments (2D terminal rendering
@@ -49,14 +49,14 @@ pub use cpu_frame::{CpuCell, CpuCursor, CpuFrame, TextHit, TextItem};
 pub use invalidation::{FrameInvalidation, InvalidationLevel};
 #[cfg(any(test, feature = "test-util"))]
 #[allow(unused_imports)]
-pub(crate) use old_path::{
+pub(crate) use pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
+pub use pipeline::{GpuUniforms, image_active_value};
+#[cfg(any(test, feature = "test-util"))]
+#[allow(unused_imports)]
+pub(crate) use snapshot_reference::{
     FlatGrid, SnapshotConfig, build_cell_instances_from_flat, build_cell_instances_from_snapshot,
     build_cell_instances_into, color_f32x4_eq,
 };
-#[cfg(any(test, feature = "test-util"))]
-#[allow(unused_imports)]
-pub(crate) use pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
-pub use pipeline::{GpuUniforms, image_active_value};
 
 /// Serialises GPU/CPU benchmarks: under software Vulkan (Mesa Lavapipe)
 /// each test creates its own wgpu device, and parallel benchmarks contend
@@ -189,12 +189,12 @@ pub mod gpu {
     pub use super::cell_builder::{CellCursor, build_instances_from_cell_data};
     pub use super::cell_builder::{SearchHighlight, SelectionRange};
     pub use super::context::{Renderer, orthographic_projection};
+    pub use super::pipeline::{GpuUniforms, image_active_value};
     #[cfg(any(test, feature = "test-util"))]
-    pub use super::old_path::{
+    pub use super::snapshot_reference::{
         FlatGrid, SnapshotConfig, build_cell_instances_from_flat,
         build_cell_instances_from_snapshot, build_cell_instances_into,
     };
-    pub use super::pipeline::{GpuUniforms, image_active_value};
     pub use super::{
         CATPPUCCIN_MOCHA_BG, CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE,
     };

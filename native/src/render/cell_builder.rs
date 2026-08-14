@@ -148,7 +148,7 @@ pub(crate) fn apply_search_highlight(fg: &mut [f32; 4], bg: &mut [f32; 4], hl: [
 
 /// Row-level instance cache for incremental rendering (FR-013 / NFR-010).
 ///
-/// Mirrors the test-only reference in `old_path::build_cell_instances_into`
+/// Mirrors the test-only reference in `snapshot_reference::build_cell_instances_into`
 /// (row_ends + per-row instance slices): after a build, `row_ends[r]` is the
 /// exclusive end index of row `r`'s instances in `instances`. Clean rows can
 /// then be copied from the previous frame instead of re-walking their cells

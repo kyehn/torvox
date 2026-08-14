@@ -773,6 +773,7 @@ fn all_dependencies_are_allowlisted() {
         "jni",
         "libc",
         "libghostty-vt",
+        "linkify",
         "log",
         "lru",
         "nix",

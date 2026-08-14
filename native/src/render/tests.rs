@@ -2778,12 +2778,12 @@ fn offscreen_grid_render_uses_depth_attachment() {
     );
 }
 
-/// Contract: the GridSnapshot reference path (`old_path`) and the CellData
+/// Contract: the GridSnapshot reference path (`snapshot_reference`) and the CellData
 /// production path (`cell_builder`) must agree on per-cell fg/bg colors
 /// for the same terminal state.
 ///
 /// The two builders are independent implementations. Without this lock they
-/// silently drift — the `selection_bg` divergence (old_path still applying
+/// silently drift — the `selection_bg` divergence (snapshot_reference still applying
 /// a theme color after the production path replaced it with inverse video)
 /// is a real historical instance of exactly that. Comparing colors only:
 /// geometry derives from each path's own config and is not a semantic.

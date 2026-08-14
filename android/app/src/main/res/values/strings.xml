@@ -229,6 +229,7 @@
     <string name="cursor_underline">Underline</string>
     <string name="close_session">Close Session</string>
     <string name="toggle_scroll">Toggle Scroll</string>
+    <string name="toggle_keyboard">Show or hide the keyboard</string>
     <string name="no_font_loaded">No font loaded</string>
     <string name="font_applied">Font applied: %1$s</string>
     <string name="font_apply_failed">Font apply failed: %1$s</string>

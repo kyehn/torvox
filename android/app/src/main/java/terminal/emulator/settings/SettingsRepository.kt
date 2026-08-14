@@ -65,6 +65,9 @@ constructor(
 
     val appThemeMode: Flow<String> = provider.dataStore.data.map { it[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM }
     val fontSize: Flow<Float> = provider.dataStore.data.map { it[Keys.FONT_SIZE] ?: DEFAULT_FONT_SIZE }
+
+    /** True once the user has explicitly picked a font size; false on a fresh install. */
+    val fontSizeExplicitlySet: Flow<Boolean> = provider.dataStore.data.map { it[Keys.FONT_SIZE] != null }
     val fontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "" }
     val boldFontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.BOLD_FONT_FAMILY] ?: "" }
     val italicFontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.ITALIC_FONT_FAMILY] ?: "" }
