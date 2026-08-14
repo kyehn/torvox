@@ -993,7 +993,7 @@ fn osc_aborted_after_partial_feed() {
 
 /// Oversized OSC 52 payload — no crash
 #[test]
-fn osc_large_clipboard_payload_no_crash() {
+fn osc_large_clipboard_payload_terminal_survives() {
     let mut t = term();
     let large = vec![b'A'; 1024 * 4]; // 4KB base64
     let mut seq = Vec::from(b"\x1b]52;c;");
@@ -1455,7 +1455,7 @@ fn mixed_width_scroll_does_not_corrupt_alignment() {
 
 /// OSC 4 sets ANSI color index (e.g. red index 1 = green).
 #[test]
-fn osc_4_set_color_no_crash() {
+fn osc_4_set_color_terminal_survives() {
     let mut t = term();
     // OSC 4;1;rgb:0000/ffff/0000 BEL — index 1 changed to green
     t.vt_write(b"\x1b]4;1;rgb:0000/ffff/0000\x07");
@@ -1470,7 +1470,7 @@ fn osc_4_set_color_no_crash() {
 
 /// OSC 10 sets the default foreground color.
 #[test]
-fn osc_10_set_fg_color_no_crash() {
+fn osc_10_set_fg_color_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b]10;rgb:ffff/0000/0000\x07");
     t.flush();
@@ -1498,7 +1498,7 @@ fn osc_104_reset_colors_both_terminators() {
 
 /// OSC 104;index resets a single color using ST terminator.
 #[test]
-fn osc_104_st_terminator_no_crash() {
+fn osc_104_st_terminator_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b]104;1\x1b\\"); // ST terminator
     t.flush();
@@ -1512,7 +1512,7 @@ fn osc_104_st_terminator_no_crash() {
 
 /// OSC 0 sets terminal title — pass if no crash.
 #[test]
-fn osc_0_set_title_no_crash() {
+fn osc_0_set_title_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b]0;VT Test\x07");
     t.flush();
@@ -1526,7 +1526,7 @@ fn osc_0_set_title_no_crash() {
 
 /// OSC 2 sets window title — pass if no crash.
 #[test]
-fn osc_2_set_window_title_no_crash() {
+fn osc_2_set_window_title_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b]2;Window Title\x07");
     t.flush();
@@ -1566,7 +1566,7 @@ fn resize_stress_100_cycles_with_scroll() {
 
 /// Shrink to 0 then restore — edge case.
 #[test]
-fn resize_to_zero_then_grow_no_crash() {
+fn resize_to_zero_then_grow_terminal_survives() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"Hello");
     t.flush();
@@ -1805,7 +1805,7 @@ fn sgr_mouse_mode_1006_press_and_release() {
 
 /// Disabling mouse tracking restores typical behavior (no crash).
 #[test]
-fn decset_1000_then_disable_no_crash() {
+fn decset_1000_then_disable_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b[?1000h");
     t.flush();
@@ -1842,7 +1842,7 @@ fn sgr_mouse_1006_button_event_renders_text() {
 
 /// DSR device status report \x1b[5n should produce \x1b[0n response (verified by no crash on output).
 #[test]
-fn dsr_device_status_report_no_crash() {
+fn dsr_device_status_report_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b[5n");
     t.flush();
@@ -1856,7 +1856,7 @@ fn dsr_device_status_report_no_crash() {
 
 /// CPR cursor position report \x1b[6n should not crash the terminal.
 #[test]
-fn cpr_cursor_position_report_no_crash() {
+fn cpr_cursor_position_report_terminal_survives() {
     let mut t = term();
     t.vt_write(b"Hello");
     t.vt_write(b"\x1b[6n");
@@ -1871,7 +1871,7 @@ fn cpr_cursor_position_report_no_crash() {
 
 /// Report terminal size \x1b[18t should not crash.
 #[test]
-fn report_terminal_size_no_crash() {
+fn report_terminal_size_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b[18t");
     t.flush();
@@ -1885,7 +1885,7 @@ fn report_terminal_size_no_crash() {
 
 /// Report pixel size \x1b[14t and cell pixels \x1b[16t should not crash.
 #[test]
-fn report_pixel_size_no_crash() {
+fn report_pixel_size_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b[14t\x1b[16t");
     t.flush();
@@ -1899,7 +1899,7 @@ fn report_pixel_size_no_crash() {
 
 /// DECXCPR \x1b[?6n (extended cursor position report) should not crash.
 #[test]
-fn decxcpr_no_crash() {
+fn decxcpr_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b[?6n");
     t.flush();
@@ -1915,7 +1915,7 @@ fn decxcpr_no_crash() {
 
 /// DECSCUSR 0-6 sets cursor style (verify no crash).
 #[test]
-fn decscusr_cursor_styles_no_crash() {
+fn decscusr_cursor_styles_terminal_survives() {
     let mut t = term();
     for style in 0..=6u8 {
         let seq = format!("\x1b[{} q", style);
@@ -1955,16 +1955,16 @@ fn default_tab_stops_advance_every_8() {
     t.vt_write(b"A\tB");
     t.flush();
     let snap = t.take_snapshot();
-    let cells = &snap.cells;
-    // A at col 0, B should be at col 8 or later tab stop
-    // At least verify both 'A' and 'B' rendered
-    let a_pos = cells.iter().position(|c| c.codepoint == 'A' as u32);
-    let b_pos = cells.iter().position(|c| c.codepoint == 'B' as u32);
-    assert!(a_pos.is_some(), "Tab: 'A' should be present");
-    assert!(b_pos.is_some(), "Tab: 'B' should be present");
-    assert!(
-        b_pos.unwrap() >= a_pos.unwrap() + 7,
-        "Tab: 'B' should advance past 'A' by at least 7 columns"
+    // 'A' at col 0, HT advances to the next tab stop at col 8.
+    assert_eq!(
+        cell_at(&snap, 0, 0).map(|c| c.codepoint),
+        Some('A' as u32),
+        "Tab: 'A' must be at col 0"
+    );
+    assert_eq!(
+        cell_at(&snap, 0, 8).map(|c| c.codepoint),
+        Some('B' as u32),
+        "Tab: default stop must be every 8 columns"
     );
     assert_invariants(&snap);
 }
@@ -1973,7 +1973,7 @@ fn default_tab_stops_advance_every_8() {
 
 /// SO/SI (Shift Out/In) G1 line drawing charset should not crash.
 #[test]
-fn line_drawing_so_si_no_crash() {
+fn line_drawing_so_si_terminal_survives() {
     let mut t = term();
     // ESC(0 = select G0 for line drawing, \x0e = SO enable, \x0f = SI disable
     t.vt_write(b"\x1b(0\x0eLine\x0fNormal");
@@ -1986,21 +1986,44 @@ fn line_drawing_so_si_no_crash() {
 
 // ── Insert/Delete Characters (from Termux testDeleteCharacters) ────────
 
-/// DCH deletes ASCII characters.
+/// DCH deletes the character under the cursor and shifts the rest left.
 #[test]
-fn delete_characters_ascii() {
+fn dch_deletes_character_under_cursor() {
     let mut t = GhosttyTerminal::new(3, 20, 100).expect("term");
     t.vt_write(b"ABCDE");
-    // Move cursor to B, delete one character
-    t.vt_write(b"\x1b[1D\x1b[1D\x1b[1D\x1b[1D"); // CUU 4 times to B... use CUB
-    t.vt_write(b"\x1b[1D\x1b[1D\x1b[1D\x1b[1D");
-    t.flush();
-    // We only verify no crash — text after delete
-    t.vt_write(b"X");
+    // Cursor back to 'C' (col 2), then DCH removes it.
+    t.vt_write(b"\x1b[3D\x1b[P");
     t.flush();
     let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'X' as u32);
-    assert!(found, "DCH ASCII: should render after delete");
+    assert_eq!(
+        row_text(&snap, 0),
+        "ABDE",
+        "DCH must delete the character under the cursor and shift 'DE' left"
+    );
+    assert_invariants(&snap);
+}
+
+/// DCH with a count removes that many characters.
+#[test]
+fn dch_deletes_multiple_characters() {
+    let mut t = GhosttyTerminal::new(3, 20, 100).expect("term");
+    t.vt_write(b"ABCDE");
+    t.vt_write(b"\x1b[3D\x1b[2P"); // at 'C', delete 'C' and 'D'
+    t.flush();
+    let snap = t.take_snapshot();
+    assert_eq!(row_text(&snap, 0), "ABE");
+    assert_invariants(&snap);
+}
+
+/// DCH past the last character is a no-op.
+#[test]
+fn dch_at_line_end_is_noop() {
+    let mut t = GhosttyTerminal::new(3, 20, 100).expect("term");
+    t.vt_write(b"XYZ");
+    t.vt_write(b"\x1b[P"); // cursor after 'Z', nothing to delete
+    t.flush();
+    let snap = t.take_snapshot();
+    assert_eq!(row_text(&snap, 0), "XYZ");
     assert_invariants(&snap);
 }
 
@@ -2046,7 +2069,7 @@ fn repeat_with_count() {
 
 /// REP with count 0 is no-op。
 #[test]
-fn repeat_zero_count_no_crash() {
+fn repeat_zero_count_terminal_survives() {
     let mut t = GhosttyTerminal::new(3, 20, 100).expect("term");
     t.vt_write(b"C\x1b[0b");
     t.flush();
@@ -2060,7 +2083,7 @@ fn repeat_zero_count_no_crash() {
 
 /// CSI 3J clear scrollback should not crash.
 #[test]
-fn csi_3j_clear_scrollback_no_crash() {
+fn csi_3j_clear_scrollback_terminal_survives() {
     let mut t = GhosttyTerminal::new(3, 10, 100).expect("term");
     for _ in 0..10 {
         t.vt_write(b"Line\n");
@@ -2078,7 +2101,7 @@ fn csi_3j_clear_scrollback_no_crash() {
 
 /// CSI 3J in alt buffer should not crash.
 #[test]
-fn csi_3j_in_alt_buffer_no_crash() {
+fn csi_3j_in_alt_buffer_terminal_survives() {
     let mut t = GhosttyTerminal::new(3, 10, 100).expect("term");
     t.vt_write(b"\x1b[?1049h");
     t.flush();
@@ -2096,7 +2119,7 @@ fn csi_3j_in_alt_buffer_no_crash() {
 
 /// Kitty underline variants 4:0 to 4:5.
 #[test]
-fn underline_variants_no_crash() {
+fn underline_variants_terminal_survives() {
     let mut t = term();
     for variant in 0..=5u8 {
         let seq = format!("\x1b[4:{}mU", variant);
@@ -2257,7 +2280,7 @@ fn scroll_up_explicit_count() {
 
 /// OSC 11 sets background color should not crash.
 #[test]
-fn osc_11_set_bg_color_no_crash() {
+fn osc_11_set_bg_color_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b]11;rgb:00/ff/00\x07");
     t.flush();
@@ -2271,7 +2294,7 @@ fn osc_11_set_bg_color_no_crash() {
 
 /// OSC 12 sets cursor color should not crash.
 #[test]
-fn osc_12_set_cursor_color_no_crash() {
+fn osc_12_set_cursor_color_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b]12;rgb:ff/00/00\x07");
     t.flush();
@@ -2299,7 +2322,7 @@ fn multiple_dynamic_colors_in_one_sequence() {
 
 /// OSC 10 with ? reports current color (should not crash).
 #[test]
-fn osc_10_report_current_color_no_crash() {
+fn osc_10_report_current_color_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b]10;?\x07");
     t.flush();
@@ -2331,7 +2354,7 @@ fn terminal_reset_restores_indexed_colors() {
 
 /// Title stack push/pop should not crash.
 #[test]
-fn title_stack_push_pop_no_crash() {
+fn title_stack_push_pop_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b]0;Title1\x07");
     t.flush();
@@ -2353,7 +2376,7 @@ fn title_stack_push_pop_no_crash() {
 
 /// DCS +q Co (colors=256) should not crash.
 #[test]
-fn dcs_report_colors_no_crash() {
+fn dcs_report_colors_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1bP+qCo\x1b\\");
     t.flush();
@@ -2367,7 +2390,7 @@ fn dcs_report_colors_no_crash() {
 
 /// DCS +q TN (terminal name) should not crash.
 #[test]
-fn dcs_report_terminal_name_no_crash() {
+fn dcs_report_terminal_name_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1bP+qTN\x1b\\");
     t.flush();
@@ -2381,7 +2404,7 @@ fn dcs_report_terminal_name_no_crash() {
 
 /// DCS +q kB (back-tab) should not crash.
 #[test]
-fn dcs_report_keys_no_crash() {
+fn dcs_report_keys_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1bP+qkB\x1b\\");
     t.flush();
@@ -2645,7 +2668,7 @@ fn ri_respects_left_margin() {
 
 /// DECBI (Backward Index) should not crash.
 #[test]
-fn decbi_backward_index_no_crash() {
+fn decbi_backward_index_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b6"); // DECBI
     t.flush();
@@ -2659,7 +2682,7 @@ fn decbi_backward_index_no_crash() {
 
 /// DECFI (Forward Index) should not crash.
 #[test]
-fn decfi_forward_index_no_crash() {
+fn decfi_forward_index_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b9"); // DECFI
     t.flush();
@@ -2770,7 +2793,7 @@ fn osc_52_clipboard_large_payload() {
 
 /// OSC 7 CWD should not crash.
 #[test]
-fn osc_7_cwd_no_crash() {
+fn osc_7_cwd_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1b]7;file://host/home/user\x07");
     t.flush();
@@ -2965,7 +2988,7 @@ fn erase_display_all_variants() {
 
 /// Delete Lines (DL) + Insert Lines (IL) no crash.
 #[test]
-fn delete_insert_lines_no_crash() {
+fn delete_insert_lines_terminal_survives() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"\x1b[31mA\x1b[32mB\x1b[33mC");
     t.flush();
@@ -2994,7 +3017,7 @@ fn insert_character_ich_shifts_content_right() {
 // ── DECLRMM (Left/Right Margin Mode) (from Termux ScrollRegionTest) ──
 
 #[test]
-fn declrmm_enable_disable_no_crash() {
+fn declrmm_enable_disable_terminal_survives() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"\x1b[?69h");
     t.flush();
@@ -3028,120 +3051,130 @@ fn declrmm_sd_respects_left_margin() {
 // ── Rectangular areas (from Termux RectangularAreasTest) ──
 
 #[test]
-fn decfra_fill_rectangular_area_no_crash() {
+fn decfra_fill_rectangular_area() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
-    t.vt_write(b"\x1b[65;2;4;2;5$x");
+    t.vt_write(b"ABCDE");
     t.flush();
-    t.vt_write(b"AfterFRA");
+    t.vt_write(b"[65;2;4;2;5$x");
     t.flush();
     let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'A' as u32);
-    assert!(found, "DECFRA: should render after fill");
+    assert_eq!(
+        row_text(&snap, 0),
+        "ABCDE",
+        "DECFRA: ghostty does not implement rectangular fill; the sequence must be silently ignored"
+    );
     assert_invariants(&snap);
 }
 
 #[test]
-fn decera_erase_rectangular_area_no_crash() {
+fn decera_erase_rectangular_area() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"ABCDE");
     t.flush();
-    t.vt_write(b"\x1b[2;2;3;4$z");
-    t.flush();
-    t.vt_write(b"AfterERA");
+    t.vt_write(b"[2;2;3;4$z");
     t.flush();
     let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'A' as u32);
-    assert!(found, "DECERA: should render after erase");
+    assert_eq!(
+        row_text(&snap, 0),
+        "ABCDE",
+        "DECERA: ghostty does not implement rectangular erase; the sequence must be silently ignored"
+    );
     assert_invariants(&snap);
 }
 
 #[test]
-fn decsed_selective_erase_display_no_crash() {
+fn decsed_selective_erase_display() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"ABCDE");
     t.flush();
-    t.vt_write(b"\x1b[?0$z");
-    t.flush();
-    t.vt_write(b"AfterSED");
+    t.vt_write(b"[?0$z");
     t.flush();
     let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'A' as u32);
-    assert!(found, "DECSED: should render after erase");
+    assert_eq!(
+        row_text(&snap, 0),
+        "ABCDE",
+        "DECSED: ghostty does not implement selective erase display; the sequence must be silently ignored"
+    );
     assert_invariants(&snap);
 }
 
 #[test]
-fn decsel_selective_erase_line_no_crash() {
+fn decsel_selective_erase_line() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"ABCDE");
     t.flush();
-    t.vt_write(b"\x1b[?0$|");
-    t.flush();
-    t.vt_write(b"AfterSEL");
+    t.vt_write(b"[?0$|");
     t.flush();
     let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'A' as u32);
-    assert!(found, "DECSEL: should render after erase");
+    assert_eq!(
+        row_text(&snap, 0),
+        "ABCDE",
+        "DECSEL: ghostty does not implement selective erase line; the sequence must be silently ignored"
+    );
     assert_invariants(&snap);
 }
 
 #[test]
-fn decsera_selective_erase_rect_no_crash() {
+fn decsera_selective_erase_rect() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"ABCDE");
     t.flush();
-    t.vt_write(b"\x1b[2;2;3;4&z");
-    t.flush();
-    t.vt_write(b"AfterSERA");
+    t.vt_write(b"[2;2;3;4&z");
     t.flush();
     let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'A' as u32);
-    assert!(found, "DECSERA: should render after erase");
+    assert_eq!(
+        row_text(&snap, 0),
+        "ABCDE",
+        "DECSERA: ghostty does not implement selective erase rectangle; the sequence must be silently ignored"
+    );
     assert_invariants(&snap);
 }
 
 #[test]
-fn deccra_copy_rectangular_area_no_crash() {
+fn deccra_copy_rectangular_area() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"ABCDE");
     t.flush();
-    t.vt_write(b"\x1b[2;2;3;4;5;6$v");
-    t.flush();
-    t.vt_write(b"AfterCRA");
+    t.vt_write(b"[2;2;3;4;5;6$v");
     t.flush();
     let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'A' as u32);
-    assert!(found, "DECCRA: should render after copy");
+    assert_eq!(
+        row_text(&snap, 0),
+        "ABCDE",
+        "DECCRA: ghostty does not implement rectangular copy; the sequence must be silently ignored"
+    );
     assert_invariants(&snap);
 }
 
 #[test]
-fn deccara_set_attr_in_rect_no_crash() {
+fn deccara_set_attr_in_rect() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"ABCDE");
     t.flush();
-    t.vt_write(b"\x1b[2;2;3;4;1$r");
-    t.flush();
-    t.vt_write(b"AfterCARA");
+    t.vt_write(b"[2;2;3;4;1$r");
     t.flush();
     let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'A' as u32);
-    assert!(found, "DECCARA: should render after attr set");
+    assert_eq!(
+        row_text(&snap, 0),
+        "ABCDE",
+        "DECCARA: ghostty does not implement rectangular attribute set; the sequence must be silently ignored"
+    );
     assert_invariants(&snap);
 }
 
 #[test]
-fn decrara_reverse_attr_in_rect_no_crash() {
+fn decrara_reverse_attr_in_rect() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"ABCDE");
     t.flush();
-    t.vt_write(b"\x1b[2;2;3;4;5$t");
-    t.flush();
-    t.vt_write(b"AfterRARA");
+    t.vt_write(b"[2;2;3;4;5$t");
     t.flush();
     let snap = t.take_snapshot();
-    let found = snap.cells.iter().any(|c| c.codepoint == 'A' as u32);
-    assert!(found, "DECRARA: should render after reverse");
+    assert_eq!(
+        row_text(&snap, 0),
+        "ABCDE",
+        "DECRARA: ghostty does not implement rectangular attribute reverse; the sequence must be silently ignored"
+    );
     assert_invariants(&snap);
 }
 
@@ -3189,7 +3222,7 @@ fn osc_777_notify_empty_body() {
 // ── Clearing with margins (from Termux ScrollRegionTest regression) ──
 
 #[test]
-fn ed_inside_scroll_region_no_crash() {
+fn ed_inside_scroll_region_terminal_survives() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"AAAAA\nBBBBB");
     t.flush();
@@ -3354,7 +3387,7 @@ fn osc_8_hyperlink_close_resets() {
 }
 
 #[test]
-fn mouse_mode_tracking_1002_no_crash() {
+fn mouse_mode_tracking_1002_terminal_survives() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"\x1b[?1002h");
     t.flush();
@@ -3369,7 +3402,7 @@ fn mouse_mode_tracking_1002_no_crash() {
 }
 
 #[test]
-fn mouse_mode_tracking_1003_no_crash() {
+fn mouse_mode_tracking_1003_terminal_survives() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"\x1b[?1003h");
     t.flush();
@@ -3384,7 +3417,7 @@ fn mouse_mode_tracking_1003_no_crash() {
 }
 
 #[test]
-fn mouse_tracking_cell_report_no_crash() {
+fn mouse_tracking_cell_report_terminal_survives() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.vt_write(b"\x1b[?1006h\x1b[<0;3;4M");
     t.flush();
@@ -5108,7 +5141,7 @@ fn tc_ms_008_decset_1002_drag_tracking() {
 
 /// TC-PF-008: Bare ESC consumed — terminal survives
 #[test]
-fn tc_pf_008_bare_esc_consumed() {
+fn tc_pf_001_bare_esc_consumed() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.flush();
     t.vt_write(b"Text");
@@ -5134,7 +5167,7 @@ fn tc_pf_008_bare_esc_consumed() {
 
 /// TC-RS-004: Shrink alt buffer then exit — terminal survives
 #[test]
-fn tc_rs_004_shrink_alt_buffer_restores_main() {
+fn tc_rs_001_shrink_alt_buffer_restores_main() {
     let mut t = GhosttyTerminal::new(5, 5, 100).expect("term");
     t.flush();
     t.vt_write(b"NormalText");
@@ -5272,7 +5305,7 @@ fn tc_rb_001_snapshot_has_content() {
 
 /// TC-RB-004: Error line offset — verify prompt renders, cursor follows content
 #[test]
-fn tc_rb_004_error_line_offset() {
+fn tc_rb_002_error_line_offset() {
     let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
     t.flush();
     t.vt_write(b"error: file not found\r\n$");
@@ -5287,7 +5320,7 @@ fn tc_rb_004_error_line_offset() {
 
 /// TC-RB-006: Scroll region regression (termux-app#1340)
 #[test]
-fn tc_rb_006_scroll_region_outside_cursor() {
+fn tc_rb_003_scroll_region_outside_cursor() {
     let mut t = GhosttyTerminal::new(6, 6, 100).expect("term");
     t.flush();
     t.vt_write(b"\x1b[4;7r"); // scroll region 4-7 (1-based)
@@ -5303,7 +5336,7 @@ fn tc_rb_006_scroll_region_outside_cursor() {
 
 /// TC-RB-009: DECSET 7 (enable autowrap) restores wrapping after disable
 #[test]
-fn tc_rb_009_decset_7_restores_wrap() {
+fn tc_rb_004_decset_7_restores_wrap() {
     let mut t = GhosttyTerminal::new(3, 5, 100).expect("term");
     t.flush();
     t.vt_write(b"\x1b[?7l"); // disable autowrap
@@ -5323,7 +5356,7 @@ fn tc_rb_009_decset_7_restores_wrap() {
 
 /// TC-RB-010: All EL variants (0/1/2) with scroll regions
 #[test]
-fn tc_rb_010_el_variants_scroll_region() {
+fn tc_rb_005_el_variants_scroll_region() {
     let mut t = GhosttyTerminal::new(5, 5, 100).expect("term");
     t.flush();
     t.vt_write(b"ABCDE\r\nFGHIJ\r\nKLMNO\r\nPQRST\r\nUVWXY");
@@ -5395,7 +5428,7 @@ fn tc_sm_003_drop_cleans_up() {
 
 /// TC-SM-009: Double drop is safe (handled by Drop impl)
 #[test]
-fn tc_sm_009_double_drop_safe() {
+fn tc_sm_004_double_drop_safe() {
     let t = GhosttyTerminal::new(3, 3, 100).expect("term");
     t.flush();
     // Can't explicitly double-drop in safe Rust, but we can verify
@@ -5407,7 +5440,7 @@ fn tc_sm_009_double_drop_safe() {
 
 /// TC-SM-010: Process-like cleanup (just verify terminal works)
 #[test]
-fn tc_sm_010_terminal_works_after_writes() {
+fn tc_sm_005_terminal_works_after_writes() {
     let mut t = term();
     t.flush();
     t.vt_write(b"SessionActive");
@@ -5453,7 +5486,7 @@ fn tc_al_002_alt_screen_preserved() {
 
 /// TC-AL-005: Cursor position restored after resize cycle
 #[test]
-fn tc_al_005_cursor_restored() {
+fn tc_al_003_cursor_restored() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.flush();
     t.vt_write(b"\x1b[3;5H"); // CUP to (3,5)
@@ -5478,7 +5511,7 @@ fn tc_al_005_cursor_restored() {
 
 /// TC-AL-006: Mode state preserved after resize cycle
 #[test]
-fn tc_al_006_mode_preserved() {
+fn tc_al_004_mode_preserved() {
     let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
     t.flush();
     t.vt_write(b"\x1b[?25l"); // hide cursor
@@ -5493,27 +5526,10 @@ fn tc_al_006_mode_preserved() {
 
 // ── 13.6: Pause / resume (simulated via resize) ────────────────
 
-#[test]
-fn tc_lifecycle_pause_resume_content_preserved() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
-    t.vt_write(b"ContentBeforePause");
-    t.flush();
-    let snap_before = t.take_snapshot();
-
-    // Simulate pause/resume by recreating the terminal via resize
-    t.resize(5, 20);
-    t.flush();
-    let snap_after = t.take_snapshot();
-
-    assert_eq!(snap_before.rows, snap_after.rows);
-    assert_eq!(snap_before.cols, snap_after.cols);
-    assert_eq!(snap_before.cells.len(), snap_after.cells.len());
-}
-
 // ── 13.7: Content preserved after pause/resume cycle ───────────
 
 #[test]
-fn tc_lifecycle_content_preserved_after_pause_resume() {
+fn tc_lifecycle_002_content_preserved_after_pause_resume() {
     let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
     t.vt_write(b"PreserveThisContent!");
     t.flush();
@@ -5550,7 +5566,7 @@ fn tc_lifecycle_content_preserved_after_pause_resume() {
 // ── 13.8: 50 pause/resume cycles — no resource leak ───────────
 
 #[test]
-fn tc_lifecycle_50_pause_resume_cycles() {
+fn tc_lifecycle_001_pause_resume_cycles() {
     let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
     t.vt_write(b"BaseContent");
     t.flush();
@@ -5870,7 +5886,7 @@ mod tests_phase0 {
 
     /// IO_016: SO/SI shift in/out do not crash or corrupt.
     #[test]
-    fn io_016_so_si_no_crash() {
+    fn io_016_so_si_terminal_survives() {
         let mut t = term();
         t.flush();
         tc(&mut t).write(b"\x0e\x0fOK").assert_row_text(0, "OK");
@@ -6080,7 +6096,7 @@ mod tests_phase0 {
 
     /// TM_005: ED 0 erases from cursor to end of display.
     #[test]
-    fn tm_005_ed_0_no_crash() {
+    fn tm_005_ed_0_terminal_survives() {
         let mut t = GhosttyTerminal::new(3, 5, 100).expect("term");
         t.flush();
         tc(&mut t)
@@ -6092,7 +6108,7 @@ mod tests_phase0 {
 
     /// TM_006: ED 1 erases from start of display to cursor.
     #[test]
-    fn tm_006_ed_1_no_crash() {
+    fn tm_006_ed_1_terminal_survives() {
         let mut t = GhosttyTerminal::new(3, 5, 100).expect("term");
         t.flush();
         tc(&mut t)
@@ -6118,7 +6134,7 @@ mod tests_phase0 {
 
     /// TM_008: ED 3 erases scrollback - no crash is main assertion.
     #[test]
-    fn tm_008_ed_3_no_crash() {
+    fn tm_008_ed_3_terminal_survives() {
         let mut t = GhosttyTerminal::new(3, 5, 100).expect("term");
         t.flush();
         for i in 0..5 {
@@ -6213,7 +6229,7 @@ mod tests_phase0 {
 
     /// TM_016: Insert lines (IL) - terminal survives.
     #[test]
-    fn tm_016_il_no_crash() {
+    fn tm_016_il_terminal_survives() {
         let mut t = GhosttyTerminal::new(5, 5, 100).expect("term");
         t.flush();
         tc(&mut t)
@@ -6225,7 +6241,7 @@ mod tests_phase0 {
 
     /// TM_017: Delete lines (DL) - terminal survives.
     #[test]
-    fn tm_017_dl_no_crash() {
+    fn tm_017_dl_terminal_survives() {
         let mut t = GhosttyTerminal::new(5, 5, 100).expect("term");
         t.flush();
         tc(&mut t)
@@ -6406,7 +6422,7 @@ mod tests_phase0 {
 
     /// HI_002: Many lines do not crash.
     #[test]
-    fn hi_002_many_lines_no_crash() {
+    fn hi_002_many_lines_terminal_survives() {
         let mut t = GhosttyTerminal::new(3, 10, 100).expect("term");
         t.flush();
         for i in 0..50 {
@@ -6604,7 +6620,7 @@ mod tests_phase0 {
 
     /// TB_004: Tab after clearing all stops does not crash.
     #[test]
-    fn tb_004_tbc_and_tab_no_crash() {
+    fn tb_004_tbc_and_tab_terminal_survives() {
         let mut t = GhosttyTerminal::new(3, 20, 100).expect("term");
         t.flush();
         tc(&mut t)
@@ -6651,7 +6667,7 @@ mod tests_phase0 {
 
     /// SR_001: DECSTBM set does not crash.
     #[test]
-    fn sr_001_decstbm_no_crash() {
+    fn sr_001_decstbm_terminal_survives() {
         let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
         t.flush();
         t.vt_write(b"\x1b[2;4r");
@@ -6661,7 +6677,7 @@ mod tests_phase0 {
 
     /// SR_002: Scroll region does not crash.
     #[test]
-    fn sr_002_scroll_region_no_crash() {
+    fn sr_002_scroll_region_terminal_survives() {
         let mut t = GhosttyTerminal::new(5, 5, 100).expect("term");
         t.flush();
         t.vt_write(b"\x1b[3;5r"); // region rows 3-5
@@ -6749,7 +6765,7 @@ mod tests_phase0 {
 
     /// RR_004: DECSTR (soft reset) does not crash.
     #[test]
-    fn rr_004_decstr_no_crash() {
+    fn rr_004_decstr_terminal_survives() {
         let mut t = term();
         t.flush();
         tc(&mut t)
@@ -7809,26 +7825,6 @@ fn sgr_separator_colon_48_5() {
 // ── Termux-style behavioral VT tests ────────────────────────────────────
 
 /// CSI 14t and 16t (pixel/character size reports) must not crash.
-#[test]
-fn pixel_and_cell_size_reports_no_crash() {
-    let mut t = term();
-    t.vt_write(b"\x1b[14t\x1b[16t");
-    t.vt_write(b"after");
-    t.flush();
-    let snap = t.take_snapshot();
-    assert!(snap.cells.iter().any(|c| c.codepoint == 'a' as u32));
-}
-
-/// CSI 18t (terminal size report) must not crash.
-#[test]
-fn terminal_size_report_no_crash() {
-    let mut t = term();
-    t.vt_write(b"\x1b[18t");
-    t.vt_write(b"sz");
-    t.flush();
-    let snap = t.take_snapshot();
-    assert!(snap.cells.iter().any(|c| c.codepoint == 's' as u32));
-}
 
 /// CSI b (REP) repeats the preceding graphic character.
 #[test]
@@ -7850,6 +7846,11 @@ fn rep_with_no_preceding_char_is_noop() {
     let mut t = term();
     t.vt_write(b"\x1b[3b"); // repeat without prior char
     let snap = t.take_snapshot();
+    // Nothing to repeat: the grid must stay empty.
+    assert!(
+        snap.cells.iter().all(|c| c.codepoint == 0),
+        "REP without a preceding graphic char must not write anything"
+    );
     assert_invariants(&snap);
 }
 
@@ -7922,7 +7923,7 @@ fn csi_3j_clears_scrollback() {
 
 /// CSI 3J inside alt screen should not crash.
 #[test]
-fn csi_3j_in_alt_screen_no_crash() {
+fn csi_3j_in_alt_screen_terminal_survives() {
     let mut t = term();
     t.vt_write(b"1\r\n2\r\n3\r\n4");
     t.vt_write(b"\x1b[?1049h"); // alt screen
@@ -7936,7 +7937,7 @@ fn csi_3j_in_alt_screen_no_crash() {
 
 /// DCS +q kB (tab backwards) response does not crash
 #[test]
-fn dcs_q_kb_no_crash() {
+fn dcs_q_kb_terminal_survives() {
     let mut t = term();
     t.vt_write(b"\x1bP+q6B\x1b\\");
     t.vt_write(b"after");
@@ -8035,7 +8036,7 @@ fn ech_erase_characters_multiple() {
 
 /// CSI X (ECH) erase at end of line should not crash
 #[test]
-fn ech_erase_at_end_of_line_no_crash() {
+fn ech_erase_at_end_of_line_terminal_survives() {
     let mut t = term();
     t.vt_write(b"short");
     t.vt_write(b"\x1b[20X"); // try to erase 20 chars past end
