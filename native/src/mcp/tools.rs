@@ -67,7 +67,7 @@ pub(crate) fn terminal_info_tool() -> Tool {
                 if session_id == 0 {
                     None
                 } else {
-                    crate::android::ffi::session_exit_code(session_id)
+                    state.session_exit_code(session_id)
                 }
             };
             // cwd: resolved live from the active session via the
@@ -115,7 +115,7 @@ pub(crate) fn clipboard_get_tool() -> Tool {
                         // or the timeout is reported as an error.
                         Ok(Ok(text)) => Ok(CallToolResult::text(text)),
                         _ => {
-                            crate::android::ffi::cancel_request(session_id, request_id);
+                            global_state().cancel_request(session_id, request_id);
                             Ok(CallToolResult::error(
                                 "Clipboard read cancelled or timed out",
                             ))
@@ -248,7 +248,7 @@ pub(crate) fn last_command_output_tool() -> Tool {
             if session_id == 0 {
                 return Ok(CallToolResult::error("no active session"));
             }
-            match crate::android::ffi::session_last_command_output(session_id) {
+            match state.session_last_command_output(session_id) {
                 Some(output) => Ok(CallToolResult::text(output)),
                 None => Ok(CallToolResult::text("")),
             }
@@ -291,7 +291,7 @@ pub(crate) fn pick_file_tool() -> Tool {
                             // never-answered picker cannot leak one Sender
                             // per call. The request_id is only known here,
                             // after the callback registered it.
-                            crate::android::ffi::cancel_request(session_id, request_id);
+                            global_state().cancel_request(session_id, request_id);
                             Ok(CallToolResult::error("File picker cancelled or timed out"))
                         }
                     }
@@ -340,7 +340,7 @@ pub(crate) fn dialog_tool() -> Tool {
                     match tokio::time::timeout(Duration::from_secs(300), rx).await {
                         Ok(Ok(result)) => Ok(CallToolResult::text(result)),
                         _ => {
-                            crate::android::ffi::cancel_request(session_id, request_id);
+                            global_state().cancel_request(session_id, request_id);
                             Ok(CallToolResult::error("Dialog cancelled or timed out"))
                         }
                     }
@@ -383,20 +383,7 @@ pub(crate) fn normalized_command(command: &str) -> String {
         }
     }
     // Collapse runs of whitespace so `rm -rf  /` matches `rm -rf /`.
-    let mut collapsed = String::with_capacity(normalized.len());
-    let mut in_space = false;
-    for c in normalized.chars() {
-        if c.is_whitespace() {
-            if !in_space {
-                collapsed.push(' ');
-            }
-            in_space = true;
-        } else {
-            collapsed.push(c);
-            in_space = false;
-        }
-    }
-    collapsed.trim().to_string()
+    normalized.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// The first whitespace-delimited token, used as argv[0] for system
@@ -530,7 +517,7 @@ pub(crate) fn run_command_tool() -> Tool {
                     match tokio::time::timeout(Duration::from_secs(300), rx).await {
                         Ok(Ok(result)) => Ok(CallToolResult::text(result)),
                         _ => {
-                            crate::android::ffi::cancel_request(session_id, request_id);
+                            global_state().cancel_request(session_id, request_id);
                             Ok(CallToolResult::error("run_command cancelled or timed out"))
                         }
                     }
@@ -557,22 +544,25 @@ pub(crate) fn screenshot_tool() -> Tool {
             }
             let rx = {
                 let guard = state.0.on_screenshot.lock();
-                guard
-                    .as_ref()
-                    .map(|callback| callback(session_id))
+                guard.as_ref().map(|callback| callback(session_id))
             };
             match rx {
                 Some((request_id, rx)) => {
                     match tokio::time::timeout(Duration::from_secs(10), rx).await {
                         Ok(Ok((width, height, rgba_bytes))) => {
-                            let b64 = base64::engine::general_purpose::STANDARD
-                                .encode(&rgba_bytes);
-                            Ok(CallToolResult::text(format!(
-                                "{{\"width\":{width},\"height\":{height},\"format\":\"rgba\",\"data\":\"{b64}\"}}"
-                            )))
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&rgba_bytes);
+                            Ok(CallToolResult::text(
+                                json!({
+                                    "width": width,
+                                    "height": height,
+                                    "format": "rgba",
+                                    "data": b64,
+                                })
+                                .to_string(),
+                            ))
                         }
                         _ => {
-                            crate::android::ffi::cancel_request(session_id, request_id);
+                            global_state().cancel_request(session_id, request_id);
                             Ok(CallToolResult::error("Screenshot cancelled or timed out"))
                         }
                     }
