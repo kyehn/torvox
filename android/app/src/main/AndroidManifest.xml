@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Bell vibration (BellHandler vibrate): normal permission, granted at install. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
         android:name=".TerminalApp"

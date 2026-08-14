@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -49,6 +51,9 @@ import terminal.emulator.input.ModifierState
 
 private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
+
+/** Key columns per horizontal page (default layout = 7 columns = 1 page). */
+private const val MAX_COLUMNS_PER_PAGE = 7
 private const val REPEAT_TIMEOUT_MS = 500L
 private const val DWELL_GUARD_MS = 100L
 private const val LONG_PRESS_MS = 500L
@@ -542,6 +547,17 @@ private fun ConfigurableModifierBar(
     val midpoint = (allKeys.size + 1) / 2
     val row1 = allKeys.take(midpoint)
     val row2 = allKeys.drop(midpoint)
+    // Page the layout horizontally so more keys can be added than fit one
+    // screen width (termux ViewPager behaviour): a page holds up to
+    // MAX_COLUMNS_PER_PAGE key columns (a column = one top + one bottom key);
+    // swipe left/right to reach the rest. The default 14-key layout is a
+    // single 7-column page.
+    val columns: List<Pair<ToolbarItem?, ToolbarItem?>> =
+        (0 until maxOf(row1.size, row2.size)).map { index ->
+            row1.getOrNull(index) to row2.getOrNull(index)
+        }
+    val pages = columns.chunked(MAX_COLUMNS_PER_PAGE)
+    val pagerState = rememberPagerState(pageCount = { pages.size })
     val actions =
         ModifierBarActions(
             onKeyClick = onKeyClick,
@@ -579,17 +595,24 @@ private fun ConfigurableModifierBar(
         modifier = modifier.fillMaxWidth().background(backgroundColor),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        ModifierBarButtonRow(
-            items = row1.map(presentation),
-            buttonHeight = buttonHeight,
-            textColor = textColor,
-        )
-        if (row2.isNotEmpty()) {
-            ModifierBarButtonRow(
-                items = row2.map(presentation),
-                buttonHeight = buttonHeight,
-                textColor = textColor,
-            )
+        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
+            val pageColumns = pages[page]
+            val pageRow1 = pageColumns.mapNotNull { it.first }
+            val pageRow2 = pageColumns.mapNotNull { it.second }
+            Column {
+                ModifierBarButtonRow(
+                    items = pageRow1.map(presentation),
+                    buttonHeight = buttonHeight,
+                    textColor = textColor,
+                )
+                if (pageRow2.isNotEmpty()) {
+                    ModifierBarButtonRow(
+                        items = pageRow2.map(presentation),
+                        buttonHeight = buttonHeight,
+                        textColor = textColor,
+                    )
+                }
+            }
         }
     }
 }

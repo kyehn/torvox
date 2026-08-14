@@ -95,7 +95,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
 
     override fun onCreate(): Boolean = true
 
-    private fun getRootDir(): File = java.io.File(requireNotNull(context).filesDir, "home").also { dir ->
+    private fun getRootDir(): File = java.io.File(requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }.filesDir, "home").also { dir ->
         if (!dir.mkdirs()) {
             Log.w("DocumentsProvider", "Failed to create home directory: $dir")
         }

@@ -24,8 +24,13 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Keyboard
 import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
@@ -44,6 +49,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -51,6 +57,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -843,6 +850,30 @@ fun TerminalScreen(
                     )
                 }
             }
+            // Floating side button toggling the soft keyboard (termux
+            // KEYBOARD key equivalent): always available, even when the
+            // modifier bar is hidden. Hidden in Raw keyboard mode (no IME).
+            if (state.keyboardMode != terminal.emulator.input.KeyboardMode.Raw) {
+                val inputMethodManager =
+                    context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                        as android.view.inputmethod.InputMethodManager
+                SoftKeyboardToggle(
+                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 10.dp),
+                    onClick = {
+                        if (inputMethodManager.isAcceptingText) {
+                            inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
+                        } else {
+                            view.requestFocus()
+                            inputMethodManager.showSoftInput(
+                                view,
+                                android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT,
+                            )
+                        }
+                    },
+                    tint = resolvedTerminalTheme.foreground,
+                    background = resolvedTerminalTheme.background,
+                )
+            }
         }
     }
 }
@@ -962,6 +993,32 @@ private fun SelectionMenuItem(
             text = text,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             style = MaterialTheme.typography.labelMedium,
+        )
+    }
+}
+
+/** Floating round button that shows/hides the soft keyboard. */
+@Composable
+private fun SoftKeyboardToggle(
+    onClick: () -> Unit,
+    tint: Color,
+    background: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier =
+        modifier
+            .size(44.dp)
+            .clip(CircleShape)
+            .background(background.copy(alpha = 0.7f))
+            .clickable(onClick = onClick)
+            .testTag("KeyboardToggle"),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.Keyboard,
+            contentDescription = stringResource(R.string.toggle_keyboard),
+            tint = tint,
         )
     }
 }

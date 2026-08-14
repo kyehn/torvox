@@ -168,9 +168,9 @@ class SelectionExpanderTest {
 
     @Test
     fun `looksLikeFullUrl gates scheme and www`() {
-        assert(SelectionExpander.looksLikeFullUrl("https://example.com/path"))
-        assert(SelectionExpander.looksLikeFullUrl("www.example.com/path"))
-        assert(!SelectionExpander.looksLikeFullUrl("ordinary text"))
-        assert(!SelectionExpander.looksLikeFullUrl("not-a-url"))
+        assert(terminal.emulator.util.UrlToken.looksLikeFullUrl("https://example.com/path"))
+        assert(terminal.emulator.util.UrlToken.looksLikeFullUrl("www.example.com/path"))
+        assert(!terminal.emulator.util.UrlToken.looksLikeFullUrl("ordinary text"))
+        assert(!terminal.emulator.util.UrlToken.looksLikeFullUrl("not-a-url"))
     }
 }
