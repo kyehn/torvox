@@ -1404,6 +1404,36 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
     // holding the registry read lock that long would block destroySession/
     // initSession write locks (RwLock writer starvation).
     let mut pending_exits: Vec<(u64, Arc<Mutex<Session>>)> = Vec::new();
+    // Bell/clipboard/notification/exit polling is identical for the active
+    // session and every background session; single shared implementation.
+    let mut collect_session_events =
+        |session_id: u64,
+         session: &mut Session,
+         handle: &Arc<Mutex<Session>>,
+         events: &mut Vec<Event>,
+         exits: &mut Vec<(u64, Arc<Mutex<Session>>)>| {
+            if session.poll_bel() {
+                events.push(Event::Bell { session_id });
+            }
+            if let Some(text) = session.poll_clipboard() {
+                events.push(Event::Clipboard { session_id, text });
+            }
+            if let Some((title, body)) = session.poll_notification() {
+                events.push(Event::Notification {
+                    session_id,
+                    title,
+                    body,
+                });
+            }
+            // Only the first poll after the process exits reports it
+            // (mark_exit_reported); the sweep branch uses the same dedup so a
+            // slow consumer can never see duplicate Exit events for the same
+            // session. The exit code is read after both locks are released
+            // (see pending_exits below).
+            if session.is_exited() && session.mark_exit_reported() {
+                exits.push((session_id, handle.clone()));
+            }
+        };
     #[cfg(feature = "mcp")]
     let mut pending_clipboard_reads: Vec<(u64, String)> = Vec::new();
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
@@ -1419,19 +1449,6 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
                 // that are polled below. Without this call the terminal will
                 // never process output and the output channel deadlocks.
                 session.process_output();
-                // Check bell
-                if session.poll_bel() {
-                    pending_events.push(Event::Bell {
-                        session_id: active_id,
-                    });
-                }
-                // Check clipboard
-                if let Some(text) = session.poll_clipboard() {
-                    pending_events.push(Event::Clipboard {
-                        session_id: active_id,
-                        text,
-                    });
-                }
                 // Check OSC 52 clipboard read request (`ESC ] 52 ; c ; ?`).
                 // Collect the selection here (inside the session lock); the
                 // one-shot slot + responder thread are set up after the
@@ -1441,14 +1458,6 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
                 if let Some(selection) = session.poll_clipboard_read() {
                     pending_clipboard_reads.push((active_id, selection));
                 }
-                // Check notification (OSC 9)
-                if let Some((title, body)) = session.poll_notification() {
-                    pending_events.push(Event::Notification {
-                        session_id: active_id,
-                        title,
-                        body,
-                    });
-                }
                 // Check progress (OSC 9;4 ConEmu)
                 if let Some((state, value)) = session.poll_progress() {
                     pending_events.push(Event::Progress {
@@ -1457,14 +1466,13 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
                         value,
                     });
                 }
-                // Check exit. Only the first poll after the process exits
-                // reports it (mark_exit_reported); the sweep branch below uses
-                // the same dedup so a slow consumer can never see duplicate
-                // Exit events for the same session. The exit code is read
-                // after both locks are released (see pending_exits below).
-                if session.is_exited() && session.mark_exit_reported() {
-                    pending_exits.push((active_id, entry.session.clone()));
-                }
+                collect_session_events(
+                    active_id,
+                    &mut session,
+                    &entry.session,
+                    &mut pending_events,
+                    &mut pending_exits,
+                );
                 // Session lock is dropped here (end of the if-let block).
             }
         }
@@ -1485,25 +1493,13 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
             // Consume stale event flags immediately and push them with the
             // correct session_id. If left set, they would be replayed when
             // the session becomes active again minutes later (stale replay).
-            if session.poll_bel() {
-                pending_events.push(Event::Bell { session_id: *id });
-            }
-            if let Some(text) = session.poll_clipboard() {
-                pending_events.push(Event::Clipboard {
-                    session_id: *id,
-                    text,
-                });
-            }
-            if let Some((title, body)) = session.poll_notification() {
-                pending_events.push(Event::Notification {
-                    session_id: *id,
-                    title,
-                    body,
-                });
-            }
-            if session.is_exited() && session.mark_exit_reported() {
-                pending_exits.push((*id, entry.session.clone()));
-            }
+            collect_session_events(
+                *id,
+                &mut session,
+                &entry.session,
+                &mut pending_events,
+                &mut pending_exits,
+            );
         }
         // Registry read lock is released here.
     }

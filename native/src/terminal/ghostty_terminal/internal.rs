@@ -12,6 +12,7 @@ use super::commands::{Command, Query, RunConfig};
 use super::keymap::map_android_key_code;
 use super::types::*;
 use flume::Sender;
+use strsim::levenshtein as levenshtein_distance;
 
 /// Send a value over a channel, logging on failure.
 fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
@@ -1618,7 +1619,7 @@ impl super::GhosttyTerminal {
                                 .copied()
                                 .unwrap_or(search_line.len());
                             let window = &search_line[start..end];
-                            let dist = Self::levenshtein_distance(&search_query, window);
+                            let dist = levenshtein_distance(&search_query, window);
                             if dist <= max_distance {
                                 // Convert byte offsets to character columns:
                                 // rendering highlights by CellData.col (char
@@ -1664,31 +1665,5 @@ impl super::GhosttyTerminal {
             }
         }
         results
-    }
-
-    /// Compute the Levenshtein distance (edit distance) between two strings.
-    /// Uses the classic dynamic programming approach with O(min(m,n)) memory.
-    pub(crate) fn levenshtein_distance(a: &str, b: &str) -> usize {
-        let a_chars: Vec<char> = a.chars().collect();
-        let b_chars: Vec<char> = b.chars().collect();
-        let m = a_chars.len();
-        let n = b_chars.len();
-        // Use the shorter string as the column vector for memory efficiency
-        if m < n {
-            return Self::levenshtein_distance(b, a);
-        }
-        let mut prev: Vec<usize> = (0..=n).collect();
-        for i in 1..=m {
-            let mut current = i;
-            for j in 1..=n {
-                let cost = (a_chars[i - 1] != b_chars[j - 1]) as usize;
-                let next =
-                    std::cmp::min(std::cmp::min(current + 1, prev[j] + 1), prev[j - 1] + cost);
-                prev[j - 1] = current;
-                current = next;
-            }
-            prev[n] = current;
-        }
-        prev[n]
     }
 }
