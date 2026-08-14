@@ -27,6 +27,12 @@ class BootstrapOrchestrator(
     // downloading/installing into the same staging directory
     // concurrently (corrupting each other's files).
     companion object {
+        /** Machine-readable failure keys shown localized by the UI layer. */
+        const val ERROR_PRIMARY_USER_REQUIRED = "primary_user_required"
+        const val ERROR_ALREADY_IN_PROGRESS = "already_in_progress"
+        const val ERROR_NO_URL = "no_bootstrap_url"
+        const val ERROR_CANCELLED = "cancelled"
+
         private val processLock = Any()
         private val processInstalling = java.util.concurrent.atomic.AtomicBoolean(false)
     }
@@ -39,7 +45,7 @@ class BootstrapOrchestrator(
 
     suspend fun ensureBootstrap(bootstrapUrl: String): Result<String> = withContext(Dispatchers.IO) {
         if (installer.isInstalled()) {
-            return@withContext Result.success("Bootstrap already installed")
+            return@withContext Result.success("")
         }
         // Multi-user guard: the bootstrap writes into /data/data/com.termux
         // which is only accessible to the primary user (userId 0). Secondary
@@ -48,9 +54,7 @@ class BootstrapOrchestrator(
         // Android UIDs encode userId as uid / 100_000 (stable ABI contract).
         val userId = android.os.Process.myUid() / 100_000
         if (userId != 0) {
-            return@withContext Result.failure(
-                Exception("Bootstrap can only be installed by the primary user (owner profile)"),
-            )
+            return@withContext Result.failure(Exception(ERROR_PRIMARY_USER_REQUIRED))
         }
         // Mutex via CAS: two concurrent entry points (runtime start and
         // settings bootstrap button) must not both download/install into
@@ -58,7 +62,7 @@ class BootstrapOrchestrator(
         // in-progress files and corrupt the install. Retry is allowed
         // from both NOT_INSTALLED and ERROR.
         if (!processInstalling.compareAndSet(false, true)) {
-            return@withContext Result.failure(Exception("Bootstrap installation already in progress"))
+            return@withContext Result.failure(Exception(ERROR_ALREADY_IN_PROGRESS))
         }
         try {
             ensureBootstrapLocked(bootstrapUrl)
@@ -69,7 +73,7 @@ class BootstrapOrchestrator(
 
     private suspend fun ensureBootstrapLocked(bootstrapUrl: String): Result<String> {
         if (installer.isInstalled()) {
-            return Result.success("Bootstrap already installed")
+            return Result.success("")
         }
         synchronized(processLock) {
             state.set(Status.INSTALLING)
@@ -77,20 +81,20 @@ class BootstrapOrchestrator(
         val resolvedUrl = bootstrapUrl.ifBlank { getDefaultBootstrapUrl() }
         if (resolvedUrl.isBlank()) {
             state.set(Status.ERROR)
-            return Result.failure(Exception("No bootstrap URL available for this architecture"))
+            return Result.failure(Exception(ERROR_NO_URL))
         }
         try {
             onProgress?.onProgress(BootstrapProgress.Downloading(0, 0))
             val arch = detectAbi()
             val zipFile =
                 downloader.download(resolvedUrl, arch).getOrElse { exception ->
-                    onProgress?.onProgress(BootstrapProgress.Error("Download failed: ${exception.javaClass.simpleName}"))
+                    onProgress?.onProgress(BootstrapProgress.Error(exception.javaClass.simpleName))
                     state.set(Status.ERROR)
                     return Result.failure(Exception("Download failed: ${exception.javaClass.simpleName}"))
                 }
             try {
                 installer.install(zipFile).getOrElse { exception ->
-                    onProgress?.onProgress(BootstrapProgress.Error("Install failed: ${exception.javaClass.simpleName}"))
+                    onProgress?.onProgress(BootstrapProgress.Error(exception.javaClass.simpleName))
                     state.set(Status.ERROR)
                     return Result.failure(Exception("Install failed: ${exception.javaClass.simpleName}"))
                 }
@@ -99,16 +103,13 @@ class BootstrapOrchestrator(
                 // BootstrapInstaller.install() where the symlinks are
                 // actually created; a duplicate here would be out of order
                 //
-                val messages = mutableListOf("Bootstrap installed successfully")
-                if (secondStageResult.errors.isNotEmpty()) {
-                    // Include up to 3 failure details for diagnosis (each
-                    // already capped at 400 chars of stderr).
-                    messages.add("${secondStageResult.errors.size} postinst scripts had errors")
-                    secondStageResult.errors.take(3).forEach { messages.add("  - $it") }
-                }
                 onProgress?.onProgress(BootstrapProgress.Complete)
                 state.set(Status.INSTALLED)
-                return Result.success(messages.joinToString("; "))
+                // Success payload carries only post-install diagnostics (up
+                // to 3 stderr excerpts, each capped at 400 chars); the
+                // success headline is localized by the UI layer.
+                val details = secondStageResult.errors.take(3).joinToString("\n") { "- $it" }
+                return Result.success(details)
             } finally {
                 // Always drop the downloaded archive, including failure
                 // paths: a 150 MB file left in cacheDir is never reused.

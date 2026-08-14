@@ -99,7 +99,10 @@ fun ThemeEditorDialog(
                     .padding(16.dp),
             ) {
                 Text(
-                    "${if (isOverwriteExisting) "Edit" else "Create"} theme — ${theme.name}",
+                    stringResource(
+                        if (isOverwriteExisting) R.string.edit_theme_title else R.string.create_theme_title,
+                        theme.name,
+                    ),
                     style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurface,
                 )
@@ -110,7 +113,7 @@ fun ThemeEditorDialog(
                 OutlinedTextField(
                     value = newThemeName,
                     onValueChange = { newThemeName = it },
-                    label = { Text("Theme name") },
+                    label = { Text(stringResource(R.string.theme_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth().testTag("EditedThemeName"),
                 )
@@ -123,7 +126,7 @@ fun ThemeEditorDialog(
 
                 Spacer(Modifier.height(12.dp))
                 Text(
-                    "Tap a color to edit",
+                    stringResource(R.string.tap_a_color_to_edit),
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -137,7 +140,7 @@ fun ThemeEditorDialog(
                         .verticalScroll(rememberScrollState()),
                 ) {
                     ColorRow(
-                        label = "Background",
+                        label = stringResource(R.string.background),
                         color = working.background,
                         testTag = "EditBackground",
                         onClick = {
@@ -147,7 +150,7 @@ fun ThemeEditorDialog(
                         },
                     )
                     ColorRow(
-                        label = "Foreground",
+                        label = stringResource(R.string.foreground),
                         color = working.foreground,
                         testTag = "EditForeground",
                         onClick = {
@@ -157,7 +160,7 @@ fun ThemeEditorDialog(
                         },
                     )
                     ColorRow(
-                        label = "Cursor",
+                        label = stringResource(R.string.cursor_label),
                         color = working.cursor,
                         testTag = "EditCursor",
                         onClick = {
@@ -167,7 +170,7 @@ fun ThemeEditorDialog(
                         },
                     )
                     ColorRow(
-                        label = "Selection",
+                        label = stringResource(R.string.selection),
                         color = working.selectionBg,
                         testTag = "EditSelection",
                         onClick = {
@@ -178,7 +181,7 @@ fun ThemeEditorDialog(
                     )
                     ANSI_LABELS.forEachIndexed { index, c ->
                         ColorRow(
-                            label = "ANSI $index ($c)",
+                            label = stringResource(R.string.ansi_color, index, c),
                             color = working.ansi[index],
                             testTag = "EditAnsi$index",
                             onClick = {
@@ -206,13 +209,13 @@ fun ThemeEditorDialog(
                             },
                             enabled = dirty,
                             modifier = Modifier.weight(1f).testTag("OverwriteThemeButton"),
-                        ) { Text("Overwrite") }
+                        ) { Text(stringResource(R.string.overwrite)) }
                     }
                     Button(
                         onClick = { onSaveAsNew(working.copy(name = newThemeName.trim().ifEmpty { theme.name })) },
                         enabled = dirty,
                         modifier = Modifier.weight(1f).testTag("SaveAsNewThemeButton"),
-                    ) { Text("Save as new") }
+                    ) { Text(stringResource(R.string.save_as_new)) }
                 }
             }
         }
@@ -224,8 +227,17 @@ fun ThemeEditorDialog(
     val target = editTarget
     val initial = pickerInitial
     if (target != null && initial != null && updating) {
+        val targetName =
+            when (target) {
+                ColorTarget.Background -> stringResource(R.string.background)
+                ColorTarget.Foreground -> stringResource(R.string.foreground)
+                ColorTarget.Cursor -> stringResource(R.string.cursor_label)
+                ColorTarget.Selection -> stringResource(R.string.selection)
+                is ColorTarget.Ansi -> stringResource(R.string.ansi_color, target.index, ANSI_LABELS[target.index].toString())
+            }
         ColorPickerDialog(
-            title = "${if (isOverwriteExisting) "Edit" else "Create"} theme — ${target.label}",
+            title =
+            stringResource(if (isOverwriteExisting) R.string.edit_theme_title else R.string.create_theme_title, targetName),
             initialColor = initial,
             onColorChange = { color ->
                 when (target) {
@@ -259,28 +271,18 @@ fun ThemeEditorDialog(
     }
 }
 
+/** Which color the theme editor is currently editing (drives the picker
+ *  callback dispatch and the row labels). */
 private sealed interface ColorTarget {
-    val label: String
+    data object Background : ColorTarget
 
-    data object Background : ColorTarget {
-        override val label: String = "Background"
-    }
+    data object Foreground : ColorTarget
 
-    data object Foreground : ColorTarget {
-        override val label: String = "Foreground"
-    }
+    data object Cursor : ColorTarget
 
-    data object Cursor : ColorTarget {
-        override val label: String = "Cursor"
-    }
+    data object Selection : ColorTarget
 
-    data object Selection : ColorTarget {
-        override val label: String = "Selection"
-    }
-
-    data class Ansi(val index: Int) : ColorTarget {
-        override val label: String = "ANSI $index (${ANSI_LABELS[index]})"
-    }
+    data class Ansi(val index: Int) : ColorTarget
 }
 
 /** One editable color: label + current-color swatch + hex caption. */

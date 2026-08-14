@@ -320,7 +320,8 @@ object NativeBridge {
     @JvmStatic
     external fun getDefaultFontName(): String?
 
-    /** Human-readable font information ("Active:... / CJK fallback:..."). */
+    /** Structured font info as JSON (see [FontInfoDto]); null before the
+     *  renderer is initialized. */
     @JvmStatic
     external fun getFontInfo(): String?
 
@@ -375,6 +376,10 @@ object NativeBridge {
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
 
     external fun setCursorStyle(sessionId: Long, style: String)
+
+    /** App-level cursor color override in linear RGB (0..1 per channel);
+     *  0xFFFFFFFF sentinel clears the override (follow the terminal). */
+    external fun setCursorColor(sessionId: Long, r: Float, g: Float, b: Float)
 
     external fun setFontFamily(sessionId: Long, family: String): Boolean
 

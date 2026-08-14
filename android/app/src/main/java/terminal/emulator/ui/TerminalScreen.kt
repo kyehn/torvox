@@ -199,9 +199,12 @@ fun TerminalScreen(
         }
     }
 
-    LaunchedEffect(state.selection.active, state.selection.start, state.selection.end) {
+    LaunchedEffect(state.selection.active, state.selection.dragging, state.selection.start, state.selection.end) {
         val sel = state.selection
-        if (sel.active && sel.hasSelection) {
+        // Announce only on settle, not while the user is dragging a handle
+        // (start/end change every frame during a drag — announcing each one
+        // floods TalkBack).
+        if (sel.active && !sel.dragging && sel.hasSelection) {
             val text = sel.selectedText
             if (text.isNotEmpty()) {
                 val preview = if (text.length > 100) text.take(100) + "..." else text

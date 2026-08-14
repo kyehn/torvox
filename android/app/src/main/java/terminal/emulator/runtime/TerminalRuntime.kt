@@ -567,6 +567,13 @@ constructor(
                         entry.fastDeathRetryScheduled = false
                         renderSupervisor.startRenderThread(entry)
                     }
+                    // The respawned native session has no window attached
+                    // (spawnTerminal re-created it with a fresh session id).
+                    // Re-attach the surface so the render thread has
+                    // something to draw into — otherwise the fallback shell
+                    // runs but renders black frames until the next
+                    // surfaceCreated.
+                    attachPendingSurface(bridge)
                     LogUtil.w("Runtime", "fast-death respawn OK for session ${entry.id} (/system/bin/sh rows=$rows cols=$cols)")
                 } catch (exception: Exception) {
                     LogUtil.e("Runtime", "fast-death retry failed for session ${entry.id}", exception)
@@ -1299,6 +1306,22 @@ constructor(
                                             poll.screenshots.forEach { request ->
                                                 NativeBridge
                                                     .screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
+                                            }
+                                            poll.runCommands.forEach { request ->
+                                                // The command can never be dispatched
+                                                // now (the shell is gone); reply with
+                                                // an error payload instead of leaving
+                                                // the native oneshot hanging for 300s.
+                                                NativeBridge.runCommandResult(
+                                                    request.sessionId,
+                                                    request.requestId,
+                                                    runCommandPayload(
+                                                        exitCode = -1,
+                                                        errCode = ERR_CODE_EXCEPTION,
+                                                        stdout = "",
+                                                        stderr = "session exited before run_command completed",
+                                                    ),
+                                                )
                                             }
                                         } catch (replyException: Exception) {
                                             LogUtil.e(
@@ -2100,11 +2123,11 @@ constructor(
                     terminal.emulator.installer.BootstrapOrchestrator.Status.NOT_INSTALLED -> {
                         LogUtil.d("Runtime", "Bootstrap not installed, starting install...")
                         val result = installOrchestrator.ensureBootstrap(bootstrapUrl)
-                        // Result message may embed the full bootstrap URL on
-                        // failure (downloader exceptions include it); log only
-                        // the outcome class — the persistent log file must not
-                        // capture private tokens.
-                        val outcome = result.fold({ it }, { "failed: ${it.javaClass.simpleName}" })
+                        // The success payload carries only non-sensitive
+                        // post-install diagnostics; failure keys are short
+                        // and stable — the full exception is never logged so
+                        // the persistent log file cannot capture URLs.
+                        val outcome = result.fold({ it.ifEmpty { "ok" } }, { "failed: ${it.message}" })
                         LogUtil.d("Runtime", "Bootstrap result: $outcome")
                     }
 
@@ -3308,6 +3331,13 @@ constructor(
 
     private fun attachPendingSurface(bridge: terminal.emulator.bridge.Bridge) {
         val surface = pendingSurface ?: return
+        // The holder may have been destroyed while the bridge was spawning
+        // (onSurfaceDestroyed clears the field, but a racing read can still
+        // observe the stale value) — never attach a dead Surface.
+        if (!surface.isValid) {
+            pendingSurface = null
+            return
+        }
         bridge.attachSurface(surface, pendingSurfaceWidth, pendingSurfaceHeight)
         // the grid must match the font cell metrics against the
         // real surface. attachSurface makes the surface size authoritative;
@@ -3521,8 +3551,6 @@ constructor(
             previous.copy(
                 isRunning = sessions.isNotEmpty(),
                 title = currentTitle.ifEmpty { previous.title },
-                rows = previous.rows,
-                cols = previous.cols,
                 activeSessionId = activeSessionId,
                 sessionIds = sessions.keys.sorted(),
             )
@@ -3530,6 +3558,10 @@ constructor(
     }
 
     fun onSurfaceDestroyed() {
+        // A pending surface (start/attachSurface before the bridge existed)
+        // is stale the moment the holder is destroyed — attaching it later
+        // would hand the new bridge a dead Surface and render black frames.
+        pendingSurface = null
         for (entry in sessions.values) {
             entry.bridge?.setRenderPaused(true)
         }

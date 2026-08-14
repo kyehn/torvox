@@ -7,6 +7,27 @@ use super::{
     CJK_IDEOGRAPHIC_START, GlyphInfo, GlyphKey, GlyphSynthesis, PREFERRED_MONOSPACE_FONTS,
 };
 
+/// Structured font state for the Android UI layer. Serialized to JSON over
+/// JNI; all display formatting is done with string resources in Kotlin.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct FontInfo {
+    pub active: Option<FontInfoActive>,
+    /// CJK fallback state: "fallback" (families listed), "skipped"
+    /// (primary font covers CJK) or "none".
+    pub cjk_state: String,
+    /// CJK fallback family names when [cjk_state] is "fallback".
+    pub cjk_families: Vec<String>,
+    pub cell_width_px: f32,
+    pub cell_height_px: f32,
+    pub font_size_px: f32,
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub struct FontInfoActive {
+    pub name: String,
+    pub monospaced: bool,
+}
+
 pub struct FontPipeline {
     pub(crate) font_system: FontSystem,
     pub(crate) scaler_context: swash::scale::ScaleContext,
@@ -657,6 +678,52 @@ impl FontPipeline {
         parts.push(format!("Cell: {:.1}x{:.1}px", cw, ch));
         parts.push(format!("Font size: {:.1}px", self.font_size));
         parts.join("\n")
+    }
+
+    /// Structured font information for the UI layer (JNI). The renderer's
+    /// display strings live in Kotlin resources; this carries only data so
+    /// the Android side can localize each line.
+    pub fn font_info(&self) -> FontInfo {
+        let db = self.font_system.db();
+        let active = self.font_id.and_then(|id| db.face(id)).map(|face| {
+            let name = face.families.first().map_or("unknown", |(n, _)| n.as_str());
+            FontInfoActive {
+                name: name.to_string(),
+                monospaced: face.monospaced,
+            }
+        });
+        let cjk = self.cjk_fallback_names();
+        let (cjk_state, cjk_families) = if !cjk.is_empty() {
+            ("fallback".to_string(), cjk)
+        } else {
+            let primary_is_cjk = self.font_id.and_then(|id| db.face(id)).is_some_and(|face| {
+                face.families.iter().any(|(name, _)| {
+                    let l = name.to_lowercase();
+                    l.contains("cjk")
+                        || l.contains("chinese")
+                        || l.contains("japanese")
+                        || l.contains("korean")
+                        || l.contains(" sc")
+                        || l.contains(" tc")
+                        || l.contains(" jp")
+                        || l.contains(" kr")
+                })
+            });
+            if primary_is_cjk {
+                ("skipped".to_string(), Vec::new())
+            } else {
+                ("none".to_string(), Vec::new())
+            }
+        };
+        let (cw, ch) = self.cell_metrics();
+        FontInfo {
+            active,
+            cjk_state,
+            cjk_families,
+            cell_width_px: cw,
+            cell_height_px: ch,
+            font_size_px: self.font_size,
+        }
     }
 
     pub fn list_all_font_families(&self) -> Vec<String> {

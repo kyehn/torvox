@@ -40,6 +40,11 @@ import terminal.emulator.ui.theme.resolveMaterialColorScheme
 import java.io.File
 import javax.inject.Inject
 
+/** How long the settings-overlay pause waits for the bridge to appear
+ *  after a cold start before giving up (50ms × 50 = 2.5s). */
+private const val BRIDGE_READY_POLL_INTERVAL_MS = 50L
+private const val BRIDGE_READY_POLL_ATTEMPTS = 50
+
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
     companion object {
@@ -593,7 +598,23 @@ private fun TerminalNavHost(
     LaunchedEffect(viewModel) { viewModelReady(viewModel) }
     var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
     LaunchedEffect(showSettings) {
-        viewModel.runtime.bridge()?.setRenderPaused(showSettings)
+        // Closing settings resumes rendering immediately (the bridge exists
+        // by then); only the "open" transition needs the cold-start poll
+        // that waits for the bridge to appear.
+        if (!showSettings) {
+            viewModel.runtime.bridge()?.setRenderPaused(false)
+            return@LaunchedEffect
+        }
+        // The bridge is created asynchronously by the runtime after the
+        // first session spawns; polling for it here (bounded) prevents the
+        // pause state from being silently dropped on a cold start with
+        // `openSettingsOnLaunch`.
+        var attempts = 0
+        while (viewModel.runtime.bridge() == null && attempts < BRIDGE_READY_POLL_ATTEMPTS) {
+            kotlinx.coroutines.delay(BRIDGE_READY_POLL_INTERVAL_MS)
+            attempts++
+        }
+        viewModel.runtime.bridge()?.setRenderPaused(true)
     }
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val appThemeMode = settings.appThemeMode
