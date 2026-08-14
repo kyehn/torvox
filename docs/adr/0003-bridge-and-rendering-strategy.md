@@ -108,4 +108,4 @@ No grid data crosses the FFI boundary. Kotlin interacts only via:
 
 ## Status Note (Jul 2026)
 
-This decision has been fully implemented. The boltffi/JNA bridge was replaced with direct JNI (commit f1ed93d). All GPU rendering stays in Rust behind JNI. Kotlin receives only JNI events (title/bell/clipboard/exit) via `pollEvent()`. The `jni_bridge.rs` handles ANativeWindow surface extraction. No terminal grid data crosses the FFI boundary.
+This decision has been fully implemented. The boltffi/JNA bridge was replaced with direct JNI (commit ffc7713). All GPU rendering stays in Rust behind JNI. Kotlin receives only JNI events (title/bell/clipboard/exit) via `pollEvent()`. The `jni_bridge.rs` handles ANativeWindow surface extraction. No terminal grid data crosses the FFI boundary.

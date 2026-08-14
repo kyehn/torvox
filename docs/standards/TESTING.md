@@ -137,7 +137,7 @@ These checks run as part of `tool_lint.rs` (see `cargo test -p integration-tests
 
 ## Test Pyramid & Coverage Snapshot
 
-（2026-08 吸收自 `docs/test-strategy-research.md` 与 `docs/test-coverage-audit.md`，
+（吸收自 `docs/test-strategy-research.md` 与 `docs/test-coverage-audit.md`，
 原文已删除；未落地项的登记见 `docs/rejected-technologies.md` §7c。）
 
 ### 五层测试金字塔（用例数量占比）
@@ -158,7 +158,7 @@ These checks run as part of `tool_lint.rs` (see `cargo test -p integration-tests
 | Instrumented（~10%） | 真实 JNI/.so 加载、wgpu 帧输出、Roborazzi 截图像素、真实 IME、手势、Cucumber、LeakCanary | Espresso / UiAutomator / Roborazzi / Cucumber |
 | E2E（~5%） | 启动→会话→命令→搜索→设置→主题→选择/复制粘贴关键旅程 | maestro（`scripts/test-emulator.nu`，`--include-tags smoke,e2e` 22 flows） |
 
-### 覆盖率基线（2026-08-02 审计时点）
+### 覆盖率基线（审计时点）
 
 约 1640 测试点：Rust 单测 1052 + integration-tests 79 + terminal_render_test 47 +
 tool_lint 15 + jni_bridge_test 2 + exec-bin 3 + Kotlin JVM 7 + Kotlin instrumented 331
@@ -169,7 +169,7 @@ tool_lint 15 + jni_bridge_test 2 + exec-bin 3 + Kotlin JVM 7 + Kotlin instrument
 
 ## Benchmarks & Performance Thresholds
 
-（2026-08 吸收自 `docs/performance.md` 与 `docs/project-health.md` §5，原文已删除；
+（吸收自 `docs/performance.md` 与 `docs/project-health.md` §5，原文已删除；
 基准命令与阈值断言以 bench 代码为准，本节为运行方式与典型值记录。）
 
 **运行命令**：`cargo test --features test-util -- bench`（`#[bench]` 门控，默认 debug
@@ -198,7 +198,7 @@ Lavapipe `.json` ICD（由 `nix develop` shell 提供）；无设备时 GPU 依�
 `vt_color_foreground_red` / `vt_color_reset` 在 Lavapipe fp16 blend 下颜色精度 0.9→0.8
 （真机 Adreno/Mali 通过），阈值已放宽，见 `docs/rejected-technologies.md` §7c-A D28。
 
-**模拟器性能基线**（2026-08-06 emulator-5554，1080x2400, 420dpi, SwiftShader）：
+**模拟器性能基线**（emulator-5554，1080x2400, 420dpi, SwiftShader）：
 1.8fps 是软件渲染 1080x2400（约 8.3M 像素/帧）的硬件极限，**不是 app 缺陷**：
 `build_instances` 在 native bench 为 475+ fps（CJK 缓存后 release 5107 fps），
 `grid_dirty` 门控确保 idle 不重绘。模拟器帧率测试的价值是**回归检测**：app 侧

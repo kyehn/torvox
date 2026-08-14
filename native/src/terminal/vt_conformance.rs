@@ -1696,7 +1696,7 @@ fn xtwinops_20_report_icon_label_detection() {
 #[test]
 fn xtwinops_21_report_window_title_detection() {
     let mut t = term();
-    t.vt_write(b"[21t");
+    t.vt_write(b"\x1b[21t");
     t.flush();
     let _responses = t.drain_pty_write_responses();
     check_invariants(&t);

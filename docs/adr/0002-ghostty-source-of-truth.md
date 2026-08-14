@@ -90,4 +90,4 @@ per-session threads).
 
 ## Status Note (Jul 2026)
 
-This decision has been fully implemented. `terminal-core` (the separate data-model crate) was deleted in Phase 3 (commit cf48ec0). Ghostty is now the single source of truth for all terminal state. Cell data flows through `CellIterator` → `CellData` → `CellInstance` pipeline. The `#![no_std]` constraint is also removed since `terminal-core` no longer exists.
+This decision has been fully implemented. `terminal-core` (the separate data-model crate) was deleted in Phase 3 (commit 74002cb). Ghostty is now the single source of truth for all terminal state. Cell data flows through `CellIterator` → `CellData` → `CellInstance` pipeline. The `#![no_std]` constraint is also removed since `terminal-core` no longer exists.
