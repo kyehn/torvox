@@ -1,6 +1,0 @@
-[profile.ci]
-slow-timeout = { period = "30s" }
-test-threads = 2
-
-[profile.ci.junit]
-path = "junit.xml"
