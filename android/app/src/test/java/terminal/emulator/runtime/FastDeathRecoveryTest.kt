@@ -75,4 +75,35 @@ class FastDeathRecoveryTest {
         assertEquals("attempt 5 → capped at 5000ms", 5000L, fastDeathBackoffMs(5))
         assertEquals("attempt 10 → capped at 5000ms", 5000L, fastDeathBackoffMs(10))
     }
+
+    @Test
+    fun resolveAliveMs_prefers_native_measurement() {
+        assertEquals("native alive_ms wins", 3_000L, resolveAliveMs(aliveMs = 3_000, nowMs = 9_000, spawnedAtMs = 1_000))
+    }
+
+    @Test
+    fun resolveAliveMs_falls_back_to_wall_clock_when_native_missing() {
+        // aliveMs <= 0 means the event predates the native field.
+        assertEquals("zero alive_ms falls back", 8_000L, resolveAliveMs(aliveMs = 0, nowMs = 9_000, spawnedAtMs = 1_000))
+        assertEquals("negative alive_ms falls back", 8_000L, resolveAliveMs(aliveMs = -1, nowMs = 9_000, spawnedAtMs = 1_000))
+        // A clock anomaly must not produce a negative lifetime.
+        assertEquals("fallback clamps to zero", 0L, resolveAliveMs(aliveMs = 0, nowMs = 1_000, spawnedAtMs = 9_000))
+    }
+
+    @Test
+    fun deadRenderRestartDelay_doubles_up_to_max() {
+        assertEquals("100 → 200", 200L, nextRestartDelayMs(100L, maxDelayMs = 1_000L))
+        assertEquals("200 → 400", 400L, nextRestartDelayMs(200L, maxDelayMs = 1_000L))
+        assertEquals("400 → 800", 800L, nextRestartDelayMs(400L, maxDelayMs = 1_000L))
+        assertEquals("800 → capped at 1000", 1_000L, nextRestartDelayMs(800L, maxDelayMs = 1_000L))
+        assertEquals("1000 stays capped", 1_000L, nextRestartDelayMs(1_000L, maxDelayMs = 1_000L))
+    }
+
+    @Test
+    fun deadRenderRestartBudget_closes_after_max_attempts() {
+        assertFalse("attempt 5 (== max) still restarts", shouldCloseDeadRender(restartAttempts = 5, maxAttempts = 5))
+        assertTrue("attempt 6 exceeds the budget", shouldCloseDeadRender(restartAttempts = 6, maxAttempts = 5))
+        assertTrue("attempt 10 exceeds the budget", shouldCloseDeadRender(restartAttempts = 10, maxAttempts = 5))
+        assertFalse("attempt 0 restarts", shouldCloseDeadRender(restartAttempts = 0, maxAttempts = 5))
+    }
 }
