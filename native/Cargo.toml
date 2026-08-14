@@ -25,6 +25,7 @@ parking_lot = "0.12"
 log = { workspace = true }
 regex = "1"
 lru = { workspace = true }
+strsim = { workspace = true }
 futures = { workspace = true }
 bytemuck = { workspace = true }
 thiserror = { workspace = true }

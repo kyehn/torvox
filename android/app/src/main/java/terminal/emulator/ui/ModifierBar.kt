@@ -116,10 +116,10 @@ private fun composeLookup(
 /** F1-F12 escape sequences (XTerm function-key codes). */
 private val FN_KEY_SEQUENCES: List<Pair<String, String>> =
     listOf(
-        "F1" to "\u001b[11P",
-        "F2" to "\u001b[12Q",
-        "F3" to "\u001b[13R",
-        "F4" to "\u001b[14S",
+        "F1" to "\u001bOP",
+        "F2" to "\u001bOQ",
+        "F3" to "\u001bOR",
+        "F4" to "\u001bOS",
         "F5" to "\u001b[15~",
         "F6" to "\u001b[17~",
         "F7" to "\u001b[18~",
@@ -131,31 +131,6 @@ private val FN_KEY_SEQUENCES: List<Pair<String, String>> =
     )
 
 enum class ModifierBarMode { Normal, SelectionActions }
-
-data class ModifierKey(
-    val key: String,
-    val display: String,
-    val ctrl: Boolean = false,
-    val alt: Boolean = false,
-    val isToggle: Boolean = false,
-    val isSessionButton: Boolean = false,
-) {
-    val label: String get() = display
-}
-
-val defaultModifierKeys: List<ModifierKey> =
-    listOf(
-        ModifierKey("ctrl", "CTRL", isToggle = true),
-        ModifierKey("alt", "ALT", isToggle = true),
-        ModifierKey("esc", "ESC"),
-        ModifierKey("tab", "TAB"),
-        ModifierKey("up", "\u2191"),
-        ModifierKey("down", "\u2193"),
-        ModifierKey("left", "\u2190"),
-        ModifierKey("right", "\u2192"),
-        ModifierKey("pgup", "PGUP"),
-        ModifierKey("pgdn", "PGDN"),
-    )
 
 @Composable
 fun rememberToolbarLayout(): List<ToolbarItem>? {
