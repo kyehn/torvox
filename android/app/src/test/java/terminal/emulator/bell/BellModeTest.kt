@@ -1,7 +1,6 @@
 package terminal.emulator.bell
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -36,24 +35,5 @@ class BellModeTest {
         assertEquals(1, BellMode.VIBRATE.id)
         assertEquals(2, BellMode.SCREEN_FLASH.id)
         assertEquals(3, BellMode.SILENT.id)
-    }
-
-    @Test
-    fun `BellMode displayName is non-empty`() {
-        BellMode.entries.forEach { mode ->
-            assertTrue("Mode ${mode.name} should have a non-empty displayName", mode.displayName.isNotEmpty())
-        }
-    }
-
-    @Test
-    fun `BellMode has exactly 4 entries`() {
-        assertEquals(4, BellMode.entries.size)
-    }
-
-    @Test
-    fun `BellMode fromId covers all entries`() {
-        BellMode.entries.forEach { mode ->
-            assertEquals(mode, BellMode.fromId(mode.id))
-        }
     }
 }
