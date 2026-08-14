@@ -148,15 +148,15 @@ class DocumentsProviderTest {
         val provider = ensureProvider()
         val docId = provider.createDocument("terminal_home", "text/plain", "newfile.txt")
         val file = java.io.File(rootDir(), "newfile.txt")
-        assert(file.exists()) { "createDocument must create the file" }
-        assert(file.isFile) { "created document must be a file" }
+        assertEquals("createDocument must create the file", true, file.exists())
+        assertTrue("created document must be a file", file.isFile)
         // Query it back (round-trip).
         val cursor = provider.queryDocument(docId, null)
-        assert(cursor.moveToFirst()) { "created doc must be queryable" }
+        assertTrue("created doc must be queryable", cursor.moveToFirst())
         cursor.close()
         // Delete it.
         provider.deleteDocument(docId)
-        assert(!file.exists()) { "file must be gone after delete" }
+        assertEquals("file must be gone after delete", false, file.exists())
     }
 
     @Test
