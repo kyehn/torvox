@@ -82,11 +82,11 @@ requirements:
     description: "The system SHALL support cursor positioning and movement (CUU, CUD, CUF, CUB, CUP, HVP, etc.) and cursor style (block, bar, underline, beam) with visible/hidden state."
     design:
       - "docs/architecture.md#52-module-responsibilities"
-      - "native/src/terminal/cursor_cmds.rs"
+      - "native/src/terminal/vt_conformance.rs"
       - "native/src/terminal/ghostty_terminal/types.rs"
     api: []
     tests:
-      - "native/src/terminal/cursor_cmds.rs"
+      - "native/src/terminal/vt_conformance.rs"
       - "native/src/terminal/ghostty_terminal/tests.rs"
     verification: "cargo test --package native"
 

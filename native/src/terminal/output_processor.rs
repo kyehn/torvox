@@ -316,6 +316,92 @@ mod tests {
     }
 
     #[test]
+    fn shell_integration_command_executed() {
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"\x1b]133;D\x1b\\");
+        assert_eq!(snap.shell_integration, ShellIntegration::CommandExecuted);
+    }
+
+    #[test]
+    fn shell_integration_exit_code() {
+        // `D;exit_code` carries the command exit code (termlib
+        // OscParser handleOsc133 COMMAND_FINISHED marker).
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"\x1b]133;D;0\x1b\\");
+        assert_eq!(snap.shell_integration, ShellIntegration::CommandExecuted);
+        assert_eq!(snap.shell_exit_code, Some(0));
+        let snap = proc.process(b"\x1b]133;D;42\x1b\\");
+        assert_eq!(snap.shell_exit_code, Some(42));
+        // Plain D has no exit code.
+        let snap = proc.process(b"\x1b]133;D\x1b\\");
+        assert_eq!(snap.shell_exit_code, None);
+        // A/B/C never carry exit codes.
+        let snap = proc.process(b"\x1b]133;C\x1b\\");
+        assert_eq!(snap.shell_exit_code, None);
+    }
+
+    #[test]
+    fn shell_integration_empty_osc() {
+        let mut proc = OutputProcessor::new();
+        assert_eq!(
+            proc.process(b"\x1b]133;\x07").shell_integration,
+            ShellIntegration::None
+        );
+        assert_eq!(
+            proc.process(b"\x1b]133;\x1b\\").shell_integration,
+            ShellIntegration::None
+        );
+    }
+
+    #[test]
+    fn shell_integration_unknown_marker() {
+        let mut proc = OutputProcessor::new();
+        assert_eq!(
+            proc.process(b"\x1b]133;X\x07").shell_integration,
+            ShellIntegration::None
+        );
+    }
+
+    #[test]
+    fn shell_integration_incomplete_sequence() {
+        // Truncated OSC (no terminator yet) must not fire a marker.
+        let mut proc = OutputProcessor::new();
+        assert_eq!(
+            proc.process(b"\x1b]133;C").shell_integration,
+            ShellIntegration::None
+        );
+        assert_eq!(
+            proc.process(b"\x1b]133;").shell_integration,
+            ShellIntegration::None
+        );
+    }
+
+    #[test]
+    fn shell_integration_mixed_terminators() {
+        // Both BEL and ST terminators are accepted for the same marker.
+        let mut proc = OutputProcessor::new();
+        assert_eq!(
+            proc.process(b"\x1b]133;A\x07").shell_integration,
+            ShellIntegration::PromptStart
+        );
+        let mut proc = OutputProcessor::new();
+        assert_eq!(
+            proc.process(b"\x1b]133;A\x1b\\").shell_integration,
+            ShellIntegration::PromptStart
+        );
+    }
+
+    #[test]
+    fn shell_integration_detects_marker_in_surrounding_text() {
+        let mut proc = OutputProcessor::new();
+        assert_eq!(
+            proc.process(b"$ \x1b]133;C\x07 echo hello")
+                .shell_integration,
+            ShellIntegration::CommandStart
+        );
+    }
+
+    #[test]
     fn last_command_output_captures_between_b_and_c() {
         let mut proc = OutputProcessor::new();
         proc.process(b"\x1b]133;A\x07$ \x1b]133;B\x07echo hello\x1b]133;C\x07hello");

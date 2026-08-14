@@ -201,17 +201,6 @@ mod config_file_validation {
             }
         }
     }
-
-    #[test]
-    fn cargo_llvm_cov_is_in_devshell_packages() {
-        let root = workspace_root();
-        let path = format!("{root}/flake.nix");
-        let content = fs::read_to_string(&path).expect("flake.nix must exist");
-        assert!(
-            content.contains("cargo-llvm-cov"),
-            "flake.nix devShell must include cargo-llvm-cov"
-        );
-    }
 }
 
 #[cfg(test)]

@@ -1302,6 +1302,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
     })
 }
 
+// JNI export bodies may legitimately take many arguments: the parameter
+// list is dictated by the Kotlin `NativeBridge` declaration, not by design
+// choice. The argument count is fixed by the ABI and cannot be reduced
+// without a coordinated Kotlin change.
+#[allow(clippy::too_many_arguments)]
 fn encode_mouse_event_inner(
     env: &mut JNIEnv,
     session_id: jlong,

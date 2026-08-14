@@ -51,6 +51,24 @@ pub fn terminal_env_overlay() -> &'static [(String, EnvOp)] {
     TERMINAL_ENV_OVERLAY.get().map_or(&[], |v| v.as_slice())
 }
 
+/// Apply an environment overlay to a `(key, value)` list: `Set` replaces
+/// any existing entry (moving it to the end), `Remove` deletes the key.
+/// Pure function — the global [`terminal_env_overlay`] is applied to
+/// child-process environments through this same path.
+pub fn apply_env_overlay(result: &mut Vec<(String, String)>, overlay: &[(String, EnvOp)]) {
+    for (key, op) in overlay {
+        match op {
+            EnvOp::Set(val) => {
+                result.retain(|(k, _)| k != key);
+                result.push((key.clone(), val.clone()));
+            }
+            EnvOp::Remove => {
+                result.retain(|(k, _)| k != key);
+            }
+        }
+    }
+}
+
 /// Parse "KEY=VALUE" entries into (key, value) pairs. The first '=' splits
 /// key from value (values may contain '='); entries without '=' or with an
 /// empty/whitespace-only key are skipped. Trimmed keys, untrimmed values —
@@ -193,20 +211,65 @@ mod tests {
     }
 
     #[test]
-    fn register_overlay_once_is_idempotent() {
-        register_terminal_env_overlay(vec![("TEST_OVERLAY".into(), EnvOp::Set("1".into()))]);
-        register_terminal_env_overlay(vec![]);
-        assert!(!terminal_env_overlay().is_empty());
+    fn apply_env_overlay_set_replaces_existing_key() {
+        // `Set` on an already-present key replaces the value (and moves
+        // the entry to the end); this is the "overlay overrides" contract
+        // the Kotlin settings editor relies on.
+        let mut result = vec![("MY_KEY".to_string(), "old".to_string())];
+        apply_env_overlay(&mut result, &[("MY_KEY".into(), EnvOp::Set("new".into()))]);
+        assert_eq!(result, vec![("MY_KEY".to_string(), "new".to_string())]);
     }
 
     #[test]
-    fn overlay_set_overrides_existing() {
-        let mut env = ShellEnv::default();
-        env.extra.push(("MY_KEY".into(), "old".into()));
-        // Simulate overlay
-        register_terminal_env_overlay(vec![("MY_KEY".into(), EnvOp::Set("new".into()))]);
-        // In build_env the overlay would replace old with new
-        let overlay = terminal_env_overlay();
-        assert!(overlay.iter().any(|(k, _)| k == "MY_KEY"));
+    fn apply_env_overlay_set_appends_new_key() {
+        let mut result = vec![("OTHER".to_string(), "v".to_string())];
+        apply_env_overlay(&mut result, &[("MY_KEY".into(), EnvOp::Set("new".into()))]);
+        assert_eq!(
+            result,
+            vec![
+                ("OTHER".to_string(), "v".to_string()),
+                ("MY_KEY".to_string(), "new".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn apply_env_overlay_remove_deletes_key() {
+        let mut result = vec![
+            ("A".to_string(), "1".to_string()),
+            ("B".to_string(), "2".to_string()),
+        ];
+        apply_env_overlay(&mut result, &[("A".into(), EnvOp::Remove)]);
+        assert_eq!(result, vec![("B".to_string(), "2".to_string())]);
+    }
+
+    #[test]
+    fn apply_env_overlay_remove_absent_key_is_noop() {
+        let mut result = vec![("A".to_string(), "1".to_string())];
+        apply_env_overlay(&mut result, &[("MISSING".into(), EnvOp::Remove)]);
+        assert_eq!(result, vec![("A".to_string(), "1".to_string())]);
+    }
+
+    #[test]
+    fn apply_env_overlay_multiple_ops_in_order() {
+        let mut result = vec![
+            ("K1".to_string(), "a".to_string()),
+            ("K2".to_string(), "b".to_string()),
+        ];
+        apply_env_overlay(
+            &mut result,
+            &[
+                ("K1".into(), EnvOp::Set("x".into())),
+                ("K2".into(), EnvOp::Remove),
+                ("K3".into(), EnvOp::Set("z".into())),
+            ],
+        );
+        assert_eq!(
+            result,
+            vec![
+                ("K1".to_string(), "x".to_string()),
+                ("K3".to_string(), "z".to_string())
+            ]
+        );
     }
 }

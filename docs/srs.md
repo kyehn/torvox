@@ -217,7 +217,7 @@ scripts = Nushell only；MCP embedded in `native/`；AOSP testkey only
 | FR-003 | The system SHALL support SGR (Select Graphic Rendition) parameters: bold, dim, italic, underline, double underline, blink, reverse, hidden, strikethrough, overline, and protected. | `native/src/terminal/sgr_parser.rs` |
 | FR-004 | The system SHALL support 16 ANSI color palette indices plus 256-color and truecolor (24-bit RGB) foreground/background specifications. | `native/src/terminal/ghostty_terminal/types.rs` |
 | FR-005 | The system SHALL support alternate screen buffer mode (SM/RM 1049) for full-screen applications (e.g., vim, less). | `native/src/terminal/ghostty_terminal/internal.rs` |
-| FR-006 | The system SHALL support cursor positioning and movement (CUU, CUD, CUF, CUB, CUP, HVP, etc.) and cursor style (block, bar, underline, beam) with visible/hidden state. | `native/src/terminal/ghostty_terminal/types.rs`, `native/src/terminal/cursor_cmds.rs` |
+| FR-006 | The system SHALL support cursor positioning and movement (CUU, CUD, CUF, CUB, CUP, HVP, etc.) and cursor style (block, bar, underline, beam) with visible/hidden state. | `native/src/terminal/ghostty_terminal/types.rs`, `native/src/terminal/vt_conformance.rs` |
 | FR-007 | The system SHALL support scrolling regions (`scroll_up`, `scroll_down`, `insert_lines`, `delete_lines`) with configurable top/bottom boundaries. | `native/src/terminal/ghostty_terminal/internal.rs` |
 | FR-008 | The system SHALL support tab stops (set, clear, move). | `native/src/terminal/action_parser.rs` |
 | FR-009 | The system SHALL report terminal size changes via `SIGWINCH` to the child process. | `native/src/terminal/session.rs` |
@@ -441,7 +441,7 @@ per-pixel rendering.
 | `native/src/terminal/pty.rs` | PTY pair creation (fork/exec) |
 | `native/src/terminal/osc_handler.rs` | OSC 7/8/9/52/777 interceptor |
 | `native/src/terminal/sgr_parser.rs` | SGR attribute parser |
-| `native/src/terminal/cursor_cmds.rs` | Cursor movement commands |
+| `native/src/terminal/vt_conformance.rs` | VT conformance tests incl. cursor movement |
 | `native/src/terminal/action_parser.rs` | Tab stops, other control actions |
 | `native/src/render/context.rs` | GpuContext, wgpu state |
 | `native/src/render/pass.rs` | Per-frame rendering (cursor, selection, kgp) |

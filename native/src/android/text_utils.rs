@@ -168,4 +168,100 @@ mod tests {
         assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
         assert_eq!(vars["TERMUX__PREFIX"], "/");
     }
+
+    // ── cell_line_text ────────────────────────────────────────────
+
+    fn cell(codepoint: u32, width: u8) -> crate::terminal::ghostty_terminal::CellSnapshot {
+        crate::terminal::ghostty_terminal::CellSnapshot {
+            codepoint,
+            graphemes: vec![],
+            foreground: [0.0; 4],
+            background: [0.0; 4],
+            bold: false,
+            dim: false,
+            italic: false,
+            underline: false,
+            reverse: false,
+            strikethrough: false,
+            blink: false,
+            hidden: false,
+            uri: None,
+            semantic: crate::terminal::ghostty_terminal::SemanticContent::Output,
+            overline: false,
+            double_underline: false,
+            width,
+        }
+    }
+
+    #[test]
+    fn cell_line_text_ascii_joins_in_order() {
+        let cells = [
+            cell(b'a' as u32, 1),
+            cell(b'b' as u32, 1),
+            cell(b'c' as u32, 1),
+        ];
+        assert_eq!(cell_line_text(&cells), "abc");
+    }
+
+    #[test]
+    fn cell_line_text_wide_char_duplicates_column() {
+        // A width-2 cell contributes two copies so the char index matches
+        // the terminal column index.
+        let cells = [cell('中' as u32, 2), cell(b'x' as u32, 1)];
+        assert_eq!(cell_line_text(&cells), "中中x");
+    }
+
+    #[test]
+    fn cell_line_text_skips_continuation_cells() {
+        // codepoint 0 = continuation of a wide char — must not emit a
+        // spurious char.
+        let cells = [cell('中' as u32, 2), cell(0, 2), cell(b'y' as u32, 1)];
+        assert_eq!(cell_line_text(&cells), "中中y");
+    }
+
+    #[test]
+    fn cell_line_text_empty() {
+        assert_eq!(cell_line_text(&[]), "");
+    }
+
+    // ── encode_modifiers ──────────────────────────────────────────
+
+    #[test]
+    fn encode_modifiers_plain_passthrough() {
+        assert_eq!(encode_modifiers(b"hello", 0), b"hello");
+    }
+
+    #[test]
+    fn encode_modifiers_ctrl_printable_uses_mask() {
+        // Ctrl+A → 0x01, Ctrl+Z → 0x1A.
+        assert_eq!(encode_modifiers(b"a", 4), b"\x01");
+        assert_eq!(encode_modifiers(b"z", 4), b"\x1a");
+    }
+
+    #[test]
+    fn encode_modifiers_ctrl_non_printable_passthrough() {
+        // Ctrl on a pre-existing control char passes it through unchanged.
+        assert_eq!(encode_modifiers(b"\x01", 4), b"\x01");
+        // Ctrl on non-ASCII bytes passes them through unchanged.
+        assert_eq!(encode_modifiers(&[0xC3, 0xA9], 4), b"\xc3\xa9");
+    }
+
+    #[test]
+    fn encode_modifiers_alt_prefixes_esc() {
+        assert_eq!(encode_modifiers(b"a", 2), b"\x1ba");
+        // Meta (8) behaves like Alt.
+        assert_eq!(encode_modifiers(b"a", 8), b"\x1ba");
+    }
+
+    #[test]
+    fn encode_modifiers_ctrl_alt_combined() {
+        // Alt+Ctrl+A → ESC + Ctrl+A.
+        assert_eq!(encode_modifiers(b"a", 2 | 4), b"\x1b\x01");
+    }
+
+    #[test]
+    fn encode_modifiers_ctrl_multichar_no_mask() {
+        // Ctrl with more than one byte: no single char to mask, passes through.
+        assert_eq!(encode_modifiers(b"ab", 4), b"ab");
+    }
 }
