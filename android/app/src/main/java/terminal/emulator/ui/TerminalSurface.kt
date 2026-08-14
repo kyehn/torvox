@@ -1094,6 +1094,7 @@ constructor(
         private const val MENU_ACTION_SELECT_ALL = 2
         private const val MENU_ACTION_PASTE = 3
         private const val MENU_ACTION_ANCHOR_LEFT = 4
+        private const val WIDE_CHAR_CACHE_TTL_MS = 500L
         private const val MENU_ACTION_ANCHOR_RIGHT = 5
 
         // Floating toolbar anchor offset below the selection top (termux
@@ -1179,6 +1180,14 @@ constructor(
     // MotionEvent, so it is throttled to ~10 Hz and the cached value is
     // used in between — prevents UI-thread jank / ANR during scroll.
     @Volatile private var cachedScrollbackLength: Int = 0
+
+    /** One-entry cache for [snapToWideCharBoundary]: avoids a JNI
+     *  scrollbackLine copy on every handle-drag MOVE within the same row.
+     *  Time-bounded so a long drag cannot serve a stale line after the
+     *  shell rewrote the row. */
+    private var cachedWideCharLineRow = -1
+    private var cachedWideCharLine: String? = null
+    private var cachedWideCharLineAtMs = 0L
     private var lastScrollbackQueryNanos: Long = 0L
 
     var touchEnabled: Boolean = true
@@ -1372,7 +1381,20 @@ constructor(
     ): Int {
         if (col <= 0) return col
         val bridge = viewModel?.runtime?.bridge() ?: return col
-        val line = bridge.scrollbackLine(gridRow) ?: return col
+        // Cache the last queried row (time-bounded): during a handle drag
+        // the row is stable for long stretches (only col moves), and
+        // scrollbackLine copies a whole line across JNI on every call.
+        val nowMs = SystemClock.uptimeMillis()
+        val line =
+            if (gridRow == cachedWideCharLineRow && nowMs - cachedWideCharLineAtMs < WIDE_CHAR_CACHE_TTL_MS) {
+                cachedWideCharLine
+            } else {
+                bridge.scrollbackLine(gridRow)?.also {
+                    cachedWideCharLineRow = gridRow
+                    cachedWideCharLine = it
+                    cachedWideCharLineAtMs = nowMs
+                }
+            } ?: return col
         var cell = 0
         var i = 0
         while (i < line.length) {
@@ -2255,19 +2277,11 @@ constructor(
         keyCode: Int,
         event: KeyEvent,
     ): Boolean {
-        val terminalViewModel = viewModel
-        val bridge = terminalViewModel?.runtime?.bridge()
-        if (bridge != null) {
-            val modifiers = modifierBitmask(event)
-            val action: Int = 1 // KeyEvent.ACTION_UP = 1
-            val unicodeChar = event.unicodeChar
-            val unshiftedChar = event.getUnicodeChar(event.metaState and KeyEvent.META_SHIFT_MASK.inv())
-            val success = bridge.processKeyEvent(keyCode, modifiers, action, unicodeChar, unshiftedChar)
-            if (success) return true
-        }
-        // Symmetric with onKeyDown: unhandled keys fall through to the
-        // system so key-up semantics (long-press repeat, system gestures)
-        // are not swallowed.
+        // Key-up is intentionally NOT forwarded to the bridge: Bridge's
+        // processKeyEvent drops every non-ACTION_DOWN (writing on UP would
+        // double each keystroke), so it always returns false here. Fall
+        // through to the system so key-up semantics (long-press repeat,
+        // system gestures) are not swallowed.
         return super.onKeyUp(keyCode, event)
     }
 

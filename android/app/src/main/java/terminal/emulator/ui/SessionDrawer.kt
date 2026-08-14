@@ -110,7 +110,7 @@ fun SessionDrawer(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            items(state.sessions) { session ->
+            items(state.sessions, key = { it.id }) { session ->
                 SessionItem(
                     title = session.title,
                     isActive = session.id == state.activeSessionId,

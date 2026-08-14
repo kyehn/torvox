@@ -300,6 +300,12 @@ struct RenderState {
     /// (same gate as the blink phase).
     cursor_style_version: u64,
     last_drawn_style_version: u64,
+    /// App-level cursor color override (user theme), applied on top of the
+    /// terminal's own cursor color. `None` = follow the terminal (white).
+    /// Set by `setCursorColor` (any thread); read by the render thread
+    /// when building `CellCursor` — no idle-repaint gate needed because
+    /// theme application always coincides with a repaint.
+    cursor_color: Option<[f32; 4]>,
 }
 
 /// Ensure the render state exists, creating the renderer + font pipeline
@@ -330,6 +336,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             cursor_style_override: None,
             cursor_style_version: 0,
             last_drawn_style_version: 0,
+            cursor_color: None,
         });
         log::info!("render state initialized (renderer + font pipeline)");
     }
@@ -1875,7 +1882,7 @@ fn render_inner(session_id: u64) -> jint {
         style: render_state
             .cursor_style_override
             .unwrap_or(cursor_info.style),
-        color: None,
+        color: render_state.cursor_color,
     };
     // App-level cursor blink (user setting): when enabled, hide the
     // cursor during the second half of each blink cycle, measured from
@@ -2957,10 +2964,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo<'l
         let Some(render_state) = state.as_ref() else {
             return std::ptr::null_mut();
         };
-        let info = render_state.font_pipeline.font_information();
+        let info = render_state.font_pipeline.font_info();
         drop(state);
-        match env.new_string(&info) {
-            Ok(s) => s.into_raw(),
+        match serde_json::to_string(&info) {
+            Ok(json) => match env.new_string(&json) {
+                Ok(s) => s.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
             Err(_) => std::ptr::null_mut(),
         }
     })
@@ -3386,6 +3396,30 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle
             };
             render_state.cursor_style_version = render_state.cursor_style_version.wrapping_add(1);
             log::info!("setCursorStyle: {style_str}");
+        }
+    })
+}
+
+/// App-level cursor color override ("r" | "g" | "b" in 0..1 linear RGB).
+/// Applied on top of the theme's cursor color so the user theme's cursor
+/// reaches the renderer (the 54-byte `setTheme` payload has no slot for
+/// it). `None` clears the override (follow the terminal).
+#[unsafe(no_mangle)]
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // JNI signatures contain raw pointers by design
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorColor(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    r: f32,
+    g: f32,
+    b: f32,
+) {
+    jni_export_guard!(&mut env, (), {
+        let mut state = render_state_mut();
+        if let Some(render_state) = state.as_mut() {
+            render_state.cursor_color =
+                Some([r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), 1.0]);
+            log::info!("setCursorColor: ({r}, {g}, {b})");
         }
     })
 }
