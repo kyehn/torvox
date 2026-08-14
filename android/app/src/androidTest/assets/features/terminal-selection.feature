@@ -4,7 +4,7 @@ Feature: Text Selection
 
   NOTE: word-selection scenarios are @wip until the native data path lands
   (Bridge.isCellEmpty/expandAndSetSelection are ADR-0007 stubs, so long-press
-  always routes to the paste popup; ).
+  always routes to the paste popup).
 
   @REQ_SEL_001
   Scenario: Long press empty area shows paste popup
