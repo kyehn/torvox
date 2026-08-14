@@ -290,11 +290,11 @@ scripts = Nushell only；MCP embedded in `native/`；AOSP testkey only
 
 | ID | Requirement | Source |
 |----|-------------|--------|
-| FR-044 | The system SHALL run an MCP (Model Context Protocol) server over a Unix domain socket, communicating via JSON-RPC 2.0 with newline-delimited JSON. | `native/src/mcp.rs` |
-| FR-045 | The MCP server SHALL expose tools for listing sessions, reading grid state, reading scrollback, reading cursor position, and reading selected text. | `native/src/mcp.rs` |
-| FR-046 | The MCP server SHALL expose tools for writing to the PTY, sending signals, resizing the terminal, and setting clipboard content (gated behind `--mcp-allow-write`). | `native/src/mcp.rs` |
-| FR-047 | The MCP server SHALL expose a scrollback search tool that matches a regex pattern and returns matching line numbers, text, and column ranges. | `native/src/mcp.rs` |
-| FR-048 | The MCP server SHALL expose an input queue mechanism that watches for a prompt pattern in scrollback and automatically injects queued text (AI agent automation). | `native/src/mcp.rs` |
+| FR-044 | The system SHALL run an MCP (Model Context Protocol) server over a Unix domain socket, communicating via JSON-RPC 2.0 with newline-delimited JSON. | `native/src/mcp/` |
+| FR-045 | The MCP server SHALL expose tools for listing sessions, reading grid state, reading scrollback, reading cursor position, and reading selected text. | `native/src/mcp/` |
+| FR-046 | The MCP server SHALL expose tools for writing to the PTY, sending signals, resizing the terminal, and setting clipboard content (gated behind `--mcp-allow-write`). | `native/src/mcp/` |
+| FR-047 | The MCP server SHALL expose a scrollback search tool that matches a regex pattern and returns matching line numbers, text, and column ranges. | `native/src/mcp/` |
+| FR-048 | The MCP server SHALL expose an input queue mechanism that watches for a prompt pattern in scrollback and automatically injects queued text (AI agent automation). | `native/src/mcp/` |
 
 ### 3.9 Android Bridge
 
@@ -456,7 +456,7 @@ per-pixel rendering.
 | `native/src/android/ffi.rs` | JNI FFI bridge types |
 | `native/src/android/jni_bridge.rs` | JNI NDK functions |
 | `native/src/android/logging.rs` | Unified logging (logcat + file) |
-| `native/src/mcp.rs` | MCP server (JSON-RPC over Unix socket) |
+| `native/src/mcp/` | MCP server (JSON-RPC over Unix socket) |
 | `exec-bin/src/main.rs` | SSH/Mosh executable |
 
 ### E. Requirements Verification Matrix

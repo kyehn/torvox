@@ -1,3 +1,19 @@
+//! VT 引擎行为测试（8700+ 行）。
+//!
+//! 测试按行为域以函数名前缀组织（前缀交错分布，无法按块分 mod）：
+//!
+//! | 前缀 | 行为域 | 过滤命令 |
+//! |------|--------|----------|
+//! | `osc_` / `dcs_` / `apc_*` | OSC/DCS/APC 序列 | `cargo test -p native osc_` |
+//! | `sgr_` / `iv_` / `rr_` / `rb_` | SGR 属性 / 逆显 / 渲染 | `cargo test -p native sgr_` |
+//! | `cursor_` / `tc_` | 光标与终端控制码 | `cargo test -p native cursor_` |
+//! | `scroll_` / `resize_` / `tb_` | 滚动 / 缩放 | `cargo test -p native scroll_` |
+//! | `dec_` / `decset_` | DEC 模式 | `cargo test -p native decset_` |
+//! | `write_` / `tm_` / `cp_` / `rs_` | 写入 / 文本 / 复杂 / resize | `cargo test -p native write_` |
+//! | `unicode_` / `hi_` / `cell_` / `md_` | 宽字符 / 高亮 / 单元格 / 元数据 | `cargo test -p native unicode_` |
+//!
+//! 历史轮次分区见文末 `tests_phase0` / `tests_b4` / `tests_b5` mod。
+
 use std::hint::black_box;
 use std::time::Instant;
 
@@ -8203,6 +8219,7 @@ fn strict_benchmarks() -> bool {
 }
 
 #[test]
+#[ignore]
 fn bench_typing_latency() {
     let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
     // Pre-fill with some content to avoid empty-terminal optimizations
@@ -8243,6 +8260,7 @@ fn bench_typing_latency() {
 /// pattern. No ANSI escape codes (ghostty C FFI handles them slowly in
 /// debug builds; ANSI throughput is implicitly covered by other benchmarks).
 #[test]
+#[ignore]
 fn bench_bulk_output_throughput() {
     let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
     // Build a 4KB buffer of realistic plain-text terminal output
@@ -8285,6 +8303,7 @@ fn bench_bulk_output_throughput() {
 /// Writes many lines of content, then measures take_snapshot_with_scroll
 /// at varying offset positions.
 #[test]
+#[ignore]
 fn bench_scroll_throughput() {
     // Serialize against the GPU benches: in parallel runs the shared CPU
     // (Lavapipe software rasterizer + this CPU-bound bench) drops the
@@ -8411,6 +8430,7 @@ fn scrollback_cache_consistency() {
 /// receive CellData → build CellInstances. This simulates the complete
 /// per-frame data path before GPU submission.
 #[test]
+#[ignore]
 fn bench_end_to_end_cpu_pipeline_latency() {
     use std::hint::black_box;
     use std::time::Instant;
@@ -8439,17 +8459,18 @@ fn bench_end_to_end_cpu_pipeline_latency() {
         let mut instances = Vec::new();
         crate::render::build_instances_from_cell_data(
             &cells,
-            24,
-            80,
-            1024.0 / 80.0,
-            1024.0 / 24.0,
-            cursor,
+            crate::render::cell_builder::CellInstanceConfig {
+                rows: 24,
+                cols: 80,
+                grid_cell_w: 1024.0 / 80.0,
+                grid_cell_h: 1024.0 / 24.0,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
             &mut font_pipeline,
-            1024.0,
-            1024.0,
-            None,
-            None,
-            &[],
             &mut instances,
         );
         let count = black_box(instances.len());

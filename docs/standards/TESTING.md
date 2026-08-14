@@ -29,7 +29,7 @@ All Rust code lives in the single `native` crate, with tests inside each module:
 | `native/src/terminal/ghostty_terminal/` | `tests.rs` — grid ops, cell iterator, CellData, snapshot, config | — |
 | `native/src/render/` | `tests.rs` — GPU headless, font, shader validation, OCR, screenshot | — |
 | `native/src/android/` | (tests guarded by `#[cfg(target_os = "android")]`) | — |
-| `native/src/mcp.rs` | Inline tests — tool listing, tool calls | — |
+| `native/src/mcp/` | Inline tests — tool listing, tool calls | — |
 | `exec-bin` | — | `tests/basic.rs` |
 
 ### Property and Concurrency Testing
@@ -58,7 +58,7 @@ right type for the behavior under test — do not collapse them into one.
 
 | # | Type | Location | What it covers |
 |---|------|----------|----------------|
-| 1 | **Unit** (Rust) | `native/src/terminal/`, `native/src/render/`, `native/src/mcp.rs` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, MCP. Runs on host via `cargo nextest`. |
+| 1 | **Unit** (Rust) | `native/src/terminal/`, `native/src/render/`, `native/src/mcp/` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, MCP. Runs on host via `cargo nextest`. |
 | 2 | **Compose UI** (instrumented) | `android/app/src/androidTest/java/terminal/emulator/ui/*ComposeTest.kt` (e.g. `TerminalScreenComposeTest`) | Compose widget state/interaction on-device. |
 | 3 | **OCR screenshot** (emulator) | `native/src/render/tests.rs` + `scripts/test-emulator.nu` (rapidocr) | End-to-end terminal-text visibility on the emulator. |
 | 4 | **Maestro** | `android/app/src/androidTest/java/terminal/emulator/ui/*.yaml` flow files (e.g. `SelectionMaestroTest.yaml`) | End-to-end on-device flows driven by Maestro YAML. |

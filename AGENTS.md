@@ -176,7 +176,7 @@ Full guide: `docs/standards/TESTING.md`. Core rules:
 | `native/src/render/pass.rs` | render_cell_data(), render_frame() |
 | `native/src/render/surface.rs` | ANativeWindow surface management |
 | `native/src/android/ffi.rs` | JNI FFI exports (14 JNI functions) |
-| `native/src/mcp.rs` | MCP server (tower-mcp, CLI-compatible protocol) |
+| `native/src/mcp/` | MCP server (tower-mcp; `mod.rs` lifecycle/router, `tools.rs` tools, `auth.rs` peer-auth) |
 | `native/src/lock_util.rs` | poison recovery helpers |
 | `android/app/.../NativeBridge.kt` | JNI native method declarations |
 | `native/src/render/font/mod.rs` | cosmic-text shaping, swash glyph rasterization |

@@ -218,10 +218,10 @@ fn vt_cursor_visibility() {
 // ── GPU render tests (require Lavapipe / Vulkan) ──
 
 fn setup_gpu_env() -> (
-    native::render::gpu::GpuContext,
+    native::render::gpu::Renderer,
     native::render::font::FontPipeline,
 ) {
-    let mut context = native::render::gpu::GpuContext::new_with_no_surface();
+    let mut context = native::render::gpu::Renderer::new_with_no_surface();
     context.set_surface_config(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
@@ -242,19 +242,18 @@ fn setup_gpu_env() -> (
 }
 
 fn render_or_die(
-    context: &mut native::render::gpu::GpuContext,
+    context: &mut native::render::gpu::Renderer,
     font_pipeline: &mut native::render::font::FontPipeline,
     snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
 ) -> Vec<u8> {
     let instances = native::render::gpu::build_cell_instances_from_snapshot(
         snapshot,
         font_pipeline,
-        native::render::gpu::CellInstanceConfig {
+        native::render::gpu::SnapshotConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
             cursor_style: CursorStyle::Block,
@@ -271,7 +270,7 @@ fn render_or_die(
 }
 
 fn render_with_selection(
-    context: &mut native::render::gpu::GpuContext,
+    context: &mut native::render::gpu::Renderer,
     font_pipeline: &mut native::render::font::FontPipeline,
     snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
     selection: native::render::gpu::SelectionRange,
@@ -279,12 +278,11 @@ fn render_with_selection(
     let instances = native::render::gpu::build_cell_instances_from_snapshot(
         snapshot,
         font_pipeline,
-        native::render::gpu::CellInstanceConfig {
+        native::render::gpu::SnapshotConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
             selection: Some(selection),
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
             cursor_style: CursorStyle::Block,
@@ -311,7 +309,7 @@ fn region_pixels(buf: &[u8], stride: u32, row_start: u32, row_end: u32) -> &[u8]
 }
 
 fn render_dirty_or_die(
-    context: &mut native::render::gpu::GpuContext,
+    context: &mut native::render::gpu::Renderer,
     font_pipeline: &mut native::render::font::FontPipeline,
     snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
     _dirty_rows: &[bool],
@@ -319,12 +317,11 @@ fn render_dirty_or_die(
     let instances = native::render::gpu::build_cell_instances_from_snapshot(
         snapshot,
         font_pipeline,
-        native::render::gpu::CellInstanceConfig {
+        native::render::gpu::SnapshotConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
             cursor_style: CursorStyle::Block,
@@ -405,12 +402,11 @@ fn gpu_render_cursor_visible() {
     let instances = native::render::gpu::build_cell_instances_from_snapshot(
         &snap,
         &mut font_pipeline,
-        native::render::gpu::CellInstanceConfig {
+        native::render::gpu::SnapshotConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
             cursor_style: CursorStyle::Block,
@@ -443,12 +439,11 @@ fn gpu_render_transparent_block_above_threshold() {
     let instances = native::render::gpu::build_cell_instances_from_snapshot(
         &snap,
         &mut font_pipeline,
-        native::render::gpu::CellInstanceConfig {
+        native::render::gpu::SnapshotConfig {
             atlas_width: 256.0,
             atlas_height: 256.0,
             projection_height: 768.0,
             selection: None,
-            selection_bg: None,
             search_highlights: &[],
             cursor_color: None,
             cursor_style: CursorStyle::Block,
@@ -1236,7 +1231,7 @@ fn bootstrap_rapidocr_available() {
 
 #[test]
 fn bootstrap_gpu_context_initializes() {
-    let mut context = native::render::gpu::GpuContext::new_with_no_surface();
+    let mut context = native::render::gpu::Renderer::new_with_no_surface();
     context.set_surface_config(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
