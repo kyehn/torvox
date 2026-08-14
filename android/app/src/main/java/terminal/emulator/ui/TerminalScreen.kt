@@ -818,7 +818,7 @@ fun TerminalScreen(
                             null
                         },
                         onPaste =
-                        if (selectionActive && hasClipboard) {
+                        if (hasClipboard) {
                             { viewModel.pasteFromClipboard() }
                         } else {
                             null

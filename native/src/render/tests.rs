@@ -2884,3 +2884,46 @@ fn snapshot_and_cell_data_paths_agree_on_colors() {
         );
     }
 }
+
+#[test]
+fn all_static_pipelines_create_without_validation_errors() {
+    // Every production shader pipeline must compile against the wgpu
+    // backend available in the dev shell (Mesa Lavapipe software Vulkan).
+    // Pipeline creation is where WGSL compile errors surface; rendering
+    // tests below already exercise cell/background paths, this guards the
+    // less-travelled KGP and flash pipelines.
+    let Some((_instance, _adapter, device, _queue)) = create_test_device() else {
+        eprintln!("SKIP: no GPU available for pipeline creation test");
+        return;
+    };
+    let format = wgpu::TextureFormat::Rgba8Unorm;
+    let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let oom_scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+
+    let _ = crate::render::Renderer::create_cell_pipeline(&device, format);
+    let (bg_pipeline, bg_layout) = crate::render::Renderer::create_bg_pipeline(&device, format);
+    let _ = crate::render::Renderer::create_kgp_pipeline(&device, format);
+    let _ = crate::render::Renderer::create_flash_pipeline(&device, format);
+    let (grid_pipeline, grid_layout) =
+        crate::render::pipeline::create_grid_pipeline(&device, format);
+
+    // Keep the bind group layouts alive so wgpu does not warn about
+    // dropping them before their pipelines.
+    let _ = (&bg_pipeline, &bg_layout, &grid_pipeline, &grid_layout);
+
+    for (label, error) in [
+        (
+            "out-of-memory",
+            futures::executor::block_on(oom_scope.pop()),
+        ),
+        (
+            "validation",
+            futures::executor::block_on(validation_scope.pop()),
+        ),
+    ] {
+        assert!(
+            error.is_none(),
+            "pipeline creation raised {label} error: {error:?}"
+        );
+    }
+}
