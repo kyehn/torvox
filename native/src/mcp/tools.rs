@@ -383,20 +383,7 @@ pub(crate) fn normalized_command(command: &str) -> String {
         }
     }
     // Collapse runs of whitespace so `rm -rf  /` matches `rm -rf /`.
-    let mut collapsed = String::with_capacity(normalized.len());
-    let mut in_space = false;
-    for c in normalized.chars() {
-        if c.is_whitespace() {
-            if !in_space {
-                collapsed.push(' ');
-            }
-            in_space = true;
-        } else {
-            collapsed.push(c);
-            in_space = false;
-        }
-    }
-    collapsed.trim().to_string()
+    normalized.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// The first whitespace-delimited token, used as argv[0] for system
@@ -557,19 +544,22 @@ pub(crate) fn screenshot_tool() -> Tool {
             }
             let rx = {
                 let guard = state.0.on_screenshot.lock();
-                guard
-                    .as_ref()
-                    .map(|callback| callback(session_id))
+                guard.as_ref().map(|callback| callback(session_id))
             };
             match rx {
                 Some((request_id, rx)) => {
                     match tokio::time::timeout(Duration::from_secs(10), rx).await {
                         Ok(Ok((width, height, rgba_bytes))) => {
-                            let b64 = base64::engine::general_purpose::STANDARD
-                                .encode(&rgba_bytes);
-                            Ok(CallToolResult::text(format!(
-                                "{{\"width\":{width},\"height\":{height},\"format\":\"rgba\",\"data\":\"{b64}\"}}"
-                            )))
+                            let b64 = base64::engine::general_purpose::STANDARD.encode(&rgba_bytes);
+                            Ok(CallToolResult::text(
+                                json!({
+                                    "width": width,
+                                    "height": height,
+                                    "format": "rgba",
+                                    "data": b64,
+                                })
+                                .to_string(),
+                            ))
                         }
                         _ => {
                             global_state().cancel_request(session_id, request_id);

@@ -785,6 +785,7 @@ fn all_dependencies_are_allowlisted() {
         "schemars",
         "serde",
         "serde_json",
+        "strsim",
         "swash",
         "thiserror",
         "tokio",

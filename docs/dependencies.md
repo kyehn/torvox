@@ -76,7 +76,7 @@
   - **Bridge**: `jni 0.21` (direct JNI), `bytemuck 1` (zero-copy CellData)
   - **IPC**: `tower-mcp 0.14` (MCP protocol), `axum 0.8` (HTTP), `tokio 1` (async), `schemars 1` (JSON Schema)
   - **Terminal**: `libc 0.2` (PTY), `nix 0.31` (POSIX), `flume 0.12` (cell channel)
-  - **Utilities**: `serde 1`, `thiserror 2`, `lru 0.18`（修饰键位标志直接使用 libghostty-vt 的 `Mods` 类型，未引入 `bitflags` crate）
+  - **Utilities**: `serde 1`, `thiserror 2`, `lru 0.18`, `strsim 0.11`（fuzzy search 编辑距离，替换手写 levenshtein；修饰键位标志直接使用 libghostty-vt 的 `Mods` 类型，未引入 `bitflags` crate）
   - **Dev/test**: `proptest 1.11`
 
 ### 1.2 Nix Dependencies
@@ -94,6 +94,8 @@
   - `androidx.core:core-ktx`, `lifecycle-runtime-ktx`, `activity-compose`
   - `androidx.compose.ui`, `ui-graphics`, `material3`, `material-icons-extended`
   - `androidx.navigation:navigation-compose`, `androidx.datastore:datastore-preferences`
+- JSON: `kotlinx-serialization-json:1.11.0`（JNI 结构化载荷唯一方案；`FontInfoDto`/`PollEvent` 判别式对齐 Rust serde）
+  - Moshi 曾短暂引入（FontMetadata 脚手架）后移除：生产代码零引用，JSON 全走 kotlinx-serialization，删除两行依赖减少 KSP 编译
 - Dependency injection: `com.google.dagger:hilt-android:2.60.1` with KSP compiler
 - Direct JNI (no JNA or boltffi)
 - MCP / IPC: `tower-mcp 0.14` (MCP protocol), `axum 0.8` (HTTP), `tokio 1` (async), `schemars 1` (JSON Schema)
