@@ -52,12 +52,13 @@
 ## 1. Dependency Management
 
 ### 1.1 Rust Dependencies
+
 - Managed via Cargo workspace (`Cargo.toml` — `[workspace.dependencies]`)
 - All shared dependencies declared in `[workspace.dependencies]` with consistent versions
 - Pinned via `Cargo.lock` (committed to git)
-- Dependency order: single `native` crate (see `docs/architecture.md#2.1`):
+- Dependency order: single `native` crate (see `docs/architecture.md#51-crate-structure`):
 
-  ```
+  ```text
   libghostty-vt / libghostty-vt-sys
       ↑
   native (merged: terminal + render + android + mcp)
@@ -79,12 +80,14 @@
   - **Dev/test**: `proptest 1.11`
 
 ### 1.2 Nix Dependencies
+
 - Build environment and all tools declared via `flake.nix` devShell
 - `flake.lock` pinned (committed to git) for reproducible development environments
 - Inputs: `nixpkgs`, `flake-parts`, `fenix` (Rust toolchain)
 - All lint and audit tools (cargo-audit, cargo-machete, clippy, etc.) declared as devShell packages
 
 ### 1.3 Android Dependencies
+
 - Gradle-managed via `android/build.gradle.kts` (root) and `android/app/build.gradle.kts` (app module)
 - Kotlin + Jetpack Compose UI with standard AndroidX libraries:
   - `androidx.compose:compose-bom:2026.06.01` (Compose Bill of Materials)
@@ -103,7 +106,7 @@
 - Also invoked in `scripts/check-rust.nu` as part of the full CI pipeline
 - `cargo-deny` is intentionally **not** configured for this project:
   - The `deny_toml_must_not_exist` test in `tool_lint.rs` asserts that no `deny.toml` file exists in the repository
-  - Per project policy documented in `docs/architecture.md#5.7-cargo-audit-over-cargo-deny`: existing CI infrastructure uses `cargo-audit`, and build determinism via Nix flake pinning ensures audit consistency across environments
+  - Per project policy documented in `docs/architecture.md#9-architecture-decisions`: existing CI infrastructure uses `cargo-audit`, and build determinism via Nix flake pinning ensures audit consistency across environments
   - `cargo-deny` is present in `flake.nix` devShell packages (for ad-hoc use) but has no configuration file
 
 ## 3. License Compliance
@@ -124,10 +127,12 @@
 ## 5. Supply Chain
 
 - **Upstream libghostty-rs**: crates.io releases pinned in `Cargo.toml` `[workspace.dependencies]` (lines 47–49):
+
   ```toml
   libghostty-vt = "0.2.1"
   libghostty-vt-sys = "0.2.1"
   ```
+
   Exact versions are locked in `Cargo.lock` for reproducible builds. The
   `libghostty-vt-sys` build script fetches the pinned Ghostty source commit
   (`GHOSTTY_COMMIT` in its `build.rs`) into its `OUT_DIR` cache — no local

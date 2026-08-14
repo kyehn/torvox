@@ -19,11 +19,11 @@ and any CI workflow that invokes them.
 
 ## Build Process
 
-7. **Clean before build** — Delete `.so` in `jniLibs/` and `.apk` in output dirs before each cycle.
-8. **Build order** — `.so` first, then APK. APK step expects populated `jniLibs/` and `assets/bin/`.
-9. **Ghostty linkage check** — Verify `libnative.so` has no `libghostty-vt.so` NEEDED entry.
+1. **Clean before build** — Delete `.so` in `jniLibs/` and `.apk` in output dirs before each cycle.
+2. **Build order** — `.so` first, then APK. APK step expects populated `jniLibs/` and `assets/bin/`.
+3. **Ghostty linkage check** — Verify `libnative.so` has no `libghostty-vt.so` NEEDED entry.
    If dynamic-linked, copy `libghostty-vt.so` to `jniLibs/<abi>/`. If static-linked, skip.
-10. **Verify APK** — Check APK contains at least one `.so` and exceeds `minimum_apk_size_bytes`.
+4. **Verify APK** — Check APK contains at least one `.so` and exceeds `minimum_apk_size_bytes`.
 
 ## Script Rules
 

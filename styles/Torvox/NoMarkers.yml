@@ -1,0 +1,9 @@
+extends: existence
+message: "Unresolved marker '%s' — documents must not carry TODO/FIXME/XXX markers."
+ignorecase: false
+level: error
+tokens:
+  - \bTODO\b
+  - \bFIXME\b
+  - \bXXX\b
+  - \bHACK\b

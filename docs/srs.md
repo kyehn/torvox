@@ -65,18 +65,18 @@ library, bincode serialization, and the rust-android-gradle plugin.
 
 | Reference | File / Location |
 |-----------|-----------------|
-| Architecture & Thread Model | [`AGENTS.md`](AGENTS.md) |
-| Project Standards (Style) | [`docs/standards/STYLE.md`](docs/standards/STYLE.md) |
-| Project Standards (Testing) | [`docs/standards/TESTING.md`](docs/standards/TESTING.md) |
-| Project Standards (Quality Gate) | [`docs/standards/QUALITY-GATE.md`](docs/standards/QUALITY-GATE.md) |
-| Build System | [`flake.nix`](flake.nix), [`Cargo.toml`](Cargo.toml) |
-| Core Data Model | [`native/src/`](native/src/) |
-| VT / Ghostty Integration | [`native/src/`](native/src/) |
-| Renderer (wgpu Pipeline) | [`native/src/`](native/src/) |
-| Android Bridge | [`native/src/`](native/src/) |
-| MCP Server | [`native/src/`](native/src/) |
-| SSH/Mosh Executable | [`exec-bin/src/`](exec-bin/src/) |
-| CI Scripts | [`scripts/`](scripts/) |
+| Architecture & Thread Model | [`AGENTS.md`](../AGENTS.md) |
+| Project Standards (Style) | [`docs/standards/STYLE.md`](standards/STYLE.md) |
+| Project Standards (Testing) | [`docs/standards/TESTING.md`](standards/TESTING.md) |
+| Project Standards (Quality Gate) | [`docs/standards/QUALITY-GATE.md`](standards/QUALITY-GATE.md) |
+| Build System | [`flake.nix`](../flake.nix), [`Cargo.toml`](../Cargo.toml) |
+| Core Data Model | [`native/src/`](../native/src) |
+| VT / Ghostty Integration | [`native/src/`](../native/src) |
+| Renderer (wgpu Pipeline) | [`native/src/`](../native/src) |
+| Android Bridge | [`native/src/`](../native/src) |
+| MCP Server | [`native/src/`](../native/src) |
+| SSH/Mosh Executable | [`exec-bin/src/`](../exec-bin/src) |
+| CI Scripts | [`scripts/`](../scripts) |
 
 ---
 
@@ -90,7 +90,7 @@ path employed by traditional Android terminal emulators with a GPU-accelerated
 pipeline via wgpu (Vulkan). The system is decomposed into a set of Rust crates
 with strict one-way dependency ordering:
 
-```
+```text
 libghostty-vt / libghostty-vt-sys
     ↑
 native (merged: terminal engine + GPU renderer + JNI bridge + MCP)
@@ -418,7 +418,7 @@ thread, and render thread), staying within the 4 threads per session limit.
 
 ### C. Render Pipeline
 
-```
+```text
 PTY → flume channel → GhosttyTerminal → DirtyMask → RenderThread
   → cosmic-text shape + swash glyph rasterize
   → guillotiere pack into atlas
@@ -519,7 +519,7 @@ Each requirement is linked to its verification method, test command, and accepta
 | FR-052 | Provide 16 built-in color themes: Catppuccin Mocha, Catppuccin Latte, Dracula+, Nord, Tokyo Night, Rose Pine, Gruvbox Dark, Gruvbox Light, Everforest Dark, One Dark, One Light, Monokai, Ayu Dark, Ayu Light, Kanagawa Wave, and Night Owl. | Automated Test | `cargo test --package native` | §FR-052§ (Built-in Themes) |
 | FR-053 | Support custom theme definition via TOML with fields for name, background, foreground, cursor, selection background, and 16 ANSI color slots. | Automated Test | `cargo test --package native` | §FR-053§ (Custom Theme Definition) |
 | FR-054 | Support configuration of terminal dimensions (rows, cols), scrollback size, shell path, font size, backspace mode, and right-Alt mode via `TerminalConfig`. | Automated Test | `cargo test --package native` | §FR-054§ (Terminal Configuration) |
-| FR-055 | Repository SHALL NOT contain golden images; rendering verification SHALL use logical assertions or OCR. | Tool Inspection | `git ls-files '*.png' | grep -E 'screenshots|golden|roborazzi' | wc -l` | §FR-055§ (Golden Image Ban) |
+| FR-055 | Repository SHALL NOT contain golden images; rendering verification SHALL use logical assertions or OCR. | Tool Inspection | `git ls-files '*.png' \| grep -E 'screenshots\|golden\|roborazzi' \| wc -l` | §FR-055§ (Golden Image Ban) |
 | NFR-001 | The native terminal module SHALL contain zero `unsafe` blocks, verified by audit. | Tool Inspection | `cargo audit` | §NFR-001§ (Zero Unsafe in Core) |
 | NFR-002 | All `unsafe` blocks in the codebase SHALL be preceded by a `// SAFETY:` comment explaining the invariants. | Tool Inspection | `grep -r '^unsafe' native/src/ --include='*.rs'` | §NFR-002§ (SAFETY Comments) |
 | NFR-003 | The system SHALL not panic in error paths. Library functions SHALL return `Result` or `Option` rather than panicking. | Automated Test | `cargo test --workspace` | §NFR-003§ (No Panic in Error Paths) |

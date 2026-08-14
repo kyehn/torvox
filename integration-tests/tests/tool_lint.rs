@@ -148,6 +148,8 @@ fn vale_finds_no_violations() {
             "docs/architecture.md",
             "docs/acceptance.md",
             "docs/dependencies.md",
+            "docs/rejected-technologies.md",
+            "docs/glossary.md",
             "docs/adr/README.md",
             "docs/adr/template.md",
         ])
@@ -216,6 +218,73 @@ fn doc_srs_requirement_format() {
         dupes.is_empty(),
         "duplicate requirement IDs found in docs/srs.md requirement tables:\n{}",
         dupes.join("\n")
+    );
+}
+
+/// Count `#[test]` attributes in the workspace Rust sources (static scan).
+fn static_test_count() -> usize {
+    let mut count = 0usize;
+    for dir in ["native", "integration-tests", "exec-bin"] {
+        let root = std::path::Path::new(WORKSPACE).join(dir);
+        let mut stack = vec![root];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = std::fs::read_dir(&dir) else { continue };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    if path.file_name().map(|n| n != "target").unwrap_or(false) {
+                        stack.push(path);
+                    }
+                } else if path.extension().map(|e| e == "rs").unwrap_or(false) {
+                    let Ok(content) = std::fs::read_to_string(&path) else { continue };
+                    count += content.matches("#[test]").count();
+                }
+            }
+        }
+    }
+    count
+}
+
+#[test]
+fn rust_test_count_within_baseline() {
+    // TESTING.md "覆盖率基线" declares the static `#[test]` count as the
+    // authoritative baseline. A deviation beyond the tolerance means either
+    // tests were bulk-removed or the document went stale — both require a
+    // human to reconcile (update TESTING.md or restore tests).
+    let testing = std::path::Path::new(WORKSPACE).join("docs/standards/TESTING.md");
+    let content = std::fs::read_to_string(&testing)
+        .unwrap_or_else(|e| panic!("failed to read {}: {e}", testing.display()));
+    let re = regex_lite::Regex::new(r"静态 `#\[test\]` 计数 (\d+)").unwrap();
+    let baseline: usize = re
+        .captures(&content)
+        .and_then(|c| c.get(1))
+        .map(|m| m.as_str().parse().unwrap())
+        .unwrap_or_else(|| panic!("TESTING.md 缺少 `静态 #[test] 计数 N` 基线声明"));
+    let actual = static_test_count();
+    let tolerance = baseline / 4; // ±25%
+    let diff = actual.abs_diff(baseline);
+    assert!(
+        diff <= tolerance,
+        "Rust 静态 #[test] 计数偏离基线：实际 {actual} vs TESTING.md 声明 {baseline}（容差 ±{tolerance}）。         若批量增删测试，请同步更新 docs/standards/TESTING.md §覆盖率基线。"
+    );
+}
+
+#[test]
+fn docs_structure_validation() {
+    // docs/check-docs.py enforces structural gates that vale/markdownlint
+    // cannot express: arc42 section presence, ADR template fields,
+    // requirement-ID sync with .sdoc, and relative-link validity.
+    let script = std::path::Path::new(WORKSPACE).join("docs/check-docs.py");
+    let output = std::process::Command::new("python3")
+        .arg(&script)
+        .current_dir(WORKSPACE)
+        .output()
+        .expect("python3 must be available");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "docs structure validation failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }
 

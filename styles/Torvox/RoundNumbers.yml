@@ -1,0 +1,11 @@
+extends: existence
+message: "Do not use audit-round/task-id noise: '%s'."
+ignorecase: true
+level: error
+tokens:
+  - \bround-?\d+\b
+  - \brounds?\s+\d+\b
+  - \bround\d+\b
+  - \btask-?\d+\b
+  - \bT\d+[a-z]\b
+  - \bP\d+[-. ]\d+\b
