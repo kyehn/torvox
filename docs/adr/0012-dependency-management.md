@@ -30,7 +30,7 @@ and each dependency must satisfy strict constraints:
 
 The workspace is structured as:
 
-```
+```text
 Cargo.toml              — workspace root (virtual)
 native/Cargo.toml       — libtorvox (the only library crate)
 exec-bin/Cargo.toml     — standalone binary for host-side debugging
@@ -83,6 +83,7 @@ the repository. Workspace `Cargo.toml` specifies version ranges in
 `[dependencies]` sections; `Cargo.lock` resolves to exact versions.
 
 Policy:
+
 - Patch versions (`0.x.Y`) may be updated freely via `cargo update`
 - Minor versions (`0.X.0`) require explicit review — run `cargo update`
   and verify the build still passes
@@ -147,16 +148,19 @@ in `native/src/terminal/ghostty_terminal/`. It is not managed via
 ## Alternatives Considered
 
 ### Vendoring all dependencies
+
 - **Rejected**: Rust's `Cargo.lock` already provides reproducibility.
   Vendoring adds maintenance burden (manual updates) without meaningful
   security benefit when `Cargo.lock` is committed.
 
 ### Workspace-level dependency unification
+
 - **Not needed**: Only `native/` ships in the APK. The workspace
   structure (`exec-bin/`, `integration-tests/`) uses separate dependency
   trees that do not affect the release artifact.
 
 ### `cargo-vet` for dependency verification
+
 - **Deferred**: `cargo deny` provides license and advisory checking.
   `cargo-vet` adds cryptographic verification of dependency builds, which
   is valuable for supply-chain security but adds operational complexity.

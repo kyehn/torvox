@@ -39,7 +39,7 @@ The project currently has three CI workflows:
 
 ### 1. Three-tier test architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────┐
 │  Tier 3: Android Instrumented Tests             │
 │  (real device / emulator — CI android-tests.yml)│
@@ -144,16 +144,19 @@ No PR merges without all gates passing.
 ## Alternatives Considered
 
 ### Property-based testing (proptest/quickcheck)
+
 - **Deferred**: The VT parser and rendering pipeline are deterministic —
   property testing would add complexity without proportional benefit for
   v1. Could be added later for fuzzing VT sequence edge cases.
 
 ### Visual regression via screenshots (Percy/BackstopJS)
+
 - **Rejected**: These tools are designed for web UI testing. The wgpu
   rendering pipeline produces pixel buffers, not DOM — the `image-compare`
   approach is simpler and more direct.
 
 ### Mock GPU for all tests
+
 - **Rejected**: Mocking the GPU would lose the primary value of Tier 2
   tests — verifying that the rendering pipeline produces correct pixels.
   Software rendering (lavapipe/SwiftShader) provides real GPU execution

@@ -108,6 +108,7 @@ standard `env_logger` or `env_logger`-compatible backend is used via the
 ## Alternatives Considered
 
 ### `tracing` crate
+
 - **Rejected**: The `tracing` crate adds structured logging, spans, and
   subscribers — significant complexity for a project that primarily needs
   simple log-level filtering and logcat output. The `log` crate's
@@ -115,11 +116,13 @@ standard `env_logger` or `env_logger`-compatible backend is used via the
   dependency tree.
 
 ### `android_logger` crate
+
 - **Rejected**: The `android_logger` crate provides logcat routing but
   does not support message chunking or module-level filtering. Torvox's
   custom implementation handles both.
 
 ### `tracing-android` bridge
+
 - **Rejected**: Would require migrating all 200+ `log::*` call sites to
   `tracing::*` for marginal benefit.
 

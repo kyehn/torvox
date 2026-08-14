@@ -35,7 +35,7 @@ and upload them to GPU memory.
 **One thread per terminal session** produces flat cell arrays. A **shared
 render thread** consumes them and drives wgpu.
 
-```
+```text
 ┌─────────────────────┐  flat bytemuck     ┌──────────────────────┐
 │ SessionThread #1    │  CellData[]        │  Render Thread       │
 │ ┌─────────────────┐ │ ───channel──▶      │ ┌──────────────────┐ │
@@ -130,6 +130,7 @@ sessions keep their Ghostty state up to date (they still process PTY output)
 but do not produce CellData arrays or wgpu draw calls.
 
 When the user switches tabs:
+
 1. Kotlin calls `switchSession(session_id)` → JNI command channel
 2. Render thread: flushes the current frame → marks old surface as inactive
 3. SessionThread for the new session is already producing CellData (it was
@@ -148,15 +149,18 @@ When the user switches tabs:
 ## Alternatives Considered
 
 ### Lock-based sharing (Arc<Mutex<Terminal>>)
+
 - **Rejected**: libghostty-rs `!Send` makes this impossible — cannot wrap
   a `!Send` type in `Arc<Mutex>`. Even if we could, the thread that creates
   the Terminal must be the only one accessing it.
 
 ### Single-thread everything
+
 - **Rejected**: PTY reads are blocking. A single thread can't read PTY,
   render at 60 fps, and handle JNI calls without blocking one of them.
 
 ### Move PTY reader into SessionThread (avoid channel)
+
 - **Rejected**: Blocking `read()` in the same thread as Ghostty processing
   starves rendering when there's no PTY output. Separation lets the
   SessionThread process at frame rate while PTY reader blocks independently.

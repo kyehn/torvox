@@ -13,6 +13,7 @@ FR-02, NFR-01
 ## Context
 
 The original `gpu-renderer/` crate (~9.6 KLOC) used:
+
 - **wgpu** for Vulkan GPU access
 - **cosmic-text** for Unicode text shaping (ligatures, CJK fallback, complex
   scripts)
@@ -78,17 +79,20 @@ Reduce from 5 WGSL shaders to 3 active:
 ## Alternatives Considered
 
 ### Replace wgpu with raw Vulkan via `ash`
+
 - **Rejected**: wgpu provides surface creation, swapchain management, and
   safety wrappers over Vulkan that are valuable. warp-mobile-android uses
   `ash` and has substantially more Vulkan boilerplate than wgpu.
 
 ### Replace wgpu with Android Canvas + SurfaceView
+
 - **Rejected**: Canvas rendering goes through Android HWUI which has
   unpredictable latency (p95 spikes >50 ms for complex text layouts).
   GPU control via wgpu provides consistent frame times and enables future
   features (Kitty Graphics protocol, GPU compositing).
 
 ### Replace cosmic-text with simple ab_glyph
+
 - **Rejected**: ab_glyph does not support ligatures, CJK fallback, or
   complex script shaping. Since the user specified "不影响显示即可,"
   cosmic-text's full Unicode support must be retained.

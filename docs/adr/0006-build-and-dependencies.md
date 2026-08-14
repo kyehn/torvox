@@ -67,6 +67,7 @@ serialization step.
 ## Alternatives Considered
 
 ### Keep no_std for "portability"
+
 - **Rejected**: No realistic scenario requires torvox to run on embedded
   targets without std. The constraint was self-imposed and unenforced by
   the actual build targets.
