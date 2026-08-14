@@ -32,8 +32,9 @@ The project currently has three CI workflows:
 
 1. `rust-checks.yml` — host-side Rust checks (clippy, unit tests, GPU
    snapshot tests via lavapipe/SwiftShader)
-2. `android-tests.yml` — Android emulator instrumented tests
-3. `release.yml` — APK build and release
+2. `gradle-checks.yml` — Android Gradle checks (lint, unit tests)
+3. `release.yml` — APK build, Android emulator instrumented tests, and
+   release
 
 ## Decision
 
@@ -42,7 +43,7 @@ The project currently has three CI workflows:
 ```text
 ┌─────────────────────────────────────────────────┐
 │  Tier 3: Android Instrumented Tests             │
-│  (real device / emulator — CI android-tests.yml)│
+│  (real device / emulator — CI release.yml)      │
 │  FR-014, FR-015, FR-016, FR-017, NFR-034       │
 ├─────────────────────────────────────────────────┤
 │  Tier 2: Host GPU Snapshot Tests                │
@@ -92,7 +93,7 @@ in `rust-checks.yml` with the lavapipe ICD pre-configured.
 
 ### 4. Tier 3 — Android instrumented tests
 
-Tests that run on an Android emulator in CI (`android-tests.yml`):
+Tests that run on an Android emulator in CI (`release.yml`):
 
 - **JNI lifecycle**: `initSession`, `attachWindow`, `detachWindow`,
   `destroySession` call sequences.
