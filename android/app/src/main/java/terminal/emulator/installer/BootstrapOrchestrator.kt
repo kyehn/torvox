@@ -4,8 +4,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicReference
 
-private const val BOOTSTRAP_BASE_URL = "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-"
-
 class BootstrapOrchestrator(
     private val downloader: BootstrapDownloader,
     private val installer: BootstrapInstaller,
@@ -78,7 +76,7 @@ class BootstrapOrchestrator(
         synchronized(processLock) {
             state.set(Status.INSTALLING)
         }
-        val resolvedUrl = bootstrapUrl.ifBlank { getDefaultBootstrapUrl() }
+        val resolvedUrl = bootstrapUrl
         if (resolvedUrl.isBlank()) {
             state.set(Status.ERROR)
             return Result.failure(Exception(ERROR_NO_URL))
@@ -124,17 +122,6 @@ class BootstrapOrchestrator(
             // No cause chain: the original exception may embed the bootstrap
             // URL/host ; consumers only see the redacted message.
             return Result.failure(Exception(message))
-        }
-    }
-
-    private fun getDefaultBootstrapUrl(): String {
-        val arch = detectAbi()
-        return when (arch) {
-            "aarch64" -> "${BOOTSTRAP_BASE_URL}aarch64.zip"
-            "arm" -> "${BOOTSTRAP_BASE_URL}arm.zip"
-            "x86_64" -> "${BOOTSTRAP_BASE_URL}x86_64.zip"
-            "i686" -> "${BOOTSTRAP_BASE_URL}i686.zip"
-            else -> ""
         }
     }
 

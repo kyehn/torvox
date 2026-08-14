@@ -193,6 +193,9 @@ class ToolbarPreferences(
     )
 
     fun defaultLayout(): List<ToolbarItem> = listOf(
+        // Mirrors termux-app v0.119.0-beta.3 DEFAULT_IVALUE_EXTRA_KEYS:
+        // row1 ESC DRAWER SCROLL HOME UP END PGUP; row2 TAB CTRL ALT LEFT
+        // DOWN RIGHT PGDN (ModifierBar splits the flat list 7/7 at the midpoint).
         ToolbarItem.Default(ToolbarKey.ESC),
         ToolbarItem.Default(ToolbarKey.DRAWER),
         ToolbarItem.Default(ToolbarKey.SCROLL),
@@ -207,7 +210,5 @@ class ToolbarPreferences(
         ToolbarItem.Default(ToolbarKey.ARROW_DOWN),
         ToolbarItem.Default(ToolbarKey.ARROW_RIGHT),
         ToolbarItem.Default(ToolbarKey.PGDN),
-        ToolbarItem.Default(ToolbarKey.FN),
-        ToolbarItem.Default(ToolbarKey.COMPOSE),
     )
 }

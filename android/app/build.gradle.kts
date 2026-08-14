@@ -125,6 +125,28 @@ android {
             useLegacyPackaging = true
         }
     }
+
+    lint {
+        // Partial translations are intentional (6 locale files ship a
+        // subset; missing keys fall back to the default values).
+        disable += "MissingTranslation"
+        // Slack's RawDispatchersUse/DenyListedApi encode Slack's internal
+        // dispatcher wrapper and runCatching ban — not applicable here
+        // (no SlackDispatchers dependency; runCatching is used outside
+        // coroutine cancellation paths).
+        disable += "RawDispatchersUse"
+        disable += "DenyListedApi"
+        // compose-lints style rules: modifier-parameter conventions and
+        // single-content-emitter layout are advisory; the codebase predates
+        // the checks and fixing 30+ call sites adds churn without runtime
+        // value.
+        disable += "ComposeModifierMissing"
+        disable += "ComposeModifierReused"
+        disable += "ComposeModifierWithoutDefault"
+        disable += "ComposeMultipleContentEmitters"
+        disable += "ComposeParameterOrder"
+        disable += "ComposeViewModelInjection"
+    }
 }
 
 configurations {
