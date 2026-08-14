@@ -44,10 +44,9 @@ torvox/
 ├── native/            ← single Rust crate (lib + cdylib)
 │   ├── Cargo.toml
 │   └── src/
-│       ├── lib.rs     ← JNI entry points
-│       ├── mcp.rs     ← feature-gated
-│       ├── lock_util.rs
-│       ├── android/
+│       ├── lib.rs
+│       ├── android/  ← JNI exports (ffi.rs)
+│       ├── mcp/      ← feature-gated (auth, tools, mod)
 │       ├── render/
 │       └── terminal/
 ├── android/           ← Kotlin+Compose (unchanged)

@@ -139,6 +139,52 @@ def check_decision_registry(issues):
 
 
 
+def check_test_refs(issues):
+    """acceptance.md 中的 `cargo test ... -- <filter>` 过滤名必须能在源码中
+    匹配到真实测试函数（防止验收标准引用虚构测试）。"""
+    # 收集全部 Rust 测试函数名
+    defined = set()
+    for root in ("native/src", "integration-tests"):
+        for dirpath, _d, files in os.walk(root):
+            for fn in files:
+                if not fn.endswith(".rs"):
+                    continue
+                s = open(os.path.join(dirpath, fn), encoding="utf-8").read()
+                defined |= set(re.findall(r"\bfn\s+(\w+)\s*\(", s))
+    # 集成测试文件：cargo test -p integration-tests --test <name>
+    it_files = {
+        f[:-3] for f in os.listdir(os.path.join(ROOT, "integration-tests", "tests"))
+        if f.endswith(".rs")
+    }
+    p = os.path.join(DOCS, "acceptance.md")
+    s = open(p, encoding="utf-8").read()
+    for m in re.finditer(r"cargo test --package native -- ([a-z0-9_]+)", s):
+        name = m.group(1)
+        if not any(name in d for d in defined):
+            issues.append(f"verify: acceptance.md 引用测试 `{name}`，源码中无匹配函数")
+    for m in re.finditer(r"cargo test -p integration-tests --test ([a-z0-9_]+)", s):
+        name = m.group(1)
+        if name not in it_files:
+            issues.append(f"verify: acceptance.md 引用集成测试 `{name}`，tests/ 下无对应文件")
+
+
+def check_path_refs(issues):
+    """反引号引用的源码/脚本路径必须存在（跳过构建产物与目录双向检查）。"""
+    # 构建产物目录：构建脚本输出目标，仓库中不提交
+    known_missing = {
+        "android/app/src/main/jniLibs/",  # build-android-libs.nu 输出
+    }
+    for fn in ("acceptance.md", "srs.md", "traceability.yml"):
+        p = os.path.join(DOCS, fn)
+        s = open(p, encoding="utf-8").read()
+        for m in re.finditer(r"`((?:native|android|integration-tests|exec-bin|scripts)/[^`]+)`", s):
+            path = m.group(1).split(":")[0].strip()
+            if path in known_missing or path.endswith("/"):
+                continue
+            if not os.path.exists(os.path.join(ROOT, path)):
+                issues.append(f"verify: {fn} 引用不存在的路径 `{path}`")
+
+
 def github_slug(heading):
     """GitHub-style anchor slug for a markdown heading."""
     slug = re.sub(r"[^\w\- ]", "", heading.lower())
@@ -190,12 +236,14 @@ def main():
     check_glossary(issues)
     check_acceptance_toc(issues)
     check_decision_registry(issues)
+    check_test_refs(issues)
+    check_path_refs(issues)
     if issues:
         print(f"❌ {len(issues)} 个问题：")
         for i in issues:
             print("  -", i)
         sys.exit(1)
-    print("✅ 文档结构检查全部通过（arc42 / ADR 模板 / 需求同步 / 链接）")
+    print("✅ 文档结构检查全部通过（arc42 / ADR / 需求同步 / 链接 / 测试引用 / 路径）")
 
 
 if __name__ == "__main__":

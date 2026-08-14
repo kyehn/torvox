@@ -33,10 +33,10 @@ tightly coupled to terminal state, not a remote API.
 
 ## Decision
 
-MCP is an **embedded module** in `native/src/mcp.rs`:
+MCP is an **embedded module** in `native/src/mcp/`:
 
 ```rust
-// native/src/mcp.rs — ~723 lines
+// native/src/mcp/ — module (auth, tools, mod)
 pub fn build_router() -> McpRouter { ... }
 pub fn start() { ... }
 pub async fn run_stdio() -> Result<()> { ... }
@@ -98,7 +98,7 @@ pub async fn run_stdio() -> Result<()> { ... }
 
 This decision was **fully implemented** in Phase 7 of the re-architecture:
 
-- MCP server lives at `native/src/mcp.rs` (~723 lines)
+- MCP server lives at `native/src/mcp/` (auth, tools, mod)
 - Uses **tower-mcp 0.14** (proper MCP protocol, not hand-rolled JSON-RPC) instead of the originally proposed hand-written dispatch
 - Provides **two transports**: `StdioTransport` (for AI coding agent CLIs) and `UnixSocketTransport` (for embedded use)
 - Supports **8 standard MCP tools**: `terminal_info`, `clipboard_get`, `clipboard_set`, `notify`, `toast`, `open_url`, `pick_file`, `dialog`

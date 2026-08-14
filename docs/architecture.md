@@ -106,7 +106,7 @@ drop-in companion for the Termux ecosystem.
 
 | Channel | Direction | Protocol / Technology | Notes |
 |---------|-----------|-----------------------|-------|
-| JNI bridge | Kotlin ↔ Rust | `jni` crate, 14 `#[no_mangle]` exports in `native/src/android/ffi.rs` | Synchronous calls; `pollEvent()` returns JSON event batches |
+| JNI bridge | Kotlin ↔ Rust | `jni` crate, 28 JNI exports in `native/src/android/ffi.rs` | Synchronous calls; `pollEvent()` returns JSON event batches |
 | PTY master | Rust ↔ child | POSIX PTY (`pty.rs`, `nix` crate) | Reader polls with 100ms timeout; separate writer thread |
 | GPU surface | Rust ↔ Android | `ANativeWindow` → Vulkan via wgpu | Surface handle extracted on JNI thread, sent to render thread |
 | MCP | Rust ↔ agent | JSON-RPC 2.0 over Unix socket or stdio (tower-mcp, axum, tokio) | Per-server listener thread, not per-session |
@@ -156,7 +156,7 @@ native/                          ← single cdylib + lib crate
 │   ├── android/                 ← JNI FFI exports (no boltffi)
 │   ├── mcp/                     ← tower-mcp server (Unix socket + stdio)
 │   └── lock_util.rs             ← poison recovery
-├── shaders/                     ← WGSL shader sources (3 files)
+├── shaders/                     ← WGSL shader sources (5 files: cell, background, grid, flash, kitty_graphics)
 └── Cargo.toml
 ```
 
@@ -171,8 +171,8 @@ native/                          ← single cdylib + lib crate
 |--------|------|------------------|
 | `terminal/` | PTY master/slave, Ghostty VT wrapper, Session orchestration, keyboard encoding, shell env setup | `libghostty-vt` (vendored Zig), `nix`, `flume` |
 | `render/` | wgpu device/surface, cosmic-text shaping, swash rasterization, guillotiere atlas, WGSL pipelines, CellInstance construction | `wgpu`, `cosmic-text`, `swash`, `guillotiere`, `bytemuck` |
-| `android/` | 14 JNI `#[no_mangle]` functions: session lifecycle, surface attach/detach, input, polling, dialog result, MCP toggle, persistence | `jni` crate |
-| `mcp/` | MCP tools via tower-mcp (terminal_info, clipboard_get, clipboard_set, notify, toast, open_url, pick_file) | `tower-mcp`, `axum`, `tokio`, `schemars` |
+| `android/` | 28 JNI exports: session lifecycle, surface attach/detach, input, polling, dialog result, MCP toggle, persistence | `jni` crate |
+| `mcp/` | MCP tools via tower-mcp (terminal_info, clipboard_get, clipboard_set, notify, toast, open_url, pick_file, screenshot) | `tower-mcp`, `axum`, `tokio`, `schemars` |
 | `lock_util.rs` | `lock_or_recover()`, `write_or_recover()` — mutex/poison recovery helpers | None |
 
 ### 5.3 Dependency Graph
@@ -200,7 +200,7 @@ The single-crate design eliminates cross-crate boundary violations entirely.
 PTY output
     → poll()/read() [PTY Reader thread]
     → GhosttyTerminal::try_write_to_terminal()
-    → CellData (80B bytemuck Pod struct, 0 FFI calls/cell) via flume channel (bounded 256)
+    → CellData (80B bytemuck Pod struct, 0 FFI calls/cell) via flume channel (bounded 4)
     → RenderThread:
         1. build_instances_from_cell_data() → Vec<CellInstance>
         2. wgpu write_buffer (storage)
@@ -232,7 +232,7 @@ Each terminal session creates 4 threads:
 | **PTY Reader** | `terminal/ghostty_terminal/` | Session | Polls PTY with `poll()` (100ms timeout), reads output, feeds GhosttyTerminal; VT parser runs inline on same thread |
 | **Input Writer** | `terminal/ghostty_terminal/` | Session | Writes keyboard input to PTY master (separate write path avoids reader contention) |
 | **Process Waiter** | `terminal/ghostty_terminal/` | Until child exits | `waitpid()` on child process; exits after child terminates |
-| **Render Thread** | `render/context.rs` | While surface alive | flume-channel woken loop: receives CellData, shapes, rasterizes, submits GPU frame |
+| **Render Loop** | Kotlin `TerminalRuntime` calls `NativeBridge.render` per frame | While surface alive | Drives wgpu: receives CellData, shapes, rasterizes, submits GPU frame; Rust side owns a `gpu-acquire` worker thread (`render/pass.rs`) for surface texture acquisition |
 
 The **MCP Listener** is a per-server thread (not per-session) that accepts Unix
 socket or stdio connections via axum+tokio.
@@ -361,7 +361,7 @@ review documented in `docs/dependencies.md`.
 | 3 | **Single crate** (no cross-crate boundaries) | Faster compilation, simpler refactoring after boltffi/terminal-core removal | ADR-0001 | ✅ |
 | 4 | **GPU-only wgpu/Vulkan** (no GL/CPU fallback) | Consistent across Linux, Android, emulator; Lavapipe/SwiftShader provide SW driver fallback | ADR-0008 | ✅ |
 | 5 | **4+1 thread model** | PTY reader + VT parser on one thread avoids grid sync; separate input writer | ADR-0004 | ✅ |
-| 6 | **Embedded MCP** (tower-mcp) | ~400 LOC replaces ~2K standalone crate; stdio (AI coding agent) + Unix socket | ADR-0005 | ✅ |
+| 6 | **Embedded MCP** (tower-mcp) | ~2.2k LOC module (tools/auth/mod) in `native/mcp/`; stdio (AI coding agent) + Unix socket | ADR-0005 | ✅ |
 | 7 | **TextureView over SurfaceView** | No `setZOrderOnTop` needed; natural Compose integration | ADR-0003 | ✅ |
 | 8 | **cargo-audit over cargo-deny** | Existing infra; license checking handled elsewhere (ADR-0006) | ADR-0006 | ✅ |
 

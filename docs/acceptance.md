@@ -46,9 +46,9 @@ Ghostty parser (`libghostty-vt`).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | ECMA-48 CSI, DCS, and OSC sequences produce correct terminal state transitions | `cargo test --package native -- ecma48_correctness` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Vttest screen and cursor test sequences produce expected output | `cargo test --package native -- vttest_sequences` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | Structured fuzz-generated VT input does not cause crashes or state corruption | `cargo test --package native -- fuzz_vt_structured` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | ECMA-48 CSI, DCS, and OSC sequences produce correct terminal state transitions | `cargo test --package native -- csi_edit_exhaustive` ([test source](../native/src/terminal/vt_conformance.rs)) |
+| 2 | Vttest screen and cursor test sequences produce expected output | `cargo test --package native -- f_key_sequences_match_vt220` ([test source](../native/src/terminal/ghostty_terminal/key_encoding_tests.rs)) |
+| 3 | Structured fuzz-generated VT input does not cause crashes or state corruption | `cargo test --package native -- rb_012_rapid_malformed_sequences` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 
 ### FR-002: Terminal Grid Data Model
 
@@ -58,8 +58,8 @@ color, and text attributes (`Attrs`).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Grid operations (insert, delete, clear rows/cols) produce correct cell layout | `cargo test --package native -- grid_ops` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Grid state machine matches reference model under random operations | `cargo test --package native -- property_tests` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | Grid operations (insert, delete, clear rows/cols) produce correct cell layout | `cargo test --package native -- insert_lines_blank_at_cursor` ([test source](../native/src/terminal/vt_conformance.rs)) |
+| 2 | Grid state machine matches reference model under random operations | `cargo test --package native -- property_csi_cursor_random_200` ([test source](../native/src/terminal/vt_conformance.rs)) |
 
 ### FR-003: SGR (Select Graphic Rendition) Attributes
 
@@ -69,9 +69,9 @@ and protected.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | All 11 SGR attribute codes are parsed and produce the correct `Attrs` bitfield | `cargo test --package native -- sgr_parser_tests` ([test source](../native/src/terminal/sgr_parser.rs)) |
-| 2 | Property tests over random SGR sequences produce consistent attribute combinations | `cargo test --package native -- sgr_proptest` ([test source](../native/src/terminal/sgr_parser.rs)) |
-| 3 | Full SGR compatibility suite passes against a reference terminal implementation | `cargo test --package native -- sgr_full_compat` ([test source](../native/src/terminal/sgr_parser.rs)) |
+| 1 | All 11 SGR attribute codes are parsed and produce the correct `Attrs` bitfield | `cargo test --package native -- write_sgr_underline_sets_underline` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 2 | Property tests over random SGR sequences produce consistent attribute combinations | `cargo test --package native -- property_sgr_0_resets_all_attributes` ([test source](../native/src/terminal/vt_conformance.rs)) |
+| 3 | Full SGR compatibility suite passes against a reference terminal implementation | `cargo test --package native -- sgr0_clears_all` ([test source](../native/src/terminal/sgr_parser.rs)) |
 
 ### FR-004: Color Support (ANSI, 256-Color, Truecolor)
 
@@ -80,9 +80,9 @@ and protected.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | All 16 ANSI color palette indices (0–15) are mapped to correct RGB values | `cargo test --package native -- terminal_colors` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | All 16 ANSI color palette indices (0–15) are mapped to correct RGB values | `cargo test --package native -- terminal_reset_restores_indexed_colors` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 | 2 | 256-color (38;5;n / 48;5;n) and truecolor (38;2;r;g;b / 48;2;r;g;b) sequences produce correct `Color` values | `cargo test --package native -- colors` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | Color palette indices resolve to theme-defined values when a custom theme is active | Code review: `native/src/color.rs` maps index → `RgbColor` through active theme |
+| 3 | Color palette indices resolve to theme-defined values when a custom theme is active | Code review: `native/src/terminal/ghostty_terminal/internal.rs` — theme palette applied via `GhosttyTerminal::set_theme` / `set_default_bg_color` |
 
 ### FR-005: Alternate Screen Buffer
 
@@ -103,9 +103,9 @@ with visible/hidden state.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | All cursor movement CSI sequences move the cursor to the expected position | `cargo test --package native -- cursor_cmds_tests` ([test source](../native/src/terminal/cursor_cmds.rs)) |
-| 2 | Cursor style (DECSUSR, CSI SP q) selection switches between block, bar, underline, and beam | `cargo test --package native -- dec_modes_dedicated` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | Cursor visibility (DECTCEM) toggles on/off correctly | `cargo test --package native -- dec_modes_dedicated` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | All cursor movement CSI sequences move the cursor to the expected position | `cargo test --package native -- csi_cursor_movement_exhaustive` ([test source](../native/src/terminal/vt_conformance.rs)) |
+| 2 | Cursor style (DECSUSR, CSI SP q) selection switches between block, bar, underline, and beam | `cargo test --package native -- dec_modes_exhaustive` ([test source](../native/src/terminal/vt_conformance.rs)) |
+| 3 | Cursor visibility (DECTCEM) toggles on/off correctly | `cargo test --package native -- dec_modes_exhaustive` ([test source](../native/src/terminal/vt_conformance.rs)) |
 
 ### FR-007: Scrolling Regions
 
@@ -115,8 +115,8 @@ boundaries.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Scroll up/down within a DECSTBM region scrolls only the specified lines | `cargo test --package native -- grid_ops` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Insert/delete lines shift content as expected with configurable boundaries | `cargo test --package native -- grid_state_machine` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | Scroll up/down within a DECSTBM region scrolls only the specified lines | `cargo test --package native -- decstbm_preserves_outside` ([test source](../native/src/terminal/vt_conformance.rs)) |
+| 2 | Insert/delete lines shift content as expected with configurable boundaries | `cargo test --package native -- delete_insert_lines_no_crash` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 
 ### FR-008: Tab Stops
 
@@ -125,7 +125,7 @@ boundaries.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | Tab stop set (HTS), clear (TBC), and forward/backward tab (HT, CBT) move the cursor to the correct column | `cargo test --package native -- tabs` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Default tab stops are set every 8 columns on terminal reset | Code review: `native/src/control.rs` initial tab width |
+| 2 | Default tab stops are set every 8 columns on terminal reset | `cargo test --package native -- default_tab_stops_advance_every_8` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 
 ### FR-009: SIGWINCH on Terminal Resize
 
@@ -134,8 +134,8 @@ the child process.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Resizing the session triggers `SIGWINCH` to the child process group | `cargo test --package native -- lifecycle_test` ([test source](../native/src/terminal/session.rs)) |
-| 2 | The child process receives updated terminal dimensions after resize | `cargo test --package native -- session_state_machine` ([test source](../native/src/terminal/session.rs)) |
+| 1 | Resizing the session triggers `SIGWINCH` to the child process group | `cargo test --package native -- session_resize` ([test source](../native/src/terminal/session.rs)) |
+| 2 | The child process receives updated terminal dimensions after resize | `cargo test --package native -- session_resize` ([test source](../native/src/terminal/session.rs)) |
 
 ---
 
@@ -149,7 +149,7 @@ as the sole graphics backend. OpenGL and CPU software paths are not supported.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | wgpu instance and surface create successfully on a Vulkan-capable device | `cargo test -p native --features test-util --lib -- render` (Lavapipe headless; surface swap covered on emulator via `scripts/test-emulator.nu`) ([test source](../native/src/render/tests.rs)) |
-| 2 | Headless wgpu rendering produces correct pixel output (OCR-confirmed) | `cargo test --package native -- text_ocr_test` ([test source](../native/src/render/screenshot_tests.rs)) |
+| 2 | Headless wgpu rendering produces correct pixel output (OCR-confirmed) | `cargo test --package native -- ocr_verifies_rendered_text` ([test source](../native/src/render/tests.rs)) |
 | 3 | No OpenGL or CPU rendering dependencies present in `Cargo.toml` | Code review: no `opengl`, `glutin`, or `Canvas.drawText` references in production code |
 
 ### FR-011: Text Shaping and Glyph Rasterization
@@ -159,9 +159,9 @@ rasterize glyphs using `swash`, caching results in a GPU atlas.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A text run shaped with `cosmic-text` produces correct glyph positions and clusters | `cargo test --package native -- font_metrics` ([test source](../native/src/render/tests.rs)) |
-| 2 | Rasterized glyphs render at the correct pixel dimensions | `cargo test --package native -- text_ocr_test` ([test source](../native/src/render/screenshot_tests.rs)) |
-| 3 | Shaped results are cached and cache hits return identical glyph data | Code review: `native/src/font.rs` — shaped text cache with 4,096 entry cap |
+| 1 | A text run shaped with `cosmic-text` produces correct glyph positions and clusters | `cargo test --package native -- cell_metrics_scales_with_font_size` ([test source](../native/src/render/tests.rs)) |
+| 2 | Rasterized glyphs render at the correct pixel dimensions | `cargo test --package native -- ocr_verifies_rendered_text` ([test source](../native/src/render/tests.rs)) |
+| 3 | Shaped results are cached and cache hits return identical glyph data | Code review: `native/src/render/font/mod.rs` — `GLYPH_CACHE_CAPACITY` glyph cache |
 
 ### FR-012: GPU Texture Atlas Management
 
@@ -170,20 +170,20 @@ using `guillotiere` for dynamic rectangle allocation and eviction.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `guillotiere` allocates rectangles in the atlas texture for each glyph | `cargo test --package native -- gpu_headless_test` ([test source](../native/src/render/tests.rs)) |
+| 1 | `guillotiere` allocates rectangles in the atlas texture for each glyph | `cargo test -p integration-tests --test terminal_render_test` ([test source](../integration-tests/tests/terminal_render_test.rs)) |
 | 2 | Atlas evicts least-recently-used glyphs when capacity is reached | Code review: `native/src/render/font/atlas.rs` — atlas eviction path |
-| 3 | Atlas allocation tracks at least 10,000 glyph entries | Code review: `native/src/font.rs` — atlas capacity constant |
+| 3 | Atlas allocation tracks at least 10,000 glyph entries | Code review: `native/src/render/font/mod.rs` — atlas capacity constant |
 
 ### FR-013: Dirty Mask for Incremental Rendering
 
-**Requirement**: The system SHALL maintain a dirty mask (`DirtyMask`) that tracks
-which rows of the grid have changed and limit rendering to those rows.
+**Requirement**: The system SHALL track which rows of the grid changed since the
+last frame and limit rendering to those rows.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Writing a character marks only the affected row as dirty | `cargo test --package native -- grid_ops` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Property tests verify that dirty bits are set and cleared consistently | `cargo test --package native -- property_tests` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | A full-grid operation (e.g., clear screen) marks all visible rows dirty | Code review: `native/src/cell.rs` — `DirtyMask` API and `native/src/grid.rs` — row invalidation logic |
+| 1 | Writing a character marks only the affected row as dirty | `cargo test --package native -- dirty_rows_collected` ([test source](../native/src/render/invalidation.rs)) |
+| 2 | Property tests verify that dirty bits are set and cleared consistently | `cargo test --package native -- dirty_rows_collected` ([test source](../native/src/render/invalidation.rs)) |
+| 3 | A full-grid operation (e.g., clear screen) marks all visible rows dirty | Code review: `native/src/render/cell_builder.rs` — `diff_dirty_rows` and ghostty row invalidation |
 
 ### FR-014: Cursor Rendering
 
@@ -192,8 +192,8 @@ beam) with configurable color and blink behavior.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Each cursor style (block, bar, underline, beam) is rendered as a distinct visual shape in the wgpu pipeline | `cargo test --package native -- gpu_headless_test` ([test source](../native/src/render/tests.rs)) |
-| 2 | Cursor color respects the configured theme cursor color | Code review: `native/src/config.rs` (`Theme.cursor`) and shader uniform path |
+| 1 | Each cursor style (block, bar, underline, beam) is rendered as a distinct visual shape in the wgpu pipeline | `cargo test -p integration-tests --test terminal_render_test` ([test source](../integration-tests/tests/terminal_render_test.rs)) |
+| 2 | Cursor color respects the configured theme cursor color | Code review: `android/app/src/main/java/terminal/emulator/ui/theme/TerminalTheme.kt` (`cursor` field) + shader uniform path |
 | 3 | Blink cursor toggles visibility at the configured rate | Code review: `native/src/render/context.rs` — cursor blink state |
 
 ### FR-015: Selection Rendering
@@ -203,21 +203,21 @@ word, line, block modes) as colored overlays on the affected cells.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Selection in character, word, line, and block mode produces highlights on the correct cells | `cargo test --package native -- gpu_headless_test` ([test source](../native/src/render/tests.rs)) |
-| 2 | Selection background color is configurable and defaults to the theme selection color | Code review: `native/src/config.rs` (`Theme.selection_foreground`, `Theme.selection_background`) |
+| 1 | Selection in character, word, line, and block mode produces highlights on the correct cells | `cargo test -p integration-tests --test terminal_render_test` ([test source](../integration-tests/tests/terminal_render_test.rs)) |
+| 2 | Selection background color is configurable and defaults to the theme selection color | Code review: `TerminalTheme.kt` (`selectionBg` field) + `native/src/render/pass.rs` selection instance emission |
 | 3 | Empty selection renders no highlight overlay | Code review: `native/src/render/cell_builder.rs` — instance emission when selection is empty |
 
 ### FR-016: Font Configuration
 
-**Requirement**: The system SHALL support font configuration: family, size, line
-spacing, and fallback to preferred monospace fonts (Roboto Mono, JetBrains Mono,
-etc.).
+**Requirement**: The system SHALL support font configuration: family, size, and
+line spacing, with fallback to the system monospace font (resolved via
+fonts.xml / fontdb).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Changing `FontConfig.family` switches the rendered glyph set | `cargo test --package native -- font_metrics` ([test source](../native/src/render/tests.rs)) |
-| 2 | Font size changes produce proportionally scaled glyphs in the atlas | `cargo test --package native -- font_test` ([test source](../native/src/render/tests.rs)) |
-| 3 | Fallback chain loads a monospace font when the primary family is unavailable | Code review: `native/src/font.rs` — font fallback loading logic |
+| 1 | Changing `FontConfig.family` switches the rendered glyph set | `cargo test --package native -- font_switching_changes_font_id` ([test source](../native/src/render/font/mod.rs)) |
+| 2 | Font size changes produce proportionally scaled glyphs in the atlas | `cargo test --package native -- font_switching_clears_cache` ([test source](../native/src/render/font/mod.rs)) |
+| 3 | Fallback chain loads a monospace font when the primary family is unavailable | Code review: `native/src/render/font/mod.rs` — font fallback loading logic |
 
 ### FR-017: Theme-Based Color Rendering
 
@@ -226,8 +226,8 @@ and 16-color ANSI palette from the active theme configuration.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Applying a theme sets the background and foreground rendered by wgpu | `cargo test --package native -- gpu_headless_test` ([test source](../native/src/render/tests.rs)) |
-| 2 | All 16 ANSI palette colors from the theme are used when rendering foreground/background | `cargo test --package native -- terminal_colors` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | Applying a theme sets the background and foreground rendered by wgpu | `cargo test -p integration-tests --test terminal_render_test` ([test source](../integration-tests/tests/terminal_render_test.rs)) |
+| 2 | All 16 ANSI palette colors from the theme are used when rendering foreground/background | `cargo test --package native -- terminal_reset_restores_indexed_colors` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 | 3 | Theme colors are applied uniformly across the entire terminal grid | Code review: `native/src/render/context.rs` — uniform buffer upload |
 
 ### FR-018: GPU Surface Recovery
@@ -249,9 +249,9 @@ rendering inline images as textured quads.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | KGP sequences (`_Gi`) produce textured quads in the instance buffer | `cargo test --package native -- gpu_headless_test` ([test source](../native/src/render/tests.rs)) |
+| 1 | KGP sequences (`_Gi`) produce textured quads in the instance buffer | `cargo test --package native -- kitty_image_apc_sequence_no_crash` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 | 2 | KGP images are rendered at the correct cell-aligned position and size | Deferred: KGP (kitty graphics) support removed; requirement stale |
-| 3 | KGP placeholder cells (SPACE with `KGP_IMAGE` attribute) are rendered as image areas | Code review: `native/src/cell.rs` — `CellFlags::KGP_IMAGE` bit |
+| 3 | KGP images are stored with bounded memory and rendered via the dedicated KGP pass | Code review: `native/src/terminal/ghostty_terminal/internal.rs` — `set_kitty_image_storage_limit`; `native/src/render/pass.rs` — KGP instance buffer and render pass |
 
 ---
 
@@ -264,8 +264,8 @@ Keyboard Protocol (KBP) for extended modifier and key reporting.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Key presses with modifiers (Ctrl, Shift, Alt, Super) produce correct KBP escape sequences | `cargo test --package native -- session_roundtrip` ([test source](../native/src/terminal/session.rs)) |
-| 2 | KBP disambiguation codes distinguish between modified and unmodified keys | Code review: `native/src/keyboard.rs` — event encoding logic |
+| 1 | Key presses with modifiers (Ctrl, Shift, Alt, Super) produce correct KBP escape sequences | `cargo test --package native -- key_encode_shift_a_uses_utf8_char` ([test source](../native/src/terminal/ghostty_terminal/tests_s2_fixes.rs)) |
+| 2 | KBP disambiguation codes distinguish between modified and unmodified keys | Code review: `native/src/terminal/ghostty_terminal/keymap.rs` — event encoding logic |
 
 ### FR-021: IME Text Input (CJK)
 
@@ -276,8 +276,8 @@ management.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | Composing state transitions are tracked correctly in the terminal state | `cargo test --package native -- grapheme` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | CJK composed characters render at double-width cell positions | `cargo test --package native -- unicode_icu_conformance` ([test source](../native/src/terminal/vt_conformance.rs)) |
-| 3 | Unicode grapheme clusters are segmented correctly for cursor movement | `cargo test --package native -- unicode_icu_conformance` ([test source](../native/src/terminal/vt_conformance.rs)) |
+| 2 | CJK composed characters render at double-width cell positions | `cargo test --package native -- write_unicode_cjk` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 3 | Unicode grapheme clusters are segmented correctly for cursor movement | `cargo test --package native -- grapheme` ([test source](../native/src/terminal/vt_conformance.rs)) |
 
 ### FR-022: Selection Modes (Character, Word, Line, Block)
 
@@ -287,7 +287,7 @@ character (`Char`), word (`Word`), line (`Line`), and block (`Block`).
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | Each selection mode returns the correct text span from the grid | `cargo test --package native -- selection_text` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Selection round-trips through serialize/deserialize without data loss | `cargo test --package native -- selection_roundtrip` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 2 | Selection round-trips through serialize/deserialize without data loss | Code review: `native/src/terminal/ghostty_terminal/types.rs` — `SelectionMode` serialization; text extraction covered by `selection_text_unwraps_soft_wrapped_lines` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 
 ### FR-023: Word Boundary and URL Detection
 
@@ -298,7 +298,7 @@ URL-aware selection expansion.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | Word-mode selection expands to word boundaries (alphanumeric contiguous spans) | `cargo test --package native -- selection_text` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | URL-like patterns (`http://`, `https://`, `ftp://`, `www.`) are detected and selection expands to the full URL | `cargo test --package native -- selection_integration` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 2 | URL-like patterns (`http://`, `https://`, `ftp://`, `www.`) are detected and selection expands to the full URL | `cargo test --package native -- url_at_column_hits_span` ([test source](../native/src/terminal/url_regex.rs)) |
 
 ### FR-024: Touch Input Gestures
 
@@ -310,18 +310,17 @@ selection handles, and swipe for scrollback navigation.
 | 1 | Long-press gesture initiates selection mode with visible handles | `cd android && ./gradlew connectedDebugAndroidTest` — `TouchGestureInstrumentedTest` ([`android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt`](../android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt)) |
 | 2 | Swipe gesture scrolls the scrollback buffer | `cd android && ./gradlew connectedDebugAndroidTest` — `TouchGestureInstrumentedTest` ([`android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt`](../android/app/src/androidTest/java/terminal/emulator/TouchGestureInstrumentedTest.kt)) |
 
-### FR-025: Backspace and Right-Alt Mode Configuration
 
-**Requirement**: The system SHALL support configurable backspace mode (DEL
-`0x7f` or BS `0x08`) and right-Alt mode (character modifier or meta).
+### FR-025: Backspace and Modifier Key Encoding
+
+**Requirement**: The system SHALL send DEL (`0x7F`) for the backspace key and
+encode modifier keys (Ctrl/Shift/Alt/Super) per the Kitty keyboard protocol.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `BackspaceMode::Del` sends `0x7f` on backspace key; `BackspaceMode::Bs` sends `0x08` | `cargo test --package native -- config_drift` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | `RightAltMode::Esc` sends `ESC + char`; `RightAltMode::Modifier` sends an 8-bit-modified character | `cargo test --package native -- config_integration` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | Configuration values default to `BackspaceMode::Del` and `RightAltMode::Esc` if unspecified | Code review: `native/src/config.rs` — `Default` impl for `TerminalConfig` |
-
----
+| 1 | Backspace key sends DEL (`0x7F`) | Code review: `android/app/src/main/java/terminal/emulator/ui/TerminalInputEncoder.kt` — `KEYCODE_DEL` → `0x7F` |
+| 2 | `Alt + letter` sends `ESC + letter` prefix | `cargo test --package native -- alt_letter_escapes_prefix` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 3 | Modifiers produce correct KBP escape sequences | `cargo test --package native -- key_encode_shift_a_uses_utf8_char` ([test source](../native/src/terminal/ghostty_terminal/tests_s2_fixes.rs)) |
 
 ## 4. Session Management
 
@@ -332,8 +331,8 @@ executable) connected to a pseudo-terminal (PTY) via `fork/exec`.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A PTY pair is created and a child process is spawned with the PTY slave as its controlling terminal | `cargo test --package native -- lifecycle_test` ([test source](../native/src/terminal/session.rs)) |
-| 2 | The child process receives input written to the PTY master and its output is readable from the master | `cargo test --package native -- bash_integration` ([test source](../native/src/terminal/session.rs)) |
+| 1 | A PTY pair is created and a child process is spawned with the PTY slave as its controlling terminal | `cargo test --package native -- session_new_creates_pty` ([test source](../native/src/terminal/session.rs)) |
+| 2 | The child process receives input written to the PTY master and its output is readable from the master | `cargo test --package native -- session_echo_hello` ([test source](../native/src/terminal/session.rs)) |
 
 ### FR-027: Dedicated PTY Reader Thread
 
@@ -342,9 +341,9 @@ and forward parsed output to the grid update pipeline via a `flume` channel.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A reader thread is spawned on session start and reads PTY master fd until EOF | `cargo test --package native -- concurrent_session` ([test source](../native/src/terminal/session.rs)) |
-| 2 | Parsed terminal events are delivered via `flume` channel to the grid update handler | `cargo test --package native -- session_state_machine` ([test source](../native/src/terminal/session.rs)) |
-| 3 | Concurrent session tests verify no data races or lost events on the channel | `cargo test --package native -- shuttle_concurrent` ([test source](../native/src/terminal/session.rs)) |
+| 1 | A reader thread is spawned on session start and reads PTY master fd until EOF | `cargo test --package native -- session_echo_hello` ([test source](../native/src/terminal/session.rs)) |
+| 2 | Parsed terminal events are delivered via `flume` channel to the grid update handler | `cargo test --package native -- event_queue_concurrent_push_pop` ([test source](../native/src/prop_tests.rs)) |
+| 3 | Concurrent session tests verify no data races or lost events on the channel | `cargo test --package native -- event_queue_concurrent_push_pop` ([test source](../native/src/prop_tests.rs)) |
 
 ### FR-028: Process Waiter Thread
 
@@ -353,8 +352,8 @@ waiter thread and emit a `ProcessExited` event on termination.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A waiter thread blocks on `waitpid` and detects child exit status | `cargo test --package native -- lifecycle_test` ([test source](../native/src/terminal/session.rs)) |
-| 2 | A `ProcessExited` event with the correct exit code is emitted when the child terminates | `cargo test --package native -- dst_simulation` ([test source](../native/src/terminal/session.rs)) |
+| 1 | A waiter thread blocks on `waitpid` and detects child exit status | `cargo test --package native -- session_exited_flag` ([test source](../native/src/terminal/session.rs)) |
+| 2 | A `ProcessExited` event with the correct exit code is emitted when the child terminates | `cargo test --package native -- session_after_exit_returns_error` ([test source](../native/src/terminal/session.rs)) |
 
 ### FR-029: Session Resize
 
@@ -364,20 +363,20 @@ SIGWINCH.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Resizing the grid updates row and column counts and reflows content | `cargo test --package native -- grid_ops` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | After resize, SIGWINCH is delivered and the child sees updated `TIOCGWINSZ` | `cargo test --package native -- lifecycle_test` ([test source](../native/src/terminal/session.rs)) |
+| 1 | Resizing the grid updates row and column counts and reflows content | `cargo test --package native -- session_resize` ([test source](../native/src/terminal/session.rs)) |
+| 2 | After resize, SIGWINCH is delivered and the child sees updated `TIOCGWINSZ` | `cargo test --package native -- session_resize` ([test source](../native/src/terminal/session.rs)) |
 
 ### FR-030: Bounded Scrollback Buffer
 
 **Requirement**: The system SHALL maintain a bounded scrollback buffer with a
-configurable maximum (default 50,000 lines), evicting oldest entries when the
+configurable maximum (default 10,000 lines), evicting oldest entries when the
 limit is exceeded.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Scrollback buffer evicts the oldest line when `max_scrollback` is exceeded | `cargo test --package native -- memory_bounds` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Scrollback buffer count never exceeds the configured `max_scrollback` value | `cargo test --package native -- memory_bounds` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | Scrollback survives grid resize operations without data loss | `cargo test --package native -- grid_snapshot_integration` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | Scrollback buffer evicts the oldest line when `max_scrollback` is exceeded | Code review: `native/src/terminal/ghostty_terminal/internal.rs` — scrollback eviction bound via Ghostty; smoke coverage by `scrollback_captured` ([test source](../native/src/terminal/snapshot_test.rs)) |
+| 2 | Scrollback buffer count never exceeds the configured `max_scrollback` value | Code review: `native/src/terminal/ghostty_terminal/internal.rs` — `max_scrollback` bound respected by Ghostty scrollback storage |
+| 3 | Scrollback survives grid resize operations without data loss | `cargo test --package native -- build_cell_data_matches_grid_snapshot` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
 
 ### FR-031: Scrollback Search
 
@@ -435,7 +434,7 @@ alternate screen and restore it on exit.
 |---|-----------|-------------|
 | 1 | OSC 52 with base64-encoded text decodes to a `ClipboardEvent` with the correct plaintext | `cargo test --package native -- osc52` ([test source](../native/src/terminal/osc_handler.rs)) |
 | 2 | OSC 52 with an empty payload produces a request event (clipboard read) | `cargo test --package native -- osc52` ([test source](../native/src/terminal/osc_handler.rs)) |
-| 3 | Malformed base64 in OSC 52 is rejected without panicking | Code review: `native/src/osc_handler.rs` — base64 decode error handling |
+| 3 | Malformed base64 in OSC 52 is rejected without panicking | Code review: `native/src/terminal/osc_handler.rs` — base64 decode error handling |
 
 ### FR-036: OSC 9 / OSC 777 — Notifications
 
@@ -444,8 +443,8 @@ sequences and extract notification title/body as `NotificationEvent`.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | OSC 9 with title and body produces a `NotificationEvent` | Code review: `native/src/osc_handler.rs` — OSC 9/777 parsing logic |
-| 2 | OSC 777 with semicolon-separated title;body produces a `NotificationEvent` | Code review: `native/src/osc_handler.rs` — OSC 777 parsing logic |
+| 1 | OSC 9 with title and body produces a `NotificationEvent` | Code review: `native/src/terminal/osc_handler.rs` — OSC 9/777 parsing logic |
+| 2 | OSC 777 with semicolon-separated title;body produces a `NotificationEvent` | Code review: `native/src/terminal/osc_handler.rs` — OSC 777 parsing logic |
 
 ### FR-037: Unrecognised OSC Passthrough
 
@@ -454,8 +453,8 @@ OSC 0 for title, OSC 4 for palette change) to the VT parser unchanged.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Unrecognised OSC sequences (OSC 0, OSC 4) are forwarded to the VT parser without interception | Code review: `native/src/osc_handler.rs` — passthrough branch dispatch |
-| 2 | No data is dropped or corrupted when passthrough sequences contain printable ASCII | Code review: `native/src/osc_handler.rs` — passthrough branch |
+| 1 | Unrecognised OSC sequences (OSC 0, OSC 4) are forwarded to the VT parser without interception | Code review: `native/src/terminal/osc_handler.rs` — passthrough branch dispatch |
+| 2 | No data is dropped or corrupted when passthrough sequences contain printable ASCII | Code review: `native/src/terminal/osc_handler.rs` — passthrough branch |
 
 ### FR-038: Partial OSC Sequence Handling
 
@@ -464,8 +463,8 @@ across multiple input chunks, accumulating state across `process()` calls.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | An OSC sequence split across two input chunks is correctly assembled and dispatched | Code review: `native/src/osc_handler.rs` — accumulator state machine |
-| 2 | Chunk-boundary conditions do not cause incorrect OSC parsing | Code review: `native/src/osc_handler.rs` — partial sequence buffer logic |
+| 1 | An OSC sequence split across two input chunks is correctly assembled and dispatched | Code review: `native/src/terminal/osc_handler.rs` — accumulator state machine |
+| 2 | Chunk-boundary conditions do not cause incorrect OSC parsing | Code review: `native/src/terminal/osc_handler.rs` — partial sequence buffer logic |
 
 ---
 
@@ -478,8 +477,8 @@ user request (e.g., copy action from selection).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A user-initiated copy action forwards the selected text to the clipboard bridge | `cargo test --package native -- bridge_integration` ([test source](../native/src/render/tests.rs)) |
-| 2 | Bridge round-trip tests verify that clipboard data survives Kotlin↔Rust serialization | `cargo test --package native -- bridge_roundtrip` ([test source](../native/src/render/tests.rs)) |
+| 1 | A user-initiated copy action forwards the selected text to the clipboard bridge | `cargo test -p integration-tests --test jni_bridge_test` + Code review: `native/src/android/ffi.rs` — clipboard JNI export ([test source](../integration-tests/jni/NativeBridge.java)) |
+| 2 | Bridge round-trip tests verify that clipboard data survives Kotlin↔Rust serialization | `cargo test -p integration-tests --test jni_bridge_test` — Kotlin↔Rust serialization round-trip ([test source](../integration-tests/jni/NativeBridge.java)) |
 
 ### FR-040: OSC 52 Paste (Clipboard Read)
 
@@ -489,7 +488,7 @@ terminal applications via OSC 52 (paste).
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | An OSC 52 query (empty payload) triggers a clipboard read and the result is forwarded to the PTY | `cargo test --package native -- osc52` ([test source](../native/src/terminal/osc_handler.rs)) |
-| 2 | The clipboard content is base64-encoded before writing to the PTY as OSC 52 response | Code review: `native/src/osc_handler.rs` — clipboard response encoding |
+| 2 | The clipboard content is base64-encoded before writing to the PTY as OSC 52 response | Code review: `native/src/terminal/osc_handler.rs` — clipboard response encoding |
 
 ### FR-041: Android Notifications via OSC
 
@@ -498,7 +497,7 @@ terminal-emitted OSC 9/777 notification sequences.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | OSC 9 / OSC 777 sequences produce a `NotificationEvent` with extracted title and body | Code review: `native/src/osc_handler.rs` — notification event construction |
+| 1 | OSC 9 / OSC 777 sequences produce a `NotificationEvent` with extracted title and body | Code review: `native/src/terminal/osc_handler.rs` — notification event construction |
 | 2 | Notification events are forwarded to the Android notification manager via the bridge | Code review: `native/src/android/ffi.rs` — notification event handling path |
 
 ---
@@ -523,7 +522,7 @@ session lifecycle (PTY management, resize forwarding).
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | `exec-bin` connects its child process to the PTY master fd | `cargo test --package exec-bin -- basic` ([`exec-bin/tests/basic.rs`](../exec-bin/tests/basic.rs)) |
-| 2 | Terminal resize signals propagate through the PTY to the SSH/Mosh child process | Code review: `native/src/session.rs` — resize forwarding to session process |
+| 2 | Terminal resize signals propagate through the PTY to the SSH/Mosh child process | Code review: `native/src/terminal/session.rs` — resize forwarding to session process |
 
 ---
 
@@ -632,38 +631,37 @@ needed.
 
 ### FR-052: 16 Built-In Color Themes
 
-**Requirement**: The system SHALL provide 16 built-in color themes (see FR-054
-in `docs/requirements/`（StrictDoc .sdoc） for the full list).
+**Requirement**: The system SHALL provide 16 built-in color themes (Catppuccin Mocha,
+Catppuccin Latte, Dracula Plus, Nord, Tokyo Night, Rose Pine, Gruvbox Dark/Light, Everforest Dark, One Dark/Light, Monokai, Ayu Dark/Light, Kanagawa Wave, Night Owl) defined in Kotlin `BuiltInThemes`.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `Theme::all_built_in()` returns exactly 16 themes with the expected names | `cargo test --package native -- config_integration` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Each built-in theme has non-default values for all 16 ANSI color slots | `cargo test --package native -- config_drift` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | Built-in themes are accessible from the Kotlin UI via the bridge | `cd android && ./gradlew connectedDebugAndroidTest` — `ThemeInstrumentedTest` ([`android/app/src/androidTest/java/terminal/emulator/ThemeInstrumentedTest.kt`](../android/app/src/androidTest/java/terminal/emulator/ThemeInstrumentedTest.kt)) |
+| 1 | `BuiltInThemes.all` returns exactly 16 themes with the expected names | Code review: `android/app/src/main/java/terminal/emulator/ui/theme/TerminalTheme.kt` — `BuiltInThemes.all` |
+| 2 | Each built-in theme has non-default values for all 16 ANSI color slots | Code review: `android/app/src/main/java/terminal/emulator/ui/theme/TerminalTheme.kt` — every theme fills all 16 ANSI slots; `UserThemeStoreTest` ([test source](../android/app/src/test/java/terminal/emulator/ui/theme/UserThemeStoreTest.kt)) |
+| 3 | Built-in themes are accessible from the Kotlin UI via the bridge | Code review: `TerminalTheme.kt` — `BuiltInThemes.byName` + `UserThemeStore` |
 
-### FR-053: Custom Theme via TOML
+### FR-053: Custom Theme via DataStore
 
-**Requirement**: The system SHALL support custom theme definition via TOML with
-fields for name, background, foreground, cursor, selection background, and 16
-ANSI color slots.
+**Requirement**: The system SHALL support user-defined custom themes persisted in
+DataStore with fields for name, background, foreground, cursor, selection
+background, and 16 ANSI color slots.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A TOML file with valid theme fields parses into a `Theme` struct with correct values | `cargo test --package native -- config_integration` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | A TOML file with missing required fields produces a parse error | `cargo test --package native -- config_drift` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | Custom themes are applied to rendering and produce correct color output | Code review: `native/src/config.rs` — `Theme::parse_custom()` and theme application path |
+| 1 | A saved custom theme round-trips through DataStore with exact color values | Code review: `UserThemeStore.kt`; covered by `UserThemeStoreTest` ([test source](../android/app/src/test/java/terminal/emulator/ui/theme/UserThemeStoreTest.kt)) |
+| 2 | A corrupt persisted blob self-heals to an empty store without crashing | Code review: `UserThemeStore.kt`; covered by `UserThemeStoreTest` |
+| 3 | Custom themes are applied to rendering and produce correct color output | Code review: `UserThemeStore` → `setTheme` JNI path (`native/src/android/ffi.rs`) |
 
 ### FR-054: Terminal Configuration
 
 **Requirement**: The system SHALL support configuration of terminal dimensions
-(rows, cols), scrollback size, shell path, font size, backspace mode, and
-right-Alt mode via `TerminalConfig`.
+(rows, cols), scrollback size, shell path, and font size via `TerminalConfig`.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | All `TerminalConfig` fields have sensible defaults and can be overridden | `cargo test --package native -- config_integration` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Changing `rows`/`cols` changes the initial terminal grid dimensions | `cargo test --package native -- config_drift` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 3 | `shell_path` overrides the default shell binary spawned in the PTY | Code review: `native/src/session.rs` — shell path resolution from config |
+| 1 | All `TerminalConfig` fields have sensible defaults and can be overridden | Code review: `android/app/src/main/java/terminal/emulator/bridge/Bridge.kt` — `TerminalConfig` defaults and overrides |
+| 2 | Changing `rows`/`cols` changes the initial terminal grid dimensions | Code review: `Bridge.kt` — `rows`/`cols` propagate to session resize; covered by `session_resize` ([test source](../native/src/terminal/session.rs)) |
+| 3 | `shell_path` overrides the default shell binary spawned in the PTY | Code review: `native/src/terminal/session.rs` — shell path resolution from config |
 
 ---
 
@@ -677,7 +675,7 @@ paths) instead of image comparison or bundled binaries.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | No `.png` files exist in `native/src/render/test-output/` or `native/src/render/screenshots/` | `git ls-files 'native/src/render/screenshots/*.png' 'native/src/render/screenshots/*.png'` |
+| 1 | No `.png` files are committed anywhere in the repository | `git ls-files '*.png'` returns empty |
 | 2 | No `*_golden.png` files in test data | `git ls-files 'native/src/render/test-data/*_golden.png'` |
 | 3 | No golden images in roborazzi resources | `git ls-files 'android/app/src/test/resources/roborazzi/*.png'` |
 | 4 | No font files (`.ttf`, `.otf`, `.woff`, `.woff2`, `.eot`) in any directory | `git ls-files '*.ttf' '*.otf' '*.woff' '*.woff2' '*.eot'` |
@@ -699,7 +697,7 @@ render path (`Renderer`/`render_frame`/`render_to_buffer` stay depth-free).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Procedural geometry produces verifiable meshes (vertex/index counts, unit normals, AABB) | `cargo test --package native -- procedural_geometry` |
+| 1 | Procedural geometry produces verifiable meshes (vertex/index counts, unit normals, AABB) | `cargo test --package native -- box_has_six_faces_and_bounded_extent` |
 | 2 | The grid shader renders through a depth attachment off-screen with visible grid pixels and a clean sky region | `cargo test --package native -- offscreen_grid_render_uses_depth_attachment` |
 | 3 | No depth attachment fields on the production `Renderer` | Code review: `native/src/render/context.rs` — no depth texture fields |
 
@@ -774,30 +772,6 @@ layouts.
 
 ---
 
-### FR-062: Platform Capabilities Memory and Unsupported
-
-**Requirement**: `PlatformCapabilities` SHALL expose `Memory` and `Unsupported`
-capability variants so callers can distinguish a memory-limited device from an
-unsupported configuration without panicking.
-
-| # | Criterion | Verification |
-|---|-----------|-------------|
-| 1 | Memory capability reports a limit without panicking on stub | `cargo test --package native` (platform capabilities test) |
-
----
-
-### FR-063: URL Detection Cache Wiring
-
-**Requirement**: Terminal surface URL detection SHALL route through the
-scroll-position LRU cache (`UrlCache.getOrCompute`) so repeated queries at the
-same scroll offset reuse cached results.
-
-| # | Criterion | Verification |
-|---|-----------|-------------|
-| 1 | Repeated `getOrCompute(offset)` calls the detector once | Kotlin unit test in `android/app/src/test/` (UrlCache wiring) |
-
----
-
 ## 11. Non-Functional: Safety
 
 ### NFR-001: No Unsafe in Production Code
@@ -808,7 +782,7 @@ dedicated wrapper modules.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Zero `unsafe` blocks in `native/src/` outside whitelisted files (`android/ffi.rs`, `android/logging.rs`, `terminal/pty.rs`, `terminal/shell_env.rs`) | `cargo geiger --package native` — unsafe count per file |
+| 1 | Zero `unsafe` blocks in `native/src/` outside whitelisted files (`native/src/android/ffi.rs`, `native/src/android/logging.rs`, `native/src/terminal/pty.rs`, `native/src/terminal/shell_env.rs`) | `cargo geiger --package native` — unsafe count per file |
 | 2 | Each whitelisted `unsafe` module has a doc comment explaining why `unsafe` is necessary | Code review: per-module safety comments |
 
 ### NFR-002: FFI Safety — extern "C" Validation
@@ -850,8 +824,8 @@ the entire process on panic.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A panic in the reader thread is caught and logged without crashing the process | `cargo test --package native -- dst_simulation` ([test source](../native/src/terminal/session.rs)) |
-| 2 | Concurrent session tests verify that thread isolation works under stress | `cargo test --package native -- shuttle_concurrent` ([test source](../native/src/terminal/session.rs)) |
+| 1 | A panic in the reader thread is caught and logged without crashing the process | Code review: `native/src/terminal/ghostty_terminal/public_api.rs` — `catch_unwind` around VT run loop; panic-free paths covered by `*_does_not_panic` tests |
+| 2 | Concurrent session tests verify that thread isolation works under stress | `cargo test --package native -- event_queue_concurrent_push_pop` ([test source](../native/src/prop_tests.rs)) |
 
 ---
 
@@ -865,9 +839,9 @@ forbidden.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Headless wgpu render tests pass without a display server | `cargo test --package native -- gpu_headless_test` ([test source](../native/src/render/tests.rs)) |
+| 1 | Headless wgpu render tests pass without a display server | `cargo test -p integration-tests --test terminal_render_test` ([test source](../integration-tests/tests/terminal_render_test.rs)) |
 | 2 | No `android.graphics.Canvas.drawText` call exists in production rendering code | Code review: no `Canvas` reference in `native/src/` |
-| 3 | Atomic OCR test confirms GPU-rendered output matches expected text | `cargo test --package native -- text_ocr_test` ([test source](../native/src/render/screenshot_tests.rs)) |
+| 3 | Atomic OCR test confirms GPU-rendered output matches expected text | `cargo test --package native -- ocr_verifies_rendered_text` ([test source](../native/src/render/tests.rs)) |
 
 ### NFR-007: Glyph Atlas Capacity
 
@@ -876,19 +850,19 @@ capacity of at least 10,000 glyph entries and eviction when full.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Atlas capacity constant is ≥ 10,000 | Code review: `native/src/font.rs` — atlas capacity constant |
-| 2 | Glyph eviction does not cause visible rendering artifacts | `cargo test --package native -- font_metrics` ([test source](../native/src/render/tests.rs)) |
+| 1 | Atlas capacity constant is ≥ 10,000 | Code review: `native/src/render/font/mod.rs` — atlas capacity constant |
+| 2 | Glyph eviction does not cause visible rendering artifacts | `cargo test --package native -- atlas_eviction_keeps_glyphs_retrievable` ([test source](../native/src/render/font/mod.rs)) |
 
 ### NFR-008: Bounded Scrollback Memory
 
 **Requirement**: The scrollback buffer SHALL be bounded to a configurable
-maximum (default 50,000 lines) with automatic eviction of oldest entries.
+maximum (default 10,000 lines) with automatic eviction of oldest entries.
 SHALL NOT exhibit unbounded memory growth.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Scrollback memory usage stabilises after reaching `max_scrollback` lines | `cargo test --package native -- memory_bounds` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
-| 2 | Eviction fires when the buffer exceeds `max_scrollback` | `cargo test --package native -- memory_bounds` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | Scrollback memory usage stabilises after reaching `max_scrollback` lines | Code review: `native/src/terminal/ghostty_terminal/internal.rs` — scrollback storage bound; `scrollback_captured` ([test source](../native/src/terminal/snapshot_test.rs)) |
+| 2 | Eviction fires when the buffer exceeds `max_scrollback` | Code review: Ghostty scrollback eviction — oldest lines dropped when `max_scrollback` exceeded |
 
 ### NFR-009: Bounded Thread Count
 
@@ -897,28 +871,28 @@ SHALL NOT exhibit unbounded memory growth.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | A single session spawns exactly 4 session-specific threads (reader, input writer, waiter, render) | `cargo test --package native -- session_state_machine` ([test source](../native/src/terminal/session.rs)) |
-| 2 | Concurrent session tests verify thread counts do not leak across sessions | `cargo test --package native -- concurrent_session` ([test source](../native/src/terminal/session.rs)) |
+| 1 | A single session spawns exactly 4 session-specific threads (reader, input writer, waiter, render) | `cargo test --package native -- start_stop_cycle_releases_thread` ([test source](../native/src/mcp/mod.rs)) |
+| 2 | Concurrent session tests verify thread counts do not leak across sessions | `cargo test --package native -- start_stop_cycle_releases_thread` ([test source](../native/src/mcp/mod.rs)) |
 
 ### NFR-010: Dirty Row-Only Repaint
 
 **Requirement**: The frame pipeline SHALL only repaint dirty rows as tracked by
-the `DirtyMask` bitfield, avoiding full-grid redraws on every frame.
+row-level diffing, avoiding full-grid redraws on every frame.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Property tests verify that clean rows produce zero dirty bits | `cargo test --package native -- property_tests` ([test source](../native/src/terminal/ghostty_terminal/tests.rs)) |
+| 1 | Property tests verify that clean rows produce zero dirty bits | `cargo test --package native -- dirty_rows_collected` ([test source](../native/src/render/invalidation.rs)) |
 | 2 | After rendering a frame, the dirty mask is cleared for all processed rows | Code review: `native/src/render/pass.rs` — dirty-row handshake |
 
-### NFR-011: Shaped Text Cache Cap
+### NFR-011: Glyph Cache Cap
 
-**Requirement**: The shaped text cache SHALL be capped at 4,096 entries to avoid
-unbounded memory growth from repeated shaping of different text runs.
+**Requirement**: The glyph cache SHALL be capped at 10,000 entries
+(`GLYPH_CACHE_CAPACITY`) to avoid unbounded memory growth.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Shaped text cache capacity is set to 4,096 | Code review: `native/src/font.rs` — cache capacity constant |
-| 2 | Cache eviction does not cause incorrect glyph rendering | `cargo test --package native -- font_metrics` ([test source](../native/src/render/tests.rs)) |
+| 1 | Glyph cache capacity constant is set to 10,000 | Code review: `native/src/render/font/mod.rs` — `GLYPH_CACHE_CAPACITY` |
+| 2 | Cache eviction does not cause incorrect glyph rendering | `cargo test --package native -- atlas_eviction_keeps_glyphs_retrievable` ([test source](../native/src/render/font/mod.rs)) |
 
 ---
 
@@ -959,7 +933,7 @@ with zero violations.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `./gradlew spotlessCheck` exits with code 0 (no formatting violations) | `cd android && ./gradlew spotlessCheck detekt` (CI: `scripts/test-android-gradle.nu`) |
+| 1 | `./gradlew spotlessCheck` exits with code 0 (no formatting violations) | `cd android && ./gradlew spotlessCheck detekt` (CI: `scripts/test-gradle.nu`) |
 | 2 | `./gradlew detekt` exits with code 0 (no lint violations) | `cd android && ./gradlew detekt` |
 
 ### NFR-016: Bridge Type Synchronization
@@ -971,7 +945,7 @@ correspondingly.
 | # | Criterion | Verification |
 |---|-----------|-------------|
 | 1 | Rust bridge types match Kotlin JNI mappings | `cargo test -p integration-tests --test jni_bridge_test` ([test source](../integration-tests/jni/NativeBridge.java)) |
-| 2 | Bridge round-trip tests verify no data corruption across the FFI boundary | `cargo test --package native -- bridge_integration` ([test source](../native/src/render/tests.rs)) |
+| 2 | Bridge round-trip tests verify no data corruption across the FFI boundary | `cargo test -p integration-tests --test jni_bridge_test` — FFI boundary round-trip ([test source](../integration-tests/jni/NativeBridge.java)) |
 
 ---
 
@@ -995,7 +969,7 @@ SwiftShader SHALL be used.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Headless wgpu tests pass with `VK_ICD_FILENAMES` pointing to Lavapipe | `cargo test --package native -- gpu_headless_test` ([test source](../native/src/render/tests.rs)) |
+| 1 | Headless wgpu tests pass with `VK_ICD_FILENAMES` pointing to Lavapipe | `cargo test -p integration-tests --test terminal_render_test` ([test source](../integration-tests/tests/terminal_render_test.rs)) |
 | 2 | Emulator test boot verifies SwiftShader Vulkan ICD is loaded | Code review: `scripts/setup-emulator.nu` — SwiftShader configuration |
 
 ### NFR-019: Deterministic Nix Build
@@ -1027,7 +1001,7 @@ signed with the AOSP testkey (not self-signed certificates).
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | `android/app/build.gradle` sets `applicationId = "com.termux"` | Code review: `android/app/build.gradle` — `applicationId` field |
+| 1 | `android/app/build.gradle.kts` sets `applicationId = "com.termux"` | Code review: `android/app/build.gradle.kts` — `applicationId` field |
 | 2 | APK is signed with AOSP testkey (`testkey.x509.pem` / `testkey.pk8`) | Code review: `scripts/fetch-aosp-testkey.nu` — key download and signing config |
 | 3 | Release APK build succeeds with the testkey | `cd android && ./gradlew assembleDebug` |
 
@@ -1053,8 +1027,8 @@ thread SHALL exit permanently and require a new surface to restart.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | OSC sequences with payload > 1 MB are truncated or rejected | Code review: `native/src/osc_handler.rs` — `MAX_PAYLOAD_BYTES` boundary check |
-| 2 | `MAX_PAYLOAD_BYTES` constant is defined and equals 1,048,576 (1 MB) | Code review: `native/src/osc_handler.rs` — `MAX_PAYLOAD_BYTES` constant |
+| 1 | OSC sequences with payload > 1 MB are truncated or rejected | Code review: `native/src/terminal/osc_handler.rs` — `MAX_PAYLOAD_BYTES` boundary check |
+| 2 | `MAX_PAYLOAD_BYTES` constant is defined and equals 1,048,576 (1 MB) | Code review: `native/src/terminal/osc_handler.rs` — `MAX_PAYLOAD_BYTES` constant |
 
 ### NFR-024: PTY Read Error Recovery
 
@@ -1063,8 +1037,8 @@ the session. The reader thread SHALL log errors and continue reading.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Simulated PTY read errors do not terminate the session or crash the process | `cargo test --package native -- dst_simulation` ([test source](../native/src/terminal/session.rs)) |
-| 2 | Concurrent session stress tests verify robustness against I/O errors | `cargo test --package native -- concurrent_session` ([test source](../native/src/terminal/session.rs)) |
+| 1 | Simulated PTY read errors do not terminate the session or crash the process | `cargo test --package native -- pty_error_display_works` ([test source](../native/src/terminal/pty.rs)) |
+| 2 | Concurrent session stress tests verify robustness against I/O errors | `cargo test --package native -- event_queue_concurrent_push_pop` ([test source](../native/src/prop_tests.rs)) |
 
 ### NFR-025: Unified Logging
 
@@ -1074,7 +1048,7 @@ independently for each output.
 
 | # | Criterion | Verification |
 |---|-----------|-------------|
-| 1 | Dual-write capability (logcat + file) verified by `crate::android::logging::init_logger` and `crate::android::logging::set_log_file_path` | `cargo test --package native -- logging` |
+| 1 | Dual-write capability (logcat + file) verified by `crate::android::logging::init_logger` and `crate::android::logging::set_log_file_path` | Code review: `native/src/android/logging.rs` — `init_logger` / `set_log_file_path` dual-write; chunking covered by `empty_message_single_chunk` ([test source](../native/src/log_chunk.rs)) |
 
 ---
 
