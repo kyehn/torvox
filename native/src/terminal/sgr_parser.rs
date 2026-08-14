@@ -101,28 +101,6 @@ pub fn assert_sgr_idempotent(t: &mut GhosttyTerminal, params: &[u8]) {
     );
 }
 
-// ── Ghostty SGR correctness bug detection ────────────────────────────
-
-/// BUG DETECTED: SGR 21 should clear bold (per ECMA-48 5th ed), but Ghostty
-/// treats it as double-underline.  Returns `true` if the bug is present.
-///
-/// Reference: <https://vt100.net/emu/dec_ansi_parser> (SGR 21 = Bold off)
-pub fn detect_sgr_21_bold_off_bug(t: &mut GhosttyTerminal) -> bool {
-    t.vt_write(b"\x1b[1m\x1b[21mX");
-    t.flush();
-    let fx = SgrEffects::read_from(t, 0);
-    fx.bold // If bold is still set, the bug exists
-}
-
-/// BUG DETECTED: SGR 22 should clear bold (ECMA-48 8.3.53).  Ghostty handles
-/// this correctly.  Returns `true` if bold is off after SGR 22.
-pub fn verify_sgr_22_clears_bold(t: &mut GhosttyTerminal) -> bool {
-    t.vt_write(b"\x1b[1m\x1b[22mX");
-    t.flush();
-    let fx = SgrEffects::read_from(t, 0);
-    !fx.bold // Should be true (bold cleared)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
