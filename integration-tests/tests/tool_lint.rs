@@ -605,15 +605,13 @@ fn cargo_ndk_is_available() {
 fn nu_scripts_are_valid() {
     let scripts_dir = std::path::Path::new(WORKSPACE).join("scripts");
     let allowed: std::collections::HashSet<&str> = [
-        "auto-commit.nu",
         "build-android-libs.nu",
         "build-apk.nu",
         "check-rust.nu",
         "download-rapidocr-models.nu",
-        "download-test-fonts.nu",
         "fetch-aosp-testkey.nu",
         "setup-emulator.nu",
-        "test-android-gradle.nu",
+        "test-gradle.nu",
         "test-emulator.nu",
     ]
     .into_iter()

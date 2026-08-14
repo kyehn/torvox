@@ -1,7 +1,7 @@
 name: Rust Checks
 on:
-  push:
-    branches: [main]
+  schedule:
+    - cron: '0 4 * * *'
   workflow_dispatch:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -36,8 +36,3 @@ jobs:
       - env:
           CARGO_INCREMENTAL: "0"
         run: scripts/check-rust.nu
-      - uses: actions/upload-artifact@main
-        continue-on-error: true
-        with:
-          name: nextest-junit
-          path: target/nextest/ci/junit.xml

@@ -2,19 +2,11 @@
 
 ## Project Context
 
-GPU-accelerated Android terminal emulator using wgpu (Vulkan) for rendering,
-Ghostty VT parsing (vendored via `libghostty-vt-sys`), and a Kotlin+Compose UI.
-Ghostty is the single source of truth for all terminal state — no separate
-data-model crate.
+GPU-accelerated Android terminal emulator using wgpu (Vulkan) for rendering, Ghostty VT parsing (vendored via `libghostty-vt-sys`), and a Kotlin+Compose UI. Ghostty is the single source of truth for all terminal state — no separate data-model crate.
 
 Single crate (`native/`) with 2 thin workspace members (`exec-bin`,
-`integration-tests`), ~13.7k LOC Rust (52 thematic commits),
+`integration-tests`).
 JNI direct bridge (no boltffi/JNA).
-
-**Maturity**: All phases of re-architecture complete. 6 rounds of comprehensive
-code review conducted; final verdict CLEAN (no P0/P1 issues). Git history
-cleaned (unified single maintainer identity, no forbidden files,
-no Co-Authored-By trailers). See `docs/rejected-technologies.md` §3.3 (disposition index).
 
 ## Setup and Commands
 
@@ -26,8 +18,8 @@ cargo clippy --all -- --deny warnings  # Lint
 cargo fmt --check             # Format check
 cd android && ./gradlew assembleDebug  # Android debug APK
 cd android && ./gradlew spotlessCheck detekt  # Kotlin lint
-nu scripts/check-rust.nu     # Rust CI script
-nu scripts/test-android-gradle.nu  # Android CI script
+scripts/check-rust.nu     # Rust CI script
+scripts/test-gradle.nu  # Gradle CI script
 ```
 
 ---
@@ -143,7 +135,7 @@ Full guide: `docs/standards/TESTING.md`. Core rules:
 
 | # | Pitfall | Lesson |
 |---|---------|--------|
-| 1 | Ghostty Zig version | Uses `zig_0_16` — ensure it's first in PATH via `shellHook`. No `CARGO_TARGET_*_LINKER` needed. |
+| 1 | Ghostty Zig version | Uses `zig_0_15` — ensure it's first in PATH via `shellHook`. No `CARGO_TARGET_*_LINKER` needed. |
 | 2 | libghostty-vt API | `scrollback_rows()` not `history_size()`; `resize(rows, cols)` two params |
 | 3 | Ghostty Android linking | Dynamic (dylib) + build.rs SONAME strip; static fails (Zig install archive has only lib_vt.o) |
 | 4 | Ghostty SONAME | `libghostty-vt.so.0` NEEDED in ELF; build.rs strips versioned SONAME — if skipped, Gradle filters |
@@ -202,7 +194,7 @@ Only these 8 files allowed. No new files — merge into existing.
 4. `download-rapidocr-models.nu`
 5. `fetch-aosp-testkey.nu`
 6. `setup-emulator.nu`
-7. `test-android-gradle.nu`
+7. `test-gradle.nu`
 8. `test-emulator.nu`
 
 ## .github/workflows
@@ -211,13 +203,13 @@ Only these 3 files, each with 1 job max. No new files.
 
 1. `rust-checks.yml`
 2. `release.yml`
-3. `android-tests.yml`
+3. `gradle-checks.yml`
 
 Prefer `scripts/` over workflows. Only modify workflows when scripts cannot solve the problem.
 
 - `check-rust.nu` → `rust-checks.yml`
 - `build-android-libs.nu` / `build-apk.nu` / `test-emulator.nu` → `release.yml`
-- `test-android-gradle.nu` → `android-tests.yml`
+- `test-gradle.nu` → `gradle-checks.yml`
 - `download-rapidocr-models.nu` / `setup-emulator.nu` → auxiliary tools
 
 ---
