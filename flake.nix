@@ -134,6 +134,7 @@
               cargo-geiger
               cargo-audit
               cargo-machete
+              cargo-llvm-cov
               adrs
               # strictdoc 0.22.0 builds against the overridden python3 (see
               # _module.args.pkgs overlay: datauri check skipped on Py 3.14).
