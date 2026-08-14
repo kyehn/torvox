@@ -68,7 +68,10 @@ internal data class SessionEntry(
     @Volatile var running: Boolean,
     @Volatile var renderThreadExited: Boolean = false,
     @Volatile var restartAttempts: Int = 0,
-    @Volatile var nextRestartDelayMs: Long = 200L,
+    // Same initial value as TerminalRuntime.INITIAL_RESTART_DELAY_MS (100L);
+    // decayRestartCounts/confirmRestartGrace reset to that constant after a
+    // healthy period, so a fresh session must start from the same delay.
+    @Volatile var nextRestartDelayMs: Long = 100L,
     // True while a dead-render-thread restart is scheduled (handleDeadRenderThread
     // dispatched and waiting out the backoff delay). Guards against the render
     // monitor re-dispatching the same dead entry every 500ms tick while the
@@ -486,13 +489,11 @@ constructor(
         aliveMs: Long,
     ): Boolean {
         val effectiveAliveMs =
-            if (aliveMs > 0) {
-                aliveMs
-            } else {
-                // Event predates the native alive_ms field: fall back to
-                // Kotlin-side timing (best effort).
-                SystemClock.elapsedRealtime() - entry.spawnedAtRealtimeMs
-            }
+            resolveAliveMs(
+                aliveMs,
+                SystemClock.elapsedRealtime(),
+                entry.spawnedAtRealtimeMs,
+            )
         if (!shouldRetryFastDeath(effectiveAliveMs, entry.userTypedSinceSpawn, entry.fastDeathCount)) {
             return false
         }
@@ -1023,14 +1024,14 @@ constructor(
             // run while holding sessionLock. The attempt counter is monotonic
             // and closeDeadSession re-checks sessions.containsKey, so a racing
             // concurrent caller is harmless (second call returns immediately).
-            if (entry.restartAttempts > RENDER_MAX_RESTART_ATTEMPTS) {
+            if (shouldCloseDeadRender(entry.restartAttempts, RENDER_MAX_RESTART_ATTEMPTS)) {
                 closeDeadSession(entry)
                 return
             }
             val d =
                 synchronized(sessionLock) {
                     val next = entry.nextRestartDelayMs
-                    entry.nextRestartDelayMs = (entry.nextRestartDelayMs * 2).coerceAtMost(MAX_RESTART_DELAY_MS)
+                    entry.nextRestartDelayMs = nextRestartDelayMs(entry.nextRestartDelayMs, MAX_RESTART_DELAY_MS)
                     next
                 }
 
@@ -3856,3 +3857,23 @@ private const val DEFAULT_FONT_COLUMNS_TARGET = 60f
 private const val MONOSPACE_CHAR_ASPECT = 0.6f
 private const val MIN_FONT_SP = 8f
 private const val MAX_FONT_SP = 18f
+
+/**
+ * Fast-death effective lifetime: prefer the native `alive_ms` measurement;
+ * when the respawn event predates that field (<= 0) fall back to the
+ * Kotlin-side wall-clock since spawn. Pure so the recovery decision is
+ * unit-testable.
+ */
+internal fun resolveAliveMs(aliveMs: Long, nowMs: Long, spawnedAtMs: Long): Long = if (aliveMs > 0) aliveMs else (nowMs - spawnedAtMs).coerceAtLeast(0)
+
+/**
+ * Next dead-render-thread restart backoff: double the previous delay up to
+ * [maxDelayMs] (the exponential backoff in handleDeadRenderThread).
+ */
+internal fun nextRestartDelayMs(currentMs: Long, maxDelayMs: Long): Long = (currentMs * 2).coerceAtMost(maxDelayMs)
+
+/**
+ * Dead-render restart budget: attempt counter past [maxAttempts] means the
+ * session is closed instead of restarted again.
+ */
+internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Boolean = restartAttempts > maxAttempts
