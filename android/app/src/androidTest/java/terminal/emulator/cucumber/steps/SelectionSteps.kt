@@ -21,6 +21,7 @@ import terminal.emulator.injectLongPress
 import terminal.emulator.ui.TerminalSurface
 import terminal.emulator.waitForSession
 import javax.inject.Inject
+import android.annotation.SuppressLint
 
 class SelectionSteps
 @Inject
@@ -115,6 +116,7 @@ constructor(
     }
 
     @Then("^the text is available on the clipboard$")
+    @SuppressLint("DeprecatedCall") // primaryClip: no @Deprecated in API 37; slack-lint rule data lag
     fun textIsAvailableOnClipboard() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager

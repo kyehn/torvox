@@ -28,30 +28,21 @@ class ThermalMonitor(
 
     @Suppress("TooGenericExceptionCaught")
     fun register() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         thermalListener =
             PowerManager.OnThermalStatusChangedListener { status ->
                 onThermalStatusChanged(status)
             }
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val executor =
-                    Executors.newSingleThreadExecutor { r ->
-                        Thread(r, "ThermalMonitor").apply { isDaemon = true }
-                    }
-                thermalExecutor = executor
-                pm.addThermalStatusListener(
-                    executor,
-                    thermalListener
-                        ?: error("thermalListener must be initialized before use"),
-                )
-            } else {
-                @Suppress("DEPRECATION")
-                pm.addThermalStatusListener(
-                    thermalListener
-                        ?: error("thermalListener must be initialized before use"),
-                )
-            }
+            val executor =
+                Executors.newSingleThreadExecutor { r ->
+                    Thread(r, "ThermalMonitor").apply { isDaemon = true }
+                }
+            thermalExecutor = executor
+            pm.addThermalStatusListener(
+                executor,
+                thermalListener
+                    ?: error("thermalListener must be initialized before use"),
+            )
             Log.i(TAG, "ThermalStatusListener registered")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to register thermal status listener — not supported on this device/environment", e)
@@ -62,11 +53,9 @@ class ThermalMonitor(
     }
 
     fun unregister() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val listener = thermalListener
-            if (listener != null) {
-                pm.removeThermalStatusListener(listener)
-            }
+        val listener = thermalListener
+        if (listener != null) {
+            pm.removeThermalStatusListener(listener)
         }
         thermalExecutor?.shutdownNow()
         thermalExecutor = null

@@ -35,13 +35,13 @@ class TextSearchUiAutomatorTest {
     private fun openSearchBar() {
         val drawerButton = device.findObject(By.desc("Open session drawer"))
         assertNotNull("Drawer button should exist", drawerButton)
-        drawerButton!!.click()
+        requireNotNull(drawerButton).click()
         assertTrue(
             "SearchButton should appear in drawer",
             device.wait(Until.hasObject(By.res("SearchButton")), 5000),
         )
         val searchButton = device.findObject(By.res("SearchButton"))
-        searchButton!!.click()
+        requireNotNull(searchButton).click()
         device.waitForIdle(2000)
     }
 
@@ -61,21 +61,21 @@ class TextSearchUiAutomatorTest {
 
         val searchField = device.findObject(By.res("com.termux:id/SearchTextField"))
         assertNotNull("Search field should exist", searchField)
-        searchField!!.text = "e"
+        requireNotNull(searchField).text = "e"
         device.waitForIdle(1000)
 
         val nextButton = device.findObject(By.res("com.termux:id/SearchNext"))
         assertNotNull("Next button should exist", nextButton)
-        nextButton!!.click()
+        requireNotNull(nextButton).click()
         device.waitForIdle(500)
 
         val resultCount = device.findObject(By.res("com.termux:id/SearchResultCount"))
         assertNotNull("Result count should be visible after navigating", resultCount)
-        assertTrue("Result count text should be non-empty", resultCount!!.text.isNotEmpty())
+        assertTrue("Result count text should be non-empty", requireNotNull(resultCount).text.isNotEmpty())
 
         val prevButton = device.findObject(By.res("com.termux:id/SearchPrevious"))
         assertNotNull("Previous button should exist", prevButton)
-        prevButton!!.click()
+        requireNotNull(prevButton).click()
         device.waitForIdle(500)
     }
 
@@ -86,7 +86,7 @@ class TextSearchUiAutomatorTest {
 
         val closeButton = device.findObject(By.res("com.termux:id/SearchClose"))
         assertNotNull("Close button should exist", closeButton)
-        closeButton!!.click()
+        requireNotNull(closeButton).click()
         device.waitForIdle(1000)
 
         val drawerAfterClose = device.findObject(By.res("com.termux:id/Key_DRAWER"))
@@ -104,9 +104,9 @@ class TextSearchUiAutomatorTest {
 
         val caseToggle = device.findObject(By.res("com.termux:id/SearchCaseSensitive"))
         assertNotNull("Case toggle should exist", caseToggle)
-        caseToggle!!.click()
+        requireNotNull(caseToggle).click()
         device.waitForIdle(500)
-        caseToggle!!.click()
+        requireNotNull(caseToggle).click()
         device.waitForIdle(500)
         val caseToggleAfter = device.findObject(By.res("com.termux:id/SearchCaseSensitive"))
         assertNotNull("Case toggle must remain present after cycling", caseToggleAfter)
@@ -120,11 +120,11 @@ class TextSearchUiAutomatorTest {
 
         val searchField = device.findObject(By.res("com.termux:id/SearchTextField"))
         assertNotNull("Search field should exist", searchField)
-        searchField!!.text = "e"
+        requireNotNull(searchField).text = "e"
         device.waitForIdle(1000)
 
         val resultCount = device.findObject(By.res("com.termux:id/SearchResultCount"))
         assertNotNull("Result count should be visible after typing", resultCount)
-        assertTrue("Result count text should be non-empty", resultCount!!.text.isNotEmpty())
+        assertTrue("Result count text should be non-empty", requireNotNull(resultCount).text.isNotEmpty())
     }
 }

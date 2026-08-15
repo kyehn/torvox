@@ -82,6 +82,7 @@ android {
         }
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             val hasKeystore = System.getenv("ANDROID_KEYSTORE_FILE") != null
             signingConfig = if (hasKeystore) signingConfigs.getByName("release") else signingConfigs.getByName("testkey")
             proguardFiles(
@@ -136,6 +137,9 @@ android {
         // coroutine cancellation paths).
         disable += "RawDispatchersUse"
         disable += "DenyListedApi"
+        // ArgInFormattedQuantityStringRes prescribes Slack-internal
+        // LocalizationUtils.getFormattedCount() — not applicable outside Slack.
+        disable += "ArgInFormattedQuantityStringRes"
         // compose-lints style rules: modifier-parameter conventions and
         // single-content-emitter layout are advisory; the codebase predates
         // the checks and fixing 30+ call sites adds churn without runtime
@@ -146,6 +150,16 @@ android {
         disable += "ComposeMultipleContentEmitters"
         disable += "ComposeParameterOrder"
         disable += "ComposeViewModelInjection"
+        // ComposeViewModelForwarding: the settings tree deliberately threads
+        // one hiltViewModel() instance through its section composables (each
+        // section needs the same ViewModel state/actions). Hoisting would
+        // rewrite 30+ section signatures with no runtime benefit.
+        disable += "ComposeViewModelForwarding"
+        // targetSdk 34 is intentional: 35+ moves the app into the
+        // untrusted_app_35 SELinux domain, which drops execute_no_trans on
+        // app_data_file and breaks execve() of Termux binaries (same reason
+        // Termux ships targetSdk 28). See defaultConfig above.
+        disable += "OldTargetApi"
     }
 }
 
@@ -165,6 +179,7 @@ dependencies {
     implementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.19.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.5.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.11.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
@@ -207,9 +222,9 @@ dependencies {
     testImplementation(composeBom)
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("androidx.compose.ui:ui-test-manifest")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.70.0")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.70.0")
-    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.70.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.72.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.72.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.72.0")
     testImplementation("androidx.test:core:1.7.0")
 
     // DebugOverlay — zero-config runtime diagnostics for debug builds:
@@ -234,19 +249,19 @@ dependencies {
     testImplementation("com.trendyol:stove:0.25.2")
     testImplementation("com.trendyol:stove-http:0.25.2")
     testImplementation("com.trendyol:stove-extensions-junit:0.25.2")
-    testImplementation("org.junit.jupiter:junit-jupiter:5.14.0")
-    testImplementation("org.junit.vintage:junit-vintage-engine:5.14.0")
+    testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
+    testImplementation("org.junit.vintage:junit-vintage-engine:6.1.3")
 
     // Slack Compose Lints — common Compose pitfalls (mutableStateOf, etc.)
-    lintChecks("com.slack.lint.compose:compose-lint-checks:1.4.2")
+    lintChecks("com.slack.lint.compose:compose-lint-checks:1.5.4")
     // Slack Lints — general Kotlin/Android lint checks
-    lintChecks("com.slack.lint:slack-lint-checks:0.9.0")
+    lintChecks("com.slack.lint:slack-lint-checks:0.11.1")
 
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-contrib:3.7.0")
     androidTestImplementation("androidx.test.espresso:espresso-intents:3.7.0")
-    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.3.0")
+    androidTestImplementation("androidx.test.uiautomator:uiautomator:2.4.0")
     androidTestImplementation("androidx.test:runner:1.7.0")
     androidTestImplementation("androidx.test:rules:1.7.0")
     // Ultron — Espresso/Compose/UI Automator wrapper for stable Android UI
@@ -268,9 +283,9 @@ dependencies {
 
     androidTestImplementation("io.cucumber:cucumber-android:7.18.1")
 
-    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi:1.70.0")
-    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.70.0")
-    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.70.0")
+    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi:1.72.0")
+    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.72.0")
+    androidTestImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.72.0")
 }
 
 tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
@@ -300,8 +315,8 @@ tasks.withType<Test>().matching { it.name == "testDebugUnitTest" }.configureEach
 val pitestClasspath = configurations.create("pitestClasspath")
 
 dependencies {
-    pitestClasspath("org.pitest:pitest:1.25.8")
-    pitestClasspath("org.pitest:pitest-command-line:1.25.8")
+    pitestClasspath("org.pitest:pitest:1.25.9")
+    pitestClasspath("org.pitest:pitest-command-line:1.25.9")
 }
 
 val excludedUnitTests =

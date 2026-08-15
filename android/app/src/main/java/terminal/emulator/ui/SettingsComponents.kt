@@ -30,18 +30,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import kotlinx.collections.immutable.ImmutableList
 
 /** Screen-width threshold below which settings render in compact mode. */
-const val SMALL_SCREEN_WIDTH_DP = 400
+val SMALL_SCREEN_WIDTH_DP = 400.dp
 
 /** Convenience: whether the current screen is narrow (compact layout). */
 @Composable
 fun rememberIsSmallScreen(): Boolean {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
+    val screenWidthDp =
+        with(LocalDensity.current) { LocalWindowInfo.current.containerSize.width.toDp() }
     return screenWidthDp < SMALL_SCREEN_WIDTH_DP
 }
 
@@ -104,8 +107,8 @@ fun SettingsSliderRow(
     steps: Int,
     colors: SettingsColors,
     onValueChange: (Float) -> Unit,
-    valueFormatter: (Float) -> String = { "%.0f".format(it) },
     modifier: Modifier = Modifier,
+    valueFormatter: (Float) -> String = { "%.0f".format(it) },
     testTag: String? = null,
     enabled: Boolean = true,
 ) {
@@ -154,8 +157,8 @@ fun SettingsSwitchRow(
     checked: Boolean,
     onToggle: (Boolean) -> Unit,
     colors: SettingsColors,
-    description: String? = null,
     modifier: Modifier = Modifier,
+    description: String? = null,
     testTag: String? = null,
     enabled: Boolean = true,
 ) {
@@ -199,7 +202,7 @@ fun SettingsSwitchRow(
 fun SettingsSelectorRow(
     title: String,
     selectedKey: String,
-    options: List<Pair<String, String>>,
+    options: ImmutableList<Pair<String, String>>,
     colors: SettingsColors,
     onOptionSelected: (String) -> Unit,
     modifier: Modifier = Modifier,

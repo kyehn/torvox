@@ -25,7 +25,7 @@ class FontInfoDtoCodecTest {
 
         val dto = FontInfoDto.fromJson(json)
         assertNotNull(dto)
-        val active = dto!!.active!!
+        val active = requireNotNull(requireNotNull(dto).active)
         assertEquals("Fira Code", active.name)
         assertTrue(active.monospaced)
         assertEquals("fallback", dto.cjkState)
@@ -45,7 +45,7 @@ class FontInfoDtoCodecTest {
 
         val dto = FontInfoDto.fromJson(json)
         assertNotNull(dto)
-        assertFalse(dto!!.hasRealCjkFallback)
+        assertFalse(requireNotNull(dto).hasRealCjkFallback)
         assertNull(dto.cjkFallbackText())
     }
 
@@ -59,7 +59,7 @@ class FontInfoDtoCodecTest {
         val json = FontInfoDto.placeholderJson("monospace")
         val dto = FontInfoDto.fromJson(json)
         assertNotNull(dto)
-        assertEquals("monospace", dto!!.active!!.name)
+        assertEquals("monospace", requireNotNull(requireNotNull(dto).active).name)
         assertEquals("none", dto.cjkState)
     }
 }

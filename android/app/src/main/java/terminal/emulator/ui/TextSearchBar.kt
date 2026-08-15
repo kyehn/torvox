@@ -130,12 +130,12 @@ fun TextSearchBar(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onClose: () -> Unit,
+    modifier: Modifier = Modifier,
     caseSensitive: Boolean = false,
     onCaseSensitiveToggle: (Boolean) -> Unit = {},
     autoCaseSensitive: Boolean = false,
     fuzzyMatch: Boolean = false,
     onFuzzyMatchToggle: (Boolean) -> Unit = {},
-    modifier: Modifier = Modifier,
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current

@@ -1,5 +1,6 @@
 package terminal.emulator.runtime
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -38,26 +39,36 @@ class ClipboardAccess(
     }
 
     /** Current primary clip text, or null when unavailable/empty. */
+    @SuppressLint("DeprecatedCall")
     fun clipboardText(): String? {
         val clipboard = manager() ?: return null
+        // hasPrimaryClip()/primaryClip: deprecated without replacement
+        // (API 36); the platform exposes no other synchronous existence
+        // query. slack-lint also flags getPrimaryClip here although it has
+        // no @Deprecated annotation in API 37 (rule data lag) — same calls
+        // stay, comments document intent.
         if (!clipboard.hasPrimaryClip()) return null
         return clipboard.primaryClip?.getItemAt(0)?.text?.toString()
     }
 
+    @SuppressLint("DeprecatedCall")
     fun setClipboardText(text: String, label: String = "terminal clipboard") {
         val clipboard = manager() ?: return
         val processed =
             smartCopyProcessor?.invoke(text)
                 ?.takeIf { it.isNotBlank() }
                 ?: text
+        // setPrimaryClip(): deprecated without replacement (API 36).
         clipboard.setPrimaryClip(ClipData.newPlainText(label, processed))
     }
 
     /** True when a primary clip exists (safe against dead-clipboard
      *  exceptions; used by paste-button enablement). */
+    @SuppressLint("DeprecatedCall")
     fun hasClipboardText(): Boolean {
         val clipboard = manager() ?: return false
         return try {
+            // hasPrimaryClip(): deprecated without replacement (API 36).
             clipboard.hasPrimaryClip()
         } catch (_: Exception) {
             false

@@ -208,6 +208,10 @@ class MainActivity : ComponentActivity() {
             resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         androidx.core.view.WindowCompat
             .setDecorFitsSystemWindows(window, false)
+        // Color.TRANSPARENT is an ARGB int, not a resource id — the KTX
+        // Int.toDrawable() the lint suggests would treat it as a res id (0)
+        // and resolve the wrong drawable.
+        @SuppressLint("UseKtx")
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.setFormat(PixelFormat.TRANSPARENT)
         testBackdoorReceivers.register()
@@ -230,8 +234,7 @@ class MainActivity : ComponentActivity() {
         // without it every notify() throws SecurityException and session
         // notifications silently never appear. Ask once at startup; the
         // denial is non-fatal (notifications stay disabled).
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
             android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
