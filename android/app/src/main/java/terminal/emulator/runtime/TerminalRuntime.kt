@@ -499,7 +499,9 @@ constructor(
         }
         val attempt: Int
         synchronized(sessionLock) {
-            if (entry.closing || entry.fastDeathCount >= MAX_FAST_DEATH_RETRIES) return false
+            if (!shouldScheduleFastDeathRetry(entry.closing, entry.fastDeathCount, MAX_FAST_DEATH_RETRIES)) {
+                return false
+            }
             entry.fastDeathCount++
             attempt = entry.fastDeathCount
             entry.renderWatchDog?.stop()
@@ -2810,7 +2812,7 @@ constructor(
             // block and trip the hang watchdog).
             var initialRender = target.bridge?.render() ?: 0
             var attempts = 1
-            while (initialRender < 0 && attempts < RENDER_INITIAL_RETRY_MAX) {
+            while (initialRenderRetryNeeded(initialRender, attempts, RENDER_INITIAL_RETRY_MAX)) {
                 Thread.sleep(RENDER_INITIAL_RETRY_DELAY_MS)
                 initialRender = target.bridge?.render() ?: 0
                 attempts++
@@ -3877,3 +3879,18 @@ internal fun nextRestartDelayMs(currentMs: Long, maxDelayMs: Long): Long = (curr
  * session is closed instead of restarted again.
  */
 internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Boolean = restartAttempts > maxAttempts
+
+/**
+ * Fast-death respawn gate (re-checked under sessionLock inside
+ * tryFastDeathRecovery): a closing session or an exhausted retry budget
+ * must NOT schedule another respawn, even when the earlier
+ * shouldRetryFastDeath passed — the state may have changed while waiting.
+ */
+internal fun shouldScheduleFastDeathRetry(closing: Boolean, fastDeathCount: Int, maxRetries: Int): Boolean = !closing && fastDeathCount < maxRetries
+
+/**
+ * Initial synchronous render retry (switchSession): keep retrying while the
+ * first render result is a failure (< 0) and the attempt counter is still
+ * below [maxAttempts]. Pure decision extracted from the retry loop.
+ */
+internal fun initialRenderRetryNeeded(result: Int, attempts: Int, maxAttempts: Int): Boolean = result < 0 && attempts < maxAttempts
