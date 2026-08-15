@@ -16,6 +16,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import android.annotation.SuppressLint
 
 /**
  * Instrumented tests for the text-selection feature.
@@ -86,6 +87,7 @@ class SelectionEspressoTest {
 
     @Test
     @org.junit.Ignore("Requires the native data path: scrollbackLine is an implemented (native query path is wired), so extractSelectedText yields an empty string and Copy never writes the clipboard ")
+    @SuppressLint("DeprecatedCall") // primaryClip: no @Deprecated in API 37; slack-lint rule data lag
     fun copyActionPlacesTextOnClipboard() {
         // Select a known range, then click Copy and verify the clipboard.
         sendSelectionBroadcast("terminal.emulator.PARTIAL_SELECT") {

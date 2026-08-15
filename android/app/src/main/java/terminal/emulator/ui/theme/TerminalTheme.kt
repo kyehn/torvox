@@ -578,7 +578,7 @@ fun resolveMaterialColorScheme(
 ): ColorScheme {
     val context = LocalContext.current
     return when {
-        appThemeMode == "follow_system" && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
+        appThemeMode == "follow_system" -> {
             if (isDarkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         }
 
@@ -598,7 +598,6 @@ enum class ThemeMode(
 
 @Composable
 fun dynamicTerminalTheme(isDark: Boolean): TerminalTheme? {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return null
     val context = LocalContext.current
     val scheme = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     return TerminalTheme(

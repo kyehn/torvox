@@ -18,6 +18,7 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import android.annotation.SuppressLint
 
 @RunWith(AndroidJUnit4::class)
 class TouchGestureInstrumentedTest {
@@ -261,6 +262,7 @@ class TouchGestureInstrumentedTest {
     }
 
     @Test
+    @SuppressLint("DeprecatedCall") // primaryClip: no @Deprecated in API 37; slack-lint rule data lag
     fun touch_up_ends_selection_and_copies_to_clipboard() {
         activityRule.scenario.onActivity { activity ->
             val content = activity.findViewById<View>(android.R.id.content)
