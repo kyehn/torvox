@@ -26,6 +26,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import terminal.emulator.MainActivity
+import android.annotation.SuppressLint
 
 /**
  * Espresso instrumentation tests.
@@ -77,6 +78,10 @@ class EspressoTest {
                 )
             }
 
+        // GeneralClickAction is deprecated but remains the only way to
+        // click at explicit coordinates; the replacement suggestions are
+        // all coordinate-less.
+        @SuppressLint("DeprecatedCall")
         @Suppress("DEPRECATION")
         fun createClickAction() = GeneralClickAction(Tap.SINGLE, menuCoordinates, Press.FINGER)
         return androidx.test.espresso.action.ViewActions.actionWithAssertions(

@@ -8,6 +8,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import android.annotation.SuppressLint
 
 /**
  * CopyAccess smart-copy processor semantics
@@ -69,6 +70,7 @@ class ClipboardAccessTest {
     }
 
     @Test
+    @SuppressLint("DeprecatedCall") // primaryClip/getPrimaryClip: no @Deprecated in API 37; slack-lint rule data lag
     fun `clipboard label is preserved`() {
         access.setClipboardText("content", label = "custom label")
         val manager = ApplicationProvider.getApplicationContext<Context>()

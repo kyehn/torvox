@@ -63,7 +63,7 @@ class BootGuardTest {
             file.setLastModified(1_000_000L + index * 1_000L)
         }
         guard.rotateLogs(maxFilesPerType = 10)
-        val remaining = logDir.listFiles { f -> f.name.startsWith("anr_") }!!.toList()
+        val remaining = requireNotNull(logDir.listFiles { f -> f.name.startsWith("anr_") }).toList()
         assertEquals("oldest entries must be rotated away", 10, remaining.size)
         val names = remaining.map { it.name }.sorted()
         assertFalse("the two oldest files are gone", names.contains("anr_0.txt"))
@@ -80,6 +80,6 @@ class BootGuardTest {
             file.setLastModified(1_000_000L + index * 1_000L)
         }
         guard.rotateLogs(maxFilesPerType = 10)
-        assertEquals(5, logDir.listFiles { f -> f.name.startsWith("fatal_") }!!.size)
+        assertEquals(5, requireNotNull(logDir.listFiles { f -> f.name.startsWith("fatal_") }).size)
     }
 }

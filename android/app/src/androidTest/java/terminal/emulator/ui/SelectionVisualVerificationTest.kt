@@ -31,6 +31,7 @@ import terminal.emulator.openDrawer
 import terminal.emulator.waitForSession
 import java.io.File
 import java.io.FileOutputStream
+import android.annotation.SuppressLint
 
 /**
  * Comprehensive visual verification of text selection functionality.
@@ -139,7 +140,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test01_longPressOnText_selectsWord() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -165,9 +166,10 @@ class SelectionVisualVerificationTest {
     // ── Test 2: Long-press on empty area shows paste button ──
 
     @Test
+    @SuppressLint("DeprecatedCall") // setPrimaryClip deprecated without replacement (API 36) — still the only client API
     fun test02_longPressEmptyArea_showsPaste() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         // Need some content in clipboard for paste button to appear
@@ -202,7 +204,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test03_selectionHandlesAtCorrectPositions() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -232,7 +234,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test04_dragHandleExtendsSelection() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -307,7 +309,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test05_contextMenuPosition() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -329,7 +331,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test06_selectionWithIme() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -373,7 +375,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test07_selectionWithDrawer() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -406,7 +408,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test08_selectionThemeColors() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -429,7 +431,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test09_selectAllViaMenu() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -466,7 +468,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test10_ocrVerifyHighlightedText() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -520,7 +522,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test11_doubleTapSelectsLine() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
@@ -541,7 +543,7 @@ class SelectionVisualVerificationTest {
     @Test
     fun test12_tripleTapSelectAll() {
         composeTestRule.waitForSession()
-        val bridge = composeTestRule.getBridge()!!
+        val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()

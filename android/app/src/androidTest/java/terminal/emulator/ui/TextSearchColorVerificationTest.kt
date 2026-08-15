@@ -48,7 +48,7 @@ class TextSearchColorVerificationTest {
         val bridge = composeTestRule.getBridge()
         assertNotNull("Bridge must be available", bridge)
 
-        generateContent(bridge!!, uniqueMarker, linesPerPage = 10, pages = 2)
+        generateContent(requireNotNull(bridge), uniqueMarker, linesPerPage = 10, pages = 2)
         waitForTerminalStable()
 
         openSearchAndType(uniqueMarker)
@@ -76,7 +76,7 @@ class TextSearchColorVerificationTest {
         val bridge = composeTestRule.getBridge()
         assertNotNull("Bridge must be available", bridge)
 
-        generateContent(bridge!!, uniqueMarker, linesPerPage = 10, pages = 2)
+        generateContent(requireNotNull(bridge), uniqueMarker, linesPerPage = 10, pages = 2)
         waitForTerminalStable()
 
         openSearchAndType(uniqueMarker)
@@ -119,7 +119,7 @@ class TextSearchColorVerificationTest {
         val bridge = composeTestRule.getBridge()
         assertNotNull("Bridge must be available", bridge)
 
-        bridge!!.writeToPty("echo '${uniqueMarker}_mixed'\n".toByteArray())
+        requireNotNull(bridge).writeToPty("echo '${uniqueMarker}_mixed'\n".toByteArray())
         bridge.writeToPty("echo '${uniqueMarker.uppercase()}_MIXED'\n".toByteArray())
         waitForTerminalStable()
 

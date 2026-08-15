@@ -51,6 +51,7 @@ import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.UserThemeStore
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import javax.inject.Inject
+import androidx.core.net.toUri
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
 
@@ -1589,7 +1590,7 @@ constructor(
             var effectivePath = path
             if (path.startsWith("content://")) {
                 val dst = java.io.File(context.filesDir, "terminal_background")
-                if (copyContentUriToPrivateFile(context.contentResolver, android.net.Uri.parse(path), dst)) {
+                if (copyContentUriToPrivateFile(context.contentResolver, path.toUri(), dst)) {
                     effectivePath = dst.absolutePath
                     LogUtil.d(TAG, "background image copied to private storage: $effectivePath")
                 } else {
@@ -1617,7 +1618,7 @@ constructor(
             } ?: return@launch
             if (path.isNotEmpty()) {
                 try {
-                    val uri = android.net.Uri.parse(path)
+                    val uri = path.toUri()
                     // Coil decodes with EXIF orientation applied and a
                     // size cap (1920x1080) that preserves the previous
                     // inSampleSize OOM protection. OutOfMemoryError is an

@@ -73,13 +73,13 @@ class UiAutomatorTest {
     fun typingViaSystemKeyboardReacts() {
         val drawerButton = device.findObject(By.desc("Open session drawer"))
         assertNotNull("Session drawer button should exist", drawerButton)
-        drawerButton!!.click()
+        requireNotNull(drawerButton).click()
         assertTrue(
             "Search button should appear after opening the drawer",
             device.wait(Until.hasObject(By.res("com.termux:id/SearchButton")), 5000),
         )
 
-        device.findObject(By.res("com.termux:id/SearchButton"))!!.click()
+        requireNotNull(device.findObject(By.res("com.termux:id/SearchButton"))).click()
         val searchField =
             device.wait(
                 Until.findObject(By.res("com.termux:id/SearchTextField")),
@@ -87,19 +87,19 @@ class UiAutomatorTest {
             )
         assumeNotNull("Search text field should appear", searchField)
 
-        searchField!!.click()
+        requireNotNull(searchField).click()
         device.waitForIdle(1000)
 
         val keyE = device.findObject(By.text("e")) ?: device.findObject(By.desc("e"))
         assumeNotNull("System keyboard key 'e' should be visible", keyE)
-        keyE!!.click()
+        requireNotNull(keyE).click()
         device.waitForIdle(1000)
 
         val resultCount = device.findObject(By.res("com.termux:id/SearchResultCount"))
         assumeNotNull("Search result count should become visible after typing", resultCount)
         assertTrue(
             "Search result count text should be non-empty after typing",
-            resultCount!!.text.isNotEmpty(),
+            requireNotNull(resultCount).text.isNotEmpty(),
         )
     }
 }

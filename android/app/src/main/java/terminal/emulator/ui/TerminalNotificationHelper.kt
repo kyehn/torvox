@@ -32,15 +32,13 @@ class TerminalNotificationHelper(
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
     init {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel =
-                NotificationChannel(
-                    CHANNEL_ID,
-                    CHANNEL_NAME,
-                    NotificationManager.IMPORTANCE_DEFAULT,
-                )
-            notificationManager.createNotificationChannel(channel)
-        }
+        val channel =
+            NotificationChannel(
+                CHANNEL_ID,
+                CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_DEFAULT,
+            )
+        notificationManager.createNotificationChannel(channel)
     }
 
     fun showNotification(
