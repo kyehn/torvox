@@ -167,18 +167,21 @@ fun TerminalScreen(
     val view = LocalView.current
     // Toggle the soft keyboard (termux KEYBOARD key): used by the floating
     // side button and by a KEYBOARD extra key in a custom toolbar layout.
+    // No-op in Raw keyboard mode (no IME to show or hide).
     val toggleKeyboard: () -> Unit = {
-        val inputMethodManager =
-            context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                as android.view.inputmethod.InputMethodManager
-        if (inputMethodManager.isAcceptingText) {
-            inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
-        } else {
-            view.requestFocus()
-            inputMethodManager.showSoftInput(
-                view,
-                android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT,
-            )
+        if (state.keyboardMode != terminal.emulator.input.KeyboardMode.Raw) {
+            val inputMethodManager =
+                context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                    as android.view.inputmethod.InputMethodManager
+            if (inputMethodManager.isAcceptingText) {
+                inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
+            } else {
+                view.requestFocus()
+                inputMethodManager.showSoftInput(
+                    view,
+                    android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT,
+                )
+            }
         }
     }
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
