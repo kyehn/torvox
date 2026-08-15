@@ -40,6 +40,7 @@ class SettingsRepositoryTest {
             }
         val provider = mockk<SettingsDataStoreProvider>()
         every { provider.dataStore } returns dataStore
+        every { provider.screenWidthDp } returns 360f
         repository = SettingsRepository(provider)
     }
 
@@ -49,9 +50,10 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `font size defaults then round-trips`() = runTest {
+    fun `font size defaults to device-adaptive value then round-trips`() = runTest {
         repository.fontSize.test {
-            assertEquals(SettingsRepository.DEFAULT_FONT_SIZE, awaitItem())
+            // Screen stubbed at 360dp → default is 11.25sp, not the fixed 10sp.
+            assertEquals(11.25f, awaitItem(), 0.01f)
             repository.setFontSize(22f)
             assertEquals(22f, awaitItem())
         }
