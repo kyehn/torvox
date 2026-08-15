@@ -27,4 +27,11 @@ constructor(
         PreferenceDataStoreFactory.create {
             File(prefsDir, "settings.preferences_pb")
         }
+
+    /** Screen width in dp, used for the device-adaptive default font size. */
+    internal val screenWidthDp: Float
+        get() {
+            val metrics = context.resources.displayMetrics
+            return metrics.widthPixels / metrics.density
+        }
 }

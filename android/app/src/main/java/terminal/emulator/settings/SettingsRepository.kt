@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -72,7 +73,10 @@ constructor(
     }
 
     val appThemeMode: Flow<String> = provider.dataStore.data.map { it[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM }
-    val fontSize: Flow<Float> = provider.dataStore.data.map { it[Keys.FONT_SIZE] ?: DEFAULT_FONT_SIZE }
+    private val deviceDefaultFontSize: Float
+        get() = defaultFontSizeFor(provider.screenWidthDp)
+
+    val fontSize: Flow<Float> = provider.dataStore.data.map { it[Keys.FONT_SIZE] ?: deviceDefaultFontSize }
 
     /** True once the user has explicitly picked a font size; false on a fresh install. */
     val fontSizeExplicitlySet: Flow<Boolean> = provider.dataStore.data.map { it[Keys.FONT_SIZE] != null }
@@ -147,7 +151,7 @@ constructor(
     val settings: Flow<SettingsState> = provider.dataStore.data.map { prefs ->
         SettingsState(
             appThemeMode = prefs[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM,
-            fontSize = prefs[Keys.FONT_SIZE] ?: DEFAULT_FONT_SIZE,
+            fontSize = prefs[Keys.FONT_SIZE] ?: deviceDefaultFontSize,
             fontFamily = prefs[Keys.FONT_FAMILY] ?: "",
             boldFontFamily = prefs[Keys.BOLD_FONT_FAMILY] ?: "",
             italicFontFamily = prefs[Keys.ITALIC_FONT_FAMILY] ?: "",
@@ -185,6 +189,8 @@ constructor(
      * font-size slider. No-op once the user has explicitly picked a size.
      */
     suspend fun applyFirstLaunchDefaultFontSize(screenWidthDp: Float) {
+        // Skip the write transaction entirely once the user has picked a size.
+        if (fontSizeExplicitlySet.first()) return
         provider.dataStore.edit { prefs ->
             if (prefs[Keys.FONT_SIZE] == null) {
                 prefs[Keys.FONT_SIZE] = defaultFontSizeFor(screenWidthDp.coerceAtLeast(0f))
