@@ -964,20 +964,30 @@ mod tests {
         }
     }
 
-    #[test]
-    fn session_spawn_and_exit() {
-        let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+    /// Spawn a 24x80 /bin/sh session for tests.
+    fn spawn_test_session() -> Session {
+        Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed")
+    }
+
+    /// Spawn a shell, send `exit`, and wait until the session reports exit.
+    fn spawn_and_exit() -> Session {
+        let mut session = spawn_test_session();
         session.write(b"exit\n").expect("write failed");
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         drain_output(&mut session, deadline);
         assert!(session.is_exited());
+        session
+    }
+
+    #[test]
+    fn session_spawn_and_exit() {
+        let mut session = spawn_test_session();
+        spawn_and_exit();
     }
 
     #[test]
     fn session_echo_hello() {
-        let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        let mut session = spawn_test_session();
         session.write(b"echo hello_p12\n").expect("write failed");
         let deadline = std::time::Instant::now() + Duration::from_secs(3);
         let mut found = false;
@@ -1002,8 +1012,7 @@ mod tests {
 
     #[test]
     fn session_resize() {
-        let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        let mut session = spawn_test_session();
         session.resize(40, 120).expect("resize failed");
         assert_eq!(session.terminal().rows(), 40);
         assert_eq!(session.terminal().cols(), 120);
@@ -1074,8 +1083,7 @@ mod tests {
 
     #[test]
     fn session_resize_dirty_same_size_still_retries() {
-        let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        let mut session = spawn_test_session();
         // Simulate a dropped grid command: dirty set, cache at old size.
         session.grid_dirty.store(true, Ordering::Release);
         // Same-size resize must NOT short-circuit: it re-issues the ioctl +
@@ -1088,8 +1096,7 @@ mod tests {
 
     #[test]
     fn session_resize_dirty_cleared_on_success() {
-        let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        let mut session = spawn_test_session();
         session.grid_dirty.store(true, Ordering::Release);
         // A genuinely different size clears the dirty flag on success.
         let outcome = session.resize(40, 120).expect("resize failed");
@@ -1100,12 +1107,8 @@ mod tests {
 
     #[test]
     fn session_after_exit_returns_error() {
-        let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
-        session.write(b"exit\n").expect("write failed");
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        drain_output(&mut session, deadline);
-        assert!(session.is_exited());
+        let mut session = spawn_test_session();
+        spawn_and_exit();
     }
 
     #[test]
@@ -1301,8 +1304,7 @@ mod tests {
 
     #[test]
     fn tee_channel_receives_data() {
-        let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        let mut session = spawn_test_session();
         // Take the tee receiver
         let tee_rx = session.take_tee_receiver().expect("tee_rx should exist");
         assert!(
@@ -1339,8 +1341,7 @@ mod tests {
 
     #[test]
     fn tee_channel_single_take() {
-        let mut session =
-            Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
+        let mut session = spawn_test_session();
         let rx1 = session
             .take_tee_receiver()
             .expect("first take should succeed");

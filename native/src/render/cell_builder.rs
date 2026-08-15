@@ -624,36 +624,19 @@ fn append_row_instances(
                 if *cp == 0 {
                     continue;
                 }
-                let Some(mark_ch) = char::from_u32(*cp) else {
-                    continue;
-                };
-                let Some(info) = font_pipeline.glyph_information(mark_ch) else {
-                    continue;
-                };
-                let uv_x = info.atlas_x as f32 / atlas_width;
-                let uv_y = info.atlas_y as f32 / atlas_height;
-                let uv_w = info.width as f32 / atlas_width;
-                let uv_h = info.height as f32 / atlas_height;
-                let bearing_x = info.placement.left as f32;
-                let glyph_h = info.height as f32 / raster_scale;
-                let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-                let bearing_y = if glyph_h > cell_h {
-                    (cell_h - glyph_h) / 2.0 * raster_scale
-                } else {
-                    raw_bearing_y
-                };
-
-                instances.push(CellInstance {
-                    quad_origin: glyph_quad_origin,
-                    atlas_offset: [uv_x, uv_y],
-                    atlas_size: [uv_w, uv_h],
-                    fg_color: effective_fg,
-                    bg_color: effective_bg,
-                    quad_size: glyph_quad_size,
-                    flags: cd.flags as f32,
-                    bearing: [bearing_x, bearing_y],
-                    glyph_advance_width: 0.0,
-                });
+                if let Some(overlay) = font_pipeline.overlay_glyph_instance(
+                    *cp,
+                    crate::render::font::OverlayQuad {
+                        origin: glyph_quad_origin,
+                        size: glyph_quad_size,
+                        fg: effective_fg,
+                        bg: effective_bg,
+                        flags: cd.flags as f32,
+                    },
+                    cell_h,
+                ) {
+                    instances.push(overlay);
+                }
             }
         } else {
             // Glyph not found in atlas – push a blank background quad so
@@ -1044,6 +1027,44 @@ mod tests {
     }
 
     /// Field-by-field comparison (CellInstance does not derive PartialEq).
+
+    const TEST_GRID_ROWS: u32 = 24;
+    const TEST_GRID_COLS: u32 = 80;
+
+    /// Standard 24x80 configuration used by the cached-build tests.
+    fn test_config(cursor: CellCursor) -> CellInstanceConfig<'static> {
+        CellInstanceConfig {
+            rows: TEST_GRID_ROWS,
+            cols: TEST_GRID_COLS,
+            grid_cell_w: 1024.0 / TEST_GRID_COLS as f32,
+            grid_cell_h: 1024.0 / TEST_GRID_ROWS as f32,
+            cursor,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
+            selection: None,
+            search_highlights: &[],
+        }
+    }
+
+    /// Run a cached build with the standard test configuration.
+    fn run_cached_build(
+        cells: &[CellData],
+        cursor: CellCursor,
+        mask: &[bool],
+        font_pipeline: &mut crate::render::font::FontPipeline,
+        cache: &mut CachedInstances,
+        instances: &mut Vec<CellInstance>,
+    ) -> Option<()> {
+        build_instances_cached(
+            cells,
+            test_config(cursor),
+            font_pipeline,
+            mask,
+            cache,
+            instances,
+        )
+    }
+
     fn instances_equal(a: &[CellInstance], b: &[CellInstance]) -> bool {
         a.len() == b.len()
             && a.iter().zip(b).all(|(x, y)| {
@@ -1081,21 +1102,11 @@ mod tests {
         let mut instances = Vec::new();
         let mut cache = CachedInstances::new(24, 80);
         let all_dirty = vec![true; 24];
-        let ok = build_instances_cached(
+        let ok = run_cached_build(
             &cells,
-            CellInstanceConfig {
-                rows: 24,
-                cols: 80,
-                grid_cell_w: 1024.0 / 80.0,
-                grid_cell_h: 1024.0 / 24.0,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                selection: None,
-                search_highlights: &[],
-            },
-            &mut font_pipeline,
+            cursor,
             &all_dirty,
+            &mut font_pipeline,
             &mut cache,
             &mut instances,
         );
@@ -1113,21 +1124,11 @@ mod tests {
         let mut dirty = vec![false; 24];
         dirty[2] = true;
         instances.clear();
-        let ok = build_instances_cached(
+        let ok = run_cached_build(
             &cells2,
-            CellInstanceConfig {
-                rows: 24,
-                cols: 80,
-                grid_cell_w: 1024.0 / 80.0,
-                grid_cell_h: 1024.0 / 24.0,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                selection: None,
-                search_highlights: &[],
-            },
-            &mut font_pipeline,
+            cursor,
             &dirty,
+            &mut font_pipeline,
             &mut cache,
             &mut instances,
         );
@@ -1165,21 +1166,11 @@ mod tests {
         // Stale cache: built for a 12-row grid while the grid has 24 rows.
         let mut cache = CachedInstances::new(12, 80);
         let mut instances = Vec::new();
-        let ok = build_instances_cached(
+        let ok = run_cached_build(
             &cells,
-            CellInstanceConfig {
-                rows: 24,
-                cols: 80,
-                grid_cell_w: 1024.0 / 80.0,
-                grid_cell_h: 1024.0 / 24.0,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                selection: None,
-                search_highlights: &[],
-            },
-            &mut font_pipeline,
+            cursor,
             &vec![true; 24],
+            &mut font_pipeline,
             &mut cache,
             &mut instances,
         );
@@ -1192,21 +1183,11 @@ mod tests {
         // Dirty mask shorter than the grid (only 10 rows).
         let mut cache2 = CachedInstances::new(24, 80);
         instances.clear();
-        let ok = build_instances_cached(
+        let ok = run_cached_build(
             &cells,
-            CellInstanceConfig {
-                rows: 24,
-                cols: 80,
-                grid_cell_w: 1024.0 / 80.0,
-                grid_cell_h: 1024.0 / 24.0,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                selection: None,
-                search_highlights: &[],
-            },
-            &mut font_pipeline,
+            cursor,
             &[true; 10],
+            &mut font_pipeline,
             &mut cache2,
             &mut instances,
         );
@@ -1249,21 +1230,11 @@ mod tests {
         // path when only one row's bytes changed).
         let mut mask = vec![false; 24];
         mask[2] = true;
-        let ok = build_instances_cached(
+        let ok = run_cached_build(
             &cells,
-            CellInstanceConfig {
-                rows: 24,
-                cols: 80,
-                grid_cell_w: 1024.0 / 80.0,
-                grid_cell_h: 1024.0 / 24.0,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                selection: None,
-                search_highlights: &[],
-            },
-            &mut font_pipeline,
+            cursor,
             &mask,
+            &mut font_pipeline,
             &mut cache,
             &mut instances,
         );

@@ -147,7 +147,7 @@ private fun composeLookup(
 ): Char? = COMPOSE_TABLE[first to second]
 
 /** F1-F12 escape sequences (XTerm function-key codes). */
-private val FN_KEY_SEQUENCES: List<Pair<String, String>> =
+internal val FN_KEY_SEQUENCES: List<Pair<String, String>> =
     listOf(
         "F1" to "\u001bOP",
         "F2" to "\u001bOQ",
@@ -432,6 +432,32 @@ fun ModifierBar(
 }
 
 /**
+ * One row of F-key buttons (F1-F6 or F7-F12). Each tap sends the key
+ * sequence and returns to the normal layer (single-shot FN).
+ */
+@Composable
+private fun RowScope.FnKeyButtons(
+    items: List<Pair<String, String>>,
+    label: (String) -> String,
+    onKeyClick: (String) -> Unit,
+    onToggleFn: () -> Unit,
+    textColor: Color,
+) {
+    for ((name, seq) in items) {
+        ExtraKeyButton(
+            text = label(name),
+            onClick = {
+                onKeyClick(seq)
+                onToggleFn()
+            },
+            textColor = textColor,
+            testTag = "Key_$name",
+            contentDescription = name,
+        )
+    }
+}
+
+/**
  * Second-layer rows shown when the FN modifier is Locked: F1-F12.
  * Tapping an F-key sends its escape sequence and returns to the normal
  * layer (single-shot); tapping FN again returns without sending anything.
@@ -455,36 +481,26 @@ private fun FnKeyRows(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FN_KEY_SEQUENCES.take(6).forEach { (name, seq) ->
-                ExtraKeyButton(
-                    text = label(name),
-                    onClick = {
-                        onKeyClick(seq)
-                        onToggleFn()
-                    },
-                    textColor = textColor,
-                    testTag = "Key_$name",
-                    contentDescription = name,
-                )
-            }
+            FnKeyButtons(
+                items = FN_KEY_SEQUENCES.take(6),
+                label = label,
+                onKeyClick = onKeyClick,
+                onToggleFn = onToggleFn,
+                textColor = textColor,
+            )
         }
         Row(
             modifier = Modifier.fillMaxWidth().height(buttonHeight),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            FN_KEY_SEQUENCES.drop(6).forEach { (name, seq) ->
-                ExtraKeyButton(
-                    text = label(name),
-                    onClick = {
-                        onKeyClick(seq)
-                        onToggleFn()
-                    },
-                    textColor = textColor,
-                    testTag = "Key_$name",
-                    contentDescription = name,
-                )
-            }
+            FnKeyButtons(
+                items = FN_KEY_SEQUENCES.drop(6),
+                label = label,
+                onKeyClick = onKeyClick,
+                onToggleFn = onToggleFn,
+                textColor = textColor,
+            )
             ExtraKeyButton(
                 text = label("FN"),
                 onClick = { onToggleFn() },

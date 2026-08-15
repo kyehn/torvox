@@ -330,6 +330,26 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
+     * Answer MCP clipboard_get / OSC 52 read requests: read the system
+     * clipboard and reply via [NativeBridge.clipboardResult]. Empty text is
+     * a legitimate result; only exceptions produce an empty fallback reply.
+     */
+    private fun dispatchClipboardRequests(requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>) {
+        requests.forEach { request ->
+            try {
+                val text = clipboardAccess.clipboardText().orEmpty()
+                NativeBridge
+                    .clipboardResult(request.sessionId, request.requestId, text)
+            } catch (exception: Exception) {
+                // Class only: exception messages can embed clipboard text.
+                LogUtil.e("Runtime", "clipboard request dispatch failed: ${exception.javaClass.simpleName}")
+                NativeBridge
+                    .clipboardResult(request.sessionId, request.requestId, "")
+            }
+        }
+    }
+
+    /**
      * print the [Process completed (code X)] - press Enter
      * prompt directly into the VT parser (the child is gone, so the PTY
      * no longer carries writes; the screen must be updated in-band).
@@ -1291,22 +1311,8 @@ constructor(
                                                 NativeBridge
                                                     .dialogResult(request.sessionId, request.requestId, "")
                                             }
-                                            poll.clipboardReads.forEach { request ->
-                                                try {
-                                                    val text = clipboardAccess.clipboardText().orEmpty()
-                                                    NativeBridge
-                                                        .clipboardResult(request.sessionId, request.requestId, text)
-                                                } catch (exception: Exception) {
-                                                    // Class only: exception messages can embed clipboard text.
-                                                    LogUtil.e("Runtime", "clipboard_read request dispatch failed: ${exception.javaClass.simpleName}")
-                                                    NativeBridge
-                                                        .clipboardResult(request.sessionId, request.requestId, "")
-                                                }
-                                            }
-                                            poll.clipboardGets.forEach { request ->
-                                                NativeBridge
-                                                    .clipboardResult(request.sessionId, request.requestId, "")
-                                            }
+                                            dispatchClipboardRequests(poll.clipboardReads)
+                                            dispatchClipboardRequests(poll.clipboardGets)
                                             poll.screenshots.forEach { request ->
                                                 NativeBridge
                                                     .screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
@@ -1650,30 +1656,8 @@ constructor(
                     LogUtil.e("Runtime", "open_url failed: ${exception.javaClass.simpleName}")
                 }
             }
-            poll.clipboardReads.forEach { request ->
-                try {
-                    val text = clipboardAccess.clipboardText().orEmpty()
-                    NativeBridge
-                        .clipboardResult(request.sessionId, request.requestId, text)
-                } catch (exception: Exception) {
-                    // Class only: exception messages can embed clipboard text.
-                    LogUtil.e("Runtime", "clipboard_read request dispatch failed: ${exception.javaClass.simpleName}")
-                    NativeBridge
-                        .clipboardResult(request.sessionId, request.requestId, "")
-                }
-            }
-            poll.clipboardGets.forEach { request ->
-                try {
-                    val text = clipboardAccess.clipboardText().orEmpty()
-                    NativeBridge
-                        .clipboardResult(request.sessionId, request.requestId, text)
-                } catch (exception: Exception) {
-                    // Class only: exception messages can embed clipboard text.
-                    LogUtil.e("Runtime", "clipboard_get request dispatch failed: ${exception.javaClass.simpleName}")
-                    NativeBridge
-                        .clipboardResult(request.sessionId, request.requestId, "")
-                }
-            }
+            dispatchClipboardRequests(poll.clipboardReads)
+            dispatchClipboardRequests(poll.clipboardGets)
             poll.runCommands.forEach { request ->
                 // run_command may take up to 30 s; run it on the IO scope
                 // so the poll loop keeps servicing keyboard / clipboard /
