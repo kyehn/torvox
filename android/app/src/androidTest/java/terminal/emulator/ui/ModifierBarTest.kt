@@ -3,6 +3,8 @@ package terminal.emulator.ui
 import android.view.WindowInsets
 import android.view.WindowInsets.Type
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onRoot
@@ -75,18 +77,24 @@ class ModifierBarTest {
 
     @Test
     fun modifier_bar_ctrl_toggle_cycles() {
+        // CTRL cycles Off → Once → Locked → Off; the armed state is exposed
+        // via the `selected` semantics on the key button.
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
         composeTestRule.onNodeWithTag("Key_CTRL").performClick()
-        composeTestRule.onNodeWithTag("Key_CTRL").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsSelected()
         composeTestRule.onNodeWithTag("Key_CTRL").performClick()
         composeTestRule.onNodeWithTag("Key_CTRL").performClick()
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
     }
 
     @Test
     fun modifier_bar_alt_toggle_cycles() {
+        composeTestRule.onNodeWithTag("Key_ALT").assertIsNotSelected()
         composeTestRule.onNodeWithTag("Key_ALT").performClick()
-        composeTestRule.onNodeWithTag("Key_ALT").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("Key_ALT").assertIsSelected()
         composeTestRule.onNodeWithTag("Key_ALT").performClick()
         composeTestRule.onNodeWithTag("Key_ALT").performClick()
+        composeTestRule.onNodeWithTag("Key_ALT").assertIsNotSelected()
     }
 
     @Test

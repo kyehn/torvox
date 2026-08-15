@@ -19,6 +19,7 @@ class TerminalForegroundService : Service() {
         private const val CHANNEL_ID = "terminal"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "termvox:wakelock"
+
         // Safety net: the wake lock must never outlive the session it keeps
         // alive. 30 minutes covers the longest expectable interactive run;
         // a still-running session re-acquires on the next start tick.

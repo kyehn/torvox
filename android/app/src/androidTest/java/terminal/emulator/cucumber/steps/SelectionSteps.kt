@@ -1,5 +1,6 @@
 package terminal.emulator.cucumber.steps
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -21,7 +22,6 @@ import terminal.emulator.injectLongPress
 import terminal.emulator.ui.TerminalSurface
 import terminal.emulator.waitForSession
 import javax.inject.Inject
-import android.annotation.SuppressLint
 
 class SelectionSteps
 @Inject

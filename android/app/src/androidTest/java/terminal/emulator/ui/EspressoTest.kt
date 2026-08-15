@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.annotation.SuppressLint
 import android.view.View
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.UiController
@@ -26,7 +27,6 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import terminal.emulator.MainActivity
-import android.annotation.SuppressLint
 
 /**
  * Espresso instrumentation tests.
