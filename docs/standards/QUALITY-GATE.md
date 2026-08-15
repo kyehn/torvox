@@ -45,6 +45,37 @@ When modifying JNI exports or `NativeBridge.kt`:
 nu scripts/test-emulator.nu                          # automated emulator tests
 ```
 
+## Duplicate Code (jscpd)
+
+```bash
+npm install -g jscpd@5
+jscpd native android                                # copy/paste detector
+```
+
+Run before commit (config in `.jscpd.json`: min 8 lines / 40 tokens, skips
+`import` tokens and build artifacts). Baseline: **250 clones** (Rust ~150,
+Kotlin ~90, markup/wgsl ~10); production-code clones ~95, the rest are test
+fixtures and table-driven variants.
+
+Accepted as intentional (do not "fix" by adding indirection — these are
+external-API-forced boilerplate, see KISS in AGENTS.md):
+
+- **wgpu pipeline/pass/context boilerplate** — `create_shader_module` +
+  bind-group-layout + render-pass descriptors differ per pipeline
+  (label, entries, blend states); matches upstream wgpu example style.
+- **JNI/FFI boilerplate** — `ffi.rs` per-export unwrap/log/reply shape.
+- **MCP tool boilerplate** — `mcp/mod.rs`/`tools.rs` request/oneshot/timeout
+  skeleton (per-tool payload types differ).
+- **Compose layout scaffolding** — dialog confirm/dismiss button pairs,
+  `Column`+`Row` bar skeletons, settings-row wrappers.
+- **Resource files** — `strings.xml` per-locale structure,
+  `data_extraction_rules.xml`, WGSL shader struct layouts.
+
+Any new *cross-file logic duplication* (same algorithm copied into a second
+file) must be extracted to a shared function — the wcwidth tables, winsize
+ioctls, theme application, overlay-glyph quad and cursor-style mapping are
+the canonical deduplicated examples.
+
 ---
 
 ## Documentation Maintenance

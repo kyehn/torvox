@@ -51,6 +51,7 @@ import terminal.emulator.ui.SmartCopy
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.UserThemeStore
 import terminal.emulator.ui.theme.resolveTerminalThemeName
+import terminal.emulator.util.charCellWidth
 import javax.inject.Inject
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
@@ -439,6 +440,21 @@ constructor(
             row: Int,
             col: Int,
         ) {
+            dragSelection(draggingStart = false, row = row, col = col)
+        }
+
+        fun updateSelectionStart(
+            row: Int,
+            col: Int,
+        ) {
+            dragSelection(draggingStart = true, row = row, col = col)
+        }
+
+        private fun dragSelection(
+            draggingStart: Boolean,
+            row: Int,
+            col: Int,
+        ) {
             // CAS with the active-check inside the lambda: the
             // selection read and the write are atomic against concurrent _state
             // updates. Paste-only selections (empty-cell/whitespace long-press)
@@ -449,33 +465,7 @@ constructor(
                 if (!current.active || current.pasteOnly) {
                     state
                 } else {
-                    val result = current.applyHandleDrag(draggingStart = false, targetRow = row, targetCol = col)
-                    state.copy(
-                        selection =
-                        current.copy(
-                            dragging = true,
-                            start = SelectionAnchor(result.startRow, result.startCol),
-                            end = SelectionAnchor(result.endRow, result.endCol),
-                            // Hide the floating menu while dragging; it
-                            // reappears at the new position on ACTION_UP
-                            // (endSelection restores menuDismissed=false).
-                            menuDismissed = true,
-                        ),
-                    )
-                }
-            }
-        }
-
-        fun updateSelectionStart(
-            row: Int,
-            col: Int,
-        ) {
-            _state.update { state ->
-                val current = state.selection
-                if (!current.active || current.pasteOnly) {
-                    state
-                } else {
-                    val result = current.applyHandleDrag(draggingStart = true, targetRow = row, targetCol = col)
+                    val result = current.applyHandleDrag(draggingStart = draggingStart, targetRow = row, targetCol = col)
                     state.copy(
                         selection =
                         current.copy(
@@ -849,32 +839,6 @@ constructor(
             return false
         }
 
-        private fun isWideChar(ch: Char): Boolean = isWideBmp(ch.code) || isWideAstral(ch.code)
-
-        /** BMP wide ranges from Markus Kuhn's wcwidth() tables. */
-        private fun isWideBmp(cp: Int): Boolean = cp in 0x1100..0x115F || // Hangul Jamo
-            cp in 0x2329..0x232A || // angle brackets
-            cp in 0x2E80..0x303E || // CJK Radicals .. CJK Symbols and Punctuation
-            cp in 0x3041..0x33FF || // Hiragana .. CJK Compatibility
-            cp in 0x3400..0x4DBF || // CJK Extension A
-            cp in 0x4E00..0x9FFF || // CJK Unified Ideographs
-            cp in 0xA000..0xA4CF || // Yi Syllables
-            cp in 0xAC00..0xD7A3 || // Hangul Syllables
-            cp in 0xF900..0xFAFF || // CJK Compatibility Ideographs
-            cp in 0xFE30..0xFE4F || // CJK Compatibility Forms
-            cp in 0xFF00..0xFF60 || // Fullwidth Forms
-            cp in 0xFFE0..0xFFE6 // Fullwidth Signs
-
-        /** Astral-plane wide ranges (emoji and CJK extensions B-G). */
-        private fun isWideAstral(cp: Int): Boolean = cp in 0x1F1E6..0x1F1FF || // Regional Indicator (flag)
-            cp in 0x1F300..0x1F64F || // Emoticons
-            cp in 0x1F680..0x1F6FF || // Transport
-            cp in 0x1F700..0x1F8FF || // Alchemical .. Geometric Extended
-            cp in 0x1F900..0x1F9FF || // Supplemental Symbols
-            cp in 0x1FA00..0x1FAFF || // Chess .. Symbols Extended-A
-            cp in 0x20000..0x2FFFD || // CJK Extensions B-F
-            cp in 0x30000..0x3FFFD // CJK Extension G
-
         /**
          * Extract a column-bounded rectangle slice from a single line,
          * correctly handling CJK wide characters that occupy 2 cell columns.
@@ -888,7 +852,7 @@ constructor(
             var charStart = -1
             var charEnd = line.length
             for ((i, ch) in line.withIndex()) {
-                val w = if (isWideChar(ch)) 2 else 1
+                val w = charCellWidth(ch)
                 if (col >= startCol && charStart < 0) charStart = i
                 if (col >= endCol) {
                     charEnd = i
@@ -1419,7 +1383,37 @@ constructor(
         },
     )
 
-    fun runBootstrap() {
+    /**
+     * The [BootstrapInstaller] and [SecondStageRunner] pair shared by the
+     * online and offline install paths. Files live under `filesDir` so the
+     * OS can free them only via app-data management, never on cache pressure.
+     */
+    private fun bootstrapComponents(
+        onProgress: terminal.emulator.installer.BootstrapProgressCallback,
+    ): Pair<terminal.emulator.installer.BootstrapInstaller, terminal.emulator.installer.SecondStageRunner> {
+        val installer =
+            terminal.emulator.installer.BootstrapInstaller(
+                prefixDir = java.io.File(context.filesDir, "usr"),
+                homeDir = java.io.File(context.filesDir, "home"),
+                stagingDir = java.io.File(context.filesDir, "usr-staging"),
+                onProgress = onProgress,
+            )
+        val secondStage =
+            terminal.emulator.installer.SecondStageRunner(
+                prefixDir = java.io.File(context.filesDir, "usr"),
+                homeDir = java.io.File(context.filesDir, "home"),
+                onProgress = onProgress,
+            )
+        return installer to secondStage
+    }
+
+    /**
+     * Shared guard + coroutine skeleton for bootstrap installs: serializes
+     * concurrent runs via CAS on [bootstrapRunning], resets progress state,
+     * and maps failures to the same error message. The caller supplies the
+     * install body, which receives the shared progress callback.
+     */
+    private fun startBootstrapJob(block: suspend (terminal.emulator.installer.BootstrapProgressCallback) -> Unit) {
         // CAS so a rapid double-tap of the Install button cannot start two
         // concurrent installs.
         if (!_bootstrapRunning.compareAndSet(false, true)) return
@@ -1431,48 +1425,43 @@ constructor(
                     terminal.emulator.installer.BootstrapProgressCallback { progress ->
                         _bootstrapProgress.value = progress
                     }
-                val downloader =
-                    terminal.emulator.installer.BootstrapDownloader(
-                        context,
-                        onProgress = onProgress,
-                    )
-                val installer =
-                    terminal.emulator.installer.BootstrapInstaller(
-                        prefixDir = java.io.File(context.filesDir, "usr"),
-                        homeDir = java.io.File(context.filesDir, "home"),
-                        stagingDir = java.io.File(context.filesDir, "usr-staging"),
-                        onProgress = onProgress,
-                    )
-                val secondStage =
-                    terminal.emulator.installer.SecondStageRunner(
-                        prefixDir = java.io.File(context.filesDir, "usr"),
-                        homeDir = java.io.File(context.filesDir, "home"),
-                        onProgress = onProgress,
-                    )
-                val orchestrator =
-                    terminal.emulator.installer.BootstrapOrchestrator(
-                        downloader,
-                        installer,
-                        secondStage,
-                        onProgress = onProgress,
-                    )
-                // Read the debounced value directly: the DataStore write is
-                // debounced by 500ms, so first() could still return the old
-                // URL if the user taps Install right after typing. An edited
-                // (even if cleared) field wins over the stored URL.
-                val url =
-                    if (bootstrapUrlEdited) {
-                        bootstrapUrlDebounce.value
-                    } else {
-                        settingsRepository.bootstrapUrl.first()
-                    }
-                val result = orchestrator.ensureBootstrap(url)
-                _bootstrapResult.value = bootstrapOutcomeText(result)
+                block(onProgress)
             } catch (exception: Exception) {
+                LogUtil.e("ViewModel", "Bootstrap failed", exception)
                 _bootstrapResult.value = context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
             } finally {
                 _bootstrapRunning.value = false
             }
+        }
+    }
+
+    fun runBootstrap() {
+        startBootstrapJob { onProgress ->
+            val downloader =
+                terminal.emulator.installer.BootstrapDownloader(
+                    context,
+                    onProgress = onProgress,
+                )
+            val (installer, secondStage) = bootstrapComponents(onProgress)
+            val orchestrator =
+                terminal.emulator.installer.BootstrapOrchestrator(
+                    downloader,
+                    installer,
+                    secondStage,
+                    onProgress = onProgress,
+                )
+            // Read the debounced value directly: the DataStore write is
+            // debounced by 500ms, so first() could still return the old
+            // URL if the user taps Install right after typing. An edited
+            // (even if cleared) field wins over the stored URL.
+            val url =
+                if (bootstrapUrlEdited) {
+                    bootstrapUrlDebounce.value
+                } else {
+                    settingsRepository.bootstrapUrl.first()
+                }
+            val result = orchestrator.ensureBootstrap(url)
+            _bootstrapResult.value = bootstrapOutcomeText(result)
         }
     }
 
@@ -1484,62 +1473,36 @@ constructor(
      * No network required; the downloaded bootstrap URL is ignored.
      */
     fun installOffline(uri: android.net.Uri) {
-        if (!_bootstrapRunning.compareAndSet(false, true)) return
-        viewModelScope.launch(Dispatchers.IO) {
-            _bootstrapResult.value = null
-            _bootstrapProgress.value = null
-            try {
-                val onProgress =
-                    terminal.emulator.installer.BootstrapProgressCallback { progress ->
-                        _bootstrapProgress.value = progress
-                    }
-                val installer =
-                    terminal.emulator.installer.BootstrapInstaller(
-                        prefixDir = java.io.File(context.filesDir, "usr"),
-                        homeDir = java.io.File(context.filesDir, "home"),
-                        stagingDir = java.io.File(context.filesDir, "usr-staging"),
-                        onProgress = onProgress,
-                    )
-                val secondStage =
-                    terminal.emulator.installer.SecondStageRunner(
-                        prefixDir = java.io.File(context.filesDir, "usr"),
-                        homeDir = java.io.File(context.filesDir, "home"),
-                        onProgress = onProgress,
-                    )
-                // Copy SAF URI content to a temp cache file — the installer
-                // needs a File (it hashes + streams the zip).  The cache dir
-                // is always writable and cleared by the OS under pressure.
-                _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Downloading(0, 0)
-                val cacheFile = java.io.File(context.cacheDir, "offline-bootstrap.zip")
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    cacheFile.outputStream().use { output ->
-                        input.copyTo(output)
-                    }
-                } ?: throw java.io.IOException("Failed to open bootstrap file")
-                val result = installer.install(cacheFile)
-                if (result.isSuccess) {
-                    _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Complete
-                    val secondResult = secondStage.run()
-                    val headline = context.getString(R.string.bootstrap_installed_from_file)
-                    val diagnostics = secondResult.errors.take(3).joinToString("\n") { "- $it" }
-                    val details =
-                        if (secondResult.errors.isNotEmpty()) {
-                            context.getString(R.string.bootstrap_postinst_errors) + "\n" + diagnostics
-                        } else {
-                            ""
-                        }
-                    _bootstrapResult.value =
-                        if (details.isEmpty()) headline else "$headline\n$details"
-                } else {
-                    _bootstrapResult.value = context.getString(R.string.bootstrap_error, result.exceptionOrNull()?.javaClass?.simpleName)
+        startBootstrapJob { onProgress ->
+            val (installer, secondStage) = bootstrapComponents(onProgress)
+            // Copy SAF URI content to a temp cache file — the installer
+            // needs a File (it hashes + streams the zip).  The cache dir
+            // is always writable and cleared by the OS under pressure.
+            _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Downloading(0, 0)
+            val cacheFile = java.io.File(context.cacheDir, "offline-bootstrap.zip")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                cacheFile.outputStream().use { output ->
+                    input.copyTo(output)
                 }
-                cacheFile.delete()
-            } catch (exception: Exception) {
-                LogUtil.e("ViewModel", "Offline install failed", exception)
-                _bootstrapResult.value = context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
-            } finally {
-                _bootstrapRunning.value = false
+            } ?: throw java.io.IOException("Failed to open bootstrap file")
+            val result = installer.install(cacheFile)
+            if (result.isSuccess) {
+                _bootstrapProgress.value = terminal.emulator.installer.BootstrapProgress.Complete
+                val secondResult = secondStage.run()
+                val headline = context.getString(R.string.bootstrap_installed_from_file)
+                val diagnostics = secondResult.errors.take(3).joinToString("\n") { "- $it" }
+                val details =
+                    if (secondResult.errors.isNotEmpty()) {
+                        context.getString(R.string.bootstrap_postinst_errors) + "\n" + diagnostics
+                    } else {
+                        ""
+                    }
+                _bootstrapResult.value =
+                    if (details.isEmpty()) headline else "$headline\n$details"
+            } else {
+                _bootstrapResult.value = context.getString(R.string.bootstrap_error, result.exceptionOrNull()?.javaClass?.simpleName)
             }
+            cacheFile.delete()
         }
     }
 

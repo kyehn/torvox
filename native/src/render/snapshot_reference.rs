@@ -476,35 +476,19 @@ pub fn build_cell_instances_into(
                     skip_cols = (cell_span as u32) - 1;
                 }
                 for &cp in cell.graphemes.iter().skip(1) {
-                    let Some(mark_ch) = char::from_u32(cp) else {
-                        continue;
-                    };
-                    let Some(info) = font_pipeline.glyph_information(mark_ch) else {
-                        continue;
-                    };
-                    let uv_x = info.atlas_x as f32 / atlas_width;
-                    let uv_y = info.atlas_y as f32 / atlas_height;
-                    let uv_w = info.width as f32 / atlas_width;
-                    let uv_h = info.height as f32 / atlas_height;
-                    let bearing_x = info.placement.left as f32;
-                    let glyph_h = info.height as f32 / raster_scale;
-                    let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-                    let bearing_y = if glyph_h > cell_h {
-                        (cell_h - glyph_h) / 2.0 * raster_scale
-                    } else {
-                        raw_bearing_y
-                    };
-                    instances.push(CellInstance {
-                        quad_origin: cursor_quad_origin,
-                        atlas_offset: [uv_x, uv_y],
-                        atlas_size: [uv_w, uv_h],
-                        fg_color: fg,
-                        bg_color: bg,
-                        quad_size: cursor_quad_size,
-                        flags,
-                        bearing: [bearing_x, bearing_y],
-                        glyph_advance_width: 0.0,
-                    });
+                    if let Some(overlay) = font_pipeline.overlay_glyph_instance(
+                        cp,
+                        crate::render::font::OverlayQuad {
+                            origin: cursor_quad_origin,
+                            size: cursor_quad_size,
+                            fg,
+                            bg,
+                            flags,
+                        },
+                        cell_h,
+                    ) {
+                        instances.push(overlay);
+                    }
                 }
             } else {
                 glyph_not_found += 1;
@@ -523,35 +507,19 @@ pub fn build_cell_instances_into(
                     skip_cols = (cell_span as u32) - 1;
                 }
                 for &cp in cell.graphemes.iter().skip(1) {
-                    let Some(mark_ch) = char::from_u32(cp) else {
-                        continue;
-                    };
-                    let Some(info) = font_pipeline.glyph_information(mark_ch) else {
-                        continue;
-                    };
-                    let uv_x = info.atlas_x as f32 / atlas_width;
-                    let uv_y = info.atlas_y as f32 / atlas_height;
-                    let uv_w = info.width as f32 / atlas_width;
-                    let uv_h = info.height as f32 / atlas_height;
-                    let bearing_x = info.placement.left as f32;
-                    let glyph_h = info.height as f32 / raster_scale;
-                    let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-                    let bearing_y = if glyph_h > cell_h {
-                        (cell_h - glyph_h) / 2.0 * raster_scale
-                    } else {
-                        raw_bearing_y
-                    };
-                    instances.push(CellInstance {
-                        quad_origin: cursor_quad_origin,
-                        atlas_offset: [uv_x, uv_y],
-                        atlas_size: [uv_w, uv_h],
-                        fg_color: fg,
-                        bg_color: bg,
-                        quad_size: cursor_quad_size,
-                        flags,
-                        bearing: [bearing_x, bearing_y],
-                        glyph_advance_width: 0.0,
-                    });
+                    if let Some(overlay) = font_pipeline.overlay_glyph_instance(
+                        cp,
+                        crate::render::font::OverlayQuad {
+                            origin: cursor_quad_origin,
+                            size: cursor_quad_size,
+                            fg,
+                            bg,
+                            flags,
+                        },
+                        cell_h,
+                    ) {
+                        instances.push(overlay);
+                    }
                 }
             }
         }
