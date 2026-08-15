@@ -106,4 +106,26 @@ class FastDeathRecoveryTest {
         assertTrue("attempt 10 exceeds the budget", shouldCloseDeadRender(restartAttempts = 10, maxAttempts = 5))
         assertFalse("attempt 0 restarts", shouldCloseDeadRender(restartAttempts = 0, maxAttempts = 5))
     }
+
+    @Test
+    fun fastDeathRespawnGate_rejects_closing_session() {
+        assertFalse("closing session must not respawn", shouldScheduleFastDeathRetry(closing = true, fastDeathCount = 0, maxRetries = 3))
+        assertFalse("closing session must not respawn even with budget", shouldScheduleFastDeathRetry(closing = true, fastDeathCount = 2, maxRetries = 3))
+    }
+
+    @Test
+    fun fastDeathRespawnGate_exhausted_budget_blocks_respawn() {
+        assertFalse("count == max blocks", shouldScheduleFastDeathRetry(closing = false, fastDeathCount = 3, maxRetries = 3))
+        assertFalse("count > max blocks", shouldScheduleFastDeathRetry(closing = false, fastDeathCount = 4, maxRetries = 3))
+        assertTrue("count < max allows", shouldScheduleFastDeathRetry(closing = false, fastDeathCount = 2, maxRetries = 3))
+    }
+
+    @Test
+    fun initialRenderRetry_retries_until_success_or_budget() {
+        assertTrue("failed result under budget retries", initialRenderRetryNeeded(result = -1, attempts = 1, maxAttempts = 3))
+        assertTrue("mid-budget failure still retries", initialRenderRetryNeeded(result = -1, attempts = 2, maxAttempts = 3))
+        assertFalse("success stops the loop", initialRenderRetryNeeded(result = 0, attempts = 1, maxAttempts = 3))
+        assertFalse("positive result stops the loop", initialRenderRetryNeeded(result = 1, attempts = 1, maxAttempts = 3))
+        assertFalse("attempt == max stops even on failure", initialRenderRetryNeeded(result = -1, attempts = 3, maxAttempts = 3))
+    }
 }
