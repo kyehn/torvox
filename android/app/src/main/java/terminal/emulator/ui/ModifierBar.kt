@@ -48,6 +48,8 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.R
 import terminal.emulator.input.ModifierState
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 
 private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
@@ -66,7 +68,7 @@ internal typealias ToolbarColumn = Pair<ToolbarItem?, ToolbarItem?>
  * default 14-key layout is a single 7-column page.
  */
 internal fun paginateToolbarKeys(
-    keys: List<ToolbarItem>,
+    keys: ImmutableList<ToolbarItem>,
     maxColumnsPerPage: Int = MAX_COLUMNS_PER_PAGE,
 ): List<List<ToolbarColumn>> {
     val midpoint = (keys.size + 1) / 2
@@ -163,12 +165,12 @@ private val FN_KEY_SEQUENCES: List<Pair<String, String>> =
 enum class ModifierBarMode { Normal, SelectionActions }
 
 @Composable
-fun rememberToolbarLayout(): List<ToolbarItem>? {
+fun rememberToolbarLayout(): ImmutableList<ToolbarItem>? {
     val context = LocalContext.current
     val toolbarPreferences = remember { ToolbarPreferences(context) }
-    var layout by remember { mutableStateOf(toolbarPreferences.getLayout()) }
+    var layout by remember { mutableStateOf(toolbarPreferences.getLayout().toImmutableList()) }
     DisposableEffect(toolbarPreferences) {
-        val listener = toolbarPreferences.registerLayoutListener { layout = it }
+        val listener = toolbarPreferences.registerLayoutListener { layout = it.toImmutableList() }
         onDispose { toolbarPreferences.unregisterLayoutListener(listener) }
     }
     return layout
@@ -188,6 +190,7 @@ fun rememberToolbarLayout(): List<ToolbarItem>? {
 @Composable
 fun ModifierBar(
     onKeyClick: (String) -> Unit,
+    modifier: Modifier = Modifier,
     onDrawerClick: () -> Unit = {},
     onScrollClick: () -> Unit = {},
     ctrlState: ModifierState = ModifierState.Off,
@@ -200,9 +203,8 @@ fun ModifierBar(
     onToggleKeyboard: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
-    modifier: Modifier = Modifier,
     useNerdFontGlyphs: Boolean = false,
-    toolbarLayout: List<ToolbarItem>? = null,
+    toolbarLayout: ImmutableList<ToolbarItem>? = null,
     barMode: ModifierBarMode = ModifierBarMode.Normal,
     onCopy: (() -> Unit)? = null,
     copyEnabled: Boolean = onCopy != null,
@@ -555,7 +557,7 @@ private fun SelectionActionsBar(
 @Suppress("LongParameterList", "CyclomaticComplexMethod")
 @Composable
 private fun ConfigurableModifierBar(
-    toolbarLayout: List<ToolbarItem>,
+    toolbarLayout: ImmutableList<ToolbarItem>,
     onKeyClick: (String) -> Unit,
     onDrawerClick: () -> Unit,
     onScrollClick: () -> Unit,
@@ -578,7 +580,7 @@ private fun ConfigurableModifierBar(
     val allKeys = toolbarLayout.toList()
     // Page the layout horizontally so more keys can be added than fit one
     // screen width (termux ViewPager behaviour): see paginateToolbarKeys.
-    val pages = paginateToolbarKeys(allKeys)
+    val pages = paginateToolbarKeys(allKeys.toImmutableList())
     val pagerState = rememberPagerState(pageCount = { pages.size })
     val actions =
         ModifierBarActions(
@@ -625,13 +627,13 @@ private fun ConfigurableModifierBar(
             val pageRow2 = pageColumns.mapNotNull { it.second }
             Column {
                 ModifierBarButtonRow(
-                    items = pageRow1.map(presentation),
+                    items = pageRow1.map(presentation).toImmutableList(),
                     buttonHeight = buttonHeight,
                     textColor = textColor,
                 )
                 if (pageRow2.isNotEmpty()) {
                     ModifierBarButtonRow(
-                        items = pageRow2.map(presentation),
+                        items = pageRow2.map(presentation).toImmutableList(),
                         buttonHeight = buttonHeight,
                         textColor = textColor,
                     )
@@ -792,7 +794,7 @@ private fun toolbarItemKeyHandler(
 /** One full-width row of extra-key buttons from pre-computed presentations. */
 @Composable
 private fun ModifierBarButtonRow(
-    items: List<ToolbarItemPresentation>,
+    items: ImmutableList<ToolbarItemPresentation>,
     buttonHeight: Dp,
     textColor: Color,
 ) {

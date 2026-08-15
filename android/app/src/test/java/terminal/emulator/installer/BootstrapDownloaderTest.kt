@@ -99,7 +99,7 @@ class BootstrapDownloaderTest {
         assertTrue("download failed: ${result.exceptionOrNull()}", result.isSuccess)
         val file = result.getOrNull()
         assertNotNull(file)
-        assertEquals(payload.size.toLong(), file!!.length())
+        assertEquals(payload.size.toLong(), requireNotNull(file).length())
         assertTrue("progress callback never invoked", progressCalls > 0)
         assertEquals(1, httpsServer.requestCount)
     }

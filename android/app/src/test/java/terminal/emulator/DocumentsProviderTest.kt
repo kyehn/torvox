@@ -41,7 +41,7 @@ class DocumentsProviderTest {
         val rootUri = DocumentsContract.buildRootsUri(authority)
         val cursor = provider.query(rootUri, null, android.os.Bundle(), null)
         assertNotNull("Roots cursor should not be null", cursor)
-        cursor!!.use {
+        requireNotNull(cursor).use {
             assertTrue("Should have at least one root", it.count >= 1)
             val idIndex = it.getColumnIndex(DocumentsContract.Root.COLUMN_ROOT_ID)
             val titleIndex = it.getColumnIndex(DocumentsContract.Root.COLUMN_TITLE)
@@ -56,7 +56,7 @@ class DocumentsProviderTest {
         val rootUri = DocumentsContract.buildRootsUri(authority)
         val cursor = provider.query(rootUri, null, android.os.Bundle(), null)
         assertNotNull(cursor)
-        cursor!!.use {
+        requireNotNull(cursor).use {
             it.moveToFirst()
             val flagsIndex = it.getColumnIndex(DocumentsContract.Root.COLUMN_FLAGS)
             val flags = it.getInt(flagsIndex)
@@ -76,14 +76,14 @@ class DocumentsProviderTest {
         val rootUri = DocumentsContract.buildRootsUri(authority)
         val rootsCursor = provider.query(rootUri, null, android.os.Bundle(), null)
         assertNotNull(rootsCursor)
-        rootsCursor!!.use {
+        requireNotNull(rootsCursor).use {
             it.moveToFirst()
             val docIdIndex = it.getColumnIndex(DocumentsContract.Root.COLUMN_DOCUMENT_ID)
             val rootDocId = it.getString(docIdIndex)
             val docUri = DocumentsContract.buildDocumentUri(authority, rootDocId)
             val docCursor = provider.query(docUri, null, android.os.Bundle(), null)
             assertNotNull("Document cursor should not be null", docCursor)
-            docCursor!!.use { dc ->
+            requireNotNull(docCursor).use { dc ->
                 assertTrue("Root document should exist", dc.count == 1)
                 val mimeIndex = dc.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
                 if (mimeIndex >= 0) {
@@ -108,7 +108,7 @@ class DocumentsProviderTest {
         val rootDir = rootDir()
         val original = java.io.File(rootDir, "rename-me.txt")
         original.writeText("content")
-        val docId = TerminalDocumentsProvider.encodeDocId(original, rootDir)!!
+        val docId = requireNotNull(TerminalDocumentsProvider.encodeDocId(original, rootDir))
 
         val newDocId = ensureProvider().renameDocument(docId, "renamed.txt")
         assertTrue("original must be gone", !original.exists())
@@ -125,7 +125,7 @@ class DocumentsProviderTest {
         val rootDir = rootDir()
         val original = java.io.File(rootDir, "escape-me.txt")
         original.writeText("x")
-        val docId = TerminalDocumentsProvider.encodeDocId(original, rootDir)!!
+        val docId = requireNotNull(TerminalDocumentsProvider.encodeDocId(original, rootDir))
         val newDocId = ensureProvider().renameDocument(docId, "../escaped.txt")
         assertTrue("original must be gone", !original.exists())
         val renamed = java.io.File(rootDir, newDocId)
