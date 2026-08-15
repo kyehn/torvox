@@ -47,6 +47,12 @@ def main [--boot_timeout: int = 360] {
         if not ($images_dir | path exists) {
             ^($sdkmanager_path) "--install" $system_image
         }
+        let emulator_pkg = ($sdk_root | path join "emulator" "emulator")
+        if not ($emulator_pkg | path exists) {
+            # A fresh SDK has no emulator package; the system image alone
+            # does not provide the emulator binary.
+            ^($sdkmanager_path) "--install" "emulator"
+        }
         ^($avdmanager_path) create avd --name test_avd --package $system_image --device "pixel_6" --force
     }
 
