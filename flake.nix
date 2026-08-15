@@ -145,6 +145,11 @@
               ktfmt
               ktlint
               android-tools
+              # nix git (not the system /usr/bin/git): the system git's https
+              # helper is incompatible with the devshell glibc (LD_LIBRARY_PATH),
+              # which breaks `git clone` inside cargo build scripts
+              # (libghostty-vt-sys downloads ghostty at build time).
+              git
               nushell
               taplo
               yamlfmt
