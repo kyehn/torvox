@@ -85,7 +85,8 @@ class LogUtilChunkingTest {
     @Test
     fun `huge tag still yields usable floor`() {
         assertEquals(64, LogUtil.maxEntrySize(1_000_000))
-        assertEquals(4068 - 32 - 0 - 4, LogUtil.maxEntrySize(0))
+        // Tag-less floor: 4068 payload − 32 prefix overhead − 4 safety margin.
+        assertEquals(4032, LogUtil.maxEntrySize(0))
     }
 
     @Test

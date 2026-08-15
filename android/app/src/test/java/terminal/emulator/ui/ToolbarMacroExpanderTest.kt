@@ -226,24 +226,6 @@ class ToolbarMacroExpanderTest {
         assertTrue("F10 starts with ESC[", f10[0].startsWith("\u001b["))
     }
 
-    @Test
-    fun `enter produces carriage return`() {
-        assertEquals(listOf("\r"), ToolbarMacroExpander.expand("ENTER"))
-    }
-
-    @Test
-    fun `backspace produces DEL`() {
-        // BKSP → DEL (0x7F)
-        assertEquals(listOf("\u007f"), ToolbarMacroExpander.expand("BKSP"))
-    }
-
-    @Test
-    fun `escape produces ESC`() {
-        assertEquals(listOf("\u001b"), ToolbarMacroExpander.expand("ESC"))
-    }
-
-    @Test
-    fun `tab produces horizontal tab`() {
-        assertEquals(listOf("\t"), ToolbarMacroExpander.expand("TAB"))
-    }
+    // ENTER/BKSP/ESC/TAB single-key cases are covered by
+    // `special keys emit escape sequences` above (not duplicated here).
 }
