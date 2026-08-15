@@ -530,31 +530,16 @@ impl super::GhosttyTerminal {
         // process OSC 10/11/4 color escapes (the embedder owns them), so use
         // the native setters. Without this the terminal keeps the built-in
         // xterm palette and the theme colors never reach the grid.
-        let _ = terminal.set_default_bg_color(Some(libghostty_vt::style::RgbColor {
-            r: config.background_color[0],
-            g: config.background_color[1],
-            b: config.background_color[2],
-        }));
-        let _ = terminal.set_default_fg_color(Some(libghostty_vt::style::RgbColor {
-            r: config.foreground_color[0],
-            g: config.foreground_color[1],
-            b: config.foreground_color[2],
-        }));
-        if let Ok(mut palette) = terminal.default_color_palette() {
-            for (index, color) in ANSI_PALETTE_INDICES.iter().zip(config.ansi_colors.iter()) {
-                palette.set(
-                    *index,
-                    libghostty_vt::style::RgbColor {
-                        r: color[0],
-                        g: color[1],
-                        b: color[2],
-                    },
-                );
-            }
-            let _ = terminal.set_default_color_palette(Some(palette));
-        }
+        Self::apply_theme(
+            &mut terminal,
+            config.background_color,
+            config.foreground_color,
+            &config.ansi_colors,
+        );
 
-        let query_receiver = config.query_receiver;
+        // Clone (flume receivers are Arc-handles): keeps `config`
+        // borrowable for the command loop below without partial moves.
+        let query_receiver = config.query_receiver.clone();
 
         // Cache the last built grid snapshot so we skip the expensive
         // per-cell ghostty FFI rebuild when neither the grid content nor the
@@ -598,9 +583,8 @@ impl super::GhosttyTerminal {
                         );
                     }
                     // ── Auto-push CellData (also sent on each state change above) ──
-                    Self::push_cell_data(
-                        config.cell_data_tx.as_ref(),
-                        &config.alt_screen_active,
+                    Self::refresh_cell_data(
+                        &config,
                         &terminal,
                         default_fg,
                         default_bg,
@@ -617,9 +601,8 @@ impl super::GhosttyTerminal {
                 Command::Write(data) => {
                     terminal.vt_write(&data);
                     grid_dirty = true;
-                    Self::push_cell_data(
-                        config.cell_data_tx.as_ref(),
-                        &config.alt_screen_active,
+                    Self::refresh_cell_data(
+                        &config,
                         &terminal,
                         default_fg,
                         default_bg,
@@ -650,33 +633,10 @@ impl super::GhosttyTerminal {
                     // kept the built-in xterm palette. These setters store
                     // the default colors that `cell.fg_color()` /
                     // `cell.bg_color()` resolve against.
-                    let _ = terminal.set_default_bg_color(Some(libghostty_vt::style::RgbColor {
-                        r: background[0],
-                        g: background[1],
-                        b: background[2],
-                    }));
-                    let _ = terminal.set_default_fg_color(Some(libghostty_vt::style::RgbColor {
-                        r: foreground[0],
-                        g: foreground[1],
-                        b: foreground[2],
-                    }));
-                    if let Ok(mut palette) = terminal.default_color_palette() {
-                        for (index, color) in ANSI_PALETTE_INDICES.iter().zip(ansi.iter()) {
-                            palette.set(
-                                *index,
-                                libghostty_vt::style::RgbColor {
-                                    r: color[0],
-                                    g: color[1],
-                                    b: color[2],
-                                },
-                            );
-                        }
-                        let _ = terminal.set_default_color_palette(Some(palette));
-                    }
+                    Self::apply_theme(&mut terminal, background, foreground, &ansi);
                     grid_dirty = true;
-                    Self::push_cell_data(
-                        config.cell_data_tx.as_ref(),
-                        &config.alt_screen_active,
+                    Self::refresh_cell_data(
+                        &config,
                         &terminal,
                         default_fg,
                         default_bg,
@@ -702,9 +662,8 @@ impl super::GhosttyTerminal {
                     // zelland row-cache pattern: row count changed on resize,
                     // the row cache is stale and must be invalidated.
                     row_cache.clear();
-                    Self::push_cell_data(
-                        config.cell_data_tx.as_ref(),
-                        &config.alt_screen_active,
+                    Self::refresh_cell_data(
+                        &config,
                         &terminal,
                         default_fg,
                         default_bg,
@@ -719,9 +678,8 @@ impl super::GhosttyTerminal {
                     grid_dirty = true;
                     // Rebuild + repush CellData so the renderer draws the
                     // scrolled view immediately.
-                    Self::push_cell_data(
-                        config.cell_data_tx.as_ref(),
-                        &config.alt_screen_active,
+                    Self::refresh_cell_data(
+                        &config,
                         &terminal,
                         default_fg,
                         default_bg,
@@ -900,6 +858,97 @@ impl super::GhosttyTerminal {
         value as f32 / 255.0
     }
 
+    /// Push a blank (codepoint 0) cell into the row data. Used for cells
+    /// whose raw ghostty data or style cannot be resolved.
+    fn push_blank_cell(
+        row_data: &mut Vec<CellData>,
+        default_fg: [f32; 4],
+        default_bg: [f32; 4],
+        row: u32,
+        col: u32,
+    ) {
+        row_data.push(CellData {
+            codepoint: 0,
+            width: 1,
+            grapheme_extra: [0; 7],
+            fg_color: default_fg,
+            bg_color: default_bg,
+            flags: 0,
+            row,
+            col,
+        });
+    }
+
+    /// Map a ghostty cursor visual style to the app-level cursor style,
+    /// defaulting to the block cursor when unset.
+    fn cursor_style_from_snapshot(
+        snapshot: &libghostty_vt::render::Snapshot<'_, '_>,
+    ) -> CursorStyle {
+        snapshot
+            .cursor_visual_style()
+            .ok()
+            .map(|cvs| match cvs {
+                CursorVisualStyle::Bar => CursorStyle::Bar,
+                CursorVisualStyle::Block | CursorVisualStyle::BlockHollow => CursorStyle::Block,
+                CursorVisualStyle::Underline => CursorStyle::Underline,
+                _ => CursorStyle::default(),
+            })
+            .unwrap_or_default()
+    }
+
+    /// Resolve a cell color to `[r, g, b, 1.0]` floats, falling back to the
+    /// cell default when the FFI returns an error or transparent color.
+    fn cell_color(
+        color: Result<Option<libghostty_vt::style::RgbColor>, libghostty_vt::error::Error>,
+        default: [f32; 4],
+    ) -> [f32; 4] {
+        match color {
+            Ok(Some(rgb)) => [
+                rgb.r as f32 / 255.0,
+                rgb.g as f32 / 255.0,
+                rgb.b as f32 / 255.0,
+                1.0,
+            ],
+            _ => default,
+        }
+    }
+
+    /// Apply default bg/fg colors and the 16-color ANSI palette via the
+    /// native theme API. libghostty-vt is a pure VT layer that does not
+    /// process OSC 10/11/4 color escapes (the embedder owns them), so the
+    /// embedder must push theme colors directly; without this the terminal
+    /// keeps the built-in xterm palette.
+    fn apply_theme(
+        terminal: &mut libghostty_vt::terminal::Terminal,
+        background: [u8; 3],
+        foreground: [u8; 3],
+        ansi: &[[u8; 3]],
+    ) {
+        let _ = terminal.set_default_bg_color(Some(libghostty_vt::style::RgbColor {
+            r: background[0],
+            g: background[1],
+            b: background[2],
+        }));
+        let _ = terminal.set_default_fg_color(Some(libghostty_vt::style::RgbColor {
+            r: foreground[0],
+            g: foreground[1],
+            b: foreground[2],
+        }));
+        if let Ok(mut palette) = terminal.default_color_palette() {
+            for (index, color) in ANSI_PALETTE_INDICES.iter().zip(ansi.iter()) {
+                palette.set(
+                    *index,
+                    libghostty_vt::style::RgbColor {
+                        r: color[0],
+                        g: color[1],
+                        b: color[2],
+                    },
+                );
+            }
+            let _ = terminal.set_default_color_palette(Some(palette));
+        }
+    }
+
     pub(crate) fn byte_color_to_float(color: [u8; 3]) -> [f32; 4] {
         [
             Self::byte_to_float(color[0]),
@@ -939,6 +988,26 @@ impl super::GhosttyTerminal {
     /// thread's channel (no-op when no consumer is attached). Single call
     /// site for the frame-emission block shared by Write/SetTheme/Resize/
     /// ScrollViewport.
+    /// Push a fresh cell-data snapshot after the terminal grid changed.
+    /// A thin wrapper over [`Self::push_cell_data`] that supplies the
+    /// standard config/state plumbing shared by every command handler.
+    fn refresh_cell_data(
+        config: &RunConfig,
+        terminal: &libghostty_vt::terminal::Terminal,
+        default_fg: [f32; 4],
+        default_bg: [f32; 4],
+        row_cache: &mut Vec<Vec<CellData>>,
+    ) {
+        Self::push_cell_data(
+            config.cell_data_tx.as_ref(),
+            &config.alt_screen_active,
+            terminal,
+            default_fg,
+            default_bg,
+            row_cache,
+        );
+    }
+
     fn push_cell_data(
         cell_data_tx: Option<&Sender<(Vec<CellData>, CursorInfo)>>,
         alt_screen_active: &Arc<AtomicBool>,
@@ -1046,16 +1115,13 @@ impl super::GhosttyTerminal {
                 let raw = match cell.raw_cell() {
                     Ok(c) => c,
                     Err(_) => {
-                        row_data.push(CellData {
-                            codepoint: 0,
-                            width: 1,
-                            grapheme_extra: [0; 7],
-                            fg_color: default_fg,
-                            bg_color: default_bg,
-                            flags: 0,
-                            row: current_row,
-                            col: current_col,
-                        });
+                        Self::push_blank_cell(
+                            &mut row_data,
+                            default_fg,
+                            default_bg,
+                            current_row,
+                            current_col,
+                        );
                         current_col += 1;
                         continue;
                     }
@@ -1069,24 +1135,8 @@ impl super::GhosttyTerminal {
                     } else {
                         match cell.style() {
                             Ok(s) => {
-                                let fg = match cell.fg_color() {
-                                    Ok(Some(rgb)) => [
-                                        rgb.r as f32 / 255.0,
-                                        rgb.g as f32 / 255.0,
-                                        rgb.b as f32 / 255.0,
-                                        1.0,
-                                    ],
-                                    _ => default_fg,
-                                };
-                                let bg = match cell.bg_color() {
-                                    Ok(Some(rgb)) => [
-                                        rgb.r as f32 / 255.0,
-                                        rgb.g as f32 / 255.0,
-                                        rgb.b as f32 / 255.0,
-                                        1.0,
-                                    ],
-                                    _ => default_bg,
-                                };
+                                let fg = Self::cell_color(cell.fg_color(), default_fg);
+                                let bg = Self::cell_color(cell.bg_color(), default_bg);
                                 let fl = Self::pack_style_flags(&s);
                                 cached_style_id = style_id;
                                 cached_fg = fg;
@@ -1158,16 +1208,7 @@ impl super::GhosttyTerminal {
             data.extend_from_slice(&row_data);
             current_row += 1;
         }
-        let cursor_style = snapshot
-            .cursor_visual_style()
-            .ok()
-            .map(|cvs| match cvs {
-                CursorVisualStyle::Bar => CursorStyle::Bar,
-                CursorVisualStyle::Block | CursorVisualStyle::BlockHollow => CursorStyle::Block,
-                CursorVisualStyle::Underline => CursorStyle::Underline,
-                _ => CursorStyle::default(),
-            })
-            .unwrap_or_default();
+        let cursor_style = Self::cursor_style_from_snapshot(&snapshot);
         Some((
             data,
             CursorInfo {
@@ -1319,24 +1360,8 @@ impl super::GhosttyTerminal {
                     Err(_) => vec![codepoint],
                 };
 
-                let foreground = match cell.fg_color() {
-                    Ok(Some(rgb)) => [
-                        rgb.r as f32 / 255.0,
-                        rgb.g as f32 / 255.0,
-                        rgb.b as f32 / 255.0,
-                        1.0,
-                    ],
-                    _ => default_fg,
-                };
-                let background = match cell.bg_color() {
-                    Ok(Some(rgb)) => [
-                        rgb.r as f32 / 255.0,
-                        rgb.g as f32 / 255.0,
-                        rgb.b as f32 / 255.0,
-                        1.0,
-                    ],
-                    _ => default_bg,
-                };
+                let foreground = Self::cell_color(cell.fg_color(), default_fg);
+                let background = Self::cell_color(cell.bg_color(), default_bg);
 
                 let semantic = match raw.semantic_content() {
                     Ok(libghostty_vt::screen::CellSemanticContent::Input) => SemanticContent::Input,
@@ -1389,16 +1414,7 @@ impl super::GhosttyTerminal {
             cursor_row,
             cursor_col,
             cursor_visible,
-            cursor_style: snapshot
-                .cursor_visual_style()
-                .ok()
-                .map(|cvs| match cvs {
-                    CursorVisualStyle::Bar => CursorStyle::Bar,
-                    CursorVisualStyle::Block | CursorVisualStyle::BlockHollow => CursorStyle::Block,
-                    CursorVisualStyle::Underline => CursorStyle::Underline,
-                    _ => CursorStyle::default(),
-                })
-                .unwrap_or_default(),
+            cursor_style: Self::cursor_style_from_snapshot(&snapshot),
             cells,
             dirty,
 

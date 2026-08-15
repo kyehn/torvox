@@ -493,6 +493,16 @@ impl Default for OscHandler {
 mod tests {
     use super::*;
 
+    /// Assert the handler emitted exactly one clipboard event with [expected]
+    /// text (used by several OSC 52 tests).
+    fn assert_clipboard_event(handler: &OscHandler, expected: &str) {
+        assert_eq!(handler.events().len(), 1);
+        match &handler.events()[0] {
+            OscEvent::Clipboard(ce) => assert_eq!(ce.text, expected),
+            _ => panic!("expected clipboard event"),
+        }
+    }
+
     #[test]
     fn passthrough_plain_text() {
         let mut handler = OscHandler::new();
@@ -518,11 +528,7 @@ mod tests {
         let mut handler = OscHandler::new();
         handler.process(b"\x1b]52;c;SGVsbG8=\x07");
         assert!(handler.output().is_empty());
-        assert_eq!(handler.events().len(), 1);
-        match &handler.events()[0] {
-            OscEvent::Clipboard(ce) => assert_eq!(ce.text, "Hello"),
-            _ => panic!("expected clipboard event"),
-        }
+        assert_clipboard_event(&handler, "Hello");
     }
 
     #[test]
@@ -610,11 +616,7 @@ mod tests {
         assert!(handler.output().is_empty());
         handler.process(b"SGVsbG8=\x07");
         assert!(handler.output().is_empty());
-        assert_eq!(handler.events().len(), 1);
-        match &handler.events()[0] {
-            OscEvent::Clipboard(ce) => assert_eq!(ce.text, "Hello"),
-            _ => panic!("expected clipboard event"),
-        }
+        assert_clipboard_event(&handler, "Hello");
     }
 
     #[test]

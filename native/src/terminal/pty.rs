@@ -425,21 +425,7 @@ impl PtyPair {
             ws_xpixel: self.pixel_width.get(),
             ws_ypixel: self.pixel_height.get(),
         };
-        // SAFETY: ioctl with TIOCSWINSZ writes a well-formed Winsize struct
-        // to the master PTY fd. The fd is owned and valid. The kernel copies
-        // the winsize to the slave side — no memory safety risk. The return
-        // value is checked for errors.
-        unsafe {
-            let result = libc::ioctl(
-                self.master.as_raw_fd(),
-                libc::TIOCSWINSZ,
-                std::ptr::from_ref(&winsize),
-            );
-            if result < 0 {
-                return Err(PtyError::Resize(nix::errno::Errno::last()));
-            }
-        }
-        Ok(())
+        self.write_winsize(&winsize)
     }
 
     /// Update the cached pixel dimensions and push them to the kernel via
@@ -449,6 +435,23 @@ impl PtyPair {
     pub fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), PtyError> {
         self.pixel_width.set(width);
         self.pixel_height.set(height);
+        let mut winsize = self.read_winsize()?;
+        winsize.ws_xpixel = width;
+        winsize.ws_ypixel = height;
+        self.write_winsize(&winsize)
+    }
+
+    /// Query the current terminal window size via TIOCGWINSZ.
+    /// verifies the 24x80 spawn seed is in place before any resize.
+    pub fn get_winsize(&self) -> Result<(u16, u16), PtyError> {
+        let winsize = self.read_winsize()?;
+        Ok((winsize.ws_row, winsize.ws_col))
+    }
+
+    /// Read the current terminal window size from the kernel via
+    /// TIOCGWINSZ. The ioctl fills a well-formed Winsize struct; the fd is
+    /// owned and valid and the struct is fully initialized before use.
+    fn read_winsize(&self) -> Result<nix::pty::Winsize, PtyError> {
         let mut winsize = nix::pty::Winsize {
             ws_row: 0,
             ws_col: 0,
@@ -468,8 +471,13 @@ impl PtyPair {
                 return Err(PtyError::Resize(nix::errno::Errno::last()));
             }
         }
-        winsize.ws_xpixel = width;
-        winsize.ws_ypixel = height;
+        Ok(winsize)
+    }
+
+    /// Push a Winsize struct to the kernel via TIOCSWINSZ. The ioctl copies
+    /// the winsize to the slave side; the fd is owned and valid and the
+    /// return value is checked for errors.
+    fn write_winsize(&self, winsize: &nix::pty::Winsize) -> Result<(), PtyError> {
         // SAFETY: ioctl with TIOCSWINSZ writes a well-formed Winsize struct
         // to the master PTY fd. The fd is owned and valid. The kernel copies
         // the winsize to the slave side — no memory safety risk. The return
@@ -478,38 +486,13 @@ impl PtyPair {
             let result = libc::ioctl(
                 self.master.as_raw_fd(),
                 libc::TIOCSWINSZ,
-                std::ptr::from_ref(&winsize),
+                std::ptr::from_ref(winsize),
             );
             if result < 0 {
                 return Err(PtyError::Resize(nix::errno::Errno::last()));
             }
         }
         Ok(())
-    }
-
-    /// Query the current terminal window size via TIOCGWINSZ.
-    /// verifies the 24x80 spawn seed is in place before any resize.
-    pub fn get_winsize(&self) -> Result<(u16, u16), PtyError> {
-        let mut winsize = nix::pty::Winsize {
-            ws_row: 0,
-            ws_col: 0,
-            ws_xpixel: 0,
-            ws_ypixel: 0,
-        };
-        // SAFETY: ioctl TIOCGWINSZ fills a well-formed Winsize struct from
-        // the kernel; the fd is owned and valid. The struct is fully
-        // initialized before use.
-        unsafe {
-            let result = libc::ioctl(
-                self.master.as_raw_fd(),
-                libc::TIOCGWINSZ,
-                std::ptr::from_mut(&mut winsize),
-            );
-            if result < 0 {
-                return Err(PtyError::Resize(nix::errno::Errno::last()));
-            }
-        }
-        Ok((winsize.ws_row, winsize.ws_col))
     }
 
     pub fn set_nonblocking(&self) -> Result<(), PtyError> {
@@ -900,6 +883,29 @@ mod tests {
         }
     }
 
+    /// Read PTY output until `needle` appears (2 s deadline). Returns
+    /// whatever was read; callers assert on the needle themselves.
+    fn read_until(pty: &mut PtyPair, needle: &[u8]) -> Vec<u8> {
+        use crate::terminal::pty::Pty;
+
+        let mut buf = [0u8; 4096];
+        let mut output = Vec::new();
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        while std::time::Instant::now() < deadline {
+            match Pty::read(pty, &mut buf) {
+                Ok(n) => output.extend_from_slice(&buf[..n]),
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+            if output.windows(needle.len()).any(|w| w == needle) {
+                return output;
+            }
+        }
+        output
+    }
+
     #[test]
     fn base_env_includes_xterm_256color() {
         let env = base_env(None);
@@ -1152,22 +1158,9 @@ mod tests {
 
         Pty::write_all(&mut pty, b"echo hello_vt\n").expect("write failed");
 
-        let mut buf = [0u8; 4096];
-        let mut output = Vec::new();
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while std::time::Instant::now() < deadline {
-            match Pty::read(&mut pty, &mut buf) {
-                Ok(n) => output.extend_from_slice(&buf[..n]),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(_) => break,
-            }
-            if output.windows("hello_vt".len()).any(|w| w == b"hello_vt") {
-                return;
-            }
-        }
-        panic!(
+        let output = read_until(&mut pty, b"hello_vt");
+        assert!(
+            output.windows(8).any(|w| w == b"hello_vt"),
             "did not see 'hello_vt' in output: {}",
             String::from_utf8_lossy(&output)
         );
@@ -1338,26 +1331,12 @@ mod tests {
         pty.set_nonblocking().expect("set_nonblocking failed");
         Pty::write_all(&mut pty, b"pwd\n").expect("write failed");
 
-        let mut buf = [0u8; 4096];
-        let mut output = Vec::new();
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while std::time::Instant::now() < deadline {
-            match Pty::read(&mut pty, &mut buf) {
-                Ok(n) => output.extend_from_slice(&buf[..n]),
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(10));
-                }
-                Err(_) => break,
-            }
-            let path_str = temp.to_string_lossy();
-            let path_bytes = path_str.as_bytes();
-            if output.windows(path_bytes.len()).any(|w| w == path_bytes) {
-                std::fs::remove_dir_all(&temp).ok();
-                return;
-            }
-        }
+        let output = read_until(&mut pty, temp.to_string_lossy().as_bytes());
         std::fs::remove_dir_all(&temp).ok();
-        panic!(
+        assert!(
+            output
+                .windows(temp.to_string_lossy().len())
+                .any(|w| w == temp.to_string_lossy().as_bytes()),
             "did not see working directory '{}' in pwd output: {}",
             temp.display(),
             String::from_utf8_lossy(&output)

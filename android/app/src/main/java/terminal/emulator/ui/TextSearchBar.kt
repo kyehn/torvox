@@ -45,45 +45,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import terminal.emulator.R
-
-private fun isWideChar(ch: Char): Boolean = isWideBmp(ch.code) || isWideAstral(ch.code)
-
-/** BMP wide ranges from Markus Kuhn's wcwidth() tables. */
-private fun isWideBmp(cp: Int): Boolean = cp in 0x1100..0x115F || // Hangul Jamo
-    cp in 0x2329..0x232A || // angle brackets
-    cp in 0x2E80..0x303E || // CJK Radicals .. CJK Symbols and Punctuation
-    cp in 0x3041..0x33FF || // Hiragana .. CJK Compatibility
-    cp in 0x3400..0x4DBF || // CJK Extension A
-    cp in 0x4E00..0x9FFF || // CJK Unified Ideographs
-    cp in 0xA000..0xA4CF || // Yi Syllables
-    cp in 0xAC00..0xD7A3 || // Hangul Syllables
-    cp in 0xF900..0xFAFF || // CJK Compatibility Ideographs
-    cp in 0xFE30..0xFE4F || // CJK Compatibility Forms
-    cp in 0xFF00..0xFF60 || // Fullwidth Forms
-    cp in 0xFFE0..0xFFE6 // Fullwidth Signs
-
-/** Astral-plane wide ranges (emoji and CJK extensions B-G). */
-private fun isWideAstral(cp: Int): Boolean = cp in 0x1F1E6..0x1F1FF || // Regional Indicator (flag)
-    cp in 0x1F300..0x1F64F || // Emoticons
-    cp in 0x1F680..0x1F6FF || // Transport
-    cp in 0x1F700..0x1F8FF || // Alchemical .. Geometric Extended
-    cp in 0x1F900..0x1F9FF || // Supplemental Symbols
-    cp in 0x1FA00..0x1FAFF || // Chess .. Symbols Extended-A
-    cp in 0x20000..0x2FFFD || // CJK Extensions B-F
-    cp in 0x30000..0x3FFFD // CJK Extension G
-
-private fun charCellWidth(ch: Char): Int = if (isWideChar(ch)) 2 else 1
-
-private fun charIndexToCellColumn(
-    line: String,
-    charIndex: Int,
-): Int {
-    var col = 0
-    for (i in 0 until charIndex.coerceAtMost(line.length)) {
-        col += charCellWidth(line[i])
-    }
-    return col
-}
+import terminal.emulator.util.charIndexToCellColumn
 
 fun findMatches(
     text: String,
@@ -272,32 +234,39 @@ private fun SearchNavButtons(
     onNext: () -> Unit,
 ) {
     Spacer(modifier = Modifier.width(4.dp))
-    IconButton(
+    SearchNavButton(
+        imageVector = Icons.Filled.KeyboardArrowUp,
+        description = stringResource(R.string.search_previous),
+        resultCount = resultCount,
         onClick = onPrevious,
-        enabled = resultCount > 0,
-        modifier = Modifier.size(32.dp).testTag("SearchPrevious"),
-    ) {
-        Icon(
-            imageVector = Icons.Filled.KeyboardArrowUp,
-            contentDescription = stringResource(R.string.search_previous),
-            tint =
-            if (resultCount > 0) {
-                MaterialTheme.colorScheme.onSurface
-            } else {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)
-            },
-            modifier = Modifier.size(20.dp),
-        )
-    }
-
-    IconButton(
+        testTag = "SearchPrevious",
+    )
+    SearchNavButton(
+        imageVector = Icons.Filled.KeyboardArrowDown,
+        description = stringResource(R.string.search_next),
+        resultCount = resultCount,
         onClick = onNext,
+        testTag = "SearchNext",
+    )
+}
+
+/** Arrow step button for the search bar, dimmed when there are no results. */
+@Composable
+private fun SearchNavButton(
+    imageVector: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String,
+    resultCount: Int,
+    onClick: () -> Unit,
+    testTag: String,
+) {
+    IconButton(
+        onClick = onClick,
         enabled = resultCount > 0,
-        modifier = Modifier.size(32.dp).testTag("SearchNext"),
+        modifier = Modifier.size(32.dp).testTag(testTag),
     ) {
         Icon(
-            imageVector = Icons.Filled.KeyboardArrowDown,
-            contentDescription = stringResource(R.string.search_next),
+            imageVector = imageVector,
+            contentDescription = description,
             tint =
             if (resultCount > 0) {
                 MaterialTheme.colorScheme.onSurface

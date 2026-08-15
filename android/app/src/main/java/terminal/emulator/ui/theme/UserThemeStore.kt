@@ -105,13 +105,7 @@ class UserThemeStore(
 
     suspend fun save(theme: TerminalTheme) {
         dataStore.edit { prefs ->
-            val current =
-                try {
-                    prefs[key]?.let { json.decodeFromString<List<UserThemeDto>>(it) } ?: emptyList()
-                } catch (e: Exception) {
-                    LogUtil.w(TAG, "Failed to decode user themes, treating as empty", e)
-                    emptyList()
-                }
+            val current = decodeCurrent(prefs)
             val withoutSameName = current.filter { it.name != theme.name }
             val updated = withoutSameName + UserThemeDto.fromTerminalTheme(theme)
             prefs[key] = json.encodeToString(updated)
@@ -120,14 +114,21 @@ class UserThemeStore(
 
     suspend fun delete(name: String) {
         dataStore.edit { prefs ->
-            val current =
-                try {
-                    prefs[key]?.let { json.decodeFromString<List<UserThemeDto>>(it) } ?: emptyList()
-                } catch (e: Exception) {
-                    LogUtil.w(TAG, "Failed to decode user themes, treating as empty", e)
-                    emptyList()
-                }
+            val current = decodeCurrent(prefs)
             prefs[key] = json.encodeToString(current.filter { it.name != name })
         }
+    }
+
+    /**
+     * Decode the stored theme list, self-healing a corrupt blob to an empty
+     * list (ghostty-android ThemeStore.userThemes() JSONException path).
+     */
+    private fun decodeCurrent(
+        prefs: androidx.datastore.preferences.core.Preferences,
+    ): List<UserThemeDto> = try {
+        prefs[key]?.let { json.decodeFromString<List<UserThemeDto>>(it) } ?: emptyList()
+    } catch (e: Exception) {
+        LogUtil.w(TAG, "Failed to decode user themes, treating as empty", e)
+        emptyList()
     }
 }

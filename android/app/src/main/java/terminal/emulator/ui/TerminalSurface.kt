@@ -47,6 +47,7 @@ import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.util.isWideCodePoint
 import kotlin.math.roundToInt
 
 // Approximate height reserved for the ModifierBar overlay when computing
@@ -69,30 +70,6 @@ internal fun isWordChar(c: Char): Boolean = c.isLetterOrDigit() || c == '_' || c
  * tables (plus emoji ranges). Split into BMP/astral halves to keep the
  * cyclomatic complexity of each helper below the detekt threshold.
  */
-private fun isWideCodePoint(cp: Int): Boolean = isWideBmp(cp) || isWideAstral(cp)
-
-private fun isWideBmp(cp: Int): Boolean = cp in 0x1100..0x115F || // Hangul Jamo
-    cp in 0x2329..0x232A || // angle brackets
-    cp in 0x2E80..0x303E || // CJK Radicals Supplement .. CJK Symbols and Punctuation
-    cp in 0x3041..0x33FF || // Hiragana .. CJK Compatibility
-    cp in 0x3400..0x4DBF || // CJK Unified Ideographs Extension A
-    cp in 0x4E00..0x9FFF || // CJK Unified Ideographs
-    cp in 0xA000..0xA4CF || // Yi Syllables
-    cp in 0xAC00..0xD7A3 || // Hangul Syllables
-    cp in 0xF900..0xFAFF || // CJK Compatibility Ideographs
-    cp in 0xFE30..0xFE4F || // CJK Compatibility Forms
-    cp in 0xFF00..0xFF60 || // Fullwidth Forms
-    cp in 0xFFE0..0xFFE6 // Fullwidth Signs
-
-private fun isWideAstral(cp: Int): Boolean = cp in 0x1F300..0x1F64F || // Emoticons
-    cp in 0x1F680..0x1F6FF || // Transport and Map Symbols
-    cp in 0x1F700..0x1F8FF || // Alchemical Symbols .. Geometric Shapes Extended
-    cp in 0x1F900..0x1F9FF || // Supplemental Symbols and Pictographs
-    cp in 0x1FA00..0x1FAFF || // Chess Symbols .. Symbols and Pictographs Extended-A
-    cp in 0x1F1E6..0x1F1FF || // Regional Indicator (flag) pairs
-    cp in 0x20000..0x2FFFD || // CJK Extensions B-F
-    cp in 0x30000..0x3FFFD // CJK Extension G
-
 internal fun expandWordOnLine(
     line: String,
     col: Int,
@@ -1010,22 +987,11 @@ constructor(
                     MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                         viewModel?.endSelection()
                         handleDragState = HandleDrag.NONE
-                        val selection = viewModel?.state?.value?.selection
-                        if (selection?.start != null && selection?.end != null) {
-                            selectionHandles.hideSelectionHandles()
-                            selectionHandles.showSelectionHandles(
-                                selection.start.row,
-                                selection.start.col,
-                                selection.end.row,
-                                selection.end.col,
-                                getAccentColor(),
-                            )
-                            // Menu re-show is driven by TerminalScreen's
-                            // LaunchedEffect(menuDismissed): endSelection sets
-                            // menuDismissed=false → effect calls
-                            // showSelectionMenu(pasteOnly) at the new range
-                            // (ghostty-android reshowToolbar pattern).
-                        }
+                        reshowSelectionHandles()
+                        // Menu re-show is driven by TerminalScreen's
+                        // LaunchedEffect(menuDismissed): endSelection sets
+                        // menuDismissed=false → effect calls
+                        // showSelectionMenu(pasteOnly) at the new range.
                         return true
                     }
                 }
@@ -1367,6 +1333,38 @@ constructor(
         val col = (dragAnchorCol + deltaCols).coerceIn(0, (cols - 1).coerceAtLeast(0))
         val gridRow = currentScrollbackLength() - scrollOffset + row
         return gridRow to snapToWideCharBoundary(gridRow, col)
+    }
+
+    /**
+     * Re-hide and re-show the selection handles at the current selection
+     * range (used after ending a drag so handles snap to the final cell).
+     */
+    private fun reshowSelectionHandles() {
+        val selection = viewModel?.state?.value?.selection
+        if (selection?.start != null && selection?.end != null) {
+            selectionHandles.hideSelectionHandles()
+            selectionHandles.showSelectionHandles(
+                selection.start.row,
+                selection.start.col,
+                selection.end.row,
+                selection.end.col,
+                getAccentColor(),
+            )
+        }
+    }
+
+    /**
+     * Move the dragged handle to the cell at [gridRow] under the current
+     * touch column, snapping across wide (CJK) character boundaries.
+     */
+    private fun updateDragHandleForCell(gridRow: Int) {
+        val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
+        val snappedCol = snapToWideCharBoundary(gridRow, curCol)
+        if (handleDragState == HandleDrag.START) {
+            viewModel?.updateSelectionStart(gridRow, snappedCol)
+        } else if (handleDragState == HandleDrag.END) {
+            viewModel?.updateSelection(gridRow, snappedCol)
+        }
     }
 
     /**
@@ -1769,14 +1767,7 @@ constructor(
                             scrollOffset = newOffset
                             onScrollChanged?.invoke(scrollOffset)
                             // Top viewport row in grid coordinates.
-                            val gridRow = scrollbackLen - newOffset
-                            val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-                            val snappedCol = snapToWideCharBoundary(gridRow, curCol)
-                            if (handleDragState == HandleDrag.START) {
-                                viewModel?.updateSelectionStart(gridRow, snappedCol)
-                            } else if (handleDragState == HandleDrag.END) {
-                                viewModel?.updateSelection(gridRow, snappedCol)
-                            }
+                            updateDragHandleForCell(scrollbackLen - newOffset)
                         }
                     }
 
@@ -1786,14 +1777,7 @@ constructor(
                             scrollOffset = newOffset
                             onScrollChanged?.invoke(scrollOffset)
                             // Bottom viewport row in grid coordinates.
-                            val gridRow = currentScrollbackLength() - newOffset + rows - 1
-                            val curCol = (currentTouchX / cellWidth).toInt().coerceIn(0, (cols - 1).coerceAtLeast(0))
-                            val snappedCol = snapToWideCharBoundary(gridRow, curCol)
-                            if (handleDragState == HandleDrag.START) {
-                                viewModel?.updateSelectionStart(gridRow, snappedCol)
-                            } else if (handleDragState == HandleDrag.END) {
-                                viewModel?.updateSelection(gridRow, snappedCol)
-                            }
+                            updateDragHandleForCell(currentScrollbackLength() - newOffset + rows - 1)
                         }
                     }
                 }
@@ -2476,20 +2460,10 @@ constructor(
                 edgeScrollHandler.removeCallbacks(edgeScrollRunnable)
                 if (isSelectingText && handleDragState != HandleDrag.NONE) {
                     viewModel?.endSelection()
-                    val selection = viewModel?.state?.value?.selection
-                    if (selection?.start != null && selection?.end != null) {
-                        selectionHandles.hideSelectionHandles()
-                        selectionHandles.showSelectionHandles(
-                            selection.start.row,
-                            selection.start.col,
-                            selection.end.row,
-                            selection.end.col,
-                            getAccentColor(),
-                        )
-                        reshowToolbar()
-                        // The selection menu is rendered as a PopupWindow
-                        // (system ActionMode), driven by the view-model state.
-                    }
+                    reshowSelectionHandles()
+                    reshowToolbar()
+                    // The selection menu is rendered as a PopupWindow
+                    // (system ActionMode), driven by the view-model state.
                     // Flush the new selection state to the Rust renderer so it
                     // paints the selection highlight at the correct position.
                     viewModel?.runtime?.forceRender()
