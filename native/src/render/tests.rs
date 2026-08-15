@@ -17,7 +17,36 @@ fn f32_eq(a: f32, b: f32) -> bool {
 }
 
 fn f32_arrays_equal(a: &[f32], b: &[f32]) -> bool {
-    a.len() == b.len() && a.iter().zip(b).all(|(x, y)| f32_eq(*x, *y))
+    a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+}
+
+/// Standard SnapshotConfig used across the snapshot-reference render tests.
+fn test_snapshot_config(
+    cursor_style: CursorStyle,
+    cursor_color: Option<[f32; 4]>,
+    dirty_rows: &[bool],
+) -> crate::render::SnapshotConfig<'_> {
+    crate::render::SnapshotConfig {
+        atlas_width: 1024.0,
+        atlas_height: 1024.0,
+        projection_height: 0.0,
+        selection: None,
+        search_highlights: &[],
+        cursor_color,
+        cursor_style,
+        dirty_rows,
+        cached_instances: &[],
+        cached_row_ends: &[],
+        surface_bg: [0.0, 0.0, 0.0, 1.0],
+        render_scale: 1.0,
+    }
+}
+
+/// Font pipeline with the ASCII glyph atlas pre-rasterized.
+fn ascii_font() -> crate::render::font::FontPipeline {
+    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+    font_pipeline.rasterize_ascii();
+    font_pipeline
 }
 
 #[test]
@@ -130,8 +159,7 @@ fn build_cell_instances_from_flat_basic() {
     grid.set_cell(0, 2, 'B', [0.0, 1.0, 0.0, 1.0], [0.2, 0.2, 0.2, 1.0]);
     grid.set_cell(0, 3, 'C', [1.0, 0.0, 1.0, 1.0], [0.3, 0.3, 0.3, 1.0]);
 
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let (cell_w, _cell_h) = font_pipeline.cell_metrics();
 
     let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
@@ -620,8 +648,7 @@ fn orthographic_projection_resize_gpu_uniforms() {
 #[test]
 fn cursor_rendering_on_visible_cursor() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![
         CellSnapshot {
             codepoint: 'A' as u32,
@@ -677,8 +704,7 @@ fn cursor_rendering_on_visible_cursor() {
 #[test]
 fn cursor_not_rendered_when_invisible() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 'A' as u32,
         ..Default::default()
@@ -718,8 +744,7 @@ fn cursor_not_rendered_when_invisible() {
 #[test]
 fn reverse_video_applied_to_blank_cell() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let foreground = [1.0, 0.0, 0.0, 1.0];
     let background = [0.0, 0.0, 1.0, 1.0];
     let cells = vec![CellSnapshot {
@@ -774,8 +799,7 @@ fn reverse_video_applied_to_blank_cell() {
 fn selection_swaps_fg_bg() {
     use super::SelectionRange;
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
         foreground: [1.0, 0.0, 0.0, 1.0],
@@ -838,8 +862,7 @@ fn selection_swaps_fg_bg() {
 /// (no centering, no clamping — the raw font baseline offset).
 #[test]
 fn bearing_y_uses_font_baseline_not_centering() {
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let ascent_pixels = font_pipeline.ascent_pixels();
 
     let chars = ['A', 'g', 'p', '.', ','];
@@ -864,8 +887,7 @@ fn bearing_y_uses_font_baseline_not_centering() {
 /// Verify bearing_x uses font's natural left side bearing, not centering.
 #[test]
 fn bearing_x_uses_font_natural_bearing() {
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
 
     let chars = ['A', 'i', 'l', 'W', 'M'];
     for ch in chars {
@@ -890,8 +912,7 @@ fn bearing_x_uses_font_natural_bearing() {
 /// This ensures no vertical misalignment between characters.
 #[test]
 fn all_chars_share_same_baseline_y() {
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
 
     let chars = ['A', 'B', 'C', 'x', 'y', 'z', '0', '1', '9'];
@@ -1272,8 +1293,7 @@ fn blend_highlight_semi_transparent() {
 #[test]
 fn search_highlight_blends_on_non_cursor_cell() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
         foreground: [1.0, 1.0, 1.0, 1.0],
@@ -1325,8 +1345,7 @@ fn search_highlight_blends_on_non_cursor_cell() {
 #[test]
 fn cursor_cell_not_affected_by_search_highlight() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 'A' as u32,
         foreground: [0.0, 1.0, 0.0, 1.0],
@@ -1553,8 +1572,7 @@ fn search_highlight_multiple_matches_same_row() {
 #[test]
 fn cursor_block_full_cell_size() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let cells = vec![CellSnapshot {
         codepoint: 0x20,
@@ -1602,8 +1620,7 @@ fn cursor_block_full_cell_size() {
 #[test]
 fn cursor_bar_width_ratio() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let cells = vec![CellSnapshot {
         codepoint: 0x20,
@@ -1653,8 +1670,7 @@ fn cursor_bar_width_ratio() {
 #[test]
 fn cursor_underline_height_ratio() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let cells = vec![CellSnapshot {
         codepoint: 0x20,
@@ -1704,8 +1720,7 @@ fn cursor_underline_height_ratio() {
 #[test]
 fn cursor_not_rendered_when_visible_false() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 0x20,
         ..Default::default()
@@ -1749,8 +1764,7 @@ fn cursor_not_rendered_when_visible_false() {
 #[test]
 fn cursor_at_origin() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 'A' as u32,
         ..Default::default()
@@ -1799,8 +1813,7 @@ fn cursor_at_origin() {
 #[test]
 fn cursor_with_text_and_block_style() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
         foreground: [0.0, 1.0, 0.0, 1.0],
@@ -1851,8 +1864,7 @@ fn cursor_with_text_and_block_style() {
 #[test]
 fn cursor_with_text_and_bar_style() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
         foreground: [0.0, 1.0, 0.0, 1.0],
@@ -1903,8 +1915,7 @@ fn cursor_with_text_and_bar_style() {
 #[test]
 fn cursor_with_text_and_underline_style() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 'X' as u32,
         foreground: [0.0, 1.0, 0.0, 1.0],
@@ -1955,8 +1966,7 @@ fn cursor_with_text_and_underline_style() {
 #[test]
 fn cursor_color_custom_values() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
     let cells = vec![CellSnapshot {
         codepoint: 0x20,
         ..Default::default()
@@ -2792,8 +2802,7 @@ fn snapshot_and_cell_data_paths_agree_on_colors() {
     use crate::render::cell_builder::{CellInstanceConfig, build_instances_from_cell_data};
     use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
-    let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font_pipeline.rasterize_ascii();
+    let mut font_pipeline = ascii_font();
 
     let mut term = GhosttyTerminal::new(24, 80, 1000).expect("terminal create");
     // Mixed styling on one row: bold, plain, reverse, fg/bg colors, underline.

@@ -105,8 +105,7 @@ class AccessibilityLineNavigator(
         scrollbackLength: Int,
         scrollOffset: Int,
     ): AccessibilityLine? {
-        val lines = lineProvider.visibleLines(rows, scrollbackLength, scrollOffset)
-        if (lines.isEmpty()) return null
+        val lines = visibleLines(rows, scrollbackLength, scrollOffset) ?: return null
         val index = currentIndexIn(lines)
         val target = if (index >= 0 && index < lines.size - 1) lines[index + 1] else lines[0]
         currentRow = target.row
@@ -119,12 +118,22 @@ class AccessibilityLineNavigator(
         scrollbackLength: Int,
         scrollOffset: Int,
     ): AccessibilityLine? {
-        val lines = lineProvider.visibleLines(rows, scrollbackLength, scrollOffset)
-        if (lines.isEmpty()) return null
+        val lines = visibleLines(rows, scrollbackLength, scrollOffset) ?: return null
         val index = currentIndexIn(lines)
         val target = if (index > 0) lines[index - 1] else lines.last()
         currentRow = target.row
         return target
+    }
+
+    /** The visible lines for the current viewport, or null when empty. */
+    private fun visibleLines(
+        rows: Int,
+        scrollbackLength: Int,
+        scrollOffset: Int,
+    ): List<AccessibilityLine>? {
+        val lines = lineProvider.visibleLines(rows, scrollbackLength, scrollOffset)
+        if (lines.isEmpty()) return null
+        return lines
     }
 
     private fun currentIndexIn(lines: List<AccessibilityLine>): Int {
