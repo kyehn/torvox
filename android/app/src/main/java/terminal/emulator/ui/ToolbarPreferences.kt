@@ -40,6 +40,9 @@ enum class ToolbarKey(
     PGDN("PGDN", "\u001b[6~", contentDescriptionRes = R.string.page_down),
     FN("FN", "", contentDescriptionRes = R.string.function_key_layer),
     COMPOSE("COMPOSE", "", contentDescriptionRes = R.string.compose_key),
+
+    /** termux `KEYBOARD` special key: toggle the soft keyboard visibility. */
+    KEYBOARD("KEYBOARD", "", symbol = "\u2328", contentDescriptionRes = R.string.toggle_keyboard),
     PIPE("|", "|"),
     SLASH("/", "/"),
     DASH("-", "-"),

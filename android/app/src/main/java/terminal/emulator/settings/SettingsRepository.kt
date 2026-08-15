@@ -61,6 +61,14 @@ constructor(
         const val DEFAULT_BACKGROUND_ALPHA = 0.8f
         const val DEFAULT_CURSOR_SPEED_MS = 530
         const val DEFAULT_BELL_MODE = 0
+
+        /**
+         * Device-adaptive first-launch font size (sp): a fresh install gets a
+         * size derived from screen width (~64 columns on a 360dp portrait
+         * phone, ~100 on an 800dp landscape tablet) instead of a fixed
+         * absolute value, clamped to a readable 8..16sp band.
+         */
+        fun defaultFontSizeFor(screenWidthDp: Float): Float = (screenWidthDp / 32f).coerceIn(8f, 16f)
     }
 
     val appThemeMode: Flow<String> = provider.dataStore.data.map { it[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM }
@@ -170,6 +178,19 @@ constructor(
     }
 
     suspend fun setFontSize(size: Float) = put(Keys.FONT_SIZE, size)
+
+    /**
+     * Persist the device-adaptive default font size on first launch so a
+     * fresh install renders a legible grid before the user touches the
+     * font-size slider. No-op once the user has explicitly picked a size.
+     */
+    suspend fun applyFirstLaunchDefaultFontSize(screenWidthDp: Float) {
+        provider.dataStore.edit { prefs ->
+            if (prefs[Keys.FONT_SIZE] == null) {
+                prefs[Keys.FONT_SIZE] = defaultFontSizeFor(screenWidthDp.coerceAtLeast(0f))
+            }
+        }
+    }
 
     suspend fun setFontFamily(family: String) = put(Keys.FONT_FAMILY, family)
 
