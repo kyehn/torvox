@@ -196,6 +196,8 @@ fun ModifierBar(
     onToggleCtrl: () -> Unit = {},
     onToggleAlt: () -> Unit = {},
     onToggleFn: () -> Unit = {},
+    /** termux `KEYBOARD` special key — toggle soft keyboard visibility. */
+    onToggleKeyboard: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
     modifier: Modifier = Modifier,
@@ -294,6 +296,7 @@ fun ModifierBar(
             onToggleCtrl = onToggleCtrl,
             onToggleAlt = onToggleAlt,
             onToggleFn = onToggleFn,
+            onToggleKeyboard = onToggleKeyboard,
             composeActive = composeActive,
             onToggleCompose = ::toggleCompose,
             onPaste = onPaste,
@@ -562,6 +565,7 @@ private fun ConfigurableModifierBar(
     onToggleCtrl: () -> Unit,
     onToggleAlt: () -> Unit,
     onToggleFn: () -> Unit,
+    onToggleKeyboard: () -> Unit,
     composeActive: Boolean,
     onToggleCompose: () -> Unit,
     onPaste: (() -> Unit)?,
@@ -585,6 +589,7 @@ private fun ConfigurableModifierBar(
             onToggleAlt = onToggleAlt,
             onToggleFn = onToggleFn,
             onToggleCompose = onToggleCompose,
+            onToggleKeyboard = onToggleKeyboard,
             onPaste = onPaste,
         )
     val modifierStates =
@@ -658,6 +663,8 @@ private data class ModifierBarActions(
     val onToggleAlt: () -> Unit,
     val onToggleFn: () -> Unit,
     val onToggleCompose: () -> Unit,
+    /** termux `KEYBOARD` special key — toggle soft keyboard visibility. */
+    val onToggleKeyboard: () -> Unit,
     /** Long-press paste on DRAWER (termux default `popup: 'PASTE'`). */
     val onPaste: (() -> Unit)?,
 )
@@ -748,6 +755,8 @@ private fun toolbarItemKeyHandler(
             ToolbarKey.FN -> actions.onToggleFn
 
             ToolbarKey.COMPOSE -> actions.onToggleCompose
+
+            ToolbarKey.KEYBOARD -> actions.onToggleKeyboard
 
             ToolbarKey.DRAWER -> actions.onDrawerClick
 

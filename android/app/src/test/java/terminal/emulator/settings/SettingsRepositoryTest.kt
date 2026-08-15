@@ -7,6 +7,7 @@ import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -181,6 +182,24 @@ class SettingsRepositoryTest {
             serializeEnvironmentVariables(mapOf("A" to "one", "B" to "two")),
         )
         assertEquals("", serializeEnvironmentVariables(emptyMap()))
+    }
+
+    @Test
+    fun `first launch default font size adapts to screen width`() {
+        assertEquals(8f, SettingsRepository.defaultFontSizeFor(0f), 0.01f)
+        assertEquals(11.25f, SettingsRepository.defaultFontSizeFor(360f), 0.01f)
+        assertEquals(12.88f, SettingsRepository.defaultFontSizeFor(412f), 0.01f)
+        assertEquals(16f, SettingsRepository.defaultFontSizeFor(800f), 0.01f)
+    }
+
+    @Test
+    fun `first launch font size is persisted only while unset`() = runTest {
+        repository.applyFirstLaunchDefaultFontSize(360f)
+        assertEquals(11.25f, repository.fontSize.first(), 0.01f)
+        // An explicit user pick wins over re-applying the default.
+        repository.setFontSize(14f)
+        repository.applyFirstLaunchDefaultFontSize(800f)
+        assertEquals(14f, repository.fontSize.first(), 0.01f)
     }
 
     @Test
