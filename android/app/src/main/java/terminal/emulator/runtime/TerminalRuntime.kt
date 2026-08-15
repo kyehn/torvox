@@ -2774,7 +2774,7 @@ constructor(
                 // is not left frozen (running=false, no render thread, and
                 // the monitor skips !running entries forever).
                 val previous = sessions[previousActiveId]
-                if (previous != null && previous.id != id) {
+                if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
                     LogUtil.w("Runtime", "switchSession: restoring previous session ${previous.id} after failure")
                     previous.running = true
                     previous.renderThreadExited = false
@@ -2844,19 +2844,26 @@ constructor(
             // render thread is running; stop it before starting ours so only
             // one render thread ever consumes the shared event queue (two
             // consumers misroute bell/clipboard/notification events).
-            if (activeSessionId != previousActiveId) {
-                val concurrent = sessions[activeSessionId]
-                if (concurrent != null && concurrent !== target) {
+            val concurrentToStop =
+                concurrentRenderThreadToStop(
+                    activeSessionIdAfterRender = activeSessionId,
+                    previousActiveId = previousActiveId,
+                    targetId = id,
+                    concurrentSessionId = sessions[activeSessionId]?.id,
+                )
+            if (concurrentToStop != null) {
+                val concurrent = sessions[concurrentToStop]
+                if (concurrent != null) {
                     try {
                         renderSupervisor.stopRenderThread(concurrent)
                         LogUtil.w(
                             "Runtime",
-                            "switchSession: stopped concurrent session ${concurrent.id} (active changed during first frame)",
+                            "switchSession: stopped concurrent session $concurrentToStop (active changed during first frame)",
                         )
                     } catch (exception: Exception) {
                         LogUtil.e(
                             "Runtime",
-                            "switchSession: failed to stop concurrent session ${concurrent.id}",
+                            "switchSession: failed to stop concurrent session $concurrentToStop",
                             exception,
                         )
                     }
@@ -3894,3 +3901,28 @@ internal fun shouldScheduleFastDeathRetry(closing: Boolean, fastDeathCount: Int,
  * below [maxAttempts]. Pure decision extracted from the retry loop.
  */
 internal fun initialRenderRetryNeeded(result: Int, attempts: Int, maxAttempts: Int): Boolean = result < 0 && attempts < maxAttempts
+
+/**
+ * switchSession Phase-3 concurrent-switch guard: while the first frame was
+ * rendering (outside sessionLock), another switchSession may have published
+ * a different active session. Returns the id of the session whose render
+ * thread must be stopped before publishing this switch, or null when the
+ * active session did not change under us (or is this very target).
+ */
+internal fun concurrentRenderThreadToStop(
+    activeSessionIdAfterRender: Long?,
+    previousActiveId: Long?,
+    targetId: Long,
+    concurrentSessionId: Long?,
+): Long? {
+    if (activeSessionIdAfterRender == previousActiveId) return null
+    val concurrentId = concurrentSessionId ?: return null
+    if (concurrentId == targetId) return null
+    return concurrentId
+}
+
+/**
+ * switchSession Phase-1 failure restore: after a failed spawn the previous
+ * active session is restarted unless it is the session that just failed.
+ */
+internal fun shouldRestorePreviousSession(previousId: Long?, failedTargetId: Long): Boolean = previousId != null && previousId != failedTargetId
