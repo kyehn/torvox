@@ -9,6 +9,16 @@ use super::{
 
 /// Structured font state for the Android UI layer. Serialized to JSON over
 /// JNI; all display formatting is done with string resources in Kotlin.
+/// Placement/color payload for an overlay glyph (grapheme continuation)
+/// drawn on top of a base cell quad.
+pub(crate) struct OverlayQuad {
+    pub origin: [f32; 2],
+    pub size: [f32; 2],
+    pub fg: [f32; 4],
+    pub bg: [f32; 4],
+    pub flags: f32,
+}
+
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct FontInfo {
     pub active: Option<FontInfoActive>,
@@ -555,6 +565,49 @@ impl FontPipeline {
 
     pub fn get_raster_scale(&self) -> f32 {
         self.raster_scale.max(f32::EPSILON)
+    }
+
+    /// Build the overlay quad for a grapheme-continuation codepoint
+    /// (combining mark, emoji ZWJ component, ...) on top of a base glyph.
+    /// Returns `None` when the codepoint is not a char or the glyph is not
+    /// in the atlas. The overlay shares the base instance's quad origin,
+    /// size and colors; UVs and bearing derive from the glyph metrics like
+    /// the base instance, except the overlay always advances 0 cells.
+    pub(crate) fn overlay_glyph_instance(
+        &mut self,
+        codepoint: u32,
+        quad: super::OverlayQuad,
+        cell_h: f32,
+    ) -> Option<crate::render::CellInstance> {
+        let mark_ch = char::from_u32(codepoint)?;
+        let info = self.glyph_information(mark_ch)?;
+        let atlas_width = self.atlas_width as f32;
+        let atlas_height = self.atlas_height as f32;
+        let raster_scale = self.raster_scale;
+        let ascent_pixels = self.ascent_pixels();
+        let uv_x = info.atlas_x as f32 / atlas_width;
+        let uv_y = info.atlas_y as f32 / atlas_height;
+        let uv_w = info.width as f32 / atlas_width;
+        let uv_h = info.height as f32 / atlas_height;
+        let bearing_x = info.placement.left as f32;
+        let glyph_h = info.height as f32 / raster_scale;
+        let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
+        let bearing_y = if glyph_h > cell_h {
+            (cell_h - glyph_h) / 2.0 * raster_scale
+        } else {
+            raw_bearing_y
+        };
+        Some(crate::render::CellInstance {
+            quad_origin: quad.origin,
+            atlas_offset: [uv_x, uv_y],
+            atlas_size: [uv_w, uv_h],
+            fg_color: quad.fg,
+            bg_color: quad.bg,
+            quad_size: quad.size,
+            flags: quad.flags,
+            bearing: [bearing_x, bearing_y],
+            glyph_advance_width: 0.0,
+        })
     }
 
     pub fn current_font_family_name(&self) -> Option<String> {

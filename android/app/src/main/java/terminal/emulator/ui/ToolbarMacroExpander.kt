@@ -77,19 +77,7 @@ object ToolbarMacroExpander {
             "DOWN" to "\u001b[B",
             "LEFT" to "\u001b[D",
             "RIGHT" to "\u001b[C",
-            "F1" to "\u001bOP",
-            "F2" to "\u001bOQ",
-            "F3" to "\u001bOR",
-            "F4" to "\u001bOS",
-            "F5" to "\u001b[15~",
-            "F6" to "\u001b[17~",
-            "F7" to "\u001b[18~",
-            "F8" to "\u001b[19~",
-            "F9" to "\u001b[20~",
-            "F10" to "\u001b[21~",
-            "F11" to "\u001b[23~",
-            "F12" to "\u001b[24~",
-        )
+        ) + FN_KEY_SEQUENCES.toMap()
 
     /** Special keys that support CSI `;mod` parameters when a modifier is active. */
     private val csiModifiableKeys: Set<String> =
