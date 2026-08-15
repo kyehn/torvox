@@ -1193,6 +1193,12 @@ constructor(
     val fontInfo: StateFlow<String> = _fontInfo.asStateFlow()
 
     init {
+        // First launch: pin a device-adaptive default font size so the grid
+        // is legible before the user touches the font-size slider.
+        viewModelScope.launch {
+            val metrics = context.resources.displayMetrics
+            settingsRepository.applyFirstLaunchDefaultFontSize(metrics.widthPixels / metrics.density)
+        }
         // Load persisted shortcut bindings from DataStore  fix).
         viewModelScope.launch {
             settings.map {

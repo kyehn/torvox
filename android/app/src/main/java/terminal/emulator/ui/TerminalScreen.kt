@@ -165,6 +165,22 @@ fun TerminalScreen(
     var composeScrollOffset by remember { mutableIntStateOf(0) }
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val view = LocalView.current
+    // Toggle the soft keyboard (termux KEYBOARD key): used by the floating
+    // side button and by a KEYBOARD extra key in a custom toolbar layout.
+    val toggleKeyboard: () -> Unit = {
+        val inputMethodManager =
+            context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
+                as android.view.inputmethod.InputMethodManager
+        if (inputMethodManager.isAcceptingText) {
+            inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
+        } else {
+            view.requestFocus()
+            inputMethodManager.showSoftInput(
+                view,
+                android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT,
+            )
+        }
+    }
     val surfaceRef = remember { mutableStateOf<TerminalSurface?>(null) }
     DisposableEffect(lifecycleOwner) {
         val observer =
@@ -796,6 +812,7 @@ fun TerminalScreen(
                         onToggleAlt = {
                             viewModel.cycleAltState()
                         },
+                        onToggleKeyboard = toggleKeyboard,
                         textColor = resolvedTerminalTheme.foreground,
                         backgroundColor = resolvedTerminalTheme.background,
                         useNerdFontGlyphs = useNerdFontGlyphs,
@@ -854,22 +871,9 @@ fun TerminalScreen(
             // KEYBOARD key equivalent): always available, even when the
             // modifier bar is hidden. Hidden in Raw keyboard mode (no IME).
             if (state.keyboardMode != terminal.emulator.input.KeyboardMode.Raw) {
-                val inputMethodManager =
-                    context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
-                        as android.view.inputmethod.InputMethodManager
                 SoftKeyboardToggle(
                     modifier = Modifier.align(Alignment.CenterEnd).padding(end = 10.dp),
-                    onClick = {
-                        if (inputMethodManager.isAcceptingText) {
-                            inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
-                        } else {
-                            view.requestFocus()
-                            inputMethodManager.showSoftInput(
-                                view,
-                                android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT,
-                            )
-                        }
-                    },
+                    onClick = toggleKeyboard,
                     tint = resolvedTerminalTheme.foreground,
                     background = resolvedTerminalTheme.background,
                 )
