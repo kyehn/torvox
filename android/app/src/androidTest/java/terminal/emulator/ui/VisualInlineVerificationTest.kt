@@ -24,6 +24,7 @@ import terminal.emulator.waitForSession
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.sqrt
+import android.annotation.SuppressLint
 
 @RunWith(AndroidJUnit4::class)
 class VisualInlineVerificationTest {
@@ -191,10 +192,10 @@ class VisualInlineVerificationTest {
         tv = findTextureView(composeRule.activity.window.decorView)
         Assert.assertNotNull("TextureView not found", tv)
 
-        val w = tv!!.width
-        val h = tv!!.height
+        val w = requireNotNull(tv).width
+        val h = requireNotNull(tv).height
 
-        bridge!!.writeToPty("echo 'hello world selectable text terminal'\n".toByteArray())
+        requireNotNull(bridge).writeToPty("echo 'hello world selectable text terminal'\n".toByteArray())
         Thread.sleep(3000)
 
         // Word "world" is at column ~6, row 0
@@ -208,15 +209,15 @@ class VisualInlineVerificationTest {
         val baseline = captureScreenshot()
         Assert.assertNotNull("Baseline screenshot null", baseline)
 
-        longPressOn(tv!!, longPressX, longPressY)
+        longPressOn(requireNotNull(tv), longPressX, longPressY)
         Thread.sleep(2000)
 
         val afterSel = captureScreenshot()
         Assert.assertNotNull("Selection screenshot null", afterSel)
 
         // Save for evidence
-        saveToExternal("word-baseline", baseline!!)
-        saveToExternal("word-selection", afterSel!!)
+        saveToExternal("word-baseline", requireNotNull(baseline))
+        saveToExternal("word-selection", requireNotNull(afterSel))
 
         val changedPx = pixelDiffCount(baseline, afterSel)
         Log.i("VisualInline", "Changed pixels after word selection: $changedPx")
@@ -260,21 +261,21 @@ class VisualInlineVerificationTest {
         tv = findTextureView(composeRule.activity.window.decorView)
         Assert.assertNotNull(tv)
 
-        val w = tv!!.width
-        val h = tv!!.height
+        val w = requireNotNull(tv).width
+        val h = requireNotNull(tv).height
         val cellW = w / 80f
         val cellH = h / 24f
 
-        bridge!!.writeToPty("https://github.com/termux is the main url for terminal\n".toByteArray())
+        requireNotNull(bridge).writeToPty("https://github.com/termux is the main url for terminal\n".toByteArray())
         Thread.sleep(3000)
 
         val longPressX = cellW * 2f
         val longPressY = cellH * 0.5f
 
-        val baseline = captureScreenshot()!!
-        longPressOn(tv!!, longPressX, longPressY)
+        val baseline = requireNotNull(captureScreenshot())
+        longPressOn(requireNotNull(tv), longPressX, longPressY)
         Thread.sleep(2000)
-        val afterSel = captureScreenshot()!!
+        val afterSel = requireNotNull(captureScreenshot())
 
         saveToExternal("url-baseline", baseline)
         saveToExternal("url-selection", afterSel)
@@ -300,6 +301,7 @@ class VisualInlineVerificationTest {
     }
 
     @Test
+    @SuppressLint("DeprecatedCall") // setPrimaryClip deprecated without replacement (API 36) — still the only client API
     fun verifyPasteMenuPosition() {
         Log.i("VisualInline", "==== Paste Menu Position Verification ====")
         composeRule.waitForSession()
@@ -308,10 +310,10 @@ class VisualInlineVerificationTest {
         tv = findTextureView(composeRule.activity.window.decorView)
         Assert.assertNotNull(tv)
 
-        val w = tv!!.width
-        val h = tv!!.height
+        val w = requireNotNull(tv).width
+        val h = requireNotNull(tv).height
 
-        bridge!!.writeToPty("some terminal content\n".toByteArray())
+        requireNotNull(bridge).writeToPty("some terminal content\n".toByteArray())
         Thread.sleep(3000)
 
         // Set clipboard
@@ -322,10 +324,10 @@ class VisualInlineVerificationTest {
         val lpX = w * 0.3f
         val lpY = h * 0.85f
 
-        val baseline = captureScreenshot()!!
-        longPressOn(tv!!, lpX, lpY)
+        val baseline = requireNotNull(captureScreenshot())
+        longPressOn(requireNotNull(tv), lpX, lpY)
         Thread.sleep(2000)
-        val afterPaste = captureScreenshot()!!
+        val afterPaste = requireNotNull(captureScreenshot())
 
         saveToExternal("paste-baseline", baseline)
         saveToExternal("paste-button", afterPaste)

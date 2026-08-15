@@ -35,11 +35,11 @@ class SecondStageLinkerTest {
     fun postinst_command_uses_linker_for_prefix_shebang() {
         val prefix = tempPrefix()
         val prefixed = File(prefix, "bin/sh").apply {
-            parentFile!!.mkdirs()
+            requireNotNull(parentFile).mkdirs()
             writeText("x")
         }
         val script = File(prefix, "var/lib/dpkg/info/coreutils.postinst")
-        script.parentFile!!.mkdirs()
+        requireNotNull(script.parentFile).mkdirs()
         script.writeText("#!/${prefixed.absolutePath}\n")
         val cmd = runnerWith(prefix).postinstCommand(script)
         assertEquals("/system/bin/linker64", cmd[0])
@@ -52,7 +52,7 @@ class SecondStageLinkerTest {
     fun postinst_command_direct_for_system_shebang() {
         val prefix = tempPrefix()
         val script = File(prefix, "var/lib/dpkg/info/system-script.postinst")
-        script.parentFile!!.mkdirs()
+        requireNotNull(script.parentFile).mkdirs()
         script.writeText("#!/bin/sh\n")
         val cmd = runnerWith(prefix).postinstCommand(script)
         // On Linux, /bin/sh resolves to /usr/bin/dash (canonical path).
@@ -72,7 +72,7 @@ class SecondStageLinkerTest {
             env["LD_PRELOAD"],
         )
         assertEquals(prefix.absolutePath, env["PREFIX"])
-        assertTrue(env["PATH"]!!.startsWith("${prefix.absolutePath}/bin"))
+        assertTrue(requireNotNull(env["PATH"]).startsWith("${prefix.absolutePath}/bin"))
     }
 
     @Test

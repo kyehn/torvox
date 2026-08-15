@@ -9,6 +9,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import terminal.emulator.R
 import terminal.emulator.bridge.pollEventJson
+import androidx.core.content.edit
 
 enum class ToolbarKey(
     val defaultLabel: String,
@@ -176,7 +177,7 @@ class ToolbarPreferences(
                         )
                 }
             }
-        sharedPreferences.edit().putString("layout", pollEventJson.encodeToString(dtos)).apply()
+        sharedPreferences.edit { putString("layout", pollEventJson.encodeToString(dtos)) }
     }
 
 /** JSON shape of a toolbar item in shared preferences.
