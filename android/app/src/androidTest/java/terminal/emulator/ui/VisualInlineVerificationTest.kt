@@ -1,6 +1,7 @@
 
 package terminal.emulator.ui
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -24,7 +25,6 @@ import terminal.emulator.waitForSession
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.sqrt
-import android.annotation.SuppressLint
 
 @RunWith(AndroidJUnit4::class)
 class VisualInlineVerificationTest {

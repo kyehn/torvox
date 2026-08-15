@@ -2,11 +2,9 @@ package terminal.emulator.installer
 
 import com.trendyol.stove.extensions.junit.StoveJUnitExtension
 import com.trendyol.stove.http.HttpClientSystemOptions
-import com.trendyol.stove.http.http
 import com.trendyol.stove.http.httpClient
 import com.trendyol.stove.system.Stove
 import com.trendyol.stove.system.abstractions.ApplicationUnderTest
-import com.trendyol.stove.system.stove
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
@@ -76,13 +74,17 @@ class BootstrapStoveHttpTest {
     }
 
     @Test
-    fun `bootstrap payload is served with 200 over Stove http client`() = runBlocking {
-        stove {
-            http {
-                getBodilessResponse("/bootstrap.zip") { response ->
-                    assertEquals(200, response.status)
-                }
-            }
+    fun `production http client fetches bootstrap payload from server`() = runBlocking {
+        // Regression: the previous version asserted the mock registration
+        // itself (getBodilessResponse callback always saw the 200 it had
+        // configured), so it could never fail. Exercise the production
+        // OkHttp client (BootstrapDownloader.defaultClient()) against the
+        // real MockWebServer socket instead: real connect, real response.
+        val client = BootstrapDownloader.defaultClient()
+        val request = okhttp3.Request.Builder().url(server.url("/bootstrap.zip")).build()
+        client.newCall(request).execute().use { response ->
+            assertEquals(200, response.code)
+            assertEquals("PK\u0003\u0004bootstrap-archive-content", response.body.string())
         }
     }
 }

@@ -52,8 +52,8 @@ class SettingsRepositoryTest {
     @Test
     fun `font size defaults to device-adaptive value then round-trips`() = runTest {
         repository.fontSize.test {
-            // Screen stubbed at 360dp → default is 11.25sp, not the fixed 10sp.
-            assertEquals(11.25f, awaitItem(), 0.01f)
+            // Screen stubbed at 360dp → 10sp (60-column target, 0.6em glyph).
+            assertEquals(10f, awaitItem(), 0.01f)
             repository.setFontSize(22f)
             assertEquals(22f, awaitItem())
         }
@@ -65,6 +65,15 @@ class SettingsRepositoryTest {
             assertEquals(SettingsRepository.DEFAULT_FOLLOW_SYSTEM, awaitItem())
             repository.setAppThemeMode("dark")
             assertEquals("dark", awaitItem())
+        }
+    }
+
+    @Test
+    fun `bootstrap url round-trips`() = runTest {
+        repository.bootstrapUrl.test {
+            assertEquals("", awaitItem())
+            repository.setBootstrapUrl("https://packages.termux.dev/apt/termux-main/bootstrap.zip")
+            assertEquals("https://packages.termux.dev/apt/termux-main/bootstrap.zip", awaitItem())
         }
     }
 
@@ -189,15 +198,16 @@ class SettingsRepositoryTest {
     @Test
     fun `first launch default font size adapts to screen width`() {
         assertEquals(8f, SettingsRepository.defaultFontSizeFor(0f), 0.01f)
-        assertEquals(11.25f, SettingsRepository.defaultFontSizeFor(360f), 0.01f)
-        assertEquals(12.88f, SettingsRepository.defaultFontSizeFor(412f), 0.01f)
-        assertEquals(16f, SettingsRepository.defaultFontSizeFor(800f), 0.01f)
+        assertEquals(10f, SettingsRepository.defaultFontSizeFor(360f), 0.01f)
+        assertEquals(11.44f, SettingsRepository.defaultFontSizeFor(412f), 0.01f)
+        assertEquals(18f, SettingsRepository.defaultFontSizeFor(800f), 0.01f)
+        assertEquals(16.67f, SettingsRepository.defaultFontSizeFor(600f), 0.01f)
     }
 
     @Test
     fun `first launch font size is persisted only while unset`() = runTest {
         repository.applyFirstLaunchDefaultFontSize(360f)
-        assertEquals(11.25f, repository.fontSize.first(), 0.01f)
+        assertEquals(10f, repository.fontSize.first(), 0.01f)
         // An explicit user pick wins over re-applying the default.
         repository.setFontSize(14f)
         repository.applyFirstLaunchDefaultFontSize(800f)

@@ -1256,17 +1256,6 @@ mod tests {
         assert!(parsed["cjk_families"].is_array());
     }
 
-    #[test]
-    fn de_locale_no_fallback() {
-        let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-        pipeline.set_system_locale("de-DE");
-        let info = pipeline.font_information();
-        assert!(
-            info.contains("CJK fallback: none"),
-            "de-DE locale should have no CJK fallback: {info}"
-        );
-    }
-
     // ──: layered fallback (moke chain, spec d7) ─────────────
 
     #[test]

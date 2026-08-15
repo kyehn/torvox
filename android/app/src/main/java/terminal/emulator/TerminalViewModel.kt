@@ -9,6 +9,7 @@ import android.view.InputDevice
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.Surface
+import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import coil3.BitmapImage
@@ -51,7 +52,6 @@ import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.UserThemeStore
 import terminal.emulator.ui.theme.resolveTerminalThemeName
 import javax.inject.Inject
-import androidx.core.net.toUri
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
 

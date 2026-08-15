@@ -58,6 +58,25 @@ use crate::terminal::pty::{Pty, PtyError, PtyPair};
 use crate::terminal::shell_env::ShellEnv;
 
 const READ_BUF_SIZE: usize = 8192;
+/// What the reader thread should do after a failed `read(2)` call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReaderErrorAction {
+    /// Retry the read — transient condition (EINTR), keep the loop alive.
+    Retry,
+    /// Stop reading — the PTY is gone (EIO = slave side closed) or the
+    /// error is fatal.
+    Stop,
+}
+
+/// Classifies a `read(2)` error into a retry/stop decision. Pure so the
+/// reader-loop branches are unit-testable without a real PTY.
+fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
+    match raw_os_error {
+        Some(libc::EINTR) => ReaderErrorAction::Retry,
+        _ => ReaderErrorAction::Stop,
+    }
+}
+
 /// How long the reader thread parks in `poll` before re-checking the exit flag.
 /// Replaces the previous 2 ms busy-poll `sleep`, so output latency stays low
 /// while the thread no longer spins the CPU when the PTY is idle.
@@ -351,15 +370,14 @@ impl Session {
                             break;
                         }
                     }
-                    Err(e) => match e.raw_os_error() {
-                        Some(libc::EINTR) => {}
-                        Some(libc::EIO) => {
-                            log::info!("reader thread: PTY EOF (slave closed, EIO)");
-                            exited_read.store(true, Ordering::Release);
-                            break;
-                        }
-                        _ => {
-                            log::info!("reader thread: read error: {e}");
+                    Err(e) => match read_error_action(e.raw_os_error()) {
+                        ReaderErrorAction::Retry => {}
+                        ReaderErrorAction::Stop => {
+                            if e.raw_os_error() == Some(libc::EIO) {
+                                log::info!("reader thread: PTY EOF (slave closed, EIO)");
+                            } else {
+                                log::info!("reader thread: read error: {e}");
+                            }
                             exited_read.store(true, Ordering::Release);
                             break;
                         }
@@ -1334,5 +1352,22 @@ mod tests {
         drop(rx1);
         session.write(b"exit\n").expect("write failed");
         std::thread::sleep(Duration::from_millis(200));
+    }
+
+    #[test]
+    fn read_error_action_classifies_errno() {
+        // EINTR is transient and must keep the reader loop alive.
+        assert_eq!(
+            read_error_action(Some(libc::EINTR)),
+            ReaderErrorAction::Retry
+        );
+        // EIO means the PTY slave closed (EOF on Linux PTYs) — stop.
+        assert_eq!(read_error_action(Some(libc::EIO)), ReaderErrorAction::Stop);
+        // Any other errno (or none) also stops the reader.
+        assert_eq!(
+            read_error_action(Some(libc::EPIPE)),
+            ReaderErrorAction::Stop
+        );
+        assert_eq!(read_error_action(None), ReaderErrorAction::Stop);
     }
 }

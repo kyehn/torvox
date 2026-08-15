@@ -931,6 +931,18 @@ mod tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn run_stdio_when_disabled_returns_ok_without_transport() {
+        // The enabled flag defaults to false; run_stdio must short-circuit
+        // instead of blocking on stdin. (Enabled mode owns the process
+        // stdin/stdout and is exercised end-to-end only by the CLI binary.)
+        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        reset_global_state();
+        super::MCP_ENABLED.store(false, Ordering::Release);
+        let result = super::run_stdio().await;
+        assert!(result.is_ok(), "disabled MCP must return Ok immediately");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn test_list_tools() {
         let _guard = MCP_TEST_LOCK.lock().unwrap();
         reset_global_state();

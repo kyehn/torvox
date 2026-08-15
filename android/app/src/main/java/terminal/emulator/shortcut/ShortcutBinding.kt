@@ -62,10 +62,7 @@ data class ShortcutBinding(
             return false
         }
         if (event.keyCode != key) return false
-        return event.isCtrlPressed == ctrl &&
-            event.isShiftPressed == shift &&
-            event.isAltPressed == alt &&
-            event.isMetaPressed == meta
+        return modifierFlagsMatch(event.metaState, ctrl, shift, alt, meta)
     }
 
     /**
@@ -196,4 +193,22 @@ data class ShortcutBinding(
             else -> null
         }
     }
+}
+
+/**
+ * Pure modifier comparison against a raw key-event metaState bitmask. Uses
+ * the same masks the Android framework reads in isCtrlPressed /
+ * isShiftPressed / isAltPressed / isMetaPressed, but takes the bitmask
+ * directly so `matches`/`dispatch` are unit-testable without
+ * instrumentation.
+ */
+internal fun modifierFlagsMatch(metaState: Int, ctrl: Boolean, shift: Boolean, alt: Boolean, meta: Boolean): Boolean {
+    val ctrlPressed = metaState and KeyEvent.META_CTRL_MASK != 0
+    val shiftPressed = metaState and KeyEvent.META_SHIFT_MASK != 0
+    val altPressed = metaState and KeyEvent.META_ALT_MASK != 0
+    val metaPressed = metaState and KeyEvent.META_META_MASK != 0
+    return ctrlPressed == ctrl &&
+        shiftPressed == shift &&
+        altPressed == alt &&
+        metaPressed == meta
 }
