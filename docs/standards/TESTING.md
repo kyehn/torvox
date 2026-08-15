@@ -162,8 +162,7 @@ These checks run as part of `tool_lint.rs` (see `cargo test -p integration-tests
 
 约 1891 测试点：Rust 运行用例 1455（`cargo test --workspace -- --list` 实测，含
 integration-tests 与 tool_lint 21；静态 `#[test]` 计数 1447 由 `tool_lint`
-`rust_test_count_within_baseline` 守护，偏差 >25% 即失败）+ Kotlin JVM 7 + Kotlin
-instrumented 331（10 @Ignore）+ Cucumber 64 scenario（42 @wip、22 有效）+ Maestro 30
+`rust_test_count_within_baseline` 守护，偏差 >25% 即失败）+ Kotlin JVM 7 + Kotlin instrumented 338（1 @Ignore）
 flow + Macrobenchmark 3 + baselineprofile 1
 
 - 分层判定：VT/OSC/网格/PTY/字体/渲染逻辑可无头证明；真实 JNI 符号、
