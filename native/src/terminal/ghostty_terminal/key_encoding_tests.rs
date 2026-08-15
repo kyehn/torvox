@@ -1,6 +1,11 @@
 //! VT key encoding baseline tests.
 //! Reference: terminator Fn key sequences, zed-port mappings/keys.rs.
 //! These tests verify escape sequence generation for keyboard input.
+//!
+//! Standalone baseline: the tables below are NOT wired into production —
+//! live key encoding is delegated to ghostty's keymap (`key_encode`). They
+//! pin the reference sequences so a future switch to a local encoder (or a
+//! ghostty behavior change) can be verified against a known-good table.
 
 /// Standard VT F-key escape sequences (VT220 normal mode).
 const F_KEY_SEQUENCES: &[(u8, &str)] = &[

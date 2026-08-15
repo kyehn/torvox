@@ -35,6 +35,7 @@ pub(crate) mod action_parser;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) mod sgr_parser;
 #[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub(crate) mod snapshot_test;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) mod test_helpers;

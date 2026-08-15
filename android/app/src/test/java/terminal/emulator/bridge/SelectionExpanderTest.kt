@@ -1,7 +1,9 @@
 package terminal.emulator.bridge
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** Boundary rules for smart text selection. */
@@ -82,35 +84,35 @@ class SelectionExpanderTest {
     fun `url with trailing comma trims comma`() {
         val (start, end) = SelectionExpander.expandBounds("visit https://x.com/a, now", 14)
         val selected = "visit https://x.com/a, now".substring(start, end + 1)
-        assert(selected == "https://x.com/a") { "expected url without comma, got '$selected'" }
+        assertEquals("https://x.com/a", selected)
     }
 
     @Test
     fun `url with trailing period trims period`() {
         val (start, end) = SelectionExpander.expandBounds("see https://x.com/a. next", 14)
         val selected = "see https://x.com/a. next".substring(start, end + 1)
-        assert(selected == "https://x.com/a") { "expected url without period, got '$selected'" }
+        assertEquals("https://x.com/a", selected)
     }
 
     @Test
     fun `url followed by unbalanced close paren trims paren`() {
         val (start, end) = SelectionExpander.expandBounds("link https://x.com/a).", 14)
         val selected = "link https://x.com/a).".substring(start, end + 1)
-        assert(selected == "https://x.com/a") { "expected url without ').', got '$selected'" }
+        assertEquals("https://x.com/a", selected)
     }
 
     @Test
     fun `url inside balanced parens keeps parens`() {
         val (start, end) = SelectionExpander.expandBounds("(https://x.com/a)", 6)
         val selected = "(https://x.com/a)".substring(start, end + 1)
-        assert(selected == "https://x.com/a") { "expected url without parens, got '$selected'" }
+        assertEquals("https://x.com/a", selected)
     }
 
     @Test
     fun `url with trailing semicolon trims semicolon`() {
         val (start, end) = SelectionExpander.expandBounds("x https://x.com/a; y", 14)
         val selected = "x https://x.com/a; y".substring(start, end + 1)
-        assert(selected == "https://x.com/a") { "expected url without semicolon, got '$selected'" }
+        assertEquals("https://x.com/a", selected)
     }
 
     // ─── expandAcrossUrlWrap (Haven SelectionToolbar:120-214) ───
@@ -168,9 +170,9 @@ class SelectionExpanderTest {
 
     @Test
     fun `looksLikeFullUrl gates scheme and www`() {
-        assert(terminal.emulator.util.UrlToken.looksLikeFullUrl("https://example.com/path"))
-        assert(terminal.emulator.util.UrlToken.looksLikeFullUrl("www.example.com/path"))
-        assert(!terminal.emulator.util.UrlToken.looksLikeFullUrl("ordinary text"))
-        assert(!terminal.emulator.util.UrlToken.looksLikeFullUrl("not-a-url"))
+        assertTrue(terminal.emulator.util.UrlToken.looksLikeFullUrl("https://example.com/path"))
+        assertTrue(terminal.emulator.util.UrlToken.looksLikeFullUrl("www.example.com/path"))
+        assertFalse(terminal.emulator.util.UrlToken.looksLikeFullUrl("ordinary text"))
+        assertFalse(terminal.emulator.util.UrlToken.looksLikeFullUrl("not-a-url"))
     }
 }

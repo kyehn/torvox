@@ -217,6 +217,18 @@ impl super::GhosttyTerminal {
         !self.panicked.load(Ordering::Acquire) && !self.cmd_tx.is_disconnected()
     }
 
+    /// Test-only: sever the command channel so the VT thread exits and every
+    /// subsequent public query takes its disconnected/fallback path
+    /// (`is_alive` → false, snapshots → `GridSnapshot::fallback`). Replaces
+    /// the live sender with a dud sender (whose receiver is dropped, so it
+    /// reports disconnected); the VT thread sees the disconnect and breaks
+    /// out of its command loop.
+    #[cfg(test)]
+    pub(crate) fn disconnect_for_test(&mut self) {
+        let (dud_tx, _dud_rx) = bounded::<Command>(1);
+        self.cmd_tx = dud_tx;
+    }
+
     pub fn flush(&self) {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.send(Command::FlushAck(tx)) {

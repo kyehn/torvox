@@ -134,4 +134,22 @@ class ShortcutBindingTest {
             assertEquals("Round-trip failed for $actionId", binding, roundTripped)
         }
     }
+
+    @Test
+    fun `modifierFlagsMatch requires exact modifier combination`() {
+        assertTrue(modifierFlagsMatch(KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON, ctrl = true, shift = true, alt = false, meta = false))
+        assertFalse(modifierFlagsMatch(KeyEvent.META_CTRL_ON, ctrl = true, shift = true, alt = false, meta = false))
+        assertFalse(modifierFlagsMatch(KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON, ctrl = true, shift = false, alt = false, meta = false))
+    }
+
+    @Test
+    fun `modifierFlagsMatch accepts left and right modifier variants`() {
+        // Left/right-specific mask bits (e.g. META_CTRL_LEFT_ON) are part of
+        // the framework's META_*_MASK and must count as pressed.
+        val leftCtrlShift = KeyEvent.META_CTRL_LEFT_ON or KeyEvent.META_SHIFT_LEFT_ON
+        assertTrue(modifierFlagsMatch(leftCtrlShift, ctrl = true, shift = true, alt = false, meta = false))
+        // Ctrl+Alt (no shift) must not match a Ctrl+Shift binding.
+        val ctrlAlt = KeyEvent.META_CTRL_ON or KeyEvent.META_ALT_ON
+        assertFalse(modifierFlagsMatch(ctrlAlt, ctrl = true, shift = true, alt = false, meta = false))
+    }
 }

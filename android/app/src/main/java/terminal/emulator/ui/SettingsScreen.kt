@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.annotation.SuppressLint
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -71,6 +72,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.launch
 import terminal.emulator.FONT_SLOT_BOLD
 import terminal.emulator.FONT_SLOT_ITALIC
@@ -87,12 +93,6 @@ import terminal.emulator.settings.parseEnvironmentVariables
 import terminal.emulator.settings.serializeEnvironmentVariables
 import terminal.emulator.ui.theme.TerminalTheme
 import java.io.File
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableMap
-import kotlinx.collections.immutable.persistentListOf
-import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toImmutableMap
-import android.annotation.SuppressLint
 
 private const val FONT_SIZE_RANGE_MIN = 8f
 private const val FONT_SIZE_RANGE_MAX = 48f

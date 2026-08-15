@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -224,15 +223,19 @@ pub fn load_expected(path: &Path) -> TestSnapshot {
     serde_json::from_str(&data).unwrap_or_else(|e| panic!("invalid JSON in {path:?}: {e}"))
 }
 
-/// Save snapshot to a `.json` file.
+/// Manual reference tool (not called by automated tests): save a snapshot
+/// to a `.json` file for eyeball/ref comparison.
+#[allow(dead_code)]
 pub fn save_snapshot(path: &Path, snap: &TestSnapshot) {
     let data = serde_json::to_string_pretty(snap)
         .unwrap_or_else(|e| panic!("failed to serialize snapshot: {e}"));
     fs::write(path, &data).unwrap_or_else(|e| panic!("failed to write {path:?}: {e}"));
 }
 
-/// Run a ref test from a `.seq` file and compare against the expected `.json`.
-/// Returns `true` if the test passed or the expected file was updated.
+/// Manual reference tool (not called by automated tests): run a ref test
+/// from a `.seq` file and compare against the expected `.json`. Returns
+/// `true` if the test passed or the expected file was updated.
+#[allow(dead_code)]
 pub fn run_ref_test(
     seq_path: &Path,
     json_path: &Path,
@@ -306,6 +309,7 @@ pub fn run_ref_test(
 
 /// Run all ref tests in a directory. Tests are `.seq` files with matching `.json`.
 /// Panics on the first failure.
+#[allow(dead_code)]
 pub fn run_ref_test_dir(dir: &str, rows: u32, cols: u32, scrollback: u32) {
     let test_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests")

@@ -2,7 +2,11 @@ package terminal.emulator.ui.theme
 
 import android.os.Build
 import androidx.compose.ui.graphics.Color
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.preferencesDataStoreFile
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -78,11 +82,28 @@ class UserThemeStoreTest {
 
     @Test
     fun `corrupt blob self-heals to empty`() = runBlocking {
-        // Write a corrupt blob directly through the same DataStore file.
+        // Write a valid Preferences file whose "user_themes" value is invalid
+        // JSON. DataStore itself can read the file (it is well-formed
+        // protobuf); the JSON decode layer is what UserThemeStore self-heals.
+        // A dedicated writer store on its own scope writes the blob, then the
+        // scope is cancelled so its file lock is released before the store
+        // under test opens the same file.
         val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
-        val prefs = ctx.getSharedPreferences("user_themes", android.content.Context.MODE_PRIVATE)
-        prefs.edit().putString("user_themes", "{not json").commit()
-        assertTrue("corrupt blob must not crash", store.userThemes.first().isEmpty())
+        val corruptName = "corrupt_${System.nanoTime()}"
+        val corruptFile = ctx.preferencesDataStoreFile(corruptName)
+        val writerScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+        val writerStore =
+            androidx.datastore.preferences.core.PreferenceDataStoreFactory.create(
+                scope = writerScope,
+                produceFile = { corruptFile },
+            )
+        writerStore.edit {
+            it[androidx.datastore.preferences.core.stringPreferencesKey("user_themes")] = "{not json"
+        }
+        writerScope.cancel()
+
+        val corruptStore = UserThemeStore(ctx, corruptName)
+        assertTrue("corrupt blob must not crash", corruptStore.userThemes.first().isEmpty())
     }
 
     @Test

@@ -14,6 +14,7 @@ import android.provider.DocumentsContract
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -167,7 +168,7 @@ class DocumentsProviderTest {
         pfd.use { pfd ->
             android.os.ParcelFileDescriptor.AutoCloseInputStream(pfd).use { input ->
                 val text = input.readBytes().decodeToString()
-                assert(text == "hello") { "read content must match, got '$text'" }
+                assertEquals("hello", text)
             }
         }
     }
@@ -180,6 +181,43 @@ class DocumentsProviderTest {
             throw AssertionError("root delete must fail")
         } catch (expected: java.io.FileNotFoundException) {
             // expected — root delete would wipe the whole home.
+        }
+    }
+
+    @Test
+    fun openDocument_mode_w_truncates_existing_content() {
+        val home = java.io.File(provider.context!!.filesDir, "home").apply { mkdirs() }
+        val target = java.io.File(home, "notes.txt").apply { writeText("long original content") }
+        // Document id is the path relative to the root (decodeDocId resolves
+        // against rootDir), same id the SAF clients receive.
+        val id = "notes.txt"
+
+        provider.openDocument(id, "w", null).use { fd ->
+            java.io.FileOutputStream(fd.fileDescriptor).write("hi".toByteArray())
+        }
+        assertEquals("hi", target.readText())
+    }
+
+    @Test
+    fun openDocument_mode_wa_appends_instead_of_truncating() {
+        val home = java.io.File(provider.context!!.filesDir, "home").apply { mkdirs() }
+        val target = java.io.File(home, "log.txt").apply { writeText("start|") }
+        provider.openDocument("log.txt", "wa", null).use { fd ->
+            java.io.FileOutputStream(fd.fileDescriptor).write("more".toByteArray())
+        }
+        assertEquals("start|more", target.readText())
+    }
+
+    @Test
+    fun openDocument_unknown_mode_throws() {
+        val home = java.io.File(provider.context!!.filesDir, "home").apply { mkdirs() }
+        java.io.File(home, "f.txt").writeText("x")
+        try {
+            provider.openDocument("f.txt", "rwx", null)
+            fail("unknown mode must be rejected")
+        } catch (expected: IllegalArgumentException) {
+            // Mode strings outside the ParcelFileDescriptor.parseMode set
+            // are a client contract violation — reject loudly.
         }
     }
 }

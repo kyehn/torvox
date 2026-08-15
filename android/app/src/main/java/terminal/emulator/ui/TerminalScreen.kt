@@ -2,6 +2,7 @@
 
 package terminal.emulator.ui
 
+import android.annotation.SuppressLint
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
@@ -19,7 +20,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
@@ -54,6 +54,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -78,16 +79,10 @@ import terminal.emulator.ui.theme.resolveTerminalThemeName
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
-import android.annotation.SuppressLint
-import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.platform.LocalResources
 
 private const val FONT_SIZE_MIN = 8f
 private const val FONT_SIZE_MAX = 48f
 private const val SEARCH_MATCH_ALPHA = 0.25f
-
-/** Selection drag-handle drawable width (Material `text_select_handle_*`, 48dp). */
-private const val SELECTION_HANDLE_WIDTH_DP = 48f
 
 /**
  * Consolidated search state for text search within the terminal.
@@ -224,7 +219,8 @@ fun TerminalScreen(
     LaunchedEffect(state.sessions.size) {
         val count = state.sessions.size
         if (count > 0) {
-            announceForAccessibility(hostView, 
+            announceForAccessibility(
+                hostView,
                 resources.getQuantityString(R.plurals.sessions_accessible, count, count),
             )
         }
@@ -233,7 +229,8 @@ fun TerminalScreen(
     LaunchedEffect(state.title) {
         val title = state.title
         if (title.isNotEmpty() && title != context.getString(R.string.terminal_title) && title != context.getString(R.string.terminal)) {
-            announceForAccessibility(hostView, 
+            announceForAccessibility(
+                hostView,
                 resources.getString(R.string.title_changed, title),
             )
         }
@@ -248,7 +245,8 @@ fun TerminalScreen(
             val text = sel.selectedText
             if (text.isNotEmpty()) {
                 val preview = if (text.length > 100) text.take(100) + "..." else text
-                announceForAccessibility(hostView, 
+                announceForAccessibility(
+                    hostView,
                     context.getString(R.string.selection_accessible, preview),
                 )
             }
@@ -335,7 +333,8 @@ fun TerminalScreen(
             LaunchedEffect(searchState.resultCount, searchState.currentIndex, searchState.query) {
                 if (searchState.query.isNotEmpty()) {
                     if (searchState.resultCount > 0) {
-                        announceForAccessibility(hostView, 
+                        announceForAccessibility(
+                            hostView,
                             context.getString(
                                 R.string.search_result_accessible,
                                 searchState.currentIndex + 1,
@@ -343,7 +342,8 @@ fun TerminalScreen(
                             ),
                         )
                     } else {
-                        announceForAccessibility(hostView, 
+                        announceForAccessibility(
+                            hostView,
                             context.getString(R.string.search_no_results_accessible),
                         )
                     }
@@ -553,22 +553,10 @@ fun TerminalScreen(
                     // separate system windows that render above it.
                     val menuSurface = surfaceRef.value
                     if (menuSurface != null && selectionActive && !selection.dragging) {
-                        val containerSize = LocalWindowInfo.current.containerSize
-                        val screenWidthPx = containerSize.width.toFloat()
-                        val boxHeightPx = terminalBoxSize.height.takeIf { it > 0 }?.toFloat()
-                            ?: containerSize.height.toFloat()
-                        val pos =
-                            computeMenuPosition(
-                                start = selection.start,
-                                end = selection.end,
-                                cellWidth = menuSurface.cellWidth,
-                                cellHeight = menuSurface.cellHeight,
-                                scrollOffset = menuSurface.getScrollOffset(),
-                                screenWidthPx = screenWidthPx,
-                                screenHeightPx = boxHeightPx,
-                                handleWidthPx = with(LocalDensity.current) { SELECTION_HANDLE_WIDTH_DP.dp.toPx() },
-                                pasteOnly = selection.pasteOnly,
-                            )
+                        // The selection menu is a system ActionMode toolbar
+                        // that positions itself; the tested positioning
+                        // reference algorithm (computeMenuPosition /
+                        // TerminalScreenMenuTest) is no longer called here.
                         val menuVisible = !selection.menuDismissed
                         if (menuVisible) {
                             val themeAccentArgb =

@@ -12,7 +12,7 @@
 //! | `write_` / `tm_` / `cp_` / `rs_` | 写入 / 文本 / 复杂 / resize | `cargo test -p native write_` |
 //! | `unicode_` / `hi_` / `cell_` / `md_` | 宽字符 / 高亮 / 单元格 / 元数据 | `cargo test -p native unicode_` |
 //!
-//! 历史轮次分区见文末 `tests_phase0` / `tests_b4` / `tests_b5` mod。
+//! 行为域分区见文末 `malformed_esc_regressions` / `malformed_sequence_regressions` / `osc_title_regressions` mod。
 
 use std::hint::black_box;
 use std::time::Instant;
@@ -5581,7 +5581,7 @@ fn tc_lifecycle_002_content_preserved_after_pause_resume() {
 }
 
 // ── Phase 0: Zero-Infrastructure Tests ──────────────────────────
-mod tests_phase0 {
+mod malformed_esc_regressions {
     use super::*;
     use crate::terminal::test_helpers::tc;
 
@@ -6657,7 +6657,8 @@ mod tests_phase0 {
 
     // ── Scroll Regions ───────────────────────────────────────────
 
-    /// SR_001: DECSTBM set does not crash.
+    /// SR_001: DECSTBM set does not crash and input still renders inside the
+    /// scroll region.
     #[test]
     fn sr_001_decstbm_terminal_survives() {
         let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
@@ -6665,6 +6666,12 @@ mod tests_phase0 {
         t.vt_write(b"\x1b[2;4r");
         t.flush();
         tc(&mut t).write(b"OK");
+        let snap = t.take_snapshot();
+        let rows: Vec<String> = (0..snap.rows).map(|r| row_text(&snap, r)).collect();
+        assert!(
+            rows.iter().any(|row| row.contains("OK")),
+            "DECSTBM must not stop input from rendering: rows={rows:?}",
+        );
     }
 
     /// SR_002: Scroll region does not crash.
@@ -7115,7 +7122,7 @@ mod tests_phase0 {
 // This fix is Kotlin-side only and cannot be tested in Rust.
 // Kotlin commit: (referenced in git history)
 
-mod tests_b4 {
+mod malformed_sequence_regressions {
     use super::*;
 
     /// Regression guard: after CAN (0x18) fix, all 17 malformed sequences
@@ -7184,7 +7191,7 @@ mod tests_b4 {
     }
 }
 
-mod tests_b5 {
+mod osc_title_regressions {
     use super::*;
 
     #[test]
@@ -7561,8 +7568,9 @@ fn dec_private_mode_132_column_survives() {
     t.vt_write(b"X");
     let snap = t.take_snapshot();
     assert!(
-        snap.cols == 80 || snap.cols > 0,
-        "132-col mode should not crash: cols={}",
+        snap.cols > 0 && snap.rows > 0,
+        "DECCOLM must not crash or corrupt the grid: rows={} cols={}",
+        snap.rows,
         snap.cols
     );
 }
@@ -8143,28 +8151,55 @@ fn osc_133_marker_propagation() {
     assert!(found_input, "OSC 133;B should mark input cells");
 }
 
-/// dec_erase_rect should not panic even with zero-width/height rect.
+/// dec_erase_rect erases the rectangle to spaces and leaves cells outside it
+/// untouched; a zero-width/height rect is a no-op.
 #[test]
 fn dec_erase_rect_does_not_panic() {
     let mut t = term();
-    t.vt_write(b"Hello World\x1b[2J");
-    let _ = t.take_snapshot();
+    t.vt_write(b"Hello World");
     // Zero-dimension rect — must be a no-op, not a panic.
     t.dec_erase_rect(0, 0, 0, 0);
-    // Non-zero rect — should fill with spaces.
-    t.dec_erase_rect(0, 0, 2, 5);
+    // Erase columns 0..=5 of row 0 ("Hello " → spaces).
+    t.dec_erase_rect(0, 0, 0, 5);
+    let snap = t.take_snapshot();
+    for col in 0..=5 {
+        assert_eq!(
+            cell_at(&snap, 0, col).map(|c| c.codepoint),
+            Some(b' ' as u32),
+            "erased cell (0,{col}) should be a space",
+        );
+    }
+    assert_eq!(
+        cell_at(&snap, 0, 6).map(|c| c.codepoint),
+        Some(b'W' as u32),
+        "cell outside the erased rect must be preserved",
+    );
 }
 
-/// dec_change_attr_rect should not panic for valid SGR sequence.
+/// dec_change_attr_rect applies the SGR attribute inside the rect and is a
+/// no-op for a zero-width/height rect.
 #[test]
 fn dec_change_attr_rect_does_not_panic() {
     let mut t = term();
-    t.vt_write(b"Hello World\x1b[2J");
-    let _ = t.take_snapshot();
-    // Bold SGR sequence (1) applied to a 5x5 rect.
-    t.dec_change_attr_rect(b"\x1b[1m", 0, 0, 5, 5);
+    t.vt_write(b"Hello World");
+    // Bold SGR sequence (1) applied to "Hello" (columns 0..=4).
+    t.dec_change_attr_rect(b"\x1b[1m", 0, 0, 0, 4);
     // Zero-dimension rect — should be a no-op.
     t.dec_change_attr_rect(b"\x1b[1m", 0, 0, 0, 0);
+    let snap = t.take_snapshot();
+    // CellSnapshot exposes bold as a dedicated field (the packed `flags`
+    // bitmask lives on the render-path CellData, not the query snapshot).
+    let bold = |row: u32, col: u32| cell_at(&snap, row, col).map(|c| c.bold);
+    assert_eq!(
+        bold(0, 2),
+        Some(true),
+        "cells inside the rect must carry the bold attribute",
+    );
+    assert_eq!(
+        bold(0, 6),
+        Some(false),
+        "cells outside the rect must not be bold",
+    );
 }
 
 /// dec_erase_rect clears cells in the given rectangle.
@@ -8353,8 +8388,9 @@ fn bench_scroll_throughput() {
 // ── Scrollback fallback ────────────────────────────────────────────────
 
 /// Verify that `take_snapshot_with_scroll` returns a valid snapshot when
-/// scrollback exists, and returns `GridSnapshot::fallback` when the
-/// terminal thread is disconnected (channel closed).
+/// scrollback exists, and returns `GridSnapshot::fallback` once the VT
+/// thread is disconnected (channel closed — the real disconnected path,
+/// exercised via the test-only `disconnect_for_test`).
 #[test]
 fn scrollback_fallback_on_disconnected_terminal() {
     // Create a terminal and fill with content to establish scrollback.
@@ -8365,24 +8401,20 @@ fn scrollback_fallback_on_disconnected_terminal() {
     t.flush();
 
     // With scrollback available, snapshot should have valid content.
+    assert!(t.is_alive(), "terminal should be alive before disconnect");
     let snap = t.take_snapshot_with_scroll(0);
     assert!(
         snap.rows > 0 && snap.cols > 0,
         "viewport snapshot should have valid dimensions"
     );
 
-    // Drop the terminal to close the command channel.
-    drop(t);
+    // Kill the VT thread; every subsequent query must take the fallback path.
+    t.disconnect_for_test();
+    assert!(!t.is_alive(), "terminal must report dead after disconnect");
 
-    // After drop, take_snapshot_with_scroll should return the fallback
-    // (DISCONNECTED_ROWS × DISCONNECTED_COLS, default colors).
-    let t2 = GhosttyTerminal::new(3, 3, 10).expect("term");
-    let (tx, _rx): (flume::Sender<super::GridSnapshot>, _) = flume::bounded(1);
-    // We can't call take_snapshot on the dropped terminal, but we can verify
-    // that GridSnapshot::fallback produces the expected shape.
-    let fb = super::GridSnapshot::fallback(24, 80);
-    assert_eq!(fb.rows, 24, "fallback rows should be 24");
-    assert_eq!(fb.cols, 80, "fallback cols should be 80");
+    let fb = t.take_snapshot_with_scroll(0);
+    assert_eq!(fb.rows, DISCONNECTED_ROWS, "fallback rows");
+    assert_eq!(fb.cols, DISCONNECTED_COLS, "fallback cols");
     assert_eq!(
         fb.cells.len(),
         (fb.rows * fb.cols) as usize,
@@ -8392,8 +8424,6 @@ fn scrollback_fallback_on_disconnected_terminal() {
         fb.dirty.iter().all(|&d| d),
         "all fallback cells should be dirty"
     );
-    drop(t2);
-    drop(tx);
 }
 
 /// Verify that `take_snapshot_with_scroll(scroll_offset=0)` returns

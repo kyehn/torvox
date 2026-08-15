@@ -3,6 +3,7 @@
 
 package terminal.emulator.ui
 
+import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.SystemClock
@@ -31,7 +32,6 @@ import terminal.emulator.openDrawer
 import terminal.emulator.waitForSession
 import java.io.File
 import java.io.FileOutputStream
-import android.annotation.SuppressLint
 
 /**
  * Comprehensive visual verification of text selection functionality.

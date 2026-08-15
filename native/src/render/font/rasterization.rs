@@ -16,12 +16,6 @@ pub(super) const CELL_HEIGHT_FALLBACK_RATIO: f32 = 1.2;
 ///
 /// No longer used in the cell-height computation (row height is
 /// now ascent+descent exactly, like Termux/Ghostty/Kitty); retained for the
-/// unit tests that pin the cap semantics.
-#[cfg(test)]
-pub(super) fn capped_line_gap(line_gap_px: f32, ascent_px: f32, descent_px: f32) -> f32 {
-    line_gap_px.min((ascent_px + descent_px) * 0.25)
-}
-
 impl FontPipeline {
     pub fn rasterize_ascii(&mut self) {
         let before = self.cache_length();
@@ -142,28 +136,5 @@ impl FontPipeline {
             self.font_size * CELL_WIDTH_FALLBACK_RATIO,
             (self.font_size * CELL_HEIGHT_FALLBACK_RATIO).ceil(),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::capped_line_gap;
-
-    #[test]
-    fn line_gap_normal_passes_through() {
-        // A normal 10% line gap is untouched by the cap.
-        assert_eq!(capped_line_gap(10.0, 100.0, 20.0), 10.0);
-    }
-
-    #[test]
-    fn line_gap_huge_is_capped() {
-        // Droid-Sans-Mono-style huge leading is capped to 25% of body.
-        assert_eq!(capped_line_gap(500.0, 100.0, 20.0), 30.0);
-    }
-
-    #[test]
-    fn line_gap_negative_is_not_capped() {
-        // Negative leading (tight fonts) stays negative.
-        assert_eq!(capped_line_gap(-5.0, 100.0, 20.0), -5.0);
     }
 }
