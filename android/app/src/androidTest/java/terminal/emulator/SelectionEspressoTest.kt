@@ -1,5 +1,6 @@
 package terminal.emulator
 
+import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -16,7 +17,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import android.annotation.SuppressLint
 
 /**
  * Instrumented tests for the text-selection feature.

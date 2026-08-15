@@ -11,5 +11,5 @@ Feature: Modifier Bar
     Given the app has launched
     When the CTRL key is tapped
     Then the CTRL key toggles appearance
-    When the CTRL key is tapped again
+    When the CTRL key is tapped twice
     Then the CTRL key returns to default appearance

@@ -65,11 +65,17 @@ constructor(
 
         /**
          * Device-adaptive first-launch font size (sp): a fresh install gets a
-         * size derived from screen width (~64 columns on a 360dp portrait
-         * phone, ~100 on an 800dp landscape tablet) instead of a fixed
-         * absolute value, clamped to a readable 8..16sp band.
+         * size that shows roughly [DEFAULT_FONT_COLUMNS_TARGET] visible columns
+         * (a monospace glyph is ~0.6em wide: sp = widthDp / (0.6 * 60)), clamped
+         * to a readable 8..18sp band. A 360dp phone ~10sp, a 600dp tablet
+         * ~16.7sp — the same column count, not tiny text.
          */
-        fun defaultFontSizeFor(screenWidthDp: Float): Float = (screenWidthDp / 32f).coerceIn(8f, 16f)
+        fun defaultFontSizeFor(screenWidthDp: Float): Float = (screenWidthDp / DEFAULT_FONT_COLUMNS_TARGET / MONOSPACE_CHAR_ASPECT).coerceIn(MIN_FONT_SP, MAX_FONT_SP)
+
+        private const val DEFAULT_FONT_COLUMNS_TARGET = 60f
+        private const val MONOSPACE_CHAR_ASPECT = 0.6f
+        private const val MIN_FONT_SP = 8f
+        private const val MAX_FONT_SP = 18f
     }
 
     val appThemeMode: Flow<String> = provider.dataStore.data.map { it[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM }

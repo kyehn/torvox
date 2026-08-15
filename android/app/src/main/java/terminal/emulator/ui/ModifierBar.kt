@@ -37,19 +37,20 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.R
 import terminal.emulator.input.ModifierState
-import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.toImmutableList
 
 private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
@@ -979,7 +980,15 @@ private fun RowScope.ExtraKeyButton(
                     animatedBg,
                     RoundedCornerShape(4.dp),
                 ),
-            ).then(if (contentDescription != null) Modifier.semantics { this.contentDescription = contentDescription } else Modifier)
+            ).then(
+                Modifier.semantics {
+                    if (contentDescription != null) this.contentDescription = contentDescription
+                    // Toggle keys (CTRL/ALT/FN) expose their armed state so
+                    // UI tests (and accessibility) can verify the toggle
+                    // without probing colors.
+                    selected = modifierState != null && modifierState != ModifierState.Off
+                },
+            )
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale

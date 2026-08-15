@@ -1,6 +1,5 @@
 package terminal.emulator.ui.theme
 
-import android.os.Build
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme

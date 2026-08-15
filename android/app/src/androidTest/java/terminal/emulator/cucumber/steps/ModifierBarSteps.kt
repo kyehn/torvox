@@ -1,6 +1,8 @@
 package terminal.emulator.cucumber.steps
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import io.cucumber.java.en.Given
@@ -46,7 +48,7 @@ constructor(
             .assertIsDisplayed()
     }
 
-    @When("^the CTRL key is tapped(?: again)?$")
+    @When("^the CTRL key is tapped$")
     fun ctrlKeyIsTapped() {
         composeRuleHolder.composeRule
             .onNodeWithTag("Key_CTRL")
@@ -54,17 +56,25 @@ constructor(
         composeRuleHolder.composeRule.waitForIdle()
     }
 
+    @When("^the CTRL key is tapped twice$")
+    fun ctrlKeyIsTappedTwice() {
+        val rule = composeRuleHolder.composeRule
+        rule.onNodeWithTag("Key_CTRL").performClick()
+        rule.onNodeWithTag("Key_CTRL").performClick()
+        rule.waitForIdle()
+    }
+
     @Then("^the CTRL key toggles appearance$")
     fun ctrlKeyTogglesAppearance() {
         composeRuleHolder.composeRule
             .onNodeWithTag("Key_CTRL")
-            .assertIsDisplayed()
+            .assertIsSelected()
     }
 
     @Then("^the CTRL key returns to default appearance$")
     fun ctrlKeyReturnsToDefaultAppearance() {
         composeRuleHolder.composeRule
             .onNodeWithTag("Key_CTRL")
-            .assertIsDisplayed()
+            .assertIsNotSelected()
     }
 }
