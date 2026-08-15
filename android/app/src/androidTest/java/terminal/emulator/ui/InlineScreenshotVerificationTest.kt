@@ -25,6 +25,7 @@ import terminal.emulator.MainActivity
 import java.io.File
 import kotlin.math.abs
 import kotlin.math.sqrt
+import android.annotation.SuppressLint
 
 @RunWith(AndroidJUnit4::class)
 class InlineScreenshotVerificationTest {
@@ -46,7 +47,7 @@ class InlineScreenshotVerificationTest {
     @Before
     fun setUp() {
         scenario = ActivityScenario.launch(MainActivity::class.java)
-        scenario!!.onActivity { activity ->
+        requireNotNull(scenario).onActivity { activity ->
             tv = findTextureView(activity.window.decorView)
         }
         Assert.assertNotNull("TextureView not found", tv)
@@ -62,7 +63,7 @@ class InlineScreenshotVerificationTest {
         val start = System.currentTimeMillis()
         var ok = false
         while (System.currentTimeMillis() - start < timeoutMs) {
-            scenario!!.onActivity { activity ->
+            requireNotNull(scenario).onActivity { activity ->
                 if (activity is MainActivity) {
                     ok = activity.runtime?.bridge() != null
                 }
@@ -81,15 +82,15 @@ class InlineScreenshotVerificationTest {
         y: Float,
     ) {
         val dt = android.os.SystemClock.uptimeMillis()
-        tv!!.dispatchTouchEvent(
+        requireNotNull(tv).dispatchTouchEvent(
             MotionEvent.obtain(dt, dt, MotionEvent.ACTION_DOWN, x, y, 0),
         )
         Thread.sleep(800)
-        tv!!.dispatchTouchEvent(
+        requireNotNull(tv).dispatchTouchEvent(
             MotionEvent.obtain(dt, dt + 800, MotionEvent.ACTION_MOVE, x + 1f, y + 1f, 0),
         )
         Thread.sleep(50)
-        tv!!.dispatchTouchEvent(
+        requireNotNull(tv).dispatchTouchEvent(
             MotionEvent.obtain(dt, dt + 850, MotionEvent.ACTION_UP, x + 1f, y + 1f, 0),
         )
     }
@@ -97,7 +98,7 @@ class InlineScreenshotVerificationTest {
     private fun capture(): Bitmap? {
         Thread.sleep(500)
         val holder = arrayOfNulls<Bitmap>(1)
-        scenario!!.onActivity { activity ->
+        requireNotNull(scenario).onActivity { activity ->
             val view = activity.window.decorView
             if (view.width <= 0 || view.height <= 0) return@onActivity
             val bmp = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
@@ -110,7 +111,7 @@ class InlineScreenshotVerificationTest {
 
     private fun writeToPty(data: String) {
         var bridge: terminal.emulator.bridge.Bridge? = null
-        scenario!!.onActivity { activity ->
+        requireNotNull(scenario).onActivity { activity ->
             bridge = (activity as? MainActivity)?.runtime?.bridge()
         }
         bridge?.writeToPty(data.toByteArray())
@@ -184,13 +185,14 @@ class InlineScreenshotVerificationTest {
     }
 
     @Test
+    @SuppressLint("DeprecatedCall") // setPrimaryClip deprecated without replacement (API 36) — still the only client API
     fun verifyPasteMenuAppearsOnBlankSwipe() {
         Log.i("InlineVerif", "=== Verify Paste Menu ===")
         writeToPty("echo 'test content'\n")
         Thread.sleep(3000)
 
-        val w = tv!!.width
-        val h = tv!!.height
+        val w = requireNotNull(tv).width
+        val h = requireNotNull(tv).height
 
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -202,14 +204,14 @@ class InlineScreenshotVerificationTest {
 
         val base = capture()
         Assert.assertNotNull("Baseline null", base)
-        Log.i("InlineVerif", "Baseline: ${base!!.width}x${base!!.height}")
+        Log.i("InlineVerif", "Baseline: ${requireNotNull(base).width}x${requireNotNull(base).height}")
 
         longPressOn(lpX, lpY)
         Thread.sleep(2000)
 
         val pasteScr = capture()
         Assert.assertNotNull("Paste screenshot null", pasteScr)
-        Log.i("InlineVerif", "Paste: ${pasteScr!!.width}x${pasteScr!!.height}")
+        Log.i("InlineVerif", "Paste: ${requireNotNull(pasteScr).width}x${requireNotNull(pasteScr).height}")
 
         val blobs = findBlobs(base, pasteScr, minSize = 20)
         val totalPx = blobs.sumOf { it.w * it.h }

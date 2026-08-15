@@ -63,7 +63,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -88,6 +87,12 @@ import terminal.emulator.settings.parseEnvironmentVariables
 import terminal.emulator.settings.serializeEnvironmentVariables
 import terminal.emulator.ui.theme.TerminalTheme
 import java.io.File
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.ImmutableMap
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
+import kotlinx.collections.immutable.toImmutableMap
+import android.annotation.SuppressLint
 
 private const val FONT_SIZE_RANGE_MIN = 8f
 private const val FONT_SIZE_RANGE_MAX = 48f
@@ -104,8 +109,7 @@ fun SettingsScreen(
     viewModel: TerminalViewModel,
     onBack: () -> Unit,
 ) {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmallScreen = screenWidthDp < SMALL_SCREEN_WIDTH_DP
+    val isSmallScreen = rememberIsSmallScreen()
     val horizontalPadding = if (isSmallScreen) 8.dp else 16.dp
     val backgroundColor = MaterialTheme.colorScheme.surface
     val textColor = MaterialTheme.colorScheme.onSurface
@@ -142,7 +146,7 @@ fun SettingsScreen(
             ) {
                 item {
                     SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
-                    SettingsCard(cardBackground, isSmallScreen) {
+                    SettingsCard(cardBackground) {
                         AppearanceSectionContent(viewModel, customFontLauncher, textColor, secondaryText, accentColor, backgroundColor)
                     }
                 }
@@ -264,7 +268,7 @@ private fun AppearanceSectionContent(
         onFamilySelected = { family, slot -> viewModel.setFontFamilyForStyle(family, slot) },
         customFontLauncher = customFontLauncher,
         colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
-        availableFonts = availableFonts,
+        availableFonts = availableFonts.toImmutableList(),
         defaultFontName = defaultFontName,
         fontInfo = fontInfo,
     )
@@ -323,7 +327,7 @@ private fun AppThemeSection(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val appThemeMode = settings.appThemeMode
     SectionHeader(stringResource(R.string.software_theme), sectionTitleColor)
-    SettingsCard(cardBackground, isSmallScreen) {
+    SettingsCard(cardBackground) {
         AppThemeSelector(
             selectedMode = appThemeMode,
             onModeSelected = { viewModel.setAppThemeMode(it) },
@@ -351,7 +355,7 @@ private fun TerminalThemeSection(
     // User-created themes (ghostty-android ThemeStore pattern) merged into
     // the pick list; `remember` keyed on the flow so a save re-renders.
     val userThemes by viewModel.userThemes.collectAsStateWithLifecycle()
-    val allThemes = remember(userThemes) { terminal.emulator.ui.theme.BuiltInThemes.all + userThemes }
+    val allThemes = remember(userThemes) { (terminal.emulator.ui.theme.BuiltInThemes.all + userThemes).toImmutableList() }
     var saveThemeName by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     val systemInDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
@@ -360,7 +364,7 @@ private fun TerminalThemeSection(
     var editingTheme by rememberSaveable { mutableStateOf<terminal.emulator.ui.theme.TerminalTheme?>(null) }
 
     SectionHeader(stringResource(R.string.theme), sectionTitleColor)
-    SettingsCard(cardBackground, isSmallScreen) {
+    SettingsCard(cardBackground) {
         TerminalThemeModeSelector(
             selectedMode = themeMode,
             onModeSelected = { viewModel.setThemeMode(it) },
@@ -514,7 +518,7 @@ private fun BackgroundSection(
             }
         }
     SectionHeader(stringResource(R.string.background), sectionTitleColor)
-    SettingsCard(cardBackground, isSmallScreen) {
+    SettingsCard(cardBackground) {
         Text(
             text = if (backgroundImagePath.isNotEmpty()) stringResource(R.string.bg_image_set) else stringResource(R.string.bg_image_none),
             color = textColor,
@@ -583,7 +587,7 @@ private fun TerminalConfigSection(
     val selectedShell = settings.shell
     val scrollbackLines = settings.scrollbackLines
     SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
-    SettingsCard(cardBackground, isSmallScreen) {
+    SettingsCard(cardBackground) {
         PrefixShellStatus(secondaryText = secondaryText)
         Spacer(modifier = Modifier.height(4.dp))
         ShellInput(shellPath = selectedShell, onShellChanged = { viewModel.setShell(it) }, textColor = textColor, accentColor = accentColor)
@@ -605,7 +609,7 @@ private fun TerminalConfigSection(
         )
         Spacer(modifier = Modifier.height(8.dp))
         EnvironmentVariablesEditor(
-            vars = settings.environmentVariables,
+            vars = settings.environmentVariables.toImmutableMap(),
             onSave = { viewModel.setEnvironmentVariables(it) },
             textColor = textColor,
             accentColor = accentColor,
@@ -631,7 +635,7 @@ private fun BootstrapSectionFromSettings(
     val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
     val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsStateWithLifecycle()
     SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
-    SettingsCard(cardBackground, isSmallScreen, Modifier.testTag("BootstrapSection")) {
+    SettingsCard(cardBackground, Modifier.testTag("BootstrapSection")) {
         BootstrapSection(
             bootstrapUrl = bootstrapUrl,
             onUrlChanged = { viewModel.setBootstrapUrl(it) },
@@ -656,7 +660,7 @@ private fun ClearAppDataSectionItem(
     isSmallScreen: Boolean,
 ) {
     SectionHeader(stringResource(R.string.clear_app_data), sectionTitleColor)
-    SettingsCard(cardBackground, isSmallScreen) {
+    SettingsCard(cardBackground) {
         ClearAppDataSection(viewModel = viewModel, textColor = textColor)
     }
 }
@@ -664,10 +668,10 @@ private fun ClearAppDataSectionItem(
 @Composable
 private fun SettingsCard(
     cardBackground: Color,
-    isSmallScreen: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
+    val isSmallScreen = rememberIsSmallScreen()
     Column(
         modifier =
         modifier
@@ -685,8 +689,7 @@ private fun SectionHeader(
     title: String,
     textColor: Color,
 ) {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmallScreen = screenWidthDp < SMALL_SCREEN_WIDTH_DP
+    val isSmallScreen = rememberIsSmallScreen()
     Text(
         text = title,
         style = if (isSmallScreen) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
@@ -767,7 +770,7 @@ private fun FontFamilySelectors(
     onFamilySelected: (String, Int) -> Unit,
     customFontLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
     colors: SettingsColors,
-    availableFonts: List<String>,
+    availableFonts: ImmutableList<String>,
     defaultFontName: String,
     fontInfo: String,
 ) {
@@ -821,15 +824,14 @@ private fun SystemFontSelector(
     textColor: Color,
     cardBackground: Color,
     accentColor: Color,
-    fonts: List<String> = emptyList(),
+    fonts: ImmutableList<String> = persistentListOf(),
     defaultFontName: String = "",
     fontInfo: String = "",
     titleOverride: String? = null,
     onPickFontFile: (() -> Unit)? = null,
 ) {
     val systemFonts = remember(fonts) { fonts.distinct().sorted() }
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmallScreen = screenWidthDp < SMALL_SCREEN_WIDTH_DP
+    val isSmallScreen = rememberIsSmallScreen()
     val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
     val displayName = if (defaultFontName.isEmpty()) "Noto Sans Mono" else defaultFontName
 
@@ -868,7 +870,7 @@ private fun SystemFontSelector(
 
         if (showFontPicker) {
             FontPickerDialog(
-                fonts = systemFonts,
+                fonts = systemFonts.toImmutableList(),
                 selectedFamily = selectedFamily,
                 onFamilySelected = { font ->
                     onFamilySelected(font)
@@ -903,7 +905,7 @@ private fun SystemFontSelector(
 
 @Composable
 private fun FontPickerDialog(
-    fonts: List<String>,
+    fonts: ImmutableList<String>,
     selectedFamily: String,
     onFamilySelected: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -970,8 +972,7 @@ internal fun AppThemeSelector(
     cardBackground: Color,
     accentColor: Color,
 ) {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmall = screenWidthDp < SMALL_SCREEN_WIDTH_DP
+    val isSmall = rememberIsSmallScreen()
     Column(modifier = Modifier.testTag("AppThemeSelector")) {
         val buttons =
             listOf(
@@ -1098,8 +1099,7 @@ private fun ShellInput(
     textColor: Color,
     accentColor: Color,
 ) {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmallScreen = screenWidthDp < SMALL_SCREEN_WIDTH_DP
+    val isSmallScreen = rememberIsSmallScreen()
     val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
     Column {
         Text(stringResource(R.string.shell), style = labelStyle, color = textColor)
@@ -1154,14 +1154,13 @@ private fun ScrollbackSlider(
 internal fun ThemeSelector(
     label: String,
     selectedTheme: String,
-    themes: List<TerminalTheme>,
+    themes: ImmutableList<TerminalTheme>,
     onThemeSelected: (String) -> Unit,
     textColor: Color,
     secondaryText: Color,
     cardBackground: Color,
 ) {
-    val screenWidthDp = LocalConfiguration.current.screenWidthDp
-    val isSmallScreen = screenWidthDp < SMALL_SCREEN_WIDTH_DP
+    val isSmallScreen = rememberIsSmallScreen()
     val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
     Column(modifier = Modifier.testTag("ThemeSelector")) {
         if (label.isNotEmpty()) {
@@ -1491,8 +1490,8 @@ private fun McpServerToggle(
  */
 @Composable
 private fun EnvironmentVariablesEditor(
-    vars: Map<String, String>,
-    onSave: (Map<String, String>) -> Unit,
+    vars: ImmutableMap<String, String>,
+    onSave: (ImmutableMap<String, String>) -> Unit,
     textColor: Color,
     accentColor: Color,
     cardBackground: Color,
@@ -1541,7 +1540,7 @@ private fun EnvironmentVariablesEditor(
             EnvironmentVariablesDialog(
                 initialText = serializeEnvironmentVariables(vars),
                 onSave = {
-                    onSave(parseEnvironmentVariables(it))
+                    onSave(parseEnvironmentVariables(it).toImmutableMap())
                     showEditor = false
                 },
                 onDismiss = { showEditor = false },
@@ -1776,7 +1775,7 @@ private fun CursorStyleSelector(
     SettingsSelectorRow(
         title = stringResource(R.string.cursor_style_label),
         selectedKey = selectedStyle,
-        options = styles,
+        options = styles.toImmutableList(),
         colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
         onOptionSelected = onStyleSelected,
         testTag = "CursorStyleSelector",
@@ -1799,7 +1798,7 @@ private fun BellModeSelector(
     SettingsSelectorRow(
         title = stringResource(R.string.bell_mode),
         selectedKey = selectedModeId.toString(),
-        options = options,
+        options = options.toImmutableList(),
         colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
         onOptionSelected = { key -> onModeSelected(key.toInt()) },
         testTag = "BellModeSelector",
@@ -1825,7 +1824,7 @@ private fun KeyboardShortcutsSection(
     val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
 
     SectionHeader(stringResource(R.string.keyboard_shortcuts), sectionTitleColor)
-    SettingsCard(cardBackground, isSmallScreen) {
+    SettingsCard(cardBackground) {
         terminal.emulator.shortcut.KeyShortcutHandler.Action.entries.forEach { action ->
             val actionId = when (action) {
                 terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste ->
@@ -1913,14 +1912,14 @@ private fun ModifierBarSettingsSection(
     var showEditor by rememberSaveable { mutableStateOf(false) }
 
     SectionHeader(stringResource(R.string.modifier_bar), sectionTitleColor)
-    SettingsCard(cardBackground, isSmallScreen) {
+    SettingsCard(cardBackground) {
         Text(
             text = stringResource(R.string.modifier_bar_current_layout),
             color = secondaryText,
             style = MaterialTheme.typography.bodySmall,
         )
         Spacer(modifier = Modifier.height(4.dp))
-        ToolbarLayoutPreview(layout, textColor, cardBackground)
+        ToolbarLayoutPreview(layout.toImmutableList(), textColor, cardBackground)
         Spacer(modifier = Modifier.height(12.dp))
         OutlinedButton(
             onClick = { showEditor = true },
@@ -1932,7 +1931,7 @@ private fun ModifierBarSettingsSection(
 
     if (showEditor) {
         ModifierBarEditorDialog(
-            layout = layout,
+            layout = layout.toImmutableList(),
             onLayoutChange = { layout = it },
             onSave = {
                 toolbarPreferences.saveLayout(layout)
@@ -1949,9 +1948,12 @@ private fun ModifierBarSettingsSection(
 
 /** Key chips laid out in wrapping rows (mirrors the toolbar's 2-row shape). */
 @OptIn(ExperimentalLayoutApi::class)
+@SuppressLint("DeprecatedCall") // FlowRow has a deprecated overload with
+// `overflow`; our calls use the non-deprecated signature. The rule matches
+// the containing file class and misreports.
 @Composable
 private fun ToolbarLayoutPreview(
-    layout: List<ToolbarItem>,
+    layout: ImmutableList<ToolbarItem>,
     textColor: Color,
     cardBackground: Color,
 ) {
@@ -1974,8 +1976,8 @@ private fun ToolbarLayoutPreview(
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ModifierBarEditorDialog(
-    layout: List<ToolbarItem>,
-    onLayoutChange: (List<ToolbarItem>) -> Unit,
+    layout: ImmutableList<ToolbarItem>,
+    onLayoutChange: (ImmutableList<ToolbarItem>) -> Unit,
     onSave: () -> Unit,
     onReset: () -> Unit,
     onDismiss: () -> Unit,
@@ -2017,7 +2019,7 @@ private fun ModifierBarEditorDialog(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 AvailableKeysPicker(
-                    availableKeys = availableKeys,
+                    availableKeys = availableKeys.toImmutableList(),
                     onLayoutChange = onLayoutChange,
                     layout = layout,
                     textColor = textColor,
@@ -2049,8 +2051,8 @@ private fun ModifierBarEditorDialog(
 /** The current key list with per-key width steppers and secondary labels. */
 @Composable
 private fun CurrentLayoutEditor(
-    layout: List<ToolbarItem>,
-    onLayoutChange: (List<ToolbarItem>) -> Unit,
+    layout: ImmutableList<ToolbarItem>,
+    onLayoutChange: (ImmutableList<ToolbarItem>) -> Unit,
     textColor: Color,
     secondaryText: Color,
     cardBackground: Color,
@@ -2065,7 +2067,7 @@ private fun CurrentLayoutEditor(
                     label = itemLabel(item),
                     textColor = textColor,
                     cardBackground = cardBackground,
-                    onClick = { onLayoutChange(layout - item) },
+                    onClick = { onLayoutChange((layout - item).toImmutableList()) },
                 )
                 Text(
                     text = "W",
@@ -2078,7 +2080,7 @@ private fun CurrentLayoutEditor(
                             layout.replace(
                                 item,
                                 item.withWidth((item.width - 1).coerceAtLeast(1)),
-                            ),
+                            ).toImmutableList(),
                         )
                     },
                     modifier = Modifier.size(28.dp).testTag("WidthMinus_${itemLabel(item)}"),
@@ -2097,7 +2099,7 @@ private fun CurrentLayoutEditor(
                             layout.replace(
                                 item,
                                 item.withWidth((item.width + 1).coerceAtMost(4)),
-                            ),
+                            ).toImmutableList(),
                         )
                     },
                     modifier = Modifier.size(28.dp).testTag("WidthPlus_${itemLabel(item)}"),
@@ -2107,7 +2109,7 @@ private fun CurrentLayoutEditor(
                 BasicTextField(
                     value = item.secondaryLabel.orEmpty(),
                     onValueChange = { value ->
-                        onLayoutChange(layout.replace(item, item.withSecondary(value)))
+                        onLayoutChange(layout.replace(item, item.withSecondary(value)).toImmutableList())
                     },
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = textColor),
@@ -2127,11 +2129,12 @@ private fun CurrentLayoutEditor(
 }
 
 /** The keys not yet in the layout, tappable to append. */
+@SuppressLint("DeprecatedCall") // see ToolbarLayoutPreview
 @Composable
 private fun AvailableKeysPicker(
-    availableKeys: List<ToolbarKey>,
-    layout: List<ToolbarItem>,
-    onLayoutChange: (List<ToolbarItem>) -> Unit,
+    availableKeys: ImmutableList<ToolbarKey>,
+    layout: ImmutableList<ToolbarItem>,
+    onLayoutChange: (ImmutableList<ToolbarItem>) -> Unit,
     textColor: Color,
     cardBackground: Color,
 ) {
@@ -2144,7 +2147,7 @@ private fun AvailableKeysPicker(
                 label = key.defaultLabel,
                 textColor = textColor,
                 cardBackground = cardBackground,
-                onClick = { onLayoutChange(layout + ToolbarItem.Default(key)) },
+                onClick = { onLayoutChange((layout + ToolbarItem.Default(key)).toImmutableList()) },
             )
         }
     }

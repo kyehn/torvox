@@ -3,6 +3,9 @@ package terminal.emulator.ui
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import kotlinx.collections.immutable.ImmutableList
+import kotlinx.collections.immutable.persistentListOf
+import kotlinx.collections.immutable.toImmutableList
 
 /**
  * paginateToolbarKeys mirrors termux's ViewPager extra-keys paging: the flat
@@ -14,7 +17,7 @@ class ModifierBarPagingTest {
 
     private val keys: List<ToolbarItem> = ToolbarKey.entries.map { ToolbarItem.Default(it) }
 
-    private fun defaultKeys(count: Int): List<ToolbarItem> = keys.take(count)
+    private fun defaultKeys(count: Int): ImmutableList<ToolbarItem> = keys.take(count).toImmutableList()
 
     @Test
     fun `default 14 key layout is one page of 7 columns`() {
@@ -51,6 +54,6 @@ class ModifierBarPagingTest {
 
     @Test
     fun `empty layout pages to nothing`() {
-        assertEquals(0, paginateToolbarKeys(emptyList()).size)
+        assertEquals(0, paginateToolbarKeys(persistentListOf()).size)
     }
 }

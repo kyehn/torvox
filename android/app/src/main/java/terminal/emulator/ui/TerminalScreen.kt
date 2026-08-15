@@ -53,7 +53,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
@@ -79,6 +78,9 @@ import terminal.emulator.ui.theme.resolveTerminalThemeName
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import android.annotation.SuppressLint
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.platform.LocalResources
 
 private const val FONT_SIZE_MIN = 8f
 private const val FONT_SIZE_MAX = 48f
@@ -103,6 +105,17 @@ private data class SearchState(
     val hasResults: Boolean get() = results.isNotEmpty()
     val resultCount: Int get() = results.size
     val currentMatch: SearchResult? get() = results.getOrNull(currentIndex)
+}
+
+@SuppressLint("DeprecatedCall")
+@Suppress("DEPRECATION")
+private fun announceForAccessibility(view: android.view.View, text: CharSequence) {
+    // View.announceForAccessibility has no @Deprecated annotation in
+    // API 37 (verified via javap); the Kotlin compiler hard-codes it as
+    // deprecated (system accessibility announcement is being phased out)
+    // and slack-lint mirrors that. There is no modern equivalent — the
+    // platform method is still the supported talk-back path.
+    view.announceForAccessibility(text)
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -156,6 +169,7 @@ fun TerminalScreen(
         )
     }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val resources = androidx.compose.ui.platform.LocalResources.current
     val hostView = androidx.compose.ui.platform.LocalView.current
     var showTextSearch by remember { mutableStateOf(false) }
     // Sticky FN layer (ModifierBar): when Locked the bar shows the F1-F12
@@ -210,8 +224,8 @@ fun TerminalScreen(
     LaunchedEffect(state.sessions.size) {
         val count = state.sessions.size
         if (count > 0) {
-            hostView.announceForAccessibility(
-                context.getString(R.string.sessions_accessible, count),
+            announceForAccessibility(hostView, 
+                resources.getQuantityString(R.plurals.sessions_accessible, count, count),
             )
         }
     }
@@ -219,8 +233,8 @@ fun TerminalScreen(
     LaunchedEffect(state.title) {
         val title = state.title
         if (title.isNotEmpty() && title != context.getString(R.string.terminal_title) && title != context.getString(R.string.terminal)) {
-            hostView.announceForAccessibility(
-                context.getString(R.string.title_changed, title),
+            announceForAccessibility(hostView, 
+                resources.getString(R.string.title_changed, title),
             )
         }
     }
@@ -234,7 +248,7 @@ fun TerminalScreen(
             val text = sel.selectedText
             if (text.isNotEmpty()) {
                 val preview = if (text.length > 100) text.take(100) + "..." else text
-                hostView.announceForAccessibility(
+                announceForAccessibility(hostView, 
                     context.getString(R.string.selection_accessible, preview),
                 )
             }
@@ -321,7 +335,7 @@ fun TerminalScreen(
             LaunchedEffect(searchState.resultCount, searchState.currentIndex, searchState.query) {
                 if (searchState.query.isNotEmpty()) {
                     if (searchState.resultCount > 0) {
-                        hostView.announceForAccessibility(
+                        announceForAccessibility(hostView, 
                             context.getString(
                                 R.string.search_result_accessible,
                                 searchState.currentIndex + 1,
@@ -329,7 +343,7 @@ fun TerminalScreen(
                             ),
                         )
                     } else {
-                        hostView.announceForAccessibility(
+                        announceForAccessibility(hostView, 
                             context.getString(R.string.search_no_results_accessible),
                         )
                     }
@@ -441,7 +455,7 @@ fun TerminalScreen(
                                         scope.launch {
                                             snackbarHostState.currentSnackbarData?.dismiss()
                                             snackbarHostState.showSnackbar(
-                                                message = context.getString(R.string.copied_chars, text.length),
+                                                message = context.resources.getQuantityString(R.plurals.copied_chars, text.length, text.length),
                                                 duration = SnackbarDuration.Short,
                                             )
                                         }
@@ -452,7 +466,7 @@ fun TerminalScreen(
                                             scope.launch {
                                                 snackbarHostState.currentSnackbarData?.dismiss()
                                                 snackbarHostState.showSnackbar(
-                                                    message = context.getString(R.string.pasted_chars, count),
+                                                    message = context.resources.getQuantityString(R.plurals.pasted_chars, count, count),
                                                     duration = SnackbarDuration.Short,
                                                 )
                                             }
@@ -539,11 +553,10 @@ fun TerminalScreen(
                     // separate system windows that render above it.
                     val menuSurface = surfaceRef.value
                     if (menuSurface != null && selectionActive && !selection.dragging) {
-                        val configuration = LocalConfiguration.current
-                        val density = LocalDensity.current
-                        val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+                        val containerSize = LocalWindowInfo.current.containerSize
+                        val screenWidthPx = containerSize.width.toFloat()
                         val boxHeightPx = terminalBoxSize.height.takeIf { it > 0 }?.toFloat()
-                            ?: with(density) { configuration.screenHeightDp.dp.toPx() }
+                            ?: containerSize.height.toFloat()
                         val pos =
                             computeMenuPosition(
                                 start = selection.start,
@@ -553,7 +566,7 @@ fun TerminalScreen(
                                 scrollOffset = menuSurface.getScrollOffset(),
                                 screenWidthPx = screenWidthPx,
                                 screenHeightPx = boxHeightPx,
-                                handleWidthPx = with(density) { SELECTION_HANDLE_WIDTH_DP.dp.toPx() },
+                                handleWidthPx = with(LocalDensity.current) { SELECTION_HANDLE_WIDTH_DP.dp.toPx() },
                                 pasteOnly = selection.pasteOnly,
                             )
                         val menuVisible = !selection.menuDismissed
@@ -779,12 +792,21 @@ fun TerminalScreen(
                     var hasClipboard by remember { mutableStateOf(false) }
 
                     LaunchedEffect(Unit) {
+                        // hasPrimaryClip() is deprecated without a
+                        // replacement (API 36); it is the only existence
+                        // query the platform exposes.
+                        @SuppressLint("DeprecatedCall")
                         hasClipboard = clipboardManager?.hasPrimaryClip() == true
                     }
 
+                    // OnPrimaryClipChangedListener and the add/remove
+                    // pair are deprecated without replacement (API 36);
+                    // they are still the only clip-change notification API.
+                    @SuppressLint("DeprecatedCall")
                     DisposableEffect(context) {
                         val listener =
                             android.content.ClipboardManager.OnPrimaryClipChangedListener {
+                                @SuppressLint("DeprecatedCall")
                                 hasClipboard = clipboardManager?.hasPrimaryClip() == true
                             }
                         clipboardManager?.addPrimaryClipChangedListener(listener)

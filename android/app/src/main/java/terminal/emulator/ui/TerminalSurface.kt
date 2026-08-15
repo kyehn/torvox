@@ -47,6 +47,7 @@ import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import kotlin.math.roundToInt
+import androidx.core.net.toUri
 
 // Approximate height reserved for the ModifierBar overlay when computing
 // the terminal grid (see applyGridResize). The bar itself is ~36dp of
@@ -259,7 +260,7 @@ constructor(
                     0,
                     R.string.paste,
                 )
-                pasteItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                pasteItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
                 pasteItem.setEnabled(pasteEnabled)
             } else {
                 menu.add(
@@ -267,33 +268,33 @@ constructor(
                     MENU_ACTION_COPY,
                     0,
                     R.string.copy,
-                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
                 menu.add(
                     android.view.Menu.NONE,
                     MENU_ACTION_SELECT_ALL,
                     1,
                     R.string.select_all,
-                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
                 val pasteItem = menu.add(
                     android.view.Menu.NONE,
                     MENU_ACTION_PASTE,
                     2,
                     R.string.paste,
                 )
-                pasteItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                pasteItem.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
                 pasteItem.setEnabled(pasteEnabled)
                 menu.add(
                     android.view.Menu.NONE,
                     MENU_ACTION_ANCHOR_LEFT,
                     3,
                     R.string.select_anchor_left,
-                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
                 menu.add(
                     android.view.Menu.NONE,
                     MENU_ACTION_ANCHOR_RIGHT,
                     4,
                     R.string.select_anchor_right,
-                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_ALWAYS)
+                ).setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
             }
             return true
         }
@@ -1040,18 +1041,16 @@ constructor(
             popup.setHeight(android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
             popup.setBackgroundDrawable(null)
             popup.setAnimationStyle(0)
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-                popup.setWindowLayoutType(android.view.WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL)
-                popup.setEnterTransition(null)
-                popup.setExitTransition(null)
-                // touchModal must stay true (the default): with touchModal
+            popup.setWindowLayoutType(android.view.WindowManager.LayoutParams.TYPE_APPLICATION_SUB_PANEL)
+            popup.setEnterTransition(null)
+            popup.setExitTransition(null)
+            // touchModal must stay true (the default): with touchModal
                 // false the popup window never receives touch events and the
                 // handle's onTouchEvent (drag) can never fire — touches fall
                 // through to the terminal and clear the selection. With
                 // touchModal true + focusable false, touches inside the
                 // handle are delivered to the handle view and touches outside
                 // pass through without dismissing it.
-            }
             popup.setContentView(contentView)
             return popup
         }
@@ -1334,7 +1333,7 @@ constructor(
         val url = bridge.hyperlinkAt(gridRow, col) ?: return false
         if (url.isBlank()) return false
         val uri = try {
-            android.net.Uri.parse(url.trim())
+            url.trim().toUri()
         } catch (e: IllegalArgumentException) {
             LogUtil.w(TAG, "openLinkAt: bad URI", e)
             return false
@@ -1590,13 +1589,11 @@ constructor(
                     selectionHandles.hideSelectionHandles()
                     viewModel?.clearSelection()
                     post {
-                        @Suppress("DEPRECATION")
-                        val controller =
-                            androidx.core.view.ViewCompat
-                                .getWindowInsetsController(this@TerminalSurface)
+                        // minSdk 33: the platform WindowInsetsController is
+                        // available directly; ViewCompat's helper is deprecated.
+                        val controller = windowInsetsController
                         controller?.hide(
-                            androidx.core.view.WindowInsetsCompat.Type
-                                .ime(),
+                            android.view.WindowInsets.Type.ime(),
                         )
                     }
                     return true
@@ -1607,13 +1604,9 @@ constructor(
                 keyboardRequested = true
                 requestFocus()
                 post {
-                    @Suppress("DEPRECATION")
-                    val controller =
-                        androidx.core.view.ViewCompat
-                            .getWindowInsetsController(this@TerminalSurface)
+                    val controller = windowInsetsController
                     controller?.show(
-                        androidx.core.view.WindowInsetsCompat.Type
-                            .ime(),
+                        android.view.WindowInsets.Type.ime(),
                     )
                 }
                 return true
@@ -1827,13 +1820,9 @@ constructor(
         keyboardRequested = true
         requestFocus()
         post {
-            @Suppress("DEPRECATION")
-            val controller =
-                androidx.core.view.ViewCompat
-                    .getWindowInsetsController(this)
+            val controller = windowInsetsController
             controller?.show(
-                androidx.core.view.WindowInsetsCompat.Type
-                    .ime(),
+                android.view.WindowInsets.Type.ime(),
             )
         }
     }
@@ -2276,7 +2265,14 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     @Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth") // Acceptable — dispatches ~15 distinct gesture/intent types
+    override fun performClick(): Boolean = super.performClick()
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_UP) {
+            // Accessibility contract: a view overriding onTouchEvent must
+            // call performClick on touch-up so TalkBack click actions work.
+            performClick()
+        }
         if (!touchEnabled) {
             scaleDetector.onTouchEvent(event)
             gestureDetector.onTouchEvent(event)

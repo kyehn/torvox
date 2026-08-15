@@ -40,6 +40,7 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
+import androidx.core.net.toUri
 
 data class RuntimeState(
     val isRunning: Boolean = false,
@@ -1554,10 +1555,14 @@ constructor(
                     context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE)
                         as? android.view.accessibility.AccessibilityManager
                 if (am != null && am.isEnabled) {
+                    // Announcement events are deprecated without a modern
+                    // replacement (system accessibility broadcast); the
+                    // constructor form avoids the deprecated obtain() API.
                     @Suppress("DEPRECATION")
                     val event =
-                        android.view.accessibility.AccessibilityEvent
-                            .obtain(android.view.accessibility.AccessibilityEvent.TYPE_ANNOUNCEMENT)
+                        android.view.accessibility.AccessibilityEvent(
+                            android.view.accessibility.AccessibilityEvent.TYPE_ANNOUNCEMENT,
+                        )
                     event.text.add(content)
                     am.sendAccessibilityEvent(event)
                 }
@@ -1632,7 +1637,7 @@ constructor(
                     val intent =
                         android.content.Intent(
                             android.content.Intent.ACTION_VIEW,
-                            android.net.Uri.parse(url),
+                            url.toUri(),
                         )
                     intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                     context.startActivity(intent)
@@ -2096,7 +2101,7 @@ constructor(
                 //
                 val origin =
                     runCatching {
-                        val uri = android.net.Uri.parse(bootstrapUrl)
+                        val uri = bootstrapUrl.toUri()
                         val scheme = uri.scheme ?: return@runCatching "<no-scheme>"
                         val host = uri.host
                         if (host.isNullOrBlank()) return@runCatching "<no-host>"
@@ -2281,7 +2286,10 @@ constructor(
                 }
                 return
             }
-            val startedEntry = entry!!
+            // entry is assigned in every branch above; the nullability is
+            // only invisible to smart-cast across the early return.
+            val startedEntry =
+                requireNotNull(entry) { "start: session entry must exist after spawn" }
             // First render: problematic GPUs (Mali-G57 w/ missing SURFACE_VIEW_FORMATS)
             // can hang get_current_texture() indefinitely. The previous approach of
             // spawning a daemon thread to call bridge.render() caused mutex starvation —

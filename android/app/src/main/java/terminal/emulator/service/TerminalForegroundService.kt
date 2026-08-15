@@ -19,6 +19,10 @@ class TerminalForegroundService : Service() {
         private const val CHANNEL_ID = "terminal"
         private const val NOTIFICATION_ID = 1
         private const val WAKE_LOCK_TAG = "termvox:wakelock"
+        // Safety net: the wake lock must never outlive the session it keeps
+        // alive. 30 minutes covers the longest expectable interactive run;
+        // a still-running session re-acquires on the next start tick.
+        private const val WAKE_LOCK_TIMEOUT_MS = 30 * 60 * 1000L
 
         fun start(context: Context) {
             val intent = Intent(context, TerminalForegroundService::class.java)
@@ -96,7 +100,7 @@ class TerminalForegroundService : Service() {
             if (count <= 1) {
                 getString(R.string.notification_active_single)
             } else {
-                getString(R.string.notification_active_plural, count)
+                resources.getQuantityString(R.plurals.notification_active_plural, count, count)
             }
         val openIntent =
             Intent(this, MainActivity::class.java).apply {
@@ -150,7 +154,7 @@ class TerminalForegroundService : Service() {
                     WAKE_LOCK_TAG,
                 ).apply {
                     setReferenceCounted(false)
-                    acquire()
+                    acquire(WAKE_LOCK_TIMEOUT_MS)
                 }
     }
 

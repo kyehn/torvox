@@ -50,12 +50,7 @@ class BellHandler(private val context: Context) {
     }
     private val vibrator: Vibrator? by lazy {
         try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            }
+            (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
         } catch (_: Exception) {
             null
         }
@@ -82,12 +77,7 @@ class BellHandler(private val context: Context) {
             BellMode.VIBRATE -> vibrator?.let {
                 // SAFETY: Samsung Android 8 VibrationEffect.createOneShot can throw NPE in VibratorService$Vibration.mEffect
                 try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        it.vibrate(VibrationEffect.createOneShot(VIBRATE_DURATION_MS, VibrationEffect.DEFAULT_AMPLITUDE))
-                    } else {
-                        @Suppress("DEPRECATION")
-                        it.vibrate(VIBRATE_DURATION_MS)
-                    }
+                    it.vibrate(VibrationEffect.createOneShot(VIBRATE_DURATION_MS, VibrationEffect.DEFAULT_AMPLITUDE))
                 } catch (_: Exception) {
                     // Ignore vibration failures
                 }

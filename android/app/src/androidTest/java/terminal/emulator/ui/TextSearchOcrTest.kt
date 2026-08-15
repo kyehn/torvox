@@ -37,7 +37,7 @@ class TextSearchOcrTest {
     @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
     fun a_generateContent_thenSearch_highlightsVisible() {
         composeTestRule.waitForSession()
-        val bridge: Bridge = composeTestRule.getBridge()!!
+        val bridge: Bridge = requireNotNull(composeTestRule.getBridge())
         generateMultiPageContent(bridge, uniqueMarker)
         waitForTerminalStable()
         openSearchAndType(uniqueMarker)
@@ -49,7 +49,7 @@ class TextSearchOcrTest {
     @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
     fun b_searchNext_scrollsAndChangesPosition() {
         composeTestRule.waitForSession()
-        val bridge: Bridge = composeTestRule.getBridge()!!
+        val bridge: Bridge = requireNotNull(composeTestRule.getBridge())
         val scrollMarker = "SCROLL_MARKER_${java.util.UUID.randomUUID().toString().take(6).uppercase()}"
         generateMultiPageContent(bridge, uniqueMarker)
         bridge.writeToPty("echo '$scrollMarker'\n".toByteArray())
@@ -67,7 +67,7 @@ class TextSearchOcrTest {
     @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
     fun c_searchClose_restoresModifierBar() {
         composeTestRule.waitForSession()
-        val bridge: Bridge = composeTestRule.getBridge()!!
+        val bridge: Bridge = requireNotNull(composeTestRule.getBridge())
         generateMultiPageContent(bridge, uniqueMarker)
         waitForTerminalStable()
         openSearchAndType(uniqueMarker)
@@ -82,7 +82,7 @@ class TextSearchOcrTest {
     @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
     fun d_searchCaseToggle_changesResults() {
         composeTestRule.waitForSession()
-        val bridge: Bridge = composeTestRule.getBridge()!!
+        val bridge: Bridge = requireNotNull(composeTestRule.getBridge())
         bridge.writeToPty("echo '${uniqueMarker}_lower'\n".toByteArray())
         bridge.writeToPty("echo '${uniqueMarker}_UPPER'\n".toByteArray())
         waitForTerminalStable()
