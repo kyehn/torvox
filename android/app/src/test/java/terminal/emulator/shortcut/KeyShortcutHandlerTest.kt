@@ -1,24 +1,31 @@
 package terminal.emulator.shortcut
 
+import android.os.Build
 import android.view.KeyEvent
 import io.mockk.mockk
+import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import terminal.emulator.TerminalViewModel
 
 /**
- * Tests for [KeyShortcutHandler] — verifies the fix  where
+ * Tests for [KeyShortcutHandler] — verifies the fix where
  * [setBindings] maps ACTION_ID_* constants to actions correctly.
  *
  * Before the fix, `idToAction` was keyed by enum name ("Paste") while
  * `setBindings` received keys from Defaults ("paste"), so all entries
  * were dropped and bindingFor() always returned EMPTY.
  *
- * Note: dispatch() tests require instrumentation (KeyEvent.isCtrlPressed
- * is a stub in JVM unit tests). These tests verify the mapping fix.
+ * dispatch() runs under Robolectric so real [KeyEvent] instances can be
+ * constructed (the modifier match reads the metaState bitmask directly).
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [Build.VERSION_CODES.TIRAMISU])
 class KeyShortcutHandlerTest {
 
     private fun createViewModel(): TerminalViewModel = mockk<TerminalViewModel>(relaxed = true)
@@ -173,5 +180,40 @@ class KeyShortcutHandlerTest {
         // Reset to defaults
         handler.setBindings(KeyShortcutHandler.Defaults.all())
         assertEquals(KeyEvent.KEYCODE_V, handler.bindingFor(KeyShortcutHandler.Action.Paste).key)
+    }
+
+    @Test
+    fun `dispatch executes bound action on exact chord`() {
+        val viewModel = mockk<TerminalViewModel>(relaxed = true)
+        val handler = KeyShortcutHandler(viewModel)
+        handler.setBindings(KeyShortcutHandler.Defaults.all())
+
+        // Ctrl+Shift+V (KEYCODE_V) — the default paste chord.
+        val event = KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_V, 0, KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON)
+        assertTrue("bound chord must be consumed", handler.dispatch(event))
+        verify { viewModel.pasteFromClipboard() }
+    }
+
+    @Test
+    fun `dispatch falls through when modifier combination differs`() {
+        val viewModel = mockk<TerminalViewModel>(relaxed = true)
+        val handler = KeyShortcutHandler(viewModel)
+        handler.setBindings(KeyShortcutHandler.Defaults.all())
+
+        // Ctrl+V without Shift is unbound and must reach the terminal.
+        val event = KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_V, 0, KeyEvent.META_CTRL_ON)
+        assertFalse("unbound chord must fall through", handler.dispatch(event))
+        verify(exactly = 0) { viewModel.pasteFromClipboard() }
+    }
+
+    @Test
+    fun `dispatch ignores auto-repeat events`() {
+        val viewModel = mockk<TerminalViewModel>(relaxed = true)
+        val handler = KeyShortcutHandler(viewModel)
+        handler.setBindings(KeyShortcutHandler.Defaults.all())
+
+        val repeatEvent = KeyEvent(0L, 0L, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_V, 1, KeyEvent.META_CTRL_ON or KeyEvent.META_SHIFT_ON)
+        assertFalse("auto-repeat must not re-dispatch the action", handler.dispatch(repeatEvent))
+        verify(exactly = 0) { viewModel.pasteFromClipboard() }
     }
 }

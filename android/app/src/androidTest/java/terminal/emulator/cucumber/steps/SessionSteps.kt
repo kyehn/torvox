@@ -121,7 +121,7 @@ constructor(
             composeRuleHolder.composeRule
                 .onAllNodes(hasTestTag("SessionItem"), useUnmergedTree = true)
                 .fetchSemanticsNodes()
-        assert(sessionItems.size >= 2) { "Expected at least 2 sessions, found ${sessionItems.size}" }
+        assertTrue("Expected at least 2 sessions, found ${sessionItems.size}", sessionItems.size >= 2)
     }
 
     @Then("^the terminal shows the new session content$")

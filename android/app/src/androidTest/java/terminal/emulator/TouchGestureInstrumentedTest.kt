@@ -1,5 +1,6 @@
 package terminal.emulator
 
+import android.annotation.SuppressLint
 import android.content.ClipboardManager
 import android.view.MotionEvent
 import android.view.View
@@ -18,7 +19,6 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import android.annotation.SuppressLint
 
 @RunWith(AndroidJUnit4::class)
 class TouchGestureInstrumentedTest {

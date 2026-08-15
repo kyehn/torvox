@@ -6,6 +6,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.view.Surface
 import androidx.compose.ui.graphics.Color
+import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -40,7 +41,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
-import androidx.core.net.toUri
 
 data class RuntimeState(
     val isRunning: Boolean = false,
@@ -1916,11 +1916,11 @@ constructor(
             // "font size setting vs actual mismatch").
             return (userFontSize * TENTHS_PER_UNIT.toFloat()).toInt()
         }
-        // Fresh install: derive a sensible default from the screen width so a
-        // phone (~360dp) and a tablet (~600dp) both show roughly 55-60 columns
-        // (a monospace glyph is ~0.6em wide: sp = widthDp / (0.6 * 60)).
-        val widthDp = context.resources.configuration.screenWidthDp
-        return (derivedDefaultFontSp(widthDp) * TENTHS_PER_UNIT.toFloat()).toInt()
+        // Fresh install: derive a sensible default from the screen width
+        // (single source of truth: SettingsRepository.defaultFontSizeFor) so a
+        // phone (~360dp) and a tablet (~600dp) show the same column count.
+        val widthDp = context.resources.configuration.screenWidthDp.toFloat()
+        return (SettingsRepository.defaultFontSizeFor(widthDp) * TENTHS_PER_UNIT.toFloat()).toInt()
     }
 
     internal suspend fun resolveThemeName(): String {
@@ -2123,14 +2123,13 @@ constructor(
                 val installOrchestrator = terminal.emulator.installer.BootstrapOrchestrator(downloader, installer, secondStage)
                 when (installOrchestrator.getInstallStatus()) {
                     terminal.emulator.installer.BootstrapOrchestrator.Status.NOT_INSTALLED -> {
-                        LogUtil.d("Runtime", "Bootstrap not installed, starting install...")
-                        val result = installOrchestrator.ensureBootstrap(bootstrapUrl)
-                        // The success payload carries only non-sensitive
-                        // post-install diagnostics; failure keys are short
-                        // and stable — the full exception is never logged so
-                        // the persistent log file cannot capture URLs.
-                        val outcome = result.fold({ it.ifEmpty { "ok" } }, { "failed: ${it.message}" })
-                        LogUtil.d("Runtime", "Bootstrap result: $outcome")
+                        // Never auto-download: a Termux bootstrap (~150 MB)
+                        // must be installed explicitly from Settings — the
+                        // app must not download or install it on its own.
+                        // Log state only so a missing install stays
+                        // diagnosable; the Settings bootstrap button is the
+                        // single entry point.
+                        LogUtil.d("Runtime", "Bootstrap not installed — install manually from Settings")
                     }
 
                     terminal.emulator.installer.BootstrapOrchestrator.Status.INSTALLED -> {
@@ -3861,19 +3860,6 @@ private class BoundedStreamRead(
         }
     }
 }
-
-/**
- * Fresh-install default font size (sp) for a screen of [widthDp]: targets
- * roughly [DEFAULT_FONT_COLUMNS_TARGET] visible columns (a monospace glyph
- * is ~0.6em wide), clamped to a readable range. Pure so it is unit-testable
- * without an Activity context.
- */
-internal fun derivedDefaultFontSp(widthDp: Int): Float = (widthDp / DEFAULT_FONT_COLUMNS_TARGET / MONOSPACE_CHAR_ASPECT).coerceIn(MIN_FONT_SP, MAX_FONT_SP)
-
-private const val DEFAULT_FONT_COLUMNS_TARGET = 60f
-private const val MONOSPACE_CHAR_ASPECT = 0.6f
-private const val MIN_FONT_SP = 8f
-private const val MAX_FONT_SP = 18f
 
 /**
  * Fast-death effective lifetime: prefer the native `alive_ms` measurement;

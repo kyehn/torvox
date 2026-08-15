@@ -3,7 +3,6 @@ package terminal.emulator.ui
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
-import android.os.Build
 import androidx.core.app.NotificationCompat
 import terminal.emulator.R
 

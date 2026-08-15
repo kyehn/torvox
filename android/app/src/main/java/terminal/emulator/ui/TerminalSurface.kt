@@ -29,6 +29,7 @@ import android.widget.LinearLayout
 import android.widget.Magnifier
 import android.widget.PopupWindow
 import android.widget.TextView
+import androidx.core.net.toUri
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,7 +48,6 @@ import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import kotlin.math.roundToInt
-import androidx.core.net.toUri
 
 // Approximate height reserved for the ModifierBar overlay when computing
 // the terminal grid (see applyGridResize). The bar itself is ~36dp of
@@ -1045,12 +1045,12 @@ constructor(
             popup.setEnterTransition(null)
             popup.setExitTransition(null)
             // touchModal must stay true (the default): with touchModal
-                // false the popup window never receives touch events and the
-                // handle's onTouchEvent (drag) can never fire — touches fall
-                // through to the terminal and clear the selection. With
-                // touchModal true + focusable false, touches inside the
-                // handle are delivered to the handle view and touches outside
-                // pass through without dismissing it.
+            // false the popup window never receives touch events and the
+            // handle's onTouchEvent (drag) can never fire — touches fall
+            // through to the terminal and clear the selection. With
+            // touchModal true + focusable false, touches inside the
+            // handle are delivered to the handle view and touches outside
+            // pass through without dismissing it.
             popup.setContentView(contentView)
             return popup
         }
@@ -2267,6 +2267,9 @@ constructor(
     @Suppress("CyclomaticComplexMethod", "LongMethod", "NestedBlockDepth") // Acceptable — dispatches ~15 distinct gesture/intent types
     override fun performClick(): Boolean = super.performClick()
 
+    // Acceptable: dispatches ~15 distinct gesture/intent types with
+    // selection, scroll, long-press, and hardware-key interactions.
+    @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             // Accessibility contract: a view overriding onTouchEvent must

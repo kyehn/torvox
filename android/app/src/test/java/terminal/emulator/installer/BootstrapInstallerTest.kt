@@ -16,13 +16,16 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 /**
- * On-device (emulator) tests for the bootstrap install + second-stage pipeline.
+ * JVM (Robolectric) tests for the bootstrap install + second-stage pipeline.
  *
  * These exercise the REAL [BootstrapInstaller] / [SecondStageRunner] code paths
  * (zip extraction, symlink creation via [Os.symlink], executable chmod, atomic
  * rename, post-install script execution) without downloading anything from the
  * network: a synthetic bootstrap zip is built locally and installed into a
- * throwaway prefix under the app's exec-permitted `files/` tree.
+ * throwaway prefix under the app's exec-permitted `files/` tree. Symlink
+ * direction and executable-bit verification live in the instrumented suite
+ * (BootstrapSymlinkInstrumentedTest) — Robolectric's ShadowOs has no
+ * symlink/chmod/stat support.
  */
 @RunWith(RobolectricTestRunner::class)
 class BootstrapInstallerTest {

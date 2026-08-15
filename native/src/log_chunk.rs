@@ -240,7 +240,8 @@ mod tests {
     fn max_entry_size_floor() {
         // A huge tag still yields a usable floor.
         assert_eq!(max_entry_size(1_000_000), 64);
-        assert_eq!(max_entry_size(0), 4068 - 32 - 0 - 4);
+        // Tag-less floor: 4068 payload − 32 prefix overhead − 4 safety margin.
+        assert_eq!(max_entry_size(0), 4032);
     }
 
     #[test]
@@ -262,7 +263,6 @@ mod tests {
                 chunk.len()
             );
             // Re-encoding must round-trip (valid UTF-8, no lone surrogates).
-            assert_eq!(chunk.as_bytes(), chunk.as_bytes());
             let decoded = String::from_utf8(chunk.as_bytes().to_vec()).expect("valid utf-8");
             assert_eq!(decoded, *chunk);
         }
