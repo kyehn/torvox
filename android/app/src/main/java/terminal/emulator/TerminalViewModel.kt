@@ -1180,7 +1180,15 @@ constructor(
             .stateIn(
                 viewModelScope,
                 SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-                SettingsRepository.SettingsState(),
+                // Match the device-adaptive default so the pre-flow snapshot
+                // never flashes the fixed 10sp fallback.
+                SettingsRepository.SettingsState(
+                    fontSize =
+                    SettingsRepository.defaultFontSizeFor(
+                        context.resources.displayMetrics.widthPixels /
+                            context.resources.displayMetrics.density,
+                    ),
+                ),
             )
 
     private val _availableFonts = MutableStateFlow<List<String>>(emptyList())
