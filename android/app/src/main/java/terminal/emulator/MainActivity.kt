@@ -213,7 +213,12 @@ class MainActivity : ComponentActivity() {
         @SuppressLint("UseKtx")
         window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
         window.setFormat(PixelFormat.TRANSPARENT)
-        testBackdoorReceivers.register()
+        // Test-backdoor broadcasts are instrumentation-only: never register
+        // them outside debug builds (a release APK must not expose the
+        // DUMP_TERMINAL/INPUT/SELECT_ALL/VT_WRITE/INSTALL_BOOTSTRAP hooks).
+        if (BuildConfig.DEBUG) {
+            testBackdoorReceivers.register()
+        }
         try {
             terminal.emulator.service.TerminalForegroundService
                 .start(this)
@@ -260,10 +265,7 @@ class MainActivity : ComponentActivity() {
             LogUtil.d("MainActivity", "handleLaunchIntent: null intent")
             return
         }
-        LogUtil.d(
-            "MainActivity",
-            "handleLaunchIntent: action=${intent.action} installExtra=${intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP)} failsafe=${intent.getBooleanExtra(EXTRA_FAILSAFE_SESSION, false)}",
-        )
+        LogUtil.d("MainActivity", "handleLaunchIntent: action=${intent.action} failsafe=${intent.getBooleanExtra(EXTRA_FAILSAFE_SESSION, false)}")
         if (Intent.ACTION_RUN == intent.action &&
             intent.getBooleanExtra(EXTRA_FAILSAFE_SESSION, false)
         ) {
@@ -272,8 +274,13 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
             launchOpenSettings = true
         }
-        intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP)?.let { zipPath ->
-            installBootstrapFromPath(zipPath)
+        // Test-only bootstrap installer entry (NixBootstrapInstrumentedTest).
+        // Debug builds only: release APKs must not carry the install-backdoor
+        // extra (any app could otherwise point us at an arbitrary zip).
+        if (BuildConfig.DEBUG) {
+            intent.getStringExtra(EXTRA_INSTALL_BOOTSTRAP)?.let { zipPath ->
+                installBootstrapFromPath(zipPath)
+            }
         }
     }
 
@@ -547,7 +554,9 @@ class MainActivity : ComponentActivity() {
         activeDialog?.dismiss()
         activeDialog = null
         super.onDestroy()
-        testBackdoorReceivers.unregister()
+        if (BuildConfig.DEBUG) {
+            testBackdoorReceivers.unregister()
+        }
         // Stop the foreground service when no session is running. Without
         // this, the service (and its PARTIAL_WAKE_LOCK) stays alive forever
         // after the user leaves the app, draining the battery and pinning a

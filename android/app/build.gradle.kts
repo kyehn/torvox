@@ -248,16 +248,12 @@ dependencies {
     // (Robolectric/JVM) and device-side tests. K2.4.0 = built for Kotlin 2.4.
     testImplementation("de.infix.testBalloon:testBalloon-framework-core:1.0.1-K2.4.0")
 
-    // Stove — JVM backend e2e testing DSL (Trendyol). Full framework
-    // targets Spring/Ktor + Testcontainers; this Android app uses only its
-    // HTTP client system (no containers) against MockWebServer to drive
-    // the bootstrap download path end-to-end. Requires JUnit5 (Jupiter)
-    // for the Stove extension; JUnit4 tests keep running alongside.
-    testImplementation("com.trendyol:stove:0.25.2")
-    testImplementation("com.trendyol:stove-http:0.25.2")
-    testImplementation("com.trendyol:stove-extensions-junit:0.25.2")
-    testImplementation("org.junit.jupiter:junit-jupiter:6.1.3")
-    testImplementation("org.junit.vintage:junit-vintage-engine:6.1.3")
+    // Stove — removed: its sole test (BootstrapStoveHttpTest) exercised
+    // only `BootstrapDownloader.defaultClient()` against MockWebServer —
+    // the same path BootstrapDownloaderTest covers with plain JUnit4 +
+    // mockwebserver3 — and asserted nothing about product code, so the
+    // framework (and its JUnit5/Jupiter platform + vintage engine) was
+    // unneeded weight. Kept the rationale here so it is not re-added.
 
     // Slack Compose Lints — common Compose pitfalls (mutableStateOf, etc.)
     lintChecks("com.slack.lint.compose:compose-lint-checks:1.5.4")
@@ -412,8 +408,6 @@ tasks.register("pitest") {
     description = "Run PIT mutation testing on all variant unit tests"
 }
 
-// JUnit5 (Jupiter) platform for Stove tests — added alongside the JUnit4
-// vintage engine so both test styles run from the same `test` task.
-tasks.withType<Test>().configureEach {
-    useJUnitPlatform()
-}
+// JUnit5 (Jupiter) platform removed with Stove (its only consumer);
+// the suite runs on the default JUnit4 runner (TestBalloon's JUnit4
+// runner included).

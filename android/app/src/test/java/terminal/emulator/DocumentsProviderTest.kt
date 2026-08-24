@@ -87,10 +87,12 @@ class DocumentsProviderTest {
             requireNotNull(docCursor).use { dc ->
                 assertTrue("Root document should exist", dc.count == 1)
                 val mimeIndex = dc.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
-                if (mimeIndex >= 0) {
-                    dc.moveToFirst()
-                    assertEquals(DocumentsContract.Document.MIME_TYPE_DIR, dc.getString(mimeIndex))
-                }
+                // The column must exist AND be a directory — a guard here
+                // would silently lose the assertion when the provider
+                // drops the column.
+                assertTrue("MIME_TYPE column must exist", mimeIndex >= 0)
+                dc.moveToFirst()
+                assertEquals(DocumentsContract.Document.MIME_TYPE_DIR, dc.getString(mimeIndex))
             }
         }
     }

@@ -981,7 +981,6 @@ mod tests {
 
     #[test]
     fn session_spawn_and_exit() {
-        let mut session = spawn_test_session();
         spawn_and_exit();
     }
 
@@ -1107,7 +1106,6 @@ mod tests {
 
     #[test]
     fn session_after_exit_returns_error() {
-        let mut session = spawn_test_session();
         spawn_and_exit();
     }
 

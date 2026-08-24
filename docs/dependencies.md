@@ -99,7 +99,8 @@
 - Dependency injection: `com.google.dagger:hilt-android:2.60.1` with KSP compiler
 - Direct JNI (no JNA or boltffi)
 - MCP / IPC: `tower-mcp 0.14` (MCP protocol), `axum 0.8` (HTTP), `tokio 1` (async), `schemars 1` (JSON Schema)
-- Test frameworks: JUnit 4/5, MockK, Turbine, Robolectric, Roborazzi, Cucumber, Espresso, UI Automator, ArchUnit, Stove
+- Test frameworks: JUnit 4, MockK, Turbine, Robolectric, Roborazzi, Cucumber, Espresso, UI Automator, Konsist, TestBalloon, Ultron
+  - Stove (Trendyol) was evaluated and removed — see §adoption table and `rejected-technologies.md`
 
 ## 2. Vulnerability Scanning
 
@@ -169,5 +170,7 @@ not adopted are recorded here with the binding reason (no speculative deps).
 | `hnaclee/autocorrect` | Not adopted | Docs are already vale/markdownlint/typos-gated in tool_lint; autocorrect's CJK spacing pass would fight those exact linters. |
 | `Manabu-GT/DebugOverlay-Android` | **Adopted** | `com.ms-square:debugoverlay:2.7.0` (debugImplementation) — zero-config runtime diagnostics, see `android/app/build.gradle.kts:230`. |
 | `slackhq/compose-lints` + `slackhq/slack-lints` | **Adopted** | `lintChecks("com.slack.lint.compose:compose-lint-checks:1.5.4")` + `lintChecks("com.slack.lint:slack-lint-checks:0.11.1")` — active Android lint rules; Slack-internal rules disabled with per-rule comments (build.gradle.kts §lint). |
-| `Trendyol/stove`, `open-tool/ultron`, `infix-de/testBalloon`, `LemonAppDev/konsist`, `Kotlin/ktfmt` (via `cortinico/ktfmt-gradle`), `ktlint` (via `JLLeitschuh/ktlint-gradle`), `square/moshi` | Moshi: rejected (see §1.3 — kotlinx-serialization owns all JSON) | The rest are **adopted** exactly as listed: stove 0.25.2 (integration tests), ultron 2.6.3 (androidTest), testBalloon 1.0.1 (UI test framework), konsist 0.17.3 (architecture tests), ktfmt-gradle 0.22.0, ktlint-gradle (spotless-wrapped). |
+| `Trendyol/stove`, `open-tool/ultron`, `infix-de/testBalloon`, `LemonAppDev/konsist`, `Kotlin/ktfmt` (via `cortinico/ktfmt-gradle`), `ktlint` (via `JLLeitschuh/ktlint-gradle`), `square/moshi` | Moshi: rejected (see §1.3 — kotlinx-serialization owns all JSON). Stove: rejected (see §adoption note below). | The rest are **adopted** exactly as listed: ultron 2.6.3 (androidTest), testBalloon 1.0.1 (UI test framework), konsist 0.17.3 (architecture tests), ktfmt-gradle 0.22.0, ktlint-gradle (spotless-wrapped). |
+
+> Stove adoption note: `com.trendyol:stove:0.25.2` + `stove-http` + `stove-extensions-junit` were added with a single test (`BootstrapStoveHttpTest`) that exercised only `BootstrapDownloader.defaultClient()` against MockWebServer — the same path `BootstrapDownloaderTest` covers with plain JUnit4 + mockwebserver3 — and asserted nothing about product code. Removed together with the JUnit5 (Jupiter + vintage) platform it forced (`useJUnitPlatform()` in `app/build.gradle.kts`), keeping the whole suite on the default JUnit4 runner. Do not re-add without a test that actually drives product code.
 | `hyperium/hyper` | Not adopted | axum already depends on hyper internally; adding it as a direct dep would be redundant. |

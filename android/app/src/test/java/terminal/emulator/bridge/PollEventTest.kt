@@ -2,6 +2,7 @@ package terminal.emulator.bridge
 
 import kotlinx.serialization.decodeFromString
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Test
 
 /**
@@ -100,5 +101,19 @@ class PollEventTest {
             // discriminator throws SerializationException here.
             pollEventJson.decodeFromString<PollEvent>(sample)
         }
+    }
+
+    @Test
+    fun `unknown discriminator is rejected`() {
+        val thrown =
+            try {
+                pollEventJson.decodeFromString<PollEvent>("""{"event":"no_such_event","session_id":1}""")
+                null
+            } catch (exception: kotlinx.serialization.SerializationException) {
+                exception
+            }
+        // A renamed Rust discriminator must surface here so Kotlin's
+        // decoder learns about it instead of silently misreading events.
+        assertNotNull("unknown event discriminator must throw", thrown)
     }
 }
