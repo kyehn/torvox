@@ -1203,6 +1203,15 @@ constructor(
                     var consecutiveErrors = 0
                     var lastScrollOffset = Int.MAX_VALUE
                     var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
+                    // Per-thread frame-duration statistics: reset whenever the
+                    // render thread restarts (fresh lifetime, no stale history).
+                    val frameTiming = FrameTimingStats()
+                    // Baseline-adaptive degradation detector: learns the
+                    // device's own frame-time baseline and alerts on windows
+                    // that regress ~3x above it — works on the software
+                    // emulator (~555ms/frame) and on real devices (~17ms)
+                    // with one mechanism instead of fixed thresholds.
+                    val frameTimingTrend = FrameTimingTrend()
                     LogUtil.d("Runtime", "render thread started for session ${entry.id} generation=$generation")
                     while (entry.running && renderGeneration.get() == generation) {
                         // user pressed Enter on the
@@ -1427,6 +1436,55 @@ constructor(
                                     }
                                 }
                                 entry.lastRenderDone = System.nanoTime()
+                                frameTiming.record(entry.lastRenderDone - entry.lastRenderStart)
+                                frameTiming.takeReport()?.let { report ->
+                                    // Memory gauge alongside the timing window: a
+                                    // monotonically growing scrollback row count
+                                    // across windows indicates unbounded history.
+                                    val scrollbackRows =
+                                        try {
+                                            NativeBridge.getScrollbackRows(entry.id)
+                                        } catch (exception: Exception) {
+                                            LogUtil.w("Runtime", "scrollback query failed", exception)
+                                            -1
+                                        }
+                                    val summary =
+                                        "session ${entry.id} frame timing window (${report.frameCount} frames): " +
+                                            "avg=${report.averageNanos / 1_000_000L}ms " +
+                                            "p95=${report.p95Nanos / 1_000_000L}ms " +
+                                            "max=${report.maxNanos / 1_000_000L}ms " +
+                                            "scrollback=$scrollbackRows rows"
+                                    val trendDegraded = frameTimingTrend.observe(report.averageNanos)
+                                    when {
+                                        // Absolute pathology: a stall beyond any
+                                        // device's expectation (emulator baseline
+                                        // ~555ms/frame; real devices ~17ms).
+                                        report.p95Nanos >= FRAME_TIME_WARN_P95_NANOS ||
+                                            report.maxNanos >= FRAME_TIME_WARN_MAX_NANOS ->
+                                            LogUtil.w("Runtime", "$summary — severe stall(s), investigate render cost")
+
+                                        // Baseline-relative regression (~3x the
+                                        // device's own learned baseline, at least
+                                        // 100ms average): catches gradual and
+                                        // device-specific degradations that an
+                                        // absolute threshold cannot.
+                                        trendDegraded ->
+                                            LogUtil.w(
+                                                "Runtime",
+                                                "$summary — degraded vs baseline (${frameTimingTrend.currentBaselineNanos()?.div(1_000_000L)}ms), investigate render cost",
+                                            )
+
+                                        // Normal window: Info (not Debug) so the
+                                        // gauge survives release builds — LogUtil.d
+                                        // is gated on BuildConfig.DEBUG and would
+                                        // hide every window on a release APK,
+                                        // leaving gradual issues invisible.
+                                        // One line per 60 rendered frames (~1s on
+                                        // a real device, ~33s on the emulator) is
+                                        // a quiet but always-present signal.
+                                        else -> LogUtil.i("Runtime", summary)
+                                    }
+                                }
                                 // accessibility hook — the render loop
                                 // is the only signal that terminal content
                                 // changed, and the SurfaceView has no text nodes.
@@ -1870,6 +1928,16 @@ constructor(
         private const val RENDER_DIAGNOSTIC_FREQUENCY = 60
         private const val THREAD_JOIN_TIMEOUT_MS = 1000L
         private const val RENDER_HANG_TIMEOUT_NANOS = 10_000_000_000L // 10 seconds
+
+        // Frame-timing diagnostics (FrameTimingStats + FrameTimingTrend): the
+        // absolute thresholds below cover stalls beyond any device's
+        // expectation (measured emulator idle windows average single-digit
+        // ms; a real device targets ~17ms). Gradual/device-specific
+        // regressions are caught by the baseline-adaptive FrameTimingTrend
+        // (~3x of the learned baseline, ≥100ms average) so a real
+        // degradation surfaces in the logs on any hardware.
+        private const val FRAME_TIME_WARN_P95_NANOS = 1_000_000_000L // 1s p95
+        private const val FRAME_TIME_WARN_MAX_NANOS = 2_000_000_000L // 2s single frame
         private const val RENDER_INITIAL_RETRY_MAX = 5
         private const val RENDER_INITIAL_RETRY_DELAY_MS = 150L
 
