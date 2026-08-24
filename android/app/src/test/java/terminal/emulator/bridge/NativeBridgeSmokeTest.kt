@@ -135,6 +135,21 @@ class NativeBridgeSmokeTest {
     }
 
     @Test
+    fun `scrollback rows grows after scrollback-generating output`() {
+        withSession { sessionId ->
+            assertEquals("fresh session has no scrollback", 0, NativeBridge.getScrollbackRows(sessionId))
+            // More lines than the visible grid -> pushed into scrollback.
+            val payload = (1..200).joinToString("\n") { "scrollback line $it" } + "\n"
+            NativeBridge.feedTerminal(sessionId, payload.toByteArray())
+            val grew = awaitTrue("scrollback populated") {
+                NativeBridge.getScrollbackRows(sessionId) > 0
+            }
+            assertTrue("200 fed lines must create scrollback rows", grew)
+            assertEquals("unknown session reads as 0 rows", 0, NativeBridge.getScrollbackRows(999_999L))
+        }
+    }
+
+    @Test
     fun `unknown session id fails safely with an exception`() {
         // A bogus id must not crash the process: the export throws a Java
         // exception (jni_export_guard) instead of aborting.
@@ -155,9 +170,10 @@ class NativeBridgeSmokeTest {
             val elapsed = measureTimeMillis {
                 repeat(iterations) { NativeBridge.getSessionCount() }
             }
+            println("JNI overhead diagnostic: $iterations getSessionCount calls took ${elapsed}ms")
             assertTrue(
                 "200 JNI calls took ${elapsed}ms — regression in bridge cost",
-                elapsed < 5_000,
+                elapsed < 50,
             )
         }
     }

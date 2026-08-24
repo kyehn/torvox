@@ -908,6 +908,32 @@ fn get_session_count_inner(_env: &mut JNIEnv, _class: JClass) -> jint {
     rlock_session_registry().len() as i32
 }
 
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: getScrollbackRows
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Returns the scrollback row count for a session (0 for an unknown or
+/// empty session). Lightweight read following the TerminalQueryPort
+/// pattern: lock the session, query Ghostty, unlock. Feeds the Kotlin
+/// frame-timing memory gauge — a monotonically growing row count across
+/// windows would indicate an unbounded scrollback.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getScrollbackRows(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+) -> jint {
+    jni_export_guard!(&mut env, 0, {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return 0;
+        };
+        let session = entry.session.lock();
+        session.terminal().scrollback_length() as jint
+    })
+}
+
 // ── 输入、调整与键鼠编码 ────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: resize
