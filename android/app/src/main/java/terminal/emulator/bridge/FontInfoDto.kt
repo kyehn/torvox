@@ -46,3 +46,15 @@ data class FontActiveDto(
     val name: String = "",
     val monospaced: Boolean = false,
 )
+
+/**
+ * Font size sp → px conversion at a device density. The rendering pipeline
+ * works in device pixels (`font_size_px`); the settings UI edits sizes in
+ * sp, so every sp value crosses this boundary exactly once on the way in
+ * and once (display round-trip) on the way out. Pure function — density is
+ * `LocalDensity.current.density` on Android and any positive float in tests.
+ */
+fun fontSpToPx(fontSizeSp: Float, density: Float): Float = fontSizeSp * density
+
+/** Inverse of [fontSpToPx]: px → sp for display (not for round-tripped input). */
+fun fontPxToSp(fontSizePx: Float, density: Float): Float = fontSizePx / density
