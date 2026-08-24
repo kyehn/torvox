@@ -153,7 +153,10 @@ class DebouncedTextUpdater(
     private val debounceMillis: Long,
     private val scheduler: DebounceScheduler,
 ) {
-    private var pendingText: String? = null
+    // Written from the render thread (accessibilityRenderTick) and cleared
+    // from the main thread (navigateAccessibilityLine cancel/update), so
+    // visibility is guaranteed across threads.
+    @Volatile private var pendingText: String? = null
 
     /** Schedule [text] for emission; identical pending text is a no-op. */
     fun update(text: String, onEmit: (String) -> Unit) {

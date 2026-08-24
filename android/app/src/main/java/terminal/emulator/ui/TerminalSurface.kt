@@ -1127,16 +1127,16 @@ constructor(
             ACCESSIBILITY_DESCRIPTION_DEBOUNCE_MILLIS,
             HandlerDebounceScheduler(accessibilityMainHandler),
         )
-    private var accessibilityDescriptionRefreshPosted = false
+    @Volatile private var accessibilityDescriptionRefreshPosted = false
     private var lastAccessibilityScrollbackQueryNanos = 0L
 
     @Volatile private var accessibilityScrollbackLength = 0
-    private var rows: Int = DEFAULT_ROWS
-    private var cols: Int = DEFAULT_COLS
+    @Volatile private var rows: Int = DEFAULT_ROWS
+    @Volatile private var cols: Int = DEFAULT_COLS
     private var surfaceWidthPixels: Int = 0
     private var surfaceHeightPixels: Int = 0
     private var isScrolling: Boolean = false
-    private var scrollOffset: Int = 0
+    @Volatile private var scrollOffset: Int = 0
     private var lastImeBottom: Int = 0
 
     // Scrollback-length cache: `scrollbackLength()` is a
@@ -1902,22 +1902,23 @@ constructor(
                 return
             }
         accessibilityScrollbackLength = scrollbackLength
-        accessibilityDescriptionRefreshPosted = true
-        accessibilityMainHandler.post {
-            accessibilityDescriptionRefreshPosted = false
-            refreshAccessibilityDescription()
-        }
-    }
-
-    /** Assemble the visible-screen description and apply it (debounced). Main thread only. */
-    private fun refreshAccessibilityDescription() {
-        val bridge = viewModel?.runtime?.bridge() ?: return
-        if (!isAccessibilityEnabled()) return
-        val scrollbackLength = accessibilityScrollbackLength
+        // Per-line scrollback queries are blocking JNI: each one locks the
+        // session, which the render thread holds for the whole frame
+        // (~500 ms under software rendering). Running them on the main
+        // thread would pin the main looper inside a mutex for every frame,
+        // which keeps Espresso/Compose idling permanently busy. Assemble
+        // the description HERE on the render thread; the main thread only
+        // applies the resulting string (no JNI).
         val lines = accessibilityLineProvider.visibleLines(rows, scrollbackLength, scrollOffset)
         val description = accessibilityLineProvider.contentDescription(lines)
         if (description.isEmpty()) return
-        accessibilityDescriptionUpdater.update(description) { this.contentDescription = it }
+        accessibilityDescriptionRefreshPosted = true
+        accessibilityMainHandler.post {
+            accessibilityDescriptionRefreshPosted = false
+            if (isAccessibilityEnabled()) {
+                accessibilityDescriptionUpdater.update(description) { this.contentDescription = it }
+            }
+        }
     }
 
     /**
