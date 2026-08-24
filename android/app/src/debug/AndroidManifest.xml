@@ -5,5 +5,13 @@
         android:name=".TerminalAppDebug"
         tools:replace="android:name"
         android:memtagMode="sync"
-        android:allowBackup="false" />
+        android:allowBackup="false">
+        <!-- androidx.compose.ui.test.junit4.createComposeRule (Robolectric
+             JVM tests) launches androidx.activity.ComponentActivity; the
+             debug merged manifest is what Robolectric resolves, so it must
+             be present in a debug-only (non-release) overlay. -->
+        <activity
+            android:name="androidx.activity.ComponentActivity"
+            android:exported="true" />
+    </application>
 </manifest>

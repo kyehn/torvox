@@ -11,6 +11,8 @@
   ],
   "ignorePattern": [
     "^import$",
+    "^\\s*import\\s.*$",
+    "^\\s*use \\w.*$",
     "^\\s*//\\s*(SAFETY|jscpd:ignore|Generated|Copyright|SPDX).*$"
   ],
   "reporters": ["console-full"]

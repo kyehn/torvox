@@ -69,11 +69,23 @@
     <string name="notification_channel_name">Terminal-Sitzung</string>
     <string name="notification_channel_desc">Benachrichtigung für aktive Terminal-Sitzungen</string>
     <string name="notification_active_single">Terminal-Sitzung aktiv</string>
-    <string name="notification_active_plural">%d Terminal-Sitzungen aktiv</string>
-    <string name="copied_chars">%d Zeichen kopiert</string>
-    <string name="pasted_chars">%d Zeichen eingefügt</string>
+    <plurals name="notification_active_plural">
+        <item quantity="one">%d Terminal-Sitzung aktiv</item>
+        <item quantity="other">%d Terminal-Sitzungen aktiv</item>
+    </plurals>
+    <plurals name="copied_chars">
+        <item quantity="one">%d Zeichen kopiert</item>
+        <item quantity="other">%d Zeichen kopiert</item>
+    </plurals>
+    <plurals name="pasted_chars">
+        <item quantity="one">%d Zeichen eingefügt</item>
+        <item quantity="other">%d Zeichen eingefügt</item>
+    </plurals>
     <string name="unsupported_abi">Nicht unterstützte ABI: %s</string>
-    <string name="sessions_accessible">%d Sitzungen</string>
+    <plurals name="sessions_accessible">
+        <item quantity="one">%d Sitzung</item>
+        <item quantity="other">%d Sitzungen</item>
+    </plurals>
     <string name="title_changed">Terminaltitel geändert zu %s</string>
 
     <!-- USB Serial -->

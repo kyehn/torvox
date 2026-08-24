@@ -99,7 +99,7 @@ impl FontPipeline {
                 {
                     for entry in entries.flatten() {
                         let file_path = entry.path();
-                        if is_font_file(&file_path) {
+                        if font_db::is_font_file(&file_path) {
                             if let Err(error) = db.load_font_file(&file_path) {
                                 // File name only: the full path can embed a user home dir.
                                 log::warn!(
@@ -798,6 +798,22 @@ impl FontPipeline {
         self.font_size
     }
 
+    /// Look up a previously rasterized glyph in the cache.
+    pub(super) fn lookup_glyph(
+        &mut self,
+        font_id: fontdb::ID,
+        glyph_id: u16,
+        synthesis: GlyphSynthesis,
+    ) -> Option<GlyphInfo> {
+        let key = GlyphKey {
+            font_id,
+            glyph_id,
+            pixel_size: (self.font_size * self.raster_scale) as u16,
+            synthesis: synthesis.bits(),
+        };
+        self.caches.glyph_cache.get(&key).cloned()
+    }
+
     pub fn glyph_information(&mut self, ch: char) -> Option<GlyphInfo> {
         self.glyph_information_with_synthesis(ch, GlyphSynthesis::None)
     }
@@ -939,23 +955,15 @@ impl FontPipeline {
         synthesis: GlyphSynthesis,
     ) -> Option<GlyphInfo> {
         let primary_font_id = self.font_id?;
-        let pixel_size = (self.font_size * self.raster_scale) as u16;
         let has_cjk_fallback = !self.cjk_fallback_ids.is_empty();
         let synthesized = synthesis != GlyphSynthesis::None;
 
         // ── Fast path: ASCII with cached glyph_id —─────────────────────────
         if (ch as u32) < 128
             && let Some(gid) = self.caches.ascii_glyph_ids[ch as usize]
+            && let Some(info) = self.lookup_glyph(primary_font_id, gid, synthesis)
         {
-            let key = GlyphKey {
-                font_id: primary_font_id,
-                glyph_id: gid,
-                pixel_size,
-                synthesis: synthesis.bits(),
-            };
-            if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
-                return Some(info);
-            }
+            return Some(info);
         }
 
         // ── CJK cache: skip swash + fallback for already-resolved chars ─────
@@ -965,16 +973,9 @@ impl FontPipeline {
             && (ch as u32) >= CJK_IDEOGRAPHIC_START
             && has_cjk_fallback
             && let Some(&(cached_font_id, cached_glyph_id)) = self.caches.cjk_glyph_cache.get(&ch)
+            && let Some(info) = self.lookup_glyph(cached_font_id, cached_glyph_id, synthesis)
         {
-            let key = GlyphKey {
-                font_id: cached_font_id,
-                glyph_id: cached_glyph_id,
-                pixel_size,
-                synthesis: synthesis.bits(),
-            };
-            if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
-                return Some(info);
-            }
+            return Some(info);
         }
 
         // ── Resolve glyph_id (cached if possible) ───────────────────────────
@@ -1003,21 +1004,14 @@ impl FontPipeline {
         // hold the primary font's.notdef (tofu) from before a Nerd Font
         // was installed/loaded.
         let is_nerd_pua = (ch as u32) >= 0xE000 && (ch as u32) <= 0xF8FF;
-        if !is_nerd_pua {
-            let key = GlyphKey {
-                font_id: primary_font_id,
-                glyph_id,
-                pixel_size,
-                synthesis: synthesis.bits(),
-            };
-            if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
-                if !synthesized && (ch as u32) >= CJK_IDEOGRAPHIC_START {
-                    self.caches
-                        .cjk_glyph_cache
-                        .put(ch, (primary_font_id, glyph_id));
-                }
-                return Some(info);
+        if !is_nerd_pua && let Some(info) = self.lookup_glyph(primary_font_id, glyph_id, synthesis)
+        {
+            if !synthesized && (ch as u32) >= CJK_IDEOGRAPHIC_START {
+                self.caches
+                    .cjk_glyph_cache
+                    .put(ch, (primary_font_id, glyph_id));
             }
+            return Some(info);
         }
 
         // ── CJK: check outline, try fallback ────────────────────────────────
@@ -1197,16 +1191,4 @@ impl FontPipeline {
     pub fn has_font(&self) -> bool {
         self.font_id.is_some()
     }
-}
-
-#[cfg(target_os = "android")]
-fn is_font_file(entry: &std::path::Path) -> bool {
-    entry
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| {
-            ext.eq_ignore_ascii_case("ttf")
-                || ext.eq_ignore_ascii_case("otf")
-                || ext.eq_ignore_ascii_case("ttc")
-        })
 }

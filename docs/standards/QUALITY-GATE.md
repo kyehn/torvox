@@ -53,8 +53,8 @@ jscpd native android                                # copy/paste detector
 ```
 
 Run before commit (config in `.jscpd.json`: min 8 lines / 40 tokens, skips
-`import` tokens and build artifacts). Baseline: **250 clones** (Rust ~150,
-Kotlin ~90, markup/wgsl ~10); production-code clones ~95, the rest are test
+`import` tokens and build artifacts). Baseline: **248 clones** (Rust ~150,
+Kotlin ~90, markup/wgsl ~10); production-code clones ~93, the rest are test
 fixtures and table-driven variants.
 
 Accepted as intentional (do not "fix" by adding indirection — these are

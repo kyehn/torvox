@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTextInput
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -12,8 +13,13 @@ import terminal.emulator.MainActivity
 import terminal.emulator.getBridge
 import terminal.emulator.waitForSession
 
-@org.junit.Ignore("All tests call Bridge.setCursorBlink*/resetCursorBlink/setCursorStyle — log-only implemented (native query path is wired); nothing reaches JNI, so the assertions have zero value (same policy as CursorBlinkFrameTest)")
+@org.junit.Ignore("All tests call Bridge.setCursorBlink*/resetCursorBlink/setCursorStyle — log-only implemented (native query path is wired); nothing reaches JNI, so the assertions have zero value (same policy as CursorBlinkFrameTest) — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
 class CursorBehaviorInstrumentedTest {
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
