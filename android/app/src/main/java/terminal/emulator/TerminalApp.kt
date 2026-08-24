@@ -84,6 +84,13 @@ open class TerminalApp : Application() {
     }
 
     private fun installAnrWatchDog() {
+        // Release-only on purpose: on slow software-rendered emulators a
+        // cold Activity launch or first Compose frame routinely exceeds the
+        // 5s watchdog window, and during instrumented tests the watchdog
+        // kills the process under test (seen as "Process crashed" with no
+        // native trace). Debug builds serve development/CI where the
+        // user-facing self-exit safeguard is not needed.
+        if (BuildConfig.DEBUG) return
         val logDir = getDir("logs", MODE_PRIVATE)
         anrWatchDog = AnrWatchDog(logDir, ANR_TIMEOUT_MILLIS).also { it.start() }
     }
