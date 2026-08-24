@@ -351,205 +351,6 @@ pub(crate) fn dialog_tool() -> Tool {
         .build()
 }
 
-// ── Router construction ──────────────────────────────────────────────────
-
-/// Risk classification for `run_command` input.
-///
-/// Modeled on the three-level classifier in sushi-ssh's CommandSafety
-/// (SAFE / CONFIRM / BLOCKED). torvox has no CONFIRM dialog (excluded by
-/// the user), so commands are either Safe or Blocked; blocked commands are
-/// refused **before** the Kotlin host executes anything.
-///
-/// The command never reaches a shell — the Kotlin host tokenizes it to
-/// argv (no `sh -c`), so shell metacharacters are inert. The patterns
-/// below therefore match the raw string for the destructive shapes that
-/// would survive tokenization (`rm -rf /`, `mkfs.*`, `dd of=/dev/...`,
-/// fork bombs, recursive root chmod/chown, system control commands).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CommandRisk {
-    Safe,
-    Blocked,
-}
-
-/// Normalize a command for matching: lowercase, collapse whitespace,
-/// strip leading wrapper prefixes (`sudo`/`env`/`nice`/`command`) along
-/// with each wrapper's own options and arguments, so `sudo rm -rf /`,
-/// `sudo -n rm -rf /`, `nice -n 5 rm -rf /`, and even chains like
-/// `sudo nice rm -rf /` all classify identically to `rm -rf /`.
-pub(crate) fn normalized_command(command: &str) -> String {
-    let mut tokens: Vec<&str> = command.split_whitespace().collect();
-    // Peel wrappers repeatedly: a chain like `sudo nice rm -rf /` must
-    // shed both layers, not just the first.
-    while let Some(&first) = tokens.first() {
-        if !matches!(first, "sudo" | "env" | "nice" | "command") {
-            break;
-        }
-        let consumed = 1 + wrapper_option_span(first, &tokens[1..]);
-        tokens = tokens[consumed..].to_vec();
-    }
-    // Lowercase so `-R` matches `-r`, then collapse runs of whitespace
-    // so `rm -rf  /` matches `rm -rf /`.
-    tokens
-        .iter()
-        .map(|token| token.to_lowercase())
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-/// Does `option` consume a following argument for this wrapper?
-/// (Long options written with `=` already carry their value in one
-/// token, so only the space-separated forms need listing.)
-fn wrapper_option_takes_arg(wrapper: &str, option: &str) -> bool {
-    match wrapper {
-        "sudo" => matches!(
-            option,
-            "-u" | "-g"
-                | "-C"
-                | "-p"
-                | "-c"
-                | "-r"
-                | "-t"
-                | "-T"
-                | "-D"
-                | "-R"
-                | "-P"
-                | "--user"
-                | "--group"
-                | "--prompt"
-                | "--command"
-                | "--role"
-                | "--type"
-                | "--timeout"
-                | "--chdir"
-                | "--shell"
-                | "--host"
-        ),
-        "env" => matches!(
-            option,
-            "-u" | "-C" | "-S" | "--unset" | "--chdir" | "--split-string"
-        ),
-        "nice" => matches!(option, "-n" | "--adjustment"),
-        // `command -p|-v|-V` never takes an argument.
-        _ => false,
-    }
-}
-
-/// Number of leading tokens consumed by a wrapper's own options (flags
-/// plus any argument each flag takes). Stops at the first token that is
-/// not an option of the wrapper; for `env`, `VAR=value` assignments are
-/// peeled too. `--` ends option parsing and is itself consumed.
-fn wrapper_option_span(wrapper: &str, tokens: &[&str]) -> usize {
-    let mut i = 0;
-    while i < tokens.len() {
-        let token = tokens[i];
-        if token == "--" {
-            return i + 1;
-        }
-        if wrapper == "env" && token.contains('=') && !token.starts_with('-') {
-            // Environment assignment, e.g. `env FOO=bar rm -rf /`.
-            i += 1;
-            continue;
-        }
-        if !token.starts_with('-') {
-            break;
-        }
-        // `-<digits>` is the legacy `nice` adjustment (no argument).
-        if wrapper_option_takes_arg(wrapper, token) {
-            i += 2; // flag + its argument
-        } else {
-            i += 1;
-        }
-    }
-    i
-}
-
-/// The first whitespace-delimited token, used as argv[0] for system
-/// control command matching (`reboot` as an argument is not dangerous).
-pub(crate) fn first_token(command: &str) -> &str {
-    command.split_whitespace().next().unwrap_or("")
-}
-
-pub(crate) fn classify_command(command: &str) -> CommandRisk {
-    let normalized = normalized_command(command);
-    if normalized.is_empty() {
-        return CommandRisk::Safe;
-    }
-
-    // 1. Root filesystem deletion: `rm -rf /` and direct variants. The
-    //    flags may be combined in any order (`-fr`, `-rfv`) or split
-    //    (`-r -f`, `--recursive --force`); the target must be `/` or `/*`.
-    let rm_root = [
-        "rm -rf /",
-        "rm -fr /",
-        "rm -r -f /",
-        "rm -f -r /",
-        "rm -rf /*",
-        "rm -fr /*",
-        "rm -r -f /*",
-        "rm -f -r /*",
-        "rm --recursive --force /",
-        "rm --force --recursive /",
-        "rm -rf --no-preserve-root /",
-        "rm -rf / --no-preserve-root",
-    ];
-    if normalized.starts_with("rm ")
-        && rm_root
-            .iter()
-            .any(|p| normalized == *p || normalized.starts_with(&format!("{p} ")))
-    {
-        return CommandRisk::Blocked;
-    }
-
-    // 2. Filesystem formatting: `mkfs.*`, `mkswap`.
-    let argv0 = first_token(&normalized);
-    if argv0 == "mkfs" || argv0.starts_with("mkfs.") || argv0 == "mkswap" || argv0 == "mkfs.ext4" {
-        return CommandRisk::Blocked;
-    }
-
-    // 3. Raw block-device writes: `dd of=/dev/<dev>` (of=/dev/null is
-    //    harmless), `shred /dev/<dev>`.
-    if argv0 == "dd"
-        && let Some(of_pos) = normalized.find("of=/dev/")
-    {
-        let target = &normalized[of_pos + "of=/dev/".len()..];
-        if !target.starts_with("null") {
-            return CommandRisk::Blocked;
-        }
-    }
-    if argv0 == "shred" && normalized.contains("/dev/") {
-        return CommandRisk::Blocked;
-    }
-
-    // 4. Fork bombs: bash function definitions that recurse in the
-    //    background (`:{:|:& };:`, `f() { f | f & }; f`). The `{`
-    //    signature (or ` {` with a background `&`) is unmistakable.
-    if normalized.contains("(){") || (normalized.contains("() {") && normalized.contains('&')) {
-        return CommandRisk::Blocked;
-    }
-
-    // 5. Recursive permission destruction on the root: `chmod -R 777 /`,
-    //    `chown -R root /` (the `-r` substring also covers `-R`, `-r`,
-    //    and `--recursive` after lowercasing).
-    if let Some(args) = normalized.strip_prefix("chmod ")
-        && args.contains("-r")
-        && (args.ends_with(" /") || args.ends_with(" /*"))
-    {
-        return CommandRisk::Blocked;
-    }
-    if normalized.starts_with("chown ")
-        && (normalized.ends_with(" /") || normalized.ends_with(" /*"))
-    {
-        return CommandRisk::Blocked;
-    }
-
-    // 6. System control: shutdown/reboot/poweroff/halt as the program name.
-    if matches!(argv0, "shutdown" | "reboot" | "poweroff" | "halt") {
-        return CommandRisk::Blocked;
-    }
-
-    CommandRisk::Safe
-}
-
 pub(crate) fn run_command_tool() -> Tool {
     #[derive(Deserialize, JsonSchema)]
     struct RunCommandInput {
@@ -564,20 +365,12 @@ pub(crate) fn run_command_tool() -> Tool {
     ToolBuilder::new("run_command")
         .title("Run a command in the terminal session")
         .description(
-            "Execute a raw command string safely (no sh -c): the string is \
-             tokenized to argv with quote/backslash rules and executed with \
-             the app's environment. Returns the exit code plus captured \
-             stdout/stderr. Shell metacharacters are NOT interpreted.",
+            "Run a raw command line in the terminal session (no sh -c): the \
+             string is tokenized to argv with quote/backslash rules and \
+             executed with the app's environment. Returns the exit code plus \
+             captured stdout/stderr. Shell metacharacters are NOT interpreted.",
         )
         .handler(|input: RunCommandInput| async move {
-            // refuse destructive commands before the Kotlin
-            // host executes anything. The error text is returned directly
-            // to the MCP client.
-            if classify_command(&input.command) == CommandRisk::Blocked {
-                return Ok(CallToolResult::error(
-                    "BLOCKED: command refused by safety classifier (destructive pattern)",
-                ));
-            }
             let (session_id, rx) = {
                 let state = global_state();
                 let guard = state.0.on_run_command.lock();
@@ -650,4 +443,72 @@ pub(crate) fn screenshot_tool() -> Tool {
             }
         })
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ──: tool definitions (identity + contract) ────────────────────
+
+    fn all_tools() -> Vec<Tool> {
+        vec![
+            terminal_info_tool(),
+            clipboard_get_tool(),
+            clipboard_set_tool(),
+            notify_tool(),
+            toast_tool(),
+            open_url_tool(),
+            send_signal_tool(),
+            last_command_output_tool(),
+            pick_file_tool(),
+            dialog_tool(),
+            run_command_tool(),
+            screenshot_tool(),
+        ]
+    }
+
+    #[test]
+    fn tool_names_are_unique_and_valid() {
+        let mut names: Vec<String> = all_tools().into_iter().map(|tool| tool.name).collect();
+        let original = names.clone();
+        names.sort();
+        names.dedup();
+        assert_eq!(names.len(), original.len(), "tool names must be unique");
+        // MCP spec: `^[a-zA-Z0-9_-]{1,64}$` — names are identifiers, so
+        // neither dots nor long names are allowed.
+        for name in names {
+            assert!(
+                !name.is_empty() && name.len() <= 64,
+                "tool name must be 1..=64 chars: {name}"
+            );
+            assert!(
+                name.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-')),
+                "tool name must be alphanumeric/_/-: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_tool_has_title_description_and_schema() {
+        for tool in all_tools() {
+            assert!(
+                tool.title.as_deref().is_some_and(|t| !t.is_empty()),
+                "tool {} must have a non-empty title",
+                tool.name
+            );
+            assert!(
+                tool.description.as_deref().is_some_and(|d| !d.is_empty()),
+                "tool {} must have a non-empty description",
+                tool.name
+            );
+            assert!(
+                tool.definition().input_schema.is_object()
+                    || tool.definition().input_schema.is_null(),
+                "tool {} must declare an object (or empty) input schema",
+                tool.name
+            );
+        }
+    }
 }
