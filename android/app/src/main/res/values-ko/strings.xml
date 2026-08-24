@@ -69,11 +69,23 @@
     <string name="notification_channel_name">터미널 세션</string>
     <string name="notification_channel_desc">활성 터미널 세션을 위한 알림</string>
     <string name="notification_active_single">터미널 세션이 활성화되었습니다</string>
-    <string name="notification_active_plural">%d개 터미널 세션이 활성화되었습니다</string>
-    <string name="copied_chars">%d자를 복사했습니다</string>
-    <string name="pasted_chars">%d자를 붙여넣었습니다</string>
+    <plurals name="notification_active_plural">
+        <item quantity="one">%d개 터미널 세션이 활성화되었습니다</item>
+        <item quantity="other">%d개 터미널 세션이 활성화되었습니다</item>
+    </plurals>
+    <plurals name="copied_chars">
+        <item quantity="one">%d자를 복사했습니다</item>
+        <item quantity="other">%d자를 복사했습니다</item>
+    </plurals>
+    <plurals name="pasted_chars">
+        <item quantity="one">%d자를 붙여넣었습니다</item>
+        <item quantity="other">%d자를 붙여넣었습니다</item>
+    </plurals>
     <string name="unsupported_abi">지원되지 않는 ABI: %s</string>
-    <string name="sessions_accessible">%d 세션</string>
+    <plurals name="sessions_accessible">
+        <item quantity="one">%d 세션</item>
+        <item quantity="other">%d 세션</item>
+    </plurals>
     <string name="title_changed">터미널 제목이 %s(으)로 변경됨</string>
 
     <!-- USB Serial -->

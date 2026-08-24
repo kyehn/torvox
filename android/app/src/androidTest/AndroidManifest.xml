@@ -1,3 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+         the system permission dialog covers the UI and makes every
+         compose-test node lookup fail. GrantPermissionRule needs the
+         permission declared in the test APK to auto-grant it. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 </manifest>

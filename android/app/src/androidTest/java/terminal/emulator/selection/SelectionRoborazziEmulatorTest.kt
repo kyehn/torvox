@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import com.github.takahirom.roborazzi.RoborazziOptions
 import com.github.takahirom.roborazzi.RoborazziRule
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -41,6 +42,11 @@ class SelectionRoborazziEmulatorTest {
                 ),
             ),
         )
+
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
@@ -80,7 +86,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun selection_highlightActive_rendersInverseVideo() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'select this text segment'\n".toByteArray())
@@ -100,7 +106,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun selection_longPress_wordSelection() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'word_selection_test'\n".toByteArray())
@@ -118,7 +124,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun selection_dragEndHandle_repositionsHighlight() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'drag handle across this'\n".toByteArray())
@@ -141,7 +147,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun selection_clearSelection_returnsToNormal() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'temporary selection'\n".toByteArray())
@@ -164,7 +170,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun selection_toolbarVisible_withSelectionActive() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'toolbar test content'\n".toByteArray())
@@ -194,7 +200,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun selection_modifierBar_visibleDuringSelection() {
         composeTestRule
             .onNodeWithTag("ModifierBar")
@@ -202,7 +208,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun selection_clearedAndReSelected() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'reselect demo'\n".toByteArray())
@@ -230,7 +236,7 @@ class SelectionRoborazziEmulatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection ")
+    @org.junit.Ignore("Selection cannot be activated while Bridge.setSelection/expandAndSetSelection are log-only implemented (native query path is wired); screenshots contain no selection  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun selection_multipleLines_highlighted() {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")
         bridge.writeToPty("echo 'line one'\n".toByteArray())

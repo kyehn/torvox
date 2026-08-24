@@ -6,6 +6,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.rule.GrantPermissionRule
 import com.atiurin.ultron.extensions.isDisplayed
 import org.junit.Rule
 import org.junit.Test
@@ -27,6 +28,11 @@ import terminal.emulator.MainActivity
  */
 @RunWith(AndroidJUnit4::class)
 class UltronSmokeTest {
+
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()

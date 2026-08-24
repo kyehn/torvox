@@ -3,6 +3,7 @@ package terminal.emulator
 import android.content.Intent
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
@@ -24,6 +25,11 @@ import java.io.File
  * path is not wired yet (ADR-0007), so an RGBA frame cannot be produced.
  */
 class SelectionUiAutomatorTest {
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
@@ -36,7 +42,7 @@ class SelectionUiAutomatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Requires the native data path: isCellEmpty is an implemented (native query path is wired) so long-press always routes to the paste popup and the selection menu never appears; also needs a >=400ms hold to be a real long-press ")
+    @org.junit.Ignore("Requires the native data path: isCellEmpty is an implemented (native query path is wired) so long-press always routes to the paste popup and the selection menu never appears; also needs a >=400ms hold to be a real long-press  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun longPressShowsMenuAndInvertedCellNearTap() {
         val longPressX = 200
         val longPressY = 300

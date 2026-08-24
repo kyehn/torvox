@@ -15,6 +15,7 @@ import android.view.ViewGroup
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert
 import org.junit.Rule
 import org.junit.Test
@@ -182,7 +183,7 @@ class VisualInlineVerificationTest {
     }
 
     @Test
-    @org.junit.Ignore("isCellEmpty/expandAndSetSelection are implemented (native query path is wired) — long-press shows the paste popup, never selection handles, so the handle-position assertions cannot pass")
+    @org.junit.Ignore("isCellEmpty/expandAndSetSelection are implemented (native query path is wired) — long-press shows the paste popup, never selection handles, so the handle-position assertions cannot pass — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun verifyWordSelectionPositions() {
         Log.i("VisualInline", "==== Word Selection Position Verification ====")
         composeRule.waitForSession()
@@ -252,7 +253,7 @@ class VisualInlineVerificationTest {
     }
 
     @Test
-    @org.junit.Ignore("isCellEmpty/expandAndSetSelection are implemented (native query path is wired) — long-press shows the paste popup, never selection handles, so the handle-position assertions cannot pass")
+    @org.junit.Ignore("isCellEmpty/expandAndSetSelection are implemented (native query path is wired) — long-press shows the paste popup, never selection handles, so the handle-position assertions cannot pass — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun verifyUrlSelectionPositions() {
         Log.i("VisualInline", "==== URL Selection Position Verification ====")
         composeRule.waitForSession()

@@ -96,16 +96,28 @@
     <string name="notification_channel_name">Terminal Session</string>
     <string name="notification_channel_desc">Persistent notification for active terminal sessions</string>
     <string name="notification_active_single">Terminal session active</string>
-    <string name="notification_active_plural">%d terminal sessions active</string>
+    <plurals name="notification_active_plural">
+        <item quantity="one">%d terminal session active</item>
+        <item quantity="other">%d terminal sessions active</item>
+    </plurals>
 
     <!-- Feedback -->
-    <string name="copied_chars">Copied %d chars</string>
-    <string name="pasted_chars">Pasted %d chars</string>
+    <plurals name="copied_chars">
+        <item quantity="one">Copied %d char</item>
+        <item quantity="other">Copied %d chars</item>
+    </plurals>
+    <plurals name="pasted_chars">
+        <item quantity="one">Pasted %d char</item>
+        <item quantity="other">Pasted %d chars</item>
+    </plurals>
 
     <!-- Error -->
     <string name="unsupported_abi">Unsupported ABI: %s</string>
     <!-- Accessibility -->
-    <string name="sessions_accessible">%d sessions</string>
+    <plurals name="sessions_accessible">
+        <item quantity="one">%d session</item>
+        <item quantity="other">%d sessions</item>
+    </plurals>
     <string name="title_changed">Terminal title changed to %s</string>
 
     <!-- USB Serial -->

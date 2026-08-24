@@ -145,3 +145,29 @@
   build output directory.
 
 - **Nix flake pinning**: `flake.lock` pins all Nix inputs (`nixpkgs`, `flake-parts`, `fenix`) to specific revisions, providing reproducible development environments across machines.
+
+### 1.4 Evaluated Optional Libraries (not adopted)
+
+Every "optional" library on the user's candidate list was researched; the ones
+not adopted are recorded here with the binding reason (no speculative deps).
+
+| Library | Verdict | Reason |
+|---------|---------|--------|
+| `nextest-rs/nextest` | Not adopted | `cargo test` is already fast (~80 s workspace); nextest's parallel isolation adds no signal here and the tool_lint gate already runs in CI. Adding a second test runner splits the command surface for no coverage gain. |
+| `mitsuhiko/insta` (snapshot) | Not adopted | Existing terminal tests are **exhaustive/behavioral** (`assert_eq!` on GridSnapshot invariants, vt_conformance property loops). Snapshots would mask Ghostty-behavior drift instead of pinning semantics — the opposite of what the conformance suite wants. |
+| `Stebalien/tempfile` | Not adopted | Tests already use `std::env::temp_dir()` + explicit cleanup in a bounded number of sites (pty.rs, font/mod.rs); a crate adds nothing but a dependency. |
+| `Proptest` (already in) | Adopted | `proptest = "1.11"` in `[workspace.dependencies]` — used by `vt_conformance` property tests. |
+| `EmbarkStudios/cargo-deny` | Not adopted | Documented in §2: `cargo-audit` covers vulnerability scanning; license review is manual; `deny.toml` is asserted **absent** by tool_lint (build determinism via flake). |
+| `kotest/kotest`, `lupuuss/Mokkery` | Not adopted | JUnit 4/5 + MockK already cover the Kotlin unit-test surface; a second framework (kotest) or mock generator (Mokkery) would duplicate MockK's mocking. |
+| `arrow-kt/arrow` | Not adopted | FP abstractions (Either/Monad) are unnecessary; the codebase uses plain Kotlin + `runCatching` at JNI seams, which matches the "no speculative generality" rule. |
+| `apalis-dev/apalis`, `RustAudio/cpal`, `moka-rs/moka`, `AFLplusplus/LibAFL`, `cksac/fake-rs`, `quickwit-oss/tantivy`, `clap-rs/clap`, `hyperium/hyper` | Not adopted | No async job queue, audio, cache, fuzzing harness, data-faker, full-text-search, CLI-parsing, or standalone HTTP-client need in this project; tower-mcp/axum already provide the MCP transport. |
+| `Kotlin/kotlinx-atomicfu` | Not adopted | Locking uses `parking_lot` (Rust) / `synchronized` + `AtomicBoolean` (Kotlin) in bounded spots; atomicfu's multiplatform indirection is overkill for a single-ABI Android app. |
+| `Kotlin/kotlinx-benchmark` | Not adopted | Micro-benchmarking lives in Rust (`criterion` benches + `#[ignore]` GPU benches) where the hot path is; Kotlin-side perf guards use Robolectric/Espresso timing tests already. |
+| `jordond/MaterialKolor`, `jordond/connectivity` | Not adopted | Material color extraction and connectivity observation are not required by any spec/requirement. |
+| `skydoves/Balloon`, `composablehorizons/compose-unstyled`, `compose-fluent/compose-fluent-ui`, `skydoves/Cloudy`, `MohamedRejeb/Calf`, `alisonthemonster/Presently`, `eygraber/uri-kmp`, `kosi-libs/MocKMP` | Not adopted | In-app popups use Compose's own `Popup`; no unstyled/fluent theme, blurred-backdrop, platform-file-picker abstraction, share-sheet, or KMP-URI need exists (single-platform Android). |
+| `modelcontextprotocol/kotlin-sdk` | Not adopted | MCP server is implemented in Rust (`tower-mcp`) and exposed via JNI; a Kotlin MCP client adds a second protocol stack for no client-side consumer. |
+| `hnaclee/autocorrect` | Not adopted | Docs are already vale/markdownlint/typos-gated in tool_lint; autocorrect's CJK spacing pass would fight those exact linters. |
+| `Manabu-GT/DebugOverlay-Android` | **Adopted** | `com.ms-square:debugoverlay:2.7.0` (debugImplementation) — zero-config runtime diagnostics, see `android/app/build.gradle.kts:230`. |
+| `slackhq/compose-lints` + `slackhq/slack-lints` | **Adopted** | `lintChecks("com.slack.lint.compose:compose-lint-checks:1.5.4")` + `lintChecks("com.slack.lint:slack-lint-checks:0.11.1")` — active Android lint rules; Slack-internal rules disabled with per-rule comments (build.gradle.kts §lint). |
+| `Trendyol/stove`, `open-tool/ultron`, `infix-de/testBalloon`, `LemonAppDev/konsist`, `Kotlin/ktfmt` (via `cortinico/ktfmt-gradle`), `ktlint` (via `JLLeitschuh/ktlint-gradle`), `square/moshi` | Moshi: rejected (see §1.3 — kotlinx-serialization owns all JSON) | The rest are **adopted** exactly as listed: stove 0.25.2 (integration tests), ultron 2.6.3 (androidTest), testBalloon 1.0.1 (UI test framework), konsist 0.17.3 (architecture tests), ktfmt-gradle 0.22.0, ktlint-gradle (spotless-wrapped). |
+| `hyperium/hyper` | Not adopted | axum already depends on hyper internally; adding it as a direct dep would be redundant. |

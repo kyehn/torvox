@@ -51,6 +51,12 @@ cd android && ./gradlew testDebugUnitTest            # unit tests
 cd android && ./gradlew connectedDebugAndroidTest     # instrumented
 ```
 
+`testDebugUnitTest` includes `NativeBridgeSmokeTest` (JNI round-trip, see
+row 1b above). It needs a host-built `libnative.so` — produce one with
+`cargo build --package native` (repo-root `target/{debug,release}/libnative.so`).
+When absent the test is skipped, never failed. CI builds it via
+`test-gradle.nu` before invoking Gradle.
+
 ### Six test types and where each lives
 
 The test suite verifies Android behavior with six distinct test types. Use the
@@ -59,6 +65,7 @@ right type for the behavior under test — do not collapse them into one.
 | # | Type | Location | What it covers |
 |---|------|----------|----------------|
 | 1 | **Unit** (Rust) | `native/src/terminal/`, `native/src/render/`, `native/src/mcp/` | Pure logic: VT parse, grid/scrollback, OSC, keyboard encode, MCP. Runs on host via `cargo nextest`. |
+| 1b | **JNI round-trip** (JVM) | `android/app/src/test/java/terminal/emulator/bridge/NativeBridgeSmokeTest.kt` | Loads the host-built `libnative.so` in the test JVM and drives the real bridge (initSession → feedTerminal → getTitle/getTerminalText → destroySession). Covers the JNI boundary layer pure-Rust tests cannot: JString/jbyteArray conversion, `env.throw_new` paths, and the Kotlin→JNI→VT-thread→ghostty-parser→query round-trip — without an emulator. |
 | 2 | **Compose UI** (instrumented) | `android/app/src/androidTest/java/terminal/emulator/ui/*ComposeTest.kt` (e.g. `TerminalScreenComposeTest`) | Compose widget state/interaction on-device. |
 | 3 | **OCR screenshot** (emulator) | `native/src/render/tests.rs` + `scripts/test-emulator.nu` (rapidocr) | End-to-end terminal-text visibility on the emulator. |
 | 4 | **Maestro** | `android/app/src/androidTest/java/terminal/emulator/ui/*.yaml` flow files (e.g. `SelectionMaestroTest.yaml`) | End-to-end on-device flows driven by Maestro YAML. |
@@ -83,6 +90,73 @@ Used by `native/src/render/tests.rs` to verify font rendering end-to-end: render
 ```bash
 nu scripts/test-emulator.nu                         # automated emulator tests
 ```
+
+Prerequisites (verified on the CI image, API 35 x86_64 emulator):
+
+1. **Native libs must be built first** — `scripts/build-android-libs.nu` copies
+   `libnative.so` into `android/app/src/main/jniLibs/`. Without it the APK
+   loads no JNI (`dlopen failed: library "libnative.so" not found`) and every
+   instrumented test that touches the bridge silently degrades (compose-idle
+   tests "pass" vacuously because no render loop exists). Build at least the
+   ABI matching the emulator. **Always use the release profile**: a debug
+   (dev) `.so` is ~122MB unoptimized code that stalls the emulator loader and
+   crashes the device (measured regression) — `build-android-libs.nu` now
+   fails the build when a deployed `.so` exceeds `MAXIMUM_SO_SIZE_BYTES`:
+   ```bash
+   nu scripts/build-android-libs.nu --profile release x86_64
+   ```
+2. **GPU mode**: `-gpu swiftshader_indirect` crashes the emulator on wgpu
+   SPIR-V it cannot parse (`Invalid source language operand: 10`, SIGSEGV
+   when the app starts the renderer). Use `-gpu angle_indirect` instead
+   (verified stable: app boots, native render loop runs).
+3. **Compose idle vs render loop**: with the real native render loop running,
+   software-rendered emulators cannot satisfy `waitForIdle` — compose tests
+   that wait for global idle time out. Such tests are `@Ignore`d with an
+   explicit reason (needs a hardware-accelerated device). They are *not*
+   vacuous: they assert real search results / selection handles; the
+   `@Ignore` comment states the exact blocker.
+4. **POST_NOTIFICATIONS**: `MainActivity` requests it on Android 13+ at
+   startup; the system dialog covers the UI and breaks every compose-test
+   node lookup. The test APK declares the permission
+   (`src/androidTest/AndroidManifest.xml`) and each Activity-launching test
+   class applies `GrantPermissionRule` — keep that rule when adding new UI
+   tests.
+
+### Instrumented 冻结与质量审计（2026-08）
+
+实测基线：androidTest 共 **338 个 `@Test`**，其中 **27 处 `@org.junit.Ignore`**
+冻结（~8%，非 15%——冻结方法多数为多断言大方法，故用例占比高于方法占比）。
+冻结的**唯一根因**已在每条 reason 中写明：
+
+> native data path 已接线，但持续渲染循环使软件渲染模拟器无法满足 Compose
+> `waitForIdle` → 需要硬件加速设备。
+
+不是功能缺失——被冻结的搜索/选择/剪贴板断言在 Rust 侧有**等价双轨覆盖**
+（`search_in_scrollback`/`search_highlight_*`、`selection_range_*`、
+`gpu_render_selection_swaps_fg_bg`、`osc52_roundtrip`）。解除冻结的前提是 CI
+改用硬件加速设备（KVM/GPU 直通），当前 SwiftShader 环境**不应**解除。
+
+冻结分布（同因同批）：
+- `selection/SelectionRoborazziEmulatorTest.kt` 9 处（截图内无选区高亮）
+- `ui/TextSearchInstrumentedTest.kt` 4、`TextSearchImeSmartCaseTest.kt` 1（搜索结果 UI）
+- `ui/SelectionVisualVerificationTest.kt` 类级、`ui/TextSearchColorVerificationTest.kt`
+  类级、`gpu/CursorBehaviorInstrumentedTest.kt` 类级、`gpu/CursorBlinkFrameTest.kt` 类级
+- `SelectionEspressoTest.kt` / `SelectionUiAutomatorTest.kt` / `BehaviorInstrumentedTest.kt` 各 1
+- BDD：`terminal-search.feature` 3 场景 + `terminal-selection.feature` 4 场景
+  标 `@wip`（含"复制到剪贴板"场景），由 `CucumberOptionsClass` 的
+  `tags = "not @wip"` 排除——与上述 @Ignore 同因。
+
+固定 `Thread.sleep` 等待分布（flaky 风险源）：`BehaviorInstrumentedTest` 13、
+`SelectionRoborazziEmulatorTest` 21、`FontSwitchInstrumentedTest` 12、
+`VisualInlineVerificationTest` 9、`TestUtils.kt` 7、`InlineScreenshotVerificationTest` 7、
+`SettingsInstrumentedTest` 5、`TextSearchColorVerificationTest` 5，其余 9 个文件各 1-3。
+改进方向：换 `waitUntil` 条件轮询（`TestUtils.waitForSession` 已是范例）；
+swiftshader 1.8fps 下 sleep 语义不可靠，轮询需以渲染帧数（截图前后对比）而非墙钟为准。
+
+纯动作/弱断言测试（保留但标注）：`ModifierBarTest` 4 个 `*_clickable`、部分 Roborazzi
+截图测试（`captureRoboImage` 即 golden 断言，不是弱断言）、墓碑式 `assertNotNull(activity)`
+测试（`TerminalUiTest` 等）——**无崩溃 smoke 价值**，但不承担行为证明；
+新增断言时优先验证状态流转（如 `ModifierBarTest.ctrl_toggle_cycles` 的 selected 语义）。
 
 ---
 
@@ -160,14 +234,82 @@ These checks run as part of `tool_lint.rs` (see `cargo test -p integration-tests
 
 ### 覆盖率基线（审计时点）
 
-约 1891 测试点：Rust 运行用例 1455（`cargo test --workspace -- --list` 实测，含
-integration-tests 与 tool_lint 21；静态 `#[test]` 计数 1447 由 `tool_lint`
-`rust_test_count_within_baseline` 守护，偏差 >25% 即失败）+ Kotlin JVM 7 + Kotlin instrumented 338（1 @Ignore）
+约 2400 测试点：Rust 运行用例 1455（`cargo test --workspace -- --list` 实测，含
+integration-tests 与 tool_lint 21；静态 `#[test]` 计数 1445 由 `tool_lint`
+`rust_test_count_within_baseline` 守护，偏差 >25% 即失败）+ Kotlin JVM 573（`testDebugUnitTest`
+XML 实测）+ Kotlin instrumented 338 @Test（其中 27 处 `@Ignore` 冻结，见下节）
 flow + Macrobenchmark 3 + baselineprofile 1
 
 - 分层判定：VT/OSC/网格/PTY/字体/渲染逻辑可无头证明；真实 JNI 符号、
 渲染到屏幕、IME、系统服务协同只能 instrumented/真机证明（原 `docs/test-coverage-audit.md`
 §5 的判定结论，已吸收至本条）。
+
+### Kotlin 覆盖率门禁（kover）
+
+`org.jetbrains.kotlinx.kover` 0.9.9 已接入（root + app 插件）。报告命令（nix develop 内）：
+
+```bash
+cd android && ./gradlew :app:koverXmlReportDebug -Dorg.gradle.internal.test.results.binary.enabled=false
+# 报告：app/build/reports/kover/reportDebug.xml（HTML：koverHtmlReportDebug）
+```
+
+- 覆盖对象：`testDebugUnitTest`（JVM/Robolectric 单测层）；`androidTest`（instrumented）
+代码不在统计内——UI/runtime 的低百分比不代表无覆盖，需与 `docs/standards/TESTING.md`
+设备测试配合解读。
+- 审计时点（2026-08）：单测层总行覆盖 26.5%（12292/46420）。低点：`runtime` 14%、
+`ui` 13%、`bridge` 34%——其中大量逻辑由 instrumented 测试覆盖；高点是纯逻辑包
+`util` 100%、`input` 89%、`bell` 87%、`service` 83%、`installer` 76%、`monitor` 73%。
+- 故意不设最低阈值：UI/渲染大量以设备测试证明，按百分比设门禁会误导；后续若
+逐包提取纯逻辑（如 `runtime`/`bridge` 中的决策函数），可对特定包设下限。
+
+### Instrumented 方法论与研究结论（2026-08）
+
+对"哪些功能没有测试、如何减少模拟器依赖"的深度研究结论（含已验证的工具事实）：
+
+**1. 三侧全覆盖矩阵已建立，设备域零覆盖清单**（R=Rust / K=Kotlin JVM / A=androidTest）：
+
+| 功能域 | R | K | A | 备注 |
+|--------|---|---|---|------|
+| 终端渲染/像素 | ✅ 极强 | 辅助 | ✅ | Rust Lavapipe 像素断言冗余于 A |
+| 输入编码 | ✅ | ✅ 最强 | ✅ | A 侧无结果断言 |
+| 搜索/高亮/OCR | ✅ 强 | ✅ | ⚠️ 冻结 | A 冻结有 R 双轨 |
+| 选择/剪贴板 | ✅ 强 | ✅ | ⚠️ 冻结 | OSC52 往返在 R 侧 |
+| 会话管理 | ✅ 强 | ✅ | ✅ | |
+| Bootstrap 安装 | — | ✅ | ✅ 最扎实 | 唯一无 R 侧的功能域 |
+| 主题/字体/修饰键/粘贴 | 部分 | ✅ | ⚠️ 部分弱 | A 侧多为 smoke |
+| 性能监控 | — | ✅ 唯一 | — | 无设备/集成验证 |
+| 快捷键 | — | ✅ 15 | — | |
+| **零覆盖** | — | — | — | `ShortcutCaptureDialog`、`ThemeEditorDialog`/`ColorPickerDialog`（UI）|
+
+设备域**三侧零覆盖**（按风险）：`shortcut/ShortcutCaptureDialog.kt`（快捷键→终端
+e2e）、`ui/theme/ThemeEditorDialog.kt` + `ColorPickerDialog.kt`（主题编辑 UI）、
+`installer/BootstrapInstallService.kt`（前台服务执行链路）、`TerminalApp.kt`
+（初始化/全局生命周期）、`TestBackdoorReceivers.kt`（生产内测试后门本身）、
+`SettingsComponents.kt`（纯展示，可豁免）。这些属于 androidTest 域，无法 JVM 化。
+
+**2. Kover 不支持 instrumented 覆盖率**（kover 0.9.9 官方文档：
+"instrumentation tests executing on the Android device are not supported yet"）——
+**没有免费的"Kotlin 全量合并矩阵"**。替代路径：JaCoCo 采集 `connectedDebugAndroidTest`
+（AGP 9 需单独集成，未接）；现状解读方式为 kover（unit）+ 上表的静态矩阵（A 侧）。
+
+**3. 减少模拟器依赖的现成杠杆**（按性价比排序）：
+- **Roborazzi 可运行在 JVM**（Robolectric + `ui-test-junit4`）：纯 Compose 结构测试
+  （ModifierBar、布局、主题）与 Roborazzi golden 可放 `src/test/` 免模拟器跑。
+  尚未试点——试点前置条件：目标 Composable 构造路径不触 JNI（`ModifierBar` 满足）。
+- **testBalloon 1.0.1 已在依赖但未启用**（`app/build.gradle.kts` 第 249/285 行）：
+  可把部分 instrumented 逻辑测试降到 JVM；启用前需研究其注解/运行器用法。
+- **后端 e2e 无需模拟器**：native MCP（`terminal_info`/`last_command_output`/
+  `send_signal` 等 12 工具）协议层已由 `tower_mcp::testing::TestClient` 全测
+  （`native/src/mcp/mod.rs` tests）；真实 session 接线在 Kotlin `TerminalRuntime`，
+  属模拟器域——「应用暴露接口 + 后端分离」已实现，缺口只是 Kotlin 接线层。
+- **GMD/ATD**（Gradle Managed Devices + Automated Test Device）：并行分片 +
+  快照加速 + 一致性，需 AGP DSL 配置 + CI 硬件；`scripts/` 只读，未接。
+- **TestBackdoorReceivers**（`terminal.emulator.*` 广播，RECEIVER_NOT_EXPORTED）：
+  已是 instrumented/Maestro 的确定性控制面；新增 e2e 场景优先走它而非坐标点击。
+
+**4. CI 模拟器渲染是当前最大环境债**：swiftshader 1.8fps 是软件渲染 1080x2400 的
+硬件极限；Compose `waitForIdle` 依赖持续渲染循环 → 27 个 @Ignore 的根因。
+解除冻结的唯一路径是硬件加速设备（KVM/GPU 直通），不是改测试。
 
 ## Benchmarks & Performance Thresholds
 
