@@ -49,6 +49,17 @@ libghostty-vt-sys = "0.2.1"
 
 [profile.dev]
 incremental = true
+# Debug builds feed the emulator/test APK, not just local iteration:
+# full DWARF for 500+ transitive crates (unmerged across CGUs) balloons
+# libnative.so to ~286 MB — enough to stall the x86_64 emulator loader
+# (measured 218 MB of .debug_* sections). line-tables-only keeps the
+# .debug_line tables (line numbers in backtraces) while dropping the
+# giant .debug_info/.debug_str trees.
+debug = "line-tables-only"
+# Do NOT strip symbols: tests need symbolicated native backtraces
+# (debuggerd resolves via .symtab/.dynsym). Strip only with release
+# packaging, where AGP's stripDebugSymbols handles it.
+strip = "none"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)'] }

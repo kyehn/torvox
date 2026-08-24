@@ -90,16 +90,28 @@
     <string name="notification_channel_name">终端会话</string>
     <string name="notification_channel_desc">用于活跃终端会话的持久通知</string>
     <string name="notification_active_single">终端会话活跃中</string>
-    <string name="notification_active_plural">%d 个终端会话活跃中</string>
+    <plurals name="notification_active_plural">
+        <item quantity="one">%d 个终端会话活跃中</item>
+        <item quantity="other">%d 个终端会话活跃中</item>
+    </plurals>
 
     <!-- Feedback -->
-    <string name="copied_chars">已复制 %d 个字符</string>
-    <string name="pasted_chars">已粘贴 %d 个字符</string>
+    <plurals name="copied_chars">
+        <item quantity="one">已复制 %d 个字符</item>
+        <item quantity="other">已复制 %d 个字符</item>
+    </plurals>
+    <plurals name="pasted_chars">
+        <item quantity="one">已粘贴 %d 个字符</item>
+        <item quantity="other">已粘贴 %d 个字符</item>
+    </plurals>
 
     <!-- Error -->
     <string name="unsupported_abi">不支持的 ABI: %s</string>
     <!-- Accessibility -->
-    <string name="sessions_accessible">%d 个会话</string>
+    <plurals name="sessions_accessible">
+        <item quantity="one">%d 个会话</item>
+        <item quantity="other">%d 个会话</item>
+    </plurals>
     <string name="title_changed">终端标题已更改为 %s</string>
 
     <!-- USB Serial -->
