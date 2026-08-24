@@ -122,29 +122,72 @@ Prerequisites (verified on the CI image, API 35 x86_64 emulator):
    class applies `GrantPermissionRule` — keep that rule when adding new UI
    tests.
 
-### Instrumented 冻结与质量审计（2026-08）
+### Instrumented 冻结与质量审计（2026-08 更新）
 
-实测基线：androidTest 共 **338 个 `@Test`**，其中 **27 处 `@org.junit.Ignore`**
-冻结（~8%，非 15%——冻结方法多数为多断言大方法，故用例占比高于方法占比）。
-冻结的**唯一根因**已在每条 reason 中写明：
+实测基线：androidTest 共 **345 个 `@Test`**，**仅 1 处 `@org.junit.Ignore`**
+残留：`SelectionVisualVerificationTest#ocrVerifyHighlightedText`（环境依赖：
+该测试在设备上 `ProcessBuilder("rapidocr", ...)` 执行 OCR CLI，但仓库没有
+把 rapidocr 二进制部署到模拟器的脚本——`download-rapidocr-models.nu` 只预下
+模型；pitfall #12 强制 CLI。部署脚本就绪前保持冻结）。
 
-> native data path 已接线，但持续渲染循环使软件渲染模拟器无法满足 Compose
-> `waitForIdle` → 需要硬件加速设备。
+**2026-08 解冻战役**：此前 23 处 `@org.junit.Ignore`（CursorBehavior、
+TextSearch 系、Selection 系、VisualInline、Espresso、Behavior、Roborazzi）
+全部解除并逐批验证通过。冻结备注中"持续渲染循环使软件渲染模拟器无法满足
+Compose idle，需硬件 GPU"的结论**被推翻**——真实根因是一个**主线程 JNI 阻塞**：
 
-不是功能缺失——被冻结的搜索/选择/剪贴板断言在 Rust 侧有**等价双轨覆盖**
-（`search_in_scrollback`/`search_highlight_*`、`selection_range_*`、
-`gpu_render_selection_swaps_fg_bg`、`osc52_roundtrip`）。解除冻结的前提是 CI
-改用硬件加速设备（KVM/GPU 直通），当前 SwiftShader 环境**不应**解除。
+1. **instrumentation（UiAutomator 连接）使 `AccessibilityManager.isEnabled`
+   为 true**——仅测试进程如此，真机/普通运行关闭。
+2. `accessibilityRenderTick`（渲染线程每帧调用）因此每帧触发，原实现把
+   **逐行 `NativeBridge.scrollbackLine`（同步 JNI）放到主线程** `post` 里执行；
+   该 JNI 对渲染线程每帧持有的 **session 锁**竞争（SwiftShader 下 ~500ms/帧），
+   主线程被锁在 mutex 里 → `MAIN_LOOPER_HAS_IDLED` / Compose idling 永不
+   满足 → 任何 compose 查询确定性 `ComposeNotIdleException`。
+3. **修复**（`TerminalSurface.accessibilityRenderTick`）：逐行 JNI 与 description
+   组装移到**渲染线程**，主线程消息只做纯 `contentDescription` 应用（配套把
+   `rows/scrollOffset/accessibilityDescriptionRefreshPosted/pendingText`
+   标 `@Volatile`）。主线程回到 idle，所有冻结测试解冻后可正常跑。
 
-冻结分布（同因同批）：
-- `selection/SelectionRoborazziEmulatorTest.kt` 9 处（截图内无选区高亮）
-- `ui/TextSearchInstrumentedTest.kt` 4、`TextSearchImeSmartCaseTest.kt` 1（搜索结果 UI）
-- `ui/SelectionVisualVerificationTest.kt` 类级、`ui/TextSearchColorVerificationTest.kt`
-  类级、`gpu/CursorBehaviorInstrumentedTest.kt` 类级、`gpu/CursorBlinkFrameTest.kt` 类级
-- `SelectionEspressoTest.kt` / `SelectionUiAutomatorTest.kt` / `BehaviorInstrumentedTest.kt` 各 1
-- BDD：`terminal-search.feature` 3 场景 + `terminal-selection.feature` 4 场景
-  标 `@wip`（含"复制到剪贴板"场景），由 `CucumberOptionsClass` 的
-  `tags = "not @wip"` 排除——与上述 @Ignore 同因。
+**软件渲染第一结论（仍有效）**：`-gpu swiftshader_indirect` 崩 wgpu
+（SPIR-V 解析失败）——CI 模拟器必须 `-gpu angle_indirect`；SwiftShader 下
+帧率低（每帧约 500ms），批跑时间放大但不阻塞 idle。
+
+**第二根因（已修复，保留记录）**：debug 构建的 App 内置 ANR 看门狗
+（5s 主线程超时 SIGKILL）曾在软渲染冷启动时误杀进程导致 `Process crashed`；
+已改为 release-only（debug/CI 豁免），见 `TerminalApp.kt`。
+
+**测试侧同步清理**（同一战役，均因目标 UI 已演进而更新断言）：
+- 选择菜单是**系统 ActionMode 工具栏**（Termux 模式），不再是已删除的
+  compose `SelectionActionsBar`/`SelectionMenuOverlay` tag——UiAutomator 断言
+  用 `By.text("COPY")`/`By.text("PASTE")`（**大写**，ActionMode 样式强制大写；
+  `By.textContains` 是字面匹配不是正则）。
+- compose 侧 `injectLongPress`（`view.post` + dispatch）在软渲染模拟器上从未
+  触发 `handleLongPress`（无 LONG_PRESS 日志，只有仅截图测试"假通过"）——
+  真实长按一律用 `UiDevice.swipe(..., 500)`（500ms > 系统长按阈值 400ms）。
+- `PARTIAL_SELECT`/`SHOW_PASTE` 广播后门在 instrumentation 进程不可达
+  （动态 receiver 收到不到）——测试改走 `terminalViewModel` 直调（internal
+  friend 可见；注意 `by viewModels()` 是委托属性无 backing field，不能反射
+  `getDeclaredField`）。
+- 搜索/选择像素断言（`TextSearchColorVerificationTest`、`VisualInlineVerificationTest`）在
+  软渲染下有色系冲突（终端 ansi[2] 绿文本与高亮同色相）与 blob 合并噪声——
+  改为相对断言（无匹配不得新增高亮像素）+ 放宽 handle 尺寸窗口
+  （420dpi 下 48dp handle ≈126px，旧 50-76px 窗口漏检）。
+- 多个 UiAutomator 类缺 `GrantPermissionRule`（冷启动 POST_NOTIFICATIONS
+  对话框挡住 UI）已补齐；drawer 按钮首次冷启动需等 session spawn（30s）。
+
+**冻结分布历史**（已全部解除，仅供考古）：
+- `selection/SelectionRoborazziEmulatorTest.kt` 8、`ui/TextSearchInstrumentedTest.kt`
+  3、`TextSearchOcrTest.kt` 4、`TextSearchImeSmartCaseTest.kt` 1、
+  `ui/SelectionVisualVerificationTest.kt` 1、`TextSearchColorVerificationTest.kt`
+  类级、`VisualInlineVerificationTest.kt` 2、`gpu/CursorBehaviorInstrumentedTest.kt`
+  类级、`SelectionEspressoTest.kt`/`SelectionUiAutomatorTest.kt`/
+  `BehaviorInstrumentedTest.kt` 各 1。
+
+**BDD（cucumber）**：`terminal-search.feature` 3 场景与
+`terminal-selection.feature` 5 场景仍标 `@wip`（`CucumberOptionsClass` 的
+`tags = "not @wip"` 排除）。NOTE 注释中的 "native data path stub/ADR-0007"
+已过时（`searchAllInScrollback`/`isCellEmpty`/`expandAndSetSelection` 均走真实
+JNI），但场景步骤定义基于旧 UI/广播路径，**解除前需在 cucumber 轮逐个验证**
+（步骤实现的 tag/节点可能已随 ActionMode 菜单迁移而变化）。
 
 固定 `Thread.sleep` 等待分布（flaky 风险源）：`BehaviorInstrumentedTest` 13、
 `SelectionRoborazziEmulatorTest` 21、`FontSwitchInstrumentedTest` 12、
@@ -295,9 +338,14 @@ e2e）、`ui/theme/ThemeEditorDialog.kt` + `ColorPickerDialog.kt`（主题编辑
 **3. 减少模拟器依赖的现成杠杆**（按性价比排序）：
 - **Roborazzi 可运行在 JVM**（Robolectric + `ui-test-junit4`）：纯 Compose 结构测试
   （ModifierBar、布局、主题）与 Roborazzi golden 可放 `src/test/` 免模拟器跑。
-  尚未试点——试点前置条件：目标 Composable 构造路径不触 JNI（`ModifierBar` 满足）。
-- **testBalloon 1.0.1 已在依赖但未启用**（`app/build.gradle.kts` 第 249/285 行）：
-  可把部分 instrumented 逻辑测试降到 JVM；启用前需研究其注解/运行器用法。
+  **已试点**：`ModifierBarRobolectricTest`（3 测试）在 JVM 全绿——含语义断言与
+  golden 截图；前置条件：目标 Composable 构造路径不触 JNI（`ModifierBar` 满足）；
+  `androidx.activity.ComponentActivity` 须在 `src/debug/AndroidManifest.xml` overlay
+  声明（`includeAndroidResources=true` 时 Robolectric 解析 debug merged manifest，
+  而 `ui-test-manifest` 只合并进 unit-test 源集）。
+- **testBalloon 1.0.1 已在依赖但未启用**：已核实其本质是**完整 DSL 测试框架**
+  （junit 替代，含 compiler plugin + gradle plugin），并非"把 instrumented 测试
+  降级到 JVM"的工具——启用意味着用其 DSL 重写测试，性价比低；维持现状并记录。
 - **后端 e2e 无需模拟器**：native MCP（`terminal_info`/`last_command_output`/
   `send_signal` 等 12 工具）协议层已由 `tower_mcp::testing::TestClient` 全测
   （`native/src/mcp/mod.rs` tests）；真实 session 接线在 Kotlin `TerminalRuntime`，

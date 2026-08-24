@@ -8,13 +8,15 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.SystemClock
 import android.util.Log
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import org.junit.Assert.assertTrue
 import org.junit.FixMethodOrder
 import org.junit.Rule
@@ -57,7 +59,6 @@ import java.io.FileOutputStream
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
-@org.junit.Ignore("Requires native data path (ADR-0007); see class doc — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
 class SelectionVisualVerificationTest {
     companion object {
         private const val TAG = "SelectionVizTest"
@@ -216,21 +217,31 @@ class SelectionVisualVerificationTest {
         val surface = getTerminalSurfaceView()
         val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
 
-        // Create selection via long press on first line of text
-        injectLongPress(
-            surface,
-            cellMetrics.cellWidth * 3,
-            cellMetrics.cellHeight * 2,
-        )
+        // Real long-press through the input pipeline (UiAutomator). The
+        // compose-side injectLongPress dispatches into the view hierarchy
+        // but never reached handleLongPress on the software-rendered
+        // emulator (no LONG_PRESS log; only screenshot-only tests passed),
+        // whereas UiAutomator-injected gestures do (see
+        // SelectionUiAutomatorTest).
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        device.wait(Until.hasObject(By.pkg("com.termux").depth(0)), 15000)
+        device.swipe(260, 320, 260, 320, 500)
+        Thread.sleep(1200)
+
         waitForStable()
 
         saveScreenshot("03_selection_handles")
 
-        // A successful long-press selection activates the selection-actions bar,
-        // which exposes the "Dismiss selection" button. Assert it is visible.
-        composeTestRule
-            .onNodeWithTag("Action_Dismiss")
-            .assertIsDisplayed()
+        // A successful long-press selection activates the selection state
+        // and the system ActionMode menu (the old compose-only
+        // "Action_Dismiss" bar was removed: TerminalScreen keeps the
+        // ModifierBar in Normal mode during selection, see TerminalScreen.kt).
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            val sel = activity.terminalViewModel.state.value.selection
+            assertTrue("Selection must be active after long-press", sel.active)
+            assertTrue("Selection must have a start anchor", sel.start != null)
+            assertTrue("Selection must have an end anchor", sel.end != null)
+        }
 
         Log.d(TAG, "Selection handles should be visible in screenshot 03")
     }
@@ -451,27 +462,37 @@ class SelectionVisualVerificationTest {
         )
         waitForStable()
 
-        // Try to trigger select all via ViewModel
+        // Trigger select all directly on the (internal, friend-visible)
+        // TerminalViewModel. The old reflection path failed because
+        // `terminalViewModel by viewModels()` is a delegated property with
+        // no backing field (NoSuchFieldException). The call is wrapped and
+        // the error captured in an AtomicReference instead of being thrown
+        // on the main thread — an uncaught one there kills the whole
+        // process and aborts the remaining tests in the class.
+        val invokeError = java.util.concurrent.atomic.AtomicReference<Throwable?>()
         composeTestRule.activity.runOnUiThread {
             try {
-                val vmField =
-                    composeTestRule.activity::class.java
-                        .getDeclaredField("viewModel")
-                vmField.isAccessible = true
-                val viewModel = vmField.get(composeTestRule.activity)
-                val selectAllMethod = viewModel::class.java.getMethod("selectAll")
-                selectAllMethod.invoke(viewModel)
+                composeTestRule.activity.terminalViewModel.selectAll(0)
             } catch (e: Exception) {
-                throw AssertionError("Failed to invoke selectAll via ViewModel", e)
+                invokeError.set(e)
             }
         }
         waitForStable()
+        invokeError.get()?.let { throw AssertionError("Failed to invoke selectAll via ViewModel", it) }
         saveScreenshot("13_select_all")
     }
 
     // ── Test 10: RapidOCR verification of highlighted cells ──
 
     @Test
+    @org.junit.Ignore(
+        "Environment dependency: OCR verification shells out to the rapidocr " +
+            "CLI on the DEVICE (ProcessBuilder(\"rapidocr\", ...)), but no script " +
+            "deploys a rapidocr binary to the emulator (download-rapidocr-models.nu " +
+            "only pre-downloads models; pitfall #12 mandates the CLI). On devices " +
+            "without the CLI the test fails with Permission denied. Unfreeze once a " +
+            "device-side rapidocr deployment script exists.",
+    )
     fun ocrVerifyHighlightedText() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())

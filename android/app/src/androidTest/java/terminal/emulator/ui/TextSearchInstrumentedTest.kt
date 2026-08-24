@@ -51,7 +51,6 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence)  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun search_result_count_displayed_after_input() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -101,7 +100,6 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path is wired) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun search_previous_clickable() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -114,7 +112,6 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path is wired) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun search_next_clickable() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()

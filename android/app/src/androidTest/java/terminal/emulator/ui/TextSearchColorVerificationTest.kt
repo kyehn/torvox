@@ -26,10 +26,14 @@ import terminal.emulator.openDrawer
 import terminal.emulator.waitForSession
 import java.io.File
 
+// Anti-aliasing moves a few pixels across the G/R dominance boundary
+// between screenshots of identical content, so comparisons allow this
+// slack instead of requiring strict equality.
+private const val HIGHLIGHT_TOLERANCE = 30
+
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
-@org.junit.Ignore("Requires the native data path: searchAllInScrollback is an implemented (native query path is wired) (null results, no highlights drawn), so the pixel assertions fail or are vacuous  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
 class TextSearchColorVerificationTest {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
@@ -107,16 +111,28 @@ class TextSearchColorVerificationTest {
         val bridge = composeTestRule.getBridge()
         assertNotNull("Bridge must be available", bridge)
 
-        openSearchAndType("ZZZ_XYZZZZ_99999")
+        // Baseline: search bar open, query EMPTY. The terminal already
+        // contains green-dominant pixels (default ansi[2] prompt text
+        // 0xFF50FA7B is the same hue family as the search highlight
+        // 0xFFA6E3A1), so an absolute pixel count cannot distinguish "no
+        // highlight" from "prompt text". Use a RELATIVE check: a no-match
+        // search must not ADD highlights.
+        composeTestRule.openDrawer()
+        composeTestRule.onNodeWithTag("SearchButton").performClick()
+        composeTestRule.waitForIdle()
+        val baseline = detectHighlightPixels(takeRealScreenshot("c_baseline"), minDominance = 30)
+
+        composeTestRule.onNodeWithTag("SearchTextField").performTextReplacement("ZZZ_XYZZZZ_99999")
         waitForSearchStable()
 
-        val screenshot = takeRealScreenshot("c_no_match")
+        val after = detectHighlightPixels(takeRealScreenshot("c_no_match"), minDominance = 30)
+        val delta = after - baseline
+        assertTrue(
+            "No-match search must not add highlight pixels (baseline=$baseline, after=$after, delta=$delta)",
+            delta <= 120,
+        )
 
-        val highlighted = detectHighlightPixels(screenshot, minDominance = 30)
-        assertTrue("No-match search should have minimal highlight detection (found $highlighted)", highlighted < 200)
-
-        saveScreenshot("c_no_match", screenshot)
-        screenshot.recycle()
+        saveScreenshot("c_no_match", loadLastScreenshot("c_no_match"))
     }
 
     @Test
@@ -141,9 +157,13 @@ class TextSearchColorVerificationTest {
         val sensitiveHighlights = detectHighlightPixels(takeRealScreenshot("d_sensitive"), minDominance = 30)
 
         Log.i("ColorVerify", "Case-insensitive highlights: $insensitiveHighlights, case-sensitive: $sensitiveHighlights")
+        // Sub-pixel anti-aliasing makes the counts differ by a few pixels
+        // even when the highlighted area is identical, so allow a small
+        // tolerance instead of strict >=.
         assertTrue(
-            "Case-insensitive should have >= highlights than case-sensitive ($insensitiveHighlights >= $sensitiveHighlights)",
-            insensitiveHighlights >= sensitiveHighlights,
+            "Case-insensitive should have >= highlights than case-sensitive " +
+                "($insensitiveHighlights >= ${sensitiveHighlights - HIGHLIGHT_TOLERANCE})",
+            insensitiveHighlights >= sensitiveHighlights - HIGHLIGHT_TOLERANCE,
         )
 
         saveScreenshot("d_case_insensitive", loadLastScreenshot("d_insensitive"))
