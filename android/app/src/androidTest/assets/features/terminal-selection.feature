@@ -2,9 +2,10 @@ Feature: Text Selection
   The terminal supports long-press text selection with
   selection handles and a context menu.
 
-  NOTE: word-selection scenarios are @wip until the native data path lands
-  (Bridge.isCellEmpty/expandAndSetSelection are ADR-0007 stubs, so long-press
-  always routes to the paste popup).
+  NOTE: word-selection scenarios are @wip pending a cucumber round: the
+  native data path has landed (Bridge.isCellEmpty/expandAndSetSelection are
+  real JNI), and long-press now shows the system ActionMode menu; the
+  step definitions may reference pre-ActionMode nodes.
 
   @REQ_SEL_001
   Scenario: Long press empty area shows paste popup
