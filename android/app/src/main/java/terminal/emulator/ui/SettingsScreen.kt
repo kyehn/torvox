@@ -86,6 +86,8 @@ import terminal.emulator.TerminalViewModel
 import terminal.emulator.bell.BellMode
 import terminal.emulator.bridge.FontActiveDto
 import terminal.emulator.bridge.FontInfoDto
+import terminal.emulator.bridge.fontPxToSp
+import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
@@ -744,7 +746,7 @@ private fun FontInfoSectionIfAvailable(
                 FontInfoSection(
                     fontInfo = FontInfoDto(
                         active = FontActiveDto(name = defaultFontName, monospaced = false),
-                        fontSizePx = fontSize * densityDpi,
+                        fontSizePx = fontSpToPx(fontSize, densityDpi),
                     ),
                     pixelPerSp = densityDpi,
                     textColor = textColor,
@@ -1725,7 +1727,7 @@ private fun FontInfoSection(
             )
         }
         if (fontInfo.fontSizePx > 0f) {
-            val sizeSp = fontInfo.fontSizePx / pixelPerSp
+            val sizeSp = fontPxToSp(fontInfo.fontSizePx, pixelPerSp)
             Text(
                 text = stringResource(R.string.font_info_size_sp, sizeSp, fontInfo.fontSizePx),
                 style = MaterialTheme.typography.bodySmall,

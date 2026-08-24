@@ -65,6 +65,15 @@ object NativeBridge {
     external fun getSessionCount(): Int
 
     /**
+     * Returns the current scrollback row count for a session (0 when the
+     * session is unknown). Feed for the memory gauge emitted with the
+     * frame-timing window: an unbounded scrollback would show up as a
+     * monotonically growing row count.
+     */
+    @JvmStatic
+    external fun getScrollbackRows(sessionId: Long): Int
+
+    /**
      * Returns a JSON array of active session IDs.
      * Example: "[1, 2, 3]"
      */
