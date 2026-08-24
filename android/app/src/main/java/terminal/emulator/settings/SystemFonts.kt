@@ -1,5 +1,14 @@
 package terminal.emulator.settings
 
+/** Cleans a font file name into a display label: `_`/`-` become spaces and
+ *  surrounding whitespace is trimmed. Returns `null` when the result is empty
+ *  so callers can skip the entry entirely. */
+internal fun cleanFontName(fileNameWithoutExtension: String): String? = fileNameWithoutExtension
+    .replace('_', ' ')
+    .replace('-', ' ')
+    .trim()
+    .ifEmpty { null }
+
 internal fun systemFonts(): List<String> {
     val fonts = mutableListOf<String>()
     val seen = mutableSetOf<String>()
@@ -18,12 +27,8 @@ internal fun systemFonts(): List<String> {
                 .listFiles()
                 ?.filter { it.name.endsWith(".ttf", true) || it.name.endsWith(".otf", true) }
                 ?.forEach { file ->
-                    val name =
-                        file.nameWithoutExtension
-                            .replace('_', ' ')
-                            .replace('-', ' ')
-                            .trim()
-                    if (name.isNotEmpty() && seen.add(name.lowercase())) {
+                    val name = cleanFontName(file.nameWithoutExtension) ?: return@forEach
+                    if (seen.add(name.lowercase())) {
                         fonts.add(name)
                     }
                 }

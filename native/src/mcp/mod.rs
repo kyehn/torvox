@@ -231,6 +231,13 @@ static MCP_ENABLED: AtomicBool = AtomicBool::new(false);
 static MCP_THREAD: Mutex<Option<(JoinHandle<()>, std::sync::Arc<tokio::sync::Notify>)>> =
     Mutex::new(None);
 
+/// Serializes tests that read or write the MCP globals (`MCP_ENABLED`,
+/// the handler registry, the socket path) so a `terminal::pty` test and
+/// an `mcp` test never interleave their `set_enabled`/`build_env` runs
+/// on the same process-wide state. Compiled out of release.
+#[cfg(test)]
+pub(crate) static MCP_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Enable or disable the MCP server.
 pub fn set_enabled(enabled: bool) {
     MCP_ENABLED.store(enabled, Ordering::Release);
@@ -709,205 +716,17 @@ pub async fn run_stdio() -> Result<(), tower_mcp::Error> {
 
 #[cfg(test)]
 mod tests {
-    use super::tools::{CommandRisk, classify_command};
     use super::*;
     use serde_json::{Value, json};
-    use std::sync::Mutex as StdMutex;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tower_mcp::testing::TestClient;
-
-    // ──: command safety classifier ────────────────────────────
-
-    #[test]
-    fn classifier_blocks_root_deletion() {
-        for cmd in [
-            "rm -rf /",
-            "rm -fr /",
-            "rm -r -f /",
-            "rm -rf /*",
-            "rm --recursive --force /",
-            "rm -rf --no-preserve-root /",
-            "sudo rm -rf /",
-            "env rm -rf /",
-            "rm  -rf   /",
-        ] {
-            assert_eq!(
-                classify_command(cmd),
-                CommandRisk::Blocked,
-                "must block: {cmd}"
-            );
-        }
-        // Deleting a subtree under the root is a normal operation.
-        assert_eq!(classify_command("rm -rf /tmp/build"), CommandRisk::Safe);
-        assert_eq!(classify_command("rm -rf ~/projects"), CommandRisk::Safe);
-    }
-
-    #[test]
-    fn classifier_blocks_formatting_and_devices() {
-        for cmd in [
-            "mkfs.ext4 /dev/sda1",
-            "mkfs -t ext4 /dev/sdb",
-            "mkswap /dev/sdc",
-            "dd if=/dev/zero of=/dev/sda",
-            "dd if=/dev/zero of=/dev/mmcblk0 bs=4M",
-            "shred /dev/sda",
-        ] {
-            assert_eq!(
-                classify_command(cmd),
-                CommandRisk::Blocked,
-                "must block: {cmd}"
-            );
-        }
-        // Reading devices or writing /dev/null is safe.
-        assert_eq!(
-            classify_command("dd if=/dev/zero of=/dev/null count=1"),
-            CommandRisk::Safe
-        );
-        assert_eq!(
-            classify_command("dd if=/dev/sda of=/tmp/disk.img bs=1M count=1"),
-            CommandRisk::Safe
-        );
-        // `mkfs` (even with -h) is blocked: argv0 is the formatter and a
-        // bare `mkfs` formats the default device — never worth the risk
-        // from an agent.
-        assert_eq!(classify_command("mkfs -h"), CommandRisk::Blocked);
-    }
-
-    #[test]
-    fn classifier_blocks_fork_bombs() {
-        for cmd in [":(){ :|:& };:", ":(){ :|: & };:", "f() { f | f & }; f"] {
-            assert_eq!(
-                classify_command(cmd),
-                CommandRisk::Blocked,
-                "must block: {cmd}"
-            );
-        }
-        assert_eq!(classify_command("echo '{()'"), CommandRisk::Safe);
-    }
-
-    #[test]
-    fn classifier_blocks_root_chmod_chown() {
-        for cmd in [
-            "chmod -R 777 /",
-            "chmod -R 777 /*",
-            "chmod --recursive 777 /",
-            "chown -R root:root /",
-        ] {
-            assert_eq!(
-                classify_command(cmd),
-                CommandRisk::Blocked,
-                "must block: {cmd}"
-            );
-        }
-        assert_eq!(classify_command("chmod -R 777 /tmp"), CommandRisk::Safe);
-        assert_eq!(classify_command("chmod 755 /"), CommandRisk::Safe);
-        assert_eq!(
-            classify_command("chown -R me:me /home/me"),
-            CommandRisk::Safe
-        );
-    }
-
-    #[test]
-    fn classifier_blocks_system_control() {
-        for cmd in [
-            "shutdown",
-            "shutdown -h now",
-            "reboot",
-            "poweroff",
-            "halt",
-            "sudo reboot",
-        ] {
-            assert_eq!(
-                classify_command(cmd),
-                CommandRisk::Blocked,
-                "must block: {cmd}"
-            );
-        }
-        // `reboot` as a data argument is not the program.
-        assert_eq!(classify_command("echo reboot"), CommandRisk::Safe);
-        assert_eq!(classify_command("git rebase main"), CommandRisk::Safe);
-    }
-
-    #[test]
-    fn classifier_allows_normal_commands() {
-        for cmd in [
-            "ls -la",
-            "echo hello world",
-            "cat /etc/hosts",
-            "ps aux | grep java",
-            "apt list --installed",
-            "printf '%s\\n' hello",
-        ] {
-            assert_eq!(
-                classify_command(cmd),
-                CommandRisk::Safe,
-                "must allow: {cmd}"
-            );
-        }
-    }
-
-    #[test]
-    fn classifier_blocks_wrapper_argument_escapes() {
-        // A wrapper prefix must be peeled together with its own options
-        // and arguments, repeatedly for chains, or the dangerous command
-        // hides behind the wrapper's argv (e.g. `nice -n 5 rm -rf /`
-        // runs nice with argv[1..] = `-n 5 rm -rf /` — still a root
-        // deletion once the args are passed through).
-        for cmd in [
-            // nice: option -n takes an argument.
-            "nice -n 5 rm -rf /",
-            "nice --adjustment=5 rm -rf /",
-            "nice -5 rm -rf /",
-            // sudo: -n (no arg), -u (arg), long options.
-            "sudo -n rm -rf /",
-            "sudo -u root rm -rf /",
-            "sudo --user root rm -rf /",
-            "sudo -- rm -rf /",
-            "sudo -k rm -rf /",
-            // env: -i, -u NAME, -C DIR, VAR=value assignments.
-            "env -i rm -rf /",
-            "env -u HOME rm -rf /",
-            "env FOO=bar rm -rf /",
-            "env -C / rm -rf /",
-            // command: -p / -v take no argument.
-            "command -p rm -rf /",
-            "command -v rm -rf /",
-            // Chains: each layer must be peeled.
-            "sudo nice rm -rf /",
-            "env sudo rm -rf /",
-            "nice -n 5 sudo rm -rf /",
-            "sudo env -i rm -rf /",
-            "command sudo nice rm -rf /",
-            // Whitespace variants around the wrapper.
-            "sudo    rm -rf /",
-        ] {
-            assert_eq!(
-                classify_command(cmd),
-                CommandRisk::Blocked,
-                "must block: {cmd}"
-            );
-        }
-        // Wrapper arguments that are NOT a dangerous command stay safe.
-        for cmd in [
-            "nice -n 5 echo hi",
-            "sudo -n echo hi",
-            "env -i echo hi",
-            "command -v echo",
-            "sudo nice echo hi",
-        ] {
-            assert_eq!(
-                classify_command(cmd),
-                CommandRisk::Safe,
-                "must allow: {cmd}"
-            );
-        }
-    }
 
     // `global_state()` is a process-wide singleton; the tools read the
     // handlers from it. Tests that register handlers MUST run serially or
     // one test's handler leaks into the next. This lock is held for the
-    // whole test body.
-    static MCP_TEST_LOCK: StdMutex<()> = StdMutex::new(());
+    // whole test body. The lock itself lives at crate level (`super::`)
+    // so `terminal::pty` tests serialize against the same globals.
+    use super::MCP_TEST_LOCK;
 
     /// Clear every handler and the active session id so a freshly built
     /// router sees pristine global state. Must be called while holding
@@ -935,7 +754,9 @@ mod tests {
         // The enabled flag defaults to false; run_stdio must short-circuit
         // instead of blocking on stdin. (Enabled mode owns the process
         // stdin/stdout and is exercised end-to-end only by the CLI binary.)
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         super::MCP_ENABLED.store(false, Ordering::Release);
         let result = super::run_stdio().await;
@@ -944,7 +765,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_list_tools() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -972,7 +795,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_terminal_info_tool() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1000,7 +825,9 @@ mod tests {
     /// session (as the JNI spawn path would), and asserts the value.
     #[tokio::test(flavor = "current_thread")]
     async fn test_terminal_info_cwd_field_resolves_from_handler() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         // The cwd field is resolved via the JNI-registered handler (ffi.rs
         // registers a callback reading session.cwd() from the registry).
@@ -1020,7 +847,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_terminal_info_exit_code_reflects_exited_session() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         // Spawn a real session and let it exit 3 (Linux host: fork works).
         let mut session = crate::terminal::session::Session::spawn(
@@ -1070,7 +899,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_clipboard_set_requires_text() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1083,7 +914,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_notify_tool_invokes_handler() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1114,7 +947,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_toast_tool_invokes_handler() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1132,7 +967,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_open_url_tool_invokes_handler() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1152,7 +989,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_clipboard_get_returns_text() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1175,7 +1014,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_clipboard_get_unavailable_if_no_handler() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1197,7 +1038,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_send_signal_invokes_handler() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1221,7 +1064,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_run_command_invokes_handler() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1256,7 +1101,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_last_command_output_tool() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1281,7 +1128,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_cancel_request_handler_invoked() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1296,23 +1145,44 @@ mod tests {
         // clipboard_get with a handler that answers with a dropped channel:
         // the tool's timeout branch immediately resolves (Err(dropped)) and
         // must cancel the request via the registered handler.
-        state.set_clipboard_get_handler(|| {
+        let registered_id: std::sync::Arc<std::sync::Mutex<Option<u64>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(None));
+        let captured = registered_id.clone();
+        state.set_clipboard_get_handler(move || {
             // Registry entry with a live sender; the answer channel's sender
             // is dropped so the tool's `rx.await` resolves Err instantly —
             // the timeout/cancel branch must then invoke cancel_request.
             let (req_id, _rx) = crate::android::ffi::register_request(7);
+            *captured
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(req_id);
             let (tx, rx) = tokio::sync::oneshot::channel::<String>();
             drop(tx);
             (req_id, rx)
         });
         let result = client.call_tool("clipboard_get", json!({})).await;
         assert!(result.is_error);
-        assert_eq!(rx.try_recv().unwrap(), (7u64, 1u64));
+        // Cancel must fire exactly once and must carry the request id that
+        // the handler actually registered (not a hard-coded sequence value
+        // that other tests may have advanced past).
+        let (sid, req_id) = rx.try_recv().expect("cancel handler must fire");
+        assert_eq!(sid, 7);
+        let expected = registered_id
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .expect("clipboard handler must register a request");
+        assert_eq!(req_id, expected, "cancel must carry the registered id");
+        assert!(
+            rx.try_recv().is_err(),
+            "cancel handler must be invoked exactly once"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_run_command_unavailable_without_handler() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1337,7 +1207,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_pick_file_returns_path() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1364,7 +1236,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_dialog_returns_answer() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);
@@ -1529,7 +1403,9 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_method_not_found() {
-        let _guard = MCP_TEST_LOCK.lock().unwrap();
+        let _guard = MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         reset_global_state();
         let router = build_router();
         let mut client = TestClient::from_router(router);

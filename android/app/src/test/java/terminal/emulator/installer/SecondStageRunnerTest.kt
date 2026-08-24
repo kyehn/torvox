@@ -17,7 +17,7 @@ import java.io.File
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
-class SecondStageLinkerTest {
+class SecondStageRunnerTest {
 
     @Before
     fun setUp() {

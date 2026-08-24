@@ -17,7 +17,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 
-class BellHandler(private val context: Context) {
+class BellHandler(
+    private val context: Context,
+    internal val nowMs: () -> Long = System::currentTimeMillis,
+) {
     companion object {
         private const val DEBOUNCE_MS = 150L
         private const val VIBRATE_DURATION_MS = 50L
@@ -29,7 +32,10 @@ class BellHandler(private val context: Context) {
 
     private val _currentMode = MutableStateFlow(BellMode.SOUND)
     val currentMode: StateFlow<BellMode> = _currentMode
-    private var lastBellTime = 0L
+
+    // "Never rung" sentinel: any non-negative clock yields now - last >= DEBOUNCE_MS,
+    // so the first bell always passes (Long.MIN_VALUE would overflow on the subtraction).
+    private var lastBellTime = -DEBOUNCE_MS
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /** Restores the view background after a screen-flash bell. Tracked so a
@@ -63,7 +69,7 @@ class BellHandler(private val context: Context) {
         targetView: View? = null,
         onAccessibility: (String) -> Unit = {},
     ): Boolean {
-        val now = System.currentTimeMillis()
+        val now = nowMs()
         if (now - lastBellTime < DEBOUNCE_MS) return false
         lastBellTime = now
         when (_currentMode.value) {

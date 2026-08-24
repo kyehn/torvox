@@ -13,6 +13,23 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
 
+internal const val LOW_MEMORY_FACTOR = 2.0f
+
+internal enum class MemoryPressure { Critical, Warning, Ok }
+
+/** Pure decision for the memory-pressure log tier. `Critical` when the
+ *  system reports low memory, `Warning` when free memory drops below twice
+ *  the system threshold, otherwise `Ok`. */
+internal fun memoryPressure(
+    availMb: Long,
+    thresholdMb: Long,
+    lowMemory: Boolean,
+): MemoryPressure = when {
+    lowMemory -> MemoryPressure.Critical
+    availMb < thresholdMb * LOW_MEMORY_FACTOR -> MemoryPressure.Warning
+    else -> MemoryPressure.Ok
+}
+
 class MemoryMonitor(
     private val context: Context,
     private val scope: CoroutineScope,
@@ -78,19 +95,24 @@ class MemoryMonitor(
 
         val availPercent = if (memInfo.totalMem > 0) ((memInfo.availMem * 100) / memInfo.totalMem).toInt() else 0
 
-        if (memInfo.lowMemory) {
-            if (!lowMemoryReported) {
-                lowMemoryReported = true
-                Log.e(
-                    TAG,
-                    "LOW MEMORY: avail=$availMb MB / $totalMb MB ($availPercent%), PSS=$pssStr, nativeHeap=$nativeHeapMb MB, threshold=$thresholdMb MB",
-                )
+        when (memoryPressure(availMb, thresholdMb, memInfo.lowMemory)) {
+            MemoryPressure.Critical -> {
+                if (!lowMemoryReported) {
+                    lowMemoryReported = true
+                    Log.e(
+                        TAG,
+                        "LOW MEMORY: avail=$availMb MB / $totalMb MB ($availPercent%), PSS=$pssStr, nativeHeap=$nativeHeapMb MB, threshold=$thresholdMb MB",
+                    )
+                }
             }
-        } else {
-            lowMemoryReported = false
-            if (availMb < thresholdMb * LOW_MEMORY_FACTOR) {
+
+            MemoryPressure.Warning -> {
+                lowMemoryReported = false
                 Log.w(TAG, "Memory pressure: avail=$availMb MB / $totalMb MB ($availPercent%), PSS=$pssStr, threshold=$thresholdMb MB")
-            } else {
+            }
+
+            MemoryPressure.Ok -> {
+                lowMemoryReported = false
                 LogUtil.d(TAG, "Memory OK: avail=$availMb MB / $totalMb MB ($availPercent%)")
             }
         }
@@ -129,7 +151,6 @@ class MemoryMonitor(
         private const val TAG = "MemoryMonitor"
         private const val POLL_INTERVAL_MS = 30_000L
         private const val BYTES_PER_MB = 1024L * 1024L
-        private const val LOW_MEMORY_FACTOR = 2.0f
         private const val PSS_CHECK_INTERVAL = 5
     }
 }

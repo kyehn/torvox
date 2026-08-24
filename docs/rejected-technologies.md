@@ -133,6 +133,7 @@
 | K10 | Molecule 试点 | 激进版建议试点（25 个 stateIn 设置流 → 声明式聚合），但 2.2.0 近一年无新 release、社区小众、命令式事件（20+ 处 `_state.update`）无法接管；未实施，仅记录 |
 | K11 | 手写 EXIF 修正 | 背景图解码已换 Coil 3.5.0（`coil-core`），EXIF 方向由 Coil 自动校正，无需手写 ExifInterface |
 | K12 | Moshi（曾引入后移除） | FontMetadata 脚手架经 `e59a132` 迁移到 JNI 结构化 JSON 后生产代码零引用；JSON 全走 kotlinx-serialization（`FontInfoDto` 判别式对齐 Rust serde），删除 moshi-kotlin + ksp codegen 两行依赖，缩短 KSP 编译 |
+| K13 | Stove（Trendyol，曾引入后移除） | 唯一用户 `BootstrapStoveHttpTest` 只测 `BootstrapDownloader.defaultClient()` 打 MockWebServer——`BootstrapDownloaderTest`（JUnit4 + mockwebserver3）已覆盖同一路径且更完整；测试不驱动任何产品代码，框架连带强制 JUnit5（jupiter + vintage engine）与 `useJUnitPlatform()`。删除测试文件与 5 个依赖声明，套件回到默认 JUnit4 runner（含 TestBalloon JUnit4 runner）。重引前提：必须有真正驱动产品代码的测试 |
 
 ### 1.10 评估后不采用 / 条件性不适用（吸收自原 `docs/reference-deferred-items.md` D 项，原文已删除）
 
