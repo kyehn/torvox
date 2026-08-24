@@ -62,7 +62,7 @@ class ThermalMonitor(
         thermalListener = null
     }
 
-    private fun onThermalStatusChanged(status: Int) {
+    internal fun onThermalStatusChanged(status: Int) {
         if (status == lastStatus) return
         lastStatus = status
         val label = thermalStatusLabel(status)
@@ -108,7 +108,7 @@ class ThermalMonitor(
         null
     }
 
-    private fun thermalStatusLabel(status: Int): String = when (status) {
+    internal fun thermalStatusLabel(status: Int): String = when (status) {
         PowerManager.THERMAL_STATUS_NONE -> "THERMAL_STATUS_NONE"
         PowerManager.THERMAL_STATUS_LIGHT -> "THERMAL_STATUS_LIGHT"
         PowerManager.THERMAL_STATUS_MODERATE -> "THERMAL_STATUS_MODERATE"

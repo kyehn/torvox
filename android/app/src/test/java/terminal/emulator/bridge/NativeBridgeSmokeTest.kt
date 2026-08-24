@@ -150,16 +150,22 @@ class NativeBridgeSmokeTest {
     }
 
     @Test
-    fun `unknown session id fails safely with an exception`() {
+    fun `unknown session id throws IllegalArgumentException`() {
         // A bogus id must not crash the process: the export throws a Java
-        // exception (jni_export_guard) instead of aborting.
-        try {
-            NativeBridge.getTitle(999_999L)
-            // Unreachable when the contract holds; if it returns null the
-            // export degraded silently — still not a crash, so allowed.
-        } catch (_: RuntimeException) {
-            // expected: unknown session → IllegalArgumentException
-        }
+        // exception (jni_export_guard) instead of aborting. The exact type
+        // is part of the Kotlin-side contract (ffi.rs getTitle throws
+        // IllegalArgumentException for unknown sessions).
+        val exception =
+            try {
+                NativeBridge.getTitle(999_999L)
+                null
+            } catch (exception: IllegalArgumentException) {
+                exception
+            }
+        assertNotNull(
+            "unknown session must throw IllegalArgumentException, got silent return",
+            exception,
+        )
         assertNotNull("bridge must remain usable after the failed call", NativeBridge.listSessions())
     }
 

@@ -28,7 +28,7 @@ class CorrectnessVerificationTest {
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun test01_modifierBar_allKeysExist() {
+    fun modifierBar_allKeysExist() {
         composeTestRule.waitForSession()
         val expectedKeys =
             listOf(
@@ -53,7 +53,7 @@ class CorrectnessVerificationTest {
     }
 
     @Test
-    fun test02_modifierBar_escKeySendsEscape() {
+    fun modifierBar_escKeySendsEscape() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_ESC").performClick()
         composeTestRule.waitForIdle()
@@ -61,7 +61,7 @@ class CorrectnessVerificationTest {
     }
 
     @Test
-    fun test03_drawerButtonExists() {
+    fun drawerButtonExists() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -69,7 +69,7 @@ class CorrectnessVerificationTest {
     }
 
     @Test
-    fun test04_settingsButtonExistsInDrawer() {
+    fun settingsButtonExistsInDrawer() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -79,7 +79,7 @@ class CorrectnessVerificationTest {
     }
 
     @Test
-    fun test05_settings_showsFontFamily() {
+    fun settings_showsFontFamily() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -89,7 +89,7 @@ class CorrectnessVerificationTest {
     }
 
     @Test
-    fun test06_settings_showsThemeSelector() {
+    fun settings_showsThemeSelector() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -102,7 +102,7 @@ class CorrectnessVerificationTest {
     }
 
     @Test
-    fun test07_settings_showsFontSizeSlider() {
+    fun settings_showsFontSizeSlider() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -112,7 +112,7 @@ class CorrectnessVerificationTest {
     }
 
     @Test
-    fun test08_settings_showsBootstrapSection() {
+    fun settings_showsBootstrapSection() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -128,25 +128,25 @@ class CorrectnessVerificationTest {
     }
 
     @Test
-    fun test09_terminalScreen_exists() {
+    fun terminalScreen_exists() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
     }
 
     @Test
-    fun test10_modifierBar_existsOnTerminal() {
+    fun modifierBar_existsOnTerminal() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
     }
 
     @Test
-    fun test11_textSearchBar_testTagExists() {
+    fun textSearchBar_testTagExists() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
     }
 
     @Test
-    fun test12_themeModeSelector_exists() {
+    fun themeModeSelector_exists() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -156,7 +156,7 @@ class CorrectnessVerificationTest {
     }
 
     @Test
-    fun test13_terminalThemeFollowSystemSwitch() {
+    fun terminalThemeFollowSystemSwitch() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
