@@ -35,16 +35,16 @@ impl FontPipeline {
         glyph_id: swash::GlyphId,
         synthesis: GlyphSynthesis,
     ) -> Option<GlyphInfo> {
+        if let Some(info) = self.lookup_glyph(font_id, glyph_id, synthesis) {
+            return Some(info);
+        }
+
         let key = GlyphKey {
             font_id,
             glyph_id,
             pixel_size: (self.font_size * self.raster_scale) as u16,
             synthesis: synthesis.bits(),
         };
-
-        if let Some(info) = self.caches.glyph_cache.get(&key).cloned() {
-            return Some(info);
-        }
 
         let db = self.font_system.db();
         let font_size = self.font_size;

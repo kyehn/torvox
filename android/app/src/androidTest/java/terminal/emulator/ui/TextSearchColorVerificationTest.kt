@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performTextReplacement
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -28,8 +29,13 @@ import java.io.File
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 @FixMethodOrder(MethodSorters.NAME_ASCENDING)
-@org.junit.Ignore("Requires the native data path: searchAllInScrollback is an implemented (native query path is wired) (null results, no highlights drawn), so the pixel assertions fail or are vacuous ")
+@org.junit.Ignore("Requires the native data path: searchAllInScrollback is an implemented (native query path is wired) (null results, no highlights drawn), so the pixel assertions fail or are vacuous  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
 class TextSearchColorVerificationTest {
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
