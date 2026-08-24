@@ -32,26 +32,26 @@ class FeatureVerificationTest {
     }
 
     @Test
-    fun test01_cursorStyle_blockIsDefault() {
+    fun cursorStyle_blockIsDefault() {
         composeTestRule.onNodeWithTag("CursorStyle_block").assertIsDisplayed()
     }
 
     @Test
-    fun test02_cursorStyle_canSwitchToBar() {
+    fun cursorStyle_canSwitchToBar() {
         composeTestRule.onNodeWithTag("CursorStyle_bar").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("CursorStyle_bar").assertIsDisplayed()
     }
 
     @Test
-    fun test03_cursorStyle_canSwitchToUnderline() {
+    fun cursorStyle_canSwitchToUnderline() {
         composeTestRule.onNodeWithTag("CursorStyle_underline").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("CursorStyle_underline").assertIsDisplayed()
     }
 
     @Test
-    fun test04_backgroundImage_sectionExists() {
+    fun backgroundImage_sectionExists() {
         composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(
             hasTestTag("BackgroundImageStatus"),
         )
@@ -59,7 +59,7 @@ class FeatureVerificationTest {
     }
 
     @Test
-    fun test05_backgroundImage_chooseButtonExists() {
+    fun backgroundImage_chooseButtonExists() {
         composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(
             hasTestTag("ChooseImageButton"),
         )
@@ -67,7 +67,7 @@ class FeatureVerificationTest {
     }
 
     @Test
-    fun test06_fontInfo_showsDefaultText() {
+    fun fontInfo_showsDefaultText() {
         composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(
             hasTestTag("FontInfoSection"),
         )
@@ -75,7 +75,7 @@ class FeatureVerificationTest {
     }
 
     @Test
-    fun test07_settings_scrollsToBottom() {
+    fun settings_scrollsToBottom() {
         composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(
             hasTestTag("BootstrapSection"),
         )
@@ -83,14 +83,14 @@ class FeatureVerificationTest {
     }
 
     @Test
-    fun test08_terminal_rendersAfterLaunch() {
+    fun terminal_rendersAfterLaunch() {
         composeTestRule.onNodeWithTag("SettingsBackButton").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
     }
 
     @Test
-    fun test09_modifierBar_allKeysClickable() {
+    fun modifierBar_allKeysClickable() {
         composeTestRule.onNodeWithTag("SettingsBackButton").performClick()
         composeTestRule.waitForIdle()
         val keys =
@@ -112,7 +112,7 @@ class FeatureVerificationTest {
     }
 
     @Test
-    fun test10_drawer_opensAndCloses() {
+    fun drawer_opensAndCloses() {
         composeTestRule.onNodeWithTag("SettingsBackButton").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()

@@ -1070,6 +1070,11 @@ mod tests {
     #[cfg(feature = "mcp")]
     #[test]
     fn build_env_exports_mcp_capability_when_enabled() {
+        // Global MCP state is process-wide; serialize against the mcp
+        // tests so set_enabled/build_env never interleave.
+        let _guard = crate::mcp::MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         // Point the server at a per-process temp socket so the started
         // listener never collides with a production path. set_enabled(false)
         // below signals graceful shutdown and joins the server thread.
@@ -1091,6 +1096,9 @@ mod tests {
     #[cfg(feature = "mcp")]
     #[test]
     fn build_env_omits_mcp_capability_when_disabled() {
+        let _guard = crate::mcp::MCP_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         crate::mcp::set_enabled(false);
         let env = test_env();
         let result = build_env(&env, "/bin/sh", 24, 80);

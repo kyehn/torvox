@@ -128,7 +128,7 @@ class TextSearchEndToEndTest {
     // ── Test 1: Search opens from drawer button ──
 
     @Test
-    fun test01_searchOpensFromDrawerButton() {
+    fun searchOpensFromDrawerButton() {
         composeTestRule.waitForSession()
         composeTestRule.waitForIdle()
 
@@ -178,7 +178,7 @@ class TextSearchEndToEndTest {
     // ── Test 2: Search finds and highlights text ──
 
     @Test
-    fun test02_searchFindsAndHighlightsMatches() {
+    fun searchFindsAndHighlightsMatches() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateMultiPageContent(bridge, uniqueMarker)
@@ -216,7 +216,7 @@ class TextSearchEndToEndTest {
     // ── Test 3: Search navigation (previous/next) with scrolling ──
 
     @Test
-    fun test03_searchNavigatesWithScroll() {
+    fun searchNavigatesWithScroll() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateMultiPageContent(bridge, uniqueMarker)
@@ -242,7 +242,7 @@ class TextSearchEndToEndTest {
     // ── Test 4: Smart case toggle ──
 
     @Test
-    fun test04_smartCaseToggle() {
+    fun smartCaseToggle() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateMultiPageContent(bridge, uniqueMarker)
@@ -270,7 +270,7 @@ class TextSearchEndToEndTest {
     // ── Test 5: Close search restores modifier bar ──
 
     @Test
-    fun test05_closeSearchRestoresModifierBar() {
+    fun closeSearchRestoresModifierBar() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateMultiPageContent(bridge, uniqueMarker)
@@ -298,7 +298,7 @@ class TextSearchEndToEndTest {
     // ── Test 6: Multi-line text with multiple matches ──
 
     @Test
-    fun test06_multiLineSearch() {
+    fun multiLineSearch() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
 
@@ -319,7 +319,7 @@ class TextSearchEndToEndTest {
     // ── Test 7: Empty query shows no results ──
 
     @Test
-    fun test07_emptyQuery() {
+    fun emptyQuery() {
         composeTestRule.waitForSession()
 
         // Open search without typing anything
@@ -339,7 +339,7 @@ class TextSearchEndToEndTest {
     // ── Test 8: No results shows proper indicator ──
 
     @Test
-    fun test08_noResultsIndicator() {
+    fun noResultsIndicator() {
         composeTestRule.waitForSession()
 
         composeTestRule.openDrawer()
@@ -359,7 +359,7 @@ class TextSearchEndToEndTest {
     // ── Test 9: Search bar stays visible with IME ──
 
     @Test
-    fun test09_searchBarNotObscuredByIme() {
+    fun searchBarNotObscuredByIme() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
 
@@ -395,7 +395,7 @@ class TextSearchEndToEndTest {
     // ── Test 10: Search highlights use theme-based inverted colors ──
 
     @Test
-    fun test10_searchHighlightColors() {
+    fun searchHighlightColors() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateMultiPageContent(bridge, uniqueMarker)
