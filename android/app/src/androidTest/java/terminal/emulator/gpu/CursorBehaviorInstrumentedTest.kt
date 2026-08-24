@@ -3,7 +3,6 @@ package terminal.emulator.gpu
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.performTextInput
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -13,7 +12,16 @@ import terminal.emulator.MainActivity
 import terminal.emulator.getBridge
 import terminal.emulator.waitForSession
 
-@org.junit.Ignore("All tests call Bridge.setCursorBlink*/resetCursorBlink/setCursorStyle — log-only implemented (native query path is wired); nothing reaches JNI, so the assertions have zero value (same policy as CursorBlinkFrameTest) — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
+// Unfrozen 2026-08 after root-cause fix: the ComposeNotIdleException was
+// NOT a software-rendering limitation. Instrumentation (UiAutomation)
+// enables AccessibilityManager, so accessibilityRenderTick fired every
+// frame and assembled the visible-screen description on the MAIN thread —
+// each line a blocking NativeBridge.scrollbackLine JNI call that contends
+// with the render thread's session lock (~500 ms/frame on SwiftShader),
+// pinning the main looper inside the mutex forever. Espresso/Compose
+// idling therefore never satisfied. Fixed by assembling the description
+// on the render thread and posting only the string to the main thread
+// (TerminalSurface.accessibilityRenderTick); the main looper now idles.
 class CursorBehaviorInstrumentedTest {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
@@ -52,9 +60,11 @@ class CursorBehaviorInstrumentedTest {
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
         bridge.setCursorBlinkEnabled(false)
         bridge.resetCursorBlink()
-        composeTestRule.onNodeWithTag("TerminalScreen").performTextInput("echo test")
+        // Type via the PTY (not compose performTextInput, which requires
+        // RequestFocus semantics the AndroidView-wrapped terminal lacks).
+        bridge.writeToPty("echo cursor-test\n".toByteArray(Charsets.UTF_8))
         composeTestRule.waitForIdle()
-        Thread.sleep(500)
+        Thread.sleep(800)
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
     }
 

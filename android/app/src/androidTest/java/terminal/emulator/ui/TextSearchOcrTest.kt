@@ -40,7 +40,6 @@ class TextSearchOcrTest {
     private val uniqueMarker = "OCR_${java.util.UUID.randomUUID().toString().take(8).uppercase()}"
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence)  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun a_generateContent_thenSearch_highlightsVisible() {
         composeTestRule.waitForSession()
         val bridge: Bridge = requireNotNull(composeTestRule.getBridge())
@@ -52,7 +51,6 @@ class TextSearchOcrTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence)  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun b_searchNext_scrollsAndChangesPosition() {
         composeTestRule.waitForSession()
         val bridge: Bridge = requireNotNull(composeTestRule.getBridge())
@@ -70,7 +68,6 @@ class TextSearchOcrTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence)  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun c_searchClose_restoresModifierBar() {
         composeTestRule.waitForSession()
         val bridge: Bridge = requireNotNull(composeTestRule.getBridge())
@@ -85,7 +82,6 @@ class TextSearchOcrTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence)  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun d_searchCaseToggle_changesResults() {
         composeTestRule.waitForSession()
         val bridge: Bridge = requireNotNull(composeTestRule.getBridge())

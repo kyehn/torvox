@@ -64,8 +64,8 @@
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::LazyLock;
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicU64;
-#[cfg(feature = "mcp")]
 use std::sync::atomic::Ordering;
 
 use crate::event::Event;
@@ -270,9 +270,20 @@ struct RenderState {
     /// come from `setCursorBlink`; `phase_reset_ms` is updated by
     /// `resetCursorBlink` so a user interaction restarts the blink phase
     /// with the cursor visible.
-    cursor_blink_enabled: bool,
-    cursor_blink_speed_ms: u64,
-    cursor_blink_phase_reset_ms: u64,
+    ///
+    /// These three are atomics (not plain fields under the render-state
+    /// lock) on purpose: they are written by UI-thread JNI calls
+    /// (`setCursorBlink`/`resetCursorBlink`) and read by the render
+    /// thread, and the render thread holds the render-state lock for the
+    /// whole frame (incl. `render_cell_data`, ~0.5 s/frame on software
+    /// renderers). Plain fields would make each UI call block behind the
+    /// render thread's lock; bursts of setting calls (e.g. the test
+    /// battery) then accumulate past the 5 s ANR window. Atomics keep the
+    /// UI path lock-free; Relaxed ordering is fine (single-writer burst +
+    /// render-thread reader, staleness bounded by the next frame).
+    cursor_blink_enabled: AtomicBool,
+    cursor_blink_speed_ms: AtomicU64,
+    cursor_blink_phase_reset_ms: AtomicU64,
     /// Active text selection for the next frame. Set by `setSelection`
     /// (row/col bounds in visible-grid coordinates), consumed by
     /// `render_inner`; same deferred-consume pattern as
@@ -329,9 +340,9 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             pending_bg_image: None,
             pending_bg_image_clear: false,
             pending_flash_phase: None,
-            cursor_blink_enabled: true,
-            cursor_blink_speed_ms: 600,
-            cursor_blink_phase_reset_ms: 0,
+            cursor_blink_enabled: AtomicBool::new(true),
+            cursor_blink_speed_ms: AtomicU64::new(600),
+            cursor_blink_phase_reset_ms: AtomicU64::new(0),
             last_frame: None,
             last_blink_phase: None,
             last_drawn_selection: None,
@@ -1893,12 +1904,17 @@ fn render_inner(session_id: u64) -> jint {
     // the last phase reset. The terminal's own cursor visibility still
     // gates it (`cursor_info.visible`).
     let mut blink_phase = 0u64;
-    if render_state.cursor_blink_enabled {
+    let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
+    if cursor_blink_enabled {
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as u64);
-        let speed = render_state.cursor_blink_speed_ms.max(50);
-        let phase = now_ms.saturating_sub(render_state.cursor_blink_phase_reset_ms);
+        let speed = render_state
+            .cursor_blink_speed_ms
+            .load(Ordering::Relaxed)
+            .max(50);
+        let phase_reset_ms = render_state.cursor_blink_phase_reset_ms.load(Ordering::Relaxed);
+        let phase = now_ms.saturating_sub(phase_reset_ms);
         blink_phase = (phase / speed) % 2;
         if blink_phase == 1 {
             cursor.visible = false;
@@ -1912,10 +1928,10 @@ fn render_inner(session_id: u64) -> jint {
         let style_changed =
             render_state.last_drawn_style_version != render_state.cursor_style_version;
         let selection_changed = render_state.selection != render_state.last_drawn_selection;
-        if !render_state.cursor_blink_enabled && !style_changed && !selection_changed {
+        if !cursor_blink_enabled && !style_changed && !selection_changed {
             return 0;
         }
-        if render_state.cursor_blink_enabled
+        if cursor_blink_enabled
             && !phase_changed
             && !style_changed
             && !selection_changed
@@ -3289,13 +3305,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorBlink
     jni_export_guard!(&mut env, (), {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            render_state.cursor_blink_enabled = enabled != 0;
-            render_state.cursor_blink_speed_ms = (speed_ms as u64).clamp(50, 2000);
-            log::info!(
-                "setCursorBlink: enabled={} speed={}ms",
-                render_state.cursor_blink_enabled,
-                render_state.cursor_blink_speed_ms
-            );
+            let enabled = enabled != 0;
+            let speed = (speed_ms as u64).clamp(50, 2000);
+            render_state
+                .cursor_blink_enabled
+                .store(enabled, Ordering::Relaxed);
+            render_state
+                .cursor_blink_speed_ms
+                .store(speed, Ordering::Relaxed);
+            log::info!("setCursorBlink: enabled={enabled} speed={speed}ms");
         }
     })
 }
@@ -3311,9 +3329,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetCursorBli
     jni_export_guard!(&mut env, (), {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            render_state.cursor_blink_phase_reset_ms = std::time::SystemTime::now()
+            let now_ms = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_or(0, |d| d.as_millis() as u64);
+            render_state
+                .cursor_blink_phase_reset_ms
+                .store(now_ms, Ordering::Relaxed);
             log::info!("resetCursorBlink: phase reset");
         }
     })

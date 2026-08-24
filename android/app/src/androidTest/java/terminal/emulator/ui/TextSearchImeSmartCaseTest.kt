@@ -83,7 +83,6 @@ class TextSearchImeSmartCaseTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence)  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun smartCase_uppercaseSearch_returnsDifferentResults() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("Bridge is null")

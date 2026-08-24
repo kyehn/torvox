@@ -7,6 +7,7 @@ import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
@@ -17,10 +18,17 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import terminal.emulator.MainActivity
+import java.io.File
 
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class TextSearchUiAutomatorTest {
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // without pre-granting it the system permission dialog covers the UI
+    // and the drawer/search nodes never appear (cold-start runs).
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val activityRule = ActivityScenarioRule(MainActivity::class.java)
 
@@ -33,19 +41,32 @@ class TextSearchUiAutomatorTest {
     }
 
     private fun openSearchBar() {
+        if (!device.wait(Until.hasObject(By.desc("Open session drawer")), 30000)) {
+            val dumpFile = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir, "cold_start_dump.xml")
+            device.dumpWindowHierarchy(dumpFile)
+            throw AssertionError("Drawer button should appear (cold start, session spawn). UI dump:\n${dumpFile.readText()}")
+        }
         val drawerButton = device.findObject(By.desc("Open session drawer"))
-        assertNotNull("Drawer button should exist", drawerButton)
         requireNotNull(drawerButton).click()
         assertTrue(
             "SearchButton should appear in drawer",
             device.wait(Until.hasObject(By.res("SearchButton")), 5000),
         )
+        // Let the drawer open animation settle: clicking a moving target
+        // taps the wrong coordinates (compose-semantic clicks are not
+        // affected, UiAutomator coordinate clicks are).
+        device.waitForIdle(1500)
         val searchButton = device.findObject(By.res("SearchButton"))
         requireNotNull(searchButton).click()
         device.waitForIdle(2000)
+        if (!device.wait(Until.hasObject(By.res("SearchTextField")), 1500)) {
+            val dumpFile = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir, "search_open_dump.xml")
+            device.dumpWindowHierarchy(dumpFile)
+            throw AssertionError("Search bar did not open after SearchButton click. UI dump:\n${dumpFile.readText()}")
+        }
     }
 
-    private fun waitForSearchBar(): Boolean = device.wait(Until.hasObject(By.res("com.termux:id/SearchTextField")), 5000)
+    private fun waitForSearchBar(): Boolean = device.wait(Until.hasObject(By.res("SearchTextField")), 5000)
 
     @Test
     fun openSearchBar_opensSearchUI() {
@@ -54,26 +75,25 @@ class TextSearchUiAutomatorTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence)  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun searchNavigatesResults() {
         openSearchBar()
         assertTrue("Search bar must open", waitForSearchBar())
 
-        val searchField = device.findObject(By.res("com.termux:id/SearchTextField"))
+        val searchField = device.findObject(By.res("SearchTextField"))
         assertNotNull("Search field should exist", searchField)
         requireNotNull(searchField).text = "e"
         device.waitForIdle(1000)
 
-        val nextButton = device.findObject(By.res("com.termux:id/SearchNext"))
+        val nextButton = device.findObject(By.res("SearchNext"))
         assertNotNull("Next button should exist", nextButton)
         requireNotNull(nextButton).click()
         device.waitForIdle(500)
 
-        val resultCount = device.findObject(By.res("com.termux:id/SearchResultCount"))
+        val resultCount = device.findObject(By.res("SearchResultCount"))
         assertNotNull("Result count should be visible after navigating", resultCount)
         assertTrue("Result count text should be non-empty", requireNotNull(resultCount).text.isNotEmpty())
 
-        val prevButton = device.findObject(By.res("com.termux:id/SearchPrevious"))
+        val prevButton = device.findObject(By.res("SearchPrevious"))
         assertNotNull("Previous button should exist", prevButton)
         requireNotNull(prevButton).click()
         device.waitForIdle(500)
@@ -84,16 +104,16 @@ class TextSearchUiAutomatorTest {
         openSearchBar()
         assertTrue("Search bar must open", waitForSearchBar())
 
-        val closeButton = device.findObject(By.res("com.termux:id/SearchClose"))
+        val closeButton = device.findObject(By.res("SearchClose"))
         assertNotNull("Close button should exist", closeButton)
         requireNotNull(closeButton).click()
         device.waitForIdle(1000)
 
-        val drawerAfterClose = device.findObject(By.res("com.termux:id/Key_DRAWER"))
+        val drawerAfterClose = device.findObject(By.res("Key_DRAWER"))
         assertNotNull("Modifier bar drawer button should be visible after search close", drawerAfterClose)
         assertTrue(
             "Search bar must be gone after close",
-            !device.wait(Until.hasObject(By.res("com.termux:id/SearchTextField")), 1000),
+            !device.wait(Until.hasObject(By.res("SearchTextField")), 1000),
         )
     }
 
@@ -102,28 +122,32 @@ class TextSearchUiAutomatorTest {
         openSearchBar()
         assertTrue("Search bar must open", waitForSearchBar())
 
-        val caseToggle = device.findObject(By.res("com.termux:id/SearchCaseSensitive"))
+        val caseToggle = device.findObject(By.res("SearchCaseSensitive"))
         assertNotNull("Case toggle should exist", caseToggle)
         requireNotNull(caseToggle).click()
         device.waitForIdle(500)
         requireNotNull(caseToggle).click()
         device.waitForIdle(500)
-        val caseToggleAfter = device.findObject(By.res("com.termux:id/SearchCaseSensitive"))
+        val caseToggleAfter = device.findObject(By.res("SearchCaseSensitive"))
         assertNotNull("Case toggle must remain present after cycling", caseToggleAfter)
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path is wired) returning zero results — the count text is vacuous (same policy as TextSearchInstrumentedTest) — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun searchResultCountVisible() {
         openSearchBar()
         assertTrue("Search bar must open", waitForSearchBar())
 
-        val searchField = device.findObject(By.res("com.termux:id/SearchTextField"))
+        val searchField = device.findObject(By.res("SearchTextField"))
         assertNotNull("Search field should exist", searchField)
+        // Focus the field first: UiAutomator setText on an unfocused
+        // compose TextField does not always dispatch the text change.
+        searchField.click()
+        device.waitForIdle(500)
         requireNotNull(searchField).text = "e"
-        device.waitForIdle(1000)
+        Thread.sleep(2200) // search debounce (150 ms) + scrollback scan
+        device.waitForIdle(500)
 
-        val resultCount = device.findObject(By.res("com.termux:id/SearchResultCount"))
+        val resultCount = device.findObject(By.res("SearchResultCount"))
         assertNotNull("Result count should be visible after typing", resultCount)
         assertTrue("Result count text should be non-empty", requireNotNull(resultCount).text.isNotEmpty())
     }

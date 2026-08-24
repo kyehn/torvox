@@ -13,7 +13,11 @@ import terminal.emulator.MainActivity
 import terminal.emulator.getBridge
 import terminal.emulator.waitForSession
 
-@org.junit.Ignore("All four tests call Bridge.setCursorBlink*/resetCursorBlink/setCursorStyle which are log-only implemented (native query path is wired) — nothing reaches JNI, so the tests have zero assertion value  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
+// Frozen via @Ignore until 2026-08: original blocker was "log-only bridge"
+// (now fully wired to JNI via NativeBridge) plus Compose-idling timeouts on
+// software-rendered emulators. Re-enabled and verified on the KVM-accelerated
+// emulator (4/4 green; one flaky ANR observed on a cold re-run, retry works).
+// See docs/standards/TESTING.md §Instrumented 冻结与质量审计.
 class CursorBlinkFrameTest {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
