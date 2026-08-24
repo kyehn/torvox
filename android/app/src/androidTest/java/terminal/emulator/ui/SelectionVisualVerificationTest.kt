@@ -144,7 +144,7 @@ class SelectionVisualVerificationTest {
     // ── Test 1: Long-press on text selects word ──
 
     @Test
-    fun test01_longPressOnText_selectsWord() {
+    fun longPressOnText_selectsWord() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -173,7 +173,7 @@ class SelectionVisualVerificationTest {
 
     @Test
     @SuppressLint("DeprecatedCall") // setPrimaryClip deprecated without replacement (API 36) — still the only client API
-    fun test02_longPressEmptyArea_showsPaste() {
+    fun longPressEmptyArea_showsPaste() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -208,7 +208,7 @@ class SelectionVisualVerificationTest {
     // ── Test 3: Selection handles appear at correct positions ──
 
     @Test
-    fun test03_selectionHandlesAtCorrectPositions() {
+    fun selectionHandlesAtCorrectPositions() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -238,7 +238,7 @@ class SelectionVisualVerificationTest {
     // ── Test 4: Drag handle to extend selection ──
 
     @Test
-    fun test04_dragHandleExtendsSelection() {
+    fun dragHandleExtendsSelection() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -313,7 +313,7 @@ class SelectionVisualVerificationTest {
     // ── Test 5: Context menu positions correctly ──
 
     @Test
-    fun test05_contextMenuPosition() {
+    fun contextMenuPosition() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -335,7 +335,7 @@ class SelectionVisualVerificationTest {
     // ── Test 6: Selection with IME open/close ──
 
     @Test
-    fun test06_selectionWithIme() {
+    fun selectionWithIme() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -379,7 +379,7 @@ class SelectionVisualVerificationTest {
     // ── Test 7: Selection with session drawer ──
 
     @Test
-    fun test07_selectionWithDrawer() {
+    fun selectionWithDrawer() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -412,7 +412,7 @@ class SelectionVisualVerificationTest {
     // ── Test 8: Theme-based selection colors ──
 
     @Test
-    fun test08_selectionThemeColors() {
+    fun selectionThemeColors() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -435,7 +435,7 @@ class SelectionVisualVerificationTest {
     // ── Test 9: Select all works ──
 
     @Test
-    fun test09_selectAllViaMenu() {
+    fun selectAllViaMenu() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -472,7 +472,7 @@ class SelectionVisualVerificationTest {
     // ── Test 10: RapidOCR verification of highlighted cells ──
 
     @Test
-    fun test10_ocrVerifyHighlightedText() {
+    fun ocrVerifyHighlightedText() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -526,7 +526,7 @@ class SelectionVisualVerificationTest {
     // ── Test 11: Selection mode double-tap line ──
 
     @Test
-    fun test11_doubleTapSelectsLine() {
+    fun doubleTapSelectsLine() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)
@@ -547,7 +547,7 @@ class SelectionVisualVerificationTest {
     // ── Test 12: Triple-tap selects all (if implemented) ──
 
     @Test
-    fun test12_tripleTapSelectAll() {
+    fun tripleTapSelectAll() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
         generateContent(bridge)

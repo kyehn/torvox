@@ -30,14 +30,14 @@ class CorrectnessTests {
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun test01_terminal_screen_renders() {
+    fun terminal_screen_renders() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
         composeTestRule.onNodeWithTag("TerminalContent").assertIsDisplayed()
     }
 
     @Test
-    fun test02_modifier_bar_visible_with_all_keys() {
+    fun modifier_bar_visible_with_all_keys() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
         composeTestRule.onNodeWithTag("Key_CTRL").assertIsDisplayed()
@@ -48,7 +48,7 @@ class CorrectnessTests {
     }
 
     @Test
-    fun test03_drawer_shows_sessions_and_settings() {
+    fun drawer_shows_sessions_and_settings() {
         composeTestRule.waitForSession()
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("AddSessionButton").assertIsDisplayed()
@@ -57,7 +57,7 @@ class CorrectnessTests {
     }
 
     @Test
-    fun test04_search_bar_appears_after_opening() {
+    fun search_bar_appears_after_opening() {
         composeTestRule.waitForSession()
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("SearchButton").performClick()
@@ -69,7 +69,7 @@ class CorrectnessTests {
     }
 
     @Test
-    fun test05_terminal_still_visible_after_search_close() {
+    fun terminal_still_visible_after_search_close() {
         composeTestRule.waitForSession()
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("SearchButton").performClick()
@@ -80,7 +80,7 @@ class CorrectnessTests {
     }
 
     @Test
-    fun test06_settings_screen_opens() {
+    fun settings_screen_opens() {
         composeTestRule.waitForSession()
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("SettingsButton").performClick()
@@ -89,7 +89,7 @@ class CorrectnessTests {
     }
 
     @Test
-    fun test07_font_family_selector_in_settings() {
+    fun font_family_selector_in_settings() {
         composeTestRule.waitForSession()
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("SettingsButton").performClick()
@@ -98,7 +98,7 @@ class CorrectnessTests {
     }
 
     @Test
-    fun test08_settings_back_shows_terminal() {
+    fun settings_back_shows_terminal() {
         composeTestRule.waitForSession()
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("SettingsButton").performClick()
@@ -109,7 +109,7 @@ class CorrectnessTests {
     }
 
     @Test
-    fun test10_scrollback_swipe_still_renders() {
+    fun scrollback_swipe_still_renders() {
         composeTestRule.waitForSession()
         composeTestRule.onNodeWithTag("TerminalContent").performTouchInput { swipeUp() }
         composeTestRule.waitForIdle()
@@ -117,7 +117,7 @@ class CorrectnessTests {
     }
 
     @Test
-    fun test11_new_session_button_in_drawer() {
+    fun new_session_button_in_drawer() {
         composeTestRule.waitForSession()
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("AddSessionButton").assertIsDisplayed()

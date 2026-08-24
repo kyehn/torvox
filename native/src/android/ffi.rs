@@ -2306,8 +2306,9 @@ pub(crate) fn answer_request(session_id: u64, request_id: u64, result: String) {
 // ══════════════════════════════════════════════════════════════════════════
 
 /// Reply to an MCP `run_command` request. The `result` is the JSON payload
-/// `{"exit_code":N,"stdout":...,"stderr":...}` produced by the Kotlin
-/// command runner. Same routing as `dialogResult` (shared registry).
+/// `{"exit_code":N,"err_code":M,"stdout":...,"stderr":...}` produced by the
+/// Kotlin command runner (err_code: 0=ok, 1=timeout, 2=exception). Same
+/// routing as `dialogResult` (shared registry).
 #[unsafe(no_mangle)]
 #[cfg(feature = "mcp")]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_runCommandResult<'local>(

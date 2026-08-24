@@ -24,6 +24,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import terminal.emulator.bell.BellHandler
 import terminal.emulator.bell.BellMode
 import terminal.emulator.bridge.Bridge
@@ -3701,6 +3705,18 @@ internal fun shouldRetryFastDeath(
  */
 internal fun fastDeathBackoffMs(attempt: Int): Long = minOf(500L shl (attempt - 1), 5000L)
 
+/** Wire payload sent to the native side for MCP run_command results
+ *  (d1/d4: exit_code clamped to 0..255 with -1 as the timeout sentinel;
+ *  err_code: 0=ok, 1=timeout, 2=exception). Field names are the
+ *  cross-FFI contract — see Rust mcp/run_command parsing. */
+@Serializable
+internal data class RunCommandPayload(
+    @SerialName("exit_code") val exitCode: Int,
+    @SerialName("err_code") val errCode: Int,
+    val stdout: String,
+    val stderr: String,
+)
+
 internal fun runCommandPayload(
     exitCode: Int,
     errCode: Int,
@@ -3711,45 +3727,14 @@ internal fun runCommandPayload(
     // should already clamp, but this ensures the wire format is always valid).
     // POSIX exit codes wrap mod 256; preserve -1 (timeout sentinel).
     val clampedExit = if (exitCode == -1) -1 else exitCode and 0xFF
-    return "{\"exit_code\":$clampedExit,\"err_code\":$errCode,\"stdout\":${
-        jsonString(stdout)
-    },\"stderr\":${
-        jsonString(stderr)
-    }}"
-}
-
-private fun jsonString(value: String): String {
-    // Full JSON string escaping): every C0 control byte
-    // (0x00-0x1F) must be escaped — previously \b, \f and the rest were
-    // embedded raw, producing invalid JSON. \uXXXX keeps the data intact.
-    val sb = StringBuilder(value.length + 16)
-    sb.append('"')
-    for (ch in value) {
-        when (ch) {
-            '\\' -> sb.append("\\\\")
-
-            '"' -> sb.append("\\\"")
-
-            '\n' -> sb.append("\\n")
-
-            '\r' -> sb.append("\\r")
-
-            '\t' -> sb.append("\\t")
-
-            '\b' -> sb.append("\\b")
-
-            '\u000C' -> sb.append("\\f")
-
-            else ->
-                if (ch < ' ') {
-                    sb.append("\\u").append(ch.code.toString(16).padStart(4, '0'))
-                } else {
-                    sb.append(ch)
-                }
-        }
-    }
-    sb.append('"')
-    return sb.toString()
+    return Json.encodeToString(
+        RunCommandPayload(
+            exitCode = clampedExit,
+            errCode = errCode,
+            stdout = stdout,
+            stderr = stderr,
+        ),
+    )
 }
 
 // ── MCP run_command execution) ────────────────────────────
