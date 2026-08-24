@@ -120,7 +120,7 @@ pub(crate) fn resolve_system_monospace_from_fonts_xml() -> Option<String> {
 }
 
 #[cfg(target_os = "android")]
-fn is_font_file(entry: &std::path::Path) -> bool {
+pub(crate) fn is_font_file(entry: &std::path::Path) -> bool {
     entry
         .extension()
         .and_then(|ext| ext.to_str())

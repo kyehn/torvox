@@ -31,7 +31,9 @@ impl FontPipeline {
         );
     }
 
-    pub fn ascent_pixels(&self) -> f32 {
+    /// Compute a single scaled font metric (e.g. ascent, descent) with automatic
+    /// fallback when the font database is unavailable.
+    fn scaled_metric(&self, extract: impl FnOnce(swash::Metrics) -> f32, fallback: f32) -> f32 {
         if let Some(font_id) = self.font_id {
             let db = self.font_system.db();
             let result = db.with_face_data(font_id, |font_data, face_index| {
@@ -42,33 +44,21 @@ impl FontPipeline {
                     return None;
                 }
                 let scale = self.font_size / upem;
-                Some(metrics.ascent * scale)
+                Some(extract(metrics) * scale)
             });
             if let Some(Some(px)) = result {
                 return px;
             }
         }
-        self.font_size * ASCENT_FALLBACK_RATIO
+        self.font_size * fallback
+    }
+
+    pub fn ascent_pixels(&self) -> f32 {
+        self.scaled_metric(|m| m.ascent, ASCENT_FALLBACK_RATIO)
     }
 
     pub fn descent_pixels(&self) -> f32 {
-        if let Some(font_id) = self.font_id {
-            let db = self.font_system.db();
-            let result = db.with_face_data(font_id, |font_data, face_index| {
-                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                let metrics = font_ref.metrics(&[]);
-                let upem = metrics.units_per_em as f32;
-                if upem == 0.0 {
-                    return None;
-                }
-                let scale = self.font_size / upem;
-                Some(metrics.descent.abs() * scale)
-            });
-            if let Some(Some(px)) = result {
-                return px;
-            }
-        }
-        self.font_size * DESCENT_FALLBACK_RATIO
+        self.scaled_metric(|m| m.descent.abs(), DESCENT_FALLBACK_RATIO)
     }
 
     pub fn cell_metrics(&self) -> (f32, f32) {

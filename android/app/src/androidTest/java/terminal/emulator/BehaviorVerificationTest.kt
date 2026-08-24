@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -21,6 +22,11 @@ import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
 class BehaviorVerificationTest {
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val composeRule = createAndroidComposeRule<MainActivity>()
 
