@@ -7,6 +7,13 @@
 const JNILIBS = "android/app/src/main/jniLibs"
 const ASSETS_BIN = "android/app/src/main/assets/bin"
 const MINIMUM_SO_SIZE_BYTES = 1_000_000
+# Upper bound: an unreasonably large .so (debug build w/o line-tables-only
+# was ~286MB, w/ line-tables-only ~122MB, release ~20MB) stalls the emulator
+# loader and APK install. Loading a >60MB .so into the x86_64 emulator caused
+# crashes (measured regression) — fail the build instead of shipping it.
+# Android devices/virtual devices must always run the optimized (release)
+# .so; debug profiles are for Rust-side iteration only and must not deploy.
+const MAXIMUM_SO_SIZE_BYTES = 60_000_000
 
 def abi-to-target-triple [abi: string] {
     match $abi {
@@ -71,6 +78,10 @@ def main [--profile: string = "", ...abis: string] {
         let size = (stat --format=%s $so_path | str trim | into int)
         if $size < $MINIMUM_SO_SIZE_BYTES {
             print $"ERROR: ($so_path) size ($size) below minimum ($MINIMUM_SO_SIZE_BYTES)"
+            exit 1
+        }
+        if $size > $MAXIMUM_SO_SIZE_BYTES {
+            print $"ERROR: ($so_path) size ($size) exceeds maximum ($MAXIMUM_SO_SIZE_BYTES): a debug/unoptimized build would crash the emulator. Deploy the release profile only."
             exit 1
         }
     }

@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -29,6 +30,11 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class SelectionEspressoTest {
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
@@ -86,7 +92,7 @@ class SelectionEspressoTest {
     }
 
     @Test
-    @org.junit.Ignore("Requires the native data path: scrollbackLine is an implemented (native query path is wired), so extractSelectedText yields an empty string and Copy never writes the clipboard ")
+    @org.junit.Ignore("Requires the native data path: scrollbackLine is an implemented (native query path is wired), so extractSelectedText yields an empty string and Copy never writes the clipboard  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     @SuppressLint("DeprecatedCall") // primaryClip: no @Deprecated in API 37; slack-lint rule data lag
     fun copyActionPlacesTextOnClipboard() {
         // Select a known range, then click Copy and verify the clipboard.

@@ -5,11 +5,17 @@ import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
 
 class SessionCreationInstrumentedTest {
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 

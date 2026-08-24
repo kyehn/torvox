@@ -108,7 +108,7 @@ class BehaviorInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("Selection cannot be activated while isCellEmpty/expandAndSetSelection are implemented (native query path is wired) (long-press routes to the paste popup), so the Copy toolbar button never appears on a fresh process;  turned the old vacuous skip into a guaranteed failure ")
+    @org.junit.Ignore("Selection cannot be activated while isCellEmpty/expandAndSetSelection are implemented (native query path is wired) (long-press routes to the paste popup), so the Copy toolbar button never appears on a fresh process;  turned the old vacuous skip into a guaranteed failure  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun behavior_selection_toolbar_shows_copy_select_all() {
         openSettings()
         scrollTo("Keyboard Mode")

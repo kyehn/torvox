@@ -89,17 +89,29 @@
     <string name="notification_channel_name">端末セッション</string>
     <string name="notification_channel_desc">アクティブな端末セッションの通知</string>
     <string name="notification_active_single">端末セッションがアクティブです</string>
-    <string name="notification_active_plural">%d 個の端末セッションがアクティブです</string>
+    <plurals name="notification_active_plural">
+        <item quantity="one">%d 個の端末セッションがアクティブです</item>
+        <item quantity="other">%d 個の端末セッションがアクティブです</item>
+    </plurals>
 
     <!-- Feedback -->
-    <string name="copied_chars">%d 文字をコピーしました</string>
-    <string name="pasted_chars">%d 文字をペーストしました</string>
+    <plurals name="copied_chars">
+        <item quantity="one">%d 文字をコピーしました</item>
+        <item quantity="other">%d 文字をコピーしました</item>
+    </plurals>
+    <plurals name="pasted_chars">
+        <item quantity="one">%d 文字をペーストしました</item>
+        <item quantity="other">%d 文字をペーストしました</item>
+    </plurals>
 
     <!-- Error -->
     <string name="unsupported_abi">未対応の ABI: %s</string>
 
     <!-- Accessibility -->
-    <string name="sessions_accessible">%d セッション</string>
+    <plurals name="sessions_accessible">
+        <item quantity="one">%d セッション</item>
+        <item quantity="other">%d セッション</item>
+    </plurals>
     <string name="title_changed">端末タイトルが %s に変更されました</string>
 
     <!-- USB Serial -->

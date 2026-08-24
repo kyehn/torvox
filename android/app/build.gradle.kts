@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.dokka")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlinx.kover")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.dagger.hilt.android")
     id("com.google.devtools.ksp")
@@ -124,6 +125,12 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // The emulator tests run against the debug APK and need
+            // symbolicated native backtraces (debuggerd resolves via
+            // .symtab). keepDebugSymbols exempts our .so from AGP's
+            // strip — do NOT remove; it only affects debug builds'
+            // testability, release keeps AGP's default shrinking.
+            keepDebugSymbols += listOf("**/libnative.so")
         }
     }
 

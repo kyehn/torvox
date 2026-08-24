@@ -69,11 +69,23 @@
     <string name="notification_channel_name">Session terminal</string>
     <string name="notification_channel_desc">Notification pour les sessions actives</string>
     <string name="notification_active_single">Session terminal active</string>
-    <string name="notification_active_plural">%d sessions terminal actives</string>
-    <string name="copied_chars">%d caractères copiés</string>
-    <string name="pasted_chars">%d caractères collés</string>
+    <plurals name="notification_active_plural">
+        <item quantity="one">%d session terminale active</item>
+        <item quantity="other">%d sessions terminales actives</item>
+    </plurals>
+    <plurals name="copied_chars">
+        <item quantity="one">%d caractère copié</item>
+        <item quantity="other">%d caractères copiés</item>
+    </plurals>
+    <plurals name="pasted_chars">
+        <item quantity="one">%d caractère collé</item>
+        <item quantity="other">%d caractères collés</item>
+    </plurals>
     <string name="unsupported_abi">ABI non pris en charge: %s</string>
-    <string name="sessions_accessible">%d sessions</string>
+    <plurals name="sessions_accessible">
+        <item quantity="one">%d session</item>
+        <item quantity="other">%d sessions</item>
+    </plurals>
     <string name="title_changed">Titre du terminal changé en %s</string>
 
     <!-- USB Serial -->

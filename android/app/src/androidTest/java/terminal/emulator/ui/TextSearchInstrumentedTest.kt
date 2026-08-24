@@ -8,11 +8,17 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
 
 class TextSearchInstrumentedTest {
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
@@ -45,7 +51,7 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence) ")
+    @org.junit.Ignore("Vacuously passes while Bridge.searchAllInScrollback is an implemented (native query path is wired) (no real results; assertions only check UI presence)  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun search_result_count_displayed_after_input() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -95,7 +101,7 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path is wired) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node ")
+    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path is wired) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun search_previous_clickable() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
@@ -108,7 +114,7 @@ class TextSearchInstrumentedTest {
     }
 
     @Test
-    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path is wired) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node ")
+    @org.junit.Ignore("searchAllInScrollback is an implemented (native query path is wired) (null results, resultCount=0) so SearchNext/SearchPrevious are disabled and performClick() fails on the non-clickable node  — native is wired, but the continuous render loop makes Compose idling time out on software-rendered emulators; needs a hardware-accelerated device")
     fun search_next_clickable() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()

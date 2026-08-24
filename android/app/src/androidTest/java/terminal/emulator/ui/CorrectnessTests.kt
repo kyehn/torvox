@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -20,6 +21,11 @@ import terminal.emulator.waitForSession
 
 @RunWith(AndroidJUnit4::class)
 class CorrectnessTests {
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
     @get:Rule
     val composeTestRule = createAndroidComposeRule<MainActivity>()
 
