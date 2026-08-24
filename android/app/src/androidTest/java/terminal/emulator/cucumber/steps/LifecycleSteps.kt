@@ -30,9 +30,16 @@ constructor(
 
     @When("^the app is force-stopped and relaunched$")
     fun appIsForceStoppedAndRelaunched() {
-        // Instrumentation cannot kill the process; recreate() only restarts
-        // the activity in the same process, so "force-stopped" semantics are
-        // approximated by an activity recreation.
+        // Killing the target process from inside an instrumentation run
+        // would kill the test runner itself (they share the process), so a
+        // true force-stop is exercised at the script level instead:
+        // `scripts/test-emulator.nu` runs `adb shell am force-stop
+        // com.termux` between the instrumentation phase and the release
+        // install, then relaunches and verifies cold-start recovery. Here
+        // the closest in-process approximation is an activity recreation —
+        // process-level recovery (STICKY restart with no sessions, wake
+        // lock re-acquire) is covered separately by
+        // TerminalForegroundServiceTest under Robolectric.
         composeRuleHolder.composeRule.activityRule.scenario
             .recreate()
         composeRuleHolder.composeRule.waitForIdle()
