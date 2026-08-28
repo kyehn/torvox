@@ -16,10 +16,34 @@ def main [] {
     # The benchmark module is a separate Gradle module
     # (android/benchmark), so the app's connectedDebugAndroidTest never
     # contains benchmark classes; the notPackage filter was stale.
-    try {
-        ^./gradlew ":app:connectedDebugAndroidTest"
-    } catch {|e|
-        print $"WARNING: Instrumentation tests failed: ($e)"
+    # Failures must fail the job: swallowing them here produced green
+    # Release runs that had actually shipped with broken tests.
+    # Retry up to 2 times to mitigate PlayStore emulator cold-start flakiness
+    # (permission dialog, drawer animation, swiftshader slowness). Each retry
+    # fully re-runs the suite; the first success short-circuits.
+    # Use `complete` to avoid Nushell's mutable capture in catch closures.
+    mut instrumentation_passed = false
+    for attempt in 1..3 {
+        print $"=== Instrumentation attempt ($attempt)/3 ==="
+        let result = (do { ^./gradlew ":app:connectedDebugAndroidTest" } | complete)
+        if $result.exit_code == 0 {
+            $instrumentation_passed = true
+            break
+        }
+        print $"WARN: Instrumentation attempt ($attempt) failed with exit code ($result.exit_code)"
+        if $attempt == 3 {
+            print $"ERROR: Instrumentation tests failed after 3 attempts"
+            print $result.stderr
+            exit 1
+        }
+        print "Retrying instrumentation tests after 10s cooldown..."
+        sleep 10sec
+        try { ^adb shell am force-stop com.termux } catch { null }
+        sleep 2sec
+    }
+    if not $instrumentation_passed {
+        print "ERROR: Instrumentation tests did not pass"
+        exit 1
     }
 
     try { ^adb shell am force-stop com.termux }
@@ -29,38 +53,45 @@ def main [] {
     try {
         ^./gradlew ":app:installRelease"
     } catch {|e|
-        print $"WARNING: Release APK install failed: ($e)"
+        print $"ERROR: Release APK install failed: ($e)"
+        exit 1
     }
 
     print "=== Reconnecting emulator ==="
-    try { ^adb reconnect } catch {|e| print $"WARNING: adb reconnect failed: ($e)" }
+    try { ^adb reconnect } catch {|e| print $"ERROR: adb reconnect failed: ($e)"; exit 1 }
     sleep 2sec
 
-    try { ^adb wait-for-device } catch {|e| print $"WARNING: adb wait-for-device failed: ($e)" }
-    try { ^adb shell true } catch {|e| print $"WARNING: adb shell check failed: ($e)" }
+    try { ^adb wait-for-device } catch {|e| print $"ERROR: adb wait-for-device failed: ($e)"; exit 1 }
+    try { ^adb shell true } catch {|e| print $"ERROR: adb shell check failed: ($e)"; exit 1 }
 
     print "=== Verifying release APK installation ==="
     let pkg_check = (^adb shell pm list packages com.termux | complete)
     if not ($pkg_check.stdout | str contains "package:com.termux") {
-        print "WARNING: com.termux not found after install, retrying install..."
+        print "ERROR: com.termux not found after install, retrying install..."
         try {
             ^./gradlew ":app:installRelease"
         } catch {|e|
-            print $"WARNING: Retry install also failed: ($e)"
+            print $"ERROR: Retry install also failed: ($e)"
+            exit 1
         }
         sleep 3sec
+        let pkg_check2 = (^adb shell pm list packages com.termux | complete)
+        if not ($pkg_check2.stdout | str contains "package:com.termux") {
+            print "ERROR: com.termux still not installed after retry"
+            exit 1
+        }
     }
 
     print "=== Running benchmarks ==="
-    try { ^./gradlew "benchmark:lockClocks" } catch {|e| print $"WARNING: lockClocks failed: ($e)" }
+    try { ^./gradlew "benchmark:lockClocks" } catch {|e| print $"ERROR: lockClocks failed: ($e)"; exit 1 }
     # Run each interaction benchmark as its own instrumentation
     # invocation: the software-rendered emulator exhausts itself during
     # a combined run and the UTP output plugin dies with "Writing local
     # file failed!" on the last test method.
-    try { ^./gradlew ":benchmark:connectedReleaseAndroidTest" } catch {|e| print $"WARNING: Benchmark tests failed: ($e)" }
-    try { ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#modifierKeyPressAnimation } catch {|e| print $"WARNING: modifierKeyPressAnimation failed: ($e)" }
-    try { ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#imeShowAnimation } catch {|e| print $"WARNING: imeShowAnimation failed: ($e)" }
-    try { ^./gradlew ":baselineprofile:generateBaselineProfile" } catch {|e| print $"WARNING: Baseline profile generation failed: ($e)" }
+    try { ^./gradlew ":benchmark:connectedReleaseAndroidTest" } catch {|e| print $"ERROR: Benchmark tests failed: ($e)"; exit 1 }
+    try { ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#modifierKeyPressAnimation } catch {|e| print $"ERROR: modifierKeyPressAnimation failed: ($e)"; exit 1 }
+    try { ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#imeShowAnimation } catch {|e| print $"ERROR: imeShowAnimation failed: ($e)"; exit 1 }
+    try { ^./gradlew ":baselineprofile:generateBaselineProfile" } catch {|e| print $"ERROR: Baseline profile generation failed: ($e)"; exit 1 }
 
     cd $repo_dir
     # `maestro test` accepts flow files or a flows folder, not suite
@@ -71,6 +102,7 @@ def main [] {
     try {
         ^maestro test ($maestro_dir | path join "flows") --include-tags smoke,e2e
     } catch {|e|
-        print $"WARNING: Maestro flows failed: ($e)"
+        print $"ERROR: Maestro flows failed: ($e)"
+        exit 1
     }
 }

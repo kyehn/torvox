@@ -4,5 +4,4 @@ components = ["cargo", "clippy", "rustfmt", "rust-src"]
 targets = [
   "aarch64-linux-android",
   "x86_64-linux-android",
-  "thumbv6m-none-eabi",
 ]

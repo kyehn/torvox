@@ -10,6 +10,7 @@
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use native::render::font::FontPipeline;
+use native::render::gpu::CellInstanceConfig;
 use native::terminal::ghostty_terminal::CellData;
 use std::hint::black_box;
 
@@ -56,19 +57,21 @@ fn build_instances(c: &mut Criterion) {
     c.bench_function("build_instances_from_cell_data", |b| {
         b.iter(|| {
             let mut instances = Vec::new();
-            black_box(native::render::build_instances_from_cell_data(
-                &cell_data,
+            let config = CellInstanceConfig {
                 rows,
                 cols,
-                1024.0, // grid_cell_w
-                1024.0, // grid_cell_h
+                grid_cell_w: 1024.0,
+                grid_cell_h: 1024.0,
                 cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            };
+            black_box(native::render::build_instances_from_cell_data(
+                &cell_data,
+                config,
                 &mut font_pipeline,
-                1024.0, // atlas_width
-                1024.0, // atlas_height
-                None,   // selection
-                None,   // selection background (unused)
-                &[],    // search_highlights
                 &mut instances,
             ));
             black_box(instances.len());
