@@ -27,6 +27,7 @@ import android.widget.Magnifier
 import android.widget.OverScroller
 import android.widget.PopupWindow
 import androidx.core.net.toUri
+import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -48,12 +49,13 @@ import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.isWideCodePoint
 
-// Approximate height reserved for the ModifierBar overlay when computing
-// the terminal grid (see applyGridResize). The bar itself is ~36dp of
-// buttons + padding + navigationBarsPadding; 80dp is a deliberately safe
-// over-estimate. Inert while Bridge.getCellWidth is an ADR-0007 stub;
-// recalibrate against the real ModifierBar layout when rendering lands
-//
+// Legacy height reserved for the ModifierBar when it lived inside the
+// terminal Column (see applyGridResize). The bar is now a Compose overlay
+// outside the SurfaceView's weight(1f) Box, so the terminal grid height is
+// `height - imeBottom` without subtracting the bar — double subtraction
+// undersized the grid by exactly the bar height (keyboard-height jump).
+// 80dp kept for reference but no longer used in the hybrid pan-then-reflow
+// path; applyGridResize now uses `height - imeBottom` directly.
 private val modifierBarHeightPx: Int by lazy {
   android.content.res.Resources.getSystem().displayMetrics.density.let { density ->
     (80f * density + 0.5f).toInt()
@@ -387,7 +389,12 @@ constructor(
       val cellWidth = viewModel?.runtime?.cellWidth ?: return
       val cellHeight = viewModel?.runtime?.cellHeight ?: return
       if (cellWidth <= 0f || cellHeight <= 0f) return
-      val availableHeight = height - imeBottom - modifierBarHeightPx
+      // Hybrid pan-then-reflow: height is the SurfaceView's layout height
+      // (already excludes navigation bars; with Compose offset it does NOT
+      // shrink during animation). Settled reflow shrinks the PTY grid by
+      // the IME inset only — the ModifierBar is an overlay, not inside this
+      // height, so do NOT subtract modifierBarHeightPx (double-subtraction bug).
+      val availableHeight = (height - imeBottom).coerceAtLeast(1)
       if (availableHeight <= 0) return
       val newCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
       val newRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
@@ -1164,7 +1171,7 @@ constructor(
 
     private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
     private const val DRAWER_CLOSE_TAP_GRACE_NANOS = 350_000_000L // 350ms close animation
-    private const val IME_RESIZE_DEBOUNCE_MS = 32L
+    private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms settle, spec ime-translation
     private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
 
     private const val FALLBACK_CELL_WIDTH = 8f
@@ -1781,11 +1788,14 @@ constructor(
           // Sub-cell accumulator: distanceY < cellHeight must not be dropped
           // — otherwise slow drags produce 0 rows and feel卡顿/闪烁. Accumulate
           // and emit whole rows only, carrying remainder to the next onScroll.
-          // Direction: finger UP (distanceY>0) → older history (offset increases), finger DOWN →
-          // newest (offset decreases) — termux parity.
+          // Direction: finger UP (distanceY>0, previousY - currentY) → older history
+          // (offset increases, viewportTop = scrollbackLength - offset decreases) →
+          // termux TerminalView:170-187 mTopRow-- parity, verified against termux-app.
+          // Use floor() for symmetric slow thresholds: trunc 0.9→0 but -0.9→0 would stall
+          // negative drags; floor -0.9→-1 keeps both directions equally responsive.
           scrollAccumulatorPx += distanceY
           val ch = cellHeight.coerceAtLeast(1f)
-          val rawAmount = (scrollAccumulatorPx / ch).toInt()
+          val rawAmount = floor((scrollAccumulatorPx / ch).toDouble()).toInt()
           if (rawAmount != 0) {
             scrollAccumulatorPx -= rawAmount * ch
             val newOffset = (scrollOffset + rawAmount).coerceIn(0, scrollbackLen)
@@ -2922,7 +2932,12 @@ constructor(
   // ══════════════════════════════════════════════════════════════════════
 
   override fun surfaceCreated(holder: SurfaceHolder) {
+    // 0-size guard: layout may call surfaceCreated before the view is measured
+    // (width/height 0) — binding a 0×0 ANativeWindow creates a black swapchain
+    // that acquireNextImage fails on (flash). Defer until surfaceChanged with real size.
+    if (width <= 0 || height <= 0) return
     val surface = holder.surface
+    if (!surface.isValid) return
     surfaceWidthPixels = width
     surfaceHeightPixels = height
     viewModel?.let { terminalViewModel ->
@@ -2962,6 +2977,7 @@ constructor(
       width: Int,
       height: Int,
   ) {
+    if (width <= 0 || height <= 0) return
     surfaceWidthPixels = width
     surfaceHeightPixels = height
     resizeManager.recomputeRowsColsImmediate(width, height)

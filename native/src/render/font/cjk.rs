@@ -10,7 +10,9 @@ const CJK_LOCALE_BONUS: i16 = 6;
 
 /// Penalty subtracted from serif CJK families so sans CJK always wins the
 /// fallback tie-break (serif reads as 宋体 next to a sans terminal font).
-const CJK_SERIF_PENALTY: i16 = 4;
+/// 32 guarantees Sans wins even when Sans is bitmap and Serif is vector:
+/// Sans worst (bitmap) 5-20=-15 > Serif best (vector) 5-32+10=-17.
+const CJK_SERIF_PENALTY: i16 = 32;
 
 /// Priority for well-known CJK font families (Noto Sans/Serif CJK, Source Han,
 /// Droid Sans Fallback, WenQuanYi).
@@ -218,23 +220,31 @@ impl FontPipeline {
         family_priority: impl Fn(&str) -> i16,
         max_results: usize,
     ) -> Vec<fontdb::ID> {
-        let db = self.font_system.db();
+        // Collect face IDs and family names first with a short-lived immutable borrow;
+        // the subsequent per-face outline-cache probes require &mut self and must not
+        // overlap the db borrow (field-level borrow discipline).
+        let faces: Vec<(fontdb::ID, String)> = {
+            let db = self.font_system.db();
+            db.faces()
+                .filter(|face| face.id != self.font_id.unwrap_or_default())
+                .filter_map(|face| {
+                    let name = face
+                        .families
+                        .first()
+                        .map(|(n, _)| n.to_lowercase())
+                        .unwrap_or_default();
+                    if !family_allowed(&name) {
+                        return None;
+                    }
+                    Some((face.id, name))
+                })
+                .collect()
+        };
         let mut candidates: Vec<(fontdb::ID, f32, i16)> = Vec::new();
+        let font_size = self.font_size;
 
-        for face in db.faces() {
-            if face.id == self.font_id.unwrap_or_default() {
-                continue;
-            }
-            let family_name = face
-                .families
-                .first()
-                .map(|(n, _)| n.to_lowercase())
-                .unwrap_or_default();
-            if !family_allowed(&family_name) {
-                continue;
-            }
-
-            let result = db.with_face_data(face.id, |font_data, face_index| {
+        for (face_id, family_name) in faces {
+            let result = self.font_system.db().with_face_data(face_id, |font_data, face_index| {
                 let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
                 let charmap = font_ref.charmap();
                 let metrics = font_ref.metrics(&[]);
@@ -242,7 +252,7 @@ impl FontPipeline {
                 if upem == 0.0 {
                     return Some(None);
                 }
-                let scale = self.font_size / upem;
+                let scale = font_size / upem;
                 let mut total_advance = 0.0;
                 let mut found = 0u32;
                 for &test_char in test_chars {
@@ -261,32 +271,46 @@ impl FontPipeline {
             });
             if let Some(Some(Some(advance_px))) = result {
                 let (is_vector, source_quality_penalty): (bool, u8) = {
-                    let is_vector = db
-                        .with_face_data(face.id, |font_data, face_index| {
-                            let font_ref =
-                                swash::FontRef::from_index(font_data, face_index as usize)?;
-                            let mut scaler = self
-                                .scaler_context
-                                .builder(font_ref)
-                                .size(self.font_size)
-                                .hint(true)
-                                .build();
-                            let charmap = font_ref.charmap();
-                            let gid = charmap.map(test_chars[0]);
-                            if gid == 0 {
-                                return Some(false);
-                            }
-                            let image = swash::scale::Render::new(&[]).render(&mut scaler, gid);
-                            Some(image.is_some_and(|img| {
-                                matches!(
-                                    img.content,
-                                    swash::scale::image::Content::Mask
-                                        | swash::scale::image::Content::SubpixelMask
-                                )
-                            }))
-                        })
-                        .unwrap_or(Some(false))
-                        .unwrap_or(false);
+                    // Majority vote over test_chars: mixed bitmap/vector fonts have some glyphs
+                    // vector, some bitmap; single-probe on '中' misclassifies. Count hits.
+                    // First collect GIDs with a short-lived db borrow, then probe the outline
+                    // cache (which needs &mut self) after the db borrow is released.
+                    let probe_gids: Vec<swash::GlyphId> = {
+                        let db = self.font_system.db();
+                        test_chars
+                            .iter()
+                            .filter_map(|&probe_char| {
+                                db.with_face_data(face_id, |font_data, face_index| {
+                                    let font_ref = swash::FontRef::from_index(
+                                        font_data,
+                                        face_index as usize,
+                                    )?;
+                                    let charmap = font_ref.charmap();
+                                    let gid = charmap.map(probe_char);
+                                    if gid == 0 {
+                                        return None;
+                                    }
+                                    Some(gid)
+                                })
+                                .flatten()
+                            })
+                            .collect()
+                    };
+                    let mut outline_hits: u32 = 0;
+                    let mut bitmap_hits: u32 = 0;
+                    for gid in probe_gids {
+                        let is_outline = self.glyph_source_is_outline_cached(face_id, gid);
+                        if is_outline {
+                            outline_hits += 1;
+                        } else {
+                            bitmap_hits += 1;
+                        }
+                    }
+                    let is_vector = if outline_hits + bitmap_hits == 0 {
+                        false
+                    } else {
+                        outline_hits > bitmap_hits
+                    };
                     if is_vector {
                         (true, 0u8)
                     } else {
@@ -307,7 +331,7 @@ impl FontPipeline {
                     is_vector,
                     effective_priority,
                 );
-                candidates.push((face.id, advance_px, effective_priority));
+                candidates.push((face_id, advance_px, effective_priority));
             }
         }
 
@@ -372,6 +396,21 @@ impl FontPipeline {
         None
     }
 
+    /// Cached outline probe: checks `outline_cache` before building a scaler.
+    pub(crate) fn glyph_source_is_outline_cached(
+        &mut self,
+        font_id: fontdb::ID,
+        glyph_id: swash::GlyphId,
+    ) -> bool {
+        let key = (font_id, glyph_id);
+        if let Some(&cached) = self.caches.outline_cache.get(&key) {
+            return cached;
+        }
+        let is_outline = self.glyph_source_is_outline(font_id, glyph_id);
+        self.caches.outline_cache.put(key, is_outline);
+        is_outline
+    }
+
     pub(crate) fn glyph_source_is_outline(
         &mut self,
         font_id: fontdb::ID,
@@ -423,7 +462,7 @@ impl FontPipeline {
                 .collect()
         };
         for (fallback_id, fid) in &glyphs {
-            if self.glyph_source_is_outline(*fallback_id, *fid) {
+            if self.glyph_source_is_outline_cached(*fallback_id, *fid) {
                 let result = self.glyph_information_from_font(*fallback_id, ch, *fid);
                 if result.is_some() {
                     // Cache the successful CJK resolution
@@ -619,13 +658,25 @@ mod tests {
     }
 }
 
+/// Returns true when `family_name` contains `locale_tag` as a standalone token
+/// (split on non-alphanumeric). Prevents `misc` matching `sc` (`misc` contains
+/// the substring `sc` but not the token `sc`).
+pub(crate) fn locale_token_match(family_name: &str, locale_tag: &str) -> bool {
+    if locale_tag.is_empty() {
+        return false;
+    }
+    family_name
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .any(|token| token == locale_tag)
+}
+
 /// CJK fallback family priority (higher wins). Sans CJK families outrank
 /// serif CJK: serif renders as 宋体/SimSun-style, visually jarring next to a
 /// sans/mono terminal font (user report "中文显示为宋体" — both
 /// NotoSansCJK and NotoSerifCJK ship in /system/fonts and the old equal
 /// priority let load order pick Serif).
 fn cjk_family_priority(family_name: &str, locale_tag: &str) -> i16 {
-    let is_locale_match = !locale_tag.is_empty() && family_name.contains(locale_tag);
+    let is_locale_match = locale_token_match(family_name, locale_tag);
     let locale_boost = if is_locale_match { CJK_LOCALE_BONUS } else { 0 };
     let base_priority: i16 = if family_name.contains("noto sans sc")
         || family_name.contains("noto sans tc")
@@ -659,7 +710,7 @@ fn cjk_family_priority(family_name: &str, locale_tag: &str) -> i16 {
 mod cjk_priority_tests {
     use super::*;
 
-    /// Sans CJK must outrank serif CJK regardless of locale (宋体 complaint).
+        /// Sans CJK must outrank serif CJK regardless of locale (宋体 complaint).
     #[test]
     fn sans_cjk_outranks_serif_cjk() {
         assert!(
@@ -668,6 +719,28 @@ mod cjk_priority_tests {
         assert!(
             cjk_family_priority("noto sans cjk sc", "sc")
                 > cjk_family_priority("noto serif cjk sc", "sc")
+        );
+    }
+
+    #[test]
+    fn locale_token_boundary_misc_not_sc() {
+        // "misc" contains substring "sc" but not token "sc" — must NOT boost.
+        assert!(!locale_token_match("misc", "sc"));
+        assert!(!locale_token_match("misc symbols", "sc"));
+        assert!(locale_token_match("noto sans cjk sc", "sc"));
+        assert!(locale_token_match("noto sans cjk jp", "jp"));
+        assert!(!locale_token_match("noto sans cjk jp", "sc"));
+    }
+
+    #[test]
+    fn serif_penalty_guards_vector_vs_bitmap() {
+        // Worst Sans (bitmap) = 5-20 = -15; best Serif (vector) = 5-32+10 = -17 → Sans still wins.
+        let sans_bitmap = cjk_family_priority("noto sans cjk", "") - CJK_BITMAP_PENALTY as i16;
+        let serif_vector =
+            cjk_family_priority("noto serif cjk", "") + OUTLINE_BONUS as i16;
+        assert!(
+            sans_bitmap > serif_vector,
+            "Sans bitmap ({sans_bitmap}) must beat Serif vector ({serif_vector})"
         );
     }
 
