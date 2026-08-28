@@ -1407,6 +1407,7 @@ mod tests {
 /// Used by the GPU dirty-band path to replace a full rebuild with a blit.
 /// `rows` is the grid height, `max_scan` caps the search (prevents O(n²)
 /// on large grids). Empty grids or `rows==0` return `None`.
+#[cfg(test)]
 pub fn detect_vertical_shift(
     old: &[crate::terminal::ghostty_terminal::CellData],
     new: &[crate::terminal::ghostty_terminal::CellData],
