@@ -1402,6 +1402,9 @@ constructor(
     if (target != scrollOffset) {
       scrollOffset = target
       onScrollChanged?.invoke(target)
+      // Spec scroll-physics: vsync-throttled requestRender after each fling step
+      // so the render thread (Mailbox) presents the newest frame without stalling.
+      viewModel?.runtime?.forceRender()
     }
     postOnAnimation(flingStepRunnable)
   }
@@ -2219,20 +2222,32 @@ constructor(
     val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
     if (imeBottom != lastImeBottom) {
       lastImeBottom = imeBottom
-      // Inert while runtime.cellWidth/cellHeight are 0 (Bridge
-      // getCellWidth is an ADR-0007 stub); activates with real cell
-      // metrics. Debounced: the IME animation changes imeBottom every
-      // frame, and resizing ghostty on each change reflows the whole
-      // grid per frame. Fire once, when the inset has settled.
-      resizeDebounceRunnable?.let { removeCallbacks(it) }
-      resizeDebounceRunnable =
-          Runnable {
-                resizeDebounceRunnable = null
-                resizeManager.applyGridResize(width, height, lastImeBottom)
-              }
-              .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
+      // Spec ime-translation: any IME inset delta must dismiss the selection
+      // handles + context menu — popups positioned at show time can never be
+      // stale relative to the pan. Do NOT resize here; the hybrid
+      // pan-then-reflow defers the single grid reflow to onImeSettled(48ms).
+      viewModel?.clearSelection()
+      selectionHandles.hideSelectionHandles()
+      hideSelectionMenu()
     }
     return result
+  }
+
+  /**
+   * Called once per IME transition after the 48ms settle window (3×16ms) by
+   * TerminalScreen's LaunchedEffect. Performs the single settled reflow:
+   * `applyGridResize` → `recomputeGrid` → `attachSurface(reconfigure)`.
+   * `onApplyWindowInsets` deliberately does NOT resize per frame — it only
+   * records `lastImeBottom` and clears selection.
+   */
+  fun onImeSettled(settledBottom: Int) {
+    if (settledBottom == lastImeBottom && lastImeBottom != 0) {
+      // Already at settled value but ensure one reflow if grid never caught up
+      // (e.g. first show after cold start where cell metrics were 0).
+    }
+    lastImeBottom = settledBottom
+    if (width <= 0 || height <= 0) return
+    resizeManager.applyGridResize(width, height, settledBottom)
   }
 
   /**

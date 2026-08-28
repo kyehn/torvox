@@ -480,6 +480,15 @@ impl Renderer {
         let non_null = std::ptr::NonNull::new(ptr).ok_or_else(|| {
             GpuError::Surface("attach_surface: null ANativeWindow pointer".into())
         })?;
+        // Fast path: if a surface is already attached (IME settle, HOME→recents with retained
+        // Surface), reconfigure the live swapchain in place instead of dropping + recreating
+        // (spec ime-smooth + app-switch-continuity). Recreation races the render thread and
+        // fails with ERROR_NATIVE_WINDOW_IN_USE_KHR on SwiftShader. Reconfigure is zero-copy.
+        if self.surface.is_some() && self.surface_config.is_some() {
+            self.reconfigure_swapchain(width, height);
+            log::info!("attach_surface: RECONFIGURE_SWAPCHAIN (fast path, existing surface)");
+            return Ok(());
+        }
         let handle = AndroidNdkWindowHandle::new(non_null.cast());
         // SAFETY:
         // - `self.instance` is a valid wgpu Instance;
