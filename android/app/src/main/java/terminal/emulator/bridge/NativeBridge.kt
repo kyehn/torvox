@@ -191,6 +191,17 @@ object NativeBridge {
     @JvmStatic
     external fun pollEvent(): String?
 
+    /**
+     * Take and clear the per-session `new_output` flag (P1-1 scroll-reset
+     * signal). Raised by the native PTY ingest path; read-and-cleared by the
+     * render thread once per frame as a BYPASS read alongside [pollEvent] —
+     * deliberately not a queued event variant so sustained output (tail -f)
+     * cannot starve bell/dialog/exit events. See
+     * docs/reference/dual-flag-protocol.md.
+     */
+    @JvmStatic
+    external fun consumeNewOutput(sessionId: Long): Boolean
+
     // ── Surface ───────────────────────────────────────────────────────
 
     /**
@@ -210,6 +221,23 @@ object NativeBridge {
      */
     @JvmStatic
     external fun render(sessionId: Long, width: Int, height: Int): Int
+
+    /**
+     * Combined render + consumeNewOutput in a single JNI crossing.
+     *
+     * Returns a packed `Long`:
+     *   - bits 0..31  = render count (same as [render])
+     *   - bit  32     = new_output flag (1 = PTY output ingested, 0 = idle)
+     *
+     * Usage:
+     * ```kotlin
+     * val packed = NativeBridge.renderWithNewOutput(sessionId, width, height)
+     * val count = packed.toInt()
+     * val newOutput = (packed shr 32) != 0L
+     * ```
+     */
+    @JvmStatic
+    external fun renderWithNewOutput(sessionId: Long, width: Int, height: Int): Long
 
     // ── MCP server ──────────────────────────────────────────────────────
 
@@ -278,6 +306,10 @@ object NativeBridge {
     /** Trimmed text of one row, or null for an empty row. Absolute row. */
     @JvmStatic
     external fun scrollbackLine(sessionId: Long, row: Int): String?
+
+    /** Cursor viewport position packed `(y << 32) | x`, or -1 when hidden. */
+    @JvmStatic
+    external fun getCursorViewportPacked(sessionId: Long): Long
 
     /** Visible + scrollback text joined by newlines. */
     @JvmStatic

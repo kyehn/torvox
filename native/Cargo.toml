@@ -24,7 +24,7 @@ foldhash = "0.2"
 parking_lot = "0.12"
 log = { workspace = true }
 regex = "1"
-linkify = "0.10"
+linkify = "0.11"
 lru = { workspace = true }
 strsim = { workspace = true }
 futures = { workspace = true }
@@ -52,7 +52,7 @@ guillotiere = { workspace = true }
 jni = { workspace = true }
 
 # MCP (Model Context Protocol) — optional (use --features mcp or --features test-util)
-tower-mcp = { version = "0.14", default-features = false, features = ["http", "childproc", "unix", "testing"], optional = true }
+tower-mcp = { version = "0.22", default-features = false, features = ["http", "childproc", "unix", "testing"], optional = true }
 axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"], optional = true }
 tokio = { version = "1", default-features = false, features = ["net", "rt", "sync", "macros", "time"], optional = true }
 schemars = { version = "1", features = ["derive"], optional = true }

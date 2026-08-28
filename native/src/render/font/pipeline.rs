@@ -29,7 +29,10 @@ pub struct FontInfo {
     pub cjk_families: Vec<String>,
     pub cell_width_px: f32,
     pub cell_height_px: f32,
-    pub font_size_px: f32,
+    /// Logical font size in sp (the value setFontSizeInPlace receives from
+    /// the Kotlin side, e.g. 41.3 for 413 tenths). Named `font_size` — NOT
+    /// px; device pixels = font_size * raster_scale * density.
+    pub font_size: f32,
 }
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -775,7 +778,7 @@ impl FontPipeline {
             cjk_families,
             cell_width_px: cw,
             cell_height_px: ch,
-            font_size_px: self.font_size,
+            font_size: self.font_size,
         }
     }
 

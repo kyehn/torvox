@@ -18,7 +18,8 @@ data class FontInfoDto(
     @SerialName("cjk_families") val cjkFamilies: List<String> = emptyList(),
     @SerialName("cell_width_px") val cellWidthPx: Float = 0f,
     @SerialName("cell_height_px") val cellHeightPx: Float = 0f,
-    @SerialName("font_size_px") val fontSizePx: Float = 0f,
+    /** Logical font size in sp (native `setFontSizeInPlace` unit, not px). */
+    @SerialName("font_size") val fontSize: Float = 0f,
 ) {
     val hasRealCjkFallback: Boolean
         get() = cjkState == "fallback" && cjkFamilies.isNotEmpty()
@@ -48,13 +49,10 @@ data class FontActiveDto(
 )
 
 /**
- * Font size sp → px conversion at a device density. The rendering pipeline
- * works in device pixels (`font_size_px`); the settings UI edits sizes in
- * sp, so every sp value crosses this boundary exactly once on the way in
- * and once (display round-trip) on the way out. Pure function — density is
- * `LocalDensity.current.density` on Android and any positive float in tests.
+ * Font size sp → device pixels at a device density. Only used for display
+ * (the native pipeline reports its logical size in sp via `font_size` and
+ * converts internally with raster_scale × density). Pure function — density
+ * is `LocalDensity.current.density` on Android and any positive float in
+ * tests.
  */
 fun fontSpToPx(fontSizeSp: Float, density: Float): Float = fontSizeSp * density
-
-/** Inverse of [fontSpToPx]: px → sp for display (not for round-tripped input). */
-fun fontPxToSp(fontSizePx: Float, density: Float): Float = fontSizePx / density
