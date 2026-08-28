@@ -2235,11 +2235,10 @@ constructor(
     }
 
     /**
-     * Called once per IME transition after the 48ms settle window (3×16ms) by
-     * TerminalScreen's LaunchedEffect. Performs the single settled reflow:
-     * `applyGridResize` → `recomputeGrid` → `attachSurface(reconfigure)`.
-     * `onApplyWindowInsets` deliberately does NOT resize per frame — it only
-     * records `lastImeBottom` and clears selection.
+     * Called once per IME transition after the 48ms settle window (3×16ms) by TerminalScreen's
+     * LaunchedEffect. Performs the single settled reflow: `applyGridResize` → `recomputeGrid` →
+     * `attachSurface(reconfigure)`. `onApplyWindowInsets` deliberately does NOT resize per frame — it
+     * only records `lastImeBottom` and clears selection.
      */
     fun onImeSettled(settledBottom: Int) {
         // Deduplicate: if already at settled value and grid is valid, no reflow needed.
