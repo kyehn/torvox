@@ -23,8 +23,6 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.ui.unit.IntOffset
-import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.DrawerValue
@@ -40,6 +38,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import kotlinx.coroutines.delay
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -51,6 +50,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -156,7 +156,7 @@ fun TerminalScreen(
               isDark = isSettingsDark,
           ),
       )
-  val terminalBg = resolvedTerminalTheme.background
+  val terminalBackground = resolvedTerminalTheme.background
   val drawerState = rememberDrawerState(DrawerValue.Closed)
   val scope = rememberCoroutineScope()
   var searchJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -249,10 +249,7 @@ fun TerminalScreen(
         // when the surface is already attached and sized; only defer 200ms when the
         // surface is not yet ready (race with layout).
         if (
-            surface != null &&
-                surface.isAttachedToWindow &&
-                surface.width > 0 &&
-                surface.height > 0
+            surface != null && surface.isAttachedToWindow && surface.width > 0 && surface.height > 0
         ) {
           viewModel.runtime.setRenderPaused(false)
           viewModel.runtime.resumeRendering()
@@ -350,7 +347,7 @@ fun TerminalScreen(
         modifier =
             Modifier.fillMaxSize()
                 .testTag("TerminalScreen")
-                .background(terminalBg)
+                .background(terminalBackground)
                 .statusBarsPadding(),
     ) {
       LaunchedEffect(drawerState.isOpen) {
@@ -494,10 +491,24 @@ fun TerminalScreen(
       // WindowInsets.ime is read with a spring so stepped reports interpolate smoothly and
       // the placement lambda avoids recomposition per frame. navigationBarsPadding is applied
       // once at the outer Box; inner Column/overlay must NOT re-apply it.
-      val imeBottomPx = WindowInsets.ime.getBottom(LocalDensity.current)
+      val density = LocalDensity.current
+      val rawImeBottomPx = WindowInsets.ime.getBottom(density)
+      var settledImePx by remember { mutableStateOf(0) }
+      var isImeSettled by remember { mutableStateOf(true) }
+      LaunchedEffect(rawImeBottomPx) {
+        if (rawImeBottomPx == settledImePx) {
+          isImeSettled = true
+          return@LaunchedEffect
+        }
+        isImeSettled = false
+        delay(IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES)
+        settledImePx = rawImeBottomPx
+        isImeSettled = true
+        surfaceRef.value?.onImeSettled(rawImeBottomPx)
+      }
       val animatedImeBottom by
           animateDpAsState(
-              targetValue = with(LocalDensity.current) { imeBottomPx.toDp() },
+              targetValue = with(density) { rawImeBottomPx.toDp() },
               animationSpec =
                   spring(
                       dampingRatio = IME_FOLLOW_SPRING_DAMPING,
@@ -505,14 +516,21 @@ fun TerminalScreen(
                   ),
               label = "imeBottom",
           )
-      val animatedImePx = with(LocalDensity.current) { animatedImeBottom.roundToPx() }
+      val animatedImePx = with(density) { animatedImeBottom.roundToPx() }
+      val imeSettledPadding = with(density) { settledImePx.toDp() }
 
       Column(
           modifier =
               Modifier.fillMaxSize()
                   .testTag("TerminalContent")
                   .navigationBarsPadding()
-                  .offset { IntOffset(0, -animatedImePx.coerceAtLeast(0)) },
+                  .then(
+                      if (isImeSettled) {
+                        Modifier.padding(bottom = imeSettledPadding.coerceAtLeast(0.dp))
+                      } else {
+                        Modifier.offset { IntOffset(0, -animatedImePx.coerceAtLeast(0)) }
+                      },
+                  ),
       ) {
         // Terminal content area — moves above IME via animated padding
         Box(
@@ -806,16 +824,20 @@ fun TerminalScreen(
         // END OF COLUMN — terminal and bar both above IME
       } // close Column
 
-      // Floating overlay for bottom bar — sits above IME (reuses same animated inset).
-      // Background before offset so it covers the animated gap without flashing the window backdrop.
-      // navigationBarsPadding is NOT re-applied here — outer Box already handles it, double
-      // application would offset the bar 2× navigation bar height.
+      // Floating overlay for bottom bar — hybrid: offset during IME animation (zero remeasure),
+      // padding when settled (single reflow). Mirrors Column's hybrid so both move in sync.
       Box(
           modifier =
               Modifier.fillMaxWidth()
                   .align(Alignment.BottomCenter)
                   .background(resolvedTerminalTheme.background)
-                  .offset { IntOffset(0, -animatedImePx.coerceAtLeast(0)) }
+                  .then(
+                      if (isImeSettled) {
+                        Modifier.padding(bottom = imeSettledPadding.coerceAtLeast(0.dp))
+                      } else {
+                        Modifier.offset { IntOffset(0, -animatedImePx.coerceAtLeast(0)) }
+                      },
+                  )
                   .testTag("ModifierBarOverlay"),
       ) {
         // Bottom bar — below terminal, above IME
