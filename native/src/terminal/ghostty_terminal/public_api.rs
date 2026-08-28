@@ -412,6 +412,15 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// Cursor viewport (row, col) read through `build_cell_data` — the exact
+    /// source the render thread consumes. `None` when hidden or build fails.
+    ///  observability: the JNI cursor query and the deterministic
+    /// cursor-coordinate contract tests read through this so instrumentation
+    /// sees the same coordinates the GPU draws.
+    pub fn render_cursor(&self) -> Option<(u32, u32)> {
+        self.query(Query::RenderCursor, None, "render_cursor")
+    }
+
     /// Receive the most recent CellData snapshot from the ghostty thread
     /// (auto-pushed after every state mutation when the channel is enabled).
     /// Drains stale entries so the caller always gets the freshest snapshot.

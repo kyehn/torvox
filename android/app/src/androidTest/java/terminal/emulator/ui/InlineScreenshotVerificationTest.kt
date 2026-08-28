@@ -11,7 +11,7 @@ import android.graphics.Bitmap
 import android.graphics.Color
 import android.util.Log
 import android.view.MotionEvent
-import android.view.TextureView
+import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import androidx.test.core.app.ActivityScenario
@@ -30,14 +30,17 @@ import kotlin.math.sqrt
 @RunWith(AndroidJUnit4::class)
 class InlineScreenshotVerificationTest {
     private var scenario: ActivityScenario<MainActivity>? = null
-    private var tv: TextureView? = null
+    private var sv: SurfaceView? = null
 
     companion object {
-        private fun findTextureView(root: View): TextureView? {
-            if (root is TextureView) return root
+        // TerminalSurface extends SurfaceView (TextureView's SurfaceTexture
+        // is consumed by the GL compositor on software emulators — see
+        // TerminalSurface.kt).
+        private fun findSurfaceView(root: View): SurfaceView? {
+            if (root is SurfaceView) return root
             if (root is ViewGroup) {
                 for (i in 0 until root.childCount) {
-                    (findTextureView(root.getChildAt(i)))?.let { return it }
+                    (findSurfaceView(root.getChildAt(i)))?.let { return it }
                 }
             }
             return null
@@ -48,9 +51,9 @@ class InlineScreenshotVerificationTest {
     fun setUp() {
         scenario = ActivityScenario.launch(MainActivity::class.java)
         requireNotNull(scenario).onActivity { activity ->
-            tv = findTextureView(activity.window.decorView)
+            sv = findSurfaceView(activity.window.decorView)
         }
-        Assert.assertNotNull("TextureView not found", tv)
+        Assert.assertNotNull("SurfaceView not found", sv)
         waitForBridgeReady()
     }
 
@@ -82,31 +85,29 @@ class InlineScreenshotVerificationTest {
         y: Float,
     ) {
         val dt = android.os.SystemClock.uptimeMillis()
-        requireNotNull(tv).dispatchTouchEvent(
+        requireNotNull(sv).dispatchTouchEvent(
             MotionEvent.obtain(dt, dt, MotionEvent.ACTION_DOWN, x, y, 0),
         )
         Thread.sleep(800)
-        requireNotNull(tv).dispatchTouchEvent(
+        requireNotNull(sv).dispatchTouchEvent(
             MotionEvent.obtain(dt, dt + 800, MotionEvent.ACTION_MOVE, x + 1f, y + 1f, 0),
         )
         Thread.sleep(50)
-        requireNotNull(tv).dispatchTouchEvent(
+        requireNotNull(sv).dispatchTouchEvent(
             MotionEvent.obtain(dt, dt + 850, MotionEvent.ACTION_UP, x + 1f, y + 1f, 0),
         )
     }
 
     private fun capture(): Bitmap? {
         Thread.sleep(500)
-        val holder = arrayOfNulls<Bitmap>(1)
-        requireNotNull(scenario).onActivity { activity ->
-            val view = activity.window.decorView
-            if (view.width <= 0 || view.height <= 0) return@onActivity
-            val bmp = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-            val canvas = android.graphics.Canvas(bmp)
-            view.draw(canvas)
-            holder[0] = bmp
+        // decorView.draw() does NOT capture PopupWindows (the paste menu is
+        // a PopupWindow layer), so use the system screen capture instead.
+        return try {
+            InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+        } catch (exception: Exception) {
+            Log.e("InlineVerif", "capture failed: ${exception.message}")
+            null
         }
-        return holder[0]
     }
 
     private fun writeToPty(data: String) {
@@ -191,8 +192,8 @@ class InlineScreenshotVerificationTest {
         writeToPty("echo 'test content'\n")
         Thread.sleep(3000)
 
-        val w = requireNotNull(tv).width
-        val h = requireNotNull(tv).height
+        val w = requireNotNull(sv).width
+        val h = requireNotNull(sv).height
 
         val ctx = InstrumentationRegistry.getInstrumentation().targetContext
         val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -228,7 +229,12 @@ class InlineScreenshotVerificationTest {
             largeBlobs.isNotEmpty(),
         )
 
-        val nearBottom = largeBlobs.any { abs(it.cy - lpY.toInt()) < h / 4 }
+        // The screenshot is in screen coordinates; the long-press was
+        // dispatched in SurfaceView-local coordinates, so translate.
+        val svLocation = IntArray(2)
+        requireNotNull(sv).getLocationOnScreen(svLocation)
+        val lpScreenY = svLocation[1] + lpY.toInt()
+        val nearBottom = largeBlobs.any { abs(it.cy - lpScreenY) < h / 4 }
         Assert.assertTrue("Toolbar not near long-press position", nearBottom)
 
         saveScreenshot(base, "paste-baseline")

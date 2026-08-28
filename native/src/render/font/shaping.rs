@@ -34,25 +34,59 @@ impl FontPipeline {
         };
         let attrs = cosmic_text::Attrs::new().family(family);
 
-        let has_cjk = text
-            .chars()
-            .any(|c| (c as u32) >= super::CJK_IDEOGRAPHIC_START);
         buffer.set_text(text, &attrs, cosmic_text::Shaping::Advanced, None);
-        if has_cjk && !self.cjk_fallback_ids.is_empty() {
-            let db = self.font_system.db();
-            let mut list = cosmic_text::AttrsList::new(&attrs);
-            for &fallback_id in &self.cjk_fallback_ids {
-                if let Some(face) = db.face(fallback_id)
-                    && let Some((fallback_name, _)) = face.families.first()
-                {
-                    list.add_span(
-                        0..text.len(),
-                        &cosmic_text::Attrs::new().family(cosmic_text::Family::Name(fallback_name)),
-                    );
+        if !self.cjk_fallback_ids.is_empty() {
+            // Only add CJK fallback for actual CJK runs, not whole text.
+            // Prior whole-span 0..len caused Latin in "hello中文" to also
+            // go through fallback shaping (extra cost) and missed cache for IME.
+            let mut cjk_ranges: Vec<std::ops::Range<usize>> = Vec::new();
+            let mut start: Option<usize> = None;
+            for (idx, ch) in text.char_indices() {
+                let cp = ch as u32;
+                let is_cjk = matches!(
+                    cp,
+                    0x1100..=0x11FF
+                        | 0x3000..=0x303F
+                        | 0x3040..=0x309F
+                        | 0x30A0..=0x30FF
+                        | 0x3100..=0x312F
+                        | 0x3400..=0x4DBF
+                        | 0x4E00..=0x9FFF
+                        | 0xAC00..=0xD7AF
+                        | 0xF900..=0xFAFF
+                        | 0xFE30..=0xFE4F
+                        | 0xFF00..=0xFFEF
+                );
+                if is_cjk {
+                    if start.is_none() {
+                        start = Some(idx);
+                    }
+                } else if let Some(s) = start.take() {
+                    cjk_ranges.push(s..idx);
                 }
             }
-            for line in &mut buffer.lines {
-                line.set_attrs_list(list.clone());
+            if let Some(s) = start {
+                cjk_ranges.push(s..text.len());
+            }
+            if !cjk_ranges.is_empty() {
+                let db = self.font_system.db();
+                let mut list = cosmic_text::AttrsList::new(&attrs);
+                for &fallback_id in &self.cjk_fallback_ids {
+                    if let Some(face) = db.face(fallback_id)
+                        && let Some((fallback_name, _)) = face.families.first()
+                    {
+                        for range in &cjk_ranges {
+                            list.add_span(
+                                range.clone(),
+                                &cosmic_text::Attrs::new()
+                                    .family(cosmic_text::Family::Name(fallback_name)),
+                            );
+                        }
+                    }
+                }
+                for line in &mut buffer.lines {
+                    line.set_attrs_list(list.clone());
+                }
             }
         }
         buffer.shape_until_scroll(&mut self.font_system, false);

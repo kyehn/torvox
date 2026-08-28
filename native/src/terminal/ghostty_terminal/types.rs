@@ -62,12 +62,15 @@ pub mod cell_flags {
 /// Cursor info — terminal cursor state sent alongside CellData for
 /// same-frame cursor rendering. Produced by build_cell_data, consumed
 /// by the render thread as CellCursor.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CursorInfo {
     pub row: u32,
     pub col: u32,
     pub visible: bool,
     pub style: CursorStyle,
+    /// Scrollback length — piggy-backed on the cell data channel so the
+    /// render thread never needs a synchronous scrollback_length() RPC.
+    pub scrollback_length: u32,
 }
 
 /// Cell data — the per-cell payload transported from the Session thread

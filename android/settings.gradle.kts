@@ -1,12 +1,15 @@
 pluginManagement {
     repositories {
-        // Tencent Cloud mirror of Maven Central (repo.maven.apache.org
-        // rate-limits shared IPs with HTTP 429). Portal before mavenCentral:
-        // some plugin markers (e.g. spotless) exist only on the portal, and
-        // mavenCentral is only consulted when both miss.
+        // gradlePluginPortal() first: the Tencent Cloud Maven proxy returns
+        // inconsistent responses for plugin artifacts absent from its index
+        // (HTTP 200 + 337-byte stub JAR on plain GET, 404 + HTML on Accept
+        // headers), which prevents Gradle from falling through to the next
+        // repo.  gradlePluginPortal() is the authoritative source for Gradle
+        // plugin artifacts; the mirror + google() + mavenCentral() cover
+        // transitive Maven dependencies.
+        gradlePluginPortal()
         maven(url = "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/")
         google()
-        gradlePluginPortal()
         mavenCentral()
     }
 }
@@ -14,13 +17,11 @@ pluginManagement {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
-        // Tencent Cloud mirror of Maven Central first — repo.maven.apache.org
-        // rate-limits shared IPs with HTTP 429. mavenCentral() is kept last as
-        // a fallback for artifacts the mirror lacks; it is only consulted when
-        // the earlier repositories miss.
-        maven(url = "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/")
-        google()
+        // mavenCentral() + google() first: same Tencent Cloud mirror issue
+        // as pluginManagement above — inconsistent responses block fallback.
         mavenCentral()
+        google()
+        maven(url = "https://mirrors.cloud.tencent.com/nexus/repository/maven-public/")
     }
 }
 
