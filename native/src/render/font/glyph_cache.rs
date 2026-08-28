@@ -4,7 +4,7 @@
 //! unit-tested independently.
 use std::num::NonZeroUsize;
 
-use super::{GLYPH_CACHE_CAPACITY, GlyphInfo, GlyphKey};
+use super::{GlyphInfo, GlyphKey, GLYPH_CACHE_CAPACITY};
 use lru::LruCache;
 
 /// Collection of LRU caches for fast glyph re-lookup.

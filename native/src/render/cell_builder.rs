@@ -1420,7 +1420,7 @@ pub fn detect_vertical_shift(
         return None;
     }
     let total = old.len();
-    if total % rows != 0 {
+    if !total.is_multiple_of(rows) {
         return None;
     }
     let cols = total / rows;
