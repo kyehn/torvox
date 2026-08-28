@@ -1804,6 +1804,7 @@ constructor(
                     if (newOffset != scrollOffset) {
                         scrollOffset = newOffset
                         onScrollChanged?.invoke(scrollOffset)
+                        viewModel?.runtime?.forceRender()
                     }
                 }
                 return true
@@ -2241,9 +2242,10 @@ constructor(
      * records `lastImeBottom` and clears selection.
      */
     fun onImeSettled(settledBottom: Int) {
-        if (settledBottom == lastImeBottom && lastImeBottom != 0) {
-            // Already at settled value but ensure one reflow if grid never caught up
-            // (e.g. first show after cold start where cell metrics were 0).
+        // Deduplicate: if already at settled value and grid is valid, no reflow needed.
+        // Keep the early return to avoid double resize on config change duplicates.
+        if (settledBottom == lastImeBottom && lastImeBottom != 0 && rows != 0 && cols != 0) {
+            return
         }
         lastImeBottom = settledBottom
         if (width <= 0 || height <= 0) return
