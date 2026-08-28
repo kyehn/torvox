@@ -1092,9 +1092,11 @@ mod tests {
             .call_tool("run_command", json!({"command": "echo \"hi\""}))
             .await;
         assert!(!result.is_error);
+        let text = result.content.first().unwrap().as_text().unwrap();
+        let parsed: Value = serde_json::from_str(text).unwrap();
         assert_eq!(
-            result.content.first().unwrap().as_text().unwrap(),
-            r#"{"exit_code":0,"stderr":"","stdout":"echo \"hi\""}"#
+            parsed,
+            json!({"exit_code": 0, "stderr": "", "stdout": "echo \"hi\""})
         );
         assert_eq!(rx.try_recv().unwrap(), (7u64, "echo \"hi\"".to_string()));
     }

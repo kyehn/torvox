@@ -491,6 +491,7 @@ mod tests {
             col: 0,
             visible: true,
             style: CursorStyle::Block,
+            scrollback_length: 0,
         };
         CpuFrame::from_cell_data(&cells, 1, cols, &cursor)
     }

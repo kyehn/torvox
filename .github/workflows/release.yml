@@ -1,4 +1,4 @@
-name: Release
+name: build-and-release
 on:
   workflow_dispatch:
   schedule:
@@ -53,7 +53,7 @@ jobs:
           script: |
             set -e
             nix develop --command nu ${{ github.workspace }}/scripts/test-emulator.nu
-      - if: startsWith(github.ref, 'refs/tags/v')
+      - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@master
         with:
           generate_release_notes: false
