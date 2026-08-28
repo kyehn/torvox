@@ -348,7 +348,8 @@ fun TerminalScreen(
             Modifier.fillMaxSize()
                 .testTag("TerminalScreen")
                 .background(terminalBackground)
-                .statusBarsPadding(),
+                .statusBarsPadding()
+                .navigationBarsPadding(),
         ) {
             LaunchedEffect(drawerState.isOpen) {
                 surfaceRef.value?.drawerOpen = drawerState.isOpen
@@ -523,7 +524,6 @@ fun TerminalScreen(
                 modifier =
                 Modifier.fillMaxSize()
                     .testTag("TerminalContent")
-                    .navigationBarsPadding()
                     .then(
                         if (isImeSettled) {
                             Modifier.padding(bottom = imeSettledPadding.coerceAtLeast(0.dp))
@@ -940,7 +940,7 @@ fun TerminalScreen(
                     }
 
                     ModifierBar(
-                        modifier = Modifier.testTag("ModifierBar").navigationBarsPadding(),
+                        modifier = Modifier.testTag("ModifierBar"),
                         onKeyClick = { data ->
                             viewModel.writeToPty(data.toByteArray())
                         },
