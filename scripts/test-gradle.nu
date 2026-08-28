@@ -14,5 +14,9 @@ def main [] {
     # regressions that would otherwise need the emulator.
     cargo build --package native
     cd android
-    ./gradlew spotlessCheck detekt app:dokkaGenerate lintDebug lintVitalRelease testDebugUnitTest benchmark:testReleaseUnitTest baselineprofile:testDebugUnitTest -Dorg.gradle.internal.test.results.binary.enabled=false
+    # assembleDebugAndroidTest compiles the androidTest sources (TestUtils,
+    # cucumber steps, instrumented suites). testDebugUnitTest does NOT touch
+    # them — without this task, androidTest compile errors surface only in
+    # the 40-minute emulator run in the Release workflow.
+    ./gradlew spotlessCheck detekt app:dokkaGenerate lintDebug lintVitalRelease assembleDebugAndroidTest testDebugUnitTest benchmark:testReleaseUnitTest baselineprofile:testDebugUnitTest -Dorg.gradle.internal.test.results.binary.enabled=false
 }

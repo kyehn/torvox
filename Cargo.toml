@@ -43,23 +43,18 @@ toml = "1"
 image = "0.25"
 strsim = "0.11"
 
-# Upstream libghostty-rs from crates.io (no patches, no git deps).
-libghostty-vt = "0.2.1"
-libghostty-vt-sys = "0.2.1"
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "de9fd9b0fa4ab53faebd3d489f4c74fe0ec832ec" }
+libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "de9fd9b0fa4ab53faebd3d489f4c74fe0ec832ec" }
 
 [profile.dev]
 incremental = true
-# Debug builds feed the emulator/test APK, not just local iteration:
-# full DWARF for 500+ transitive crates (unmerged across CGUs) balloons
-# libnative.so to ~286 MB — enough to stall the x86_64 emulator loader
-# (measured 218 MB of .debug_* sections). line-tables-only keeps the
-# .debug_line tables (line numbers in backtraces) while dropping the
-# giant .debug_info/.debug_str trees.
+opt-level = 1
 debug = "line-tables-only"
-# Do NOT strip symbols: tests need symbolicated native backtraces
-# (debuggerd resolves via .symtab/.dynsym). Strip only with release
-# packaging, where AGP's stripDebugSymbols handles it.
 strip = "none"
+
+[profile.dev-android]
+inherits = "dev"
+strip = "debuginfo"
 
 [workspace.lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_only)'] }

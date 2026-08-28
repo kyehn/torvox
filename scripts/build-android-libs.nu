@@ -26,6 +26,7 @@ def abi-to-target-triple [abi: string] {
 def profile-to-out-dir [name: string] {
     match $name {
         "release" => "release"
+        "dev-android" => "dev-android"
         _ => "debug"
     }
 }
