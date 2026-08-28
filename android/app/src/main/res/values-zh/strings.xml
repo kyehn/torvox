@@ -247,8 +247,6 @@
     <string name="save_as_new">另存为新主题</string>
     <string name="search_no_results_accessible">未找到结果</string>
     <string name="search_result_accessible">第 %1$d 个，共 %2$d 个</string>
-    <string name="select_anchor_left">◀</string>
-    <string name="select_anchor_right">▶</string>
     <string name="selection">选择</string>
     <string name="selection_accessible">已选择：%1$s</string>
     <string name="session_number">会话 %1$d</string>

@@ -113,4 +113,101 @@ class TerminalSurfaceLogicTest {
         assertEquals(0, snapColToWideChar(line = "", col = 0))
         assertEquals(3, snapColToWideChar(line = "", col = 3))
     }
+
+    // ── clampSelection (order-preserving range clamp) ─────────────────────────
+
+    @Test
+    fun `clampSelection keeps an ordered in-bounds selection unchanged`() {
+        assertEquals(
+            SelectionBounds(startRow = 2, startCol = 3, endRow = 5, endCol = 7),
+            clampSelection(2, 3, 5, 7, maxRow = 23, maxCol = 79),
+        )
+    }
+
+    @Test
+    fun `clampSelection swaps an inverted selection`() {
+        // End dragged above/left of start → anchors swap so start ≤ end.
+        assertEquals(
+            SelectionBounds(startRow = 1, startCol = 4, endRow = 6, endCol = 9),
+            clampSelection(6, 9, 1, 4, maxRow = 23, maxCol = 79),
+        )
+        // Same-row inversion (end col before start col).
+        assertEquals(
+            SelectionBounds(startRow = 3, startCol = 2, endRow = 3, endCol = 8),
+            clampSelection(3, 8, 3, 2, maxRow = 23, maxCol = 79),
+        )
+    }
+
+    @Test
+    fun `clampSelection clamps out-of-bounds anchors to the grid`() {
+        assertEquals(
+            SelectionBounds(startRow = 0, startCol = 0, endRow = 23, endCol = 79),
+            clampSelection(-5, -1, 100, 200, maxRow = 23, maxCol = 79),
+        )
+    }
+
+    @Test
+    fun `clampSelection clamps then swaps so the result is always ordered`() {
+        // Both anchors out of bounds AND inverted: clamping alone would leave
+        // start > end; the swap must run after clamping.
+        assertEquals(
+            SelectionBounds(startRow = 0, startCol = 0, endRow = 10, endCol = 10),
+            clampSelection(50, 50, -10, -10, maxRow = 10, maxCol = 10),
+        )
+    }
+
+    @Test
+    fun `clampSelection degenerates on empty grids`() {
+        // Negative max sizes coerce to zero-size grids: everything collapses
+        // to (0,0)-(0,0) instead of negative coordinates.
+        assertEquals(
+            SelectionBounds(0, 0, 0, 0),
+            clampSelection(4, 5, 8, 9, maxRow = -1, maxCol = -3),
+        )
+        assertEquals(
+            SelectionBounds(0, 0, 0, 0),
+            clampSelection(0, 0, 0, 0, maxRow = 10, maxCol = 10),
+        )
+    }
+
+    // ── pointer-id lock ──────────────────────────────────────────────────────
+
+    @Test
+    fun `moves without a latched lock keep legacy behavior`() {
+        assert(acceptsDragPointer(ownerPointerId = null, candidatePointerId = 3))
+        assert(acceptsDragPointer(ownerPointerId = null, candidatePointerId = null))
+    }
+
+    @Test
+    fun `only the dragging finger steers an existing drag`() {
+        assert(acceptsDragPointer(ownerPointerId = 5, candidatePointerId = 5))
+        assert(!acceptsDragPointer(ownerPointerId = 5, candidatePointerId = 6))
+    }
+
+    @Test
+    fun `an event with no usable pointer id never hijacks a locked drag`() {
+        assert(!acceptsDragPointer(ownerPointerId = 5, candidatePointerId = null))
+    }
+
+    // ── 300ms menu re-show guard ─────────────────────────────────────────────
+
+    @Test
+    fun `tap inside the guard window is suppressed after a drag ends`() {
+        // Release instant and just under the window boundary are suppressed.
+        assert(shouldSuppressTapAfterDragEnd(nowMs = 1_000, lastDragEndMs = 1_000))
+        assert(shouldSuppressTapAfterDragEnd(nowMs = 1_299, lastDragEndMs = 1_000))
+    }
+
+    @Test
+    fun `tap at or past the guard boundary is a real tap`() {
+        // Strict `<` at the boundary: exactly 300ms after release is NOT
+        // suppressed.
+        assert(!shouldSuppressTapAfterDragEnd(nowMs = 1_300, lastDragEndMs = 1_000))
+        assert(!shouldSuppressTapAfterDragEnd(nowMs = 2_500, lastDragEndMs = 1_000))
+    }
+
+    @Test
+    fun `no prior drag end means the guard is inactive`() {
+        assert(!shouldSuppressTapAfterDragEnd(nowMs = 100, lastDragEndMs = 0L))
+    }
 }

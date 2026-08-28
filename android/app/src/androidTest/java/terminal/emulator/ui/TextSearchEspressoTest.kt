@@ -37,12 +37,13 @@ class TextSearchEspressoTest {
     }
 
     @Test
-    fun terminalSurfaceIsViewGroup() {
+    fun terminalSurfaceIsSurfaceView() {
         activityRule.scenario.onActivity { activity ->
             val root = activity.findViewById<ViewGroup>(android.R.id.content)
-            val found = findViewByTag(root, "TerminalSurfaceView")
-            assertNotNull("TerminalSurfaceView should exist in hierarchy", found)
-            assertTrue(found is ViewGroup)
+            // TerminalSurface extends SurfaceView; locate it by class instead
+            // of a view tag (Compose's AndroidView does not set one).
+            val found = findViewByClass(root, android.view.SurfaceView::class.java)
+            assertNotNull("TerminalSurface (SurfaceView) should exist in hierarchy", found)
         }
     }
 
@@ -55,14 +56,14 @@ class TextSearchEspressoTest {
         }
     }
 
-    private fun findViewByTag(
+    private fun findViewByClass(
         view: View,
-        tag: String,
+        clazz: Class<*>,
     ): View? {
-        if (tag == view.tag) return view
+        if (clazz.isInstance(view)) return view
         if (view is ViewGroup) {
             for (i in 0 until view.childCount) {
-                val found = findViewByTag(view.getChildAt(i), tag)
+                val found = findViewByClass(view.getChildAt(i), clazz)
                 if (found != null) return found
             }
         }

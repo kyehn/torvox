@@ -1,6 +1,7 @@
 package terminal.emulator.cucumber.steps
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -32,8 +33,12 @@ constructor(
         composeRuleHolder.composeRule
             .onNodeWithText("Font Family")
             .assertIsDisplayed()
+        // Three slots share this tag (Regular / Bold / Italic — ghostty 4-slot
+        // font design, SettingsScreen.kt FontFamilySelectors); onNodeWithTag
+        // throws on ambiguity. Index 0 is the Regular slot — exactly what
+        // "change the font family" means.
         composeRuleHolder.composeRule
-            .onNodeWithTag("FontFamilySelector")
+            .onAllNodes(hasTestTag("FontFamilySelector"), useUnmergedTree = true)[0]
             .performClick()
         composeRuleHolder.composeRule.waitForIdle()
     }

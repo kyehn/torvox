@@ -50,7 +50,7 @@ constructor(
     }
 
     companion object {
-        const val DEFAULT_FONT_SIZE = 10f
+        const val DEFAULT_FONT_SIZE = 14f
         const val DEFAULT_SCROLLBACK_LINES = 10_000
         private const val DEFAULT_THEME = "Dracula Plus"
         const val DEFAULT_DAY_THEME_NAME = "Catppuccin Latte"
@@ -61,67 +61,94 @@ constructor(
         const val DEFAULT_BACKGROUND_BLUR_RADIUS = 0
         const val DEFAULT_BACKGROUND_ALPHA = 0.8f
         const val DEFAULT_CURSOR_SPEED_MS = 530
+
+        /**
+         * Round-234 (spec cursor-rendering "光标样式来源优先级"): the app default is "follow the terminal"
+         * (empty string → JNI override None) so DECSCUSR from running programs wins. Only an explicit
+         * user pick in Settings overrides the VT.
+         */
+        const val DEFAULT_CURSOR_STYLE = ""
         const val DEFAULT_BELL_MODE = 0
 
         /**
-         * Device-adaptive first-launch font size (sp): a fresh install gets a
-         * size that shows roughly [DEFAULT_FONT_COLUMNS_TARGET] visible columns
-         * (a monospace glyph is ~0.6em wide: sp = widthDp / (0.6 * 60)), clamped
-         * to a readable 8..18sp band. A 360dp phone ~10sp, a 600dp tablet
-         * ~16.7sp — the same column count, not tiny text.
+         * Device-adaptive first-launch font size (sp): a fresh install gets a size that shows roughly
+         * [DEFAULT_FONT_COLUMNS_TARGET] visible columns (a monospace glyph is ~0.6em wide: sp = widthDp
+         * / (0.6 * target)), clamped to [MIN_FONT_SP, MAX_FONT_SP]. Round-234 (spec
+         * default-typography): the floor is 14sp so small phones can never land below readable.
+         * Calibrated against real termux 0.118.3 on the same emulator (1080x2400@420dpi, ): termux
+         * glyph band 27px / char pitch ~21.2px / ~51 cols vs ours 27px / 21.8px / ~49 cols — within the
+         * C_ref ±10% tolerance, no further change needed.
          */
-        fun defaultFontSizeFor(screenWidthDp: Float): Float = (screenWidthDp / DEFAULT_FONT_COLUMNS_TARGET / MONOSPACE_CHAR_ASPECT).coerceIn(MIN_FONT_SP, MAX_FONT_SP)
+        fun defaultFontSizeFor(screenWidthDp: Float): Float = (screenWidthDp / DEFAULT_FONT_COLUMNS_TARGET / MONOSPACE_CHAR_ASPECT).coerceIn(
+            MIN_FONT_SP,
+            MAX_FONT_SP,
+        )
 
-        private const val DEFAULT_FONT_COLUMNS_TARGET = 60f
+        private const val DEFAULT_FONT_COLUMNS_TARGET = 52f
         private const val MONOSPACE_CHAR_ASPECT = 0.6f
-        private const val MIN_FONT_SP = 8f
-        private const val MAX_FONT_SP = 18f
+
+        /** termux default_font_size parity: never launch below 14sp. */
+        const val MIN_FONT_SP = 14f
+        private const val MAX_FONT_SP = 24f
     }
 
-    val appThemeMode: Flow<String> = provider.dataStore.data.map { it[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM }
+    val appThemeMode: Flow<String> =
+        provider.dataStore.data.map { it[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM }
     private val deviceDefaultFontSize: Float
         get() = defaultFontSizeFor(provider.screenWidthDp)
 
-    val fontSize: Flow<Float> = provider.dataStore.data.map { it[Keys.FONT_SIZE] ?: deviceDefaultFontSize }
+    val fontSize: Flow<Float> =
+        provider.dataStore.data.map { it[Keys.FONT_SIZE] ?: deviceDefaultFontSize }
 
     /** True once the user has explicitly picked a font size; false on a fresh install. */
-    val fontSizeExplicitlySet: Flow<Boolean> = provider.dataStore.data.map { it[Keys.FONT_SIZE] != null }
+    val fontSizeExplicitlySet: Flow<Boolean> =
+        provider.dataStore.data.map { it[Keys.FONT_SIZE] != null }
     val fontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.FONT_FAMILY] ?: "" }
     val boldFontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.BOLD_FONT_FAMILY] ?: "" }
-    val italicFontFamily: Flow<String> = provider.dataStore.data.map { it[Keys.ITALIC_FONT_FAMILY] ?: "" }
+    val italicFontFamily: Flow<String> =
+        provider.dataStore.data.map { it[Keys.ITALIC_FONT_FAMILY] ?: "" }
     val themeName: Flow<String> = provider.dataStore.data.map { it[Keys.THEME_NAME] ?: DEFAULT_THEME }
-    val dayThemeName: Flow<String> = provider.dataStore.data.map { it[Keys.DAY_THEME_NAME] ?: DEFAULT_DAY_THEME_NAME }
-    val nightThemeName: Flow<String> = provider.dataStore.data.map { it[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME }
-    val themeMode: Flow<String> = provider.dataStore.data.map { it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE }
+    val dayThemeName: Flow<String> =
+        provider.dataStore.data.map { it[Keys.DAY_THEME_NAME] ?: DEFAULT_DAY_THEME_NAME }
+    val nightThemeName: Flow<String> =
+        provider.dataStore.data.map { it[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME }
+    val themeMode: Flow<String> =
+        provider.dataStore.data.map { it[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE }
     val shell: Flow<String> = provider.dataStore.data.map { it[Keys.SHELL] ?: DEFAULT_SHELL }
-    val scrollbackLines: Flow<Int> = provider.dataStore.data.map { it[Keys.SCROLLBACK_LINES] ?: DEFAULT_SCROLLBACK_LINES }
+    val scrollbackLines: Flow<Int> =
+        provider.dataStore.data.map { it[Keys.SCROLLBACK_LINES] ?: DEFAULT_SCROLLBACK_LINES }
     val bootstrapUrl: Flow<String> = provider.dataStore.data.map { it[Keys.BOOTSTRAP_URL] ?: "" }
-    val useNerdFontGlyphs: Flow<Boolean> = provider.dataStore.data.map { it[Keys.USE_NERD_FONT_GLYPHS] ?: false }
-    val keyboardMode: Flow<String> = provider.dataStore.data.map { it[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE }
-    val mcpServerEnabled: Flow<Boolean> = provider.dataStore.data.map { it[Keys.MCP_SERVER_ENABLED] ?: false }
+    val useNerdFontGlyphs: Flow<Boolean> =
+        provider.dataStore.data.map { it[Keys.USE_NERD_FONT_GLYPHS] ?: false }
+    val keyboardMode: Flow<String> =
+        provider.dataStore.data.map { it[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE }
+    val mcpServerEnabled: Flow<Boolean> =
+        provider.dataStore.data.map { it[Keys.MCP_SERVER_ENABLED] ?: false }
 
     /** User-defined environment overrides (KEY=VALUE), one per line. */
     val environmentVariables: Flow<Map<String, String>> =
         provider.dataStore.data.map {
             parseEnvironmentVariables(it[Keys.ENVIRONMENT_VARIABLES].orEmpty())
         }
-    val backgroundImagePath: Flow<String> = provider.dataStore.data.map { it[Keys.BACKGROUND_IMAGE_PATH] ?: "" }
+    val backgroundImagePath: Flow<String> =
+        provider.dataStore.data.map { it[Keys.BACKGROUND_IMAGE_PATH] ?: "" }
     val backgroundBlurRadius: Flow<Int> =
         provider.dataStore.data.map {
-            it[Keys.BACKGROUND_BLUR_RADIUS]
-                ?: DEFAULT_BACKGROUND_BLUR_RADIUS
+            it[Keys.BACKGROUND_BLUR_RADIUS] ?: DEFAULT_BACKGROUND_BLUR_RADIUS
         }
-    val backgroundAlpha: Flow<Float> = provider.dataStore.data.map { it[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA }
+    val backgroundAlpha: Flow<Float> =
+        provider.dataStore.data.map { it[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA }
     val cursorBlink: Flow<Boolean> = provider.dataStore.data.map { it[Keys.CURSOR_BLINK] ?: true }
-    val cursorStyle: Flow<String> = provider.dataStore.data.map { it[Keys.CURSOR_STYLE] ?: "block" }
-    val cursorSpeed: Flow<Int> = provider.dataStore.data.map { it[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS }
+    val cursorStyle: Flow<String> =
+        provider.dataStore.data.map { it[Keys.CURSOR_STYLE] ?: DEFAULT_CURSOR_STYLE }
+    val cursorSpeed: Flow<Int> =
+        provider.dataStore.data.map { it[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS }
     val bellMode: Flow<Int> = provider.dataStore.data.map { it[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE }
 
     /**
-     * Single merged snapshot of every persisted setting, derived from one
-     * DataStore read. UI subscribes to this one flow instead of 21 parallel
-     * per-field pipelines (C7). Field defaults mirror the per-field flows
-     * above; keep both in sync when adding a setting.
+     * Single merged snapshot of every persisted setting, derived from one DataStore read. UI
+     * subscribes to this one flow instead of 21 parallel per-field pipelines (C7). Field defaults
+     * mirror the per-field flows above; keep both in sync when adding a setting.
      */
     data class SettingsState(
         val appThemeMode: String = DEFAULT_FOLLOW_SYSTEM,
@@ -144,7 +171,7 @@ constructor(
         val backgroundBlurRadius: Int = DEFAULT_BACKGROUND_BLUR_RADIUS,
         val backgroundAlpha: Float = DEFAULT_BACKGROUND_ALPHA,
         val cursorBlink: Boolean = true,
-        val cursorStyle: String = "block",
+        val cursorStyle: String = DEFAULT_CURSOR_STYLE,
         val cursorSpeed: Int = DEFAULT_CURSOR_SPEED_MS,
         val bellMode: Int = DEFAULT_BELL_MODE,
         val shortcutPaste: String = "",
@@ -154,45 +181,48 @@ constructor(
         val shortcutToggleScroll: String = "",
     )
 
-    val settings: Flow<SettingsState> = provider.dataStore.data.map { prefs ->
-        SettingsState(
-            appThemeMode = prefs[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM,
-            fontSize = prefs[Keys.FONT_SIZE] ?: deviceDefaultFontSize,
-            fontFamily = prefs[Keys.FONT_FAMILY] ?: "",
-            boldFontFamily = prefs[Keys.BOLD_FONT_FAMILY] ?: "",
-            italicFontFamily = prefs[Keys.ITALIC_FONT_FAMILY] ?: "",
-            themeName = prefs[Keys.THEME_NAME] ?: DEFAULT_THEME,
-            dayThemeName = prefs[Keys.DAY_THEME_NAME] ?: DEFAULT_DAY_THEME_NAME,
-            nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME,
-            themeMode = prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
-            shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
-            scrollbackLines = prefs[Keys.SCROLLBACK_LINES] ?: DEFAULT_SCROLLBACK_LINES,
-            bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
-            useNerdFontGlyphs = prefs[Keys.USE_NERD_FONT_GLYPHS] ?: false,
-            keyboardMode = prefs[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE,
-            mcpServerEnabled = prefs[Keys.MCP_SERVER_ENABLED] ?: false,
-            environmentVariables = parseEnvironmentVariables(prefs[Keys.ENVIRONMENT_VARIABLES].orEmpty()),
-            backgroundImagePath = prefs[Keys.BACKGROUND_IMAGE_PATH] ?: "",
-            backgroundBlurRadius = prefs[Keys.BACKGROUND_BLUR_RADIUS] ?: DEFAULT_BACKGROUND_BLUR_RADIUS,
-            backgroundAlpha = prefs[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA,
-            cursorBlink = prefs[Keys.CURSOR_BLINK] ?: true,
-            cursorStyle = prefs[Keys.CURSOR_STYLE] ?: "block",
-            cursorSpeed = prefs[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS,
-            bellMode = prefs[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE,
-            shortcutPaste = prefs[Keys.SHORTCUT_PASTE] ?: "",
-            shortcutNewSession = prefs[Keys.SHORTCUT_NEW_SESSION] ?: "",
-            shortcutCloseSession = prefs[Keys.SHORTCUT_CLOSE_SESSION] ?: "",
-            shortcutCopy = prefs[Keys.SHORTCUT_COPY] ?: "",
-            shortcutToggleScroll = prefs[Keys.SHORTCUT_TOGGLE_SCROLL] ?: "",
-        )
-    }
+    val settings: Flow<SettingsState> =
+        provider.dataStore.data.map { prefs ->
+            SettingsState(
+                appThemeMode = prefs[Keys.APP_THEME_MODE] ?: DEFAULT_FOLLOW_SYSTEM,
+                fontSize = prefs[Keys.FONT_SIZE] ?: deviceDefaultFontSize,
+                fontFamily = prefs[Keys.FONT_FAMILY] ?: "",
+                boldFontFamily = prefs[Keys.BOLD_FONT_FAMILY] ?: "",
+                italicFontFamily = prefs[Keys.ITALIC_FONT_FAMILY] ?: "",
+                themeName = prefs[Keys.THEME_NAME] ?: DEFAULT_THEME,
+                dayThemeName = prefs[Keys.DAY_THEME_NAME] ?: DEFAULT_DAY_THEME_NAME,
+                nightThemeName = prefs[Keys.NIGHT_THEME_NAME] ?: DEFAULT_THEME,
+                themeMode = prefs[Keys.THEME_MODE] ?: DEFAULT_THEME_MODE,
+                shell = prefs[Keys.SHELL] ?: DEFAULT_SHELL,
+                scrollbackLines = prefs[Keys.SCROLLBACK_LINES] ?: DEFAULT_SCROLLBACK_LINES,
+                bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
+                useNerdFontGlyphs = prefs[Keys.USE_NERD_FONT_GLYPHS] ?: false,
+                keyboardMode = prefs[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE,
+                mcpServerEnabled = prefs[Keys.MCP_SERVER_ENABLED] ?: false,
+                environmentVariables =
+                parseEnvironmentVariables(prefs[Keys.ENVIRONMENT_VARIABLES].orEmpty()),
+                backgroundImagePath = prefs[Keys.BACKGROUND_IMAGE_PATH] ?: "",
+                backgroundBlurRadius =
+                prefs[Keys.BACKGROUND_BLUR_RADIUS] ?: DEFAULT_BACKGROUND_BLUR_RADIUS,
+                backgroundAlpha = prefs[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA,
+                cursorBlink = prefs[Keys.CURSOR_BLINK] ?: true,
+                cursorStyle = prefs[Keys.CURSOR_STYLE] ?: DEFAULT_CURSOR_STYLE,
+                cursorSpeed = prefs[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS,
+                bellMode = prefs[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE,
+                shortcutPaste = prefs[Keys.SHORTCUT_PASTE] ?: "",
+                shortcutNewSession = prefs[Keys.SHORTCUT_NEW_SESSION] ?: "",
+                shortcutCloseSession = prefs[Keys.SHORTCUT_CLOSE_SESSION] ?: "",
+                shortcutCopy = prefs[Keys.SHORTCUT_COPY] ?: "",
+                shortcutToggleScroll = prefs[Keys.SHORTCUT_TOGGLE_SCROLL] ?: "",
+            )
+        }
 
     suspend fun setFontSize(size: Float) = put(Keys.FONT_SIZE, size)
 
     /**
-     * Persist the device-adaptive default font size on first launch so a
-     * fresh install renders a legible grid before the user touches the
-     * font-size slider. No-op once the user has explicitly picked a size.
+     * Persist the device-adaptive default font size on first launch so a fresh install renders a
+     * legible grid before the user touches the font-size slider. No-op once the user has explicitly
+     * picked a size.
      */
     suspend fun applyFirstLaunchDefaultFontSize(screenWidthDp: Float) {
         // Skip the write transaction entirely once the user has picked a size.
@@ -251,14 +281,25 @@ constructor(
 
     /** Persist a serialized shortcut binding ("CTRL|SHIFT|54") for the given action id. */
     suspend fun setShortcutBinding(actionId: String, serialized: String) {
-        val key = when (actionId) {
-            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE -> Keys.SHORTCUT_PASTE
-            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION -> Keys.SHORTCUT_NEW_SESSION
-            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION -> Keys.SHORTCUT_CLOSE_SESSION
-            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY -> Keys.SHORTCUT_COPY
-            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL -> Keys.SHORTCUT_TOGGLE_SCROLL
-            else -> return
-        }
+        val key =
+            when (actionId) {
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE ->
+                    Keys.SHORTCUT_PASTE
+
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION ->
+                    Keys.SHORTCUT_NEW_SESSION
+
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION ->
+                    Keys.SHORTCUT_CLOSE_SESSION
+
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY ->
+                    Keys.SHORTCUT_COPY
+
+                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL ->
+                    Keys.SHORTCUT_TOGGLE_SCROLL
+
+                else -> return
+            }
         put(key, serialized)
     }
 
@@ -274,11 +315,10 @@ constructor(
 }
 
 /**
- * Parse the persisted "KEY=VALUE" (one per line) environment overrides.
- * Lines without '=' or with a blank key are skipped; the first '=' splits
- * key from value so values may contain '=' and keep surrounding
- * whitespace. Mirrors the native `parse_env_entries` (shell_env.rs)
- * contract exactly (key trimmed, value untouched).
+ * Parse the persisted "KEY=VALUE" (one per line) environment overrides. Lines without '=' or with a
+ * blank key are skipped; the first '=' splits key from value so values may contain '=' and keep
+ * surrounding whitespace. Mirrors the native `parse_env_entries` (shell_env.rs) contract exactly
+ * (key trimmed, value untouched).
  */
 internal fun parseEnvironmentVariables(raw: String): Map<String, String> {
     val result = linkedMapOf<String, String>()
@@ -293,6 +333,4 @@ internal fun parseEnvironmentVariables(raw: String): Map<String, String> {
 }
 
 /** Serialize environment overrides to "KEY=VALUE" lines (sorted for stability). */
-internal fun serializeEnvironmentVariables(vars: Map<String, String>): String = vars.entries
-    .sortedBy { it.key }
-    .joinToString(separator = "\n") { "${it.key}=${it.value}" }
+internal fun serializeEnvironmentVariables(vars: Map<String, String>): String = vars.entries.sortedBy { it.key }.joinToString(separator = "\n") { "${it.key}=${it.value}" }

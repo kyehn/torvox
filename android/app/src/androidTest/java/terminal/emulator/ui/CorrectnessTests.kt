@@ -4,6 +4,7 @@ package terminal.emulator.ui
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -94,7 +95,9 @@ class CorrectnessTests {
         composeTestRule.openDrawer()
         composeTestRule.onNodeWithTag("SettingsButton").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("FontFamilySelector").assertIsDisplayed()
+        // Three FontFamilySelector rows render (regular/bold/italic) — assert
+        // the first one.
+        composeTestRule.onAllNodes(hasTestTag("FontFamilySelector")).onFirst().assertIsDisplayed()
     }
 
     @Test

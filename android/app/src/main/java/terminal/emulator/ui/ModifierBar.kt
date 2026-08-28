@@ -7,7 +7,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +25,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,8 +46,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.R
 import terminal.emulator.input.ModifierState
@@ -62,11 +60,10 @@ private const val MAX_COLUMNS_PER_PAGE = 7
 internal typealias ToolbarColumn = Pair<ToolbarItem?, ToolbarItem?>
 
 /**
- * Splits the flat toolbar layout into horizontal pages (termux ViewPager
- * behaviour): the list is split at the midpoint into two rows, paired into
- * top/bottom columns, then chunked so each page holds up to
- * [maxColumnsPerPage] columns; swipe left/right reaches the rest. The
- * default 14-key layout is a single 7-column page.
+ * Splits the flat toolbar layout into horizontal pages (termux ViewPager behaviour): the list is
+ * split at the midpoint into two rows, paired into top/bottom columns, then chunked so each page
+ * holds up to [maxColumnsPerPage] columns; swipe left/right reaches the rest. The default 14-key
+ * layout is a single 7-column page.
  */
 internal fun paginateToolbarKeys(
     keys: ImmutableList<ToolbarItem>,
@@ -82,15 +79,23 @@ internal fun paginateToolbarKeys(
     return columns.chunked(maxColumnsPerPage)
 }
 
-private const val REPEAT_TIMEOUT_MS = 500L
-private const val DWELL_GUARD_MS = 100L
 private const val LONG_PRESS_MS = 500L
+
+// Round-234 (spec modifier-bar-interaction "press-down fires immediately"):
+// termux ExtraKeysView semantics — the key fires on ACTION_DOWN, auto-repeat
+// starts after an initial delay and repeats at a fixed cadence until UP.
+private const val AUTO_REPEAT_INITIAL_DELAY_MS = 250L
+private const val AUTO_REPEAT_INTERVAL_MS = 35L
+
+// Round-234 spec modifier-bar-interaction press-feedback thresholds.
+private const val PRESS_BG_TWEEN_MS = 30
+private const val PRESS_SCALE_SPRING_DAMPING = 0.55f
+private const val PRESS_SCALE_SPRING_STIFFNESS = 5000f
 private const val SECONDARY_FONT_SIZE_SP = 8
 
 /**
- * Compose key sequences: (first char, second char) → composed character.
- * Mirrors the classic X11 default compose table for the common Latin-1
- * accented characters plus a few symbols.
+ * Compose key sequences: (first char, second char) → composed character. Mirrors the classic X11
+ * default compose table for the common Latin-1 accented characters plus a few symbols.
  */
 private val COMPOSE_TABLE: Map<Pair<Char, Char>, Char> =
     mapOf(
@@ -163,7 +168,10 @@ internal val FN_KEY_SEQUENCES: List<Pair<String, String>> =
         "F12" to "\u001b[24~",
     )
 
-enum class ModifierBarMode { Normal, SelectionActions }
+enum class ModifierBarMode {
+    Normal,
+    SelectionActions,
+}
 
 @Composable
 fun rememberToolbarLayout(): ImmutableList<ToolbarItem>? {
@@ -178,22 +186,22 @@ fun rememberToolbarLayout(): ImmutableList<ToolbarItem>? {
 }
 
 /**
- * Termux v0.119.0-beta.3 extra_keys layout:
- * Row 1: ESC, DRAWER, SCROLL, HOME, ↑, END, PGUP
- * Row 2: TAB, CTRL, ALT, ←, ↓, →, PGDN
+ * Termux v0.119.0-beta.3 extra_keys layout: Row 1: ESC, DRAWER, SCROLL, HOME, ↑, END, PGUP Row 2:
+ * TAB, CTRL, ALT, ←, ↓, →, PGDN
  *
- * Session button (DRAWER) is on the LEFT as the second button and has the
- * termux default `popup: 'PASTE'` (long-press pastes the clipboard).
- * All buttons are borderless with transparent background.
- * Each button has equal weight for uniform sizing.
+ * Session button (DRAWER) is on the LEFT as the second button and has the termux default `popup:
+ * 'PASTE'` (long-press pastes the clipboard). All buttons are borderless with transparent
+ * background. Each button has equal weight for uniform sizing.
  */
-@Suppress("LongParameterList", "LongMethod")
+@Suppress("LongParameterList", "LongMethod", "CognitiveComplexMethod")
 @Composable
 fun ModifierBar(
     onKeyClick: (String) -> Unit,
     modifier: Modifier = Modifier,
     onDrawerClick: () -> Unit = {},
     onScrollClick: () -> Unit = {},
+    /** SCROLL-button lock state — drives the button's selected/highlight. */
+    scrollActive: Boolean = false,
     ctrlState: ModifierState = ModifierState.Off,
     altState: ModifierState = ModifierState.Off,
     fnState: ModifierState = ModifierState.Off,
@@ -212,8 +220,6 @@ fun ModifierBar(
     onSelectAll: (() -> Unit)? = null,
     onPaste: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
-    onAnchorLeft: (() -> Unit)? = null,
-    onAnchorRight: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
 ) {
     fun label(key: String): String = if (useNerdFontGlyphs) NerdKeyLabels.label(key) else key
@@ -278,7 +284,15 @@ fun ModifierBar(
 
     if (barMode == ModifierBarMode.SelectionActions) {
         SelectionActionsBar(
-            actions = SelectionActions(onCopy, copyEnabled, onSelectAll, onPaste, onShare, onAnchorLeft, onAnchorRight, onDismiss),
+            actions =
+            SelectionActions(
+                onCopy,
+                copyEnabled,
+                onSelectAll,
+                onPaste,
+                onShare,
+                onDismiss,
+            ),
             textColor = textColor,
             backgroundColor = backgroundColor,
             buttonHeight = buttonHeight,
@@ -293,6 +307,7 @@ fun ModifierBar(
             onKeyClick = ::dispatchKey,
             onDrawerClick = onDrawerClick,
             onScrollClick = onScrollClick,
+            scrollActive = scrollActive,
             ctrlState = ctrlState,
             altState = altState,
             fnState = fnState,
@@ -320,18 +335,43 @@ fun ModifierBar(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ExtraKeyButton(text = label("ESC"), onClick = {
-                dispatchKey("\u001b")
-            }, textColor = textColor, testTag = "Key_ESC", contentDescription = stringResource(R.string.escape))
-            ExtraKeyButton(text = "\u2630", onClick = {
-                onDrawerClick()
-            }, textColor = textColor, testTag = "Key_DRAWER", contentDescription = stringResource(R.string.open_session_drawer))
-            ExtraKeyButton(text = label("SCROLL"), onClick = {
-                onScrollClick()
-            }, textColor = textColor, testTag = "Key_SCROLL", contentDescription = stringResource(R.string.toggle_scroll))
-            ExtraKeyButton(text = label("HOME"), onClick = {
-                dispatchKey("\u001b[H")
-            }, textColor = textColor, testTag = "Key_HOME", contentDescription = stringResource(R.string.home_key))
+            ExtraKeyButton(
+                text = label("ESC"),
+                onClick = {
+                    dispatchKey("\u001b")
+                },
+                textColor = textColor,
+                testTag = "Key_ESC",
+                contentDescription = stringResource(R.string.escape),
+            )
+            ExtraKeyButton(
+                text = "\u2630",
+                onClick = {
+                    onDrawerClick()
+                },
+                textColor = textColor,
+                testTag = "Key_DRAWER",
+                contentDescription = stringResource(R.string.open_session_drawer),
+            )
+            ExtraKeyButton(
+                text = label("SCROLL"),
+                onClick = {
+                    onScrollClick()
+                },
+                textColor = textColor,
+                modifierState = if (scrollActive) ModifierState.Locked else null,
+                testTag = "Key_SCROLL",
+                contentDescription = stringResource(R.string.toggle_scroll),
+            )
+            ExtraKeyButton(
+                text = label("HOME"),
+                onClick = {
+                    dispatchKey("\u001b[H")
+                },
+                textColor = textColor,
+                testTag = "Key_HOME",
+                contentDescription = stringResource(R.string.home_key),
+            )
             ExtraKeyButton(
                 text = "\u2191",
                 onClick = {
@@ -342,12 +382,24 @@ fun ModifierBar(
                 contentDescription = stringResource(R.string.arrow_up),
                 onRepeat = { dispatchKey("\u001b[A") },
             )
-            ExtraKeyButton(text = label("END"), onClick = {
-                dispatchKey("\u001b[F")
-            }, textColor = textColor, testTag = "Key_END", contentDescription = stringResource(R.string.end_key))
-            ExtraKeyButton(text = label("PGUP"), onClick = {
-                dispatchKey("\u001b[5~")
-            }, textColor = textColor, testTag = "Key_PGUP", contentDescription = stringResource(R.string.page_up))
+            ExtraKeyButton(
+                text = label("END"),
+                onClick = {
+                    dispatchKey("\u001b[F")
+                },
+                textColor = textColor,
+                testTag = "Key_END",
+                contentDescription = stringResource(R.string.end_key),
+            )
+            ExtraKeyButton(
+                text = label("PGUP"),
+                onClick = {
+                    dispatchKey("\u001b[5~")
+                },
+                textColor = textColor,
+                testTag = "Key_PGUP",
+                contentDescription = stringResource(R.string.page_up),
+            )
         }
 
         Row(
@@ -424,16 +476,22 @@ fun ModifierBar(
                 contentDescription = stringResource(R.string.arrow_right),
                 onRepeat = { dispatchKey("\u001b[C") },
             )
-            ExtraKeyButton(text = label("PGDN"), onClick = {
-                dispatchKey("\u001b[6~")
-            }, textColor = textColor, testTag = "Key_PGDN", contentDescription = stringResource(R.string.page_down))
+            ExtraKeyButton(
+                text = label("PGDN"),
+                onClick = {
+                    dispatchKey("\u001b[6~")
+                },
+                textColor = textColor,
+                testTag = "Key_PGDN",
+                contentDescription = stringResource(R.string.page_down),
+            )
         }
     }
 }
 
 /**
- * One row of F-key buttons (F1-F6 or F7-F12). Each tap sends the key
- * sequence and returns to the normal layer (single-shot FN).
+ * One row of F-key buttons (F1-F6 or F7-F12). Each tap sends the key sequence and returns to the
+ * normal layer (single-shot FN).
  */
 @Composable
 private fun RowScope.FnKeyButtons(
@@ -458,9 +516,9 @@ private fun RowScope.FnKeyButtons(
 }
 
 /**
- * Second-layer rows shown when the FN modifier is Locked: F1-F12.
- * Tapping an F-key sends its escape sequence and returns to the normal
- * layer (single-shot); tapping FN again returns without sending anything.
+ * Second-layer rows shown when the FN modifier is Locked: F1-F12. Tapping an F-key sends its escape
+ * sequence and returns to the normal layer (single-shot); tapping FN again returns without sending
+ * anything.
  */
 @Composable
 private fun FnKeyRows(
@@ -519,8 +577,6 @@ private data class SelectionActions(
     val onSelectAll: (() -> Unit)?,
     val onPaste: (() -> Unit)?,
     val onShare: (() -> Unit)?,
-    val onAnchorLeft: (() -> Unit)?,
-    val onAnchorRight: (() -> Unit)?,
     val onDismiss: (() -> Unit)?,
 )
 
@@ -533,19 +589,24 @@ private fun SelectionActionsBar(
     modifier: Modifier,
 ) {
     val actionList = mutableListOf<Triple<String, () -> Unit, Boolean>>()
-    if (actions.onAnchorLeft != null) actionList.add(Triple("\u25c0", actions.onAnchorLeft, true))
-    if (actions.onAnchorRight != null) actionList.add(Triple("\u25b6", actions.onAnchorRight, true))
-    if (actions.onCopy != null) actionList.add(Triple(stringResource(R.string.copy), actions.onCopy, actions.copyEnabled))
-    if (actions.onSelectAll != null) actionList.add(Triple(stringResource(R.string.select_all), actions.onSelectAll, true))
-    if (actions.onPaste != null) actionList.add(Triple(stringResource(R.string.paste), actions.onPaste, true))
-    if (actions.onShare != null) actionList.add(Triple(stringResource(R.string.share), actions.onShare, true))
+    // Round-234: the self-invented ◀/▶ anchor-move actions are removed —
+    // handle dragging covers anchor adjustment (spec text-selection
+    // "菜单项动态化": no arrow items in any scenario).
+    if (actions.onCopy != null) {
+        actionList.add(Triple(stringResource(R.string.copy), actions.onCopy, actions.copyEnabled))
+    }
+    if (actions.onSelectAll != null) {
+        actionList.add(Triple(stringResource(R.string.select_all), actions.onSelectAll, true))
+    }
+    if (actions.onPaste != null) {
+        actionList.add(Triple(stringResource(R.string.paste), actions.onPaste, true))
+    }
+    if (actions.onShare != null) {
+        actionList.add(Triple(stringResource(R.string.share), actions.onShare, true))
+    }
 
     Row(
-        modifier =
-        modifier
-            .fillMaxWidth()
-            .height(buttonHeight)
-            .background(backgroundColor),
+        modifier = modifier.fillMaxWidth().height(buttonHeight).background(backgroundColor),
         horizontalArrangement = Arrangement.SpaceEvenly,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -578,6 +639,7 @@ private fun ConfigurableModifierBar(
     onKeyClick: (String) -> Unit,
     onDrawerClick: () -> Unit,
     onScrollClick: () -> Unit,
+    scrollActive: Boolean,
     ctrlState: ModifierState,
     altState: ModifierState,
     fnState: ModifierState,
@@ -617,6 +679,7 @@ private fun ConfigurableModifierBar(
             altState = altState,
             fnState = fnState,
             composeActive = composeActive,
+            scrollActive = scrollActive,
         )
     val defaultContentDescriptions: Map<ToolbarKey, String> =
         ToolbarKey.entries.associateWith { key ->
@@ -694,18 +757,32 @@ private data class ModifierBarStates(
     val altState: ModifierState,
     val fnState: ModifierState,
     val composeActive: Boolean,
+    val scrollActive: Boolean,
 )
 
-/** Long-press action for a key: an explicit secondary sequence, or the
- *  DRAWER paste popup (termux default) as fallback. */
+/**
+ * Long-press action for a key: an explicit secondary sequence, or the DRAWER paste popup (termux
+ * default) as fallback.
+ */
 private fun secondaryLongPressAction(
     item: ToolbarItem,
     actions: ModifierBarActions,
     isDrawer: Boolean,
-): (() -> Unit)? = item.secondarySequence
-    ?.takeIf { it.isNotEmpty() }
-    ?.let { { actions.onKeyClick(it) } }
+): (() -> Unit)? = item.secondarySequence?.takeIf { it.isNotEmpty() }?.let { { actions.onKeyClick(it) } }
     ?: if (isDrawer) actions.onPaste else null
+
+/** The live toggle state for one [ToolbarKey], or null for non-toggle keys. */
+private fun modifierStateFor(
+    key: ToolbarKey?,
+    states: ModifierBarStates,
+): ModifierState? = when (key) {
+    ToolbarKey.CTRL -> states.ctrlState
+    ToolbarKey.ALT -> states.altState
+    ToolbarKey.FN -> states.fnState
+    ToolbarKey.COMPOSE -> if (states.composeActive) ModifierState.Locked else null
+    ToolbarKey.SCROLL -> if (states.scrollActive) ModifierState.Locked else null
+    else -> null
+}
 
 private fun toolbarItemPresentation(
     item: ToolbarItem,
@@ -714,14 +791,7 @@ private fun toolbarItemPresentation(
     label: (String) -> String,
     contentDescriptionResolver: (ToolbarKey) -> String,
 ): ToolbarItemPresentation {
-    val modifierState =
-        when ((item as? ToolbarItem.Default)?.key) {
-            ToolbarKey.CTRL -> modifierStates.ctrlState
-            ToolbarKey.ALT -> modifierStates.altState
-            ToolbarKey.FN -> modifierStates.fnState
-            ToolbarKey.COMPOSE -> if (modifierStates.composeActive) ModifierState.Locked else null
-            else -> null
-        }
+    val modifierState = modifierStateFor((item as? ToolbarItem.Default)?.key, modifierStates)
     val onRepeat =
         (item as? ToolbarItem.Default)
             ?.takeIf { it.key.repeatable }
@@ -746,8 +816,7 @@ private fun toolbarItemPresentation(
     // explicit per-item secondary sequence wins over the default popup.
     val secondaryLabel =
         item.secondaryLabel ?: if (isDrawer && actions.onPaste != null) "PASTE" else null
-    val secondaryAction =
-        secondaryLongPressAction(item, actions, isDrawer)
+    val secondaryAction = secondaryLongPressAction(item, actions, isDrawer)
     return ToolbarItemPresentation(
         label = itemLabel,
         onClick = toolbarItemKeyHandler(item, actions),
@@ -858,11 +927,16 @@ private fun RowScope.ExtraKeyButton(
 
     var isPressed by remember { mutableStateOf(false) }
 
-    val scale by animateFloatAsState(
-        targetValue = if (isPressed && enabled) 0.90f else 1f,
-        animationSpec = spring(dampingRatio = 0.5f, stiffness = 800f),
-        label = "btnScale",
-    )
+    val scale by
+        animateFloatAsState(
+            targetValue = if (isPressed && enabled) 0.90f else 1f,
+            animationSpec =
+            spring(
+                dampingRatio = PRESS_SCALE_SPRING_DAMPING,
+                stiffness = PRESS_SCALE_SPRING_STIFFNESS,
+            ),
+            label = "btnScale",
+        )
 
     val pressedColor = Color(0xFF7F7F7F)
     val targetBg =
@@ -873,11 +947,12 @@ private fun RowScope.ExtraKeyButton(
             isPressed -> pressedColor
             else -> Color.Transparent
         }
-    val animatedBg by animateColorAsState(
-        targetValue = targetBg,
-        animationSpec = tween(durationMillis = 100),
-        label = "btnBg",
-    )
+    val animatedBg by
+        animateColorAsState(
+            targetValue = targetBg,
+            animationSpec = tween(durationMillis = PRESS_BG_TWEEN_MS),
+            label = "btnBg",
+        )
     val activeFg =
         when {
             !enabled -> textColor.copy(alpha = 0.38f)
@@ -895,8 +970,21 @@ private fun RowScope.ExtraKeyButton(
         }
 
     val view = LocalView.current
+
+    // Round-234 review-4 MINOR fix: the old pointerInput(onRepeat,
+    // secondaryAction) keyed on freshly-allocated lambda instances, so ANY
+    // recomposition during a hold (CTRL toggle, pager state change) cancelled
+    // and restarted the gesture coroutine — silently killing auto-repeat.
+    // Key on Unit and read the latest callbacks via rememberUpdatedState.
+    val currentOnClick by rememberUpdatedState(onClick)
+    val currentOnRepeat by rememberUpdatedState(onRepeat)
+    val currentSecondaryAction by rememberUpdatedState(secondaryAction)
+    // enabled is a parameter (copy-enabled toggles dynamically): without
+    // this delegate the Unit-keyed gesture coroutine would read a stale
+    // value forever (review-5 MINOR).
+    val currentEnabled by rememberUpdatedState(enabled)
     val gestureModifier =
-        Modifier.pointerInput(onRepeat, secondaryAction) {
+        Modifier.pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown()
                 val downPos = currentEvent.changes.first().position
@@ -904,7 +992,7 @@ private fun RowScope.ExtraKeyButton(
                 isPressed = true
                 try {
                     var gestureValid = true
-                    if (secondaryAction != null) {
+                    if (currentSecondaryAction != null && currentEnabled) {
                         // Keys with a secondary action (DRAWER → paste):
                         // a quick tap fires onClick IMMEDIATELY (no
                         // long-press confirmation window), while a
@@ -921,61 +1009,55 @@ private fun RowScope.ExtraKeyButton(
                                 gestureValid = false
                                 break
                             }
-                            if (!longPressTriggered &&
+                            if (
+                                !longPressTriggered &&
+                                currentEnabled &&
                                 System.currentTimeMillis() - downTime >= LONG_PRESS_MS
                             ) {
                                 longPressTriggered = true
                                 view.performHapticFeedback(
                                     android.view.HapticFeedbackConstants.LONG_PRESS,
                                 )
-                                secondaryAction()
+                                currentSecondaryAction?.invoke()
                             }
                         }
-                        if (!longPressTriggered && gestureValid && enabled) {
+                        if (!longPressTriggered && gestureValid && currentEnabled) {
                             view.performHapticFeedback(
                                 android.view.HapticFeedbackConstants.KEYBOARD_TAP,
                             )
-                            onClick()
+                            currentOnClick()
                         }
                     } else {
-                        // No secondary action: keep the DWELL_GUARD_MS
-                        // window so auto-repeat latency is unchanged.
-                        var upConsumed = false
-                        withTimeoutOrNull(DWELL_GUARD_MS) {
-                            while (true) {
-                                val ev = awaitPointerEvent()
-                                val ch = ev.changes.first()
-                                if (!ch.pressed) {
-                                    upConsumed = true
-                                    break
-                                }
-                                if ((ch.position - downPos).getDistance() > slop) {
-                                    gestureValid = false
-                                    break
-                                }
-                            }
-                            false
-                        }
-                        if (gestureValid && enabled) {
+                        // Round-234 (spec modifier-bar-interaction): termux
+                        // ExtraKeysView semantics — fire on ACTION_DOWN so a
+                        // tap reaches the PTY within one frame, then
+                        // auto-repeat at 400ms initial / 50ms cadence until
+                        // UP or the finger slides out (slop cancel stops the
+                        // repeats; the already-sent key is not recalled,
+                        // matching termux).
+                        if (currentEnabled) {
                             view.performHapticFeedback(
                                 android.view.HapticFeedbackConstants.KEYBOARD_TAP,
                             )
-                            onClick()
-                            if (onRepeat == null) {
-                                if (!upConsumed) {
-                                    waitForUpOrCancellation()
+                            currentOnClick()
+                        }
+                        var nextRepeatAt = System.currentTimeMillis() + AUTO_REPEAT_INITIAL_DELAY_MS
+                        while (currentOnRepeat != null) {
+                            val remaining = nextRepeatAt - System.currentTimeMillis()
+                            val ev =
+                                withTimeoutOrNull(remaining.coerceAtLeast(0L)) {
+                                    awaitPointerEvent()
                                 }
-                            } else {
-                                while (true) {
-                                    try {
-                                        withTimeout(REPEAT_TIMEOUT_MS) {
-                                            waitForUpOrCancellation()
-                                        }
-                                        break
-                                    } catch (_: TimeoutCancellationException) {
-                                        onRepeat()
-                                    }
-                                }
+                            if (ev == null) {
+                                if (gestureValid && currentEnabled) currentOnRepeat?.invoke()
+                                nextRepeatAt += AUTO_REPEAT_INTERVAL_MS
+                                continue
+                            }
+                            val ch = ev.changes.first()
+                            if (!ch.pressed) break
+                            if ((ch.position - downPos).getDistance() > slop) {
+                                gestureValid = false
+                                break
                             }
                         }
                     }
@@ -987,8 +1069,7 @@ private fun RowScope.ExtraKeyButton(
 
     Box(
         modifier =
-        Modifier
-            .weight(weight = widthWeight.coerceAtLeast(1).toFloat())
+        Modifier.weight(weight = widthWeight.coerceAtLeast(1).toFloat())
             .height(BUTTON_HEIGHT_DP.dp)
             .then(if (testTag.isNotEmpty()) Modifier.testTag(testTag) else Modifier)
             .then(
@@ -996,7 +1077,8 @@ private fun RowScope.ExtraKeyButton(
                     animatedBg,
                     RoundedCornerShape(4.dp),
                 ),
-            ).then(
+            )
+            .then(
                 Modifier.semantics {
                     if (contentDescription != null) this.contentDescription = contentDescription
                     // Toggle keys (CTRL/ALT/FN) expose their armed state so
@@ -1008,7 +1090,8 @@ private fun RowScope.ExtraKeyButton(
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
-            }.then(gestureModifier),
+            }
+            .then(gestureModifier),
         contentAlignment = Alignment.Center,
     ) {
         if (secondaryLabel != null) {

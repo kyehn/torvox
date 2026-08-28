@@ -70,6 +70,11 @@ pub enum Query {
         row: u32,
         tx: Sender<Option<String>>,
     },
+    /// Cursor viewport (row, col) read through `build_cell_data` — the EXACT
+    /// source the render thread consumes.  observability: lets the
+    /// instrumentation layer assert the same coordinates the GPU draws.
+    /// None when the cursor is hidden or the build fails.
+    RenderCursor(Sender<Option<(u32, u32)>>),
     ReadVisibleText(Sender<String>),
     /// Extract selection text with Ghostty's native formatter: soft-wrapped
     /// lines are unwrapped (joined without '\n') and trailing whitespace is

@@ -214,10 +214,7 @@
     <string name="edit_theme">Edit Theme</string>
     <string name="edit_theme_desc">Customize colors of the current user theme</string>
 
-    <!-- Selection anchor movement -->
-    <string name="select_anchor_left">◀</string>
-    <string name="select_anchor_right">▶</string>
-
+    
     <!-- i18n: user-facing strings that were previously hardcoded -->
     <string name="new_theme_name">New theme name</string>
     <string name="clear">Clear</string>
@@ -236,6 +233,7 @@
     <string name="color_new">New</string>
     <string name="bold_font_family">Bold font family</string>
     <string name="italic_font_family">Italic font family</string>
+    <string name="cursor_follow_terminal">Follow terminal</string>
     <string name="cursor_block">Block</string>
     <string name="cursor_bar">Bar</string>
     <string name="cursor_underline">Underline</string>

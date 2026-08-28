@@ -4,11 +4,16 @@
 //! - FR-050 — surface lifecycle: cell instances rebuilt on resize/surface recreation
 use crate::render::CellInstance;
 
+use crate::terminal::ghostty_terminal::cell_flags;
 use crate::terminal::CursorStyle;
 use crate::terminal::SelectionMode;
-use crate::terminal::ghostty_terminal::cell_flags;
 
 use foldhash::fast::RandomState;
+
+/// Alpha threshold above which search highlights swap fg/bg colors
+/// (high-alpha = opaque highlight, swap is visually clearer).
+/// Below this threshold, only blending is applied (subtle tint).
+const SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD: u8 = 128;
 use std::collections::HashMap;
 
 /// Cursor state passed to build_instances_from_cell_data() for cursor rendering.
@@ -98,7 +103,7 @@ impl SelectionRange {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 /// A single row range for search result highlighting.
 pub struct SearchHighlight {
     pub row: i32,
@@ -140,10 +145,69 @@ pub(crate) fn blend_highlight(base: [f32; 4], hl_rgba: [u8; 4]) -> [f32; 4] {
 #[inline]
 /// Apply a search-highlight RGBA to a cell foreground/background.
 pub(crate) fn apply_search_highlight(fg: &mut [f32; 4], bg: &mut [f32; 4], hl: [u8; 4]) {
-    if hl[3] >= 128 {
+    if hl[3] >= SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD {
         std::mem::swap(fg, bg);
     }
     *bg = blend_highlight(*bg, hl);
+}
+
+/// Contiguous run of dirty grid rows, resolved to its instance slice.
+///
+/// Produced by [`compute_dirty_bands`] + [`CachedInstances::band_slice`];
+/// consumed by the GPU dirty-band render path (render-vulkan-performance):
+/// only the band's instances are submitted and only the accumulator's
+/// band region is touched — clean rows keep their previous pixels.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DirtyBand {
+    /// First dirty row of the band (grid index).
+    pub start_row: usize,
+    /// One past the last dirty row of the band.
+    pub end_row_exclusive: usize,
+    /// `[instance_start, instance_end)` slice in the frame's instance list
+    /// (row-major, contiguous because a band is a row run).
+    pub instance_start: usize,
+    pub instance_end: usize,
+}
+
+impl DirtyBand {
+    /// Whether this band covers every row of a `rows`-high grid — i.e. it
+    /// is indistinguishable from a full redraw.
+    pub fn covers_all_rows(&self, rows: u32) -> bool {
+        self.start_row == 0 && self.end_row_exclusive >= rows as usize
+    }
+}
+
+/// Per-frame presentation plan for the accumulator architecture.
+#[derive(Debug, Default, Clone)]
+pub struct FramePatch {
+    /// Dirty row bands to redraw (`load: Load` over previous content).
+    pub bands: Vec<DirtyBand>,
+    /// Pure vertical scroll detected against the previous frame: shift the
+    /// existing accumulator content UP by this many grid rows (via chunked
+    /// same-texture copies) BEFORE drawing `bands`. `None` = no scroll.
+    pub scroll_up_rows: Option<u32>,
+    /// Rendered pixel height of one grid row (for the blit geometry).
+    pub cell_h_px: f32,
+}
+
+/// Merge a row dirty mask into minimal contiguous `[start, end)` row runs.
+/// Pure function — table-driven unit tested (compute_dirty_bands_tests).
+pub fn compute_dirty_bands(dirty: &[bool]) -> Vec<(usize, usize)> {
+    let mut bands: Vec<(usize, usize)> = Vec::new();
+    let mut start: Option<usize> = None;
+    for (row, &d) in dirty.iter().enumerate() {
+        if d {
+            if start.is_none() {
+                start = Some(row);
+            }
+        } else if let Some(s) = start.take() {
+            bands.push((s, row));
+        }
+    }
+    if let Some(s) = start {
+        bands.push((s, dirty.len()));
+    }
+    bands
 }
 
 /// Row-level instance cache for incremental rendering (FR-013 / NFR-010).
@@ -196,6 +260,16 @@ impl CachedInstances {
         (start, self.row_ends[row])
     }
 
+    /// `[start, end)` instance slice covering rows `start_row..end_row`
+    /// (contiguous: instances are row-major). Caller must ensure
+    /// `end_row <= self.row_ends.len()`.
+    pub(crate) fn band_slice(&self, start_row: usize, end_row: usize) -> (usize, usize) {
+        debug_assert!(end_row >= start_row && end_row <= self.row_ends.len());
+        let start = self.row_slice(start_row).0;
+        let end = self.row_slice(end_row.saturating_sub(1)).1;
+        (start, end)
+    }
+
     /// Replace the cache contents after a build.
     fn update(&mut self, rows: u32, cols: u32, instances: &[CellInstance], row_ends: Vec<usize>) {
         self.rows = rows;
@@ -203,6 +277,17 @@ impl CachedInstances {
         self.row_ends = row_ends;
         self.instances.clear();
         self.instances.extend_from_slice(instances);
+        self.built = true;
+    }
+
+    /// Test-only: seed row ends directly (band_slice resolution tests do
+    /// not need real instance data, just the cumulative layout).
+    #[cfg(test)]
+    pub(crate) fn update_for_test(&mut self, row_ends_cumulative: &[usize]) {
+        self.row_ends = row_ends_cumulative.to_vec();
+        let total = *row_ends_cumulative.last().unwrap_or(&0);
+        let zeroed: crate::render::CellInstance = bytemuck::Zeroable::zeroed();
+        self.instances = vec![zeroed; total];
         self.built = true;
     }
 }
@@ -242,29 +327,27 @@ fn rows_equal(
     a == b
 }
 
-/// Derive a per-row dirty mask by diffing two consecutive CellData
-/// snapshots. Row boundaries come from `build_row_ranges`; on degenerate
-/// input (row ranges unbuildable) everything is conservatively dirty.
-pub(crate) fn diff_dirty_rows(
+/// Zero-allocation per-row dirty mask: writes into a pre-allocated buffer
+/// (must have length ≥ `rows`). Avoids a per-frame `Vec<bool>` allocation
+/// at 120fps (~300 bytes × 120 = 36KB/s).
+pub(crate) fn diff_dirty_rows_into(
     old: &[crate::terminal::ghostty_terminal::CellData],
     new: &[crate::terminal::ghostty_terminal::CellData],
     rows: u32,
-) -> Vec<bool> {
-    let mut dirty = vec![false; rows as usize];
+    dirty: &mut [bool],
+) {
+    debug_assert!(dirty.len() >= rows as usize);
     let (Some(old_ranges), Some(new_ranges)) =
         (build_row_ranges(old, rows), build_row_ranges(new, rows))
     else {
-        dirty.fill(true);
-        return dirty;
+        dirty[..rows as usize].fill(true);
+        return;
     };
     for r in 0..rows as usize {
         let o = &old[old_ranges[r].clone()];
         let n = &new[new_ranges[r].clone()];
-        if !rows_equal(o, n) {
-            dirty[r] = true;
-        }
+        dirty[r] = !rows_equal(o, n);
     }
-    dirty
 }
 
 /// Convert pre-built `CellData` slices into GPU instance data.
@@ -339,7 +422,9 @@ fn build_row_instances_into(
     // glyphs inside the grid quad via bearing + ascent (glyph_h > cell_h
     // is then never true, so glyphs use the raw bearing path).
     let (cell_w, cell_h) = (grid_cell_w, grid_cell_h);
-    log::info!(
+    // trace-level: this fires on every dirty rebuild; at info it floods
+    // logcat (binder IPC per line) and causes frame-time jitter.
+    log::trace!(
         "cell_builder: grid {rows}x{cols} cell {cell_w:.1}x{cell_h:.1} cells={}",
         cell_data.len()
     );
@@ -460,6 +545,13 @@ fn append_row_instances(
         if let Some(hl) = cell_highlight(cd.row, cd.col, highlights_by_row) {
             apply_search_highlight(&mut fg_color, &mut bg_color, *hl);
         }
+        // Round-234 (spec cursor-rendering "宽字符光标几何"): wide-char
+        // cursors must cover the FULL glyph. build_cell_data emits ONE CellData
+        // per wide char with width=2 (the trailing grid column has no CellData
+        // of its own — review-1 verified internal.rs consumes both columns), so
+        // the lead entry's `cell_span` already spans the whole glyph: scaling
+        // the Bar marker by cell_span is exactly what makes the cursor cover
+        // both columns. There is no separate spacer row entry to mark.
         let is_cursor = cursor.visible && cd.row == cursor.row && cd.col == cursor.col;
         let effective_fg = fg_color;
         let mut effective_bg = bg_color;
@@ -488,9 +580,12 @@ fn append_row_instances(
                 CursorStyle::Bar => {
                     // Bar cursor: emit a thin vertical bar as a background quad,
                     // then render glyph full-size with original colors on top.
+                    // Width scales with the wide-char span so a CJK glyph gets
+                    // a full-character bar, not a half-character sliver
+                    // ( spec cursor-rendering).
                     cursor_marker = Some((
                         quad_origin,
-                        [cell_w * 0.15, cell_h],
+                        [cell_w * 0.15 * cell_span, cell_h],
                         [
                             cursor_color[0],
                             cursor_color[1],
@@ -538,19 +633,33 @@ fn append_row_instances(
             } else {
                 let mut origin = quad_origin;
                 let mut size = quad_size;
-                // Block cursor on an empty cell: height = ascent+descent
-                // (physical), top aligned with where a glyph would sit —
-                // the glyph top edge in the cell is at
-                // (ascent - glyph_top) × raster_scale; for an empty cell we
-                // approximate with the ascent bearing of the default glyph.
+                // Block cursor on an empty cell: align the block with the
+                // glyph box exactly like the non-empty path below — top =
+                // baseline − reference placement.top, height = the reference
+                // bitmap height. quad_origin is the CELL TOP (the shader
+                // occupies [origin, origin+size] verbatim; bearing only
+                // shifts the bitmap INSIDE the quad), so adding the full
+                // ascent here pushed the block one row down — the "cursor
+                // block one row below the text" report (, verified
+                // on the emulator: VT cursor (0,38), block pixels at row 1).
                 if is_cursor && matches!(cursor.style, CursorStyle::Block | CursorStyle::Default) {
-                    let cursor_h =
-                        ((ascent_pixels + font_pipeline.descent_pixels()) * raster_scale).max(1.0);
-                    // Top of the em box: ascent × raster_scale. This matches
-                    // where the glyph top lands (glyphs are drawn from the
-                    // ascent line down), keeping cursor and text aligned.
-                    origin[1] += ascent_pixels * raster_scale;
-                    size[1] = cursor_h;
+                    let reference = font_pipeline
+                        .glyph_information('M')
+                        .or_else(|| font_pipeline.glyph_information('0'));
+                    match reference {
+                        Some(info) => {
+                            origin[1] += ascent_pixels * raster_scale - info.placement.top as f32;
+                            size[1] = (info.height as f32).max(1.0);
+                        }
+                        None => {
+                            // No reference glyph available: block spans the
+                            // em box from the cell top (no origin shift —
+                            // the cell top is already the em-box top).
+                            size[1] = ((ascent_pixels + font_pipeline.descent_pixels())
+                                * raster_scale)
+                                .max(1.0);
+                        }
+                    }
                 }
                 instances.push(CellInstance {
                     quad_origin: origin,
@@ -1252,5 +1361,42 @@ mod tests {
             instances_equal(&instances, &full),
             "result must equal a full rebuild on cache mismatch"
         );
+    }
+    /// The block cursor on an EMPTY cell must stay inside the cursor's own row:
+    /// quad_origin is the cell top (the shader occupies [origin, origin+size]
+    /// verbatim), so the origin must never be shifted by the full ascent — that
+    /// pushed the block one row below the text ( emulator evidence:
+    /// VT cursor (0,38), block pixels at row 1).
+    #[test]
+    fn block_cursor_on_empty_cell_stays_in_its_row() {
+        let cursor = CellCursor {
+            row: 0,
+            col: 38,
+            visible: true,
+            style: crate::terminal::ghostty_terminal::CursorStyle::Block,
+            color: Some([1.0, 1.0, 1.0, 1.0]),
+        };
+        // A single empty cell under the cursor (codepoint 0).
+        let cells = vec![cell_data(0, 38, '\0', [1.0; 4], [0.0; 4], 0)];
+        let instances = build(&cells, cursor, None, &[]);
+        assert_eq!(instances.len(), 1, "empty cursor cell emits one quad");
+        let cell_h = 1024.0 / 24.0;
+        let origin_y = instances[0].quad_origin[1];
+        let bottom_y = origin_y + instances[0].quad_size[1];
+        assert!(
+            origin_y >= 0.0 && bottom_y <= cell_h + 0.5,
+            "block quad spans y [{origin_y}, {bottom_y}] but row 0 ends at {cell_h}"
+        );
+        // The block must align with the glyph box of a reference glyph, matching
+        // the non-empty path (top = baseline − placement.top).
+        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        if let Some(reference) = font_pipeline.glyph_information('M') {
+            let expected_top = font_pipeline.ascent_pixels() * font_pipeline.get_raster_scale()
+                - reference.placement.top as f32;
+            assert!(
+                (origin_y - expected_top).abs() <= 1.5,
+                "empty-cell block top {origin_y} != reference glyph top {expected_top}"
+            );
+        }
     }
 }

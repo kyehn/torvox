@@ -1,0 +1,41 @@
+appId: com.termux
+name: "Regression  #1: enter returns viewport to bottom"
+tags:
+  - e2e
+  - regression
+---
+- launchApp:
+    clearState: false
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+# Produce tall output so the viewport can scroll into history
+- tapOn:
+    id: "TerminalScreen"
+- inputText: "seq 1 200"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 5000
+# Scroll up into history (viewport leaves the bottom)
+- swipe:
+    direction: DOWN
+    duration: 400
+- waitForAnimationToEnd:
+    timeout: 2000
+# New command while browsing history: termux semantics — output snaps back.
+# The fresh prompt line plus the marker must be visible again afterwards.
+- inputText: "echo MARKER_ROUND231"
+- pressKey: Enter
+# SurfaceView content is invisible to maestro text assertions (a11y
+# content-desc only, review session 2026-08-23): capture the post-Enter
+# state; the verification wrapper OCR-verifies MARKER_ROUND231 is on screen.
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: regress-scroll-marker-after-enter

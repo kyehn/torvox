@@ -306,6 +306,10 @@ struct RenderState {
     /// Selection state at last draw — used by the idle repaint gate to
     /// detect selection changes and force a redraw.
     last_drawn_selection: Option<crate::render::cell_builder::SelectionRange>,
+    /// Search highlights at last draw (viewport row space). Dirty-band
+    /// rendering must mark their rows when they change or are cleared,
+    /// otherwise stale highlight pixels would persist in the accumulator.
+    last_drawn_search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
     /// App-level cursor style override (user setting), applied on top of
     /// the terminal's own cursor style. `None` = follow the terminal.
     cursor_style_override: Option<crate::terminal::CursorStyle>,
@@ -319,6 +323,28 @@ struct RenderState {
     /// when building `CellCursor` — no idle-repaint gate needed because
     /// theme application always coincides with a repaint.
     cursor_color: Option<[f32; 4]>,
+    /// Pre-allocated dirty row mask, reused across frames to avoid
+    /// per-frame `Vec<bool>` allocation (~100-300 bytes × 120fps).
+    dirty_mask: Vec<bool>,
+    /// Cached scrollback length — updated on FrameData::New, reused on
+    /// Idle to avoid the synchronous `scrollback_length()` RPC that blocks
+    /// the render thread for up to 50 ms when the VT thread is busy.
+    cached_scrollback: u32,
+    /// P2-1 content-dirty flag (dual-flag protocol — see
+    /// docs/reference/dual-flag-protocol.md): raised by the JNI entry
+    /// points that mutate deferred render inputs (`setSelection`,
+    /// `setSearchHighlights`/`clearSearchHighlights`,
+    /// `setFontSizeInPlace`, `setFlashState`, `setBackgroundImage`/
+    /// `clearBackgroundImage`) and consumed by the render thread with a
+    /// single `getAndSet(false)` swap in `render_inner`. Independent from
+    /// the P1-1 per-session `new_output` flag (PTY ingest):
+    /// selection/highlight/font-size/flash changes must repaint but never
+    /// reset the viewport. It is BOTH a wake signal for the Kotlin render
+    /// loop (UI callers' notifyRender() + the safety-net latch cadence)
+    /// and one of the idle-gate pass conditions — NEVER an outer
+    /// short-circuit (the blink phase has no JNI set-point and is decided
+    /// inside the gate; an outer short-circuit would freeze cursor blink).
+    dirty: AtomicBool,
 }
 
 /// Ensure the render state exists, creating the renderer + font pipeline
@@ -331,7 +357,8 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if guard.is_none() {
         let renderer = crate::render::context::Renderer::new_with_no_surface();
-        let font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        let font_pipeline =
+            crate::render::font::FontPipeline::new(ATLAS_SIZE as i32, ATLAS_SIZE as i32, 14.0);
         *guard = Some(RenderState {
             renderer,
             font_pipeline,
@@ -346,10 +373,14 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             last_frame: None,
             last_blink_phase: None,
             last_drawn_selection: None,
+            last_drawn_search_highlights: Vec::new(),
             cursor_style_override: None,
             cursor_style_version: 0,
             last_drawn_style_version: 0,
             cursor_color: None,
+            dirty_mask: Vec::new(),
+            cached_scrollback: 0,
+            dirty: AtomicBool::new(false),
         });
         log::info!("render state initialized (renderer + font pipeline)");
     }
@@ -1611,11 +1642,46 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
     }
 }
 
+// ── P1-1 new_output 旁路标志 ───────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: consumeNewOutput
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Take and clear the per-session `new_output` flag (P1-1 scroll-reset
+/// signal, dual-flag protocol — see docs/reference/dual-flag-protocol.md).
+///
+/// The flag is raised by the PTY ingest path (`Session::process_output` /
+/// `poll_pty_output` → `OutputProcessor::process`) and read-and-cleared here
+/// by the render thread once per frame, as a BYPASS read alongside the
+/// `pollAll()` loop — deliberately NOT a queued `Event` variant: under
+/// sustained output (tail -f) an event variant would compete for the
+/// `MAX_EVENTS_PER_POLL` budget and starve bell/dialog/exit events.
+/// Independent from the P2-1 `dirty` flag (selection/highlight/font-size
+/// changes must repaint but never reset the viewport).
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_consumeNewOutput(
+    _env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+) -> jboolean {
+    // No panic risk inside (no JNI calls, no unwraps); still keep the guard
+    // pattern consistent with neighbouring exports.
+    let registry = rlock_session_registry();
+    let Some(entry) = registry.get(&(session_id as u64)) else {
+        return JNI_FALSE;
+    };
+    let session = entry.session.lock();
+    if session.take_new_output() {
+        JNI_TRUE
+    } else {
+        JNI_FALSE
+    }
+}
+
 // ── 日志与渲染生命周期 ──────────────────────────────────────────
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Export: initLogger
 // ══════════════════════════════════════════════════════════════════════════
-
 /// Initialise Rust-side logging (logcat + optional file).
 /// Called once from Kotlin on app startup.
 #[unsafe(no_mangle)]
@@ -1759,61 +1825,38 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>
 }
 
 fn render_inner(session_id: u64) -> jint {
-    // Consume any pending background-image change before rendering:
-    // `setBackgroundImage`/`clearBackgroundImage` JNI calls store their
-    // payload here (any thread); the wgpu texture upload happens on the
-    // render thread where `Renderer` is used.
-    {
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            if render_state.pending_bg_image_clear {
-                render_state.renderer.clear_bg_image();
-                render_state.pending_bg_image_clear = false;
-            }
-            if let Some((data, w, h)) = render_state.pending_bg_image.take() {
-                render_state.renderer.set_bg_image(&data, w, h);
-                log::info!(
-                    "render_inner: consumed bg image {w}x{h}, view={}",
-                    render_state.renderer.bg_image_view.is_some()
-                );
-            }
-            if let Some(phase) = render_state.pending_flash_phase.take() {
-                render_state.renderer.set_flash_phase(phase);
-                log::trace!("render_inner: flash phase={phase}");
-            }
-        }
-    }
-    // Check surface readiness first (cheap lock, no session lock held):
-    // when no surface is attached there is nothing to present, and
-    // draining the CellData channel in that state would drop the latest
-    // snapshot for no benefit. Keeps the two locks disjoint.
-    {
-        let state = RENDER_STATE
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let ready = state.as_ref().is_some_and(|s| s.renderer.surface.is_some());
-        if !ready {
-            return 0;
-        }
-    }
-    // Upload glyph atlas dirty regions first, unconditionally (even on
-    // idle frames): glyph rasterization happens inside render_cell_data,
-    // so its dirty rect must be consumed on the NEXT render call. If we
-    // returned early on idle frames without uploading, a newly rasterized
-    // glyph would never reach the GPU texture until more output arrives.
+    // ── Phase 1: Pre-render housekeeping (single RENDER_STATE lock) ───────
+    // Consume pending bg image / flash phase, check surface readiness,
+    // upload atlas dirty rect, and lazily create the pipeline — all under
+    // ONE lock acquisition instead of the previous three. This reduces
+    // RENDER_STATE lock round-trips per frame from 3 to 2 (the second
+    // acquisition is in Phase 3 for the actual render).
     {
         let mut state = render_state_mut();
         let Some(render_state) = state.as_mut() else {
-            log::error!("render: render state missing");
-            return -1;
+            return 0;
         };
+        // Surface must be attached before any rendering work.
         if render_state.renderer.surface.is_none() {
-            // No surface attached yet (attachWindow not called / surface lost).
             return 0;
         }
-        // Lazy one-time pipeline creation (mirrors the test helpers): the
-        // cell pipeline is created from the attached surface's format on
-        // first render.
+        // Consume pending background-image / flash-phase changes.
+        if render_state.pending_bg_image_clear {
+            render_state.renderer.clear_bg_image();
+            render_state.pending_bg_image_clear = false;
+        }
+        if let Some((data, w, h)) = render_state.pending_bg_image.take() {
+            render_state.renderer.set_bg_image(&data, w, h);
+            log::info!(
+                "render_inner: consumed bg image {w}x{h}, view={}",
+                render_state.renderer.bg_image_view.is_some()
+            );
+        }
+        if let Some(phase) = render_state.pending_flash_phase.take() {
+            render_state.renderer.set_flash_phase(phase);
+            log::trace!("render_inner: flash phase={phase}");
+        }
+        // Lazy one-time pipeline creation.
         if render_state.renderer.cell_pipeline.is_none() {
             let (w, h) = render_state
                 .renderer
@@ -1827,6 +1870,8 @@ fn render_inner(session_id: u64) -> jint {
                 .renderer
                 .initialize_pipeline_and_bind_group(ATLAS_SIZE, ATLAS_SIZE, w, h);
         }
+        // Upload glyph atlas dirty regions (even on idle frames: newly
+        // rasterized glyphs must reach the GPU texture before next draw).
         if let Some(rect) = render_state.font_pipeline.take_dirty_rect() {
             let (aw, ah) = render_state.font_pipeline.atlas_dimensions();
             render_state.renderer.upload_atlas(
@@ -1836,167 +1881,407 @@ fn render_inner(session_id: u64) -> jint {
                 Some(rect),
             );
         }
+    } // ── render_state lock released ──────────────────────────────────────
+
+    // ── Phase 2: Collect cell data (session lock only) ────────────────────
+    // On new data: receive owned CellData from the channel (zero-copy move).
+    // On idle: record the fact — Phase 3 will reference last_frame directly,
+    // avoiding the 32KB clone that previously happened here.
+    enum FrameData {
+        New {
+            cells: Vec<crate::terminal::ghostty_terminal::CellData>,
+            cursor_info: crate::terminal::ghostty_terminal::CursorInfo,
+            rows: u32,
+            cols: u32,
+        },
+        Idle {},
     }
-    // Collect cell data (session lock), then render (render-state lock).
-    // NOTE: the idle branch below DOES hold the session
-    // lock while touching render state — the lock order is strictly
-    // SESSION_REGISTRY → session → render_state everywhere (never the
-    // reverse), so there is no deadlock cycle, but the session lock's
-    // critical section is widened by the cached-frame clone. This is
-    // accepted: the clone is a bounded 80-byte-per-cell Vec and the
-    // render-state lock is never contended by another lock holder.
-    let (cells, cursor_info, rows, cols, is_new_data, scrollback) = {
+    let frame_data = {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&session_id) else {
             log::warn!("render: unknown session {session_id}");
             return -1;
         };
         let session = entry.session.lock();
-        let scrollback = session.terminal().scrollback_length();
+        // CRITICAL: Do NOT call session.terminal().scrollback_length()
+        // here — it's a synchronous RPC to the VT thread that blocks the
+        // render thread for up to 50 ms when the VT thread is busy.
+        // Scrollback length is piggy-backed on CursorInfo via the cell
+        // data channel (see push_cell_data → CursorInfo.scrollback_length).
         match session.terminal().receive_cell_data() {
             Some((cells, cursor_info)) => {
                 let (rows, cols) = session.grid_size();
-                (cells, cursor_info, rows, cols, true, scrollback)
-            }
-            None => {
-                // Idle. Blink repaint decision is made below under the
-                // render-state lock; here we only need to know whether a
-                // cached frame exists (checked there).
-                let state = render_state_mut();
-                let Some(render_state) = (*state).as_ref() else {
-                    return 0;
-                };
-                match &render_state.last_frame {
-                    Some((cached_cells, cached_cursor, cached_rows, cached_cols)) => (
-                        cached_cells.clone(),
-                        *cached_cursor,
-                        *cached_rows,
-                        *cached_cols,
-                        false,
-                        scrollback,
-                    ),
-                    None => return 0,
+                FrameData::New {
+                    cells,
+                    cursor_info,
+                    rows,
+                    cols,
                 }
             }
+            None => FrameData::Idle {},
         }
-    };
+    }; // ── session lock released ──────────────────────────────────────────
 
+    // ── Phase 3: Render (render_state lock) ───────────────────────────────
     let mut state = render_state_mut();
     let Some(render_state) = state.as_mut() else {
         log::error!("render: render state missing");
         return -1;
     };
     if render_state.renderer.surface.is_none() {
-        // No surface attached yet (attachWindow not called / surface lost).
         return 0;
     }
-    let mut cursor = crate::render::CellCursor {
-        row: cursor_info.row,
-        col: cursor_info.col,
-        visible: cursor_info.visible,
-        style: render_state
-            .cursor_style_override
-            .unwrap_or(cursor_info.style),
-        color: render_state.cursor_color,
-    };
-    // App-level cursor blink (user setting): when enabled, hide the
-    // cursor during the second half of each blink cycle, measured from
-    // the last phase reset. The terminal's own cursor visibility still
-    // gates it (`cursor_info.visible`).
-    let mut blink_phase = 0u64;
-    let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
-    if cursor_blink_enabled {
-        let now_ms = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64);
-        let speed = render_state
-            .cursor_blink_speed_ms
-            .load(Ordering::Relaxed)
-            .max(50);
-        let phase_reset_ms = render_state.cursor_blink_phase_reset_ms.load(Ordering::Relaxed);
-        let phase = now_ms.saturating_sub(phase_reset_ms);
-        blink_phase = (phase / speed) % 2;
-        if blink_phase == 1 {
-            cursor.visible = false;
-        }
-    }
-    // Idle repaint gate: only redraw the cached frame when the blink
-    // phase actually flipped (otherwise every render() call would repaint
-    // at full rate and burn CPU on an idle terminal).
-    if !is_new_data {
-        let phase_changed = render_state.last_blink_phase != Some(blink_phase);
-        let style_changed =
-            render_state.last_drawn_style_version != render_state.cursor_style_version;
-        let selection_changed = render_state.selection != render_state.last_drawn_selection;
-        if !cursor_blink_enabled && !style_changed && !selection_changed {
-            return 0;
-        }
-        if cursor_blink_enabled
-            && !phase_changed
-            && !style_changed
-            && !selection_changed
-        {
-            return 0;
-        }
-    }
-    // selection rows are stored in GRID coordinates (the Kotlin
-    // side uses scrollbackLine(gridRow)), but CellData rows are VISIBLE
-    // rows (0..rows-1 of the viewport). Translate here each frame so the
-    // highlight follows the text as the user scrolls. Done under the
-    // render-state lock only (scrollback was captured under the session
-    // lock above, preserving SESSION_REGISTRY → session → render_state).
-    let render_selection = render_state.selection.map(|mut sel| {
-        sel.start_row -= scrollback as i32;
-        sel.end_row -= scrollback as i32;
-        sel
-    });
-    // Row-level dirty mask (FR-013 / NFR-010): diff this frame's cells
-    // against the previously rendered frame so only changed rows are
-    // rebuilt. The cursor and selection rows are always rebuilt (they carry
-    // per-frame visual state that cell diffing cannot see). First frame (no
-    // baseline) or a grid resize dirties everything.
-    let dirty_mask: Vec<bool> = match &render_state.last_frame {
-        Some((old_cells, _, old_rows, old_cols)) if *old_rows == rows && *old_cols == cols => {
-            let mut mask = crate::render::cell_builder::diff_dirty_rows(old_cells, &cells, rows);
-            if cursor.visible && (cursor.row as usize) < rows as usize {
-                mask[cursor.row as usize] = true;
+    // P2-1: single-point read-clear of the content-dirty flag.
+    let content_dirty = render_state.dirty.swap(false, Ordering::AcqRel);
+
+    // Branch on new data vs idle — the idle path uses a reference to
+    // last_frame instead of cloning, eliminating ~32KB per idle frame.
+    match frame_data {
+        FrameData::New {
+            cells,
+            cursor_info,
+            rows,
+            cols,
+        } => {
+            // Use scrollback_length from the cell data channel — no
+            // synchronous RPC needed. The VT thread piggybacks it on
+            // every CursorInfo push.
+            let scrollback = cursor_info.scrollback_length;
+            render_state.cached_scrollback = scrollback;
+            let mut cursor = crate::render::CellCursor {
+                row: cursor_info.row,
+                col: cursor_info.col,
+                visible: cursor_info.visible,
+                style: render_state
+                    .cursor_style_override
+                    .unwrap_or(cursor_info.style),
+                color: render_state.cursor_color,
+            };
+            // Cursor blink.
+            let mut blink_phase = 0u64;
+            let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
+            if cursor_blink_enabled {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64);
+                let speed = render_state
+                    .cursor_blink_speed_ms
+                    .load(Ordering::Relaxed)
+                    .max(50);
+                let phase_reset_ms = render_state
+                    .cursor_blink_phase_reset_ms
+                    .load(Ordering::Relaxed);
+                let phase = now_ms.saturating_sub(phase_reset_ms);
+                blink_phase = (phase / speed) % 2;
+                if blink_phase == 1 {
+                    cursor.visible = false;
+                }
+            }
+            let render_selection = render_state.selection.map(|mut sel| {
+                sel.start_row -= scrollback as i32;
+                sel.end_row -= scrollback as i32;
+                sel
+            });
+            // Build dirty mask using pre-allocated buffer.
+            let rows_usize = rows as usize;
+            // Immutable snapshots first: the mask is a &mut borrow of
+            // render_state.dirty_mask and cannot coexist with reads of the
+            // other render_state fields below.
+            // Pure-scroll detection (): if every surviving row of
+            // Scroll-shift GPU blit disabled for reliability: content similarity
+            // (e.g. seq 1 200) triggers false shift detection and stale fragments.
+            // Cost is ~2-3ms extra per scroll frame, well within 8ms budget.
+            let scroll_up_rows: Option<u32> = None;
+            let previous_cursor_row = render_state
+                .last_frame
+                .as_ref()
+                .map(|(_, old_cursor_info, _, _)| old_cursor_info.row);
+            let previous_selection_rows = render_state.last_drawn_selection.map(|mut sel| {
+                sel.start_row -= scrollback as i32;
+                sel.end_row -= scrollback as i32;
+                sel
+            });
+            let highlight_rows: Vec<i32> = render_state
+                .search_highlights
+                .iter()
+                .chain(render_state.last_drawn_search_highlights.iter())
+                .map(|hl| hl.row)
+                .collect();
+            let dirty_mask = &mut render_state.dirty_mask;
+            dirty_mask.clear();
+            dirty_mask.resize(rows_usize, false);
+            match &render_state.last_frame {
+                Some((old_cells, _, old_rows, old_cols))
+                    if *old_rows == rows && *old_cols == cols =>
+                {
+                    if let Some(s) = scroll_up_rows {
+                        // Pure scroll: only the freshly revealed bottom rows
+                        // carry new content; everything else arrives via the
+                        // accumulator blit.
+                        let start = rows_usize - s as usize;
+                        dirty_mask[start..rows_usize].fill(true);
+                    } else {
+                        crate::render::cell_builder::diff_dirty_rows_into(
+                            old_cells,
+                            &cells,
+                            rows,
+                            &mut dirty_mask[..rows_usize],
+                        );
+                    }
+                }
+                _ => {
+                    dirty_mask[..rows_usize].fill(true);
+                }
+            }
+            // Cursor row(s): mark BOTH the current and previous cursor rows
+            // regardless of visibility — the cursor is an overlay on the
+            // instances (blink/style/position all change pixels without
+            // changing cell content), and dirty-band rendering needs every
+            // affected row repainted or stale cursor pixels persist.
+            if (cursor.row as usize) < rows_usize {
+                dirty_mask[cursor.row as usize] = true;
+            }
+            if let Some(prev_row) = previous_cursor_row
+                && (prev_row as usize) < rows_usize
+            {
+                dirty_mask[prev_row as usize] = true;
             }
             if let Some(sel) = &render_selection {
                 let start = sel.start_row.max(0) as usize;
                 let end = (sel.end_row + 1).max(0) as usize;
-                for slot in mask.iter_mut().take(end.min(rows as usize)).skip(start) {
+                for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
                     *slot = true;
                 }
             }
-            mask
+            // Previous selection: clearing/shrinking a selection must
+            // repaint the rows it used to cover.
+            if let Some(old_sel) = previous_selection_rows {
+                let start = old_sel.start_row.max(0) as usize;
+                let end = (old_sel.end_row + 1).max(0) as usize;
+                for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
+                    *slot = true;
+                }
+            }
+            // Search highlight rows, current AND last drawn: highlights are
+            // per-row overlays; adding/removing/moving them changes pixels
+            // without changing cell content.
+            for r in highlight_rows {
+                if r >= 0 && (r as usize) < rows_usize {
+                    dirty_mask[r as usize] = true;
+                }
+            }
+            let result = render_state.renderer.render_cell_data(
+                &cells,
+                rows,
+                cols,
+                cursor,
+                &mut render_state.font_pipeline,
+                ATLAS_SIZE as f32,
+                ATLAS_SIZE as f32,
+                render_selection,
+                &render_state.search_highlights,
+                Some(&render_state.dirty_mask),
+                scroll_up_rows,
+            );
+            if result.is_ok() {
+                render_state.last_frame = Some((cells, cursor_info, rows, cols));
+                render_state.last_blink_phase = Some(blink_phase);
+                render_state.last_drawn_selection = render_state.selection;
+                render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
+                render_state.last_drawn_style_version = render_state.cursor_style_version;
+            }
+            match result {
+                Ok(()) => 1,
+                Err(error) => {
+                    log::error!("render: frame failed: {error}");
+                    -1
+                }
+            }
         }
-        _ => vec![true; rows as usize],
-    };
-    let result = render_state.renderer.render_cell_data(
-        &cells,
-        rows,
-        cols,
-        cursor,
-        &mut render_state.font_pipeline,
-        ATLAS_SIZE as f32,
-        ATLAS_SIZE as f32,
-        render_selection,
-        &render_state.search_highlights,
-        Some(&dirty_mask),
-    );
-    if result.is_ok() {
-        render_state.last_frame = Some((cells, cursor_info, rows, cols));
-        render_state.last_blink_phase = Some(blink_phase);
-        render_state.last_drawn_selection = render_state.selection;
-        render_state.last_drawn_style_version = render_state.cursor_style_version;
-    }
-    match result {
-        Ok(()) => 1,
-        Err(error) => {
-            log::error!("render: frame failed: {error}");
-            -1
+        FrameData::Idle {} => {
+            // Idle path: use reference to last_frame — zero clone.
+            let Some((ref cached_cells, cached_cursor, cached_rows, cached_cols)) =
+                render_state.last_frame
+            else {
+                return 0;
+            };
+            let mut cursor = crate::render::CellCursor {
+                row: cached_cursor.row,
+                col: cached_cursor.col,
+                visible: cached_cursor.visible,
+                style: render_state
+                    .cursor_style_override
+                    .unwrap_or(cached_cursor.style),
+                color: render_state.cursor_color,
+            };
+            // Cursor blink.
+            let mut blink_phase = 0u64;
+            let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
+            if cursor_blink_enabled {
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as u64);
+                let speed = render_state
+                    .cursor_blink_speed_ms
+                    .load(Ordering::Relaxed)
+                    .max(50);
+                let phase_reset_ms = render_state
+                    .cursor_blink_phase_reset_ms
+                    .load(Ordering::Relaxed);
+                let phase = now_ms.saturating_sub(phase_reset_ms);
+                blink_phase = (phase / speed) % 2;
+                if blink_phase == 1 {
+                    cursor.visible = false;
+                }
+            }
+            // Idle repaint gate (P2-1): only repaint when something actually
+            // changed — blink phase flip, style change, selection change,
+            // search highlights active, or content-dirty flag raised.
+            let phase_changed = render_state.last_blink_phase != Some(blink_phase);
+            let style_changed =
+                render_state.last_drawn_style_version != render_state.cursor_style_version;
+            let selection_changed = render_state.selection != render_state.last_drawn_selection;
+            // Changed, not merely present: "present" made every idle frame
+            // repaint for as long as a search stayed active.
+            let highlights_changed =
+                render_state.search_highlights != render_state.last_drawn_search_highlights;
+            let bg_image_pending = render_state.pending_bg_image.is_some();
+            let flash_phase_pending = render_state.pending_flash_phase.is_some();
+            let needs_repaint = (!cursor_blink_enabled
+                && (style_changed
+                    || selection_changed
+                    || highlights_changed
+                    || bg_image_pending
+                    || flash_phase_pending
+                    || content_dirty))
+                || (cursor_blink_enabled
+                    && (phase_changed
+                        || style_changed
+                        || selection_changed
+                        || highlights_changed
+                        || bg_image_pending
+                        || flash_phase_pending
+                        || content_dirty));
+            if !needs_repaint {
+                return 0;
+            }
+            let scrollback = render_state.cached_scrollback;
+            let render_selection = render_state.selection.map(|mut sel| {
+                sel.start_row -= scrollback as i32;
+                sel.end_row -= scrollback as i32;
+                sel
+            });
+            // Dirty mask: cursor row(s) + selection rows + highlight rows
+            // need rebuild on idle (cell content hasn't changed). The old
+            // `fill(true)` fallback is gone: the accumulator keeps clean
+            // rows' pixels, so band-limited redraws are sufficient and the
+            // blink frame now costs one row band instead of a full redraw.
+            let rows_usize = cached_rows as usize;
+            let previous_selection_rows = render_state.last_drawn_selection.map(|mut sel| {
+                sel.start_row -= scrollback as i32;
+                sel.end_row -= scrollback as i32;
+                sel
+            });
+            let highlight_rows: Vec<i32> = render_state
+                .search_highlights
+                .iter()
+                .chain(render_state.last_drawn_search_highlights.iter())
+                .map(|hl| hl.row)
+                .collect();
+            let dirty_mask = &mut render_state.dirty_mask;
+            dirty_mask.clear();
+            dirty_mask.resize(rows_usize, false);
+            // Cursor row regardless of visibility: blink/style toggles
+            // pixels without touching cell content.
+            if (cursor.row as usize) < rows_usize {
+                dirty_mask[cursor.row as usize] = true;
+            }
+            if let Some(sel) = &render_selection {
+                let start = sel.start_row.max(0) as usize;
+                let end = (sel.end_row + 1).max(0) as usize;
+                for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
+                    *slot = true;
+                }
+            }
+            if let Some(old_sel) = previous_selection_rows {
+                let start = old_sel.start_row.max(0) as usize;
+                let end = (old_sel.end_row + 1).max(0) as usize;
+                for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
+                    *slot = true;
+                }
+            }
+            for r in highlight_rows {
+                if r >= 0 && (r as usize) < rows_usize {
+                    dirty_mask[r as usize] = true;
+                }
+            }
+            let result = render_state.renderer.render_cell_data(
+                cached_cells,
+                cached_rows,
+                cached_cols,
+                cursor,
+                &mut render_state.font_pipeline,
+                ATLAS_SIZE as f32,
+                ATLAS_SIZE as f32,
+                render_selection,
+                &render_state.search_highlights,
+                Some(&render_state.dirty_mask),
+                None,
+            );
+            if result.is_ok() {
+                render_state.last_blink_phase = Some(blink_phase);
+                render_state.last_drawn_selection = render_state.selection;
+                render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
+                render_state.last_drawn_style_version = render_state.cursor_style_version;
+                // NOTE: last_frame NOT updated on idle — cells unchanged.
+            }
+            match result {
+                Ok(()) => 1,
+                Err(error) => {
+                    log::error!("render: frame failed: {error}");
+                    -1
+                }
+            }
         }
     }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// JNI Export: renderWithNewOutput
+// ══════════════════════════════════════════════════════════════════════════
+
+/// Combined render + consumeNewOutput: renders one frame AND reads the
+/// per-session new_output flag in a single JNI crossing, saving ~0.1-0.3ms
+/// per frame vs two separate calls (render + consumeNewOutput).
+///
+/// Returns a packed `jlong`:
+///   - bits 0..31  = render count (same semantics as `render()`)
+///   - bit  32     = new_output flag (1 = PTY output was ingested, 0 = idle)
+///   - bits 33..63 = 0 (reserved)
+///
+/// On error the render count is negative and new_output is 0.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewOutput<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+    _width: jint,
+    _height: jint,
+) -> jlong {
+    let count = jni_export_guard!(&mut env, -1i32, { render_inner(session_id as u64) });
+    let mut new_output: i32 = 0;
+    if count > 0 {
+        // Consume the new_output flag inline (same logic as
+        // consumeNewOutput but without a second JNI crossing).
+        let registry = rlock_session_registry();
+        if let Some(entry) = registry.get(&(session_id as u64)) {
+            let session = entry.session.lock();
+            if session.take_new_output() {
+                new_output = 1;
+            }
+        }
+    }
+    ((new_output as i64) << 32) | (count as i64 & 0xFFFF_FFFF)
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -2397,6 +2682,10 @@ fn screenshot_result_inner<'local>(
     let w = width as u32;
     let h = height as u32;
     let pixel_data: Vec<u8> = {
+        // SAFETY: `pixels` is a JNI method argument, guaranteed valid by the
+        // JVM runtime for the duration of this call. `from_raw` wraps the
+        // pointer without taking ownership; the local ref is released by
+        // the JVM when this native method returns.
         let byte_array = unsafe { jni::objects::JByteArray::from_raw(pixels) };
         env.convert_byte_array(&byte_array).unwrap_or_default()
     };
@@ -2517,7 +2806,14 @@ fn list_sessions_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>)
 /// Atlas size shared by pipeline init, render_cell_data and the font
 /// pipeline. Kept in one place: changing it requires all three call sites
 /// to agree or glyph UVs misalign.
-const ATLAS_SIZE: u32 = 1024;
+///
+/// 2048² (was 1024²): on a real device at ~3x display density a 14sp glyph
+/// rasterizes to ~40px, so the old atlas held only ~700 glyphs — a single
+/// scrolling log screen with a few hundred distinct characters thrashed the
+/// LRU, evicting and re-rasterizing the same glyphs frame after frame
+/// (CPU-bound). 2048² quadruples the capacity (~2800 glyphs) with a bounded
+/// memory cost (16MB device + 16MB staging bitmap).
+const ATLAS_SIZE: u32 = 2048;
 
 // ══════════════════════════════════════════════════════════════════════════
 // JNI Exports: TerminalQueryPort (search/scrollback/text/font)
@@ -2576,6 +2872,38 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLeng
         };
         let session = entry.session.lock();
         session.terminal().scrollback_length() as jint
+    })
+}
+
+/// Returns the terminal cursor's viewport position packed as `(y << 32) | x`,
+/// or `-1` when the cursor is hidden/off-viewport.
+///
+///  observability (spec cursor-rendering): reads through
+/// `build_cell_data` — the EXACT source the render thread consumes — so the
+/// instrumentation layer sees the same coordinates the GPU draws. Values are
+/// 0-based viewport rows/cols.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewportPacked(
+    mut env: JNIEnv,
+    _class: JClass,
+    session_id: jlong,
+) -> jlong {
+    jni_export_guard!(&mut env, -1, {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                "java/lang/IllegalArgumentException",
+                "getCursorViewportPacked: session not found",
+            );
+            return -1;
+        };
+        let session = entry.session.lock();
+        let terminal = session.terminal();
+        let Some((row, col)) = terminal.render_cursor() else {
+            return -1;
+        };
+        ((row as jlong) << 32) | (col as jlong)
     })
 }
 
@@ -2969,6 +3297,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.search_highlights.clear();
+            // P2-1 dirty: highlight clearing must reach the screen even on
+            // an idle terminal (otherwise stale highlights linger until the
+            // next PTY output — #5 regression class).
+            render_state.dirty.store(true, Ordering::Relaxed);
         }
     })
 }
@@ -3017,21 +3349,36 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
         // Vec::with_capacity allocation.
         let count = count.min(bytes.len().saturating_sub(4) / 16);
         let mut highlights = Vec::with_capacity(count);
-        for chunk in bytes[4..].chunks_exact(16).take(count) {
-            let row = i32::from_le_bytes(chunk[0..4].try_into().unwrap());
-            let start_col = i32::from_le_bytes(chunk[4..8].try_into().unwrap());
-            let end_col_exclusive = i32::from_le_bytes(chunk[8..12].try_into().unwrap());
-            let color = [chunk[12], chunk[13], chunk[14], chunk[15]];
+        let payload = &bytes[4..];
+        let mut offset = 0;
+        for _ in 0..count {
+            if offset + 16 > payload.len() {
+                break;
+            }
+            let row = i32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
+            let start_col = i32::from_le_bytes(payload[offset + 4..offset + 8].try_into().unwrap());
+            let end_col_exclusive =
+                i32::from_le_bytes(payload[offset + 8..offset + 12].try_into().unwrap());
+            let color = [
+                payload[offset + 12],
+                payload[offset + 13],
+                payload[offset + 14],
+                payload[offset + 15],
+            ];
             highlights.push(crate::render::cell_builder::SearchHighlight {
                 row,
                 start_col,
                 end_col_exclusive,
                 color,
             });
+            offset += 16;
         }
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.search_highlights = highlights;
+            // P2-1 dirty: new highlights must paint on the next frame even
+            // with blink off and no PTY traffic (#5 idle-screen regression).
+            render_state.dirty.store(true, Ordering::Relaxed);
         }
     });
 }
@@ -3092,6 +3439,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.selection = selection;
+            // P2-1 dirty: selection changes must repaint even on an idle
+            // terminal (deferred field otherwise waits for PTY output).
+            render_state.dirty.store(true, Ordering::Relaxed);
         }
     });
 }
@@ -3195,6 +3545,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundI
             let mut state = render_state_mut();
             if let Some(render_state) = state.as_mut() {
                 render_state.pending_bg_image_clear = true;
+                // P2-1 dirty: zero-sized image treated as clear — must still
+                // reach the screen on an idle terminal.
+                render_state.dirty.store(true, Ordering::Relaxed);
             }
             return;
         }
@@ -3223,6 +3576,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundI
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.pending_bg_image = Some((bytes, w, h));
+            // P2-1 dirty: background-image changes must repaint even on an
+            // idle terminal (pending_bg_image is consumed at the top of
+            // render_inner BEFORE the idle gate — without this raise the
+            // upload happens but the gate can skip presenting it).
+            render_state.dirty.store(true, Ordering::Relaxed);
         }
         log::info!("setBackgroundImage: {w}x{h} queued for render thread");
     })
@@ -3241,6 +3599,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearBackgroun
         if let Some(render_state) = state.as_mut() {
             render_state.pending_bg_image = None;
             render_state.pending_bg_image_clear = true;
+            // P2-1 dirty: see setBackgroundImage.
+            render_state.dirty.store(true, Ordering::Relaxed);
         }
         log::info!("clearBackgroundImage: queued for render thread");
     })
@@ -3263,6 +3623,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFlashState(
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.pending_flash_phase = Some(phase.max(0.0));
+            // P2-1 dirty: bell-flash phase changes must repaint even on an
+            // idle terminal — without this raise SCREEN_FLASH bells go
+            // silently invisible once vsync alignment removed the old
+            // full-rate poll cadence that used to flush deferred fields.
+            render_state.dirty.store(true, Ordering::Relaxed);
         }
         log::info!("setFlashState: phase={phase} queued for render thread");
     })
@@ -3480,6 +3845,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             let (cw, ch) = render_state.font_pipeline.set_font_size_in_place(size);
+            // P2-1 dirty: font-size changes must repaint even on an idle
+            // terminal (glyph metrics changed → cached frame is stale).
+            render_state.dirty.store(true, Ordering::Relaxed);
             log::info!(
                 "setFontSizeInPlace: {} -> cell {cw:.1}x{ch:.1}",
                 size_tenths

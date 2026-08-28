@@ -1,0 +1,37 @@
+appId: com.termux
+name: "Regression  #12 edge scroll: dragging to viewport edge scrolls content"
+tags:
+  - e2e
+  - regression
+---
+- launchApp:
+    clearState: false
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- tapOn:
+    id: "TerminalScreen"
+- inputText: "seq 1 200"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 5000
+- longPressOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: regress-edge-before
+# Drag the handle into the top 10% edge zone: content rows must shift.
+- swipe:
+    start: "50%, 30%"
+    end: "50%, 5%"
+    duration: 1500
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: regress-edge-after

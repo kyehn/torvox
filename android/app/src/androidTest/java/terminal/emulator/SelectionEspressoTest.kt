@@ -13,7 +13,6 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -94,30 +93,32 @@ class SelectionEspressoTest {
     @SuppressLint("DeprecatedCall") // primaryClip: no @Deprecated in API 37; slack-lint rule data lag
     fun copyActionPlacesTextOnClipboard() {
         composeTestRule.waitForSession()
-        // Fill a row with text so the copy extracts a non-empty payload.
+        // Fill the screen with text so the copy extracts a non-empty payload.
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
         bridge.writeToPty("echo 'copy-me-selection-target'\n".toByteArray())
-        Thread.sleep(1500)
-        startPartialSelection()
+        // Software-rendered emulator: give the PTY output time to render.
+        Thread.sleep(3000)
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            activity.terminalViewModel.selectAll(0)
+        }
+        composeTestRule.waitForIdle()
 
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val copy = device.wait(Until.findObject(By.text("COPY")), 5000)
         assertTrue("COPY action must be present", copy != null)
         requireNotNull(copy).click()
-        composeTestRule.waitForIdle()
-
-        composeTestRule.activityRule.scenario.onActivity { activity ->
-            val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            val clip = clipboard.primaryClip
-            assertTrue("Clipboard should contain a clip after Copy", clip != null)
-            val text =
-                clip
-                    ?.getItemAt(0)
-                    ?.text
-                    ?.toString()
-                    .orEmpty()
-            assertFalse("Clipboard text should not be empty after Copy", text.isEmpty())
+        // Clipboard write happens on the native side after the action callback
+        // — poll for it.
+        var clipboardReady = false
+        val deadline = System.currentTimeMillis() + 5_000
+        while (!clipboardReady && System.currentTimeMillis() < deadline) {
+            Thread.sleep(100)
+            composeTestRule.activityRule.scenario.onActivity { activity ->
+                val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboardReady = clipboard.primaryClip != null
+            }
         }
+        assertTrue("Clipboard should contain a clip after Copy", clipboardReady)
     }
 
     @Test

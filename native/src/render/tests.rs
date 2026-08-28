@@ -20,28 +20,6 @@ fn f32_arrays_equal(a: &[f32], b: &[f32]) -> bool {
     a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
 }
 
-/// Standard SnapshotConfig used across the snapshot-reference render tests.
-fn test_snapshot_config(
-    cursor_style: CursorStyle,
-    cursor_color: Option<[f32; 4]>,
-    dirty_rows: &[bool],
-) -> crate::render::SnapshotConfig<'_> {
-    crate::render::SnapshotConfig {
-        atlas_width: 1024.0,
-        atlas_height: 1024.0,
-        projection_height: 0.0,
-        selection: None,
-        search_highlights: &[],
-        cursor_color,
-        cursor_style,
-        dirty_rows,
-        cached_instances: &[],
-        cached_row_ends: &[],
-        surface_bg: [0.0, 0.0, 0.0, 1.0],
-        render_scale: 1.0,
-    }
-}
-
 /// Font pipeline with the ASCII glyph atlas pre-rasterized.
 fn ascii_font() -> crate::render::font::FontPipeline {
     let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
@@ -61,10 +39,10 @@ fn orthographic_projection_identity() {
     assert!((proj[1][1] + 2.0 / 600.0).abs() < f32::EPSILON);
 }
 
-/// Locks the vsync fix (#1): present mode must prefer a vsync-capable mode
-/// (Mailbox/Fifo/AutoVsync) over `Immediate`, which disables vsync and lets
-/// the render thread flood the GPU with unthrottled frames (the original
-/// Android lag root cause).
+/// 120fps+ requires decoupling fps from Hz: prefer Immediate (no vsync)
+/// when available so the pipeline can sustain 120+ presents per second even
+/// on 60Hz panels. Hz and fps are unrelated — tearing is preferred over
+/// throttling the terminal. See context.rs select_present_mode.
 #[test]
 fn select_present_mode_prefers_vsync() {
     fn base_caps() -> wgpu::SurfaceCapabilities {
@@ -77,8 +55,7 @@ fn select_present_mode_prefers_vsync() {
         }
     }
 
-    // Mailbox preferred over Fifo when both available (lower latency, vsync).
-    // Mali-G57 does not expose Mailbox → falls back to Fifo on affected devices.
+    // Immediate preferred when available for 120fps+ (Hz/fps decoupled).
     let mut caps = base_caps();
     caps.present_modes = vec![
         wgpu::PresentMode::Immediate,
@@ -87,27 +64,27 @@ fn select_present_mode_prefers_vsync() {
     ];
     assert_eq!(
         Renderer::select_present_mode(&caps),
-        wgpu::PresentMode::Mailbox,
-        "Mailbox preferred over Fifo (Fifo fallback on Mali-G57 which omits Mailbox)"
+        wgpu::PresentMode::Immediate,
+        "Immediate preferred for 120fps+ (Hz/fps decoupled)"
     );
 
-    // No Mailbox -> Fifo (vsync).
+    // No Immediate -> Mailbox (vsync) as fallback.
     let mut caps = base_caps();
-    caps.present_modes = vec![wgpu::PresentMode::Immediate, wgpu::PresentMode::Fifo];
+    caps.present_modes = vec![wgpu::PresentMode::Mailbox, wgpu::PresentMode::Fifo];
+    assert_eq!(
+        Renderer::select_present_mode(&caps),
+        wgpu::PresentMode::Mailbox
+    );
+
+    // No Immediate/Mailbox -> Fifo.
+    let mut caps = base_caps();
+    caps.present_modes = vec![wgpu::PresentMode::Fifo, wgpu::PresentMode::AutoVsync];
     assert_eq!(
         Renderer::select_present_mode(&caps),
         wgpu::PresentMode::Fifo
     );
 
-    // No Mailbox/Fifo -> AutoVsync (still vsync).
-    let mut caps = base_caps();
-    caps.present_modes = vec![wgpu::PresentMode::Immediate, wgpu::PresentMode::AutoVsync];
-    assert_eq!(
-        Renderer::select_present_mode(&caps),
-        wgpu::PresentMode::AutoVsync
-    );
-
-    // Only Immediate -> Immediate (last resort; the lag mode we fixed away).
+    // Only Immediate -> Immediate.
     let base = base_caps();
     assert_eq!(
         Renderer::select_present_mode(&base),
@@ -1567,6 +1544,165 @@ fn search_highlight_multiple_matches_same_row() {
     );
 }
 
+// ── Production-value alpha tests (P1-2) ──────────────────────────
+//
+// The Kotlin side packs search-highlight RGBA bytes with the constants in
+// `SearchHighlightColors.kt` (single cross-language anchor):
+//   - current match → SearchHighlightColors.CURRENT_MATCH_ALPHA = 255
+//   - other matches → SearchHighlightColors.OTHER_MATCH_ALPHA = 160
+//     (: raised from 96 so every match inverts, per spec
+//     text-search-highlight "all matches visible inversion")
+// These tests pin the renderer's behavior at exactly those production
+// values. Changing either side requires changing the other in the same PR
+// (see the doc comment on SearchHighlightColors).
+
+#[test]
+fn search_highlight_current_match_alpha_matches_production() {
+    use crate::render::cell_builder::apply_search_highlight;
+
+    // Production anchor: SearchHighlightColors.CURRENT_MATCH_ALPHA = 255.
+    let hl: [u8; 4] = [255, 200, 0, 255];
+
+    let original_fg: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // white text
+    let original_bg: [f32; 4] = [0.0, 0.0, 0.0, 1.0]; // black background
+    let mut fg = original_fg;
+    let mut bg = original_bg;
+
+    apply_search_highlight(&mut fg, &mut bg, hl);
+
+    // alpha >= 128 must swap fg/bg (inverse video): fg becomes the
+    // ORIGINAL background...
+    assert!(
+        f32_arrays_equal(&fg, &original_bg),
+        "alpha=255 must swap fg/bg; fg should become the original bg: {:?}",
+        fg
+    );
+    // ...and the swapped background is fully covered by the opaque
+    // highlight color.
+    let expected_bg = blend_highlight(original_bg, hl);
+    assert!(
+        f32_arrays_equal(&bg, &expected_bg),
+        "bg should be highlight blended over the swapped bg: {:?}",
+        bg
+    );
+    assert!(
+        f32_arrays_equal(&bg, &[1.0, 200.0 / 255.0, 0.0, 1.0]),
+        "opaque highlight must fully replace the background: {:?}",
+        bg
+    );
+}
+
+#[test]
+fn search_highlight_other_match_alpha_matches_production() {
+    use crate::render::cell_builder::apply_search_highlight;
+
+    // Production anchor: SearchHighlightColors.OTHER_MATCH_ALPHA = 160,
+    // at or above the 128 swap threshold (: ALL matches invert).
+    let hl: [u8; 4] = [100, 150, 200, 160];
+
+    let original_fg: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    let original_bg: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+    let mut fg = original_fg;
+    let mut bg = original_bg;
+
+    apply_search_highlight(&mut fg, &mut bg, hl);
+
+    // alpha >= 128 must swap (inverse video): fg becomes the original bg.
+    assert!(
+        f32_arrays_equal(&fg, &original_bg),
+        "alpha=160 must swap fg/bg like every match: {:?}",
+        fg
+    );
+    // Background gets the highlight blended over the swapped bg — which now
+    // holds the ORIGINAL foreground — visibly different from BOTH the
+    // untouched background and the fully opaque current-match treatment.
+    let expected_bg = blend_highlight(original_fg, hl);
+    assert!(
+        f32_arrays_equal(&bg, &expected_bg),
+        "bg should be highlight blended over the swapped bg: {:?}",
+        bg
+    );
+    assert!(
+        !f32_arrays_equal(&bg, &original_bg),
+        "the alpha=160 blend must visibly change the background"
+    );
+}
+
+#[test]
+fn selection_intersect_current_match_double_swap() {
+    // Covers the build path in cell_builder.rs where selection swaps fg/bg
+    // first and apply_search_highlight runs on top: a current-match
+    // highlight (production alpha 255 >= 128 from
+    // SearchHighlightColors.CURRENT_MATCH_ALPHA) swaps AGAIN, so the two
+    // swaps cancel — the cell keeps its original foreground while the
+    // background becomes the fully-opaque highlight color.
+    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    let mut font_pipeline = ascii_font();
+    let cells = vec![CellSnapshot {
+        codepoint: 'X' as u32,
+        foreground: [1.0, 1.0, 1.0, 1.0], // white text
+        background: [0.0, 0.0, 0.0, 1.0], // black background
+        ..Default::default()
+    }];
+    let snapshot = GridSnapshot {
+        rows: 1,
+        cols: 1,
+        cursor_visible: false,
+        cursor_style: CursorStyle::Block,
+        dirty: vec![true],
+        cells,
+        ..Default::default()
+    };
+    let highlights = vec![SearchHighlight {
+        row: 0,
+        start_col: 0,
+        end_col_exclusive: 1,
+        color: [255, 200, 0, 255], // CURRENT_MATCH_ALPHA = 255 >= 128
+    }];
+    let selection = SelectionRange {
+        start_row: 0,
+        start_col: 0,
+        end_row: 0,
+        end_col: 0,
+        active: true,
+        mode: SelectionMode::Char,
+        origin: None,
+        is_empty: false,
+    };
+    let instances = build_cell_instances_from_snapshot(
+        &snapshot,
+        &mut font_pipeline,
+        crate::render::SnapshotConfig {
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
+            projection_height: 768.0,
+            selection: Some(selection),
+            search_highlights: &highlights,
+            cursor_color: None,
+            cursor_style: CursorStyle::Block,
+            dirty_rows: &[],
+            cached_instances: &[],
+            cached_row_ends: &[],
+            surface_bg: [0.0, 0.0, 0.0, 1.0],
+            render_scale: 1.0,
+        },
+    );
+    assert_eq!(instances.len(), 1);
+    let cell = &instances[0];
+    // Double swap cancels: the text keeps its ORIGINAL foreground...
+    assert!(
+        f32_arrays_equal(&cell.fg_color, &[1.0, 1.0, 1.0, 1.0]),
+        "selection swap + highlight swap must cancel; fg keeps original: {:?}",
+        cell.fg_color
+    );
+    // ...and the background is fully covered by the opaque highlight.
+    assert!(
+        f32_arrays_equal(&cell.bg_color, &[1.0, 200.0 / 255.0, 0.0, 1.0]),
+        "bg should be the fully-opaque highlight color: {:?}",
+        cell.bg_color
+    );
+}
+
 // ── Cursor shape tests ──
 
 #[test]
@@ -2981,4 +3117,157 @@ fn kgp_atlas_zero_size_clears_texture() {
     assert!(context.kgp_bind_group.is_none());
     assert_eq!(context.kgp_atlas_width, 0);
     assert_eq!(context.kgp_atlas_height, 0);
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Dirty-band computation (render-vulkan-performance)
+// ══════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod dirty_band_tests {
+    use crate::render::cell_builder::{DirtyBand, compute_dirty_bands};
+
+    #[test]
+    fn empty_mask_yields_no_bands() {
+        assert!(compute_dirty_bands(&[]).is_empty());
+        assert!(compute_dirty_bands(&[false, false, false]).is_empty());
+    }
+
+    #[test]
+    fn single_row_is_single_band() {
+        assert_eq!(compute_dirty_bands(&[false, true, false]), vec![(1, 2)]);
+    }
+
+    #[test]
+    fn contiguous_rows_merge_into_one_band() {
+        assert_eq!(
+            compute_dirty_bands(&[true, true, false, true]),
+            vec![(0, 2), (3, 4)]
+        );
+    }
+
+    #[test]
+    fn all_dirty_is_one_full_band() {
+        assert_eq!(compute_dirty_bands(&[true; 5]), vec![(0, 5)]);
+    }
+
+    #[test]
+    fn trailing_and_leading_edges() {
+        assert_eq!(
+            compute_dirty_bands(&[true, false, true, true, true]),
+            vec![(0, 1), (2, 5)]
+        );
+        assert_eq!(compute_dirty_bands(&[false, false, true]), vec![(2, 3)]);
+    }
+
+    #[test]
+    fn covers_all_rows_detection() {
+        let full = DirtyBand {
+            start_row: 0,
+            end_row_exclusive: 24,
+            instance_start: 0,
+            instance_end: 100,
+        };
+        let partial = DirtyBand {
+            start_row: 22,
+            end_row_exclusive: 24,
+            instance_start: 90,
+            instance_end: 100,
+        };
+        assert!(full.covers_all_rows(24));
+        assert!(!partial.covers_all_rows(24));
+    }
+
+    /// Band slice resolution against a populated row cache: the band's
+    /// instance slice must exactly cover the per-row slices it spans.
+    #[test]
+    fn band_slice_matches_row_slices() {
+        use crate::render::cell_builder::CachedInstances;
+        let mut cache = CachedInstances::new(4, 2);
+        // Simulate a build with 2 instances in row 0, 1 in row 1,
+        // 0 in row 2, 3 in row 3.
+        cache.update_for_test(
+            &[2usize, 3, 3, 6], // row_ends (cumulative)
+        );
+        let (s, e) = cache.band_slice(1, 3);
+        assert_eq!((s, e), (2, 3)); // rows 1..3 → instances [2..3)
+        let (s, e) = cache.band_slice(0, 4);
+        assert_eq!((s, e), (0, 6));
+        let (s, e) = cache.band_slice(2, 3);
+        assert_eq!((s, e), (3, 3)); // empty middle row
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Pure vertical shift detection (scroll-blit path, )
+// ══════════════════════════════════════════════════════════════════════
+
+#[cfg(test)]
+mod vertical_shift_tests {
+    use crate::render::cell_builder::detect_vertical_shift;
+    use crate::terminal::ghostty_terminal::CellData;
+
+    fn cell(row: u32, col: u32, tag: u8) -> CellData {
+        let mut cd: CellData = bytemuck::Zeroable::zeroed();
+        cd.row = row;
+        cd.col = col;
+        cd.codepoint = if col == 0 { tag as u32 } else { b' ' as u32 };
+        cd
+    }
+
+    fn row(row: u32, tag: u8, cols: u32) -> Vec<CellData> {
+        (0..cols).map(|c| cell(row, c, tag)).collect()
+    }
+
+    fn grid(cols: u32, tags: &[u8]) -> Vec<CellData> {
+        tags.iter()
+            .enumerate()
+            .flat_map(|(r, &t)| row(r as u32, t, cols))
+            .collect()
+    }
+
+    #[test]
+    fn detects_one_row_upward_scroll() {
+        // Old rows A B C D; new rows B C D E → pure shift by 1.
+        let old = grid(2, b"ABCD");
+        let new = grid(2, b"BCDE");
+        assert_eq!(detect_vertical_shift(&old, &new, 4, 8), Some(1));
+    }
+
+    #[test]
+    fn detects_two_row_scroll() {
+        let old = grid(2, b"ABCDE");
+        let new = grid(2, b"CDEFG");
+        assert_eq!(detect_vertical_shift(&old, &new, 5, 8), Some(2));
+    }
+
+    #[test]
+    fn rejects_identical_frames() {
+        let g = grid(2, b"ABCD");
+        assert_eq!(detect_vertical_shift(&g, &g, 4, 8), None);
+    }
+
+    #[test]
+    fn rejects_non_scroll_edits() {
+        // Middle row changed: not a pure shift of any amount.
+        let old = grid(2, b"ABCD");
+        let new = grid(2, b"AXCD");
+        assert_eq!(detect_vertical_shift(&old, &new, 4, 8), None);
+    }
+
+    #[test]
+    fn respects_max_scan() {
+        let old = grid(2, b"ABCDEF");
+        let new = grid(2, b"EFGHIJ"); // shift 4
+        assert_eq!(detect_vertical_shift(&old, &new, 6, 8), Some(4));
+        assert_eq!(detect_vertical_shift(&old, &new, 6, 2), None);
+    }
+
+    #[test]
+    fn handles_empty_rows_via_ranges_fallback() {
+        // Rows with zero cells map to empty ranges; a blank-grid shift must
+        // NOT be reported as scroll when nothing differs.
+        let empty: Vec<CellData> = Vec::new();
+        assert_eq!(detect_vertical_shift(&empty, &empty, 4, 8), None);
+    }
 }

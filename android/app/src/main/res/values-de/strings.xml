@@ -223,8 +223,6 @@
     <string name="save_as_new">Als neu speichern</string>
     <string name="search_no_results_accessible">Keine Ergebnisse gefunden</string>
     <string name="search_result_accessible">Treffer %1$d von %2$d</string>
-    <string name="select_anchor_left">◀</string>
-    <string name="select_anchor_right">▶</string>
     <string name="selection">Auswahl</string>
     <string name="selection_accessible">Ausgewählt: %1$s</string>
     <string name="session_number">Sitzung %1$d</string>

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use libghostty_vt::Terminal;
 use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
 use libghostty_vt::render::{CellIterator, CursorVisualStyle, RenderState, RowIterator};
 use libghostty_vt::style::{PaletteIndex, StyleColor};
 use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate};
-use libghostty_vt::{Terminal, TerminalOptions};
 
 use super::commands::{Command, Query, RunConfig};
 use super::keymap::map_android_key_code;
@@ -202,6 +202,17 @@ impl super::GhosttyTerminal {
                     "query channel send failed",
                 );
             }
+            Query::RenderCursor(tx) => {
+                let visible_cursor = Self::build_cell_data(
+                    terminal,
+                    [1.0, 1.0, 1.0, 1.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                    &mut Vec::new(),
+                    alt_screen_active,
+                )
+                .and_then(|(_, cursor)| cursor.visible.then_some((cursor.row, cursor.col)));
+                try_send(&tx, visible_cursor, "query channel send failed");
+            }
             Query::ReadVisibleText(tx) => {
                 let rows = terminal.rows().unwrap_or(24) as u32;
                 let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
@@ -262,7 +273,7 @@ impl super::GhosttyTerminal {
                         id,
                         width,
                         height,
-                        data: data.to_vec(),
+                        data: data.map(|bytes| bytes.to_vec()).unwrap_or_default(),
                     })
                 })();
                 try_send(
@@ -435,19 +446,19 @@ impl super::GhosttyTerminal {
 
     /// The inner run loop (separated so `catch_unwind` can call it).
     fn run_inner(config: RunConfig) {
-        let Ok(mut terminal) = Terminal::new(TerminalOptions {
-            cols: config.cols as u16,
-            rows: config.rows as u16,
-            max_scrollback: config.scrollback_lines as usize,
-        }) else {
+        let Ok(mut terminal) = Terminal::new(config.cols as u16, config.rows as u16) else {
             log::error!("ghostty_terminal: Terminal::new failed — thread exiting");
             return;
         };
-        // The C `ghostty_terminal_new` ABI consumes `Options.max_scrollback`
-        // directly (ghostty a887df42, libghostty-vt 0.2.1): `Screen.init`
-        // sets `no_scrollback = max_scrollback == 0`, so a non-zero value
-        // enables scrollback: scrollback_rows query returned 0
-        // when scrollback was disabled).
+        // Upstream (git master) no longer takes options in `Terminal::new`;
+        // scrollback is configured with the `set_scrollback_max_lines` setter.
+        // A non-zero value enables scrollback (scrollback_rows query returned
+        // 0 when scrollback was disabled).
+        if let Err(error) =
+            terminal.set_scrollback_max_lines(Some(config.scrollback_lines as usize))
+        {
+            log::error!("ghostty_terminal: set_scrollback_max_lines failed: {error}");
+        }
 
         // Initialize Kitty Graphics Protocol (KGP) support
         if let Err(error) = terminal.set_kitty_image_storage_limit(KGP_STORAGE_LIMIT) {
@@ -558,16 +569,25 @@ impl super::GhosttyTerminal {
         // from this cache instead of re-walking cells (build_cell_data).
         // Invalidated on resize below (row count changes).
         let mut row_cache: Vec<Vec<CellData>> = Vec::new();
+        // Content dedup for the auto-push path: `push_cell_data` builds the
+        // full grid on every loop iteration (including the 50ms idle
+        // timeout), and the render thread treats every received batch as
+        // `is_new_data` → a full repaint per frame. On an idle terminal
+        // that kept the renderer busy at full rate (measured ~5 fps on the
+        // SwiftShader emulator, burned CPU on real GPUs too: "20fps is
+        // unacceptable"). Skip the send entirely when neither the cells nor
+        // the cursor changed since the previous push.
+        let mut last_cell_data_push: Option<(Vec<CellData>, CursorInfo)> = None;
 
-        loop {
+        'vt_loop: loop {
             // Wait for the next command from the bounded channel. Use a
             // timeout so we periodically check the query channel even when
             // no commands are pending (e.g., queries sent between writes).
-            let command = match config
+            let mut pending = match config
                 .command_receiver
                 .recv_timeout(std::time::Duration::from_millis(50))
             {
-                Ok(command) => command,
+                Ok(command) => Some(command),
                 Err(flume::RecvTimeoutError::Timeout) => {
                     // No bounded commands pending — drain query channel so
                     // queries sent between commands don't wait indefinitely.
@@ -582,156 +602,154 @@ impl super::GhosttyTerminal {
                             &mut mouse_event,
                         );
                     }
-                    // ── Auto-push CellData (also sent on each state change above) ──
+                    // ── Auto-push CellData (also sent on each state change below) ──
                     Self::refresh_cell_data(
                         &config,
                         &terminal,
                         default_fg,
                         default_bg,
                         &mut row_cache,
+                        &mut last_cell_data_push,
                     );
                     continue;
                 }
                 Err(flume::RecvTimeoutError::Disconnected) => break,
             };
-            // Process the bounded command first so state mutations (resize,
-            // theme change, font change) take effect before queries check the
-            // updated terminal state.
-            match command {
-                Command::Write(data) => {
-                    terminal.vt_write(&data);
-                    grid_dirty = true;
-                    Self::refresh_cell_data(
-                        &config,
-                        &terminal,
-                        default_fg,
-                        default_bg,
-                        &mut row_cache,
-                    );
-                }
-                Command::FlushAck(tx) => {
-                    try_send(&tx, (), "command channel send failed");
-                }
-                Command::SetTheme {
-                    background,
-                    foreground,
-                    ansi,
-                } => {
-                    default_bg = Self::byte_color_to_float(background);
-                    default_fg = Self::byte_color_to_float(foreground);
-                    log::debug!(
-                        "SetTheme: bg={:?} fg={:?} -> default_bg={:?} default_fg={:?}",
+            // Process the ENTIRE command backlog with ONE cell-data build at
+            // the end. poll_pty_output feeds up to MAX_CHUNKS_PER_FRAME Write
+            // commands per render frame; rebuilding the full grid after every
+            // single Write (~2444 Ghostty FFI calls per walk) throttled
+            // sustained-output rendering to ~6 fps on SwiftShader because
+            // N−1 of the N builds were overwritten before the renderer ever
+            // saw them. Intermediate states are intentionally coalesced —
+            // the renderer only ever consumes the newest state.
+            //
+            // `grid_dirty` is still raised INLINE by each mutating command
+            // (not deferred to the end of the batch): a TakeSnapshot arriving
+            // in the same batch must observe the writes that preceded it in
+            // FIFO order and rebuild rather than serve a stale cache.
+            let mut batch_dirty = false;
+            let mut batch_acks: Vec<flume::Sender<()>> = Vec::new();
+            while let Some(command) = pending.take() {
+                match command {
+                    Command::Write(data) => {
+                        terminal.vt_write(&data);
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
+                    Command::FlushAck(tx) => {
+                        // Held until the end-of-batch build completes: the
+                        // `flush()` contract is that when it returns, every
+                        // command before it — INCLUDING the CellData push —
+                        // has been processed. Tests call flush() and then
+                        // receive_cell_data(); an early ack would race the
+                        // build and hand them an empty channel.
+                        batch_acks.push(tx);
+                    }
+                    Command::SetTheme {
                         background,
                         foreground,
-                        default_bg,
-                        default_fg
-                    );
-                    // Use the native theme API instead of hand-written
-                    // OSC 10/11/4 sequences: libghostty-vt is a pure VT
-                    // layer and does not process OSC color escapes (the
-                    // embedder owns them), so the OSC approach silently
-                    // kept the built-in xterm palette. These setters store
-                    // the default colors that `cell.fg_color()` /
-                    // `cell.bg_color()` resolve against.
-                    Self::apply_theme(&mut terminal, background, foreground, &ansi);
-                    grid_dirty = true;
-                    Self::refresh_cell_data(
-                        &config,
-                        &terminal,
-                        default_fg,
-                        default_bg,
-                        &mut row_cache,
-                    );
-                }
-                Command::Resize { rows, cols } => {
-                    // Ghostty's C API takes u16 dimensions; reject out-of-
-                    // range values instead of silently truncating (a
-                    // hostile Kotlin caller could pass >65535 and wrap).
-                    let (Ok(cols), Ok(rows)) = (u16::try_from(cols), u16::try_from(rows)) else {
-                        log::error!(
-                            "ghostty_terminal: resize rejected — dimensions out of u16 range"
-                        );
-                        continue;
-                    };
-                    if let Err(error) =
-                        terminal.resize(cols, rows, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT)
-                    {
-                        log::error!("ghostty_terminal: resize failed: {error}");
-                    }
-                    grid_dirty = true;
-                    // zelland row-cache pattern: row count changed on resize,
-                    // the row cache is stale and must be invalidated.
-                    row_cache.clear();
-                    Self::refresh_cell_data(
-                        &config,
-                        &terminal,
-                        default_fg,
-                        default_bg,
-                        &mut row_cache,
-                    );
-                }
-                Command::ScrollViewport(delta) => {
-                    // C ABI returns void; viewport failures surface as a
-                    // no-op (grid unchanged) and the retry logic in
-                    // setScrollOffset re-sends on the next offset change.
-                    terminal.scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
-                    grid_dirty = true;
-                    // Rebuild + repush CellData so the renderer draws the
-                    // scrolled view immediately.
-                    Self::refresh_cell_data(
-                        &config,
-                        &terminal,
-                        default_fg,
-                        default_bg,
-                        &mut row_cache,
-                    );
-                }
-                Command::TakeSnapshot { tx, scroll_offset } => {
-                    let needs_rebuild = snapshot_needs_rebuild(
-                        grid_dirty,
-                        scroll_offset,
-                        cached_scroll_offset,
-                        cached_snapshot.is_some(),
-                    );
-                    let snapshot = if needs_rebuild {
-                        config
-                            .snapshot_rebuild_count
-                            .fetch_add(1, Ordering::Relaxed);
-                        let snap = Self::build_snapshot(
-                            &terminal,
-                            default_fg,
+                        ansi,
+                    } => {
+                        default_bg = Self::byte_color_to_float(background);
+                        default_fg = Self::byte_color_to_float(foreground);
+                        log::debug!(
+                            "SetTheme: bg={:?} fg={:?} -> default_bg={:?} default_fg={:?}",
+                            background,
+                            foreground,
                             default_bg,
-                            &config.ansi_colors,
-                            scroll_offset,
+                            default_fg
                         );
-                        let cached = Arc::new(snap);
-                        cached_snapshot = Some(Arc::clone(&cached));
-                        cached_scroll_offset = scroll_offset;
-                        grid_dirty = false;
-                        cached
-                    } else {
-                        // INVARIANT: when `needs_rebuild` is false, `cached_snapshot`
-                        // is always `Some` (the third clause above guarantees it).
-                        // Use fallback if invariant is violated (poison etc.).
-                        cached_snapshot.as_ref().map(Arc::clone).unwrap_or_else(|| {
+                        // Use the native theme API instead of hand-written
+                        // OSC 10/11/4 sequences: libghostty-vt is a pure VT
+                        // layer and does not process OSC color escapes (the
+                        // embedder owns them), so the OSC approach silently
+                        // kept the built-in xterm palette. These setters store
+                        // the default colors that `cell.fg_color()` /
+                        // `cell.bg_color()` resolve against.
+                        Self::apply_theme(&mut terminal, background, foreground, &ansi);
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
+                    Command::Resize { rows, cols } => {
+                        // Ghostty's C API takes u16 dimensions; reject out-of-
+                        // range values instead of silently truncating (a
+                        // hostile Kotlin caller could pass >65535 and wrap).
+                        let (Ok(cols), Ok(rows)) = (u16::try_from(cols), u16::try_from(rows))
+                        else {
                             log::error!(
-                                "ghostty_terminal: cached_snapshot missing — using fallback"
+                                "ghostty_terminal: resize rejected — dimensions out of u16 range"
                             );
-                            let fb_rows = terminal.rows().unwrap_or(24) as u32;
-                            let fb_cols = terminal.cols().unwrap_or(80) as u32;
-                            Arc::new(GridSnapshot::fallback(fb_rows, fb_cols))
-                        })
-                    };
-                    try_send(
-                        &tx,
-                        snapshot,
-                        "ghostty_terminal: command channel send failed",
-                    );
+                            continue;
+                        };
+                        if let Err(error) =
+                            terminal.resize(cols, rows, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT)
+                        {
+                            log::error!("ghostty_terminal: resize failed: {error}");
+                        }
+                        // zelland row-cache pattern: row count changed on resize,
+                        // the row cache is stale and must be invalidated.
+                        row_cache.clear();
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
+                    Command::ScrollViewport(delta) => {
+                        // C ABI returns void; viewport failures surface as a
+                        // no-op (grid unchanged) and the retry logic in
+                        // setScrollOffset re-sends on the next offset change.
+                        terminal
+                            .scroll_viewport(libghostty_vt::terminal::ScrollViewport::Delta(delta));
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
+                    Command::TakeSnapshot { tx, scroll_offset } => {
+                        let needs_rebuild = snapshot_needs_rebuild(
+                            grid_dirty,
+                            scroll_offset,
+                            cached_scroll_offset,
+                            cached_snapshot.is_some(),
+                        );
+                        let snapshot = if needs_rebuild {
+                            config
+                                .snapshot_rebuild_count
+                                .fetch_add(1, Ordering::Relaxed);
+                            let snap = Self::build_snapshot(
+                                &terminal,
+                                default_fg,
+                                default_bg,
+                                &config.ansi_colors,
+                                scroll_offset,
+                            );
+                            let cached = Arc::new(snap);
+                            cached_snapshot = Some(Arc::clone(&cached));
+                            cached_scroll_offset = scroll_offset;
+                            grid_dirty = false;
+                            cached
+                        } else {
+                            // INVARIANT: when `needs_rebuild` is false, `cached_snapshot`
+                            // is always `Some` (the third clause above guarantees it).
+                            // Use fallback if invariant is violated (poison etc.).
+                            cached_snapshot.as_ref().map(Arc::clone).unwrap_or_else(|| {
+                                log::error!(
+                                    "ghostty_terminal: cached_snapshot missing — using fallback"
+                                );
+                                let fb_rows = terminal.rows().unwrap_or(24) as u32;
+                                let fb_cols = terminal.cols().unwrap_or(80) as u32;
+                                Arc::new(GridSnapshot::fallback(fb_rows, fb_cols))
+                            })
+                        };
+                        try_send(
+                            &tx,
+                            snapshot,
+                            "ghostty_terminal: command channel send failed",
+                        );
+                    }
+                    Command::Terminate => break 'vt_loop,
                 }
-                Command::Terminate => break,
+                pending = config.command_receiver.try_recv().ok();
             }
-            // After processing the bounded command, drain any pending queries
-            // so they see the updated terminal state.
+            // After processing the batch, drain any pending queries so they
+            // see the fully-updated terminal state.
             while let Ok(query) = query_receiver.try_recv() {
                 Self::process_query(
                     query,
@@ -742,6 +760,27 @@ impl super::GhosttyTerminal {
                     &mut mouse_encoder,
                     &mut mouse_event,
                 );
+            }
+            // ONE cell-data build for the whole batch — every state mutation
+            // above has completed, so this reflects the final backlog state.
+            // `grid_dirty` was raised inline by each mutating command and
+            // stays set until a TakeSnapshot consumes it (snapshot
+            // cache-invalidation semantics, unchanged from the per-command
+            // version).
+            if batch_dirty {
+                Self::refresh_cell_data(
+                    &config,
+                    &terminal,
+                    default_fg,
+                    default_bg,
+                    &mut row_cache,
+                    &mut last_cell_data_push,
+                );
+            }
+            // Flushers are released only after the build above, preserving
+            // the original per-command ordering guarantee of `flush()`.
+            for ack in batch_acks {
+                try_send(&ack, (), "command channel send failed");
             }
         }
     }
@@ -997,6 +1036,7 @@ impl super::GhosttyTerminal {
         default_fg: [f32; 4],
         default_bg: [f32; 4],
         row_cache: &mut Vec<Vec<CellData>>,
+        last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
     ) {
         Self::push_cell_data(
             config.cell_data_tx.as_ref(),
@@ -1005,6 +1045,7 @@ impl super::GhosttyTerminal {
             default_fg,
             default_bg,
             row_cache,
+            last_push,
         );
     }
 
@@ -1015,6 +1056,7 @@ impl super::GhosttyTerminal {
         default_fg: [f32; 4],
         default_bg: [f32; 4],
         row_cache: &mut Vec<Vec<CellData>>,
+        last_push: &mut Option<(Vec<CellData>, CursorInfo)>,
     ) {
         if let Some(tx) = cell_data_tx
             && let Some(data) = Self::build_cell_data(
@@ -1025,6 +1067,25 @@ impl super::GhosttyTerminal {
                 alt_screen_active,
             )
         {
+            // Skip the send when nothing changed since the last push: the
+            // loop timer (50ms idle wakeup) re-runs this path with no
+            // terminal activity, and the render thread treats any received
+            // batch as new data → a full repaint every frame. Comparing the
+            // bytemuck Pod cells as raw bytes (plus the cursor) is ~150KB
+            // memcmp on a 24x80 grid — microseconds, dwarfed by the
+            // full-render cost it avoids.
+            let unchanged = match last_push {
+                Some((last_cells, last_cursor)) => {
+                    *last_cursor == data.1
+                        && bytemuck::cast_slice::<CellData, u8>(last_cells)
+                            == bytemuck::cast_slice::<CellData, u8>(&data.0)
+                }
+                None => false,
+            };
+            if unchanged {
+                return;
+            }
+            *last_push = Some(data.clone());
             let _ = tx.try_send(data);
         }
     }
@@ -1209,13 +1270,32 @@ impl super::GhosttyTerminal {
             current_row += 1;
         }
         let cursor_style = Self::cursor_style_from_snapshot(&snapshot);
+        // Cursor position must come from the render-state VIEWPORT
+        // coordinates, not the active-screen query: `cursor_y()` returns
+        // the row within the ACTIVE area, while CellData rows are viewport
+        // rows (0..rows-1 of the currently scrolled viewport). Once the
+        // user scrolls scrollback into view the two diverge and the cursor
+        // would be matched against the wrong grid row — rendered as the
+        // cursor "block" jumping down-right by the scroll amount (reported
+        // on real devices as cursor offset of ~1 cell). `cursor_viewport()`
+        // returns None when the cursor page is not in the visible viewport
+        // (e.g. large scrolls); the cursor must then not be drawn at all.
+        let (cursor_row, cursor_col, cursor_visible) = match snapshot.cursor_viewport() {
+            Ok(Some(cv)) => (
+                cv.y as u32,
+                cv.x as u32,
+                snapshot.cursor_visible().unwrap_or(true),
+            ),
+            Ok(None) | Err(_) => (0, 0, false),
+        };
         Some((
             data,
             CursorInfo {
-                row: terminal.cursor_y().unwrap_or(0) as u32,
-                col: terminal.cursor_x().unwrap_or(0) as u32,
-                visible: terminal.is_cursor_visible().unwrap_or(true),
+                row: cursor_row,
+                col: cursor_col,
+                visible: cursor_visible,
                 style: cursor_style,
+                scrollback_length: terminal.scrollback_rows().unwrap_or(0) as u32,
             },
         ))
     }
@@ -1400,9 +1480,17 @@ impl super::GhosttyTerminal {
             }
         }
 
-        let cursor_visible = terminal.is_cursor_visible().unwrap_or(true);
-        let cursor_row = terminal.cursor_y().unwrap_or(0) as u32;
-        let cursor_col = terminal.cursor_x().unwrap_or(0) as u32;
+        // Viewport-relative cursor coordinates (matches the cell rows above,
+        // which are viewport rows): the active-screen `cursor_y` diverges
+        // from the viewport once scrollback is scrolled into view.
+        let (cursor_row, cursor_col, cursor_visible) = match snapshot.cursor_viewport() {
+            Ok(Some(cv)) => (
+                cv.y as u32,
+                cv.x as u32,
+                snapshot.cursor_visible().unwrap_or(true),
+            ),
+            Ok(None) | Err(_) => (0, 0, false),
+        };
 
         let dirty = vec![true; (rows as usize) * (cols as usize)];
 
