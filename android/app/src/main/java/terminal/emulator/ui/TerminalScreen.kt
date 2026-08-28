@@ -23,6 +23,8 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.unit.IntOffset
+import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.DrawerValue
@@ -77,10 +79,13 @@ private const val FONT_SIZE_MAX = 48f
 // close animation. The old 250ms was perceptible as input lag.
 private const val IME_TOGGLE_DELAY_MS = 50L
 
-// Round-234 spec ime-follow-animation: critically-damped spring so the bar
-// tracks stepped IME inset reports continuously and settles in ~120ms.
+// Spec ime-translation hybrid pan-then-reflow: critically-damped spring so the bar
+// tracks stepped IME inset reports continuously and settles in ~120ms. Settled
+// detection is 3 stable frames × 16ms = 48ms, matching TerminalSurface debounce.
 private const val IME_FOLLOW_SPRING_STIFFNESS = 4500f
 private const val IME_FOLLOW_SPRING_DAMPING = 0.9f
+private const val IME_SETTLE_FRAMES = 3
+private const val IME_POLL_INTERVAL_MS = 16L
 
 /**
  * Consolidated search state for text search within the terminal. Replaces 6 independent remember
@@ -237,7 +242,23 @@ fun TerminalScreen(
             ) as android.view.inputmethod.InputMethodManager
         inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
       } else if (event == Lifecycle.Event.ON_RESUME) {
-        surfaceRef.value?.postDelayedUnpause(200L)
+        val surface = surfaceRef.value
+        // App-switch continuity: if the Surface was retained (no surfaceDestroyed),
+        // render_paused is still true from onSurfaceDestroyed or previous pause and
+        // surfaceCreated was never called to clear it → black frames. Clear immediately
+        // when the surface is already attached and sized; only defer 200ms when the
+        // surface is not yet ready (race with layout).
+        if (
+            surface != null &&
+                surface.isAttachedToWindow &&
+                surface.width > 0 &&
+                surface.height > 0
+        ) {
+          viewModel.runtime.setRenderPaused(false)
+          viewModel.runtime.resumeRendering()
+        } else {
+          surface?.postDelayedUnpause(200L)
+        }
         view.requestFocus()
       }
     }
@@ -467,9 +488,12 @@ fun TerminalScreen(
         }
       }
 
-      // IME follow: terminal content and modifier bar both glide above the keyboard.
-      // Uses WindowInsets.ime with a spring (no tween restart) so the window moves correctly
-      // when the keyboard pops — fixes "输入法弹出时渲染窗口没有正确移动".
+      // IME follow: hybrid pan-then-reflow (spec ime-translation).
+      // Animating phase: placement-phase offset (zero remeasure, no per-frame grid reflow,
+      // no surface buffer scale). Settled phase: single padding + grid resize via onImeSettled.
+      // WindowInsets.ime is read with a spring so stepped reports interpolate smoothly and
+      // the placement lambda avoids recomposition per frame. navigationBarsPadding is applied
+      // once at the outer Box; inner Column/overlay must NOT re-apply it.
       val imeBottomPx = WindowInsets.ime.getBottom(LocalDensity.current)
       val animatedImeBottom by
           animateDpAsState(
@@ -481,13 +505,14 @@ fun TerminalScreen(
                   ),
               label = "imeBottom",
           )
+      val animatedImePx = with(LocalDensity.current) { animatedImeBottom.roundToPx() }
 
       Column(
           modifier =
               Modifier.fillMaxSize()
                   .testTag("TerminalContent")
                   .navigationBarsPadding()
-                  .padding(bottom = animatedImeBottom.coerceAtLeast(0.dp)),
+                  .offset { IntOffset(0, -animatedImePx.coerceAtLeast(0)) },
       ) {
         // Terminal content area — moves above IME via animated padding
         Box(
@@ -782,18 +807,15 @@ fun TerminalScreen(
       } // close Column
 
       // Floating overlay for bottom bar — sits above IME (reuses same animated inset).
+      // Background before offset so it covers the animated gap without flashing the window backdrop.
+      // navigationBarsPadding is NOT re-applied here — outer Box already handles it, double
+      // application would offset the bar 2× navigation bar height.
       Box(
           modifier =
               Modifier.fillMaxWidth()
                   .align(Alignment.BottomCenter)
-                  // the background must be applied BEFORE the
-                  // IME padding so it covers the animated inset area —
-                  // with background after padding, the spring-animated
-                  // gap between the ModifierBar and the keyboard showed
-                  // the window's black backdrop while the IME slid in/out.
                   .background(resolvedTerminalTheme.background)
-                  .navigationBarsPadding()
-                  .padding(bottom = animatedImeBottom.coerceAtLeast(0.dp))
+                  .offset { IntOffset(0, -animatedImePx.coerceAtLeast(0)) }
                   .testTag("ModifierBarOverlay"),
       ) {
         // Bottom bar — below terminal, above IME

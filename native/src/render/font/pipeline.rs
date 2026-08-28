@@ -665,23 +665,34 @@ impl FontPipeline {
         "monospace".to_string()
     }
 
+    /// CJK fallback family names in priority order (same order as
+    /// `cjk_fallback_ids`, which is sorted by effective_priority).
+    /// Deduplicated preserving first occurrence, and generic CJK families
+    /// (containing "cjk" but not "serif") are normalized to "Noto Sans CJK"
+    /// so "Noto Sans CJK SC" / "Noto Sans CJK JP" collapse to one display
+    /// entry while "Noto Serif CJK" stays distinct. No alphabetical sort —
+    /// the first element is the actual render winner and must equal the
+    /// `FALLBACK_HIT` family.
     pub fn cjk_fallback_names(&self) -> Vec<String> {
         let db = self.font_system.db();
-        let mut raw_names: Vec<String> = self
-            .cjk_fallback_ids
-            .iter()
-            .filter_map(|&id| {
-                let face = db.face(id)?;
-                face.families.first().map(|(name, _)| name.clone())
-            })
-            .collect();
-        raw_names.sort();
-        raw_names.dedup();
-        let mut normalized = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut ordered: Vec<String> = Vec::new();
+        for &id in &self.cjk_fallback_ids {
+            if let Some(face) = db.face(id)
+                && let Some((name, _)) = face.families.first()
+            {
+                let lower = name.to_lowercase();
+                if seen.insert(lower) {
+                    ordered.push(name.clone());
+                }
+            }
+        }
+        let mut normalized: Vec<String> = Vec::new();
         let mut seen_generic = false;
-        for name in raw_names {
+        for name in ordered {
             let lower = name.to_lowercase();
-            if lower.contains("cjk") {
+            let is_generic_cjk = lower.contains("cjk") && !lower.contains("serif");
+            if is_generic_cjk {
                 if !seen_generic {
                     normalized.push("Noto Sans CJK".to_string());
                     seen_generic = true;
@@ -691,6 +702,14 @@ impl FontPipeline {
             }
         }
         normalized
+    }
+
+    /// Alphabetically sorted view of `cjk_fallback_names()`, for deterministic
+    /// UI tests and comparison harnesses that need a canonical order.
+    pub fn cjk_fallback_names_sorted(&self) -> Vec<String> {
+        let mut names = self.cjk_fallback_names();
+        names.sort();
+        names
     }
 
     pub fn font_information(&self) -> String {
