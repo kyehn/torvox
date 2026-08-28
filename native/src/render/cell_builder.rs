@@ -1400,3 +1400,67 @@ mod tests {
         }
     }
 }
+
+/// Detect a pure vertical scroll shift between two frames for the blit path.
+/// Returns `Some(shift)` when `new[0..(rows-shift)*cols]` equals
+/// `old[shift*cols..]` for some `1<=shift<=max_scan`, otherwise `None`.
+/// Used by the GPU dirty-band path to replace a full rebuild with a blit.
+/// `rows` is the grid height, `max_scan` caps the search (prevents O(n²)
+/// on large grids). Empty grids or `rows==0` return `None`.
+pub fn detect_vertical_shift(
+    old: &[crate::terminal::ghostty_terminal::CellData],
+    new: &[crate::terminal::ghostty_terminal::CellData],
+    rows: usize,
+    max_scan: usize,
+) -> Option<usize> {
+    if old.is_empty() || new.is_empty() || rows == 0 || max_scan == 0 {
+        return None;
+    }
+    if old.len() != new.len() {
+        return None;
+    }
+    let total = old.len();
+    if total % rows != 0 {
+        return None;
+    }
+    let cols = total / rows;
+    if cols == 0 {
+        return None;
+    }
+    // Identical frames are not a scroll — report None even though every shift would match.
+    let identical = old.len() == new.len()
+        && old
+            .iter()
+            .zip(new.iter())
+            .all(|(a, b)| a.codepoint == b.codepoint && a.width == b.width);
+    if identical {
+        return None;
+    }
+    let max = max_scan.min(rows.saturating_sub(1));
+    for shift in 1..=max {
+        let remaining_rows = rows - shift;
+        let mut matches = true;
+        for row in 0..remaining_rows {
+            for col in 0..cols {
+                let old_idx = (row + shift) * cols + col;
+                let new_idx = row * cols + col;
+                if old[old_idx].codepoint != new[new_idx].codepoint
+                    || old[old_idx].width != new[new_idx].width
+                {
+                    matches = false;
+                    break;
+                }
+            }
+            if !matches {
+                break;
+            }
+        }
+        if matches {
+            // Ensure the shift is minimal and the tail rows are "new" (not equal to old tail)
+            // — the tests consider ABCDEF→EFGHIJ shift 4, not shift 1, so we must find the
+            // smallest shift that satisfies the prefix equality. Our loop already scans in order.
+            return Some(shift);
+        }
+    }
+    None
+}

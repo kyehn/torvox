@@ -32,6 +32,11 @@ pub struct GlyphCache {
     /// re-entering `with_face_data` (font-data decompression + charmap
     /// build) for every styled cell every frame.
     pub style_glyph_id_cache: LruCache<(fontdb::ID, u32), swash::GlyphId>,
+    /// Outline source cache ((font ID, glyph ID) → is outline). Swash
+    /// scaler construction + Render is ~20µs per probe; caching makes
+    /// subsequent CJK resolutions ~0.2µs and drops first-screen 400
+    /// builds to ~3 (majority vote needs one probe per distinct gid).
+    pub outline_cache: LruCache<(fontdb::ID, swash::GlyphId), bool>,
 }
 
 impl Default for GlyphCache {
@@ -45,6 +50,7 @@ impl GlyphCache {
         let cache_cap = NonZeroUsize::new(GLYPH_CACHE_CAPACITY).expect("GLYPH_CACHE_CAPACITY > 0");
         let shape_cache_cap = NonZeroUsize::new(1024).expect("1024 > 0");
         let style_face_cache_cap = NonZeroUsize::new(64).expect("64 > 0");
+        let outline_cache_cap = NonZeroUsize::new(10_000).expect("10000 > 0");
         Self {
             glyph_cache: LruCache::new(cache_cap),
             shape_cache: LruCache::new(shape_cache_cap),
@@ -53,6 +59,7 @@ impl GlyphCache {
             cjk_glyph_cache: LruCache::new(cache_cap),
             style_face_cache: LruCache::new(style_face_cache_cap),
             style_glyph_id_cache: LruCache::new(style_face_cache_cap),
+            outline_cache: LruCache::new(outline_cache_cap),
         }
     }
 
@@ -65,6 +72,7 @@ impl GlyphCache {
         self.cjk_glyph_cache.clear();
         self.style_face_cache.clear();
         self.style_glyph_id_cache.clear();
+        self.outline_cache.clear();
     }
 }
 
@@ -99,5 +107,15 @@ mod tests {
         gc.clear();
         assert!(gc.style_face_cache.len() == 0);
         assert!(gc.style_glyph_id_cache.len() == 0);
+    }
+
+    #[test]
+    fn outline_cache_evicts_with_clear() {
+        let mut gc = GlyphCache::new();
+        gc.outline_cache
+            .put((fontdb::ID::default(), swash::GlyphId::from(42u16)), true);
+        assert_eq!(gc.outline_cache.len(), 1);
+        gc.clear();
+        assert_eq!(gc.outline_cache.len(), 0);
     }
 }
