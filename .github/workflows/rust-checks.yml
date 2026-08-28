@@ -1,4 +1,4 @@
-name: Rust Checks
+name: rust-checks
 on:
   schedule:
     - cron: '0 4 * * *'
@@ -24,15 +24,18 @@ jobs:
         with:
           name: ${{ secrets.CACHIX_NAME }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Hash cargo config for cache key
+        id: cargo-config-hash
+        run: echo "hash=${{ hashFiles('.cargo/config.toml') }}" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@main
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          key: ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-${{ steps.cargo-config-hash.outputs.hash }}-${{ github.run_id }}
           restore-keys: |
-            ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-
+            ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-${{ steps.cargo-config-hash.outputs.hash }}-
       - env:
           CARGO_INCREMENTAL: "0"
         run: scripts/check-rust.nu
