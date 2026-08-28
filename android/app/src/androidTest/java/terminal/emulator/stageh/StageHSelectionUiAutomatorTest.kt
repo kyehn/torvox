@@ -1,5 +1,7 @@
 package terminal.emulator.stageh
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
@@ -45,21 +47,29 @@ class StageHSelectionUiAutomatorTest {
 
     @Test
     fun longPressShowsSelectionMenu_andHandle() {
-        val terminal = device.findObject(By.desc("Terminal"))
-        assertNotNull("Terminal surface must exist", terminal)
+        // A long-press on a blank cell only surfaces the PASTE action when
+        // the clipboard already has content. This is a UiAutomator-only test
+        // (no compose bridge to write PTY text), so seed the clipboard first.
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val clipboard = context.getSystemService(ClipboardManager::class.java)
+        clipboard.setPrimaryClip(ClipData.newPlainText("stageh", "stageh-paste-target"))
 
-        // Long-press in the terminal body. Using the element center keeps the gesture away
-        // from the status bar (top) and the modifier bar (bottom), avoiding system gestures.
-        val bounds = terminal.visibleBounds
-        val x = bounds.centerX()
-        val y = bounds.centerY()
+        // Long-press in the terminal body. The TextureView covers the whole
+        // screen (no "Terminal" a11y node until the first frame renders —
+        // flaky on the software-rendered emulator), so long-press the screen
+        // center: away from the status bar (top) and the modifier bar
+        // (bottom), avoiding system gestures.
+        val x = device.displayWidth / 2
+        val y = device.displayHeight / 2
         device.swipe(x, y, x, y, 800)
 
-        // The selection overlay / context menu must appear with Copy / Select All / Paste.
+        // The selection overlay / context menu must appear. The system
+        // ActionMode toolbar renders uppercase labels (verified by
+        // SelectionEspressoTest's By.text("COPY")).
         val menu =
-            device.wait(Until.findObject(By.textContains("Paste")), 5000)
-                ?: device.wait(Until.findObject(By.textContains("Copy")), 5000)
-                ?: device.wait(Until.findObject(By.textContains("Select")), 5000)
+            device.wait(Until.findObject(By.text("PASTE")), 5000)
+                ?: device.wait(Until.findObject(By.text("COPY")), 5000)
+                ?: device.wait(Until.findObject(By.text("SELECT ALL")), 5000)
         assertNotNull(
             "Selection overlay/context menu (Paste/Copy/Select All) must appear after long-press",
             menu,

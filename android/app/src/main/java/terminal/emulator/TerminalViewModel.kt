@@ -3,6 +3,7 @@ package terminal.emulator
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.provider.OpenableColumns
 import android.util.Log
 import android.view.InputDevice
@@ -31,6 +32,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.bridge.FontInfoDto
@@ -48,6 +51,7 @@ import terminal.emulator.runtime.PasteChunker
 import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.SmartCopy
+import terminal.emulator.ui.clampSelection
 import terminal.emulator.ui.theme.BuiltInThemes
 import terminal.emulator.ui.theme.UserThemeStore
 import terminal.emulator.ui.theme.resolveTerminalThemeName
@@ -103,10 +107,22 @@ data class SelectionState(
     ): HandleDragResult {
         val currentEnd = end ?: return HandleDragResult(targetRow, targetCol, targetRow, targetCol)
         val currentStart = start ?: return HandleDragResult(targetRow, targetCol, targetRow, targetCol)
-        if (draggingStart && (targetRow > currentEnd.row || (targetRow == currentEnd.row && targetCol >= currentEnd.col))) {
+        if (
+            draggingStart &&
+            (
+                targetRow > currentEnd.row ||
+                    (targetRow == currentEnd.row && targetCol >= currentEnd.col)
+                )
+        ) {
             return HandleDragResult(currentEnd.row, currentEnd.col, targetRow, targetCol)
         }
-        if (!draggingStart && (targetRow < currentStart.row || (targetRow == currentStart.row && targetCol <= currentStart.col))) {
+        if (
+            !draggingStart &&
+            (
+                targetRow < currentStart.row ||
+                    (targetRow == currentStart.row && targetCol <= currentStart.col)
+                )
+        ) {
             return HandleDragResult(targetRow, targetCol, currentStart.row, currentStart.col)
         }
         if (draggingStart) {
@@ -116,10 +132,9 @@ data class SelectionState(
     }
 
     /**
-     * arrow-key selection navigation, termlib moveSelection*
-     * semantics): move the START anchor by [deltaRow]/[deltaCol], clamped to
-     * the grid so it never crosses the END anchor (the end stays put as the
-     * moving end sweeps up to it). Pure and unit-testable.
+     * arrow-key selection navigation, termlib moveSelection* semantics): move the START anchor by
+     * [deltaRow]/[deltaCol], clamped to the grid so it never crosses the END anchor (the end stays
+     * put as the moving end sweeps up to it). Pure and unit-testable.
      */
     fun moveSelectionAnchorBy(
         deltaRow: Int,
@@ -133,8 +148,7 @@ data class SelectionState(
         val newRow = (currentStart.row + deltaRow).coerceIn(0, maxRow.coerceAtLeast(0))
         val newCol = (currentStart.col + deltaCol).coerceIn(0, maxCol.coerceAtLeast(0))
         val crossedEnd =
-            newRow > currentEnd.row ||
-                (newRow == currentEnd.row && newCol > currentEnd.col)
+            newRow > currentEnd.row || (newRow == currentEnd.row && newCol > currentEnd.col)
         val anchor =
             if (crossedEnd) {
                 // Clamp just before the end anchor so the range never
@@ -177,7 +191,27 @@ data class TerminalState(
     val keyboardMode: KeyboardMode = KeyboardMode.Secure,
     val selectionBg: Int = 0,
     val selectionAccent: Int = 0,
+    // Bumped on every programmatic scroll reset (input-driven snap to
+    // bottom); TerminalScreen observes it and resyncs the surface's
+    // local selection-math offset ( spec terminal-scrolling).
+    val scrollEpoch: Long = 0L,
 )
+
+/**
+ * Input-driven scroll reset decision ( spec terminal-scrolling "five-dimension zeroing judgment",
+ * pure so it can be table-tested): user input containing a newline/return commits intent to
+ * interact with the live screen, so the viewport snaps back immediately — without waiting for the
+ * shell echo (a bare Enter on an idle prompt produces no output at all, which is exactly the
+ * reported symptom).
+ *
+ * @param hasSelectionOrDrag active selection or handle drag suppresses the snap exactly like the
+ *   output-driven path does.
+ */
+internal fun shouldResetScrollOnInput(
+    data: ByteArray,
+    hasSelectionOrDrag: Boolean,
+): Boolean = !hasSelectionOrDrag &&
+    data.any { byte -> byte == '\r'.code.toByte() || byte == '\n'.code.toByte() }
 
 internal fun shouldCreateDefaultSession(
     surfaceValid: Boolean,
@@ -192,11 +226,10 @@ internal fun shouldCreateDefaultSession(
     runtimeSessionIds.isEmpty()
 
 /**
- * Copies a `content://` URI into `dst` (app-private storage) so the
- * wallpaper never depends on a revocable SAF grant. Returns false when
- * the stream cannot be opened or the copy fails — the caller keeps the
- * original path in that case, and any partially-written `dst` is
- * removed so a failed copy never leaves a corrupt wallpaper file.
+ * Copies a `content://` URI into `dst` (app-private storage) so the wallpaper never depends on a
+ * revocable SAF grant. Returns false when the stream cannot be opened or the copy fails — the
+ * caller keeps the original path in that case, and any partially-written `dst` is removed so a
+ * failed copy never leaves a corrupt wallpaper file.
  */
 internal fun copyContentUriToPrivateFile(
     contentResolver: android.content.ContentResolver,
@@ -248,28 +281,48 @@ constructor(
 
     // Hot StateFlow mirror of the DataStore (cold flow + recomposition would
     // resubscribe per frame and miss updates; stateIn keeps one collector).
-    private val _userThemes = kotlinx.coroutines.flow.MutableStateFlow<List<terminal.emulator.ui.theme.TerminalTheme>>(emptyList())
-    val userThemes: kotlinx.coroutines.flow.StateFlow<List<terminal.emulator.ui.theme.TerminalTheme>> = _userThemes.asStateFlow()
+    private val _userThemes =
+        kotlinx.coroutines.flow.MutableStateFlow<List<terminal.emulator.ui.theme.TerminalTheme>>(
+            emptyList(),
+        )
+    val userThemes:
+        kotlinx.coroutines.flow.StateFlow<List<terminal.emulator.ui.theme.TerminalTheme>> =
+        _userThemes.asStateFlow()
 
     // ── Keyboard shortcuts ────────────────────────────────────────────
-    private val _shortcutBindings = kotlinx.coroutines.flow.MutableStateFlow(
-        terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all(),
-    )
-    val shortcutBindings: kotlinx.coroutines.flow.StateFlow<Map<String, terminal.emulator.shortcut.ShortcutBinding>> =
+    private val _shortcutBindings =
+        kotlinx.coroutines.flow.MutableStateFlow(
+            terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all(),
+        )
+    val shortcutBindings:
+        kotlinx.coroutines.flow.StateFlow<Map<String, terminal.emulator.shortcut.ShortcutBinding>> =
         _shortcutBindings.asStateFlow()
 
     /** Load persisted shortcut bindings from DataStore into the hot StateFlow. */
-    private fun loadShortcutBindingsFromDataStore(state: terminal.emulator.settings.SettingsRepository.SettingsState) {
+    private fun loadShortcutBindingsFromDataStore(
+        state: terminal.emulator.settings.SettingsRepository.SettingsState,
+    ) {
         val defaults = terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all()
         val loaded = defaults.mapValues { (actionId, default) ->
-            val serialized = when (actionId) {
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE -> state.shortcutPaste
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION -> state.shortcutNewSession
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION -> state.shortcutCloseSession
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY -> state.shortcutCopy
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL -> state.shortcutToggleScroll
-                else -> ""
-            }
+            val serialized =
+                when (actionId) {
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE ->
+                        state.shortcutPaste
+
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION ->
+                        state.shortcutNewSession
+
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION ->
+                        state.shortcutCloseSession
+
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY ->
+                        state.shortcutCopy
+
+                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL ->
+                        state.shortcutToggleScroll
+
+                    else -> ""
+                }
             if (serialized.isNotEmpty()) {
                 terminal.emulator.shortcut.ShortcutBinding.deserialize(serialized).let {
                     if (it.isEmpty()) default else it
@@ -282,7 +335,8 @@ constructor(
     }
 
     fun updateShortcutBinding(actionId: String, binding: terminal.emulator.shortcut.ShortcutBinding) {
-        _shortcutBindings.value = _shortcutBindings.value.toMutableMap().apply { put(actionId, binding) }
+        _shortcutBindings.value =
+            _shortcutBindings.value.toMutableMap().apply { put(actionId, binding) }
         viewModelScope.launch {
             settingsRepository.setShortcutBinding(actionId, binding.serialize())
         }
@@ -290,21 +344,28 @@ constructor(
 
     fun resetShortcutBinding(actionId: String) {
         val defaults = terminal.emulator.shortcut.KeyShortcutHandler.Defaults.all()
-        _shortcutBindings.value = _shortcutBindings.value.toMutableMap().apply {
-            put(actionId, defaults[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY)
-        }
+        _shortcutBindings.value =
+            _shortcutBindings.value.toMutableMap().apply {
+                put(actionId, defaults[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY)
+            }
         viewModelScope.launch {
             settingsRepository.clearShortcutBinding(actionId)
         }
     }
 
-    fun hasShortcutConflict(actionId: String, binding: terminal.emulator.shortcut.ShortcutBinding): Boolean = _shortcutBindings.value.any { (id, existing) ->
+    fun hasShortcutConflict(
+        actionId: String,
+        binding: terminal.emulator.shortcut.ShortcutBinding,
+    ): Boolean = _shortcutBindings.value.any { (id, existing) ->
         id != actionId && existing == binding
     }
 
     // ── Font forwards (implementation in FontManager) ─────────────────────
 
     fun setFontSize(size: Float) = fontManager.setFontSize(size)
+
+    /** Drag preview (no settings write, no grid reflow) — see FontManager. */
+    fun setFontSizeInPlacePreview(size: Float) = fontManager.setFontSizeInPlacePreview(size)
 
     fun setFontFamily(family: String) = fontManager.setFontFamily(family)
 
@@ -329,6 +390,57 @@ constructor(
 
     fun setSelectionMode(mode: SelectionMode) = selectionManager.setSelectionMode(mode)
 
+    /**
+     * Fast drag path: bounds computed without Compose state writes; see [SelectionManager.dragMove].
+     */
+    fun dragMove(
+        draggingStart: Boolean,
+        row: Int,
+        col: Int,
+        cachedMaxRow: Int,
+        cachedMaxCol: Int,
+    ): IntArray? = selectionManager.dragMove(draggingStart, row, col, cachedMaxRow, cachedMaxCol)
+
+    /**
+     * Commit the last fast-path drag bounds to Compose state; see
+     * [SelectionManager.commitDragBounds].
+     */
+    fun commitDragBounds() = selectionManager.commitDragBounds()
+
+    /**
+     * Throttled native push of the CURRENT Compose selection during edge-scroll handle drags: the
+     * slow path ([updateSelection]/[updateSelectionStart]) already wrote state, so read it back and
+     * share the fast path's cadence guard so both drag paths highlight at the same rate.
+     */
+    fun syncDragSelectionToNativeThrottled() {
+        val current = _state.value.selection
+        val start = current.start ?: return
+        val end = current.end ?: return
+        if (!current.active || current.pasteOnly) return
+        selectionManager.syncDragBoundsToNativeThrottled(
+            intArrayOf(start.row, start.col, end.row, end.col),
+            current.mode.ordinal.toByte(),
+        )
+    }
+
+    /**
+     * Round-234 design D7.5 (termux setInitialTextSelectionPosition flow): grabbing a handle on a
+     * blank-cell / whitespace (paste-only) selection upgrades it to a normal text selection so the
+     * subsequent drag GROWS the range instead of being swallowed by the paste-only immutability
+     * guard. The guard still protects the long-press micro-move window — conversion happens only on a
+     * deliberate handle latch.
+     */
+    fun beginHandleDragOnPasteOnly() {
+        _state.update { state ->
+            val current = state.selection
+            if (!current.active || !current.pasteOnly) {
+                state
+            } else {
+                state.copy(selection = current.copy(touchClass = TouchClass.Text))
+            }
+        }
+    }
+
     fun copySelectionToClipboard() = selectionManager.copySelectionToClipboard()
 
     fun clearSelection() = selectionManager.clearSelection()
@@ -339,34 +451,66 @@ constructor(
 
     fun selectAll(scrollOffset: Int = 0) = selectionManager.selectAll(scrollOffset)
 
-    fun moveSelectionAnchor(deltaCol: Int) = selectionManager.moveSelectionAnchor(deltaCol)
+    // Round-234: single-column moveSelectionAnchor removed with the ◀/▶
+    // menu items; keyboard/arrow-key anchor movement stays via
+    // [moveSelectionAnchorBy].
 
     fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int) = selectionManager.moveSelectionAnchorBy(deltaRow, deltaCol)
 
     fun pasteFromClipboard(): Int = selectionManager.pasteFromClipboard()
 
     /**
-     * clamp a selection's anchors onto [rows]×[cols] after a
-     * grid resize so native setSelection never receives out-of-bounds cells.
+     * clamp a selection's anchors onto [rows]×[cols] after a grid resize so native setSelection never
+     * receives out-of-bounds cells.
      */
-    private fun clampSelectionToGrid(selection: SelectionState, rows: Int, cols: Int): SelectionState {
+    private fun clampSelectionToGrid(
+        selection: SelectionState,
+        rows: Int,
+        cols: Int,
+    ): SelectionState {
         val start = selection.start ?: return selection
         val end = selection.end ?: return selection
         val maxRow = (rows - 1).coerceAtLeast(0)
         val maxCol = (cols - 1).coerceAtLeast(0)
         return selection.copy(
-            start = start.copy(
+            start =
+            start.copy(
                 row = start.row.coerceIn(0, maxRow),
                 col = start.col.coerceIn(0, maxCol),
             ),
-            end = end.copy(
+            end =
+            end.copy(
                 row = end.row.coerceIn(0, maxRow),
                 col = end.col.coerceIn(0, maxCol),
             ),
         )
     }
 
+    /**
+     * Shared input-driven scroll handling ( D1, fix 2026-08-23): ANY user input clears the SCROLL
+     * lock; a committing input (CR/LF or hardware Enter) also snaps the viewport to the live screen
+     * without waiting for PTY output. Extracted so BOTH the IME [writeToPty] path and the hardware
+     * [onKeyDown] path share one snap point — the hardware Enter bypasses [writeToPty] via
+     * bridge.processKeyEvent and was the reported "new command + Enter does not scroll" root cause.
+     */
+    internal fun onUserInputForScrollSnap(isCommit: Boolean) {
+        if (_state.value.scrollActive) {
+            _state.update { it.copy(scrollActive = false) }
+            runtime.setScrollActive(false)
+        }
+        if (!isCommit) return
+        val selection = _state.value.selection
+        if (selection.active || selection.dragging) return
+        runtime.setScrollOffset(0)
+        _state.update { it.copy(scrollEpoch = it.scrollEpoch + 1) }
+    }
+
     fun writeToPty(data: ByteArray) {
+        val isCommit =
+            shouldResetScrollOnInput(data, _state.value.selection.let { it.active || it.dragging })
+        // hasSelectionOrDrag is checked inside onUserInputForScrollSnap as
+        // well; pass through so the shared helper owns the final guard.
+        onUserInputForScrollSnap(isCommit)
         val written = runtime.writeToPty(data)
         if (!written) {
             LogUtil.e("TerminalViewModel", "writeToPty failed for ${data.size} bytes")
@@ -402,11 +546,9 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Owns selection state transitions: start/update/end, clipboard
-     * copy/share, select-all and the extraction heuristics (URL joining,
-     * TUI-border detection). Extracted from TerminalViewModel
-     * inner class: accesses _state,
-     * runtime and clipboardPaster via the outer view model.
+     * Owns selection state transitions: start/update/end, clipboard copy/share, select-all and the
+     * extraction heuristics (URL joining, TUI-border detection). Extracted from TerminalViewModel
+     * inner class: accesses _state, runtime and clipboardPaster via the outer view model.
      */
     inner class SelectionManager {
         fun startSelection(
@@ -450,11 +592,98 @@ constructor(
             dragSelection(draggingStart = true, row = row, col = col)
         }
 
+        /**
+         * Fast drag path: compute selection bounds without touching Compose state. Returns
+         * intArrayOf(startRow, startCol, endRow, endCol) for direct handle repositioning, or null if
+         * drag is inactive/paste-only.
+         *
+         * The caller repositions handles directly from the returned bounds, avoiding the Compose _state
+         * -> recomposition -> read-back round-trip that was the main per-MOVE frame bottleneck.
+         */
+        fun dragMove(
+            draggingStart: Boolean,
+            row: Int,
+            col: Int,
+            cachedMaxRow: Int,
+            cachedMaxCol: Int,
+        ): IntArray? {
+            val current = _state.value.selection
+            if (!current.active || current.pasteOnly) return null
+            val result =
+                current.applyHandleDrag(
+                    draggingStart = draggingStart,
+                    targetRow = row,
+                    targetCol = col,
+                )
+            val bounds =
+                clampSelection(
+                    result.startRow,
+                    result.startCol,
+                    result.endRow,
+                    result.endCol,
+                    cachedMaxRow,
+                    cachedMaxCol,
+                )
+            val arr = intArrayOf(bounds.startRow, bounds.startCol, bounds.endRow, bounds.endCol)
+            lastDragBounds = arr
+            syncDragBoundsToNativeThrottled(arr, current.mode.ordinal.toByte())
+            return arr
+        }
+
+        /**
+         * Push the in-flight drag bounds to the native renderer at a throttled rate so the cell
+         * inversion highlight follows the handle live (termux updatePosition parity) without paying a
+         * JNI crossing + re-render on every MOVE frame. The final exact bounds are committed by
+         * endSelection via runtime.setSelection on release.
+         */
+        internal fun syncDragBoundsToNativeThrottled(
+            arr: IntArray,
+            modeOrdinal: Byte,
+        ) {
+            val nowMs = SystemClock.uptimeMillis()
+            if (nowMs - lastDragNativeSyncUptimeMs < DRAG_NATIVE_SYNC_INTERVAL_MS) return
+            lastDragNativeSyncUptimeMs = nowMs
+            val loRow = minOf(arr[0], arr[2])
+            val hiRow = maxOf(arr[0], arr[2])
+            val loCol = minOf(arr[1], arr[3])
+            val hiCol = maxOf(arr[1], arr[3])
+            runtime.setSelection(loRow, loCol, hiRow, hiCol, true, modeOrdinal)
+        }
+
+        @Volatile private var lastDragNativeSyncUptimeMs = 0L
+
+        /**
+         * Commit the last dragMove bounds to Compose state before endSelection. Must be called from
+         * finishHandleDrag so endSelection reads correct bounds.
+         */
+        fun commitDragBounds() {
+            val arr = lastDragBounds ?: return
+            _state.update { state ->
+                val cur = state.selection
+                if (!cur.active) return@update state
+                state.copy(
+                    selection =
+                    cur.copy(
+                        start = SelectionAnchor(arr[0], arr[1]),
+                        end = SelectionAnchor(arr[2], arr[3]),
+                    ),
+                )
+            }
+            lastDragBounds = null
+        }
+
+        private var lastDragBounds: IntArray? = null
+
         private fun dragSelection(
             draggingStart: Boolean,
             row: Int,
             col: Int,
         ) {
+            // Grid bounds for the drag-path clamp (see below); read once —
+            // a concurrent resize only makes the bound stale by one frame.
+            val runtimeState = runtime.state.value
+            val maxRow = (runtimeState.rows - 1).coerceAtLeast(0)
+            val maxCol = (runtimeState.cols - 1).coerceAtLeast(0)
             // CAS with the active-check inside the lambda: the
             // selection read and the write are atomic against concurrent _state
             // updates. Paste-only selections (empty-cell/whitespace long-press)
@@ -465,13 +694,32 @@ constructor(
                 if (!current.active || current.pasteOnly) {
                     state
                 } else {
-                    val result = current.applyHandleDrag(draggingStart = draggingStart, targetRow = row, targetCol = col)
+                    val result =
+                        current.applyHandleDrag(
+                            draggingStart = draggingStart,
+                            targetRow = row,
+                            targetCol = col,
+                        )
+                    // Defense-in-depth (issue #15/#16): normalize the drag
+                    // result before it reaches native setSelection —
+                    // order-preserving start ≤ end + range clamp to the grid.
+                    // applyHandleDrag already orders correctly; clampSelection
+                    // is the safety net for inverted/out-of-bounds targets.
+                    val bounds =
+                        clampSelection(
+                            result.startRow,
+                            result.startCol,
+                            result.endRow,
+                            result.endCol,
+                            maxRow,
+                            maxCol,
+                        )
                     state.copy(
                         selection =
                         current.copy(
                             dragging = true,
-                            start = SelectionAnchor(result.startRow, result.startCol),
-                            end = SelectionAnchor(result.endRow, result.endCol),
+                            start = SelectionAnchor(bounds.startRow, bounds.startCol),
+                            end = SelectionAnchor(bounds.endRow, bounds.endCol),
                             // Hide the floating menu while dragging; it
                             // reappears at the new position on ACTION_UP
                             // (endSelection restores menuDismissed=false).
@@ -479,6 +727,13 @@ constructor(
                         ),
                     )
                 }
+            }
+            // P1-1: mark the drag in progress on the runtime side so the
+            // render thread suppresses the new-output scroll reset while a
+            // handle is being moved (termux skipScrolling parity). Cleared by
+            // endSelection/clearSelection via runtime.setSelection.
+            if (_state.value.selection.dragging) {
+                runtime.setSelectionDragging(true)
             }
         }
 
@@ -526,10 +781,9 @@ constructor(
         }
 
         /**
-         * mode switch re-expands the range (termlib
-         * SelectionManager.adjustSelectionForMode:288-320): WORD expands
-         * both ends onto word boundaries, LINE spans the full rows, CHAR
-         * keeps the current range as-is.
+         * mode switch re-expands the range (termlib SelectionManager.adjustSelectionForMode:288-320):
+         * WORD expands both ends onto word boundaries, LINE spans the full rows, CHAR keeps the current
+         * range as-is.
          */
         private fun adjustSelectionForMode(
             selection: SelectionState,
@@ -566,24 +820,39 @@ constructor(
         }
 
         fun copySelectionToClipboard() {
-            val rawText = _state.value.selection.selectedText
+            val selection = _state.value.selection
+            // Re-extract instead of trusting the cached selectedText: if the
+            // cached text is empty (native selection_text null on some
+            // scrollback states), a copy button that silently does nothing
+            // was reported ("copy never works"). Extract-on-demand guarantees
+            // the menu action always copies the current selection.
+            val rawText =
+                if (selection.selectedText.isNotEmpty()) {
+                    selection.selectedText
+                } else {
+                    extractSelectedText(selection)
+                }
             if (rawText.isEmpty()) return
             // Smart processing, Haven smartCopy:357-405) applies
             // border-strip / wrapped-URL rebuild to the selection text; the
             // ClipboardAccess.smartCopyProcessor hook stays null here (OSC 52
             // programmatic writes from the runtime stay verbatim).
             val text = smartCopySelection(rawText)
-            val clipped = if (text.length > CLIPBOARD_TEXT_MAX_LENGTH) text.substring(0, CLIPBOARD_TEXT_MAX_LENGTH) else text
+            val clipped =
+                if (text.length > CLIPBOARD_TEXT_MAX_LENGTH) {
+                    text.substring(0, CLIPBOARD_TEXT_MAX_LENGTH)
+                } else {
+                    text
+                }
             clipboardAccess.setClipboardText(clipped, label = "terminal selection")
             // Close the floating menu after the action; keep the highlight.
             _state.update { it.copy(selection = it.selection.copy(menuDismissed = true)) }
         }
 
         /**
-         * route the copy through smart processing (TUI border
-         * stripping + wrapped-URL rebuild, Haven smartCopy:357-405). Fetch
-         * the selection's rows from the snapshot; on any bridge failure
-         * fall back to the raw text.
+         * route the copy through smart processing (TUI border stripping + wrapped-URL rebuild, Haven
+         * smartCopy:357-405). Fetch the selection's rows from the snapshot; on any bridge failure fall
+         * back to the raw text.
          */
         private fun smartCopySelection(raw: String): String {
             val selection = _state.value.selection
@@ -598,8 +867,9 @@ constructor(
             val (lo, hi) = bitmapSelection
             val bridge = runtime.bridge() ?: return raw
             val lines =
-                (lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES))
-                    .map { r -> bridge.scrollbackLine(r) ?: "" }
+                (lo.row..hi.row.coerceAtMost(lo.row + MAX_SELECTION_LINES)).map { r ->
+                    bridge.scrollbackLine(r) ?: ""
+                }
             if (lines.isEmpty()) return raw
             val text =
                 SmartCopy.smartCopyText(
@@ -616,6 +886,10 @@ constructor(
         fun clearSelection() {
             _state.update { it.copy(selection = SelectionState()) }
             syncSelectionToNative()
+            // Force immediate repaint: without this the native-side dirty
+            // flag waits for the next vsync tick, leaving the stale
+            // selection highlight on screen for up to one frame period.
+            runtime.forceRender()
         }
 
         fun showPastePopup(
@@ -700,36 +974,9 @@ constructor(
         }
 
         /**
-         * Move the selection start anchor by [deltaCol] columns (character-by-character
-         * navigation via d-pad buttons in the selection action bar).
-         * Reference: research-haven.md §2.3 anchor movement buttons.
-         */
-        fun moveSelectionAnchor(deltaCol: Int) {
-            val current = _state.value.selection
-            val anchor = current.start ?: return
-            val newCol = (anchor.col + deltaCol).coerceAtLeast(0)
-            val newStart = anchor.copy(col = newCol)
-            // Ensure start doesn't cross past end
-            val end = current.end ?: return
-            val clamped = if (
-                newStart.row > end.row ||
-                (newStart.row == end.row && newStart.col >= end.col)
-            ) {
-                anchor.copy(col = (end.col - 1).coerceAtLeast(0))
-            } else {
-                newStart
-            }
-            val updated = current.copy(start = clamped, menuDismissed = false)
-            val text = extractSelectedText(updated)
-            _state.update { it.copy(selection = updated.copy(selectedText = text)) }
-            syncSelectionToNative()
-        }
-
-        /**
-         * arrow-key selection movement — move the START anchor
-         * by [deltaRow]/[deltaCol] (pure [SelectionState.moveSelectionAnchorBy]),
-         * re-extract the selected text and sync to native. Called from
-         * TerminalSurface.onKeyDown while a selection is active.
+         * arrow-key selection movement — move the START anchor by [deltaRow]/[deltaCol] (pure
+         * [SelectionState.moveSelectionAnchorBy]), re-extract the selected text and sync to native.
+         * Called from TerminalSurface.onKeyDown while a selection is active.
          */
         fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int) {
             val selection = _state.value.selection
@@ -740,7 +987,9 @@ constructor(
             val updated = selection.moveSelectionAnchorBy(deltaRow, deltaCol, maxRow, maxCol)
             if (updated === selection) return
             val text = extractSelectedText(updated)
-            _state.update { it.copy(selection = updated.copy(selectedText = text, menuDismissed = false)) }
+            _state.update {
+                it.copy(selection = updated.copy(selectedText = text, menuDismissed = false))
+            }
             syncSelectionToNative()
         }
 
@@ -840,8 +1089,8 @@ constructor(
         }
 
         /**
-         * Extract a column-bounded rectangle slice from a single line,
-         * correctly handling CJK wide characters that occupy 2 cell columns.
+         * Extract a column-bounded rectangle slice from a single line, correctly handling CJK wide
+         * characters that occupy 2 cell columns.
          */
         private fun extractBlockColumn(
             line: String,
@@ -887,11 +1136,9 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Owns font loading, size/family settings and font-file installation.
-     * Extracted from TerminalViewModel.
-     * Inner class: accesses the font StateFlows, runtime, settingsRepository
-     * and context via the outer view model. loadFonts() refreshes the flows
-     * after install.
+     * Owns font loading, size/family settings and font-file installation. Extracted from
+     * TerminalViewModel. Inner class: accesses the font StateFlows, runtime, settingsRepository and
+     * context via the outer view model. loadFonts() refreshes the flows after install.
      */
     inner class FontManager {
         fun loadFonts() {
@@ -909,8 +1156,7 @@ constructor(
                                     filesDir
                                         .listFiles()
                                         ?.filter { it.isFile && (it.extension == "ttf" || it.extension == "otf") }
-                                        ?.map { it.nameWithoutExtension }
-                                        ?: emptyList(),
+                                        ?.map { it.nameWithoutExtension } ?: emptyList(),
                                 )
                             }
                             val cacheDir = context.cacheDir.resolve("fonts")
@@ -935,12 +1181,10 @@ constructor(
                             Log.e(TAG, "Failed to load user fonts", exception)
                             emptyList()
                         }
-                    val allFonts =
-                        (rustFontFamilies + fileSystemFonts + userFonts)
-                            .distinct()
-                            .sorted()
+                    val allFonts = (rustFontFamilies + fileSystemFonts + userFonts).distinct().sorted()
                     _availableFonts.value = allFonts
-                    _defaultFontName.value = bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
+                    _defaultFontName.value =
+                        bridge?.getDefaultFontName() ?: fileSystemFonts.firstOrNull() ?: ""
                     _fontInfo.value =
                         bridge?.getFontInfo() ?: FontInfoDto.placeholderJson(_defaultFontName.value)
                 } catch (exception: Exception) {
@@ -950,13 +1194,31 @@ constructor(
             }
         }
 
+        // Serializes the full font-apply chain (DataStore write + bridge font
+        // reload + grid reflow). Without it, rapid slider drags launch
+        // concurrent IO coroutines that interleave native setFontSizeInPlace
+        // calls out of order (observed values 96..280 jumping during one
+        // drag) and reflow the grid mid-sequence — garbled layout reports.
+        private val fontApplyMutex = Mutex()
+
+        /**
+         * Lightweight drag preview: applies size to the native pipeline and refreshes cell metrics
+         * WITHOUT writing settings or reflowing the grid. Cheap enough to run per drag step; the
+         * release gesture commits through [setFontSize].
+         */
+        fun setFontSizeInPlacePreview(size: Float) {
+            runtime.setFontSizePreview(size)
+        }
+
         fun setFontSize(size: Float) {
             viewModelScope.launch(Dispatchers.IO) {
-                settingsRepository.setFontSize(size)
-                runtime.applyFontSettings()
-                val bridge = runtime.bridge()
-                if (bridge != null) {
-                    _fontInfo.value = bridge.getFontInfo() ?: context.getString(R.string.no_font_loaded)
+                fontApplyMutex.withLock {
+                    settingsRepository.setFontSize(size)
+                    runtime.applyFontSettings()
+                    val bridge = runtime.bridge()
+                    if (bridge != null) {
+                        _fontInfo.value = bridge.getFontInfo() ?: context.getString(R.string.no_font_loaded)
+                    }
                 }
             }
         }
@@ -974,28 +1236,31 @@ constructor(
                     _fontInfo.value = fontInfo
                     android.util.Log.d("Font", "Font applied: $fontName")
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        android.widget.Toast
-                            .makeText(context, context.getString(R.string.font_applied, fontName), android.widget.Toast.LENGTH_SHORT)
+                        android.widget.Toast.makeText(
+                            context,
+                            context.getString(R.string.font_applied, fontName),
+                            android.widget.Toast.LENGTH_SHORT,
+                        )
                             .show()
                     }
                 } catch (exception: Exception) {
                     android.util.Log.e("Font", "setFontFamily failed for $family", exception)
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        android.widget.Toast
-                            .makeText(
-                                context,
-                                context.getString(R.string.font_apply_failed, exception.message ?: ""),
-                                android.widget.Toast.LENGTH_SHORT,
-                            ).show()
+                        android.widget.Toast.makeText(
+                            context,
+                            context.getString(R.string.font_apply_failed, exception.message ?: ""),
+                            android.widget.Toast.LENGTH_SHORT,
+                        )
+                            .show()
                     }
                 }
             }
         }
 
         /**
-         * Set the independent family for a style slot (0=bold, 1=italic,
-         * 2=bold-italic) — ghostty-android TerminalFontStore 4-slot design
-         * research-ghostty-android-extra.md:80). Empty clears the slot.
+         * Set the independent family for a style slot (0=bold, 1=italic, 2=bold-italic) —
+         * ghostty-android TerminalFontStore 4-slot design research-ghostty-android-extra.md:80). Empty
+         * clears the slot.
          */
         fun setFontFamilyForStyle(family: String, slot: Int) {
             viewModelScope.launch(Dispatchers.IO) {
@@ -1037,16 +1302,23 @@ constructor(
                         destFile.outputStream().use { output ->
                             input.copyTo(output)
                         }
-                    } ?: run {
-                        kotlinx.coroutines.withContext(Dispatchers.Main) {
-                            android.widget.Toast
-                                .makeText(context, context.getString(R.string.font_read_failed), android.widget.Toast.LENGTH_SHORT)
-                                .show()
-                        }
-                        return@launch
                     }
+                        ?: run {
+                            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                                android.widget.Toast.makeText(
+                                    context,
+                                    context.getString(R.string.font_read_failed),
+                                    android.widget.Toast.LENGTH_SHORT,
+                                )
+                                    .show()
+                            }
+                            return@launch
+                        }
 
-                    android.util.Log.d("Font", "Font file copied: ${destFile.absolutePath} (${destFile.length()} bytes)")
+                    android.util.Log.d(
+                        "Font",
+                        "Font file copied: ${destFile.absolutePath} (${destFile.length()} bytes)",
+                    )
 
                     val familyName = runtime.loadFontFile(destFile.absolutePath)
                     if (familyName != null) {
@@ -1055,27 +1327,36 @@ constructor(
                         runtime.applyFontSettings()
                         loadFonts()
                         kotlinx.coroutines.withContext(Dispatchers.Main) {
-                            android.widget.Toast
-                                .makeText(context, context.getString(R.string.font_installed, familyName), android.widget.Toast.LENGTH_SHORT)
+                            android.widget.Toast.makeText(
+                                context,
+                                context.getString(R.string.font_installed, familyName),
+                                android.widget.Toast.LENGTH_SHORT,
+                            )
                                 .show()
                         }
                     } else {
-                        android.util.Log.e("Font", "Font load failed: null family from ${destFile.absolutePath}")
+                        android.util.Log.e(
+                            "Font",
+                            "Font load failed: null family from ${destFile.absolutePath}",
+                        )
                         kotlinx.coroutines.withContext(Dispatchers.Main) {
-                            android.widget.Toast
-                                .makeText(context, context.getString(R.string.font_not_supported), android.widget.Toast.LENGTH_SHORT)
+                            android.widget.Toast.makeText(
+                                context,
+                                context.getString(R.string.font_not_supported),
+                                android.widget.Toast.LENGTH_SHORT,
+                            )
                                 .show()
                         }
                     }
                 } catch (exception: Exception) {
                     android.util.Log.e("TerminalViewModel", "installFontFile failed", exception)
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        android.widget.Toast
-                            .makeText(
-                                context,
-                                context.getString(R.string.font_install_failed, exception.message ?: ""),
-                                android.widget.Toast.LENGTH_SHORT,
-                            ).show()
+                        android.widget.Toast.makeText(
+                            context,
+                            context.getString(R.string.font_install_failed, exception.message ?: ""),
+                            android.widget.Toast.LENGTH_SHORT,
+                        )
+                            .show()
                     }
                 }
             }
@@ -1101,6 +1382,9 @@ constructor(
     }
 
     companion object {
+        // Minimum gap between native setSelection pushes during a handle drag:
+        // live highlight cadence (termux parity) vs per-frame JNI + re-render cost.
+        private const val DRAG_NATIVE_SYNC_INTERVAL_MS = 50L
         private const val TAG = "TerminalViewModel"
         private const val STOP_TIMEOUT_MILLIS = 5000L
         private const val DEBOUNCE_MILLIS = 300L
@@ -1137,24 +1421,23 @@ constructor(
     }
 
     /**
-     * Single merged snapshot of every persisted setting (C7). UI subscribes
-     * to this one StateFlow; per-field access is `settings.fontSize` etc.
+     * Single merged snapshot of every persisted setting (C7). UI subscribes to this one StateFlow;
+     * per-field access is `settings.fontSize` etc.
      */
     val settings: StateFlow<SettingsRepository.SettingsState> =
-        settingsRepository.settings
-            .stateIn(
-                viewModelScope,
-                SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
-                // Match the device-adaptive default so the pre-flow snapshot
-                // never flashes the fixed 10sp fallback.
-                SettingsRepository.SettingsState(
-                    fontSize =
-                    SettingsRepository.defaultFontSizeFor(
-                        context.resources.displayMetrics.widthPixels /
-                            context.resources.displayMetrics.density,
-                    ),
+        settingsRepository.settings.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+            // Match the device-adaptive default so the pre-flow snapshot
+            // never flashes the fixed 10sp fallback.
+            SettingsRepository.SettingsState(
+                fontSize =
+                SettingsRepository.defaultFontSizeFor(
+                    context.resources.displayMetrics.widthPixels /
+                        context.resources.displayMetrics.density,
                 ),
-            )
+            ),
+        )
 
     private val _availableFonts = MutableStateFlow<List<String>>(emptyList())
     val availableFonts: StateFlow<List<String>> = _availableFonts.asStateFlow()
@@ -1174,10 +1457,14 @@ constructor(
         }
         // Load persisted shortcut bindings from DataStore  fix).
         viewModelScope.launch {
-            settings.map {
-                it.shortcutPaste to it.shortcutNewSession to
-                    it.shortcutCloseSession to it.shortcutCopy to it.shortcutToggleScroll
-            }
+            settings
+                .map {
+                    it.shortcutPaste to
+                        it.shortcutNewSession to
+                        it.shortcutCloseSession to
+                        it.shortcutCopy to
+                        it.shortcutToggleScroll
+                }
                 .distinctUntilChanged()
                 .collect { loadShortcutBindingsFromDataStore(settings.value) }
         }
@@ -1191,15 +1478,15 @@ constructor(
                     lastGridCols = runtimeState.cols
                     _state.update { current ->
                         current.copy(
-                            selection = clampSelectionToGrid(current.selection, runtimeState.rows, runtimeState.cols),
+                            selection =
+                            clampSelectionToGrid(current.selection, runtimeState.rows, runtimeState.cols),
                         )
                     }
                 }
                 val sortedIds = runtimeState.sessionIds.sorted()
-                val sessions =
-                    sortedIds.mapIndexed { index, id ->
-                        SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
-                    }
+                val sessions = sortedIds.mapIndexed { index, id ->
+                    SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
+                }
                 val active = runtimeState.activeSessionId
                 if (active != 0L) {
                     val displayIndex = sortedIds.indexOf(active) + 1
@@ -1224,9 +1511,7 @@ constructor(
                             selectionAccent = runtime.accentColor,
                         )
                     }
-                    if (runtime.state.value.sessionIds
-                            .isNotEmpty()
-                    ) {
+                    if (runtime.state.value.sessionIds.isNotEmpty()) {
                         if (_availableFonts.value.isEmpty()) {
                             fontManager.loadFonts()
                         } else {
@@ -1256,12 +1541,13 @@ constructor(
             // bridge may not exist yet, and dropping the params here would
             // leave blur/alpha at their defaults until the user touches
             // the sliders, emulator-verified).
-            val bridge = withTimeoutOrNull(15_000) {
-                while (runtime.bridge() == null) {
-                    delay(100)
+            val bridge =
+                withTimeoutOrNull(15_000) {
+                    while (runtime.bridge() == null) {
+                        delay(100)
+                    }
+                    runtime.bridge()
                 }
-                runtime.bridge()
-            }
             settingsRepository.backgroundBlurRadius.first().let { radius ->
                 settingsRepository.backgroundAlpha.first().let { alpha ->
                     bridge?.setBackgroundParams(radius, (alpha * 10).toInt())
@@ -1269,29 +1555,34 @@ constructor(
             }
         }
         viewModelScope.launch {
-            settings.map { it.cursorBlink }.distinctUntilChanged().collect { enabled ->
-                val bridge = runtime.bridge() ?: return@collect
-                bridge.setCursorBlinkEnabled(enabled)
-                runtime.forceRender()
-            }
+            settings
+                .map { it.cursorBlink }
+                .distinctUntilChanged()
+                .collect { enabled ->
+                    val bridge = runtime.bridge() ?: return@collect
+                    bridge.setCursorBlinkEnabled(enabled)
+                    runtime.forceRender()
+                }
         }
         viewModelScope.launch {
-            settings.map { it.cursorSpeed }.distinctUntilChanged().collect { speed ->
-                val bridge = runtime.bridge() ?: return@collect
-                bridge.setCursorBlinkSpeedMs(speed.coerceIn(100, 1000))
-                runtime.forceRender()
-            }
+            settings
+                .map { it.cursorSpeed }
+                .distinctUntilChanged()
+                .collect { speed ->
+                    val bridge = runtime.bridge() ?: return@collect
+                    bridge.setCursorBlinkSpeedMs(speed.coerceIn(100, 1000))
+                    runtime.forceRender()
+                }
         }
     }
 
     /**
-     * Delete all app-private data (settings, sessions, logs, cache) and
-     * recreate the DataStore prefs directory so the next settings write
-     * does not fail (C10: moved out of the settings UI composable).
+     * Delete all app-private data (settings, sessions, logs, cache) and recreate the DataStore prefs
+     * directory so the next settings write does not fail (C10: moved out of the settings UI
+     * composable).
      *
-     * The [onComplete] callback runs on the IO dispatcher (not the main
-     * thread); post UI work (e.g. Toasts) must hop to the main thread
-     * themselves or use Android's auto-posting Toast API.
+     * The [onComplete] callback runs on the IO dispatcher (not the main thread); post UI work (e.g.
+     * Toasts) must hop to the main thread themselves or use Android's auto-posting Toast API.
      */
     fun clearAppData(onComplete: () -> Unit) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
@@ -1324,7 +1615,8 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     fun ensureDefaultSession() {
-        if (!shouldCreateDefaultSession(
+        if (
+            !shouldCreateDefaultSession(
                 surfaceValid = currentSurface?.isValid == true,
                 surfaceWidth = surfaceWidth,
                 surfaceHeight = surfaceHeight,
@@ -1349,12 +1641,15 @@ constructor(
     private val _bootstrapResult = MutableStateFlow<String?>(null)
     val bootstrapResult: StateFlow<String?> = _bootstrapResult.asStateFlow()
 
-    private val _bootstrapProgress = MutableStateFlow<terminal.emulator.installer.BootstrapProgress?>(null)
+    private val _bootstrapProgress =
+        MutableStateFlow<terminal.emulator.installer.BootstrapProgress?>(null)
     val bootstrapProgress: StateFlow<terminal.emulator.installer.BootstrapProgress?> =
         _bootstrapProgress.asStateFlow()
 
-    /** Maps a bootstrap result to localized user text; failure payloads are
-     *  machine-readable keys (see [BootstrapOrchestrator]). */
+    /**
+     * Maps a bootstrap result to localized user text; failure payloads are machine-readable keys (see
+     * [BootstrapOrchestrator]).
+     */
     private fun bootstrapOutcomeText(result: Result<String>): String = result.fold(
         onSuccess = { diagnostics ->
             val headline = context.getString(R.string.bootstrap_installed_success)
@@ -1384,13 +1679,16 @@ constructor(
     )
 
     /**
-     * The [BootstrapInstaller] and [SecondStageRunner] pair shared by the
-     * online and offline install paths. Files live under `filesDir` so the
-     * OS can free them only via app-data management, never on cache pressure.
+     * The [BootstrapInstaller] and [SecondStageRunner] pair shared by the online and offline install
+     * paths. Files live under `filesDir` so the OS can free them only via app-data management, never
+     * on cache pressure.
      */
     private fun bootstrapComponents(
         onProgress: terminal.emulator.installer.BootstrapProgressCallback,
-    ): Pair<terminal.emulator.installer.BootstrapInstaller, terminal.emulator.installer.SecondStageRunner> {
+    ): Pair<
+        terminal.emulator.installer.BootstrapInstaller,
+        terminal.emulator.installer.SecondStageRunner,
+        > {
         val installer =
             terminal.emulator.installer.BootstrapInstaller(
                 prefixDir = java.io.File(context.filesDir, "usr"),
@@ -1408,12 +1706,13 @@ constructor(
     }
 
     /**
-     * Shared guard + coroutine skeleton for bootstrap installs: serializes
-     * concurrent runs via CAS on [bootstrapRunning], resets progress state,
-     * and maps failures to the same error message. The caller supplies the
-     * install body, which receives the shared progress callback.
+     * Shared guard + coroutine skeleton for bootstrap installs: serializes concurrent runs via CAS on
+     * [bootstrapRunning], resets progress state, and maps failures to the same error message. The
+     * caller supplies the install body, which receives the shared progress callback.
      */
-    private fun startBootstrapJob(block: suspend (terminal.emulator.installer.BootstrapProgressCallback) -> Unit) {
+    private fun startBootstrapJob(
+        block: suspend (terminal.emulator.installer.BootstrapProgressCallback) -> Unit,
+    ) {
         // CAS so a rapid double-tap of the Install button cannot start two
         // concurrent installs.
         if (!_bootstrapRunning.compareAndSet(false, true)) return
@@ -1428,7 +1727,8 @@ constructor(
                 block(onProgress)
             } catch (exception: Exception) {
                 LogUtil.e("ViewModel", "Bootstrap failed", exception)
-                _bootstrapResult.value = context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
+                _bootstrapResult.value =
+                    context.getString(R.string.bootstrap_error, exception.javaClass.simpleName)
             } finally {
                 _bootstrapRunning.value = false
             }
@@ -1466,11 +1766,10 @@ constructor(
     }
 
     /**
-     * Offline bootstrap install from a SAF URI.  The user picks a.zip file
-     * via [android.activity.result.contract.ActivityResultContracts.OpenDocument];
-     * the content is copied to a cache file, then fed to the same installer
-     * pipeline as the online path (installer.install → secondStage.run).
-     * No network required; the downloaded bootstrap URL is ignored.
+     * Offline bootstrap install from a SAF URI. The user picks a.zip file via
+     * [android.activity.result.contract.ActivityResultContracts.OpenDocument]; the content is copied
+     * to a cache file, then fed to the same installer pipeline as the online path (installer.install
+     * → secondStage.run). No network required; the downloaded bootstrap URL is ignored.
      */
     fun installOffline(uri: android.net.Uri) {
         startBootstrapJob { onProgress ->
@@ -1497,10 +1796,13 @@ constructor(
                     } else {
                         ""
                     }
-                _bootstrapResult.value =
-                    if (details.isEmpty()) headline else "$headline\n$details"
+                _bootstrapResult.value = if (details.isEmpty()) headline else "$headline\n$details"
             } else {
-                _bootstrapResult.value = context.getString(R.string.bootstrap_error, result.exceptionOrNull()?.javaClass?.simpleName)
+                _bootstrapResult.value =
+                    context.getString(
+                        R.string.bootstrap_error,
+                        result.exceptionOrNull()?.javaClass?.simpleName,
+                    )
             }
             cacheFile.delete()
         }
@@ -1528,7 +1830,10 @@ constructor(
                 // Native library missing: setMcpEnabled is an external fun and
                 // would throw UnsatisfiedLinkError (an Error, not an Exception),
                 // crashing the app from the settings screen.
-                Log.w("TerminalViewModel", "setMcpServerEnabled: native library not loaded, ignoring toggle")
+                Log.w(
+                    "TerminalViewModel",
+                    "setMcpServerEnabled: native library not loaded, ignoring toggle",
+                )
             }
             settingsRepository.setMcpServerEnabled(enabled)
         }
@@ -1573,12 +1878,13 @@ constructor(
             // Wait up to 15s for a bridge (emulator-verified:
             // after relaunch the DataStore path survived but the image was
             // never applied because the bridge was not ready yet).
-            val bridge = withTimeoutOrNull(15_000) {
-                while (runtime.bridge() == null) {
-                    delay(100)
-                }
-                runtime.bridge()
-            } ?: return@launch
+            val bridge =
+                withTimeoutOrNull(15_000) {
+                    while (runtime.bridge() == null) {
+                        delay(100)
+                    }
+                    runtime.bridge()
+                } ?: return@launch
             if (path.isNotEmpty()) {
                 try {
                     val uri = path.toUri()
@@ -1674,9 +1980,8 @@ constructor(
     }
 
     /**
-     * Persist a cursor setting then push it to the bridge and force a
-     * render. Shared by the three cursor setters (R10:
-     * architecture).
+     * Persist a cursor setting then push it to the bridge and force a render. Shared by the three
+     * cursor setters (R10: architecture).
      */
     private fun applyCursorSetting(
         persist: suspend () -> Unit,
@@ -1729,8 +2034,8 @@ constructor(
     }
 
     /**
-     * Overwrite an existing user theme with a new definition from the
-     * theme editor. The name must match an existing user theme.
+     * Overwrite an existing user theme with a new definition from the theme editor. The name must
+     * match an existing user theme.
      */
     fun overwriteUserTheme(theme: terminal.emulator.ui.theme.TerminalTheme) {
         viewModelScope.launch {
@@ -1738,9 +2043,7 @@ constructor(
         }
     }
 
-    /**
-     * Save an edited theme as a brand-new user theme.
-     */
+    /** Save an edited theme as a brand-new user theme. */
     fun saveEditedThemeAsNew(name: String, theme: terminal.emulator.ui.theme.TerminalTheme) {
         if (name.isBlank()) return
         viewModelScope.launch {
@@ -1748,17 +2051,23 @@ constructor(
         }
     }
 
-    fun setDayThemeName(name: String) = applyThemeSettings { settingsRepository.setDayThemeName(name) }
+    fun setDayThemeName(name: String) = applyThemeSettings {
+        settingsRepository.setDayThemeName(name)
+    }
 
-    fun setNightThemeName(name: String) = applyThemeSettings { settingsRepository.setNightThemeName(name) }
+    fun setNightThemeName(name: String) = applyThemeSettings {
+        settingsRepository.setNightThemeName(name)
+    }
 
     fun setThemeMode(mode: String) = applyThemeSettings { settingsRepository.setThemeMode(mode) }
 
-    fun setAppThemeMode(mode: String) = applyThemeSettings { settingsRepository.setAppThemeMode(mode) }
+    fun setAppThemeMode(mode: String) = applyThemeSettings {
+        settingsRepository.setAppThemeMode(mode)
+    }
 
     /**
-     * Persist a theme setting then re-apply the whole theme to the bridge.
-     * Shared by the five theme setters (R10:  architecture).
+     * Persist a theme setting then re-apply the whole theme to the bridge. Shared by the five theme
+     * setters (R10: architecture).
      */
     private fun applyThemeSettings(persist: suspend () -> Unit) {
         viewModelScope.launch {
@@ -1768,32 +2077,28 @@ constructor(
     }
 
     /** Keep only the final path segment and reject any traversal. */
-
     private val shellTextDebounce = MutableStateFlow("")
     private val bootstrapUrlDebounce = MutableStateFlow("")
 
     // Written on the UI thread, read on an IO coroutine; volatile makes the
     // visibility explicit instead of relying on implicit happens-before
     //
-    @Volatile
-    private var bootstrapUrlEdited = false
+    @Volatile private var bootstrapUrlEdited = false
 
     init {
         // Debounce free-text settings so typing does not write DataStore
         // on every keystroke (each write is a full file rewrite).
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
-            shellTextDebounce
-                .debounce(DEBOUNCE_MILLIS)
-                .distinctUntilChanged()
-                .collect { value -> settingsRepository.setShell(value) }
+            shellTextDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
+                settingsRepository.setShell(value)
+            }
         }
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
-            bootstrapUrlDebounce
-                .debounce(DEBOUNCE_MILLIS)
-                .distinctUntilChanged()
-                .collect { value -> settingsRepository.setBootstrapUrl(value) }
+            bootstrapUrlDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
+                settingsRepository.setBootstrapUrl(value)
+            }
         }
     }
 
@@ -1888,32 +2193,46 @@ constructor(
     fun createSession() {
         val surface = currentSurface
         if (surface == null || !surface.isValid) {
-            android.util.Log.e("TerminalViewModel", "createSession: surface null or invalid, currentSurface=$currentSurface")
+            android.util.Log.e(
+                "TerminalViewModel",
+                "createSession: surface null or invalid, currentSurface=$currentSurface",
+            )
             return
         }
         val surfaceWidthPixels = surfaceWidth
         val surfaceHeightPixels = surfaceHeight
         if (surfaceWidthPixels <= 0 || surfaceHeightPixels <= 0) {
-            android.util.Log.e("TerminalViewModel", "createSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels")
+            android.util.Log.e(
+                "TerminalViewModel",
+                "createSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels",
+            )
             return
         }
 
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val currentSurfaceNow = currentSurface
             if (currentSurfaceNow == null || !currentSurfaceNow.isValid) {
-                android.util.Log.e("TerminalViewModel", "createSession: surface became invalid before launch")
+                android.util.Log.e(
+                    "TerminalViewModel",
+                    "createSession: surface became invalid before launch",
+                )
                 return@launch
             }
             try {
-                val newId = runtime.createSession(currentSurfaceNow, surfaceWidthPixels, surfaceHeightPixels)
+                val newId =
+                    runtime.createSession(currentSurfaceNow, surfaceWidthPixels, surfaceHeightPixels)
                 if (newId > 0) {
                     _state.update { current ->
-                        val sortedIds = (current.sessions.map { it.id } + newId).sorted()
+                        // The runtime sessionIds collector may already have
+                        // incorporated newId before this update runs (both
+                        // run on the IO dispatcher) — distinct() keeps the
+                        // list free of duplicate ids (LazyColumn key clash:
+                        // "Key N was already used").
+                        val sortedIds = (current.sessions.map { it.id } + newId).distinct().sorted()
                         val displayIndex = sortedIds.indexOf(newId) + 1
-                        val sessions =
-                            sortedIds.mapIndexed { index, id ->
-                                SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
-                            }
+                        val sessions = sortedIds.mapIndexed { index, id ->
+                            SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
+                        }
                         current.copy(
                             sessionId = newId,
                             isRunning = true,
@@ -1926,7 +2245,10 @@ constructor(
                         )
                     }
                 } else {
-                    android.util.Log.e("TerminalViewModel", "createSession: runtime returned invalid id=$newId")
+                    android.util.Log.e(
+                        "TerminalViewModel",
+                        "createSession: runtime returned invalid id=$newId",
+                    )
                 }
             } catch (exception: Exception) {
                 android.util.Log.e("TerminalViewModel", "createSession failed", exception)
@@ -1937,13 +2259,19 @@ constructor(
     fun switchSession(id: Long) {
         val surface = currentSurface
         if (surface == null || !surface.isValid) {
-            android.util.Log.e("TerminalViewModel", "switchSession: surface null or invalid, currentSurface=$currentSurface")
+            android.util.Log.e(
+                "TerminalViewModel",
+                "switchSession: surface null or invalid, currentSurface=$currentSurface",
+            )
             return
         }
         val surfaceWidthPixels = surfaceWidth
         val surfaceHeightPixels = surfaceHeight
         if (surfaceWidthPixels == 0 || surfaceHeightPixels == 0) {
-            android.util.Log.e("TerminalViewModel", "switchSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels")
+            android.util.Log.e(
+                "TerminalViewModel",
+                "switchSession: invalid dimensions ${surfaceWidthPixels}x$surfaceHeightPixels",
+            )
             return
         }
 
@@ -1959,20 +2287,22 @@ constructor(
                     sessionId = id,
                     isRunning = true,
                     title =
-                    runtime.state.value.title
-                        .ifEmpty {
-                            val sortedIds =
-                                current.sessions
-                                    .map { it.id }
-                                    .sorted()
-                            context.getString(R.string.session_number, sortedIds.indexOf(id) + 1)
-                        },
+                    runtime.state.value.title.ifEmpty {
+                        val sortedIds = current.sessions.map { it.id }.sorted()
+                        context.getString(R.string.session_number, sortedIds.indexOf(id) + 1)
+                    },
                     activeSessionId = id,
                     selection = SelectionState(),
                     selectionBg = runtime.selectionBgColor,
                     selectionAccent = runtime.accentColor,
                 )
             }
+            // Re-sync the SCROLL-button lock to the newly active SessionEntry:
+            // each entry starts with scrollActive=false, so without this the
+            // toggle would silently stop suppressing the new-output scroll
+            // reset after any session switch (state said on, render thread
+            // said off).
+            runtime.setScrollActive(_state.value.scrollActive)
         }
     }
 
@@ -2003,9 +2333,11 @@ constructor(
                         )
                     } else {
                         val renumbered =
-                            remaining.sortedBy { it.id }.mapIndexed { index, session ->
-                                session.copy(title = context.getString(R.string.session_number, index + 1))
-                            }
+                            remaining
+                                .sortedBy { it.id }
+                                .mapIndexed { index, session ->
+                                    session.copy(title = context.getString(R.string.session_number, index + 1))
+                                }
                         val newActive =
                             if (current.activeSessionId == id) {
                                 remaining.last().id
@@ -2018,8 +2350,9 @@ constructor(
                             activeSessionId = newActive,
                             sessionId = newActive,
                             title =
-                            runtime.state.value.title
-                                .ifEmpty { context.getString(R.string.session_number, newActiveIndex + 1) },
+                            runtime.state.value.title.ifEmpty {
+                                context.getString(R.string.session_number, newActiveIndex + 1)
+                            },
                             selection = SelectionState(),
                         )
                     }

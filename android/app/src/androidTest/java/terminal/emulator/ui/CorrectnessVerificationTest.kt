@@ -1,10 +1,13 @@
 
 package terminal.emulator.ui
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -85,7 +88,9 @@ class CorrectnessVerificationTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("SettingsButton").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("FontFamilySelector").assertIsDisplayed()
+        // Three FontFamilySelector rows render (regular/bold/italic) — assert
+        // the first one.
+        composeTestRule.onAllNodes(hasTestTag("FontFamilySelector")).onFirst().assertIsDisplayed()
     }
 
     @Test
@@ -98,7 +103,8 @@ class CorrectnessVerificationTest {
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn")
             .performScrollToNode(hasTestTag("ThemeSelector"))
-        composeTestRule.onNodeWithTag("ThemeSelector").assertIsDisplayed()
+        // follow_system mode renders two ThemeSelectors (Day + Night).
+        composeTestRule.onAllNodes(hasTestTag("ThemeSelector")).onFirst().assertIsDisplayed()
     }
 
     @Test
@@ -118,12 +124,13 @@ class CorrectnessVerificationTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("SettingsButton").performClick()
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("FontFamilySelector").assertIsDisplayed()
+        composeTestRule.onAllNodes(hasTestTag("FontFamilySelector")).onFirst().assertIsDisplayed()
+        // "Font Size" label sits above the scroll target; assert before scrolling.
+        composeTestRule.onNodeWithText("Font Size").assertIsDisplayed()
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn")
             .performScrollToNode(hasTestTag("ThemeSelector"))
-        composeTestRule.onNodeWithTag("ThemeSelector").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Font Size").assertIsDisplayed()
+        composeTestRule.onAllNodes(hasTestTag("ThemeSelector")).onFirst().assertIsDisplayed()
         composeTestRule.onNodeWithTag("SettingsScreen").assertIsDisplayed()
     }
 
@@ -152,6 +159,9 @@ class CorrectnessVerificationTest {
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("SettingsButton").performClick()
         composeTestRule.waitForIdle()
+        composeTestRule
+            .onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasTestTag("AppThemeSelector"))
         composeTestRule.onNodeWithTag("AppThemeSelector").assertIsDisplayed()
     }
 
@@ -165,6 +175,16 @@ class CorrectnessVerificationTest {
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn")
             .performScrollToNode(hasTestTag("TerminalThemeFollowSystemSwitch"))
+        // The switch persists in DataStore across tests, so pin it to Off
+        // deterministically instead of assuming the default state.
+        val switch = composeTestRule.onNodeWithTag("TerminalThemeFollowSystemSwitch")
+        val isOn =
+            switch.fetchSemanticsNode().config.contains(SemanticsProperties.ToggleableState) &&
+                switch.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] == ToggleableState.On
+        if (isOn) {
+            switch.performClick()
+            composeTestRule.waitForIdle()
+        }
         composeTestRule.onNodeWithTag("TerminalThemeFollowSystemSwitch").assertIsOff()
     }
 }

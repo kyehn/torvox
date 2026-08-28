@@ -14,23 +14,49 @@ class TerminalAppDebug : TerminalApp() {
                 computeRetainedHeapSize = true,
                 dumpHeapWhenDebugging = false,
             )
-        // DebugOverlay — full metrics mode (CPU/heap/PSS/FPS) with a custom
-        // tab exposing terminal build info inside the debug panel. The
-        // overlay itself auto-installs via AndroidX Startup; this only
-        // tunes the mode and adds the app-specific tab.
+        // DebugOverlay — Hidden by default: FullMetrics polls /proc/stat,
+        // Debug.getPss() and a Choreographer doFrame callback on the MAIN
+        // thread every second, which competes with the render pipeline and
+        // measurably degrades frame pacing on the software-rendered
+        // emulator (frame-time spikes 70-106ms correlated with overlay
+        // ticks). Opt back in per-session with:
+        //   adb shell setprop debug.torvox.overlay full
+        val overlayFull = try {
+            val propValue = Class
+                .forName("android.os.SystemProperties")
+                .getMethod("get", String::class.java)
+                .invoke(null, "debug.torvox.overlay") as? String
+            propValue == "full"
+        } catch (_: Throwable) {
+            false
+        }
         DebugOverlay.configure {
-            overlayMode = OverlayMode.FullMetrics(
-                customTabs = listOf(
-                    DebugTab(title = "Build Info") {
-                        androidx.compose.material3.Text(
-                            text = "version=${BuildConfig.VERSION_NAME}\n" +
-                                "code=${BuildConfig.VERSION_CODE}\n" +
-                                "debug=${BuildConfig.DEBUG}",
-                        )
-                    },
-                ),
-                showThermal = false,
-            )
+            overlayMode = if (overlayFull) {
+                OverlayMode.FullMetrics(
+                    customTabs = listOf(
+                        DebugTab(title = "Build Info") {
+                            androidx.compose.material3.Text(
+                                text = "version=${BuildConfig.VERSION_NAME}\n" +
+                                    "code=${BuildConfig.VERSION_CODE}\n" +
+                                    "debug=${BuildConfig.DEBUG}",
+                            )
+                        },
+                    ),
+                    showThermal = false,
+                )
+            } else {
+                OverlayMode.Hidden(
+                    customTabs = listOf(
+                        DebugTab(title = "Build Info") {
+                            androidx.compose.material3.Text(
+                                text = "version=${BuildConfig.VERSION_NAME}\n" +
+                                    "code=${BuildConfig.VERSION_CODE}\n" +
+                                    "debug=${BuildConfig.DEBUG}",
+                            )
+                        },
+                    ),
+                )
+            }
         }
         DebugOverlay.addBugReportContributor(
             object : com.ms.square.debugoverlay.BugReportDataContributor {

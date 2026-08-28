@@ -186,7 +186,7 @@ impl KittyGraphicsInstance {
 // integration-tests enables `test-util` and reaches the render internals
 // (reference snapshot path + instance types) through this single module.
 pub mod gpu {
-    pub use super::cell_builder::{CellCursor, build_instances_from_cell_data};
+    pub use super::cell_builder::{CellCursor, CellInstanceConfig, build_instances_from_cell_data};
     pub use super::cell_builder::{SearchHighlight, SelectionRange};
     pub use super::context::{Renderer, orthographic_projection};
     pub use super::pipeline::{GpuUniforms, image_active_value};

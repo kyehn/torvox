@@ -111,6 +111,7 @@ fun SettingsSliderRow(
     valueFormatter: (Float) -> String = { "%.0f".format(it) },
     testTag: String? = null,
     enabled: Boolean = true,
+    onValueChangeFinished: () -> Unit = {},
 ) {
     val isSmallScreen = rememberIsSmallScreen()
     val labelStyle =
@@ -142,6 +143,7 @@ fun SettingsSliderRow(
             value = value,
             enabled = enabled,
             onValueChange = { newValue: Float -> if (enabled) onValueChange(newValue) },
+            onValueChangeFinished = { if (enabled) onValueChangeFinished() },
             valueRange = valueRange,
             steps = steps,
             colors = SliderDefaults.colors(thumbColor = colors.accentColor, activeTrackColor = colors.accentColor),

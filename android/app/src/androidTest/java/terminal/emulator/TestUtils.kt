@@ -12,8 +12,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
 import terminal.emulator.bridge.Bridge
-import java.io.File
 
 // ── Data model ──────────────────────────────────────
 
@@ -62,14 +64,238 @@ fun AndroidComposeTestRule<*, *>.getBridge(): Bridge? {
 
 fun AndroidComposeTestRule<*, *>.openDrawer() {
     waitForIdle()
-    onNodeWithTag("Key_DRAWER").performClick()
+    // Dismiss permission dialog if it blocks the drawer button (CI cold start on PlayStore image).
+    runCatching {
+        val d = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        if (d.hasObject(By.text("Allow")) || d.hasObject(By.text("ALLOW"))) {
+            d.findObject(By.text("Allow"))?.click() ?: d.findObject(By.text("ALLOW"))?.click()
+            Thread.sleep(500)
+        }
+    }
+    val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+    // Try multiple selectors for the drawer button: desc, res (testTagsAsResourceId), and Compose
+    // tag.
+    val clicked =
+        runCatching {
+            if (device.wait(Until.hasObject(By.desc("Open session drawer")), 5000)) {
+                device.findObject(By.desc("Open session drawer"))?.click()
+                true
+            } else if (device.wait(Until.hasObject(By.res("Key_DRAWER")), 3000)) {
+                device.findObject(By.res("Key_DRAWER"))?.click()
+                true
+            } else {
+                onNodeWithTag("Key_DRAWER").performClick()
+                true
+            }
+        }
+            .getOrDefault(false)
+    if (!clicked) {
+        runCatching { onNodeWithTag("Key_DRAWER").performClick() }
+        runCatching {
+            if (device.wait(Until.hasObject(By.res("Key_DRAWER")), 3000)) {
+                device.findObject(By.res("Key_DRAWER"))?.click()
+            }
+        }
+    }
     waitForIdle()
+    // Ensure drawer content is composed before caller proceeds. Check both Compose tag and UiDevice
+    // texts.
+    val drawerVisible =
+        runCatching {
+            waitUntil(timeoutMillis = 10000) {
+                val composeVisible =
+                    runCatching {
+                        onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsDisplayed()
+                        true
+                    }
+                        .getOrDefault(false)
+                if (composeVisible) return@waitUntil true
+                device.hasObject(By.text("Sessions")) ||
+                    device.hasObject(By.res("SessionDrawer")) ||
+                    device.hasObject(By.res("SettingsButton"))
+            }
+        }
+            .isSuccess
+    if (!drawerVisible) {
+        // Fallback: UiDevice wait for drawer header
+        runCatching {
+            device.wait(Until.hasObject(By.text("Sessions")), 3000) ||
+                device.wait(Until.hasObject(By.res("SessionDrawer")), 3000)
+        }
+        Thread.sleep(500)
+    }
 }
 
 fun AndroidComposeTestRule<*, *>.openSettings() {
-    openDrawer()
-    onNodeWithTag("SettingsButton").performClick()
-    waitForIdle()
+    // Grant notification permission before probing: the permission dialog overlays
+    // the activity and blocks Settings navigation on first run (CI cold start on PlayStore image).
+    runCatching { grantNotificationPermission() }
+    // Also dismiss the system permission dialog if it is still visible (PlayStore image shows
+    // Allow/Deny).
+    runCatching {
+        val d = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        if (d.hasObject(By.text("Allow"))) d.findObject(By.text("Allow"))?.click()
+        if (d.hasObject(By.text("ALLOW"))) d.findObject(By.text("ALLOW"))?.click()
+        if (d.hasObject(By.text("Deny"))) {
+            // Do not click Deny; just grant via uiAutomation and wait
+            Thread.sleep(300)
+        }
+    }
+    // Fast-path: Settings may already be visible (shared activity across cucumber scenarios).
+    val settingsAlreadyVisible =
+        runCatching {
+            onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertIsDisplayed()
+        }
+            .isSuccess
+    if (settingsAlreadyVisible) return
+    val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+    if (
+        device.hasObject(By.text("Font Family")) ||
+        device.hasObject(By.res("SettingsScreen")) ||
+        device.hasObject(By.text("Appearance"))
+    ) {
+        return
+    }
+    // Try direct Compose click on SettingsButton even when drawer is closed — the drawer content is
+    // composed off-screen (ModalNavigationDrawer) and the button is still in the semantics tree.
+    val directClickOpened =
+        runCatching {
+            onNodeWithTag("SettingsButton", useUnmergedTree = true).performClick()
+            waitForIdle()
+            waitForSettingsScreenProbe(8000)
+        }
+            .getOrDefault(false)
+    if (directClickOpened) return
+    // Try UiAutomator on the button's testTag resource id (testTagsAsResourceId = true) and
+    // desc/text.
+    val uiResClickOpened =
+        runCatching {
+            val found =
+                device.wait(Until.hasObject(By.res("SettingsButton")), 3000) ||
+                    device.wait(Until.hasObject(By.desc("Settings")), 3000) ||
+                    device.wait(Until.hasObject(By.text("Settings")), 3000)
+            if (found) {
+                val obj =
+                    device.findObject(By.res("SettingsButton"))
+                        ?: device.findObject(By.desc("Settings"))
+                        ?: device.findObject(By.text("Settings"))
+                obj?.click()
+                waitForIdle()
+                waitForSettingsScreenProbe(8000)
+            } else {
+                false
+            }
+        }
+            .getOrDefault(false)
+    if (uiResClickOpened) return
+    // Fallback: open drawer explicitly then click Settings. Retry up to 3 times for CI flakiness.
+    repeat(3) { attempt ->
+        openDrawer()
+        // After drawer is open, try Compose first (most reliable), then UiDevice res/desc/text.
+        val composeAfterDrawer =
+            runCatching {
+                onNodeWithTag("SettingsButton", useUnmergedTree = true).performClick()
+                waitForIdle()
+                waitForSettingsScreenProbe(8000)
+            }
+                .getOrDefault(false)
+        if (composeAfterDrawer) return
+        val selectors =
+            listOf(
+                By.res("SettingsButton"),
+                By.desc("Settings"),
+                By.text("Settings"),
+                By.res("SearchButton"),
+            )
+        var selectorClicked = false
+        for (selector in selectors) {
+            // Skip SearchButton — we only use it to confirm drawer is open, not to click Settings
+            if (selector == By.res("SearchButton")) {
+                if (!device.hasObject(selector)) continue else break
+            }
+            selectorClicked =
+                runCatching {
+                    if (device.wait(Until.hasObject(selector), 5000)) {
+                        device.findObject(selector)?.click()
+                        true
+                    } else {
+                        false
+                    }
+                }
+                    .getOrDefault(false)
+            if (selectorClicked) break
+        }
+        if (selectorClicked) {
+            waitForIdle()
+            if (waitForSettingsScreenProbe(8000)) return
+            // Also try a second Compose click after UiDevice click (covers scrim race)
+            runCatching {
+                onNodeWithTag("SettingsButton", useUnmergedTree = true).performClick()
+                waitForIdle()
+                if (waitForSettingsScreenProbe(5000)) return
+            }
+        }
+        if (attempt < 2) Thread.sleep(700)
+    }
+    waitForSettingsScreen(timeoutMs = 60_000)
+}
+
+private fun AndroidComposeTestRule<*, *>.waitForSettingsScreenProbe(timeoutMs: Long): Boolean {
+    val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (System.currentTimeMillis() < deadline) {
+        val visible =
+            runCatching {
+                onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertIsDisplayed()
+                true
+            }
+                .getOrDefault(false)
+        if (visible) return true
+        // Check both text and resource id (testTagsAsResourceId) for robustness on PlayStore image
+        if (
+            device.hasObject(By.text("Font Family")) ||
+            device.hasObject(By.res("SettingsScreen")) ||
+            device.hasObject(By.text("Appearance")) ||
+            device.hasObject(By.text("Font Size")) ||
+            device.hasObject(By.text("Cursor")) ||
+            device.hasObject(
+                By.text("Sessions"),
+            ) // drawer still open but Settings should be overlay
+        ) {
+            // If we see Sessions but not Settings, drawer is open but Settings not yet — keep waiting
+            if (
+                device.hasObject(By.text("Font Family")) ||
+                device.hasObject(By.res("SettingsScreen")) ||
+                device.hasObject(By.text("Appearance"))
+            ) {
+                return true
+            }
+        }
+        Thread.sleep(200)
+    }
+    return false
+}
+
+/** Wait until [SettingsScreen] test-tag is displayed. */
+fun AndroidComposeTestRule<*, *>.waitForSettingsScreen(timeoutMs: Long = 60_000) {
+    val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+    // CI PlayStore emulator (swiftshader, 2 cores, 1536M) is much slower than local google_apis:
+    // 30s still timed out in 32833141258 (8 failures). Use 60s and poll both Compose tag and
+    // UiDevice resource/text so we succeed even when Compose idle is delayed or semantics are merged.
+    waitUntil(timeoutMillis = timeoutMs) {
+        try {
+            onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertIsDisplayed()
+            true
+        } catch (_: AssertionError) {
+            device.hasObject(By.res("SettingsScreen")) ||
+                device.hasObject(By.text("Font Family")) ||
+                device.hasObject(By.text("Appearance")) ||
+                device.hasObject(By.text("Font Size")) ||
+                device.hasObject(By.text("Cursor style"))
+        } catch (_: Exception) {
+            device.hasObject(By.res("SettingsScreen")) || device.hasObject(By.text("Font Family"))
+        }
+    }
 }
 
 // ── GPU frame helpers ───────────────────────────────
@@ -119,8 +345,12 @@ fun injectLongPress(
         Thread.currentThread().interrupt()
     }
     view.post {
-        view.dispatchTouchEvent(MotionEvent.obtain(dt, dt + 1200, MotionEvent.ACTION_MOVE, x + 1f, y + 1f, 0))
-        view.dispatchTouchEvent(MotionEvent.obtain(dt, dt + 1250, MotionEvent.ACTION_UP, x + 1f, y + 1f, 0))
+        view.dispatchTouchEvent(
+            MotionEvent.obtain(dt, dt + 1200, MotionEvent.ACTION_MOVE, x + 1f, y + 1f, 0),
+        )
+        view.dispatchTouchEvent(
+            MotionEvent.obtain(dt, dt + 1250, MotionEvent.ACTION_UP, x + 1f, y + 1f, 0),
+        )
     }
     // Give the main thread time to process MOVE/UP before the caller
     // continues to the "Then" assertion step.

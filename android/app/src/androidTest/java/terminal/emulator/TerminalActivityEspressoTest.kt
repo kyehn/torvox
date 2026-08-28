@@ -45,7 +45,9 @@ class TerminalActivityEspressoTest {
     @Test
     fun drawerCanBeOpened() {
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
-        composeTestRule.onNodeWithText("New session").assertIsDisplayed()
+        // The "add session" affordance is an icon button (contentDescription
+        // "New Session"), not a Text node — assert on its testTag.
+        composeTestRule.onNodeWithTag("AddSessionButton").assertIsDisplayed()
     }
 
     @Test

@@ -1,8 +1,12 @@
 package terminal.emulator.ui
 
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -71,10 +75,26 @@ class SettingsScreenTest {
     fun theme_switch_changes_terminal_appearance() {
         composeTestRule.waitForSession()
         composeTestRule.openSettings()
+        // Pin follow_system off so exactly one ThemeSelector renders (the
+        // mode persists in DataStore across tests).
+        composeTestRule
+            .onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasTestTag("TerminalThemeFollowSystemSwitch"))
+        val switch = composeTestRule.onNodeWithTag("TerminalThemeFollowSystemSwitch")
+        val isOn =
+            switch.fetchSemanticsNode().config.contains(SemanticsProperties.ToggleableState) &&
+                switch.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] == ToggleableState.On
+        if (isOn) {
+            switch.performClick()
+            composeTestRule.waitForIdle()
+        }
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn")
             .performScrollToNode(hasTestTag("ThemeSelector"))
         composeTestRule.onNodeWithTag("ThemeSelector").assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasText("Dracula Plus"))
         composeTestRule.onNodeWithText("Dracula Plus").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("SettingsBackButton").performClick()

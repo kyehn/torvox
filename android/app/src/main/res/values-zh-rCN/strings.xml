@@ -205,6 +205,7 @@
     <string name="create">创建</string>
     <string name="create_theme_title">创建主题 — %1$s</string>
     <string name="cursor_bar">竖线</string>
+    <string name="cursor_follow_terminal">跟随终端</string>
     <string name="cursor_block">方块</string>
     <string name="cursor_label">光标</string>
     <string name="cursor_underline">下划线</string>
@@ -255,8 +256,6 @@
     <string name="save_as_new">另存为新主题</string>
     <string name="search_no_results_accessible">未找到结果</string>
     <string name="search_result_accessible">第 %1$d 个，共 %2$d 个</string>
-    <string name="select_anchor_left">◀</string>
-    <string name="select_anchor_right">▶</string>
     <string name="selection">选择</string>
     <string name="selection_accessible">已选择：%1$s</string>
     <string name="session_number">会话 %1$d</string>

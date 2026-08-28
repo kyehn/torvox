@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Keyboard
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -48,6 +49,7 @@ fun SessionDrawer(
     viewModel: TerminalViewModel,
     onSettings: () -> Unit,
     onSearch: () -> Unit,
+    onKeyboardToggle: () -> Unit,
     onClose: () -> Unit,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -144,6 +146,16 @@ fun SessionDrawer(
                 },
                 textColor = textColor,
                 testTag = "SearchButton",
+            )
+            DrawerActionButton(
+                icon = Icons.Default.Keyboard,
+                label = stringResource(R.string.toggle_keyboard),
+                onClick = {
+                    onClose()
+                    onKeyboardToggle()
+                },
+                textColor = textColor,
+                testTag = "KeyboardToggle",
             )
             DrawerActionButton(
                 icon = Icons.Default.Settings,

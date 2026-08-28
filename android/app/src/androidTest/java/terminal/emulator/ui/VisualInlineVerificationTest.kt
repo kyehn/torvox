@@ -7,9 +7,9 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.os.SystemClock
 import android.util.Log
 import android.view.MotionEvent
-import android.view.TextureView
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -164,6 +164,102 @@ class VisualInlineVerificationTest {
         return count
     }
 
+    // Real cell metrics come from the native grid, NOT from assuming
+    // 80x24. The emulator's actual grid is 60 columns (1080/17.96), so
+    // w/80f guesses the wrong column and a long-press can land on the
+    // prompt instead of the target text.
+    private data class CellMetrics(
+        val cellWidth: Float,
+        val cellHeight: Float,
+        val cols: Int,
+        val rows: Int,
+    )
+
+    private fun estimateCellMetrics(): CellMetrics? {
+        val surface = requireNotNull(tv)
+        val width = surface.width.toFloat()
+        val height = surface.height.toFloat()
+        val (cols, rows) =
+            bridge?.let { b ->
+                try {
+                    val packed = b.getGridRowsColsPacked()
+                    val rows = (packed shr 32).toInt()
+                    val cols = packed.toInt()
+                    if (rows > 0 && cols > 0) cols to rows else null
+                } catch (e: Exception) {
+                    null
+                }
+            } ?: (80 to 24)
+        return CellMetrics(width / cols, height / rows, cols, rows)
+    }
+
+    // The software renderer lags behind the PTY data while the test
+    // process is busy; wait until consecutive frames stop changing (the
+    // echoed output has been rasterized) before long-pressing.
+    private fun waitForRenderStable(
+        logTag: String,
+        timeoutMs: Long = 12_000,
+    ): Bitmap {
+        // takeScreenshot can transiently return null (surface swap /
+        // renderer busy); retry before giving up.
+        var prev: Bitmap? = null
+        repeat(3) {
+            prev = captureScreenshot()
+            if (prev != null) return@repeat
+            Thread.sleep(500)
+        }
+        var current = requireNotNull(prev) { "no screenshot available (renderer busy?)" }
+        val deadline = SystemClock.elapsedRealtime() + timeoutMs
+        while (SystemClock.elapsedRealtime() < deadline) {
+            Thread.sleep(700)
+            val cur = captureScreenshot() ?: continue
+            val diff = pixelDiffCount(current, cur)
+            Log.i(logTag, "Render settle diff: $diff")
+            if (diff < 1200) return cur
+            current = cur
+        }
+        Log.w(logTag, "Render did not fully settle within ${timeoutMs}ms; proceeding anyway")
+        return current
+    }
+
+    // Poll until at least two handle-sized change blobs appear (the
+    // selection-handle PopupWindows surface slowly under SwiftShader). A
+    // long-press whose DOWN/UP events land in the same main-thread batch
+    // is treated as a tap and produces no selection — instead of weakening
+    // the assertion, re-issue the gesture against a fresh baseline (a real
+    // user would simply long-press again).
+    private fun pollForSelectionHandles(
+        initialBaseline: Bitmap,
+        logTag: String,
+        lpX: Float,
+        lpY: Float,
+    ): Pair<Bitmap, List<Blob>> {
+        var baseline = initialBaseline
+        var lastShot = initialBaseline
+        var handles = emptyList<Blob>()
+        var retries = 0
+        val deadline = SystemClock.elapsedRealtime() + 14_000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val shot = captureScreenshot()
+            if (shot == null) continue
+            lastShot = shot
+            handles = findChangedBlobs(baseline, shot).filter { it.w in 20..180 && it.h in 20..180 }
+            Log.i(logTag, "Poll: ${handles.size} handle-sized blobs")
+            handles.forEachIndexed { i, h ->
+                Log.i(logTag, "  Candidate $i: (${h.cx},${h.cy}) ${h.w}x${h.h}")
+            }
+            if (handles.size >= 2) break
+            if (retries < 2 && SystemClock.elapsedRealtime() < deadline - 4_000) {
+                Thread.sleep(1500)
+                baseline = requireNotNull(captureScreenshot()) { "baseline for re-long-press" }
+                injectLongPress(requireNotNull(tv), lpX, lpY)
+                retries++
+                Log.i(logTag, "Re-long-press attempt $retries of 2")
+            }
+        }
+        return lastShot to handles
+    }
+
     @Test
     fun verifyWordSelectionPositions() {
         Log.i("VisualInline", "==== Word Selection Position Verification ====")
@@ -174,49 +270,34 @@ class VisualInlineVerificationTest {
         tv = findTerminalSurfaceView(composeRule.activity.window.decorView)
         Assert.assertNotNull("TerminalSurface not found", tv)
 
-        val w = requireNotNull(tv).width
-        val h = requireNotNull(tv).height
-
         requireNotNull(bridge).writeToPty("echo 'hello world selectable text terminal'\n".toByteArray())
         Thread.sleep(3000)
 
-        // Word "world" is at column ~6, row 0
-        val cellW = w / 80f
-        val cellH = h / 24f
+        // The echo output line ("hello world selectable text terminal") is
+        // rendered by the shell one row below the input line; long-press
+        // inside "world" (column ~7, row 1 of the visible grid).
+        val metrics = requireNotNull(estimateCellMetrics())
+        val cellW = metrics.cellWidth
+        val cellH = metrics.cellHeight
         val longPressX = cellW * 7f
-        val longPressY = cellH * 0.5f
+        val longPressY = cellH * 1.5f
 
-        Log.i("VisualInline", "Long-press at ($longPressX, $longPressY) for 'world'")
+        Log.i("VisualInline", "Long-press at ($longPressX, $longPressY) for 'world' (grid ${metrics.cols}x${metrics.rows})")
 
-        val baseline = captureScreenshot()
-        Assert.assertNotNull("Baseline screenshot null", baseline)
-
+        // Wait for the renderer to settle on the echoed output, then
+        // long-press and poll for the handle popups.
+        val baselineShot = waitForRenderStable("VisualInline-Word")
+        Log.i("VisualInline-Word", "Baseline ready")
         injectLongPress(requireNotNull(tv), longPressX, longPressY)
-        Thread.sleep(2000)
-
-        val afterSel = captureScreenshot()
-        Assert.assertNotNull("Selection screenshot null", afterSel)
+        val (afterSel, handles) = pollForSelectionHandles(baselineShot, "Word", longPressX, longPressY)
 
         // Save for evidence
-        saveToExternal("word-baseline", requireNotNull(baseline))
-        saveToExternal("word-selection", requireNotNull(afterSel))
+        saveToExternal("word-baseline", baselineShot)
+        saveToExternal("word-selection", afterSel)
 
-        val changedPx = pixelDiffCount(baseline, afterSel)
+        val changedPx = pixelDiffCount(baselineShot, afterSel)
         Log.i("VisualInline", "Changed pixels after word selection: $changedPx")
         Assert.assertTrue("No selection change detected ($changedPx pixels)", changedPx > 100)
-
-        val blobs = findChangedBlobs(baseline, afterSel)
-        Log.i("VisualInline", "Found ${blobs.size} changed blobs")
-        blobs.forEachIndexed { i, b ->
-            Log.i("VisualInline", "  Blob $i: (${b.cx},${b.cy}) ${b.w}x${b.h}")
-        }
-
-        // Find handle-sized blobs (42-85px round; our handles are 24dp ≈ 64px on 480dpi)
-        val handles = blobs.filter { it.w in 20..180 && it.h in 20..180 }
-        Log.i("VisualInline", "Handles (20-180px, dp-scaled): ${handles.size}")
-        handles.forEachIndexed { i, h ->
-            Log.i("VisualInline", "  Handle $i: (${h.cx},${h.cy}) ${h.w}x${h.h} -> cell(${h.cx / cellW.toInt()},${h.cy / cellH.toInt()})")
-        }
 
         Assert.assertTrue("Expected >=2 selection handles, found ${handles.size}", handles.size >= 2)
 
@@ -244,31 +325,38 @@ class VisualInlineVerificationTest {
         Assert.assertNotNull(bridge)
         tv = findTerminalSurfaceView(composeRule.activity.window.decorView)
         Assert.assertNotNull(tv)
+        val surface = requireNotNull(tv)
+        Log.i("VisualInline-URL", "Surface ${surface.width}x${surface.height}")
 
-        val w = requireNotNull(tv).width
-        val h = requireNotNull(tv).height
-        val cellW = w / 80f
-        val cellH = h / 24f
+        val metrics = requireNotNull(estimateCellMetrics())
+        val cellW = metrics.cellWidth
+        val cellH = metrics.cellHeight
+        Log.i("VisualInline-URL", "Metrics ${metrics.cols}x${metrics.rows} cell ${cellW}x$cellH")
 
-        requireNotNull(bridge).writeToPty("https://github.com/termux is the main url for terminal\n".toByteArray())
+        // echo the URL so it lands on the shell OUTPUT row (row 1, same
+        // geometry as verifyWordSelectionPositions) instead of the input
+        // row. Long-pressing the URL characters triggers Ghostty's URL
+        // selection (expands to the whole URL).
+        requireNotNull(bridge).writeToPty("echo 'https://github.com/termux is the main url for terminal'\n".toByteArray())
         Thread.sleep(3000)
 
-        val longPressX = cellW * 2f
-        val longPressY = cellH * 0.5f
+        val longPressX = cellW * 7f
+        val longPressY = cellH * 1.5f
+        Log.i("VisualInline-URL", "Long-press at ($longPressX, $longPressY)")
 
-        val baseline = requireNotNull(captureScreenshot())
+        // Wait for the renderer to settle on the echoed URL line, then
+        // long-press and poll for the handle popups (with a re-long-press
+        // fallback when the gesture is swallowed by a busy main thread).
+        val baseline = waitForRenderStable("VisualInline-URL")
+        Log.i("VisualInline-URL", "Baseline ready")
         injectLongPress(requireNotNull(tv), longPressX, longPressY)
-        Thread.sleep(2000)
-        val afterSel = requireNotNull(captureScreenshot())
-
+        val (afterShot, handles) = pollForSelectionHandles(baseline, "URL", longPressX, longPressY)
         saveToExternal("url-baseline", baseline)
-        saveToExternal("url-selection", afterSel)
+        saveToExternal("url-selection", afterShot)
 
-        val changedPx = pixelDiffCount(baseline, afterSel)
+        val changedPx = pixelDiffCount(baseline, afterShot)
         Assert.assertTrue("No URL selection change ($changedPx)", changedPx > 100)
 
-        val blobs = findChangedBlobs(baseline, afterSel)
-        val handles = blobs.filter { it.w in 20..180 && it.h in 20..180 }
         Assert.assertTrue("Expected >=2 handles for URL, found ${handles.size}", handles.size >= 2)
 
         val h0 = handles[0]

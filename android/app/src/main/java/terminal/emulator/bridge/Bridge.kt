@@ -110,6 +110,15 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     @Volatile private var lastSurfaceHeight: Int = 0
 
+    /**
+     * Input→echo latency hook (emulator-performance-verification): invoked
+     * with `SystemClock.elapsedRealtimeNanos()` on EVERY PTY write path
+     * (Bridge.writeToPty, processKeyEvent, encodeMouseEvent) so hardware
+     * keys — which bypass TerminalRuntime.writeToPty — are stamped too.
+     * Wired by SessionEntry to its [LatencyProbe].
+     */
+    @Volatile var onPtyWrite: ((Long) -> Unit)? = null
+
     fun ping(): String {
         if (!NativeBridge.isNativeLoaded()) throw RuntimeException("native library not loaded")
         return "native library OK, sessions=${NativeBridge.getSessionCount()}"
@@ -252,6 +261,44 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             // Class only: exception messages can embed session data.
             LogUtil.e("Bridge", "render failed: ${exception.javaClass.simpleName}")
             -1
+        }
+    }
+
+    /**
+     * Combined render + consumeNewOutput in a single JNI crossing (saves ~0.1-0.3ms
+     * per frame vs two separate calls). Returns [RenderResult] with the render
+     * count and the new-output flag.
+     */
+    fun renderWithNewOutput(): RenderResult {
+        if (sessionId == 0L) return RenderResult(0, false)
+        return try {
+            val packed = NativeBridge.renderWithNewOutput(sessionId, lastSurfaceWidth, lastSurfaceHeight)
+            val count = packed.toInt()
+            val newOutput = (packed shr 32) != 0L
+            RenderResult(count, newOutput)
+        } catch (exception: RuntimeException) {
+            LogUtil.e("Bridge", "renderWithNewOutput failed: ${exception.javaClass.simpleName}")
+            RenderResult(-1, false)
+        }
+    }
+
+    data class RenderResult(val count: Int, val newOutput: Boolean)
+
+    /**
+     * Take and clear the native `new_output` flag for this session (P1-1
+     * scroll-reset signal, dual-flag protocol — see
+     * docs/reference/dual-flag-protocol.md). Called once per frame from the
+     * render thread; returns true when PTY output was ingested since the
+     * last call. Unknown/destroyed sessions report false.
+     */
+    fun consumeNewOutput(): Boolean {
+        if (sessionId == 0L) return false
+        return try {
+            NativeBridge.consumeNewOutput(sessionId)
+        } catch (exception: RuntimeException) {
+            // Class only: exception messages can embed session data.
+            LogUtil.e("Bridge", "consumeNewOutput failed: ${exception.javaClass.simpleName}")
+            false
         }
     }
 
@@ -798,6 +845,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             // replace non-UTF-8 sequences (pasted GBK/ISO-8859-1, binary
             // protocols) with U+FFFD and corrupt what the child receives.
             NativeBridge.feedPty(sessionId, data)
+            onPtyWrite?.invoke(android.os.SystemClock.elapsedRealtimeNanos())
         } catch (exception: RuntimeException) {
             // Race: session destroyed between the sessionId check and this
             // call (closeSession/stop on the IO thread). Input for a closed
@@ -888,6 +936,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                     .encodeKeyEvent(keyCode, unicodeChar, ctrlActive, altActive, appCursorMode)
             if (encoded != null) {
                 NativeBridge.feedPty(sessionId, encoded)
+                onPtyWrite?.invoke(android.os.SystemClock.elapsedRealtimeNanos())
                 return true
             }
             // Fallback for keys the encoder does not handle: raw printable
@@ -968,6 +1017,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
     override fun scrollbackLine(row: Int): String? = runCatching { queryPort.scrollbackLine(row) }.getOrNull()
     override fun scrollbackLength(): Int = runCatching { queryPort.scrollbackLength() }.getOrDefault(0)
+    override fun cursorViewportPacked(): Long = runCatching { queryPort.cursorViewportPacked() }.getOrDefault(-1L)
     override fun isCellEmpty(row: Int, col: Int): Boolean = runCatching { queryPort.isCellEmpty(row, col) }.getOrDefault(true)
     override fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? = runCatching { queryPort.searchAllInScrollback(query, caseSensitive, fuzzyMatch) }.getOrNull()
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)

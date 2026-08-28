@@ -76,18 +76,99 @@ fn theme_ansi(i: usize) -> [f32; 4] {
     ]
 }
 
+/// Preprocess a screenshot for OCR: grayscale → Otsu binarization → invert
+/// (black text on white background, the input shape the detector prefers) →
+/// 40 px white padding → 4x upscale. The raw screenshot is dark-on-light
+/// (Catppuccin palette) and too small for the detector, which made OCR
+/// return empty results. Preprocessing is deterministic and does not change
+/// what the OCR assertion checks (the expected substring must still appear).
+fn ocr_preprocess(png_path: &std::path::Path) -> std::path::PathBuf {
+    use image::{GrayImage, Luma};
+    let img = image::open(png_path)
+        .expect("open screenshot png")
+        .to_luma8();
+    let (w, h) = img.dimensions();
+
+    // Otsu threshold over the 256-bin luminance histogram.
+    let mut hist = [0u64; 256];
+    for p in img.pixels() {
+        hist[p.0[0] as usize] += 1;
+    }
+    let total: f64 = (w as u64 * h as u64) as f64;
+    let sum_all: f64 = hist
+        .iter()
+        .enumerate()
+        .map(|(i, count)| (i as f64) * (*count as f64))
+        .sum();
+    let mut best_threshold = 128u8;
+    let mut best_variance = -1.0f64;
+    let mut class_weight = 0.0f64;
+    let mut class_sum = 0.0f64;
+    for t in 0..256 {
+        class_weight += hist[t] as f64;
+        if class_weight == 0.0 || class_weight == total {
+            continue;
+        }
+        class_sum += (t as f64) * (hist[t] as f64);
+        let other_weight = total - class_weight;
+        let class_mean = class_sum / class_weight;
+        let other_mean = (sum_all - class_sum) / other_weight;
+        let between = class_weight * other_weight * (class_mean - other_mean).powi(2);
+        if between > best_variance {
+            best_variance = between;
+            best_threshold = t as u8;
+        }
+    }
+
+    // Binarize and invert: text pixels (above threshold) become black,
+    // background becomes white.
+    let mut binary = GrayImage::new(w, h);
+    for (x, y, p) in img.enumerate_pixels() {
+        let value = if p.0[0] > best_threshold { 0u8 } else { 255u8 };
+        binary.put_pixel(x, y, Luma([value]));
+    }
+
+    // Pad with a white border, then upscale 4x (nearest keeps glyph shapes).
+    let padding = 40u32;
+    let padded = GrayImage::from_pixel(
+        w + padding * 2,
+        h + padding * 2,
+        Luma([255]),
+    );
+    let mut padded = padded;
+    image::imageops::overlay(&mut padded, &binary, padding as i64, padding as i64);
+    let upscaled = image::imageops::resize(
+        &padded,
+        padded.width() * 4,
+        padded.height() * 4,
+        image::imageops::FilterType::Nearest,
+    );
+
+    // Unique temp path so parallel OCR tests never write the same file.
+    static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let tmp = std::env::temp_dir().join(format!(
+        "ocr-{}-{seq}.png",
+        std::process::id()
+    ));
+    upscaled.save(&tmp).expect("save preprocessed png");
+    tmp
+}
+
 fn run_ocr(png_path: &std::path::Path) -> String {
+    let preprocessed = ocr_preprocess(png_path);
     let output = std::process::Command::new("rapidocr")
         .args([
             "-img",
-            png_path.to_str().expect("test PNG path is valid UTF-8"),
+            preprocessed.to_str().expect("preprocessed PNG path is valid UTF-8"),
         ])
         .output()
         .expect("rapidocr CLI must be available");
+    let _ = std::fs::remove_file(&preprocessed);
     assert!(
         output.status.success(),
         "rapidocr failed on {}: {}",
-        png_path.display(),
+        preprocessed.display(),
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).to_string()
@@ -1102,5 +1183,207 @@ fn visual_cell_reverse_color_verification() {
     assert!(
         g1 > r1,
         "unselected: green area sum({g1}) > red glyph({r1}) — no swap, bg stays green (was bg)"
+    );
+}
+
+/// Deterministic glyph-sharpness metric: render text through the same
+/// wgpu(lavapipe) path used by every screenshot test, then measure edge
+/// energy directly on the returned RGBA pixels. This is the backend-side
+/// counterpart to "font blur" reports — a Sharpness regression (Linear
+/// sampling, wrong raster_scale, broken atlas repacking) shows up as a
+/// drop in gradient energy / Laplacian variance, independent of any screen.
+/// Values are comparable across runs because lavapipe is deterministic and
+/// the grid/font are fixed.
+#[test]
+fn visual_glyph_sharpness_metric() {
+    let mut grid = FlatGrid::new(2, 40);
+    let text = "The quick brown fox jumps over the lazy dog";
+    for (i, ch) in text.chars().enumerate() {
+        grid.chars[i] = ch;
+        grid.foreground[i] = theme_fg();
+        grid.background[i] = theme_bg();
+    }
+    let (pixels, w, h) = render_grid(
+        "SHARPNESS_METRIC",
+        &grid,
+        None,
+        Some(theme_clear_color()),
+    );
+    let (lap_var, grad_energy) = sharpness_metrics(&pixels, w, h);
+    // Baselines (Nearest sampler, font_size=20.0, lavapipe): printed by the
+    // test so a change in rendering path is visible in CI logs even when the
+    // threshold below is not tripped.
+    eprintln!(
+        "SHARPNESS_METRIC: lap_var={lap_var:.1} grad_energy={grad_energy:.4}"
+    );
+    // Gradient energy: mean per-pixel Sobel magnitude over the text area.
+    // A fully blurry glyph (bilinear-smudged) sits near 0.2-0.4; sharp
+    // 1:1-sampled glyphs are well above 1.0 at this size. Threshold is an
+    // order of magnitude below the measured value to catch only regressions,
+    // not per-GPU rounding.
+    assert!(grad_energy > 0.5, "glyph gradient energy too low: {grad_energy}");
+    // Laplacian variance: zero flat field, low for soft edges. Sharp text
+    // measures several hundred here.
+    assert!(lap_var > 50.0, "glyph Laplacian variance too low: {lap_var}");
+}
+
+/// Mean Sobel gradient magnitude + Laplacian variance over the full image.
+fn sharpness_metrics(pixels: &[u8], w: u32, h: u32) -> (f64, f64) {
+    let gray = |i: usize| {
+        0.299 * pixels[i] as f64
+            + 0.587 * pixels[i + 1] as f64
+            + 0.114 * pixels[i + 2] as f64
+    };
+    let mut lap_sum = 0.0f64;
+    let mut lap_sum_sq = 0.0f64;
+    let mut grad_sum = 0.0f64;
+    let mut n = 0u64;
+    for y in 1..h - 1 {
+        for x in 1..w - 1 {
+            let i = (y * w + x) as usize * 4;
+            let g = gray(i);
+            // 4-neighbor Laplacian.
+            let lap = 4.0 * g
+                - gray(((y - 1) * w + x) as usize * 4)
+                - gray(((y + 1) * w + x) as usize * 4)
+                - gray((y * w + x - 1) as usize * 4)
+                - gray((y * w + x + 1) as usize * 4);
+            // Central-difference gradients (Sobel-like).
+            let gx = gray(((y) * w + x + 1) as usize * 4)
+                - gray((y * w + x - 1) as usize * 4);
+            let gy = gray(((y + 1) * w + x) as usize * 4)
+                - gray(((y - 1) * w + x) as usize * 4);
+            lap_sum += lap;
+            lap_sum_sq += lap * lap;
+            grad_sum += (gx * gx + gy * gy).sqrt();
+            n += 1;
+        }
+    }
+    let mean = lap_sum / n as f64;
+    let variance = lap_sum_sq / n as f64 - mean * mean;
+    (variance, grad_sum / n as f64)
+}
+
+/// P2-1 (tasks.md 3.3) — cursor-blink phase verification: two frames half a
+/// blink period apart MUST differ inside the cursor cell and stay identical
+/// everywhere else. Guards the vsync-aligned render loop (design D3: wake →
+/// unconditional render() → idle gate as the only paint decision point)
+/// against the "outer short-circuit freezes the blink phase" regression:
+/// if a future change skips renders when nothing but the blink phase
+/// changed, the two phases below collapse into identical frames and this
+/// test fails.
+///
+///   phase "visible" (blink half-cycle 0): block cursor drawn on col 4
+///   phase "hidden"  (blink half-cycle 1): same content, cursor invisible
+///
+/// This mirrors the app-level blink in `render_inner` (ffi.rs): the cached
+/// frame is redrawn with `cursor.visible = false` when the phase flips.
+#[test]
+fn visual_cursor_blink_phase_frames_differ() {
+    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+
+    let make_phase = |cursor_visible: bool| GridSnapshot {
+        rows: 1,
+        cols: 12,
+        cursor_row: 0,
+        cursor_col: 4,
+        cursor_visible,
+        cursor_style: CursorStyle::Block,
+        cells: "HELLO_BLINK!"
+            .chars()
+            .map(|ch| CellSnapshot {
+                codepoint: ch as u32,
+                ..Default::default()
+            })
+            .collect(),
+        dirty: vec![true; 12],
+        ..Default::default()
+    };
+
+    let render_phase = |test_name: &str, snapshot: &GridSnapshot| {
+        let Some((_instance, _adapter, device, queue)) = create_test_device() else {
+            panic!("no GPU for {test_name}");
+        };
+        let atlas_dim: u32 = 512;
+        let mut font_pipeline =
+            crate::render::font::FontPipeline::new(atlas_dim as i32, atlas_dim as i32, 20.0);
+        let (cell_w, cell_h) = font_pipeline.cell_metrics();
+        let width = (snapshot.cols as f32 * cell_w).round() as u32 + TEST_PADDING_X;
+        let height = (snapshot.rows as f32 * cell_h).round() as u32 + TEST_PADDING_Y;
+        let mut ctx = setup_test_gpu_context_custom(device, queue, width, height);
+        ctx.bg_color = theme_clear_color();
+        ctx.initialize_pipeline_and_bind_group(atlas_dim, atlas_dim, width, height);
+        let instances = build_cell_instances_from_snapshot(
+            snapshot,
+            &mut font_pipeline,
+            crate::render::SnapshotConfig {
+                atlas_width: atlas_dim as f32,
+                atlas_height: atlas_dim as f32,
+                projection_height: 0.0,
+                selection: None,
+                search_highlights: &[],
+                cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
+                cursor_style: CursorStyle::Block,
+                dirty_rows: &vec![true; snapshot.rows as usize],
+                cached_instances: &[],
+                cached_row_ends: &[],
+                surface_bg: [0.0, 0.0, 0.0, 1.0],
+                render_scale: 1.0,
+            },
+        );
+        assert!(
+            !instances.is_empty(),
+            "{test_name}: 0 instances (font/glyph load failed)"
+        );
+        ctx.upload_atlas(font_pipeline.atlas_bitmap(), atlas_dim, atlas_dim, None);
+        let pixels = ctx
+            .render_to_buffer(&instances, &[])
+            .expect("render_to_buffer failed");
+        save_png(
+            &pixels,
+            width,
+            height,
+            &test_out_dir().join(format!("{test_name}.png")),
+        );
+        (pixels, width, height)
+    };
+
+    // Two frames one half-blink-period apart: phase flip only.
+    let (phase0, w, h) = render_phase("BLINK_PHASE_VISIBLE", &make_phase(true));
+    let (phase1, w1, h1) = render_phase("BLINK_PHASE_HIDDEN", &make_phase(false));
+    assert_eq!(
+        (w, h),
+        (w1, h1),
+        "both blink phases must produce identical frame dimensions"
+    );
+
+    let cols = 12u32;
+    let cell_w = (w - TEST_PADDING_X) / cols;
+    let cell_h = h - TEST_PADDING_Y;
+
+    // ① Cursor cell region (col 4): visible phase must be BRIGHTER —
+    //    block cursor paints white at CURSOR_BLOCK_ALPHA over the cell.
+    let cx = 4 * cell_w;
+    let p0_cursor = region_total_brightness(&phase0, w, cx, 0, cell_w, cell_h);
+    let p1_cursor = region_total_brightness(&phase1, w, cx, 0, cell_w, cell_h);
+    assert!(
+        p0_cursor > p1_cursor + 5_000,
+        "blink phase flip produced no pixel delta on the cursor cell \
+         (visible={p0_cursor}, hidden={p1_cursor}) — the cursor would \
+         appear frozen under vsync-aligned rendering",
+    );
+
+    // ② The rest of the frame must be UNCHANGED between phases: the full
+    //    brightness delta must be exactly the cursor-cell delta (integer
+    //    sums; any other delta means a phase flip perturbed other cells).
+    let full0 = region_total_brightness(&phase0, w, 0, 0, w, h);
+    let full1 = region_total_brightness(&phase1, w, 0, 0, w, h);
+    assert_eq!(
+        full0 - p0_cursor,
+        full1 - p1_cursor,
+        "non-cursor region changed between blink phases \
+         (full delta {} != cursor delta {})",
+        full0 - full1,
+        p0_cursor - p1_cursor,
     );
 }

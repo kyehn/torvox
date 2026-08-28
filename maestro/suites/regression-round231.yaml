@@ -1,0 +1,11 @@
+suite:
+  name: Round-231 Symptom Regression Suite
+  tags:
+    - regression
+flows:
+  - ../flows/regress-scroll-to-bottom-on-enter.yaml
+  - ../flows/regress-search-dual-highlight.yaml
+  - ../flows/regress-longpress-menu-four-factors.yaml
+  - ../flows/regress-drag-no-drift.yaml
+  - ../flows/regress-edge-scroll-drag.yaml
+  - ../flows/regress-font-size-no-line-loss.yaml

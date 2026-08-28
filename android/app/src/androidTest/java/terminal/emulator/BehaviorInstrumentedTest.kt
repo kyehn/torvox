@@ -2,6 +2,7 @@ package terminal.emulator
 
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiScrollable
@@ -15,7 +16,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
-import androidx.test.rule.GrantPermissionRule
 
 class BehaviorInstrumentedTest {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;

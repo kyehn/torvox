@@ -234,6 +234,7 @@ mod tests {
             col,
             visible: true,
             style: CursorStyle::Block,
+            scrollback_length: 0,
         }
     }
 

@@ -182,7 +182,7 @@ configurations {
 }
 
 dependencies {
-    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
+    val composeBom = platform("androidx.compose:compose-bom:2026.08.00")
     implementation(composeBom)
 
     implementation("androidx.core:core-ktx:1.19.0")
@@ -206,9 +206,9 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.2.1")
 
     // HTTP client for bootstrap download (BootstrapDownloader).
-    implementation("com.squareup.okhttp3:okhttp:5.4.0")
-    testImplementation("com.squareup.okhttp3:mockwebserver3:5.4.0")
-    testImplementation("com.squareup.okhttp3:okhttp-tls:5.4.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
+    testImplementation("com.squareup.okhttp3:mockwebserver3:5.5.0")
+    testImplementation("com.squareup.okhttp3:okhttp-tls:5.5.0")
 
     // LeakCanary 3.x auto-installs. No Application code change needed.
     debugImplementation("com.squareup.leakcanary:leakcanary-android:3.0-alpha-9")
@@ -269,8 +269,8 @@ dependencies {
     androidTestImplementation("androidx.test:rules:1.7.0")
     // Ultron — Espresso/Compose/UI Automator wrapper for stable Android UI
     // tests (page objects, retries, Allure reporting).
-    androidTestImplementation("com.atiurin:ultron-android:2.6.3")
-    androidTestImplementation("com.atiurin:ultron-compose:2.6.3")
+    androidTestImplementation("com.atiurin:ultron-android:2.6.5")
+    androidTestImplementation("com.atiurin:ultron-compose:2.6.5")
     androidTestImplementation(composeBom)
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.compose.ui:ui-test-manifest")

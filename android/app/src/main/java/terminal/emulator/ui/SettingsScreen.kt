@@ -8,7 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,6 +56,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -64,6 +65,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -86,7 +88,6 @@ import terminal.emulator.TerminalViewModel
 import terminal.emulator.bell.BellMode
 import terminal.emulator.bridge.FontActiveDto
 import terminal.emulator.bridge.FontInfoDto
-import terminal.emulator.bridge.fontPxToSp
 import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.runtime.LogUtil
@@ -128,11 +129,15 @@ fun SettingsScreen(
     BackHandler(enabled = true) { onBack() }
     Surface(
         modifier =
-        Modifier.fillMaxSize().testTag("SettingsScreen").clickable(
-            indication = null,
-            interactionSource = remember { MutableInteractionSource() },
-            onClick = {},
-        ),
+        Modifier.fillMaxSize()
+            .testTag("SettingsScreen")
+            // Consume taps on the settings backdrop so they do not fall
+            // through to the TerminalScreen composable underneath. This must
+            // be pointerInput, not clickable: clickable forces
+            // mergeDescendants semantics, which swallowed every descendant
+            // testTag from the merged tree and made the whole screen
+            // unreadable to Compose UI tests and TalkBack.
+            .pointerInput(Unit) { detectTapGestures(onTap = {}) },
         color = backgroundColor,
     ) {
         Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
@@ -142,18 +147,46 @@ fun SettingsScreen(
             // SettingsBackButton after scrolling down).
             SettingsHeader(onBack, textColor, isSmallScreen)
             LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(horizontal = horizontalPadding).testTag("SettingsLazyColumn"),
+                modifier =
+                Modifier.fillMaxSize()
+                    .padding(horizontal = horizontalPadding)
+                    .testTag("SettingsLazyColumn"),
                 verticalArrangement = Arrangement.spacedBy(if (isSmallScreen) 8.dp else 12.dp),
                 contentPadding = PaddingValues(bottom = 32.dp),
             ) {
                 item {
                     SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
                     SettingsCard(cardBackground) {
-                        AppearanceSectionContent(viewModel, customFontLauncher, textColor, secondaryText, accentColor, backgroundColor)
+                        AppearanceSectionContent(
+                            viewModel,
+                            customFontLauncher,
+                            textColor,
+                            secondaryText,
+                            accentColor,
+                            backgroundColor,
+                        )
                     }
                 }
-                item { AppThemeSection(viewModel, cardBackground, textColor, accentColor, sectionTitleColor, isSmallScreen) }
-                item { TerminalThemeSection(viewModel, textColor, secondaryText, cardBackground, sectionTitleColor, isSmallScreen) }
+                item {
+                    AppThemeSection(
+                        viewModel,
+                        cardBackground,
+                        textColor,
+                        accentColor,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
+                item {
+                    TerminalThemeSection(
+                        viewModel,
+                        textColor,
+                        secondaryText,
+                        cardBackground,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
                 item {
                     BackgroundSection(
                         viewModel,
@@ -188,8 +221,25 @@ fun SettingsScreen(
                         isSmallScreen,
                     )
                 }
-                item { ClearAppDataSectionItem(viewModel, textColor, cardBackground, sectionTitleColor, isSmallScreen) }
-                item { KeyboardShortcutsSection(viewModel, textColor, secondaryText, cardBackground, sectionTitleColor, isSmallScreen) }
+                item {
+                    ClearAppDataSectionItem(
+                        viewModel,
+                        textColor,
+                        cardBackground,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
+                item {
+                    KeyboardShortcutsSection(
+                        viewModel,
+                        textColor,
+                        secondaryText,
+                        cardBackground,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
                 item {
                     ModifierBarSettingsSection(
                         viewModel,
@@ -227,7 +277,12 @@ private fun SettingsHeader(
         Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = stringResource(R.string.settings),
-            style = if (isSmallScreen) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineSmall,
+            style =
+            if (isSmallScreen) {
+                MaterialTheme.typography.titleLarge
+            } else {
+                MaterialTheme.typography.headlineSmall
+            },
             color = textColor,
             fontWeight = FontWeight.Bold,
         )
@@ -254,10 +309,22 @@ private fun AppearanceSectionContent(
     val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
     val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
     val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
+    // Dragging previews through the lightweight path (setFontSizeInPlace +
+    // cell-metric refresh, no DataStore write, no grid reflow); the value is
+    // committed once on release. Committing on every drag step ran full
+    // applyFontSettings chains concurrently (IO dispatcher), interleaving
+    // JNI setFontSizeInPlace calls out of order (96..280 observed) and
+    // reflowing the grid per step — the "slider jumps / layout garbles"
+    // reports. Preview keeps drags cheap and single-threaded.
+    var sliderFontSize by rememberSaveable { mutableFloatStateOf(fontSize) }
     FontSizeSlider(
         modifier = Modifier.testTag("FontSizeSlider"),
-        value = fontSize,
-        onValueChange = { viewModel.setFontSize(it) },
+        value = sliderFontSize,
+        onValueChange = {
+            sliderFontSize = it
+            viewModel.setFontSizeInPlacePreview(it)
+        },
+        onValueChangeFinished = { viewModel.setFontSize(sliderFontSize) },
         textColor = textColor,
         secondaryText = secondaryText,
         accentColor = accentColor,
@@ -357,13 +424,18 @@ private fun TerminalThemeSection(
     // User-created themes (ghostty-android ThemeStore pattern) merged into
     // the pick list; `remember` keyed on the flow so a save re-renders.
     val userThemes by viewModel.userThemes.collectAsStateWithLifecycle()
-    val allThemes = remember(userThemes) { (terminal.emulator.ui.theme.BuiltInThemes.all + userThemes).toImmutableList() }
+    val allThemes =
+        remember(userThemes) {
+            (terminal.emulator.ui.theme.BuiltInThemes.all + userThemes).toImmutableList()
+        }
     var saveThemeName by rememberSaveable { mutableStateOf("") }
     val context = LocalContext.current
     val systemInDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
 
     // Theme editor dialog state — opened when user taps "Edit" on a user theme.
-    var editingTheme by rememberSaveable { mutableStateOf<terminal.emulator.ui.theme.TerminalTheme?>(null) }
+    var editingTheme by rememberSaveable {
+        mutableStateOf<terminal.emulator.ui.theme.TerminalTheme?>(null)
+    }
 
     SectionHeader(stringResource(R.string.theme), sectionTitleColor)
     SettingsCard(cardBackground) {
@@ -376,7 +448,10 @@ private fun TerminalThemeSection(
         )
         Spacer(modifier = Modifier.height(8.dp))
         when (themeMode) {
-            "follow_system", "day", "night" -> {
+            "follow_system",
+            "day",
+            "night",
+            -> {
                 Column(modifier = Modifier.testTag("DayNightThemeSection")) {
                     ThemeSelector(
                         label = stringResource(R.string.day_theme),
@@ -436,11 +511,17 @@ private fun TerminalThemeSection(
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
                 modifier = Modifier.testTag("SaveThemeButton"),
-            ) { Text(stringResource(R.string.save), color = MaterialTheme.colorScheme.onPrimary) }
+            ) {
+                Text(stringResource(R.string.save), color = MaterialTheme.colorScheme.onPrimary)
+            }
         }
         if (userThemes.isNotEmpty()) {
             Spacer(modifier = Modifier.height(8.dp))
-            Text(stringResource(R.string.user_themes), color = secondaryText, style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(R.string.user_themes),
+                color = secondaryText,
+                style = MaterialTheme.typography.bodySmall,
+            )
             Spacer(modifier = Modifier.height(4.dp))
             userThemes.forEach { theme ->
                 Row(
@@ -456,11 +537,15 @@ private fun TerminalThemeSection(
                     TextButton(
                         onClick = { editingTheme = theme },
                         modifier = Modifier.testTag("EditTheme_${theme.name}"),
-                    ) { Text(stringResource(R.string.edit_theme), color = MaterialTheme.colorScheme.primary) }
+                    ) {
+                        Text(stringResource(R.string.edit_theme), color = MaterialTheme.colorScheme.primary)
+                    }
                     TextButton(
                         onClick = { viewModel.deleteUserTheme(theme.name) },
                         modifier = Modifier.testTag("DeleteTheme_${theme.name}"),
-                    ) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) }
+                    ) {
+                        Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+                    }
                 }
             }
         }
@@ -505,7 +590,9 @@ private fun BackgroundSection(
     // restart and the wallpaper silently disappears (emulator-verified,
     // `consumed bg image` never logged after a relaunch).
     val imagePickerLauncher =
-        rememberLauncherForActivityResult(contract = ActivityResultContracts.StartActivityForResult()) { result ->
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.StartActivityForResult(),
+        ) { result ->
             val uri = result.data?.data
             uri?.let {
                 try {
@@ -522,7 +609,12 @@ private fun BackgroundSection(
     SectionHeader(stringResource(R.string.background), sectionTitleColor)
     SettingsCard(cardBackground) {
         Text(
-            text = if (backgroundImagePath.isNotEmpty()) stringResource(R.string.bg_image_set) else stringResource(R.string.bg_image_none),
+            text =
+            if (backgroundImagePath.isNotEmpty()) {
+                stringResource(R.string.bg_image_set)
+            } else {
+                stringResource(R.string.bg_image_none)
+            },
             color = textColor,
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.testTag("BackgroundImageStatus"),
@@ -531,26 +623,35 @@ private fun BackgroundSection(
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
                 onClick = {
-                    val intent = android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
-                        addCategory(android.content.Intent.CATEGORY_OPENABLE)
-                        type = "image/*"
-                        addFlags(
-                            android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                                android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
-                        )
-                    }
+                    val intent =
+                        android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
+                            addCategory(android.content.Intent.CATEGORY_OPENABLE)
+                            type = "image/*"
+                            addFlags(
+                                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                                    android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
+                            )
+                        }
                     imagePickerLauncher.launch(intent)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = accentColor),
                 modifier = Modifier.testTag("ChooseImageButton"),
-            ) { Text(stringResource(R.string.bg_image_choose), color = MaterialTheme.colorScheme.onPrimary) }
+            ) {
+                Text(stringResource(R.string.bg_image_choose), color = MaterialTheme.colorScheme.onPrimary)
+            }
             if (backgroundImagePath.isNotEmpty()) {
-                TextButton(onClick = { viewModel.setBackgroundImagePath("") }) { Text(stringResource(R.string.clear), color = accentColor) }
+                TextButton(onClick = { viewModel.setBackgroundImagePath("") }) {
+                    Text(stringResource(R.string.clear), color = accentColor)
+                }
             }
         }
         if (backgroundImagePath.isNotEmpty()) {
             Spacer(modifier = Modifier.height(12.dp))
-            Text(stringResource(R.string.bg_blur_label, backgroundBlurRadius), color = secondaryText, style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(R.string.bg_blur_label, backgroundBlurRadius),
+                color = secondaryText,
+                style = MaterialTheme.typography.bodySmall,
+            )
             Slider(
                 value = backgroundBlurRadius.toFloat(),
                 onValueChange = { viewModel.setBackgroundBlurRadius(it.toInt()) },
@@ -562,7 +663,11 @@ private fun BackgroundSection(
                 colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor),
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Text(stringResource(R.string.bg_opacity_label, (backgroundAlpha * 100).toInt()), color = secondaryText, style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(R.string.bg_opacity_label, (backgroundAlpha * 100).toInt()),
+                color = secondaryText,
+                style = MaterialTheme.typography.bodySmall,
+            )
             Slider(
                 value = backgroundAlpha,
                 onValueChange = { viewModel.setBackgroundAlpha(it) },
@@ -592,7 +697,12 @@ private fun TerminalConfigSection(
     SettingsCard(cardBackground) {
         PrefixShellStatus(secondaryText = secondaryText)
         Spacer(modifier = Modifier.height(4.dp))
-        ShellInput(shellPath = selectedShell, onShellChanged = { viewModel.setShell(it) }, textColor = textColor, accentColor = accentColor)
+        ShellInput(
+            shellPath = selectedShell,
+            onShellChanged = { viewModel.setShell(it) },
+            textColor = textColor,
+            accentColor = accentColor,
+        )
         Spacer(modifier = Modifier.height(12.dp))
         ScrollbackSlider(
             value = scrollbackLines.toFloat(),
@@ -635,7 +745,8 @@ private fun BootstrapSectionFromSettings(
     val bootstrapUrl = settings.bootstrapUrl
     val bootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
     val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
-    val bootstrapProgress: BootstrapProgress? by viewModel.bootstrapProgress.collectAsStateWithLifecycle()
+    val bootstrapProgress: BootstrapProgress? by
+        viewModel.bootstrapProgress.collectAsStateWithLifecycle()
     SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
     SettingsCard(cardBackground, Modifier.testTag("BootstrapSection")) {
         BootstrapSection(
@@ -694,7 +805,12 @@ private fun SectionHeader(
     val isSmallScreen = rememberIsSmallScreen()
     Text(
         text = title,
-        style = if (isSmallScreen) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleMedium,
+        style =
+        if (isSmallScreen) {
+            MaterialTheme.typography.titleSmall
+        } else {
+            MaterialTheme.typography.titleMedium
+        },
         fontWeight = FontWeight.Bold,
         color = textColor,
         modifier = Modifier.padding(vertical = 4.dp),
@@ -709,14 +825,17 @@ private fun FontSizeSlider(
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
+    onValueChangeFinished: () -> Unit = {},
 ) {
     SettingsSliderRow(
         title = stringResource(R.string.font_size),
         value = value,
         valueRange = FONT_SIZE_RANGE_MIN..FONT_SIZE_RANGE_MAX,
         steps = FONT_SIZE_RANGE_STEPS,
-        colors = SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
+        colors =
+        SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
         onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
         modifier = modifier,
     )
 }
@@ -744,9 +863,10 @@ private fun FontInfoSectionIfAvailable(
 
             fontInfo.isEmpty() ->
                 FontInfoSection(
-                    fontInfo = FontInfoDto(
+                    fontInfo =
+                    FontInfoDto(
                         active = FontActiveDto(name = defaultFontName, monospaced = false),
-                        fontSizePx = fontSpToPx(fontSize, densityDpi),
+                        fontSize = fontSize,
                     ),
                     pixelPerSp = densityDpi,
                     textColor = textColor,
@@ -834,7 +954,8 @@ private fun SystemFontSelector(
 ) {
     val systemFonts = remember(fonts) { fonts.distinct().sorted() }
     val isSmallScreen = rememberIsSmallScreen()
-    val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    val labelStyle =
+        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
     val displayName = if (defaultFontName.isEmpty()) "Noto Sans Mono" else defaultFontName
 
     Spacer(modifier = Modifier.height(4.dp))
@@ -850,14 +971,14 @@ private fun SystemFontSelector(
     Box {
         Row(
             modifier =
-            Modifier
-                .testTag("FontFamilySelector")
+            Modifier.testTag("FontFamilySelector")
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(cardBackground)
                 .clickable {
                     showFontPicker = true
-                }.padding(horizontal = 12.dp, vertical = 12.dp),
+                }
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
@@ -867,7 +988,11 @@ private fun SystemFontSelector(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Text(text = stringResource(R.string.change), color = accentColor, style = MaterialTheme.typography.bodySmall)
+            Text(
+                text = stringResource(R.string.change),
+                color = accentColor,
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
 
         if (showFontPicker) {
@@ -924,23 +1049,26 @@ private fun FontPickerDialog(
                 item {
                     Row(
                         modifier =
-                        Modifier
-                            .fillMaxWidth()
+                        Modifier.fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp))
                             .clickable {
                                 onPickFontFile?.invoke()
                                 onDismiss()
-                            }.padding(horizontal = 12.dp, vertical = 10.dp),
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(text = stringResource(R.string.pick_font_file), color = accentColor, fontWeight = FontWeight.Bold)
+                        Text(
+                            text = stringResource(R.string.pick_font_file),
+                            color = accentColor,
+                            fontWeight = FontWeight.Bold,
+                        )
                     }
                 }
                 items(fonts) { font ->
                     Row(
                         modifier =
-                        Modifier
-                            .fillMaxWidth()
+                        Modifier.fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp))
                             .clickable { onFamilySelected(font) }
                             .background(
@@ -949,7 +1077,8 @@ private fun FontPickerDialog(
                                 } else {
                                     Color.Transparent
                                 },
-                            ).padding(horizontal = 12.dp, vertical = 10.dp),
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
@@ -961,7 +1090,9 @@ private fun FontPickerDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel), color = textColor) } },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel), color = textColor) }
+        },
         containerColor = cardBackground,
     )
 }
@@ -989,8 +1120,7 @@ internal fun AppThemeSelector(
                     val isSelected = selectedMode == mode
                     Box(
                         modifier =
-                        Modifier
-                            .testTag("AppTheme_$mode")
+                        Modifier.testTag("AppTheme_$mode")
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (isSelected) accentColor else cardBackground)
@@ -998,7 +1128,11 @@ internal fun AppThemeSelector(
                             .padding(vertical = 8.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(text = label, color = if (isSelected) Color.White else textColor, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            text = label,
+                            color = if (isSelected) Color.White else textColor,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
             }
@@ -1011,8 +1145,7 @@ internal fun AppThemeSelector(
                     val isSelected = selectedMode == mode
                     Box(
                         modifier =
-                        Modifier
-                            .testTag("AppTheme_$mode")
+                        Modifier.testTag("AppTheme_$mode")
                             .weight(1f)
                             .clip(RoundedCornerShape(8.dp))
                             .background(if (isSelected) accentColor else cardBackground)
@@ -1020,7 +1153,11 @@ internal fun AppThemeSelector(
                             .padding(vertical = 10.dp, horizontal = 4.dp),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text(text = label, color = if (isSelected) Color.White else textColor, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = label,
+                            color = if (isSelected) Color.White else textColor,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                     }
                 }
             }
@@ -1081,12 +1218,8 @@ private fun PrefixShellStatus(secondaryText: Color) {
             // shebang script (motd), nix-on-droid as a static ELF.
             val loginIsNix = login.isFile && isElf(login)
             when {
-                loginIsNix ->
-                    R.string.launch_location_status_nix to prefixDir.absolutePath
-
-                bash.exists() ->
-                    R.string.launch_location_status_termux to prefixDir.absolutePath
-
+                loginIsNix -> R.string.launch_location_status_nix to prefixDir.absolutePath
+                bash.exists() -> R.string.launch_location_status_termux to prefixDir.absolutePath
                 else -> R.string.launch_location_status_none to ""
             }
         }
@@ -1102,7 +1235,8 @@ private fun ShellInput(
     accentColor: Color,
 ) {
     val isSmallScreen = rememberIsSmallScreen()
-    val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    val labelStyle =
+        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
     Column {
         Text(stringResource(R.string.shell), style = labelStyle, color = textColor)
         Spacer(modifier = Modifier.height(4.dp))
@@ -1115,7 +1249,9 @@ private fun ShellInput(
             },
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
-            placeholder = { Text(stringResource(R.string.shell_placeholder), color = textColor.copy(alpha = 0.5f)) },
+            placeholder = {
+                Text(stringResource(R.string.shell_placeholder), color = textColor.copy(alpha = 0.5f))
+            },
             textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
             colors =
             OutlinedTextFieldDefaults.colors(
@@ -1142,7 +1278,8 @@ private fun ScrollbackSlider(
         value = value,
         valueRange = SCROLLBACK_RANGE_MIN..SCROLLBACK_RANGE_MAX,
         steps = SCROLLBACK_RANGE_STEPS,
-        colors = SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
+        colors =
+        SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
         onValueChange = onValueChange,
         valueFormatter = { value ->
             value.toInt().let {
@@ -1163,7 +1300,8 @@ internal fun ThemeSelector(
     cardBackground: Color,
 ) {
     val isSmallScreen = rememberIsSmallScreen()
-    val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    val labelStyle =
+        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
     Column(modifier = Modifier.testTag("ThemeSelector")) {
         if (label.isNotEmpty()) {
             Text(label, style = labelStyle, color = textColor)
@@ -1203,17 +1341,17 @@ private fun ThemePreview(
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier =
-        Modifier
-            .testTag("theme_preview_${theme.name}")
+        Modifier.testTag("theme_preview_${theme.name}")
             .width(previewWidth)
             .clickable(onClick = onClick),
     ) {
         Box(
             modifier =
-            Modifier
-                .fillMaxWidth()
+            Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .background(if (isSelected) theme.background else theme.background.copy(alpha = 0.7f))
+                .background(
+                    if (isSelected) theme.background else theme.background.copy(alpha = 0.7f),
+                )
                 .padding(padding),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1283,7 +1421,8 @@ private fun BootstrapSection(
     Spacer(modifier = Modifier.height(4.dp))
 
     val arch = terminal.emulator.detectArchFromAbi()
-    val termuxUrl = "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-$arch.zip"
+    val termuxUrl =
+        "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-$arch.zip"
 
     val presets =
         listOf(
@@ -1309,15 +1448,23 @@ private fun BootstrapSection(
     }
 
     Spacer(modifier = Modifier.height(8.dp))
-    BootstrapInstallButton(onRunBootstrap, bootstrapRunning, bootstrapResult, bootstrapProgress, accentColor, textColor)
+    BootstrapInstallButton(
+        onRunBootstrap,
+        bootstrapRunning,
+        bootstrapResult,
+        bootstrapProgress,
+        accentColor,
+        textColor,
+    )
 
     // Offline install: pick a.zip file via SAF, no network required
     Spacer(modifier = Modifier.height(8.dp))
-    val offlineLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocument(),
-    ) { uri ->
-        uri?.let { onInstallOffline(it) }
-    }
+    val offlineLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument(),
+        ) { uri ->
+            uri?.let { onInstallOffline(it) }
+        }
     OutlinedButton(
         onClick = { offlineLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
         enabled = !bootstrapRunning,
@@ -1362,7 +1509,12 @@ private fun bootstrapStepText(progress: BootstrapProgress): String = when (progr
             } else {
                 ""
             }
-        stringResource(R.string.bootstrap_extracting, pct, progress.entriesExtracted, progress.totalEntries)
+        stringResource(
+            R.string.bootstrap_extracting,
+            pct,
+            progress.entriesExtracted,
+            progress.totalEntries,
+        )
     }
 
     is BootstrapProgress.RunningPostInstall ->
@@ -1456,7 +1608,11 @@ private fun BootstrapPresetItem(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(text = label, style = MaterialTheme.typography.bodyMedium, color = colors.accent)
-                Text(text = description, style = MaterialTheme.typography.bodySmall, color = colors.secondary)
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondary,
+                )
             }
             Text(
                 text = stringResource(R.string.install),
@@ -1486,9 +1642,9 @@ private fun McpServerToggle(
 }
 
 /**
- * Environment variables editor: clickable row opening a dialog with a
- * "KEY=VALUE" (one per line) text field. Parsing mirrors the native
- * `parse_env_entries` (shell_env.rs) so both sides agree on the shape.
+ * Environment variables editor: clickable row opening a dialog with a "KEY=VALUE" (one per line)
+ * text field. Parsing mirrors the native `parse_env_entries` (shell_env.rs) so both sides agree on
+ * the shape.
  */
 @Composable
 private fun EnvironmentVariablesEditor(
@@ -1504,8 +1660,7 @@ private fun EnvironmentVariablesEditor(
     Column {
         Row(
             modifier =
-            Modifier
-                .testTag("EnvironmentVariablesEditor")
+            Modifier.testTag("EnvironmentVariablesEditor")
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(cardBackground)
@@ -1574,10 +1729,7 @@ private fun EnvironmentVariablesDialog(
                     value = text,
                     onValueChange = { text = it },
                     placeholder = { Text(stringResource(R.string.environment_variables_hint)) },
-                    modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 160.dp),
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
                     colors =
                     OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = accentColor,
@@ -1628,12 +1780,11 @@ private fun ClearAppDataSection(
                         viewModel.clearAppData {
                             // In-process StateFlows still hold the old
                             // values; a restart is required for a full reset.
-                            android.widget.Toast
-                                .makeText(
-                                    context,
-                                    clearAppDataDone,
-                                    android.widget.Toast.LENGTH_LONG,
-                                )
+                            android.widget.Toast.makeText(
+                                context,
+                                clearAppDataDone,
+                                android.widget.Toast.LENGTH_LONG,
+                            )
                                 .show()
                         }
                     },
@@ -1721,15 +1872,16 @@ private fun FontInfoSection(
         }
         if (fontInfo.cellWidthPx > 0f && fontInfo.cellHeightPx > 0f) {
             Text(
-                text = stringResource(R.string.font_info_cell, fontInfo.cellWidthPx, fontInfo.cellHeightPx),
+                text =
+                stringResource(R.string.font_info_cell, fontInfo.cellWidthPx, fontInfo.cellHeightPx),
                 style = MaterialTheme.typography.bodySmall,
                 color = secondaryText,
             )
         }
-        if (fontInfo.fontSizePx > 0f) {
-            val sizeSp = fontPxToSp(fontInfo.fontSizePx, pixelPerSp)
+        if (fontInfo.fontSize > 0f) {
+            val sizePx = fontSpToPx(fontInfo.fontSize, pixelPerSp)
             Text(
-                text = stringResource(R.string.font_info_size_sp, sizeSp, fontInfo.fontSizePx),
+                text = stringResource(R.string.font_info_size_sp, fontInfo.fontSize, sizePx),
                 style = MaterialTheme.typography.bodySmall,
                 color = secondaryText,
             )
@@ -1754,7 +1906,8 @@ private fun CursorSpeedSlider(
         value = value,
         valueRange = CURSOR_SPEED_RANGE_MIN..CURSOR_SPEED_RANGE_MAX,
         steps = CURSOR_SPEED_RANGE_STEPS,
-        colors = SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
+        colors =
+        SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
         onValueChange = onValueChange,
         valueFormatter = { "${it.toInt()}ms" },
     )
@@ -1770,6 +1923,9 @@ private fun CursorStyleSelector(
 ) {
     val styles =
         listOf(
+            // Round-234: "follow the terminal" is the default (DECSCUSR
+            // from running programs wins unless the user picks explicitly).
+            "" to stringResource(R.string.cursor_follow_terminal),
             "block" to stringResource(R.string.cursor_block),
             "bar" to stringResource(R.string.cursor_bar),
             "underline" to stringResource(R.string.cursor_underline),
@@ -1823,40 +1979,52 @@ private fun KeyboardShortcutsSection(
 ) {
     val bindings by viewModel.shortcutBindings.collectAsStateWithLifecycle()
     var capturingAction by rememberSaveable { mutableStateOf<String?>(null) }
-    val labelStyle = if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    val labelStyle =
+        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
 
     SectionHeader(stringResource(R.string.keyboard_shortcuts), sectionTitleColor)
     SettingsCard(cardBackground) {
         terminal.emulator.shortcut.KeyShortcutHandler.Action.entries.forEach { action ->
-            val actionId = when (action) {
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste ->
-                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE
+            val actionId =
+                when (action) {
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste ->
+                        terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE
 
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession ->
-                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession ->
+                        terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION
 
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession ->
-                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession ->
+                        terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION
 
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy ->
-                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy ->
+                        terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY
 
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll ->
-                    terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL
-            }
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll ->
+                        terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL
+                }
             val binding = bindings[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY
-            val actionLabel = when (action) {
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste -> stringResource(R.string.paste)
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession -> stringResource(R.string.cd_new_session)
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession -> stringResource(R.string.close_session)
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy -> stringResource(R.string.copy)
-                terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll -> stringResource(R.string.toggle_scroll)
-            }
+            val actionLabel =
+                when (action) {
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste ->
+                        stringResource(R.string.paste)
+
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession ->
+                        stringResource(R.string.cd_new_session)
+
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession ->
+                        stringResource(R.string.close_session)
+
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy ->
+                        stringResource(R.string.copy)
+
+                    terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll ->
+                        stringResource(R.string.toggle_scroll)
+                }
 
             Row(
                 verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
+                modifier =
+                Modifier.fillMaxWidth()
                     .clickable { capturingAction = actionId }
                     .testTag("Shortcut_$actionId")
                     .padding(horizontal = 16.dp, vertical = 12.dp),
@@ -1895,9 +2063,9 @@ private fun KeyboardShortcutsSection(
 }
 
 /**
- * "Modifier Bar" settings section: previews the toolbar layout as key
- * chips and opens an editor dialog to add/remove keys or reset to the
- * default layout. Persists through [ToolbarPreferences.saveLayout].
+ * "Modifier Bar" settings section: previews the toolbar layout as key chips and opens an editor
+ * dialog to add/remove keys or reset to the default layout. Persists through
+ * [ToolbarPreferences.saveLayout].
  */
 @Composable
 private fun ModifierBarSettingsSection(
@@ -1996,9 +2164,7 @@ private fun ModifierBarEditorDialog(
         text = {
             Column(
                 modifier =
-                Modifier
-                    .verticalScroll(rememberScrollState())
-                    .testTag("ModifierBarEditorDialog"),
+                Modifier.verticalScroll(rememberScrollState()).testTag("ModifierBarEditorDialog"),
             ) {
                 Text(
                     text = stringResource(R.string.modifier_bar_edit_hint_remove),
@@ -2032,7 +2198,10 @@ private fun ModifierBarEditorDialog(
                     onClick = onReset,
                     modifier = Modifier.testTag("ResetModifierBarButton"),
                 ) {
-                    Text(stringResource(R.string.reset_to_default), color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        stringResource(R.string.reset_to_default),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
             }
         },
@@ -2079,10 +2248,12 @@ private fun CurrentLayoutEditor(
                 IconButton(
                     onClick = {
                         onLayoutChange(
-                            layout.replace(
-                                item,
-                                item.withWidth((item.width - 1).coerceAtLeast(1)),
-                            ).toImmutableList(),
+                            layout
+                                .replace(
+                                    item,
+                                    item.withWidth((item.width - 1).coerceAtLeast(1)),
+                                )
+                                .toImmutableList(),
                         )
                     },
                     modifier = Modifier.size(28.dp).testTag("WidthMinus_${itemLabel(item)}"),
@@ -2098,10 +2269,12 @@ private fun CurrentLayoutEditor(
                 IconButton(
                     onClick = {
                         onLayoutChange(
-                            layout.replace(
-                                item,
-                                item.withWidth((item.width + 1).coerceAtMost(4)),
-                            ).toImmutableList(),
+                            layout
+                                .replace(
+                                    item,
+                                    item.withWidth((item.width + 1).coerceAtMost(4)),
+                                )
+                                .toImmutableList(),
                         )
                     },
                     modifier = Modifier.size(28.dp).testTag("WidthPlus_${itemLabel(item)}"),
@@ -2116,8 +2289,7 @@ private fun CurrentLayoutEditor(
                     singleLine = true,
                     textStyle = MaterialTheme.typography.bodySmall.copy(color = textColor),
                     modifier =
-                    Modifier
-                        .weight(1f)
+                    Modifier.weight(1f)
                         .testTag("SecondaryLabel_${itemLabel(item)}")
                         .background(
                             cardBackground,
@@ -2166,15 +2338,20 @@ private fun ToolbarItem.withWidth(width: Int): ToolbarItem = when (this) {
     is ToolbarItem.Custom -> copy(width = width)
 }
 
-/** Returns a copy with a secondary long-press key; the sequence is the
- *  label itself, matching termux extra-keys secondary key semantics. */
+/**
+ * Returns a copy with a secondary long-press key; the sequence is the label itself, matching termux
+ * extra-keys secondary key semantics.
+ */
 private fun ToolbarItem.withSecondary(label: String): ToolbarItem {
     val trimmed = label.trim()
     val secondaryLabel = trimmed.ifEmpty { null }
     val secondarySequence = trimmed.ifEmpty { null }
     return when (this) {
-        is ToolbarItem.Default -> copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
-        is ToolbarItem.Custom -> copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
+        is ToolbarItem.Default ->
+            copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
+
+        is ToolbarItem.Custom ->
+            copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
     }
 }
 

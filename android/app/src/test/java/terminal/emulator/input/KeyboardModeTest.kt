@@ -39,12 +39,23 @@ class KeyboardModeTest {
     }
 
     @Test
-    fun `custom apply builds visible-password input type`() {
+    fun `custom apply default flags keep full-ime composition`() {
         val attrs = freshEditorInfo()
         KeyboardMode.Custom(ImeFlagSet()).toEditorInfo(attrs)
-        // VISIBLE_PASSWORD (0x91) must be present so CJK/voice composition
-        // keeps working (haven docs: terminal hosts composition on top of a
-        // VISIBLE_PASSWORD connection).
+        // Default flags must NOT include VISIBLE_PASSWORD: the password
+        // variation makes IMEs (Gboard et al.) drop the composition and
+        // language UI so CJK/voice input stops working (on-device report).
+        assertEquals(
+            0,
+            attrs.inputType and android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+        )
+        assertTrue(attrs.inputType and android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0)
+    }
+
+    @Test
+    fun `custom visiblePassword flag opts back into password field`() {
+        val attrs = freshEditorInfo()
+        KeyboardMode.Custom(ImeFlagSet(visiblePassword = true)).toEditorInfo(attrs)
         assertTrue(attrs.inputType and android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD != 0)
     }
 
@@ -57,13 +68,30 @@ class KeyboardModeTest {
     }
 
     @Test
-    fun `secure mode blocks suggestions in favour of visible password`() {
+    fun `secure mode is unrestricted plain text without password variation`() {
         val attrs = freshEditorInfo()
         KeyboardMode.Secure.toEditorInfo(attrs)
-        assertTrue(attrs.inputType and android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD != 0)
+        // No VISIBLE_PASSWORD and no privacy IME options: the password
+        // variation and IME_FLAG_NO_* options make IMEs (Gboard etc.) drop
+        // the composition/language UI, learning and clipboard features —
+        // the hard requirement is an IME with no restrictions. Only
+        // NO_SUGGESTIONS remains, keeping the strip off the terminal
+        // screen without restricting composition.
+        assertEquals(
+            0,
+            attrs.inputType and android.text.InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD,
+        )
         assertTrue(attrs.inputType and android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS != 0)
-        assertTrue(attrs.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI != 0)
-        assertTrue(attrs.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING != 0)
+        assertEquals(0, attrs.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI)
+        assertEquals(0, attrs.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)
+    }
+
+    @Test
+    fun `custom default flags carry no ime restrictions`() {
+        val attrs = freshEditorInfo()
+        KeyboardMode.Custom(ImeFlagSet()).toEditorInfo(attrs)
+        assertEquals(0, attrs.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_EXTRACT_UI)
+        assertEquals(0, attrs.imeOptions and android.view.inputmethod.EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING)
     }
 
     @Test
