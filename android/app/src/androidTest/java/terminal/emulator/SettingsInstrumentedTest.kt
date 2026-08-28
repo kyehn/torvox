@@ -31,7 +31,18 @@ class SettingsInstrumentedTest {
         try {
             device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
             initialized = true
-            device.executeShellCommand("am start -n $PACKAGE/terminal.emulator.MainActivity")
+            // MainActivity.onCreate() requests POST_NOTIFICATIONS on first run
+            // (Android 13+); the permission dialog overlays the activity and
+            // blocks every UiAutomator lookup below. Grant up front so the
+            // dialog never appears (see TestUtils.waitForSession).
+            grantNotificationPermission()
+            // Previous tests leave the app parked on the settings screen /
+            // dialogs; am start merely brings that state to the foreground.
+            // --activity-clear-task rebuilds the activity (state reset)
+            // without force-stopping: force-stop would kill the
+            // instrumentation process itself, since androidTest runs inside
+            // the target app process.
+            device.executeShellCommand("am start --activity-clear-task -n $PACKAGE/terminal.emulator.MainActivity")
             device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), WAIT_TIMEOUT)
             Thread.sleep(5000)
         } catch (exception: Exception) {
@@ -45,16 +56,20 @@ class SettingsInstrumentedTest {
     }
 
     private fun openSettings() {
-        val drawerBtn = device.findObject(By.desc("Open session drawer"))
-        if (drawerBtn != null) {
-            drawerBtn.click()
-            Thread.sleep(1500)
-        }
-        val settingsBtn = device.findObject(By.text("Settings"))
-        if (settingsBtn != null) {
-            settingsBtn.click()
-            Thread.sleep(3000)
-        }
+        assertTrue(
+            "Drawer button (Open session drawer) must appear",
+            device.wait(Until.hasObject(By.desc("Open session drawer")), WAIT_TIMEOUT),
+        )
+        device.findObject(By.desc("Open session drawer"))?.click()
+        assertTrue(
+            "Settings entry must appear in the session drawer",
+            device.wait(Until.hasObject(By.text("Settings")), WAIT_TIMEOUT),
+        )
+        device.findObject(By.text("Settings"))?.click()
+        assertTrue(
+            "Settings screen must open (Appearance section visible)",
+            device.wait(Until.hasObject(By.text("Appearance")), WAIT_TIMEOUT),
+        )
     }
 
     private fun scrollTo(
@@ -63,6 +78,18 @@ class SettingsInstrumentedTest {
     ) {
         for (i in 0 until maxSwipes) {
             if (device.findObject(By.textContains(text)) != null) return
+            val cx = device.displayWidth / 2
+            device.swipe(cx, device.displayHeight * 3 / 4, cx, device.displayHeight / 4, 10)
+            Thread.sleep(1200)
+        }
+    }
+
+    /** Scroll until the Font Family row (with its Change action) is visible. */
+    private fun scrollToChange() {
+        scrollTo("Font Family")
+        // The title enters the viewport at its bottom edge; the row below it
+        // (Change action) may still be off-screen. One extra swipe fixes it.
+        if (device.findObject(By.text("Change")) == null) {
             val cx = device.displayWidth / 2
             device.swipe(cx, device.displayHeight * 3 / 4, cx, device.displayHeight / 4, 10)
             Thread.sleep(1200)
@@ -86,6 +113,7 @@ class SettingsInstrumentedTest {
     @Test
     fun settings_shows_theme_names_below_boxes() {
         openSettings()
+        scrollTo("Dracula Plus")
         val found = device.wait(Until.hasObject(By.text("Dracula Plus")), 5000)
         assertTrue("Should see Dracula Plus theme name", found)
     }
@@ -93,7 +121,15 @@ class SettingsInstrumentedTest {
     @Test
     fun settings_shows_bootstrap_with_install_buttons() {
         openSettings()
-        scrollTo("Bootstrap")
+        scrollTo("Presets")
+        // "Presets" is the header directly above the preset card; the
+        // "Install" action sits at its bottom edge, so one extra swipe when
+        // the preset card is taller than the viewport.
+        if (device.findObject(By.text("Install")) == null) {
+            val cx = device.displayWidth / 2
+            device.swipe(cx, device.displayHeight * 3 / 4, cx, device.displayHeight / 4, 10)
+            Thread.sleep(1200)
+        }
         val hasBootstrap = device.findObject(By.textContains("Bootstrap")) != null
         assertTrue("Should see Bootstrap section", hasBootstrap)
         val hasTermuxDefault = device.findObject(By.text("Termux Default")) != null

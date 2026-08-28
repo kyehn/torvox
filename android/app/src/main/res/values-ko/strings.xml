@@ -223,8 +223,6 @@
     <string name="save_as_new">새로 저장</string>
     <string name="search_no_results_accessible">결과를 찾을 수 없습니다</string>
     <string name="search_result_accessible">%2$d개 중 %1$d번째</string>
-    <string name="select_anchor_left">◀</string>
-    <string name="select_anchor_right">▶</string>
     <string name="selection">선택</string>
     <string name="selection_accessible">선택됨: %1$s</string>
     <string name="session_number">세션 %1$d</string>

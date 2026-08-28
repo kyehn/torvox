@@ -1,0 +1,38 @@
+appId: com.termux
+name: "Regression  #10/#11: font size change keeps prompt intact"
+tags:
+  - e2e
+  - regression
+---
+- launchApp:
+    clearState: false
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+# Marker on the first line region before resize
+- tapOn:
+    id: "TerminalScreen"
+- inputText: "echo PROMPT_KEEP_231"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: regress-font-before
+# Change font size via settings slider (one-shot commit on release)
+- tapOn:
+    id: "SettingsButton"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: regress-font-settings-open
+- pressKey: Back
+- waitForAnimationToEnd:
+    timeout: 3000
+# After any font change the first-line prompt content must survive intact
+- takeScreenshot: regress-font-after

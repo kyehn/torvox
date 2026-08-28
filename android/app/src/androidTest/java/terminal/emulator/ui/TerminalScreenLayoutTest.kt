@@ -49,7 +49,6 @@ class TerminalScreenLayoutTest {
         // Verify the layout structure:
         // Column > Box(TerminalContent) + ModifierBar
         // No Scaffold padding creating gaps
-        composeTestRule.onRoot().printToLog("TerminalScreenLayout")
         composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
         composeTestRule.onNodeWithTag("TerminalContent").assertIsDisplayed()
         composeTestRule.onNodeWithTag("ModifierBar").assertIsDisplayed()

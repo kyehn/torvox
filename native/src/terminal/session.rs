@@ -680,13 +680,24 @@ impl Session {
         self.poll_pty_output(Self::MAX_CHUNKS_PER_FRAME)
     }
 
+    /// Take and clear the P1-1 `new_output` flag (dual-flag protocol, see
+    /// docs/reference/dual-flag-protocol.md). Raised by the PTY ingest path
+    /// ([`OutputProcessor::process`]); the render thread is the single
+    /// read-clear consumer. Independent from the P2-1 `dirty` flag.
+    pub fn take_new_output(&self) -> bool {
+        self.output_processor.take_new_output()
+    }
+
     /// Poll for a BEL (bell character) event. Returns true if a BEL was
     /// received since the last poll, debounced to at most one per 500 ms.
     pub fn poll_bel(&self) -> bool {
         const BELL_DEBOUNCE_MS: u64 = 500;
         if self.bel_triggered.swap(false, Ordering::AcqRel) {
             let now = std::time::Instant::now();
-            let mut last = self.last_bel_at.lock().unwrap();
+            let mut last = self
+                .last_bel_at
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             if last.is_none_or(|t| now.duration_since(t).as_millis() as u64 >= BELL_DEBOUNCE_MS) {
                 *last = Some(now);
                 return true;

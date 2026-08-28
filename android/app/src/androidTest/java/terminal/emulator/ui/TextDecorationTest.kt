@@ -1,11 +1,11 @@
 package terminal.emulator.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Before
 import org.junit.Rule
@@ -33,7 +33,7 @@ class TextDecorationTest {
     fun settings_shows_cursor_style_options() {
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn")
-            .performTouchInput { swipeUp() }
+            .performScrollToNode(hasText("Cursor Style"))
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("Cursor Style").assertExists()
         composeTestRule.onNodeWithText("Block").assertIsDisplayed()
@@ -43,7 +43,7 @@ class TextDecorationTest {
     fun settings_shows_font_options() {
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn")
-            .performTouchInput { swipeUp() }
+            .performScrollToNode(hasText("Font Size"))
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("Font Size").assertExists()
     }

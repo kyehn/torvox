@@ -111,8 +111,13 @@ impl Renderer {
         //
         // Reference (wgpu-in-app app-surface/src/lib.rs:210-235): acquire retry
         // pattern — Outdated/Lost → surface.configure → retry once.  Our worker
-        // thread handles Lost inline; wgpu-in-app also handles Timeout/Outdated
-        // but we currently treat those as permanent failures (Mali-G57-specific).
+        // thread handles Lost and Outdated inline; wgpu-in-app also handles
+        // Timeout but we treat a hung acquire as permanent (Mali-G57-specific),
+        // while Outdated is transient (surface resized or recreated by the
+        // window system) and recovers via reconfigure — emulator-verified:
+        // SwiftShader dequeueBuffer timeouts and SurfaceFlinger resize races
+        // surface as Outdated, and without the reconfigure the render thread
+        // spins on begin_frame failures forever after switching apps.
         //
         // Reference (zelland WGPU_FIXES.md Fix 1): atlas format must equal
         // surface format; wgpu-in-app notes Android view_formats must be
@@ -132,7 +137,7 @@ impl Renderer {
             return match surface.get_current_texture() {
                 wgpu::CurrentSurfaceTexture::Success(tex)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
-                wgpu::CurrentSurfaceTexture::Lost => {
+                wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                     if let Some(config) = &self.surface_config {
                         surface.configure(&self.device, config);
                     }
@@ -146,7 +151,7 @@ impl Renderer {
             Ok(Ok(result)) => match result {
                 wgpu::CurrentSurfaceTexture::Success(tex)
                 | wgpu::CurrentSurfaceTexture::Suboptimal(tex) => Some(tex),
-                wgpu::CurrentSurfaceTexture::Lost => {
+                wgpu::CurrentSurfaceTexture::Lost | wgpu::CurrentSurfaceTexture::Outdated => {
                     if let Some(config) = &self.surface_config {
                         surface.configure(&self.device, config);
                     }
@@ -159,8 +164,8 @@ impl Renderer {
                 None
             }
             Err(_) => {
-                log::error!(
-                    "acquire_texture: get_current_texture hung for {}ms (Mali-G57 driver issue)",
+                log::warn!(
+                    "acquire_texture: get_current_texture timed out after {}ms (slow SurfaceFlinger/SwiftShader; frame skipped, retried next frame)",
                     ACQUIRE_TIMEOUT.as_millis()
                 );
                 None
@@ -269,11 +274,91 @@ impl Renderer {
         bg_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
     }
 
+    /// Decision for the partial (dirty-band) render path. Pure function —
+    /// table-driven unit tested. Partial is only valid when the frame's
+    /// ONLY changes are the flagged bands' cell instances; any full-screen
+    /// overlay (wallpaper, blur, kitty graphics, bell flash) or an
+    /// invalidated accumulator forces a full redraw.
+    fn should_render_partial(
+        accumulator_ready: bool,
+        frame_invalidated: bool,
+        band_count: usize,
+        bg_image_active: bool,
+        blur_active: bool,
+        kgp_present: bool,
+        flash_active: bool,
+    ) -> bool {
+        accumulator_ready
+            && !frame_invalidated
+            && band_count > 0
+            && !bg_image_active
+            && !blur_active
+            && !kgp_present
+            && !flash_active
+    }
+
     pub fn render_frame(
         &mut self,
         instances: &[crate::render::CellInstance],
         kgp_instances: &[crate::render::KittyGraphicsInstance],
     ) -> Result<(), GpuError> {
+        self.render_frame_with_plan(
+            instances,
+            kgp_instances,
+            &crate::render::cell_builder::FramePatch::default(),
+        )
+    }
+
+    /// Build one flat-fill instance per dirty band: a has_glyph=0 quad the
+    /// cell shader paints with `bg_color` verbatim, covering the band's full
+    /// pixel rect (all grid columns × the band's row span).
+    fn band_clear_instances(
+        &self,
+        dirty_bands: &[crate::render::cell_builder::DirtyBand],
+        cell_h_px: f32,
+        surface_width: u32,
+        surface_height: u32,
+    ) -> Vec<crate::render::CellInstance> {
+        if cell_h_px <= 0.0 || surface_width == 0 || surface_height == 0 {
+            return Vec::new();
+        }
+        let bg = [
+            self.bg_color.r as f32,
+            self.bg_color.g as f32,
+            self.bg_color.b as f32,
+            self.bg_color.a as f32,
+        ];
+        let mut instances = Vec::with_capacity(dirty_bands.len());
+        for band in dirty_bands {
+            let y0 = (band.start_row as f32 * cell_h_px).floor().max(0.0) as u32;
+            let y1 =
+                ((band.end_row_exclusive as f32 * cell_h_px).ceil() as u32).min(surface_height);
+            if y1 > y0 {
+                instances.push(crate::render::CellInstance {
+                    quad_origin: [0.0, y0 as f32],
+                    atlas_offset: [0.0; 2],
+                    atlas_size: [0.0; 2],
+                    fg_color: bg,
+                    bg_color: bg,
+                    quad_size: [surface_width as f32, (y1 - y0) as f32],
+                    flags: 0.0,
+                    bearing: [0.0; 2],
+                    glyph_advance_width: 0.0,
+                });
+            }
+        }
+        instances
+    }
+
+    /// Render one frame (see [`Self::render_frame_with_plan`] for the
+    /// merged-pass / dirty-band architecture notes).
+    pub fn render_frame_with_plan(
+        &mut self,
+        instances: &[crate::render::CellInstance],
+        kgp_instances: &[crate::render::KittyGraphicsInstance],
+        plan: &crate::render::cell_builder::FramePatch,
+    ) -> Result<(), GpuError> {
+        let dirty_bands = &plan.bands[..];
         if self.render_paused {
             return Ok(());
         }
@@ -285,6 +370,20 @@ impl Renderer {
         let mut frame_ctx = self
             .begin_frame()
             .ok_or_else(|| GpuError::Surface("begin_frame failed".to_string()))?;
+
+        let cfg_width = frame_ctx.cfg_width;
+        let cfg_height = frame_ctx.cfg_height;
+        // Owned clone so it outlives &mut self calls below.
+        let swapchain_view = frame_ctx.view.clone();
+        let encoder = &mut frame_ctx.encoder;
+
+        // ── Target selection (must run before `pipeline` borrows self) ──
+        let format = self.pipeline_format;
+        let accumulator_view = if self.swapchain_copy_supported {
+            self.ensure_frame_texture(cfg_width, cfg_height, format)
+        } else {
+            None
+        };
 
         let pipeline = self
             .cell_pipeline
@@ -299,21 +398,54 @@ impl Renderer {
             self.cell_bind_group.is_some(),
         );
 
-        let cfg_width = frame_ctx.cfg_width;
-        let cfg_height = frame_ctx.cfg_height;
-        let view = &frame_ctx.view;
-        let encoder = &mut frame_ctx.encoder;
+        // ── Overlay / partial-path state (must precede the instance
+        // upload: band-clear instances are concatenated into it) ─────
+        let bg_image_active = self.bg_image_view.is_some();
+        let blur_active = bg_image_active
+            && self.bg_blur_radius >= 0.5
+            && self.blur_h_pipeline.is_some()
+            && self.blur_v_pipeline.is_some()
+            && self.bg_blur_texture_view.is_some()
+            && self.bg_blur_bind_group.is_some();
+        let flash_active = self.flash_phase > 0.0;
+        let kgp_present = !kgp_instances.is_empty();
+        let partial = Self::should_render_partial(
+            accumulator_view.is_some(),
+            self.frame_invalidated,
+            dirty_bands.len(),
+            bg_image_active,
+            blur_active,
+            kgp_present,
+            flash_active,
+        );
+        // Band clear instances (partial frames only): empty cells emit no
+        // covering quads, so a band redraw over LoadOp::Load left stale
+        // pixels in place — most visibly old cursor blocks that never
+        // disappeared ( emulator evidence: blocks accumulated at
+        // every previous cursor column). The cell shader paints
+        // has_glyph=0 quads with bg_color verbatim, so one clear instance
+        // per band wipes the band's stale pixels before the redraw — no
+        // extra pipeline needed.
+        let clear_instances = if partial {
+            self.band_clear_instances(dirty_bands, plan.cell_h_px, cfg_width, cfg_height)
+        } else {
+            Vec::new()
+        };
+        let clear_count = clear_instances.len() as u32;
+        let mut upload_buffer = clear_instances;
+        if clear_count > 0 {
+            upload_buffer.extend_from_slice(instances);
+        }
 
-        #[cfg(debug_assertions)]
-        encoder.push_debug_group("Frame");
-
-        #[cfg(debug_assertions)]
-        encoder.push_debug_group("Instance Uploads");
         Self::upload_cell_instances(
             &self.device,
             &self.queue,
             &mut self.instance_buffer,
-            instances,
+            if clear_count > 0 {
+                &upload_buffer
+            } else {
+                instances
+            },
             "Instance Buffer",
         );
         Self::upload_kgp_instances(
@@ -323,11 +455,61 @@ impl Renderer {
             kgp_instances,
             "KGP Instance Buffer",
         );
-        #[cfg(debug_assertions)]
-        encoder.pop_debug_group(); // Instance Uploads
+        // Passes write into the accumulator when available (its content is
+        // what gets presented); otherwise straight into the swapchain.
+        let view = match accumulator_view.as_ref() {
+            Some(acc) => acc,
+            None => &swapchain_view,
+        };
 
-        #[cfg(debug_assertions)]
-        encoder.push_debug_group("Draw Background");
+        // ── Scroll blit: shift existing accumulator content up ────────
+        // A pure vertical scroll only needs unchanged glyph pixels MOVED,
+        // not re-shaded. Chunked same-texture copies execute in encoder
+        // order, top-first, so each chunk reads source rows still intact
+        // below the write cursor. The bottom shift_px band stays stale —
+        // it is redrawn by this frame's bands.
+        if partial
+            && let Some(shift_rows) = plan.scroll_up_rows
+            && plan.cell_h_px > 0.0
+            && let Some(acc_texture) = self.frame_texture.as_ref()
+        {
+            let sh = (shift_rows as f32 * plan.cell_h_px).round() as i32;
+            if sh > 0 && sh < cfg_height as i32 {
+                let mut dst_y = 0i32;
+                while dst_y + sh <= cfg_height as i32 {
+                    encoder.copy_texture_to_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: acc_texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d {
+                                x: 0,
+                                y: (dst_y + sh) as u32,
+                                z: 0,
+                            },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::TexelCopyTextureInfo {
+                            texture: acc_texture,
+                            mip_level: 0,
+                            origin: wgpu::Origin3d {
+                                x: 0,
+                                y: dst_y as u32,
+                                z: 0,
+                            },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        wgpu::Extent3d {
+                            width: cfg_width,
+                            height: sh as u32,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                    dst_y += sh;
+                }
+            }
+        }
+
+        // Background / blur pass
         if let (
             Some(bg_bind_group),
             Some(blur_h),
@@ -340,12 +522,9 @@ impl Renderer {
             self.blur_v_pipeline.as_ref(),
             self.bg_blur_texture_view.as_ref(),
             self.bg_blur_bind_group.as_ref(),
-        ) && self.bg_blur_radius >= 0.5
+        ) && blur_active
         {
             {
-                // H pass renders the horizontal blur into the intermediate
-                // texture: it previously wrote the surface and
-                // was immediately overwritten by the V pass).
                 let mut h_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Blur H Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -368,8 +547,6 @@ impl Renderer {
                 h_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
             }
             {
-                // V pass samples the H-pass output and composites onto the
-                // surface with the configured alpha.
                 let mut v_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: Some("Blur V Pass"),
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -392,137 +569,134 @@ impl Renderer {
                 v_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
             }
         } else if self.bg_pipeline.is_some() && self.bg_bind_group.is_some() {
-            log::debug!(
-                "render_frame: drawing bg image (blur={})",
-                self.blur_h_pipeline.is_some()
-            );
             self.draw_background_pass(&mut *encoder, view, cfg_width, cfg_height);
         }
-        #[cfg(debug_assertions)]
-        encoder.pop_debug_group(); // Draw Background
 
-        #[cfg(debug_assertions)]
-        encoder.push_debug_group("Draw KGP");
-        if let (Some(kgp_pipeline), Some(kgp_bind_group)) =
-            (&self.kgp_pipeline, &self.kgp_bind_group)
-            && !kgp_instances.is_empty()
+        // ── Main merged pass: background → cells → KGP → flash ──────
+        // Load rules:
+        // - partial: always Load (bands composite over previous output)
+        // - blur already filled the target: Load
+        // - wallpaper without blur: Load (the bg quad below covers all)
+        // - plain background: Clear(bg_color) replaces the old dedicated
+        //   background pass entirely
+        let load = if partial || blur_active || bg_image_active {
+            wgpu::LoadOp::Load
+        } else {
+            wgpu::LoadOp::Clear(self.bg_color)
+        };
+        let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Main Render Pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load,
+                    store: wgpu::StoreOp::Store,
+                },
+                depth_slice: None,
+            })],
+            depth_stencil_attachment: None,
+            ..Default::default()
+        });
+        render_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
+        render_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
+
+        // Background image quad (full frames only).
+        if bg_image_active
+            && let (Some(bg_pipeline), Some(bg_bind_group)) =
+                (self.bg_pipeline.as_ref(), self.bg_bind_group.as_ref())
         {
-            let mut kgp_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("KGP Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-            kgp_pass.set_pipeline(kgp_pipeline);
-            kgp_pass.set_bind_group(0, kgp_bind_group, &[]);
-            kgp_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
-            kgp_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
-            kgp_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-            if let Some(ref ib) = self.kgp_instance_buffer {
-                kgp_pass.set_vertex_buffer(1, ib.slice(..));
-            }
-            kgp_pass.draw(0..QUAD_VERTEX_COUNT, 0..kgp_instances.len() as u32);
+            render_pass.set_pipeline(bg_pipeline);
+            render_pass.set_bind_group(0, bg_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+            render_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
         }
-        #[cfg(debug_assertions)]
-        encoder.pop_debug_group(); // Draw KGP
 
-        #[cfg(debug_assertions)]
-        encoder.push_debug_group("Draw Cells");
+        // Cells: either just the dirty bands or everything.
         {
-            let has_bg = self.bg_bind_group.is_some();
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Cell Render Pass"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: if has_bg {
-                            wgpu::LoadOp::Load
-                        } else {
-                            wgpu::LoadOp::Clear(self.bg_color)
-                        },
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-
-            let viewport_width = cfg_width as f32;
-            let viewport_height = cfg_height as f32;
-            render_pass.set_pipeline(pipeline);
-            render_pass.set_viewport(0.0, 0.0, viewport_width, viewport_height, 0.0, 1.0);
-            render_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
-
             if let Some(bind_group) = &self.cell_bind_group {
                 render_pass.set_pipeline(pipeline);
                 render_pass.set_bind_group(0, bind_group, &[]);
 
-                if !instances.is_empty() {
+                if !instances.is_empty() || partial {
                     render_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
                     if let Some(ref instance_buffer) = self.instance_buffer {
                         render_pass.set_vertex_buffer(1, instance_buffer.slice(..));
+                        if partial {
+                            if clear_count > 0 {
+                                render_pass.draw(0..QUAD_VERTEX_COUNT, 0..clear_count);
+                            }
+                            for band in dirty_bands {
+                                let start = band.instance_start as u32 + clear_count;
+                                let count = (band.instance_end - band.instance_start) as u32;
+                                if count > 0 {
+                                    render_pass.draw(0..QUAD_VERTEX_COUNT, start..start + count);
+                                }
+                            }
+                        } else {
+                            render_pass.draw(0..QUAD_VERTEX_COUNT, 0..instances.len() as u32);
+                        }
                     }
-                    render_pass.draw(0..QUAD_VERTEX_COUNT, 0..instances.len() as u32);
                 }
             }
         }
-        #[cfg(debug_assertions)]
-        encoder.pop_debug_group(); // Draw Cells
 
-        // ── Bell flash overlay ──────────────────────────────────────────
-        // Drawn above cells and kitty graphics; alpha decays with the phase
-        // that Kotlin pushes via `setFlashState` (phase 0 = nothing drawn).
-        // Runs only when the phase is non-zero so the hot frame path is
-        // untouched otherwise.
-        if self.flash_phase > 0.0 {
+        // Kitty graphics (full frames only — overlays arbitrary regions).
+        if kgp_present
+            && let (Some(kgp_pipeline), Some(kgp_bind_group)) =
+                (&self.kgp_pipeline, &self.kgp_bind_group)
+        {
+            render_pass.set_pipeline(kgp_pipeline);
+            render_pass.set_bind_group(0, kgp_bind_group, &[]);
+            render_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+            if let Some(ref ib) = self.kgp_instance_buffer {
+                render_pass.set_vertex_buffer(1, ib.slice(..));
+            }
+            render_pass.draw(0..QUAD_VERTEX_COUNT, 0..kgp_instances.len() as u32);
+        }
+
+        // Bell-flash overlay (full frames only — covers the screen).
+        if flash_active {
             self.ensure_flash_pipeline();
             if let (Some(flash_pipeline), Some(flash_bind_group)) =
                 (&self.flash_pipeline, &self.flash_bind_group)
             {
-                let mut flash_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Flash Render Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Load,
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    ..Default::default()
-                });
-                flash_pass.set_pipeline(flash_pipeline);
-                flash_pass.set_bind_group(0, flash_bind_group, &[]);
-                flash_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
-                flash_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
-                flash_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-                flash_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
+                render_pass.set_pipeline(flash_pipeline);
+                render_pass.set_bind_group(0, flash_bind_group, &[]);
+                render_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
+                render_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
             }
         }
+        drop(render_pass);
 
-        #[cfg(debug_assertions)]
-        encoder.pop_debug_group(); // Frame
+        // ── Present: one copy accumulator → swapchain ─────────────
+        if let Some(acc_texture) = self.frame_texture.as_ref() {
+            encoder.copy_texture_to_texture(
+                acc_texture.as_image_copy(),
+                frame_ctx.texture.texture.as_image_copy(),
+                wgpu::Extent3d {
+                    width: cfg_width.min(frame_ctx.texture.texture.width()),
+                    height: cfg_height.min(frame_ctx.texture.texture.height()),
+                    depth_or_array_layers: 1,
+                },
+            );
+        }
+        // A completed frame leaves the accumulator coherent.
+        if accumulator_view.is_some() {
+            self.frame_invalidated = false;
+        }
 
-        // Take ownership of encoder and texture to finish and present.
-        // The borrows on frame_ctx (encoder, view) end here.
+        // Submit + present
         let encoder = frame_ctx.encoder;
         let texture = frame_ctx.texture;
         self.queue.submit(std::iter::once(encoder.finish()));
         self.queue.present(texture);
 
-        log::debug!("render_frame: presented {} instances", instances.len());
+        log::debug!(
+            "render_frame: presented {} instances (partial={partial}, bands={})",
+            instances.len(),
+            dirty_bands.len(),
+        );
 
         Ok(())
     }
@@ -551,6 +725,7 @@ impl Renderer {
         selection: Option<crate::render::cell_builder::SelectionRange>,
         search_highlights: &[crate::render::cell_builder::SearchHighlight],
         dirty_rows: Option<&[bool]>,
+        scroll_up_rows: Option<u32>,
     ) -> Result<(), GpuError> {
         // Grid cell dimensions from the attached surface: quads must cover
         // the full grid (surface_w/cols x surface_h/rows), not the font
@@ -638,7 +813,44 @@ impl Renderer {
         // without aliasing the &mut self call (NLL cannot split these
         // borrows because both flow through the same receiver).
         let cpu_instances = std::mem::take(&mut self.cpu_instances);
-        let result = self.render_frame(&cpu_instances, &[]);
+        // Resolve the dirty-row mask into contiguous instance-slice bands
+        // for the GPU dirty-band path. Only valid when the cache is
+        // coherent (incremental build actually happened); otherwise the
+        // empty band list forces a full redraw.
+        let bands = self.cell_cache.as_ref().and_then(|cache| {
+            let mask = dirty_rows?;
+            if !cache.is_compatible(rows, cols) {
+                return None;
+            }
+            Some(
+                crate::render::cell_builder::compute_dirty_bands(mask)
+                    .into_iter()
+                    .map(|(start_row, end_row_exclusive)| {
+                        let (instance_start, instance_end) =
+                            cache.band_slice(start_row, end_row_exclusive);
+                        crate::render::cell_builder::DirtyBand {
+                            start_row,
+                            end_row_exclusive,
+                            instance_start,
+                            instance_end,
+                        }
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        });
+        // Scroll-blit geometry guard: only safe when the grid exactly fills
+        // the target vertically (otherwise shifting would smear margins).
+        let scroll_up_rows = scroll_up_rows.filter(|_| {
+            self.surface_config
+                .as_ref()
+                .is_some_and(|c| (rows as f32 * grid_cell_h - c.height as f32).abs() <= 2.0)
+        });
+        let plan = crate::render::cell_builder::FramePatch {
+            bands: bands.unwrap_or_default(),
+            scroll_up_rows,
+            cell_h_px: grid_cell_h,
+        };
+        let result = self.render_frame_with_plan(&cpu_instances, &[], &plan);
         self.cpu_instances = cpu_instances;
         result
     }
@@ -904,5 +1116,79 @@ mod tests {
             std::ptr::eq(tx1, tx2),
             "acquire_worker must return the same sender each call"
         );
+    }
+
+    // ── should_render_partial decision table (render-vulkan-performance) ──
+
+    /// `(ready, invalidated, bands, bg, blur, kgp, flash) -> partial`
+    fn partial(args: (bool, bool, usize, bool, bool, bool, bool)) -> bool {
+        Renderer::should_render_partial(args.0, args.1, args.2, args.3, args.4, args.5, args.6)
+    }
+
+    /// Band clear instances: one flat quad per band, covering the band's
+    /// full pixel rect (: stale cursor pixels persisted because
+    /// empty cells emit no covering quads over LoadOp::Load).
+    #[test]
+    fn band_clear_instances_cover_band_rect() {
+        let renderer = Renderer::new_with_no_surface();
+        let bands = vec![
+            crate::render::cell_builder::DirtyBand {
+                start_row: 0,
+                end_row_exclusive: 1,
+                instance_start: 0,
+                instance_end: 80,
+            },
+            crate::render::cell_builder::DirtyBand {
+                start_row: 3,
+                end_row_exclusive: 5,
+                instance_start: 240,
+                instance_end: 400,
+            },
+        ];
+        let cell_h = 44.0;
+        let clears = renderer.band_clear_instances(&bands, cell_h, 1080, 2400);
+        assert_eq!(clears.len(), 2, "one clear quad per band");
+        assert_eq!(clears[0].quad_origin, [0.0, 0.0]);
+        assert_eq!(clears[0].quad_size, [1080.0, cell_h]);
+        assert_eq!(clears[1].quad_origin, [0.0, 3.0 * cell_h]);
+        assert_eq!(clears[1].quad_size, [1080.0, 2.0 * cell_h]);
+        // Flat fill: no glyph, bg carries the clear color.
+        assert_eq!(clears[0].atlas_size, [0.0; 2]);
+        assert_eq!(clears[0].bg_color[3], 1.0);
+        // Degenerate geometry produces no clears.
+        assert!(
+            renderer
+                .band_clear_instances(&bands, 0.0, 1080, 2400)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn partial_happy_path() {
+        assert!(partial((true, false, 1, false, false, false, false)));
+    }
+
+    #[test]
+    fn partial_requires_accumulator() {
+        assert!(!partial((false, false, 1, false, false, false, false)));
+    }
+
+    #[test]
+    fn partial_requires_invalidated_false() {
+        assert!(!partial((true, true, 1, false, false, false, false)));
+    }
+
+    #[test]
+    fn partial_requires_bands() {
+        assert!(!partial((true, false, 0, false, false, false, false)));
+    }
+
+    #[test]
+    fn partial_rejected_by_overlays() {
+        // Any full-screen overlay forces a full redraw.
+        assert!(!partial((true, false, 1, true, false, false, false))); // bg image
+        assert!(!partial((true, false, 1, false, true, false, false))); // blur
+        assert!(!partial((true, false, 1, false, false, true, false))); // kgp
+        assert!(!partial((true, false, 1, false, false, false, true))); // flash
     }
 }

@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -55,7 +56,10 @@ class SessionManagementTest {
         composeTestRule.onNodeWithTag("SettingsButton").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("SettingsScreen").assertIsDisplayed()
-        // The drawer must be gone after navigating to settings.
-        composeTestRule.onNodeWithTag("SessionDrawer").assertDoesNotExist()
+        // The drawer must be closed after navigating to settings. Material3's
+        // ModalNavigationDrawer keeps the sheet composed while closed (it
+        // slides off-screen instead of unmounting), so assert collapsed, not
+        // absent.
+        composeTestRule.onNodeWithTag("SessionDrawer").assertIsNotDisplayed()
     }
 }

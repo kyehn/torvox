@@ -1252,7 +1252,7 @@ mod tests {
             parsed["active"].is_object(),
             "active should be present: {json}"
         );
-        assert_eq!(parsed["font_size_px"], 14.0);
+        assert_eq!(parsed["font_size"], 14.0);
         assert!(parsed["cell_width_px"].as_f64().is_some());
         assert!(parsed["cjk_families"].is_array());
     }

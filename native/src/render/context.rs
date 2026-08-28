@@ -179,9 +179,64 @@ pub struct Renderer {
     pub(crate) blur_v_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) render_paused: bool,
     pub(crate) pending_gpu_drain: bool,
+    /// Persistent offscreen frame accumulator (render-vulkan-performance):
+    /// authoritative frame content that survives across frames so partial
+    /// (dirty-band) frames can composite onto previous output. Presented
+    /// to the swapchain with one `copy_texture_to_texture` per frame.
+    pub(crate) frame_texture: Option<wgpu::Texture>,
+    /// True when the accumulator's content is stale/unknown and the next
+    /// frame MUST be a full redraw (first frame, resize, format change,
+    /// surface re-attach). Cleared after a successful full frame.
+    pub(crate) frame_invalidated: bool,
+    /// Whether the swapchain supports `COPY_DST` (checked against
+    /// `supported_usage_flags` at attach time). When false, the legacy
+    /// direct-to-swapchain path is used and dirty bands are ignored.
+    pub(crate) swapchain_copy_supported: bool,
 }
 
 impl Renderer {
+    /// Get (or recreate) the persistent frame accumulator view. Returns
+    /// `None` when accumulation is unsupported or texture creation fails.
+    /// A size/format mismatch recreates the texture AND flags the next
+    /// frame as a full redraw (`frame_invalidated`).
+    pub(crate) fn ensure_frame_texture(
+        &mut self,
+        width: u32,
+        height: u32,
+        format: wgpu::TextureFormat,
+    ) -> Option<wgpu::TextureView> {
+        if !self.swapchain_copy_supported {
+            return None;
+        }
+        let needs_new = match self.frame_texture.as_ref() {
+            Some(t) => t.width() != width || t.height() != height || t.format() != format,
+            None => true,
+        };
+        if needs_new {
+            log::info!("ensure_frame_texture: creating accumulator {width}x{height} ({format:?})");
+            self.frame_texture = Some(self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Frame Accumulator"),
+                size: wgpu::Extent3d {
+                    width,
+                    height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                view_formats: &[],
+            }));
+            // Fresh texture has undefined content: the next frame must be
+            // a full redraw.
+            self.frame_invalidated = true;
+        }
+        self.frame_texture
+            .as_ref()
+            .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()))
+    }
+
     /// Acquire the surface texture and create a FrameContext for this frame.
     /// Returns `None` if acquire fails (lost surface, timeout, or hung GPU).
     pub(crate) fn begin_frame(&mut self) -> Option<FrameContext> {
@@ -257,6 +312,7 @@ impl Renderer {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
+        self.frame_texture = None;
         self.cell_bind_group = None;
         self.instance_buffer = None;
         self.cell_pipeline = None;
@@ -358,6 +414,9 @@ impl Renderer {
             blur_v_pipeline: None,
             render_paused: false,
             pending_gpu_drain: false,
+            frame_texture: None,
+            frame_invalidated: true,
+            swapchain_copy_supported: false,
         }
     }
 
@@ -459,6 +518,10 @@ impl Renderer {
         // safe.
         self.surface = None;
         self.surface_config = None;
+        // Accumulator content belongs to the old surface; force a full
+        // redraw after re-attach.
+        self.frame_texture = None;
+        self.frame_invalidated = true;
         let surface = std::sync::Arc::new(surface);
         // The default config picks a present mode + format the driver
         // supports; RENDER_SCALE mirrors reconfigure_swapchain (a fixed
@@ -466,6 +529,18 @@ impl Renderer {
         let scaled_width = ((width as f32 * crate::render::RENDER_SCALE) as u32).max(1);
         let scaled_height = ((height as f32 * crate::render::RENDER_SCALE) as u32).max(1);
         let caps = surface.get_capabilities(&self.adapter);
+        // Dirty-band compositing needs the swapchain texture to accept a
+        // copy from the frame accumulator. Universally supported on
+        // Vulkan; if an exotic driver omits it we fall back to legacy
+        // direct-to-swapchain rendering (full redraws only).
+        // (wgpu 30 renamed `supported_usage_flags` → `usages`.)
+        let swapchain_copy_supported = caps.usages.contains(wgpu::TextureUsages::COPY_DST);
+        self.swapchain_copy_supported = swapchain_copy_supported;
+        let usage = if swapchain_copy_supported {
+            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_DST
+        } else {
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+        };
         // Prefer the non-sRGB variant: Android SurfaceFlinger defaults to
         // RGBA_8888 (non-sRGB); SwiftShader-on-emulator buffer queues fail
         // to allocate (dequeueBuffer timeout) when the swapchain format
@@ -480,14 +555,25 @@ impl Renderer {
                 GpuError::Surface("attach_surface: no supported surface formats".into())
             })?;
         let config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage,
             format,
             width: scaled_width,
             height: scaled_height,
-            present_mode: wgpu::PresentMode::Fifo,
+            present_mode: Self::select_present_mode(&caps),
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
             view_formats: vec![],
-            desired_maximum_frame_latency: 1,
+            // Three buffers (max_frame_latency=3): with FIFO vsync and a
+            // single buffer the render thread blocks in acquire until the
+            // display consumes the previous frame, so any frame that takes
+            // longer than one vsync period stalls the whole pipeline and
+            // frame times alias to vsync multiples (measured 20-30 fps on a
+            // Mali device). With three buffers acquire returns immediately,
+            // the render pipeline decouples from the display scanout, and
+            // Mailbox (when the driver advertises it, selected above) drops
+            // the oldest queued frame instead of backpressuring the render
+            // thread — the right trade-off for a scrolling terminal where
+            // the newest frame always wins.
+            desired_maximum_frame_latency: 3,
             color_space: wgpu::SurfaceColorSpace::Srgb,
         };
         // view_formats is deliberately empty on Android: the platform lacks
@@ -531,6 +617,8 @@ impl Renderer {
     pub fn release_surface(&mut self) {
         self.surface = None;
         self.surface_config = None;
+        self.frame_texture = None;
+        self.frame_invalidated = true;
         log::info!("release_surface: surface dropped");
     }
 
@@ -550,6 +638,10 @@ impl Renderer {
             b: background[2] as f64 / 255.0,
             a: 1.0,
         };
+        // The clear color only lands on full frames (margins outside the
+        // grid quads are never repainted by partial frames) — force the
+        // next frame to be full so theme switches repaint everywhere.
+        self.frame_invalidated = true;
     }
 
     pub fn set_render_paused(&mut self, paused: bool) {
@@ -718,11 +810,16 @@ impl Renderer {
         });
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        // Text atlas is sampled 1:1 (glyph raster pixels == screen pixels via
+        // raster_scale = density * fontScale). Nearest keeps glyphs sharp;
+        // Linear interpolates across texel borders and renders text blurry —
+        // the "font blur" reports on real devices. This also skips per-texel
+        // bilinear filtering cost in software Vulkan (Lavapipe/SwiftShader).
         let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Linear,
-            min_filter: wgpu::FilterMode::Linear,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
             ..Default::default()
         });
 
@@ -923,7 +1020,14 @@ pub(crate) static GLOBAL_SURFACE: OnceLock<parking_lot::Mutex<Option<CachedSurfa
 impl Renderer {
     #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn select_present_mode(caps: &wgpu::SurfaceCapabilities) -> wgpu::PresentMode {
-        if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
+        // 120fps+ requires decoupling from display vsync: fps and Hz are
+        // unrelated. Prefer Immediate (no vsync, no backpressure) when
+        // available so the pipeline can sustain 120+ present calls per
+        // second even on 60Hz panels (tearing preferred over stalling).
+        // Mailbox/Fifo would cap at display Hz and throttle the terminal.
+        if caps.present_modes.contains(&wgpu::PresentMode::Immediate) {
+            wgpu::PresentMode::Immediate
+        } else if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
             wgpu::PresentMode::Mailbox
         } else if caps.present_modes.contains(&wgpu::PresentMode::Fifo) {
             wgpu::PresentMode::Fifo

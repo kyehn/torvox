@@ -8,6 +8,10 @@ pub(super) const OUTLINE_BONUS: u8 = 10;
 /// the current system locale tag (e.g. "sc" for Simplified Chinese).
 const CJK_LOCALE_BONUS: i16 = 6;
 
+/// Penalty subtracted from serif CJK families so sans CJK always wins the
+/// fallback tie-break (serif reads as 宋体 next to a sans terminal font).
+const CJK_SERIF_PENALTY: i16 = 4;
+
 /// Priority for well-known CJK font families (Noto Sans/Serif CJK, Source Han,
 /// Droid Sans Fallback, WenQuanYi).
 const CJK_PRIORITY_KNOWN_FAMILY: u8 = 5;
@@ -110,38 +114,16 @@ impl FontPipeline {
         let ids = self.scan_fallback_candidates(
             &test_chars,
             Self::is_cjk_candidate_family,
-            |family_name| {
-                let is_locale_match = !locale_tag.is_empty() && family_name.contains(locale_tag);
-                let locale_boost = if is_locale_match { CJK_LOCALE_BONUS } else { 0 };
-                let base_priority: i16 = if family_name.contains("noto sans sc")
-                    || family_name.contains("noto sans tc")
-                    || family_name.contains("noto sans hk")
-                    || family_name.contains("noto sans jp")
-                    || family_name.contains("noto sans kr")
-                    || family_name.contains("noto sans cjk")
-                    || family_name.contains("noto serif cjk")
-                    || family_name.contains("noto sans mono cjk")
-                    || family_name.contains("source han")
-                    || family_name.contains("droid sans fallback")
-                    || family_name.contains("wenquanyi")
-                {
-                    CJK_PRIORITY_KNOWN_FAMILY as i16
-                } else if family_name.contains("cjk") {
-                    CJK_PRIORITY_GENERIC_CJK as i16
-                } else if family_name.contains("sc")
-                    || family_name.contains("tc")
-                    || family_name.contains("jp")
-                    || family_name.contains("kr")
-                {
-                    CJK_PRIORITY_LOCALE_TAG as i16
-                } else {
-                    CJK_PRIORITY_FALLBACK as i16
-                };
-                base_priority + locale_boost as i16
-            },
+            |family_name| cjk_family_priority(family_name, locale_tag),
             MAX_CJK_FALLBACK_FONTS,
         );
-        self.cjk_fallback_ids = ids;
+        self.cjk_fallback_ids = ids.clone();
+        if ids.is_empty() {
+            log::warn!(
+                "WARN FontFallback script=Han fallback missing, tried CJK scan with {} candidates; fallback list empty",
+                self.cjk_fallback_ids.len()
+            );
+        }
         log::debug!(
             "CJK_FALLBACK: found {} fallback fonts (limited to {})",
             self.cjk_fallback_ids.len(),
@@ -634,5 +616,76 @@ mod tests {
         assert!(!FontPipeline::is_symbol_candidate_family(""));
         assert!(!FontPipeline::is_nerd_candidate_family(""));
         assert!(!FontPipeline::is_emoji_candidate_family(""));
+    }
+}
+
+/// CJK fallback family priority (higher wins). Sans CJK families outrank
+/// serif CJK: serif renders as 宋体/SimSun-style, visually jarring next to a
+/// sans/mono terminal font (user report "中文显示为宋体" — both
+/// NotoSansCJK and NotoSerifCJK ship in /system/fonts and the old equal
+/// priority let load order pick Serif).
+fn cjk_family_priority(family_name: &str, locale_tag: &str) -> i16 {
+    let is_locale_match = !locale_tag.is_empty() && family_name.contains(locale_tag);
+    let locale_boost = if is_locale_match { CJK_LOCALE_BONUS } else { 0 };
+    let base_priority: i16 = if family_name.contains("noto sans sc")
+        || family_name.contains("noto sans tc")
+        || family_name.contains("noto sans hk")
+        || family_name.contains("noto sans jp")
+        || family_name.contains("noto sans kr")
+        || family_name.contains("noto sans cjk")
+        || family_name.contains("noto sans mono cjk")
+        || family_name.contains("source han")
+        || family_name.contains("droid sans fallback")
+        || family_name.contains("wenquanyi")
+    {
+        CJK_PRIORITY_KNOWN_FAMILY as i16
+    } else if family_name.contains("noto serif cjk") {
+        CJK_PRIORITY_KNOWN_FAMILY as i16 - CJK_SERIF_PENALTY
+    } else if family_name.contains("cjk") {
+        CJK_PRIORITY_GENERIC_CJK as i16
+    } else if family_name.contains("sc")
+        || family_name.contains("tc")
+        || family_name.contains("jp")
+        || family_name.contains("kr")
+    {
+        CJK_PRIORITY_LOCALE_TAG as i16
+    } else {
+        CJK_PRIORITY_FALLBACK as i16
+    };
+    base_priority + locale_boost as i16
+}
+
+#[cfg(test)]
+mod cjk_priority_tests {
+    use super::*;
+
+    /// Sans CJK must outrank serif CJK regardless of locale (宋体 complaint).
+    #[test]
+    fn sans_cjk_outranks_serif_cjk() {
+        assert!(
+            cjk_family_priority("noto sans cjk", "") > cjk_family_priority("noto serif cjk", "")
+        );
+        assert!(
+            cjk_family_priority("noto sans cjk sc", "sc")
+                > cjk_family_priority("noto serif cjk sc", "sc")
+        );
+    }
+
+    /// Locale-matching families get the boost on top of their base priority.
+    #[test]
+    fn locale_boost_applies() {
+        assert!(
+            cjk_family_priority("droid sans fallback", "")
+                < cjk_family_priority("noto sans cjk jp", "jp")
+        );
+    }
+
+    /// Unknown CJK-capable families still qualify at fallback priority.
+    #[test]
+    fn unknown_family_gets_fallback_priority() {
+        assert_eq!(
+            cjk_family_priority("some han font", ""),
+            CJK_PRIORITY_FALLBACK as i16
+        );
     }
 }

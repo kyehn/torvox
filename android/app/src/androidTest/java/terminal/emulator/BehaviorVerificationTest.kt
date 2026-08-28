@@ -5,6 +5,7 @@ import android.view.View
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -43,6 +44,18 @@ class BehaviorVerificationTest {
         device.waitForIdle(2000)
     }
 
+    private fun openSettings() {
+        openSessionDrawer()
+        composeRule.onNodeWithText("Settings").performClick()
+        device.waitForIdle(2000)
+    }
+
+    private fun scrollToNode(tag: String) {
+        composeRule
+            .onNodeWithTag("SettingsLazyColumn", useUnmergedTree = false)
+            .performScrollToNode(hasTestTag(tag))
+    }
+
     @Test
     fun terminal_view_displayed_on_launch() {
         composeRule.waitForSession()
@@ -75,6 +88,10 @@ class BehaviorVerificationTest {
     fun session_drawer_close_on_back_press() {
         composeRule.waitForSession()
         openSessionDrawer()
+        // The drawer must actually be open, otherwise BACK would finish the
+        // activity instead of collapsing the drawer (which surfaces as the
+        // misleading "No compose hierarchies" error downstream).
+        composeRule.onNodeWithTag("SessionDrawer").assertIsDisplayed()
         device.waitForIdle(1000)
         device.pressBack()
         device.waitForIdle(1000)
@@ -90,13 +107,13 @@ class BehaviorVerificationTest {
 
     @Test
     fun settings_screen_sections_displayed() {
-        composeRule.waitForSession()
-        openSessionDrawer()
-        composeRule.onNodeWithText("Settings").performClick()
-        device.waitForIdle(2000)
+        openSettings()
 
-        composeRule.onNodeWithTag("AppThemeSelector", useUnmergedTree = false).assertIsDisplayed()
+        scrollToNode("FontSizeSlider")
         composeRule.onNodeWithTag("FontSizeSlider", useUnmergedTree = false).assertIsDisplayed()
+        scrollToNode("AppThemeSelector")
+        composeRule.onNodeWithTag("AppThemeSelector", useUnmergedTree = false).assertIsDisplayed()
+        scrollToNode("TerminalThemeModeSelector")
         composeRule
             .onNodeWithTag("TerminalThemeModeSelector", useUnmergedTree = false)
             .assertIsDisplayed()
@@ -119,32 +136,24 @@ class BehaviorVerificationTest {
 
     @Test
     fun settings_font_slider_exists() {
-        composeRule.waitForSession()
-        openSessionDrawer()
-        composeRule.onNodeWithText("Settings").performClick()
-        device.waitForIdle(2000)
+        openSettings()
+        scrollToNode("FontSizeSlider")
         composeRule.onNodeWithTag("FontSizeSlider", useUnmergedTree = false).assertIsDisplayed()
     }
 
     @Test
     fun settings_theme_example_displays() {
-        composeRule.waitForSession()
-        openSessionDrawer()
-        composeRule.onNodeWithText("Settings").performClick()
-        device.waitForIdle(2000)
-        composeRule
-            .onNodeWithTag("SettingsLazyColumn", useUnmergedTree = false)
-            .performScrollToNode(hasTestTag("ThemeSelector"))
-        composeRule.onNodeWithTag("ThemeSelector", useUnmergedTree = false).assertIsDisplayed()
+        openSettings()
+        scrollToNode("ThemeSelector")
+        // themeMode=follow_system renders two theme selector rows (Day and
+        // Night previews) — assert on the first of them.
+        composeRule.onAllNodes(hasTestTag("ThemeSelector")).onFirst().assertIsDisplayed()
     }
 
     @Test
     fun app_theme_day_night_buttons_displayed() {
-        composeRule.waitForSession()
-        openSessionDrawer()
-        composeRule.onNodeWithText("Settings").performClick()
-        device.waitForIdle(2000)
-
+        openSettings()
+        scrollToNode("AppThemeSelector")
         composeRule.onNodeWithTag("AppTheme_day").assertIsDisplayed()
         composeRule.onNodeWithTag("AppTheme_night").assertIsDisplayed()
         composeRule.onNodeWithTag("AppTheme_follow_system").assertIsDisplayed()

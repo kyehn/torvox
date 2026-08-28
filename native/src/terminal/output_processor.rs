@@ -13,6 +13,7 @@
 //! Extracted from `Session::process_output` to improve locality and testability.
 
 use crate::terminal::osc_handler::{OscEvent, OscHandler};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Maximum bytes to capture between OSC 133 B and C markers.
 /// Prevents unbounded memory growth from runaway output (e.g., `cat /dev/urandom | xxd`).
@@ -95,6 +96,14 @@ pub struct OutputProcessor {
     skip_terminator: bool,
     /// True after the `ESC` of an ST (`ESC \`) terminator.
     st_esc: bool,
+    /// P1-1 `new_output` flag (dual-flag protocol, see
+    /// docs/reference/dual-flag-protocol.md): set when a non-empty PTY
+    /// chunk is ingested ([`Self::process`]), read-and-cleared by the
+    /// render thread via [`Self::take_new_output`]. Independent from the
+    /// P2-1 `dirty` flag: new output may reset the viewport to the
+    /// bottom; dirty (selection/highlight/font-size changes) must only
+    /// trigger a repaint, never a scroll reset.
+    new_output: AtomicBool,
 }
 
 impl Default for OutputProcessor {
@@ -114,7 +123,15 @@ impl OutputProcessor {
             pending: Vec::with_capacity(8),
             skip_terminator: false,
             st_esc: false,
+            new_output: AtomicBool::new(false),
         }
+    }
+
+    /// Take and clear the `new_output` flag (single-consumer read-clear;
+    /// the render thread is the only reader). Returns true if any PTY
+    /// output was ingested since the last take.
+    pub fn take_new_output(&self) -> bool {
+        self.new_output.swap(false, Ordering::AcqRel)
     }
 
     /// Take the OSC 133 last-command-output text (captured between the B
@@ -205,6 +222,12 @@ impl OutputProcessor {
 
     /// Process a raw output chunk and return a snapshot of decoded events.
     pub fn process(&mut self, data: &[u8]) -> OutputSnapshot {
+        // P1-1: PTY ingest → raise `new_output` (bypass flag, not a queued
+        // event — see docs/reference/dual-flag-protocol.md). Empty chunks
+        // carry no output and do not count.
+        if !data.is_empty() {
+            self.new_output.store(true, Ordering::Release);
+        }
         self.scan_osc133(data);
         self.osc_handler.process(data);
 
@@ -274,6 +297,37 @@ mod tests {
         let mut proc = OutputProcessor::new();
         let snap = proc.process(b"no bell here");
         assert!(!snap.bel);
+    }
+
+    // ── P1-1 new_output flag (dual-flag protocol) ────────────────────
+
+    #[test]
+    fn pty_write_raises_new_output_flag() {
+        let mut proc = OutputProcessor::new();
+        // Idle before any ingest: flag must be clear.
+        assert!(!proc.take_new_output());
+        // PTY write → flag true.
+        let _ = proc.process(b"echo hi\r\n");
+        assert!(proc.take_new_output());
+        // Single-consumer read-clear: a second take sees false.
+        assert!(!proc.take_new_output());
+    }
+
+    #[test]
+    fn idle_keeps_new_output_flag_clear() {
+        let mut proc = OutputProcessor::new();
+        let _ = proc.process(b"first chunk");
+        assert!(proc.take_new_output());
+        // No further PTY writes: the flag stays clear across takes.
+        assert!(!proc.take_new_output());
+        assert!(!proc.take_new_output());
+    }
+
+    #[test]
+    fn empty_chunk_does_not_raise_new_output_flag() {
+        let mut proc = OutputProcessor::new();
+        let _ = proc.process(b"");
+        assert!(!proc.take_new_output());
     }
 
     #[test]

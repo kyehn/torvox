@@ -3,6 +3,7 @@ package terminal.emulator.runtime
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.os.SystemClock
 import android.view.Surface
 import androidx.compose.ui.graphics.Color
@@ -56,12 +57,46 @@ data class RuntimeState(
 )
 
 /**
+ * Window after a user scroll gesture during which new output must NOT yank the viewport back to the
+ * bottom (P1-1 recentlyScrolled guard; branch-B semantics, kept off in the default termux-parity
+ * path by feeding a zero timestamp — see [shouldResetScroll]).
+ */
+const val RECENT_SCROLL_WINDOW_NANOS: Long = 100_000_000L
+
+/**
+ * P1-1 scroll-reset decision (termux `onScreenUpdated` parity, pure and side-effect free so it can
+ * be table-driven tested).
+ *
+ * termux semantics (TerminalView.java onScreenUpdated, verified against termux-app master): new
+ * output scrolls the viewport back to the bottom UNLESS text selection is active or auto-scroll is
+ * explicitly disabled. Verified against source: termux's `isAutoScrollDisabled()` is an explicit
+ * host-app toggle (`toggleAutoScrollDisabled()`), NOT raised by user scrolling — so the default
+ * here matches termux branch A (recentlyScrolled stays false); branch B may pass a
+ * gesture-time-window predicate later.
+ *
+ * @param scrollActive SCROLL-button explicit lock (user wants to stay browsing; maps to termux's
+ *   explicit auto-scroll disable).
+ * @param hasSelectionOrDrag selection active or handle drag in progress (maps to termux's
+ *   `isSelectingText()` / skipScrolling parameter).
+ * @param newOutput native PTY-ingest flag consumed this frame (NOT the render() count, which also
+ *   counts cursor-blink repaints).
+ * @param recentlyScrolled true within [RECENT_SCROLL_WINDOW_NANOS] of a UI scroll gesture; the
+ *   caller passes the real window check so a brief in-flight scroll is not yanked by an output
+ *   burst landing mid-gesture (100 ms guard — a deliberate improvement over raw termux parity).
+ */
+internal fun shouldResetScroll(
+    scrollActive: Boolean,
+    hasSelectionOrDrag: Boolean,
+    newOutput: Boolean,
+    recentlyScrolled: Boolean = false,
+): Boolean = newOutput && !hasSelectionOrDrag && !scrollActive && !recentlyScrolled
+
+/**
  * Session state is encoded in two booleans:
- * - running=true, renderThreadExited=false  → alive
- * - running=true, renderThreadExited=true   → dead (needs cleanup)
- * - running=false, renderThreadExited=*     → stopped (stale entry; skip)
- * renderThreadExited is set by the render thread after loop exit;
- * always read under sessionLock alongside running.
+ * - running=true, renderThreadExited=false → alive
+ * - running=true, renderThreadExited=true → dead (needs cleanup)
+ * - running=false, renderThreadExited=* → stopped (stale entry; skip) renderThreadExited is set by
+ *   the render thread after loop exit; always read under sessionLock alongside running.
  */
 internal data class SessionEntry(
     val id: Long,
@@ -121,13 +156,18 @@ internal data class SessionEntry(
     // window: the old thread's exit event is consumed, polling the dead
     // session would re-trigger fast-death (double respawn race) — the
     // respawn thread restarts the render thread itself.
-    // auto-reset scroll offset when new PTY output arrives while
-    // the user is scrolled up (browsing history). The render thread sets this;
-    // TerminalSurface reads and clears it during composition.
-    @Volatile var scrollResetRequested: Boolean = false,
     // when true (SCROLL button active), new output should NOT
     // auto-reset scroll — the user intentionally wants to stay browsing.
     @Volatile var scrollActive: Boolean = false,
+    // P1-1: timestamp (System.nanoTime) of the last UI-thread scroll
+    // gesture (written in setScrollOffset). The render thread reads it to
+    // compute the recentlyScrolled guard; 0L means "never scrolled".
+    @Volatile var lastScrollNanos: Long = 0L,
+    // Input→echo latency probe (emulator-performance-verification): input
+    // stamps land in writeToPty AND in Bridge.onPtyWrite (hardware-key path
+    // bypasses writeToPty), echo pairing happens in the render loop when a
+    // frame consumes the native new_output flag.
+    val latencyProbe: LatencyProbe = LatencyProbe(),
     @Volatile var fastDeathRetryScheduled: Boolean = false,
     // the shell exited and the [Process completed (code X)]
     // prompt was fed to the terminal (see feedProcessCompletedPrompt).
@@ -156,11 +196,17 @@ internal data class SessionEntry(
     // periodic frame tick re-renders). Coalescing signals inherently
     // allows this; the alternative (per-signal queue) is overkill here.
 
-    val renderSignaled =
-        java.util.concurrent.atomic
-            .AtomicBoolean(false)
+    val renderSignaled = java.util.concurrent.atomic.AtomicBoolean(false)
 
     @Volatile var forceRenderRequested: Boolean = false
+
+    // P2-1 vsync alignment (warp semantics): raised by the Choreographer
+    // frame callback on the MAIN thread every display frame. The callback is
+    // SIGNAL-ONLY — it never touches the surface Mutex and never calls
+    // bridge.render() directly (mutex starvation precedent: a non-render-
+    // thread render call hung on the surface Mutex and permanently blocked
+    // the real render thread). Consumed by the render loop's wake gate.
+    @Volatile var vsyncRequested: Boolean = false
 
     @Volatile var lastRenderStart: Long = 0L
 
@@ -173,8 +219,7 @@ internal data class SessionEntry(
         lastSignalNanos = System.nanoTime()
         renderSignaled.set(true)
         renderThreadRef?.let {
-            java.util.concurrent.locks.LockSupport
-                .unpark(it)
+            java.util.concurrent.locks.LockSupport.unpark(it)
         }
     }
 
@@ -211,11 +256,10 @@ constructor(
     private val bellHandler = BellHandler(context)
 
     /**
-     * invoked from the render loop after every presented frame
-     * render thread). Lets the SurfaceView refresh its accessibility
-     * contentDescription — the SurfaceView is self-drawn and has no text
-     * nodes, so the render loop is the only content-changed signal.
-     * Must return quickly; the callback may post to the main thread.
+     * invoked from the render loop after every presented frame render thread). Lets the SurfaceView
+     * refresh its accessibility contentDescription — the SurfaceView is self-drawn and has no text
+     * nodes, so the render loop is the only content-changed signal. Must return quickly; the callback
+     * may post to the main thread.
      */
     @Volatile var onFrameRendered: (() -> Unit)? = null
 
@@ -242,17 +286,84 @@ constructor(
             }
         }
     }
+
     private val _state = MutableStateFlow(RuntimeState())
     val state: StateFlow<RuntimeState> = _state.asStateFlow()
 
     private val sessions = ConcurrentHashMap<Long, SessionEntry>()
+
+    // ── P2-1 vsync frame-callback chain (warp semantics) ─────────────
+    // Posts UI work to the main looper (Choreographer.getInstance()
+    // requires a Looper; TerminalRuntime itself may be built on any
+    // thread via DI).
+    private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /**
+     * Idempotence guard: exactly one self-rescheduling callback chain per process (CAS-guarded; reset
+     * on registration failure to allow retry).
+     */
+    private val vsyncChainStarted = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /**
+     * The single self-rescheduling Choreographer frame callback: each display frame IS the vsync
+     * signal. It only raises [SessionEntry.vsyncRequested] + unparks the render thread via
+     * [SessionEntry.notifyRender] — the render thread owns all rendering (design D3: main thread
+     * never touches the surface Mutex).
+     *
+     * The chain re-posts itself unconditionally at the end of every frame, whether or not a frame is
+     * pushed: RenderState's deferred fields (search_highlights / selection / pending_flash_phase)
+     * rely on per-frame consumption, so a broken chain would silently freeze them.
+     */
+    private val vsyncFrameCallback =
+        object : android.view.Choreographer.FrameCallback {
+            override fun doFrame(frameTimeNanos: Long) {
+                // Lock-free read: sessions is a ConcurrentHashMap and
+                // activeSessionId is @Volatile.
+                val entry = sessions[activeSessionId]
+                if (entry != null) {
+                    entry.vsyncRequested = true
+                    entry.notifyRender()
+                }
+                // Self-reschedule (warp pattern): keep the chain alive at
+                // display refresh rate regardless of whether this frame
+                // produced a paint.
+                android.view.Choreographer.getInstance().postFrameCallback(this)
+            }
+        }
+
+    /**
+     * Starts the vsync frame-callback chain on the main looper. Idempotent: CAS guard ensures a
+     * single chain for the process.
+     */
+    private fun ensureVsyncChainStarted() {
+        if (!vsyncChainStarted.compareAndSet(false, true)) return
+        mainHandler.post {
+            try {
+                android.view.Choreographer.getInstance().postFrameCallback(vsyncFrameCallback)
+                LogUtil.d("Runtime", "vsync frame callback chain started")
+            } catch (exception: Exception) {
+                // Allow a later session start to retry the registration.
+                vsyncChainStarted.set(false)
+                LogUtil.e("Runtime", "vsync frame callback registration failed", exception)
+            }
+        }
+    }
 
     // MCP dialog / file-pick requests from the embedded MCP server.
     // Wired by the UI layer (e.g. MainActivity) via setDialogRequestHandler;
     // responses are sent back through NativeBridge.dialogResult.
     @Volatile
     var dialogRequestHandler:
-        ((sessionId: Long, requestId: Long, dialogType: String, title: String, message: String, options: List<String>) -> Unit)? =
+        (
+            (
+                sessionId: Long,
+                requestId: Long,
+                dialogType: String,
+                title: String,
+                message: String,
+                options: List<String>,
+            ) -> Unit
+        )? =
         null
 
     @Volatile
@@ -263,8 +374,7 @@ constructor(
     // called when the native MCP tool call times out
     // (300s) so the still-visible dialog is dismissed. Wired by the UI
     // layer alongside dialogRequestHandler.
-    @Volatile
-    var dialogCancelHandler: ((sessionId: Long, requestId: Long) -> Unit)? = null
+    @Volatile var dialogCancelHandler: ((sessionId: Long, requestId: Long) -> Unit)? = null
 
     @Volatile var accentColor: Int = 0xFF2196F3.toInt()
 
@@ -274,15 +384,19 @@ constructor(
 
     @Volatile var cellHeight: Float = 0f
 
+    // ⑥ last font size pushed to native (tenths). Zoom gestures anchor to
+    // this so the preview/finalize math starts from the actually rendered
+    // size, not the raw settings value (which can differ when the size was
+    // never explicitly set).
+    @Volatile internal var appliedFontSizeTenths: Int = 0
+
     // Logical pixel cell dimensions (for grid row/col computation).
     // These are the raw native values WITHOUT density scaling.
     @Volatile var logicalCellWidth: Float = 0f
 
     @Volatile var logicalCellHeight: Float = 0f
 
-    private val renderGeneration =
-        java.util.concurrent.atomic
-            .AtomicInteger(0)
+    private val renderGeneration = java.util.concurrent.atomic.AtomicInteger(0)
 
     @Volatile private var activeSessionId: Long = 0L
 
@@ -291,10 +405,9 @@ constructor(
 
     /**
      * Failsafe session request (termux-compatible app shortcut extra
-     * `com.termux.app.failsafe_session`): the next session starts with the
-     * system shell and no prefix bootstrap, so a broken bootstrap cannot
-     * brick terminal access. Consumed (not reset) by buildConfig; a second
-     * shortcut tap while a session is already up is a no-op because torvox
+     * `com.termux.app.failsafe_session`): the next session starts with the system shell and no prefix
+     * bootstrap, so a broken bootstrap cannot brick terminal access. Consumed (not reset) by
+     * buildConfig; a second shortcut tap while a session is already up is a no-op because torvox
      * keeps a single session (see start()'s `sessions.isNotEmpty()` guard).
      */
     @Volatile
@@ -303,15 +416,17 @@ constructor(
 
     fun requestFailsafeSession() {
         failsafeRequested = true
-        LogUtil.w("Runtime", "Failsafe session requested — next start uses /system/bin/sh without prefix")
+        LogUtil.w(
+            "Runtime",
+            "Failsafe session requested — next start uses /system/bin/sh without prefix",
+        )
     }
 
     /**
-     * Serialises surface lifecycle transitions (pause/resume). Both
-     * [pauseRendering] and [resumeRendering] run on this single thread so
-     * that surface-destroy → surface-available ordering is preserved;
-     * running them on different threads can leave a fresh surface without
-     * a render thread (async pause stopping a just-started resume).
+     * Serialises surface lifecycle transitions (pause/resume). Both [pauseRendering] and
+     * [resumeRendering] run on this single thread so that surface-destroy → surface-available
+     * ordering is preserved; running them on different threads can leave a fresh surface without a
+     * render thread (async pause stopping a just-started resume).
      */
     private val surfaceTransitionExecutor: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { runnable ->
@@ -334,29 +449,28 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Answer MCP clipboard_get / OSC 52 read requests: read the system
-     * clipboard and reply via [NativeBridge.clipboardResult]. Empty text is
-     * a legitimate result; only exceptions produce an empty fallback reply.
+     * Answer MCP clipboard_get / OSC 52 read requests: read the system clipboard and reply via
+     * [NativeBridge.clipboardResult]. Empty text is a legitimate result; only exceptions produce an
+     * empty fallback reply.
      */
-    private fun dispatchClipboardRequests(requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>) {
+    private fun dispatchClipboardRequests(
+        requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>,
+    ) {
         requests.forEach { request ->
             try {
                 val text = clipboardAccess.clipboardText().orEmpty()
-                NativeBridge
-                    .clipboardResult(request.sessionId, request.requestId, text)
+                NativeBridge.clipboardResult(request.sessionId, request.requestId, text)
             } catch (exception: Exception) {
                 // Class only: exception messages can embed clipboard text.
                 LogUtil.e("Runtime", "clipboard request dispatch failed: ${exception.javaClass.simpleName}")
-                NativeBridge
-                    .clipboardResult(request.sessionId, request.requestId, "")
+                NativeBridge.clipboardResult(request.sessionId, request.requestId, "")
             }
         }
     }
 
     /**
-     * print the [Process completed (code X)] - press Enter
-     * prompt directly into the VT parser (the child is gone, so the PTY
-     * no longer carries writes; the screen must be updated in-band).
+     * print the [Process completed (code X)] - press Enter prompt directly into the VT parser (the
+     * child is gone, so the PTY no longer carries writes; the screen must be updated in-band).
      */
     private fun feedProcessCompletedPrompt(entry: SessionEntry, exitCode: Int) {
         val text = PROCESS_COMPLETED_PROMPT_PREFIX + exitCode + PROCESS_COMPLETED_PROMPT_SUFFIX
@@ -369,12 +483,11 @@ constructor(
     }
 
     /**
-     * for the foreground session, keep it visible after the
-     * shell exits and show a [Process completed] prompt instead of closing
-     * immediately (termux-app TerminalSession.java:353-364 semantics). The
-     * entry stays in the session map with running=true until the user
-     * presses Enter, which then closes it. Returns true when the prompt was
-     * shown (caller should return early and NOT close the session).
+     * for the foreground session, keep it visible after the shell exits and show a
+     * [Process completed] prompt instead of closing immediately (termux-app
+     * TerminalSession.java:353-364 semantics). The entry stays in the session map with running=true
+     * until the user presses Enter, which then closes it. Returns true when the prompt was shown
+     * (caller should return early and NOT close the session).
      */
     private fun maybeShowProcessCompletedPrompt(entry: SessionEntry, exitCode: Int): Boolean {
         if (entry.id != activeSessionId || entry.waitingForProcessCompleted) return false
@@ -428,8 +541,7 @@ constructor(
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return
             entry.running = false
-            hungThreadToJoin =
-                if (entry.renderThreadPossiblyAlive) entry.hungRenderThread else null
+            hungThreadToJoin = if (entry.renderThreadPossiblyAlive) entry.hungRenderThread else null
         }
 
         // Phase 2 (UNLOCKED): one final chance — the previously-hung thread
@@ -476,7 +588,10 @@ constructor(
                 // code (GPU hang, join timeout). destroySession under it
                 // is a use-after-free; leave the native session to be
                 // reclaimed at process death, same rule as closeSession.
-                LogUtil.e("Runtime", "session ${entry.id} render thread possibly alive — skipping bridge close on exit")
+                LogUtil.e(
+                    "Runtime",
+                    "session ${entry.id} render thread possibly alive — skipping bridge close on exit",
+                )
             } else {
                 entry.bridge?.close()
             }
@@ -493,7 +608,13 @@ constructor(
                 // the terminal would appear frozen. Activate it now.
                 activeSessionId = sessions.keys.sorted().lastOrNull() ?: 0L
                 if (activeSessionId != 0L) {
-                    activateReplacementSession(activeSessionId, "handleSessionExit", markRunning = false, withRetry = true, syncGrid = false)
+                    activateReplacementSession(
+                        activeSessionId,
+                        "handleSessionExit",
+                        markRunning = false,
+                        withRetry = true,
+                        syncGrid = false,
+                    )
                 }
             }
             updateForegroundSessionCount(sessions.size)
@@ -502,11 +623,10 @@ constructor(
     }
 
     /**
-     *  fast-death detection: when the child's native lifetime is
-     * within [FAST_DEATH_THRESHOLD_MS], the user typed nothing, and the
-     * retry budget is not exhausted, log + schedule the /system/bin/sh
-     * respawn and return true (the exit is consumed). Extracted from
-     * handleSessionExit for the detekt complexity limit.
+     * fast-death detection: when the child's native lifetime is within [FAST_DEATH_THRESHOLD_MS], the
+     * user typed nothing, and the retry budget is not exhausted, log + schedule the /system/bin/sh
+     * respawn and return true (the exit is consumed). Extracted from handleSessionExit for the detekt
+     * complexity limit.
      */
     private fun tryFastDeathRecovery(
         entry: SessionEntry,
@@ -524,7 +644,9 @@ constructor(
         }
         val attempt: Int
         synchronized(sessionLock) {
-            if (!shouldScheduleFastDeathRetry(entry.closing, entry.fastDeathCount, MAX_FAST_DEATH_RETRIES)) {
+            if (
+                !shouldScheduleFastDeathRetry(entry.closing, entry.fastDeathCount, MAX_FAST_DEATH_RETRIES)
+            ) {
                 return false
             }
             entry.fastDeathCount++
@@ -545,11 +667,10 @@ constructor(
     }
 
     /**
-     *  fast-death recovery (warp WarpTerminalService.kt:906-915):
-     * after the backoff delay, clear the grid, kill the dead child, respawn
-     * with /system/bin/sh and restart the render thread. Runs on its own
-     * thread so the delay never blocks the render/poll loop. On respawn
-     * failure the session is removed exactly like a normal exit.
+     * fast-death recovery (warp WarpTerminalService.kt:906-915): after the backoff delay, clear the
+     * grid, kill the dead child, respawn with /system/bin/sh and restart the render thread. Runs on
+     * its own thread so the delay never blocks the render/poll loop. On respawn failure the session
+     * is removed exactly like a normal exit.
      */
     private fun scheduleFastDeathRetry(entry: SessionEntry, backoffMs: Long) {
         Thread(
@@ -573,11 +694,18 @@ constructor(
                     try {
                         bridge.close()
                     } catch (closeException: Exception) {
-                        LogUtil.e("Runtime", "fast-death: bridge close failed for session ${entry.id}", closeException)
+                        LogUtil.e(
+                            "Runtime",
+                            "fast-death: bridge close failed for session ${entry.id}",
+                            closeException,
+                        )
                     }
                     val respawned = bridge.spawnTerminal(rows, cols, "/system/bin/sh")
                     if (respawned <= 0L) {
-                        LogUtil.e("Runtime", "fast-death respawn failed for session ${entry.id}, surfacing exit")
+                        LogUtil.e(
+                            "Runtime",
+                            "fast-death respawn failed for session ${entry.id}, surfacing exit",
+                        )
                         synchronized(sessionLock) {
                             sessions.remove(entry.id)
                             entry.fastDeathRetryScheduled = false
@@ -602,16 +730,20 @@ constructor(
                     // runs but renders black frames until the next
                     // surfaceCreated.
                     attachPendingSurface(bridge)
-                    LogUtil.w("Runtime", "fast-death respawn OK for session ${entry.id} (/system/bin/sh rows=$rows cols=$cols)")
+                    LogUtil.w(
+                        "Runtime",
+                        "fast-death respawn OK for session ${entry.id} (/system/bin/sh rows=$rows cols=$cols)",
+                    )
                 } catch (exception: Exception) {
                     LogUtil.e("Runtime", "fast-death retry failed for session ${entry.id}", exception)
                 }
             },
             "FastDeath-${entry.id}",
-        ).apply {
-            isDaemon = true
-            start()
-        }
+        )
+            .apply {
+                isDaemon = true
+                start()
+            }
     }
 
     private fun closeDeadSession(entry: SessionEntry) {
@@ -633,7 +765,10 @@ constructor(
                 // The hung thread may still be inside native render code;
                 // destroying the session under it is a use-after-free.
                 // Leave the native session to be reclaimed at process death.
-                LogUtil.e("Runtime", "session ${entry.id} render thread possibly alive — skipping bridge close")
+                LogUtil.e(
+                    "Runtime",
+                    "session ${entry.id} render thread possibly alive — skipping bridge close",
+                )
             } else {
                 entry.bridge?.close()
             }
@@ -655,7 +790,13 @@ constructor(
                 val remaining = sessions.keys.sorted()
                 activeSessionId = remaining.lastOrNull() ?: 0L
                 if (activeSessionId != 0L) {
-                    activateReplacementSession(activeSessionId, "closeDeadSession", markRunning = false, withRetry = true, syncGrid = false)
+                    activateReplacementSession(
+                        activeSessionId,
+                        "closeDeadSession",
+                        markRunning = false,
+                        withRetry = true,
+                        syncGrid = false,
+                    )
                 }
             }
         } // synchronized(sessionLock)
@@ -664,8 +805,7 @@ constructor(
 
     private fun startForegroundServiceIfNeeded() {
         if (!foregroundServiceRunning) {
-            terminal.emulator.service.TerminalForegroundService
-                .start(context)
+            terminal.emulator.service.TerminalForegroundService.start(context)
             foregroundServiceRunning = true
             LogUtil.d("Runtime", "foreground service started")
         }
@@ -679,21 +819,21 @@ constructor(
         // runtime's bootstrap completes. stopService on a non-running
         // service is a harmless no-op (returns false), so stop unconditionally
         // and reset the flag.
-        val stopped = try {
-            terminal.emulator.service.TerminalForegroundService
-                .stop(context)
-        } catch (serviceException: Exception) {
-            if (serviceException is kotlinx.coroutines.CancellationException) {
-                throw serviceException
+        val stopped =
+            try {
+                terminal.emulator.service.TerminalForegroundService.stop(context)
+            } catch (serviceException: Exception) {
+                if (serviceException is kotlinx.coroutines.CancellationException) {
+                    throw serviceException
+                }
+                // A stopService binder failure (rare) must not leave the flag
+                // true: a stale flag makes the next startForegroundServiceIfNeeded
+                // skip starting, leaving no notification and no wake lock for
+                // live sessions. Reset the flag anyway — the service either
+                // stopped or is about to be killed by the system.
+                LogUtil.e("Runtime", "Failed to stop foreground service", serviceException)
+                false
             }
-            // A stopService binder failure (rare) must not leave the flag
-            // true: a stale flag makes the next startForegroundServiceIfNeeded
-            // skip starting, leaving no notification and no wake lock for
-            // live sessions. Reset the flag anyway — the service either
-            // stopped or is about to be killed by the system.
-            LogUtil.e("Runtime", "Failed to stop foreground service", serviceException)
-            false
-        }
         foregroundServiceRunning = false
         if (stopped) {
             LogUtil.d("Runtime", "foreground service stopped")
@@ -701,25 +841,21 @@ constructor(
     }
 
     /**
-     * Update the foreground service session count, keeping the
-     * [foregroundServiceRunning] flag in sync: the service stops itself
-     * when the count reaches 0 (TerminalForegroundService.updateSessionCount
-     * calls stop()), so the flag MUST be cleared here or a later
-     * startForegroundServiceIfNeeded would skip restarting the service —
-     * no foreground notification, no wake lock, and background sessions can
-     * be killed.
+     * Update the foreground service session count, keeping the [foregroundServiceRunning] flag in
+     * sync: the service stops itself when the count reaches 0
+     * (TerminalForegroundService.updateSessionCount calls stop()), so the flag MUST be cleared here
+     * or a later startForegroundServiceIfNeeded would skip restarting the service — no foreground
+     * notification, no wake lock, and background sessions can be killed.
      *
-     * Exception-safe: called from inside sessionLock on the close paths;
-     * a service exception must never escape the lock (it would skip
-     * updateState and corrupt the session bookkeeping).
+     * Exception-safe: called from inside sessionLock on the close paths; a service exception must
+     * never escape the lock (it would skip updateState and corrupt the session bookkeeping).
      */
     private fun updateForegroundSessionCount(count: Int) {
         if (count <= 0) {
             foregroundServiceRunning = false
         }
         try {
-            terminal.emulator.service.TerminalForegroundService
-                .updateSessionCount(context, count)
+            terminal.emulator.service.TerminalForegroundService.updateSessionCount(context, count)
         } catch (exception: Exception) {
             if (exception is kotlinx.coroutines.CancellationException) {
                 throw exception
@@ -735,6 +871,12 @@ constructor(
         val endCol: Int,
         val hasSelection: Boolean,
         val mode: Byte,
+        // P1-1: true while a selection-handle drag is in progress (UI
+        // thread, via setSelectionDragging). The render thread folds this
+        // into hasSelectionOrDrag for the scroll-reset decision; it is
+        // NOT forwarded to native setSelection — dragging only affects
+        // scroll semantics, never the painted selection range.
+        val dragging: Boolean = false,
     )
 
     private val selectionState =
@@ -742,9 +884,10 @@ constructor(
             SelectionStateSnapshot(0, 0, 0, 0, false, 0),
         )
 
-    /** Active session's scroll offset: read by the
-     *  surface on session switch to resync its local selection-math
-     *  offset. */
+    /**
+     * Active session's scroll offset: read by the surface on session switch to resync its local
+     * selection-math offset.
+     */
     fun activeSessionScrollOffset(): Int {
         synchronized(sessionLock) {
             return sessions[activeSessionId]?.scrollOffset ?: 0
@@ -754,6 +897,10 @@ constructor(
     fun setScrollOffset(offset: Int) {
         val entry = sessions[activeSessionId] ?: return
         entry.scrollOffset = offset
+        // P1-1: record the gesture time so the render thread's
+        // recentlyScrolled guard can suppress the new-output scroll reset
+        // for RECENT_SCROLL_WINDOW_NANOS after user scrolling.
+        entry.lastScrollNanos = System.nanoTime()
         // The render thread already reads entry.scrollOffset and calls
         // bridge.setScrollOffset() under the surface lock, so calling it here
         // would be a redundant JNA round-trip + surface-lock acquisition on the
@@ -762,22 +909,27 @@ constructor(
         entry.notifyRender()
     }
 
-    /** consume the scroll-reset flag set by the render thread when
-     *  new PTY output arrives while the user is browsing history. Returns true
-     *  once, then clears the flag. TerminalSurface calls this to sync its local
-     *  scrollOffset with the reset. */
-    fun consumeScrollResetRequest(): Boolean {
-        val entry = sessions[activeSessionId] ?: return false
-        return entry.scrollResetRequested.also {
-            entry.scrollResetRequested = false
-        }
-    }
-
-    /** sync scroll-active state from TerminalViewModel so the render
-     *  thread knows whether to auto-reset scroll on new output. */
+    /**
+     * sync scroll-active state from TerminalViewModel so the render thread knows whether to
+     * auto-reset scroll on new output.
+     */
     fun setScrollActive(active: Boolean) {
         val entry = sessions[activeSessionId] ?: return
         entry.scrollActive = active
+    }
+
+    /**
+     * P1-1: mark the start/end of a selection-handle drag on the UI thread. Folds into
+     * SelectionStateSnapshot.dragging via the existing selectionState channel; the render thread
+     * treats dragging like an active selection for the scroll-reset decision (termux skipScrolling
+     * parity). endSelection/clearSelection overwrite the snapshot with dragging=false through
+     * setSelection, so no dedicated clear needed.
+     */
+    fun setSelectionDragging(dragging: Boolean) {
+        val current = selectionState.get()
+        if (current.dragging == dragging) return
+        selectionState.set(current.copy(dragging = dragging))
+        sessions[activeSessionId]?.notifyRender()
     }
 
     fun forceRender() {
@@ -790,25 +942,66 @@ constructor(
     // SECTION 3: Session lifecycle
     // ══════════════════════════════════════════════════════════════════════
 
-    private suspend fun buildConfig(
-        rows: Int = 24,
-        cols: Int = 80,
-    ): TerminalConfig {
-        val configReads =
-            coroutineScope {
-                val shellDeferred = async { settingsRepository.shell.first() }
-                val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
-                val fontDeferred = async { computeFontSizeTenths() }
-                val themeDeferred = async { resolveThemeName() }
-                val envDeferred = async { settingsRepository.environmentVariables.first() }
-                ConfigReads(
-                    shellPath = shellDeferred.await(),
-                    scrollbackLines = scrollbackDeferred.await(),
-                    fontSizeTenths = fontDeferred.await(),
-                    themeName = themeDeferred.await(),
-                    environmentVariables = envDeferred.await(),
-                )
+    /**
+     * Write `$HOME/.mkshrc` with a termux-parity prompt (self-healing).
+     *
+     * root cause: with no rc file, interactive mksh falls back to the AOSP `/system/etc/mkshrc`
+     * prompt `:/data/.../home $ ` — 38 columns wide. Any typed command longer than the remaining ~10
+     * columns forces mksh's horizontal line-scroll redraw (`\r` + scrolled window + `<` marker +
+     * backspace run), which renders as the garbled echo users reported ("cho …" fragments and a stray
+     * `<` at the right edge). Real Termux avoids this entirely with the short `PS1='$ '` prompt —
+     * same parity rule as every other termux-behavior fix in this round.
+     *
+     * mksh reads `$ENV` when set, else `~/.mkshrc` for interactive shells; we source the system rc
+     * first (keeps its PATH/alias setup) and then override PS1. Bash from a bootstrap never reads
+     * this file. The file is overwritten when it does not already contain the parity marker so stale
+     * installs self-heal.
+     */
+    private fun ensureMkshPromptRc(homeDir: String) {
+        val mkshRcFile = java.io.File(homeDir, ".mkshrc")
+        val parityMarker = "PS1='$ '"
+        if (mkshRcFile.isFile) {
+            try {
+                if (mkshRcFile.readText().contains(parityMarker)) return
+            } catch (_: Exception) {
+                // unreadable — overwrite below
             }
+        }
+        try {
+            mkshRcFile.parentFile?.mkdirs()
+            mkshRcFile.writeText(
+                "# torvox: termux-parity prompt (see TerminalRuntime.ensureMkshPromptRc)\n" +
+                    ". /system/etc/mkshrc\n" +
+                    "$parityMarker\n",
+            )
+        } catch (exception: Exception) {
+            LogUtil.w("Runtime", "Failed to write .mkshrc: $exception")
+        }
+    }
+
+    private fun withMkshEnvInjection(
+        baseEnv: Map<String, String>,
+        homeDir: String,
+    ): Map<String, String> = if (!baseEnv.containsKey("ENV")) baseEnv + ("ENV" to "$homeDir/.mkshrc") else baseEnv
+
+    private suspend fun buildConfig(
+        rows: Int = DEFAULT_GRID_ROWS,
+        cols: Int = DEFAULT_GRID_COLS,
+    ): TerminalConfig {
+        val configReads = coroutineScope {
+            val shellDeferred = async { settingsRepository.shell.first() }
+            val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
+            val fontDeferred = async { computeFontSizeTenths() }
+            val themeDeferred = async { resolveThemeName() }
+            val envDeferred = async { settingsRepository.environmentVariables.first() }
+            ConfigReads(
+                shellPath = shellDeferred.await(),
+                scrollbackLines = scrollbackDeferred.await(),
+                fontSizeTenths = fontDeferred.await(),
+                themeName = themeDeferred.await(),
+                environmentVariables = envDeferred.await(),
+            )
+        }
         val resolvedTheme = BuiltInThemes.byName(configReads.themeName)
         val shell = resolveShell(configReads.shellPath)
         val bridgeTheme = makeBridgeTheme(resolvedTheme)
@@ -833,12 +1026,7 @@ constructor(
         // *script* (motd + exec, shebang #!/data/.../usr/bin/sh) which the
         // linker-wrapper spawn path cannot load ("bad ELF magic" —
         // emulator-verified), so it must not be selected.
-        val prefixShell =
-            listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
-                .firstOrNull { candidate ->
-                    val file = java.io.File("$prefixDir/$candidate")
-                    file.isFile && isElf(file)
-                }
+        val prefixShell = findPrefixShell(prefixDir)
         val prefixComplete =
             prefixShell != null &&
                 (
@@ -847,8 +1035,7 @@ constructor(
                     ) &&
                 java.io.File("$prefixDir/etc").isDirectory
         val effectivePrefix = if (prefixComplete) prefixDir else ""
-        val effectiveShell =
-            if (prefixComplete) Shell.Custom("$prefixDir/$prefixShell") else shell
+        val effectiveShell = if (prefixComplete) Shell.Custom("$prefixDir/$prefixShell") else shell
         val effectiveHome =
             if (prefixComplete) {
                 homeDir
@@ -859,13 +1046,21 @@ constructor(
                         if (!exists() && !mkdirs()) {
                             LogUtil.w("Runtime", "Failed to create home directory: $this")
                         }
-                    }.absolutePath
+                    }
+                    .absolutePath
             }
         val effectivePath: String =
             if (prefixComplete) {
                 "$prefixDir/bin:${System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }}"
             } else {
                 System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
+            }
+        ensureMkshPromptRc(effectiveHome)
+        val effectiveEnv =
+            if (!prefixComplete) {
+                withMkshEnvInjection(configReads.environmentVariables, effectiveHome)
+            } else {
+                configReads.environmentVariables
             }
         return TerminalConfig(
             shell = effectiveShell,
@@ -879,14 +1074,13 @@ constructor(
             path = effectivePath,
             workingDirectory = effectiveHome,
             prefix = effectivePrefix,
-            env = configReads.environmentVariables,
+            env = effectiveEnv,
         )
     }
 
     /**
-     * Failsafe session config: system shell, system PATH, no PREFIX.
-     * Extracted from buildConfig  so the failsafe branch does
-     * not push buildConfig past the detekt LongMethod limit.
+     * Failsafe session config: system shell, system PATH, no PREFIX. Extracted from buildConfig so
+     * the failsafe branch does not push buildConfig past the detekt LongMethod limit.
      */
     private fun buildFailsafeConfig(
         rows: Int,
@@ -894,53 +1088,56 @@ constructor(
         configReads: ConfigReads,
         bridgeTheme: BridgeTheme,
         homeDir: String,
-    ): TerminalConfig = TerminalConfig(
-        shell = Shell.SystemDefault,
-        rows = rows,
-        cols = cols,
-        scrollbackLines = configReads.scrollbackLines,
-        font_size_tenths = configReads.fontSizeTenths,
-        theme = bridgeTheme,
-        home =
-        java.io
-            .File(context.filesDir, "home")
-            .apply {
-                if (!exists() && !mkdirs()) {
-                    LogUtil.w("Runtime", "Failed to create home directory: $this")
+    ): TerminalConfig {
+        val home =
+            java.io
+                .File(context.filesDir, "home")
+                .apply {
+                    if (!exists() && !mkdirs()) {
+                        LogUtil.w("Runtime", "Failed to create home directory: $this")
+                    }
                 }
-            }.absolutePath,
-        user = System.getProperty("user.name") ?: "shell",
-        path = System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" },
-        workingDirectory = homeDir,
-        prefix = "",
-        env = configReads.environmentVariables,
-    )
+                .absolutePath
+        ensureMkshPromptRc(home)
+        val failsafeEnv = withMkshEnvInjection(configReads.environmentVariables, home)
+        return TerminalConfig(
+            shell = Shell.SystemDefault,
+            rows = rows,
+            cols = cols,
+            scrollbackLines = configReads.scrollbackLines,
+            font_size_tenths = configReads.fontSizeTenths,
+            theme = bridgeTheme,
+            home = home,
+            user = System.getProperty("user.name") ?: "shell",
+            path = System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" },
+            workingDirectory = homeDir,
+            prefix = "",
+            env = failsafeEnv,
+        )
+    }
 
     // ══════════════════════════════════════════════════════════════════════
     // SECTION 2b: Render-thread supervision (extracted C6)
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Owns render-thread lifecycle: monitor loop, dead-thread detection,
-     * restart/backoff, and thread start/stop.
+     * Owns render-thread lifecycle: monitor loop, dead-thread detection, restart/backoff, and thread
+     * start/stop.
      *
-     * Extracted from TerminalRuntime so
-     * the supervision logic has one home and the orchestrator stays thin.
-     * Inner class: accesses TerminalRuntime's session registry/locks without
-     * threading them through constructors (pure code move, zero behavior
-     * change).
+     * Extracted from TerminalRuntime so the supervision logic has one home and the orchestrator stays
+     * thin. Inner class: accesses TerminalRuntime's session registry/locks without threading them
+     * through constructors (pure code move, zero behavior change).
      */
     inner class RenderSupervisor {
         internal fun startRenderMonitor() {
             synchronized(monitorLock) {
                 if (renderMonitorJob?.isActive == true) return
-                renderMonitorJob =
-                    scope.launch {
-                        while (isActive) {
-                            delay(RENDER_MONITOR_INTERVAL_MS)
-                            checkSessions()
-                        }
+                renderMonitorJob = scope.launch {
+                    while (isActive) {
+                        delay(RENDER_MONITOR_INTERVAL_MS)
+                        checkSessions()
                     }
+                }
             }
         }
 
@@ -1058,7 +1255,8 @@ constructor(
             val d =
                 synchronized(sessionLock) {
                     val next = entry.nextRestartDelayMs
-                    entry.nextRestartDelayMs = nextRestartDelayMs(entry.nextRestartDelayMs, MAX_RESTART_DELAY_MS)
+                    entry.nextRestartDelayMs =
+                        nextRestartDelayMs(entry.nextRestartDelayMs, MAX_RESTART_DELAY_MS)
                     next
                 }
 
@@ -1125,7 +1323,10 @@ constructor(
                 if (entry.bridge == null) return
                 entry.renderThreadExited = false
                 startRenderThread(entry)
-                LogUtil.d("Runtime", "session ${entry.id} render thread restarted (attempt ${entry.restartAttempts})")
+                LogUtil.d(
+                    "Runtime",
+                    "session ${entry.id} render thread restarted (attempt ${entry.restartAttempts})",
+                )
             }
         }
 
@@ -1172,7 +1373,10 @@ constructor(
                     // Self-join would time out and wrongly mark the current
                     // thread as hung; skip (the caller is the render thread
                     // itself, e.g. handleSessionExit replacement).
-                    LogUtil.w("Runtime", "session ${entry.id} startRenderThread called from its own render thread — skipping join")
+                    LogUtil.w(
+                        "Runtime",
+                        "session ${entry.id} startRenderThread called from its own render thread — skipping join",
+                    )
                 } else {
                     t.interrupt()
                     t.join(THREAD_JOIN_TIMEOUT_MS)
@@ -1202,304 +1406,81 @@ constructor(
             val generation = renderGeneration.incrementAndGet()
             entry.running = true
             val renderThread =
-                Thread({
-                    var diagCount = 0
-                    var consecutiveErrors = 0
-                    var lastScrollOffset = Int.MAX_VALUE
-                    var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
-                    // Per-thread frame-duration statistics: reset whenever the
-                    // render thread restarts (fresh lifetime, no stale history).
-                    val frameTiming = FrameTimingStats()
-                    // Baseline-adaptive degradation detector: learns the
-                    // device's own frame-time baseline and alerts on windows
-                    // that regress ~3x above it — works on the software
-                    // emulator (~555ms/frame) and on real devices (~17ms)
-                    // with one mechanism instead of fixed thresholds.
-                    val frameTimingTrend = FrameTimingTrend()
-                    LogUtil.d("Runtime", "render thread started for session ${entry.id} generation=$generation")
-                    while (entry.running && renderGeneration.get() == generation) {
-                        // user pressed Enter on the
-                        // [Process completed] prompt — writeToPty only
-                        // signals; the close path runs here on the render
-                        // thread so the bridge is not destroyed under a
-                        // live render loop.
-                        if (entry.processCompletedConfirmed) {
-                            handleSessionExit(entry, entry.processExitCode, 0L)
-                            break
-                        }
-                        try {
-                            // Render loop pacing reference (warp-mobile §14.3):
-                            // the terminal-optimal pattern is SurfaceView +
-                            // Choreographer vsync + dirty-cell incremental push.
-                            // torvox currently polls on a render thread; if the
-                            // emulator frame rate becomes a bottleneck, switch
-                            // the Kotlin side to Choreographer callbacks that
-                            // wake this loop only on vsync (warp-mobile pattern,
-                            // see docs/rejected-technologies.md §7c D39).
-                            val bridge = entry.bridge ?: break
-                            val selectionSnapshot = selectionState.get()
-                            if (selectionSnapshot != lastSelection) {
-                                bridge.setSelection(
-                                    selectionSnapshot.startRow,
-                                    selectionSnapshot.startCol,
-                                    selectionSnapshot.endRow,
-                                    selectionSnapshot.endCol,
-                                    selectionSnapshot.hasSelection,
-                                    selectionSnapshot.mode,
-                                    selectionBgColor,
-                                )
-                                lastSelection = selectionSnapshot
+                Thread(
+                    {
+                        // Display-priority render thread: the frame pipeline
+                        // competes with the UI thread for CPU when the IME is
+                        // open or surfaces churn. THREAD_PRIORITY_DISPLAY puts
+                        // frame production ahead of the UI thread's less
+                        // time-critical work, cutting frame-time jitter on
+                        // real devices (and SwiftShader emulators).
+                        Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
+                        var diagCount = 0
+                        var consecutiveErrors = 0
+                        var lastScrollOffset = Int.MAX_VALUE
+                        var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
+                        // Per-thread frame-duration statistics: reset whenever the
+                        // render thread restarts (fresh lifetime, no stale history).
+                        val frameTiming = FrameTimingStats()
+                        // Whole-loop period statistics (render + pollAll + event
+                        // dispatch + waitOutput): `frameTiming` above covers only
+                        // bridge.render(); the loop window's inverse is the actual
+                        // frame rate and separates "native render is slow" from
+                        // "something else in the loop is slow".
+                        val loopTiming = FrameTimingStats()
+                        // Baseline-adaptive degradation detector: learns the
+                        // device's own frame-time baseline and alerts on windows
+                        // that regress ~3x above it — works on the software
+                        // emulator (~555ms/frame) and on real devices (~17ms)
+                        // with one mechanism instead of fixed thresholds.
+                        val frameTimingTrend = FrameTimingTrend()
+                        LogUtil.d(
+                            "Runtime",
+                            "render thread started for session ${entry.id} generation=$generation",
+                        )
+                        while (entry.running && renderGeneration.get() == generation) {
+                            // user pressed Enter on the
+                            // [Process completed] prompt — writeToPty only
+                            // signals; the close path runs here on the render
+                            // thread so the bridge is not destroyed under a
+                            // live render loop.
+                            if (entry.processCompletedConfirmed) {
+                                handleSessionExit(entry, entry.processExitCode, 0L)
+                                break
                             }
-                            val currentScrollOffset = entry.scrollOffset
-                            if (currentScrollOffset != lastScrollOffset) {
-                                bridge.setScrollOffset(currentScrollOffset)
-                                lastScrollOffset = currentScrollOffset
-                            }
-                            entry.lastRenderStart = System.nanoTime()
-                            val count = bridge.render()
-                            // auto-reset scroll when new output arrives
-                            // while user is browsing history (scrollOffset > 0).
-                            // Only on count > 0 (actual new CellData, not idle repaint).
-                            // Skip when scrollActive (SCROLL button) — user wants to stay browsing.
-                            if (count > 0 && entry.scrollOffset != 0 && !entry.scrollActive) {
-                                entry.scrollOffset = 0
-                                entry.scrollResetRequested = true
-                            }
-                            if (count < 0) {
-                                // Transient render error (surface not ready, snapshot unavailable, etc.)
-                                // These resolve on their own; don't count them toward the fatal limit.
-                                if (consecutiveErrors == 0) {
-                                    LogUtil.w("Runtime", "session ${entry.id} transient render error code=$count")
-                                }
-                                consecutiveErrors++
-                                if (consecutiveErrors > RENDER_MAX_TRANSIENT_ERRORS) {
-                                    LogUtil.e(
-                                        "Runtime",
-                                        "session ${entry.id} too many transient render errors ($consecutiveErrors), stopping render thread",
-                                    )
-                                    break
-                                }
-                                // Adaptive backoff: 50ms for first 10, then 200ms
-                                val sleepMs = if (consecutiveErrors > 10) RENDER_ERROR_BACKOFF_MS else RENDER_ERROR_SLEEP_MS
-                                Thread.sleep(sleepMs)
-                            } else {
-                                if (consecutiveErrors > 0) {
-                                    LogUtil.i(
-                                        "Runtime",
-                                        "session ${entry.id} recovered after $consecutiveErrors errors",
-                                    )
-                                }
-                                consecutiveErrors = 0
-                                try {
-                                    val poll = bridge.pollAll()
-                                    // Exit is handled FIRST, in its own branch:
-                                    // the event was already consumed from the
-                                    // native queue and cannot be replayed, so an
-                                    // exception in bell/notification/clipboard
-                                    // handling below must never skip the cleanup.
-                                    if (poll.exit) {
-                                        // Reply empty FIRST, before any cleanup:
-                                        // these MCP request events were already
-                                        // consumed from the native queue and can
-                                        // never be dispatched, so leaving them
-                                        // unanswered would hang the MCP tool call
-                                        // for 300s. Answering before
-                                        // handleSessionExit (which may close the
-                                        // bridge, ~100ms+) also minimizes the
-                                        // MCP-side latency. Each reply is guarded
-                                        // individually: a JNI failure here must
-                                        // NEVER skip the session cleanup below
-                                        // (the exit event is consumed and cannot
-                                        // be replayed — leaking the entry, the
-                                        // native session and the zombie child).
-                                        try {
-                                            poll.dialogs.forEach { request ->
-                                                NativeBridge
-                                                    .dialogResult(request.sessionId, request.requestId, "")
-                                            }
-                                            poll.dialogCancels.forEach { (sessionId, requestId) ->
-                                                dialogCancelHandler?.invoke(sessionId, requestId)
-                                            }
-                                            poll.pickFiles.forEach { request ->
-                                                NativeBridge
-                                                    .dialogResult(request.sessionId, request.requestId, "")
-                                            }
-                                            dispatchClipboardRequests(poll.clipboardReads)
-                                            dispatchClipboardRequests(poll.clipboardGets)
-                                            poll.screenshots.forEach { request ->
-                                                NativeBridge
-                                                    .screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
-                                            }
-                                            poll.runCommands.forEach { request ->
-                                                // The command can never be dispatched
-                                                // now (the shell is gone); reply with
-                                                // an error payload instead of leaving
-                                                // the native oneshot hanging for 300s.
-                                                NativeBridge.runCommandResult(
-                                                    request.sessionId,
-                                                    request.requestId,
-                                                    runCommandPayload(
-                                                        exitCode = -1,
-                                                        errCode = ERR_CODE_EXCEPTION,
-                                                        stdout = "",
-                                                        stderr = "session exited before run_command completed",
-                                                    ),
-                                                )
-                                            }
-                                        } catch (replyException: Exception) {
-                                            LogUtil.e(
-                                                "Runtime",
-                                                "exit branch: MCP empty-reply failed, continuing cleanup",
-                                                replyException,
-                                            )
-                                        }
-                                        if (poll.sessionId != 0L && poll.sessionId != entry.id) {
-                                            // A background (non-active) session's
-                                            // shell exited. Its render thread is
-                                            // stopped, so nobody else would ever
-                                            // reap it — the native sweep reports
-                                            // it once through this queue. Close it
-                                            // here (handleSessionExit is safe for
-                                            // non-active sessions: the replacement
-                                            // branch is gated on entry.id ==
-                                            // activeSessionId).
-                                            val exitedEntry = synchronized(sessionLock) { sessions[poll.sessionId] }
-                                            if (exitedEntry != null) {
-                                                LogUtil.i(
-                                                    "Runtime",
-                                                    "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
-                                                )
-                                                handleSessionExit(exitedEntry, poll.exitCode, poll.exitAliveMs)
-                                            }
-                                        } else {
-                                            // Full cleanup (bridge close, session removal,
-                                            // state update) happens here; the render monitor
-                                            // skips !running entries so it would never reap
-                                            // an exited session.
-                                            handleSessionExit(entry, poll.exitCode, poll.exitAliveMs)
-                                        }
-                                        // Shared by both branches: reap any
-                                        // ADDITIONAL sessions that exited in the
-                                        // same frame (the first one was handled
-                                        // above). Their native exit_reported
-                                        // flags are already set and never re-sent.
-                                        // Only poll.sessionId is excluded — every
-                                        // OTHER id in the list (including entry.id
-                                        // when this is the background branch) must
-                                        // be reaped or the Kotlin entry, native
-                                        // session and zombie child leak forever.
-                                        // handleSessionExit is idempotent
-                                        // (containsKey re-check).
-                                        poll.exits.forEach { exitInfo ->
-                                            if (exitInfo.sessionId != poll.sessionId) {
-                                                val extra = synchronized(sessionLock) { sessions[exitInfo.sessionId] }
-                                                if (extra != null) {
-                                                    LogUtil.i(
-                                                        "Runtime",
-                                                        "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
-                                                    )
-                                                    handleSessionExit(extra, exitInfo.exitCode, exitInfo.exitAliveMs)
-                                                }
-                                            }
-                                        }
-                                        if (!entry.waitingForProcessCompleted) {
-                                            break
-                                        }
-                                        // the [Process completed]
-                                        // prompt is showing — keep the session
-                                        // visible (running stays true) until the
-                                        // user presses Enter. Native exit_reported
-                                        // is set so no further exit events arrive.
-                                    }
-                                    eventDispatcher.handle(poll)
-                                } catch (exception: Exception) {
-                                    LogUtil.e(
-                                        "Runtime",
-                                        "pollAll failed for session ${entry.id}; deferred events dropped",
-                                        exception,
-                                    )
-                                }
-                                diagCount++
-                                if (diagCount == 1) {
-                                    LogUtil.d("Runtime", "session ${entry.id} first render OK")
-                                }
-                                if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
-                                    val title =
-                                        try {
-                                            bridge.getActiveSessionTitle()
-                                        } catch (exception: Exception) {
-                                            LogUtil.e("Runtime", "title query failed", exception)
-                                            ""
-                                        }
-                                    if (title.isNotEmpty() && title != _state.value.title) {
-                                        // CAS update: the collector and the IO
-                                        // session functions also write _state; a
-                                        // non-atomic read-modify-write here could
-                                        // clobber their session list.
-                                        _state.update { current -> current.copy(title = title) }
-                                    }
-                                }
-                                entry.lastRenderDone = System.nanoTime()
-                                frameTiming.record(entry.lastRenderDone - entry.lastRenderStart)
-                                frameTiming.takeReport()?.let { report ->
-                                    // Memory gauge alongside the timing window: a
-                                    // monotonically growing scrollback row count
-                                    // across windows indicates unbounded history.
-                                    val scrollbackRows =
-                                        try {
-                                            NativeBridge.getScrollbackRows(entry.id)
-                                        } catch (exception: Exception) {
-                                            LogUtil.w("Runtime", "scrollback query failed", exception)
-                                            -1
-                                        }
-                                    val summary =
-                                        "session ${entry.id} frame timing window (${report.frameCount} frames): " +
-                                            "avg=${report.averageNanos / 1_000_000L}ms " +
-                                            "p95=${report.p95Nanos / 1_000_000L}ms " +
-                                            "max=${report.maxNanos / 1_000_000L}ms " +
-                                            "scrollback=$scrollbackRows rows"
-                                    val trendDegraded = frameTimingTrend.observe(report.averageNanos)
-                                    when {
-                                        // Absolute pathology: a stall beyond any
-                                        // device's expectation (emulator baseline
-                                        // ~555ms/frame; real devices ~17ms).
-                                        report.p95Nanos >= FRAME_TIME_WARN_P95_NANOS ||
-                                            report.maxNanos >= FRAME_TIME_WARN_MAX_NANOS ->
-                                            LogUtil.w("Runtime", "$summary — severe stall(s), investigate render cost")
-
-                                        // Baseline-relative regression (~3x the
-                                        // device's own learned baseline, at least
-                                        // 100ms average): catches gradual and
-                                        // device-specific degradations that an
-                                        // absolute threshold cannot.
-                                        trendDegraded ->
-                                            LogUtil.w(
-                                                "Runtime",
-                                                "$summary — degraded vs baseline (${frameTimingTrend.currentBaselineNanos()?.div(1_000_000L)}ms), investigate render cost",
-                                            )
-
-                                        // Normal window: Info (not Debug) so the
-                                        // gauge survives release builds — LogUtil.d
-                                        // is gated on BuildConfig.DEBUG and would
-                                        // hide every window on a release APK,
-                                        // leaving gradual issues invisible.
-                                        // One line per 60 rendered frames (~1s on
-                                        // a real device, ~33s on the emulator) is
-                                        // a quiet but always-present signal.
-                                        else -> LogUtil.i("Runtime", summary)
-                                    }
-                                }
-                                // accessibility hook — the render loop
-                                // is the only signal that terminal content
-                                // changed, and the SurfaceView has no text nodes.
-                                // The listener runs on the render thread and must
-                                // return quickly (it may post to the main thread).
-                                try {
-                                    onFrameRendered?.invoke()
-                                } catch (exception: Exception) {
-                                    LogUtil.w("Runtime", "onFrameRendered callback failed", exception)
-                                }
-                                if (!entry.forceRenderRequested) {
+                            try {
+                                val loopFrameStart = System.nanoTime()
+                                val bridge = entry.bridge ?: break
+                                // ── P2-1 vsync wake gate (design D3) ──────────
+                                // The loop renders ONLY when a wake source fired:
+                                //   ① vsyncRequested — Choreographer frame callback
+                                //     (the display-frame signal; the callback is
+                                //     signal-only and never touches the surface
+                                //     Mutex or calls render itself),
+                                //   ② forceRenderRequested — immediate-feedback
+                                //     bypass (forceRender(); semantics unchanged),
+                                //   ③ renderSignaled — any notifyRender() producer
+                                //     (scroll/selection/PTY-adjacent UI signals).
+                                // Otherwise it parks on the output latch. The latch
+                                // timeout (active 16ms / idle 500ms) doubles as the
+                                // safety-net cadence (M-10): a timeout return still
+                                // falls through to one render attempt so deferred-
+                                // field consumption never stalls if the main thread
+                                // blocks or a vsync signal is lost. PTY output note:
+                                // waitOutput is a pure park — PTY arrival cannot wake
+                                // it early (pre-existing behavior); new output is
+                                // picked up on the next vsync attempt (~16.7ms) or
+                                // by this timeout fallback, where receive_cell_data
+                                // consumes the pending data. After waking, render()
+                                // is called UNCONDITIONALLY — dirty/blink phase
+                                // decisions live exclusively inside the native idle
+                                // gate (an outer dirty short-circuit would freeze
+                                // cursor blink: no JNI set-point exists for it).
+                                if (
+                                    !entry.vsyncRequested &&
+                                    !entry.forceRenderRequested &&
+                                    !entry.renderSignaled.get()
+                                ) {
                                     val idleNanos = System.nanoTime() - entry.lastSignalNanos
                                     val timeoutNanos =
                                         if (idleNanos > RENDER_IDLE_THRESHOLD_NANOS) {
@@ -1507,61 +1488,464 @@ constructor(
                                         } else {
                                             RENDER_LATCH_TIMEOUT_NANOS
                                         }
-                                    if (!entry.renderSignaled.get() && !entry.forceRenderRequested) {
-                                        val timeoutMs = timeoutNanos / 1_000_000L
-                                        bridge.waitOutput(timeoutMs)
-                                        if (Thread.interrupted()) throw InterruptedException()
-                                    }
-                                    entry.renderSignaled.set(false)
-                                } else {
-                                    entry.forceRenderRequested = false
+                                    bridge.waitOutput(timeoutNanos / 1_000_000L)
+                                    if (Thread.interrupted()) throw InterruptedException()
                                 }
-                            }
-                        } catch (exception: InterruptedException) {
-                            // The render thread was interrupted during shutdown
-                            // (session switch / runtime stop). This is an expected
-                            // signal, not a render failure — exit the loop cleanly.
-                            Thread.currentThread().interrupt()
-                            break
-                        } catch (exception: Exception) {
-                            consecutiveErrors++
-                            if (consecutiveErrors == 1) {
-                                LogUtil.e("Runtime", "session ${entry.id} first render exception", exception)
-                            } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
-                                LogUtil.e("Runtime", "session ${entry.id} render exception (x$consecutiveErrors)", exception)
-                            }
-                            if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
-                                LogUtil.e(
-                                    "Runtime",
-                                    "session ${entry.id} too many render exceptions ($consecutiveErrors), stopping render thread",
-                                    exception,
-                                )
+                                // Consume the wake flags before rendering. ALL THREE are
+                                // cleared unconditionally: a signal landing between the
+                                // gate check and this clear folds into the render below;
+                                // one landing mid-render waits for the next vsync/timeout
+                                // tick — at most one frame of extra latency, never a lost
+                                // wake-up. Clearing renderSignaled here (not inside the
+                                // park branch) fixes a busy-spin leak: when vsyncRequested
+                                // won the gate check, renderSignaled stayed true forever,
+                                // every subsequent iteration skipped the park, and the
+                                // thread spun at full speed burning CPU between renders.
+                                entry.vsyncRequested = false
+                                entry.forceRenderRequested = false
+                                entry.renderSignaled.set(false)
+                                val selectionSnapshot = selectionState.get()
+                                if (selectionSnapshot != lastSelection) {
+                                    bridge.setSelection(
+                                        selectionSnapshot.startRow,
+                                        selectionSnapshot.startCol,
+                                        selectionSnapshot.endRow,
+                                        selectionSnapshot.endCol,
+                                        selectionSnapshot.hasSelection,
+                                        selectionSnapshot.mode,
+                                        selectionBgColor,
+                                    )
+                                    lastSelection = selectionSnapshot
+                                }
+                                val currentScrollOffset = entry.scrollOffset
+                                if (currentScrollOffset != lastScrollOffset) {
+                                    bridge.setScrollOffset(currentScrollOffset)
+                                    lastScrollOffset = currentScrollOffset
+                                }
+                                entry.lastRenderStart = System.nanoTime()
+                                // Combined render + consumeNewOutput in a single JNI
+                                // crossing (~0.1-0.3ms saved per frame).
+                                val (count, newOutput) = bridge.renderWithNewOutput()
+                                val frameMs = (System.nanoTime() - entry.lastRenderStart) / 1_000_000.0
+                                if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
+                                    LogUtil.w(
+                                        "Runtime",
+                                        "SLOW_FRAME session=${entry.id} render=$frameMs count=$count newOutput=$newOutput scrollOffset=$currentScrollOffset",
+                                    )
+                                }
+                                if (newOutput) {
+                                    // Latency probe echo pairing: this frame
+                                    // consumed PTY output; if an input stamp is
+                                    // pending, one input→echo sample lands.
+                                    entry.latencyProbe
+                                        .onEchoFrame(
+                                            SystemClock.elapsedRealtimeNanos(),
+                                        )
+                                        ?.let { latencyNanos ->
+                                            LogUtil.d(
+                                                "Runtime",
+                                                "latency session=${entry.id} echo=${latencyNanos / 1_000_000.0}ms",
+                                            )
+                                            // Periodic p50/p95 summary into logcat
+                                            // (LATENCY_REPORT marker is grep-stable
+                                            // for offline percentile collection).
+                                            val n = entry.latencyProbe.sampleCount
+                                            if (n % LATENCY_REPORT_EVERY == 0) {
+                                                LogUtil.i(
+                                                    "Runtime",
+                                                    "LATENCY_REPORT session=${entry.id} ${entry.latencyProbe.report()}",
+                                                )
+                                            }
+                                        }
+                                }
+                                if (count > 0) {
+                                    // New content was actually rendered. Refresh
+                                    // the idle clock here: previously only UI
+                                    // interactions updated lastSignalNanos, so a
+                                    // sustained PTY output stream (tail -f, ping,
+                                    // gradle, ...) with no interaction let
+                                    // idleNanos grow past RENDER_IDLE_THRESHOLD
+                                    // after ~5s and the loop fell into the 500ms
+                                    // idle latch — rendering dropped to ~2 FPS
+                                    // while the terminal was actively printing.
+                                    entry.lastSignalNanos = System.nanoTime()
+                                    // P1-1 scroll semantics (termux onScreenUpdated
+                                    // parity): consume the native new_output flag
+                                    // (PTY ingest → bypass flag, NOT the render()
+                                    // count which also counts cursor-blink repaints)
+                                    // and reset the viewport to the bottom only when
+                                    // no selection/drag is active, the SCROLL lock is
+                                    // off, and no scroll gesture happened within
+                                    // RECENT_SCROLL_WINDOW_NANOS. Skipped resets are
+                                    // dropped ("skip = give up"): the flag is already
+                                    // read-clear; the next output arrival resets
+                                    // again (termux: sustained output always wins).
+                                    if (
+                                        shouldResetScroll(
+                                            scrollActive = entry.scrollActive,
+                                            hasSelectionOrDrag =
+                                            selectionSnapshot.hasSelection || selectionSnapshot.dragging,
+                                            newOutput = newOutput,
+                                            recentlyScrolled =
+                                            System.nanoTime() - entry.lastScrollNanos <
+                                                RECENT_SCROLL_WINDOW_NANOS,
+                                        )
+                                    ) {
+                                        // Single-point reset write on the render
+                                        // thread; lastScrollOffset stays untouched so
+                                        // the existing diff-push forwards offset 0 to
+                                        // native on the next frame.
+                                        entry.scrollOffset = 0
+                                    }
+                                }
+                                if (count < 0) {
+                                    // Transient render error (surface not ready, snapshot unavailable, etc.)
+                                    // These resolve on their own; don't count them toward the fatal limit.
+                                    if (consecutiveErrors == 0) {
+                                        LogUtil.w(
+                                            "Runtime",
+                                            "session ${entry.id} transient render error code=$count",
+                                        )
+                                    }
+                                    consecutiveErrors++
+                                    if (consecutiveErrors > RENDER_MAX_TRANSIENT_ERRORS) {
+                                        LogUtil.e(
+                                            "Runtime",
+                                            "session ${entry.id} too many transient render errors ($consecutiveErrors), stopping render thread",
+                                        )
+                                        break
+                                    }
+                                    // Adaptive backoff: 50ms for first 10, then 200ms
+                                    val sleepMs =
+                                        if (consecutiveErrors > 10) {
+                                            RENDER_ERROR_BACKOFF_MS
+                                        } else {
+                                            RENDER_ERROR_SLEEP_MS
+                                        }
+                                    Thread.sleep(sleepMs)
+                                } else {
+                                    if (consecutiveErrors > 0) {
+                                        LogUtil.i(
+                                            "Runtime",
+                                            "session ${entry.id} recovered after $consecutiveErrors errors",
+                                        )
+                                    }
+                                    consecutiveErrors = 0
+                                    try {
+                                        val poll = bridge.pollAll()
+                                        // Exit is handled FIRST, in its own branch:
+                                        // the event was already consumed from the
+                                        // native queue and cannot be replayed, so an
+                                        // exception in bell/notification/clipboard
+                                        // handling below must never skip the cleanup.
+                                        if (poll.exit) {
+                                            // Reply empty FIRST, before any cleanup:
+                                            // these MCP request events were already
+                                            // consumed from the native queue and can
+                                            // never be dispatched, so leaving them
+                                            // unanswered would hang the MCP tool call
+                                            // for 300s. Answering before
+                                            // handleSessionExit (which may close the
+                                            // bridge, ~100ms+) also minimizes the
+                                            // MCP-side latency. Each reply is guarded
+                                            // individually: a JNI failure here must
+                                            // NEVER skip the session cleanup below
+                                            // (the exit event is consumed and cannot
+                                            // be replayed — leaking the entry, the
+                                            // native session and the zombie child).
+                                            try {
+                                                poll.dialogs.forEach { request ->
+                                                    NativeBridge.dialogResult(
+                                                        request.sessionId,
+                                                        request.requestId,
+                                                        "",
+                                                    )
+                                                }
+                                                poll.dialogCancels.forEach { (sessionId, requestId) ->
+                                                    dialogCancelHandler?.invoke(sessionId, requestId)
+                                                }
+                                                poll.pickFiles.forEach { request ->
+                                                    NativeBridge.dialogResult(
+                                                        request.sessionId,
+                                                        request.requestId,
+                                                        "",
+                                                    )
+                                                }
+                                                dispatchClipboardRequests(poll.clipboardReads)
+                                                dispatchClipboardRequests(poll.clipboardGets)
+                                                poll.screenshots.forEach { request ->
+                                                    NativeBridge.screenshotResult(
+                                                        request.sessionId,
+                                                        request.requestId,
+                                                        0,
+                                                        0,
+                                                        ByteArray(0),
+                                                    )
+                                                }
+                                                poll.runCommands.forEach { request ->
+                                                    // The command can never be dispatched
+                                                    // now (the shell is gone); reply with
+                                                    // an error payload instead of leaving
+                                                    // the native oneshot hanging for 300s.
+                                                    NativeBridge.runCommandResult(
+                                                        request.sessionId,
+                                                        request.requestId,
+                                                        runCommandPayload(
+                                                            exitCode = -1,
+                                                            errCode = ERR_CODE_EXCEPTION,
+                                                            stdout = "",
+                                                            stderr = "session exited before run_command completed",
+                                                        ),
+                                                    )
+                                                }
+                                            } catch (replyException: Exception) {
+                                                LogUtil.e(
+                                                    "Runtime",
+                                                    "exit branch: MCP empty-reply failed, continuing cleanup",
+                                                    replyException,
+                                                )
+                                            }
+                                            if (poll.sessionId != 0L && poll.sessionId != entry.id) {
+                                                // A background (non-active) session's
+                                                // shell exited. Its render thread is
+                                                // stopped, so nobody else would ever
+                                                // reap it — the native sweep reports
+                                                // it once through this queue. Close it
+                                                // here (handleSessionExit is safe for
+                                                // non-active sessions: the replacement
+                                                // branch is gated on entry.id ==
+                                                // activeSessionId).
+                                                val exitedEntry =
+                                                    synchronized(sessionLock) { sessions[poll.sessionId] }
+                                                if (exitedEntry != null) {
+                                                    LogUtil.i(
+                                                        "Runtime",
+                                                        "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
+                                                    )
+                                                    handleSessionExit(exitedEntry, poll.exitCode, poll.exitAliveMs)
+                                                }
+                                            } else {
+                                                // Full cleanup (bridge close, session removal,
+                                                // state update) happens here; the render monitor
+                                                // skips !running entries so it would never reap
+                                                // an exited session.
+                                                handleSessionExit(entry, poll.exitCode, poll.exitAliveMs)
+                                            }
+                                            // Shared by both branches: reap any
+                                            // ADDITIONAL sessions that exited in the
+                                            // same frame (the first one was handled
+                                            // above). Their native exit_reported
+                                            // flags are already set and never re-sent.
+                                            // Only poll.sessionId is excluded — every
+                                            // OTHER id in the list (including entry.id
+                                            // when this is the background branch) must
+                                            // be reaped or the Kotlin entry, native
+                                            // session and zombie child leak forever.
+                                            // handleSessionExit is idempotent
+                                            // (containsKey re-check).
+                                            poll.exits.forEach { exitInfo ->
+                                                if (exitInfo.sessionId != poll.sessionId) {
+                                                    val extra =
+                                                        synchronized(sessionLock) { sessions[exitInfo.sessionId] }
+                                                    if (extra != null) {
+                                                        LogUtil.i(
+                                                            "Runtime",
+                                                            "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
+                                                        )
+                                                        handleSessionExit(
+                                                            extra,
+                                                            exitInfo.exitCode,
+                                                            exitInfo.exitAliveMs,
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                            if (!entry.waitingForProcessCompleted) {
+                                                break
+                                            }
+                                            // the [Process completed]
+                                            // prompt is showing — keep the session
+                                            // visible (running stays true) until the
+                                            // user presses Enter. Native exit_reported
+                                            // is set so no further exit events arrive.
+                                        }
+                                        eventDispatcher.handle(poll)
+                                    } catch (exception: Exception) {
+                                        LogUtil.e(
+                                            "Runtime",
+                                            "pollAll failed for session ${entry.id}; deferred events dropped",
+                                            exception,
+                                        )
+                                    }
+                                    diagCount++
+                                    if (diagCount == 1) {
+                                        LogUtil.d("Runtime", "session ${entry.id} first render OK")
+                                    }
+                                    if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
+                                        val title =
+                                            try {
+                                                bridge.getActiveSessionTitle()
+                                            } catch (exception: Exception) {
+                                                LogUtil.e("Runtime", "title query failed", exception)
+                                                ""
+                                            }
+                                        if (title.isNotEmpty() && title != _state.value.title) {
+                                            // CAS update: the collector and the IO
+                                            // session functions also write _state; a
+                                            // non-atomic read-modify-write here could
+                                            // clobber their session list.
+                                            _state.update { current -> current.copy(title = title) }
+                                        }
+                                    }
+                                    entry.lastRenderDone = System.nanoTime()
+                                    frameTiming.record(entry.lastRenderDone - entry.lastRenderStart)
+                                    frameTiming.takeReport()?.let { report ->
+                                        // Memory gauge alongside the timing window: a
+                                        // monotonically growing scrollback row count
+                                        // across windows indicates unbounded history.
+                                        val scrollbackRows =
+                                            try {
+                                                NativeBridge.getScrollbackRows(entry.id)
+                                            } catch (exception: Exception) {
+                                                LogUtil.w("Runtime", "scrollback query failed", exception)
+                                                -1
+                                            }
+                                        val summary =
+                                            "session ${entry.id} frame timing window (${report.frameCount} frames): " +
+                                                "avg=${report.averageNanos / 1_000_000L}ms " +
+                                                "p95=${report.p95Nanos / 1_000_000L}ms " +
+                                                "max=${report.maxNanos / 1_000_000L}ms " +
+                                                "scrollback=$scrollbackRows rows"
+                                        val trendDegraded = frameTimingTrend.observe(report.averageNanos)
+                                        when {
+                                            // Absolute pathology: a stall beyond any
+                                            // device's expectation (emulator baseline
+                                            // ~555ms/frame; real devices ~17ms).
+                                            report.p95Nanos >= FRAME_TIME_WARN_P95_NANOS ||
+                                                report.maxNanos >= FRAME_TIME_WARN_MAX_NANOS ->
+                                                LogUtil.w(
+                                                    "Runtime",
+                                                    "$summary — severe stall(s), investigate render cost",
+                                                )
+
+                                            // Baseline-relative regression (~3x the
+                                            // device's own learned baseline, at least
+                                            // 100ms average): catches gradual and
+                                            // device-specific degradations that an
+                                            // absolute threshold cannot.
+                                            trendDegraded ->
+                                                LogUtil.w(
+                                                    "Runtime",
+                                                    "$summary — degraded vs baseline (${frameTimingTrend.currentBaselineNanos()?.div(1_000_000L)}ms), investigate render cost",
+                                                )
+
+                                            // Normal window: Info (not Debug) so the
+                                            // gauge survives release builds — LogUtil.d
+                                            // is gated on BuildConfig.DEBUG and would
+                                            // hide every window on a release APK,
+                                            // leaving gradual issues invisible.
+                                            // One line per 60 rendered frames (~1s on
+                                            // a real device, ~33s on the emulator) is
+                                            // a quiet but always-present signal.
+                                            else -> LogUtil.i("Runtime", summary)
+                                        }
+                                    }
+                                    // accessibility hook — the render loop
+                                    // is the only signal that terminal content
+                                    // changed, and the SurfaceView has no text nodes.
+                                    // The listener runs on the render thread and must
+                                    // return quickly (it may post to the main thread).
+                                    try {
+                                        onFrameRendered?.invoke()
+                                    } catch (exception: Exception) {
+                                        LogUtil.w("Runtime", "onFrameRendered callback failed", exception)
+                                    }
+                                    // P2-1: tail wait removed — parking now happens in
+                                    // the loop-top wake gate above (same latch, same
+                                    // active/idle timeouts). Falling through here goes
+                                    // straight back to the gate.
+                                }
+                                // Whole-loop period: the inverse of the average is
+                                // the ACTUAL frame rate (waitOutput + pollAll +
+                                // event dispatch included). If render avg is ~16ms
+                                // but this is ~50ms, the frame time goes elsewhere
+                                // in the loop, not the native render path.
+                                loopTiming.record(System.nanoTime() - loopFrameStart)
+                                loopTiming.takeReport()?.let { loopReport ->
+                                    val loopAvgMs = loopReport.averageNanos / 1_000_000L
+                                    val fps = if (loopAvgMs > 0) 1_000L / loopAvgMs else 0L
+                                    LogUtil.i(
+                                        "Runtime",
+                                        "session ${entry.id} loop timing window (${loopReport.frameCount} frames): " +
+                                            "avg=${loopAvgMs}ms p95=${loopReport.p95Nanos / 1_000_000L}ms " +
+                                            "max=${loopReport.maxNanos / 1_000_000L}ms ≈${fps}fps",
+                                    )
+                                }
+                            } catch (exception: InterruptedException) {
+                                // The render thread was interrupted during shutdown
+                                // (session switch / runtime stop). This is an expected
+                                // signal, not a render failure — exit the loop cleanly.
+                                Thread.currentThread().interrupt()
                                 break
+                            } catch (exception: Exception) {
+                                consecutiveErrors++
+                                if (consecutiveErrors == 1) {
+                                    LogUtil.e(
+                                        "Runtime",
+                                        "session ${entry.id} first render exception",
+                                        exception,
+                                    )
+                                } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
+                                    LogUtil.e(
+                                        "Runtime",
+                                        "session ${entry.id} render exception (x$consecutiveErrors)",
+                                        exception,
+                                    )
+                                }
+                                if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
+                                    LogUtil.e(
+                                        "Runtime",
+                                        "session ${entry.id} too many render exceptions ($consecutiveErrors), stopping render thread",
+                                        exception,
+                                    )
+                                    break
+                                }
+                                Thread.sleep(RENDER_ERROR_SLEEP_MS)
                             }
-                            Thread.sleep(RENDER_ERROR_SLEEP_MS)
                         }
+                        entry.renderThreadExited = true
+                        LogUtil.d("Runtime", "render thread stopped for session ${entry.id}")
+                    },
+                    "Render-${entry.id}",
+                )
+                    .apply {
+                        isDaemon = true
                     }
-                    entry.renderThreadExited = true
-                    LogUtil.d("Runtime", "render thread stopped for session ${entry.id}")
-                }, "Render-${entry.id}").apply {
-                    isDaemon = true
-                }
             entry.renderThreadRef = renderThread
             renderThread.start()
+            // P2-1: drive the new render loop's wake gate from display vsync
+            // (one self-rescheduling Choreographer chain per process).
+            ensureVsyncChainStarted()
             entry.renderWatchDog =
                 RenderWatchDog(
                     getStart = { entry.lastRenderStart },
                     getDone = { entry.lastRenderDone },
-                    isRunning = { entry.running && !entry.renderThreadExited && activeSessionId == entry.id },
+                    isRunning = {
+                        entry.running && !entry.renderThreadExited && activeSessionId == entry.id
+                    },
                     onHangDetected = {
-                        LogUtil.e("Runtime", "session ${entry.id} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart")
+                        LogUtil.e(
+                            "Runtime",
+                            "session ${entry.id} render thread hung (>${RENDER_HANG_TIMEOUT_NANOS / 1_000_000L}s) — marking thread for restart",
+                        )
                         // Mark the thread as dead. The render monitor (checkSessions)
                         // will detect this and restart the thread with exponential backoff.
                         // This avoids killing the entire process for a GPU hang.
                         entry.renderThreadExited = true
                     },
                     hangTimeoutNanos = RENDER_HANG_TIMEOUT_NANOS,
-                ).also { it.start() }
+                )
+                    .also { it.start() }
         }
 
         internal fun stopRenderThread(entry: SessionEntry): Boolean {
@@ -1575,7 +1959,10 @@ constructor(
                 t.interrupt()
                 t.join(THREAD_JOIN_TIMEOUT_MS)
                 if (t.isAlive) {
-                    LogUtil.e("Runtime", "session ${entry.id} render thread still alive after join — possibly hung")
+                    LogUtil.e(
+                        "Runtime",
+                        "session ${entry.id} render thread still alive after join — possibly hung",
+                    )
                     entry.renderThreadPossiblyAlive = true
                     entry.hungRenderThread = t
                     return false
@@ -1598,20 +1985,18 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Dispatches non-exit poll events (bell, notification, clipboard,
-     * MCP dialogs/pick-file, toast, open-url, clipboard_get replies).
+     * Dispatches non-exit poll events (bell, notification, clipboard, MCP dialogs/pick-file, toast,
+     * open-url, clipboard_get replies).
      *
-     * Extracted from the render loop so the
-     * loop body stays a tight poll → handle → wait cycle. Inner class:
-     * accesses TerminalRuntime's handlers/context/clipboard without
-     * threading them through constructors. Exit reaping stays in the loop
-     * it owns the break/cleanup control flow).
+     * Extracted from the render loop so the loop body stays a tight poll → handle → wait cycle. Inner
+     * class: accesses TerminalRuntime's handlers/context/clipboard without threading them through
+     * constructors. Exit reaping stays in the loop it owns the break/cleanup control flow).
      */
     inner class EventDispatcher {
         /**
-         * Handle all non-exit events in [poll]. Called from the render loop
-         * after exit handling. Exceptions here must never skip the loop's
-         * per-frame bookkeeping (caller wraps us in the outer try).
+         * Handle all non-exit events in [poll]. Called from the render loop after exit handling.
+         * Exceptions here must never skip the loop's per-frame bookkeeping (caller wraps us in the
+         * outer try).
          */
         fun announceAccessibility(content: String) {
             // termlib AccessibilityOverlay live-region pattern: announce
@@ -1640,26 +2025,24 @@ constructor(
         }
 
         /**
-         * Bell-flash overlay animation, BellMode.SCREEN_FLASH):
-         * animate the native flash phase 1.0 → 0.0 over BELL_FLASH_DURATION_MS.
-         * A fresh bell cancels and restarts the animation so a burst always
-         * re-peaks at phase 1.0 (BellHandler.debounce already coalesces
-         * sub-150ms bells before we get here).
+         * Bell-flash overlay animation, BellMode.SCREEN_FLASH): animate the native flash phase 1.0 →
+         * 0.0 over BELL_FLASH_DURATION_MS. A fresh bell cancels and restarts the animation so a burst
+         * always re-peaks at phase 1.0 (BellHandler.debounce already coalesces sub-150ms bells before
+         * we get here).
          */
         private fun triggerBellFlash() {
             if (bellHandler.currentMode.value != BellMode.SCREEN_FLASH) return
             bellFlashJob?.cancel()
-            bellFlashJob =
-                scope.launch {
-                    val bridge = bridge() ?: return@launch
-                    var remainingMs = BELL_FLASH_DURATION_MS
-                    while (remainingMs > 0 && isActive) {
-                        bridge.setFlashState(remainingMs.toFloat() / BELL_FLASH_DURATION_MS)
-                        delay(BELL_FLASH_TICK_MS)
-                        remainingMs -= BELL_FLASH_TICK_MS
-                    }
-                    bridge.setFlashState(0f)
+            bellFlashJob = scope.launch {
+                val bridge = bridge() ?: return@launch
+                var remainingMs = BELL_FLASH_DURATION_MS
+                while (remainingMs > 0 && isActive) {
+                    bridge.setFlashState(remainingMs.toFloat() / BELL_FLASH_DURATION_MS)
+                    delay(BELL_FLASH_TICK_MS)
+                    remainingMs -= BELL_FLASH_TICK_MS
                 }
+                bridge.setFlashState(0f)
+            }
         }
 
         fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
@@ -1671,13 +2054,9 @@ constructor(
                 val (title, body) = poll.notification
                 val toastText = if (title.isNotEmpty()) "$title: $body" else body
                 Handler(Looper.getMainLooper()).post {
-                    android.widget.Toast
-                        .makeText(context, toastText, android.widget.Toast.LENGTH_LONG)
-                        .show()
+                    android.widget.Toast.makeText(context, toastText, android.widget.Toast.LENGTH_LONG).show()
                 }
-                terminal.emulator.ui
-                    .TerminalNotificationHelper(context)
-                    .showNotification(title, body)
+                terminal.emulator.ui.TerminalNotificationHelper(context).showNotification(title, body)
                 announceAccessibility(if (title.isNotEmpty()) title else body)
             }
             // ConEmu progress (OSC 9;4). Log the event;
@@ -1695,9 +2074,7 @@ constructor(
             poll.pickFiles.forEach { request -> dispatchPickFileRequest(request) }
             poll.toastText?.let { text ->
                 Handler(Looper.getMainLooper()).post {
-                    android.widget.Toast
-                        .makeText(context, text, android.widget.Toast.LENGTH_SHORT)
-                        .show()
+                    android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
             poll.openUrl?.let { url ->
@@ -1733,14 +2110,16 @@ constructor(
     }
 
     /**
-     * Dispatch one MCP `screenshot` request. Captures the current terminal
-     * frame as RGBA pixels via GPU readback (render_to_buffer) and returns
-     * the result to the native MCP tool via [NativeBridge.screenshotResult].
+     * Dispatch one MCP `screenshot` request. Captures the current terminal frame as RGBA pixels via
+     * GPU readback (render_to_buffer) and returns the result to the native MCP tool via
+     * [NativeBridge.screenshotResult].
      *
-     * Must run on the render thread (which owns the wgpu context). The
-     * render thread's event loop calls this directly.
+     * Must run on the render thread (which owns the wgpu context). The render thread's event loop
+     * calls this directly.
      */
-    private fun dispatchScreenshotRequest(request: terminal.emulator.bridge.Bridge.ScreenshotRequest) {
+    private fun dispatchScreenshotRequest(
+        request: terminal.emulator.bridge.Bridge.ScreenshotRequest,
+    ) {
         try {
             val data = NativeBridge.captureFrame(request.sessionId)
             if (data == null || data.size < 8) {
@@ -1749,18 +2128,20 @@ constructor(
                 return
             }
             // First 8 bytes: width (u32 LE) + height (u32 LE)
-            val width = (
-                (data[0].toInt() and 0xFF)
-                    or ((data[1].toInt() and 0xFF) shl 8)
-                    or ((data[2].toInt() and 0xFF) shl 16)
-                    or ((data[3].toInt() and 0xFF) shl 24)
-                )
-            val height = (
-                (data[4].toInt() and 0xFF)
-                    or ((data[5].toInt() and 0xFF) shl 8)
-                    or ((data[6].toInt() and 0xFF) shl 16)
-                    or ((data[7].toInt() and 0xFF) shl 24)
-                )
+            val width =
+                (
+                    (data[0].toInt() and 0xFF) or
+                        ((data[1].toInt() and 0xFF) shl 8) or
+                        ((data[2].toInt() and 0xFF) shl 16) or
+                        ((data[3].toInt() and 0xFF) shl 24)
+                    )
+            val height =
+                (
+                    (data[4].toInt() and 0xFF) or
+                        ((data[5].toInt() and 0xFF) shl 8) or
+                        ((data[6].toInt() and 0xFF) shl 16) or
+                        ((data[7].toInt() and 0xFF) shl 24)
+                    )
             if (width <= 0 || height <= 0) {
                 LogUtil.w("Runtime", "screenshot: invalid dimensions ${width}x$height")
                 NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
@@ -1775,17 +2156,17 @@ constructor(
     }
 
     /**
-     * Dispatch one MCP `run_command` request  D1). The raw
-     * command string is tokenized to argv with [ArgumentTokenizer] (no
-     * shell, no metacharacter interpretation) and executed in the app's
-     * process. The captured stdout/stderr and exit code are returned to
-     * the native MCP tool via `NativeBridge.runCommandResult`.
+     * Dispatch one MCP `run_command` request D1). The raw command string is tokenized to argv with
+     * [ArgumentTokenizer] (no shell, no metacharacter interpretation) and executed in the app's
+     * process. The captured stdout/stderr and exit code are returned to the native MCP tool via
+     * `NativeBridge.runCommandResult`.
      *
-     * Runs on the IO scope): the poll loop launches it
-     * without awaiting so a 30 s command cannot freeze keyboard /
-     * clipboard / signal polling.
+     * Runs on the IO scope): the poll loop launches it without awaiting so a 30 s command cannot
+     * freeze keyboard / clipboard / signal polling.
      */
-    private fun dispatchRunCommandRequest(request: terminal.emulator.bridge.Bridge.RunCommandRequest) {
+    private fun dispatchRunCommandRequest(
+        request: terminal.emulator.bridge.Bridge.RunCommandRequest,
+    ) {
         // Reply with an error payload instead of leaving the native
         // oneshot unresolved when anything below fails.
         fun fail(detail: String) {
@@ -1816,8 +2197,7 @@ constructor(
                     prefixDir = java.io.File(context.filesDir, "usr").absolutePath,
                 )
             val errCode = if (result.timedOut) ERR_CODE_TIMEOUT else ERR_CODE_NONE
-            val payload =
-                runCommandPayload(result.exitCode, errCode, result.stdout, result.stderr)
+            val payload = runCommandPayload(result.exitCode, errCode, result.stdout, result.stderr)
             NativeBridge.runCommandResult(request.sessionId, request.requestId, payload)
         } catch (exception: Exception) {
             fail("${exception.javaClass.simpleName}: ${exception.message}")
@@ -1825,14 +2205,16 @@ constructor(
     }
 
     /**
-     * Dispatch one MCP dialog request to the activity handler; replies
-     * empty when no handler is attached (activity destroyed window) so the
-     * native tool call never hangs. Extracted from handle() for the
-     * detekt CyclomaticComplexMethod limit.
+     * Dispatch one MCP dialog request to the activity handler; replies empty when no handler is
+     * attached (activity destroyed window) so the native tool call never hangs. Extracted from
+     * handle() for the detekt CyclomaticComplexMethod limit.
      */
     private fun dispatchDialogRequest(request: terminal.emulator.bridge.Bridge.DialogRequest) {
         try {
-            LogUtil.i("Runtime", "MCP dialog request session=${request.sessionId} type=${request.dialogType}")
+            LogUtil.i(
+                "Runtime",
+                "MCP dialog request session=${request.sessionId} type=${request.dialogType}",
+            )
             val handler = dialogRequestHandler
             if (handler != null) {
                 handler(
@@ -1848,19 +2230,17 @@ constructor(
                     "Runtime",
                     "MCP dialog request dropped (no handler), replying empty",
                 )
-                NativeBridge
-                    .dialogResult(request.sessionId, request.requestId, "")
+                NativeBridge.dialogResult(request.sessionId, request.requestId, "")
             }
         } catch (exception: Exception) {
             LogUtil.e("Runtime", "dialog request dispatch failed", exception)
-            NativeBridge
-                .dialogResult(request.sessionId, request.requestId, "")
+            NativeBridge.dialogResult(request.sessionId, request.requestId, "")
         }
     }
 
     /**
-     * Dispatch one MCP pick_file request to the activity handler (same
-     * no-handler fallback as [dispatchDialogRequest]).
+     * Dispatch one MCP pick_file request to the activity handler (same no-handler fallback as
+     * [dispatchDialogRequest]).
      */
     private fun dispatchPickFileRequest(request: terminal.emulator.bridge.Bridge.PickFileRequest) {
         try {
@@ -1878,18 +2258,22 @@ constructor(
                     "Runtime",
                     "MCP pick_file request dropped (no handler), replying empty",
                 )
-                NativeBridge
-                    .dialogResult(request.sessionId, request.requestId, "")
+                NativeBridge.dialogResult(request.sessionId, request.requestId, "")
             }
         } catch (exception: Exception) {
             LogUtil.e("Runtime", "pick_file request dispatch failed", exception)
-            NativeBridge
-                .dialogResult(request.sessionId, request.requestId, "")
+            NativeBridge.dialogResult(request.sessionId, request.requestId, "")
         }
     }
 
     private companion object {
+        const val DEFAULT_GRID_ROWS = 24
+        const val DEFAULT_GRID_COLS = 80
         private const val TENTHS_PER_UNIT = 10
+
+        /** Zoom-preview bounds in tenths — mirrors the native setFontSizeInPlace clamp (4.0..100.0). */
+        private const val MIN_FONT_SIZE_TENTHS = 40
+        private const val MAX_FONT_SIZE_TENTHS = 1000
 
         /** ModifierBar overlay height reserved when recomputing the grid from font metrics. */
         private const val MODIFIER_BAR_HEIGHT_DP = 80f
@@ -1911,22 +2295,33 @@ constructor(
         private const val BELL_FLASH_TICK_MS = 16L
 
         /**
-         * run_command err_code, termux ExecutionCommand
-         * dual-track): exitCode is the shell exit code; errCode is the
-         * app-level failure classification. 0 = none (command ran),
-         * 1 = timeout, 2 = internal exception. Destructive commands are
-         * refused by the native safety classifier before they reach the
-         * host, so no blocked err_code exists on this side.
+         * run_command err_code, termux ExecutionCommand dual-track): exitCode is the shell exit code;
+         * errCode is the app-level failure classification. 0 = none (command ran), 1 = timeout, 2 =
+         * internal exception. Destructive commands are refused by the native safety classifier before
+         * they reach the host, so no blocked err_code exists on this side.
          */
         private const val ERR_CODE_NONE = 0
         private const val ERR_CODE_TIMEOUT = 1
         private const val ERR_CODE_EXCEPTION = 2
 
         private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
-        private const val RENDER_MAX_TRANSIENT_ERRORS = 50 // ~2.5s of transient errors before thread exit
+        private const val RENDER_MAX_TRANSIENT_ERRORS =
+            50 // ~2.5s of transient errors before thread exit
         private const val RENDER_ERROR_SLEEP_MS = 50L
-        private const val RENDER_ERROR_BACKOFF_MS = 200L // Longer sleep after 10 consecutive transient errors
-        private const val RENDER_LATCH_TIMEOUT_NANOS = 16_000_000L // 16ms for active (~60 FPS)
+        private const val RENDER_ERROR_BACKOFF_MS =
+            200L // Longer sleep after 10 consecutive transient errors
+
+        // Logcat LATENCY_REPORT summary cadence (samples).
+        private const val LATENCY_REPORT_EVERY = 50
+
+        // 8ms active latch: halves worst-case echo wake quantization
+        // (input→echo latency tail) at negligible cost — the native idle
+        // gate turns extra wake-ups into ~0-cost count=0 JNI crossings.
+        private const val RENDER_LATCH_TIMEOUT_NANOS = 8_000_000L
+
+        // Slow-frame diagnostic: frames above this log a SLOW_FRAME line
+        // (render-stage wall time) for offline breakdown.
+        private const val SLOW_FRAME_LOG_THRESHOLD_MS = 30.0
         private const val RENDER_LATCH_IDLE_TIMEOUT_NANOS = 500_000_000L // 500ms for idle (~2 FPS)
         private const val RENDER_IDLE_THRESHOLD_NANOS = 5_000_000_000L // 5s idle → switch to low-freq
         private const val RENDER_DIAGNOSTIC_FREQUENCY = 60
@@ -1961,6 +2356,11 @@ constructor(
         val environmentVariables: Map<String, String>,
     )
 
+    private fun findPrefixShell(prefixDir: String): String? = listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh").firstOrNull { candidate ->
+        val file = java.io.File("$prefixDir/$candidate")
+        file.isFile && isElf(file)
+    }
+
     internal suspend fun computeFontSizeTenths(): Int {
         val userFontSize = settingsRepository.fontSize.first()
         if (settingsRepository.fontSizeExplicitlySet.first()) {
@@ -1977,6 +2377,35 @@ constructor(
         // phone (~360dp) and a tablet (~600dp) show the same column count.
         val widthDp = context.resources.configuration.screenWidthDp.toFloat()
         return (SettingsRepository.defaultFontSizeFor(widthDp) * TENTHS_PER_UNIT.toFloat()).toInt()
+    }
+
+    /**
+     * ⑥ Zoom preview: push new font metrics to the native font pipeline and refresh the Kotlin cell
+     * metrics WITHOUT resizing the grid. The renderer draws the next frame at the new cell size
+     * (cell_builder reads the font metrics every frame), while ghostty keeps its rows/cols until the
+     * gesture finalizes through [appliedFontSizeSp]/setFontSize, which runs the full apply (including
+     * the grid reflow). Caller rate-limits this — it is cheap enough to run a few times per second
+     * even on software-GPU emulators.
+     */
+    fun setFontSizePreview(sizeSp: Float) {
+        val tenths = (sizeSp * TENTHS_PER_UNIT.toFloat()).toInt()
+        if (tenths < MIN_FONT_SIZE_TENTHS || tenths > MAX_FONT_SIZE_TENTHS) return
+        val entry = sessions[activeSessionId] ?: return
+        entry.bridge?.setFontSizeInPlace(tenths)
+        entry.bridge?.let { syncGridDimensions(it) }
+    }
+
+    /**
+     * The font size (sp) currently rendered by the native pipeline (last value pushed via
+     * setFontSizeInPlace). Falls back to the built-in default before the first application.
+     */
+    fun appliedFontSizeSp(): Float {
+        val tenths = appliedFontSizeTenths
+        return if (tenths > 0) {
+            tenths / TENTHS_PER_UNIT.toFloat()
+        } else {
+            SettingsRepository.DEFAULT_FONT_SIZE
+        }
     }
 
     internal suspend fun resolveThemeName(): String {
@@ -2010,7 +2439,9 @@ constructor(
         Shell.Custom(shellPath)
     }
 
-    private fun makeBridgeTheme(resolvedTheme: terminal.emulator.ui.theme.TerminalTheme): BridgeTheme {
+    private fun makeBridgeTheme(
+        resolvedTheme: terminal.emulator.ui.theme.TerminalTheme,
+    ): BridgeTheme {
         fun colorToInt(color: androidx.compose.ui.graphics.Color): Int = ((color.alpha * 255).toInt() shl 24) or
             ((color.red * 255).toInt() shl 16) or
             ((color.green * 255).toInt() shl 8) or
@@ -2019,7 +2450,12 @@ constructor(
         val foregroundColor = colorToInt(resolvedTheme.foreground)
         val cursor = colorToInt(resolvedTheme.cursor)
         val ansiInts = resolvedTheme.ansi.map(::colorToInt)
-        val resolvedSelectionBg = if (resolvedTheme.selectionBg == Color.Transparent) Color(0xFF45475A) else resolvedTheme.selectionBg
+        val resolvedSelectionBg =
+            if (resolvedTheme.selectionBg == Color.Transparent) {
+                Color(0xFF45475A)
+            } else {
+                resolvedTheme.selectionBg
+            }
         return BridgeTheme(
             name = resolvedTheme.name,
             bg = backgroundColor,
@@ -2095,11 +2531,12 @@ constructor(
             val enabled = settingsRepository.mcpServerEnabled.first()
             NativeBridge.setMcpEnabled(enabled)
             LogUtil.d("Runtime", "start: restored MCP server enabled=$enabled")
-        }.onFailure { error ->
-            // Restore failure means MCP is silently unavailable — exactly the
-            // bug this code fixes — so it must be visible in logcat.
-            LogUtil.e("Runtime", "start: failed to restore MCP server toggle", error)
         }
+            .onFailure { error ->
+                // Restore failure means MCP is silently unavailable — exactly the
+                // bug this code fixes — so it must be visible in logcat.
+                LogUtil.e("Runtime", "start: failed to restore MCP server toggle", error)
+            }
         val displayW = context.resources.displayMetrics.widthPixels
         val displayH = context.resources.displayMetrics.heightPixels
         val density = context.resources.displayMetrics.density
@@ -2111,13 +2548,20 @@ constructor(
         val bypassMinSurface = System.getProperty("test.minSurface") != null
 
         if (!bypassMinSurface && (width <= 0 || height <= 0)) {
-            LogUtil.e("Runtime", "start() called with non-positive dimensions, waiting for surfaceChanged")
+            LogUtil.e(
+                "Runtime",
+                "start() called with non-positive dimensions, waiting for surfaceChanged",
+            )
             starting = false
             return
         }
 
-        val minWidth = (displayW * FONT_SIZE_DISPLAY_RATIO).toInt().coerceIn(FONT_SIZE_MIN_PX, FONT_SIZE_MAX_PX)
-        val minHeight = (displayH * FONT_SIZE_HEIGHT_RATIO).toInt().coerceIn(FONT_SIZE_HEIGHT_MIN_PX, FONT_SIZE_HEIGHT_MAX_PX)
+        val minWidth =
+            (displayW * FONT_SIZE_DISPLAY_RATIO).toInt().coerceIn(FONT_SIZE_MIN_PX, FONT_SIZE_MAX_PX)
+        val minHeight =
+            (displayH * FONT_SIZE_HEIGHT_RATIO)
+                .toInt()
+                .coerceIn(FONT_SIZE_HEIGHT_MIN_PX, FONT_SIZE_HEIGHT_MAX_PX)
         if (!bypassMinSurface && (width < minWidth || height < minHeight)) {
             LogUtil.w(
                 "Runtime",
@@ -2162,7 +2606,8 @@ constructor(
                         val host = uri.host
                         if (host.isNullOrBlank()) return@runCatching "<no-host>"
                         "$scheme://$host"
-                    }.getOrNull() ?: "<unparsable>"
+                    }
+                        .getOrNull() ?: "<unparsable>"
                 LogUtil.d("Runtime", "Bootstrap URL set: $origin")
                 val downloader = terminal.emulator.installer.BootstrapDownloader(context)
                 val installer =
@@ -2176,7 +2621,8 @@ constructor(
                         prefixDir = java.io.File(context.filesDir, "usr"),
                         homeDir = java.io.File(context.filesDir, "home"),
                     )
-                val installOrchestrator = terminal.emulator.installer.BootstrapOrchestrator(downloader, installer, secondStage)
+                val installOrchestrator =
+                    terminal.emulator.installer.BootstrapOrchestrator(downloader, installer, secondStage)
                 when (installOrchestrator.getInstallStatus()) {
                     terminal.emulator.installer.BootstrapOrchestrator.Status.NOT_INSTALLED -> {
                         // Never auto-download: a Termux bootstrap (~150 MB)
@@ -2204,12 +2650,13 @@ constructor(
             val bridgeStartNs = System.nanoTime()
             val bridge = createBridge(config)
             startedBridge = bridge
-            LogUtil.d("Runtime", "bridge created: ${bridge.ping()} elapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms")
+            LogUtil.d(
+                "Runtime",
+                "bridge created: ${bridge.ping()} elapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms",
+            )
 
             bridge.setSystemLocale(
-                java.util.Locale
-                    .getDefault()
-                    .toLanguageTag(),
+                java.util.Locale.getDefault().toLanguageTag(),
             )
             LogUtil.d("Runtime", "setSystemLocale: ${java.util.Locale.getDefault().toLanguageTag()}")
 
@@ -2233,7 +2680,10 @@ constructor(
             // window (black screen / hang). Abort and let the next
             // surface-available event retry start() with a fresh surface.
             if (surface != null && !surface.isValid) {
-                LogUtil.e("Runtime", "start(): surface became invalid during bootstrap, aborting (will retry on next surface)")
+                LogUtil.e(
+                    "Runtime",
+                    "start(): surface became invalid during bootstrap, aborting (will retry on next surface)",
+                )
                 // The bridge (native engine) was already created above;
                 // close it or every invalid-surface retry leaks one.
                 // (Flow analysis guarantees startedBridge is non-null here:
@@ -2256,7 +2706,10 @@ constructor(
                 "spawnTerminal: rows=${config.rows} cols=${config.cols} result=$spawnResult elapsed=${spawnElapsedMs}ms",
             )
             if (spawnResult <= 0L) {
-                LogUtil.e("Runtime", "spawnTerminal returned $spawnResult — native session init failed, aborting start")
+                LogUtil.e(
+                    "Runtime",
+                    "spawnTerminal returned $spawnResult — native session init failed, aborting start",
+                )
                 bridge.close()
                 return
             }
@@ -2280,7 +2733,25 @@ constructor(
                 // crisp on high-density screens (swash bitmaps are scaled by
                 // raster_scale; the shader samples the atlas at that scale).
                 val density = context.resources.displayMetrics.density
-                bridge.setRasterScale(density.coerceIn(0.5f, 4f))
+                // raster_scale must cover the full sp→px mapping: font size
+                // is stored in sp, and sp scales with BOTH display density
+                // and the user's system font scale. Rasterizing at density
+                // alone under-rasterizes when fontScale > 1 (e.g. "font
+                // size" accessibility), and the shader then upscales the
+                // atlas bitmap — the "blurry text" reports.
+                bridge.setRasterScale(
+                    (density * context.resources.configuration.fontScale).coerceIn(0.5f, 4f),
+                )
+                // Refresh cellWidth/cellHeight from the new font metrics and
+                // recompute the grid so the first rendered frame matches the
+                // configured size. Without this the renderer draws
+                // new-sized cells at the spawn-time grid — the
+                // "font-size setting vs actual mismatch" flash in the logs
+                // (cell_builder logged new cell metrics against the old
+                // grid for ~60-160ms until the next insets/surface event).
+                syncGridDimensions(bridge)
+                recomputeGridFromFontMetrics()
+                appliedFontSizeTenths = config.font_size_tenths
                 bridge.setTheme(config.theme)
                 val cursorStyle = settingsRepository.cursorStyle.first()
                 bridge.setCursorStyle(cursorStyle)
@@ -2294,7 +2765,11 @@ constructor(
                 )
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e("Runtime", "Failed to apply initial settings (continuing with defaults)", exception)
+                LogUtil.e(
+                    "Runtime",
+                    "Failed to apply initial settings (continuing with defaults)",
+                    exception,
+                )
             }
 
             // The native spawn result is the authoritative session ID (the
@@ -2326,6 +2801,9 @@ constructor(
                         )
                     sessions[finalSessionId] = entry
                     activeSessionId = finalSessionId
+                    bridge.onPtyWrite = { nanos ->
+                        entry.latencyProbe.onInputWritten(nanos)
+                    }
                 }
             }
             if (abandonedReason != null) {
@@ -2343,8 +2821,7 @@ constructor(
             }
             // entry is assigned in every branch above; the nullability is
             // only invisible to smart-cast across the early return.
-            val startedEntry =
-                requireNotNull(entry) { "start: session entry must exist after spawn" }
+            val startedEntry = requireNotNull(entry) { "start: session entry must exist after spawn" }
             // First render: problematic GPUs (Mali-G57 w/ missing SURFACE_VIEW_FORMATS)
             // can hang get_current_texture() indefinitely. The previous approach of
             // spawning a daemon thread to call bridge.render() caused mutex starvation —
@@ -2378,7 +2855,10 @@ constructor(
                     // starting the foreground service now would resurrect a
                     // ghost UI state and the notification underneath
                     // teardown.
-                    LogUtil.w("Runtime", "start: session $finalSessionId closed/stopped during startup, skipping render start")
+                    LogUtil.w(
+                        "Runtime",
+                        "start: session $finalSessionId closed/stopped during startup, skipping render start",
+                    )
                     // Defensive: keep the monitor alive for surviving
                     // sessions when this was a concurrent close rather than
                     // a full stop. Unreachable today (start() only inserts
@@ -2421,7 +2901,11 @@ constructor(
                     }
                     // Same guard as createSession: a service-start failure
                     // must not roll back the already-created session.
-                    LogUtil.e("Runtime", "Failed to start foreground service for session $finalSessionId", serviceException)
+                    LogUtil.e(
+                        "Runtime",
+                        "Failed to start foreground service for session $finalSessionId",
+                        serviceException,
+                    )
                 }
                 renderSupervisor.startRenderThread(startedEntry)
                 renderSupervisor.startRenderMonitor()
@@ -2492,11 +2976,10 @@ constructor(
     private val createSessionMutex = kotlinx.coroutines.sync.Mutex()
 
     /**
-     * Creates a new terminal session. Serialized against concurrent calls
-     * double-tap on the new-session button) and against [start]: two
-     * concurrent creations would each spawn a native session and start a
-     * render thread, and two render threads consuming the single global
-     * event queue misroute events (exit events dropped, sessions leaked).
+     * Creates a new terminal session. Serialized against concurrent calls double-tap on the
+     * new-session button) and against [start]: two concurrent creations would each spawn a native
+     * session and start a render thread, and two render threads consuming the single global event
+     * queue misroute events (exit events dropped, sessions leaked).
      */
     suspend fun createSession(
         surface: Surface,
@@ -2512,7 +2995,10 @@ constructor(
         height: Int,
     ): Long {
         if (starting) {
-            LogUtil.w("Runtime", "createSession: start() in progress (bootstrap), refusing concurrent creation")
+            LogUtil.w(
+                "Runtime",
+                "createSession: start() in progress (bootstrap), refusing concurrent creation",
+            )
             return -1L
         }
         if (width <= 0 || height <= 0) {
@@ -2544,9 +3030,7 @@ constructor(
                 "createSession bridgeElapsed=${(System.nanoTime() - bridgeStartNs) / 1_000_000}ms",
             )
             bridge.setSystemLocale(
-                java.util.Locale
-                    .getDefault()
-                    .toLanguageTag(),
+                java.util.Locale.getDefault().toLanguageTag(),
             )
 
             try {
@@ -2561,7 +3045,11 @@ constructor(
                 bridge.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
-                LogUtil.e("Runtime", "Failed to apply settings to new session (continuing with defaults)", exception)
+                LogUtil.e(
+                    "Runtime",
+                    "Failed to apply settings to new session (continuing with defaults)",
+                    exception,
+                )
             }
 
             // Spawn FIRST (outside the lock) so the native session ID
@@ -2612,6 +3100,9 @@ constructor(
                         )
                     sessions[nextId] = entry
                     abandonedByStart = false
+                    bridge.onPtyWrite = { nanos ->
+                        entry.latencyProbe.onInputWritten(nanos)
+                    }
                 }
             }
             if (abandonedByStart) {
@@ -2693,7 +3184,11 @@ constructor(
                             // scope teardown owns any cleanup.
                             throw serviceException
                         }
-                        LogUtil.e("Runtime", "Failed to start foreground service for session $nextId", serviceException)
+                        LogUtil.e(
+                            "Runtime",
+                            "Failed to start foreground service for session $nextId",
+                            serviceException,
+                        )
                     }
                 }
             }
@@ -2735,7 +3230,11 @@ constructor(
                     try {
                         leaked.close()
                     } catch (closeException: Exception) {
-                        LogUtil.e("Runtime", "Failed to close leaked bridge during createSession rollback", closeException)
+                        LogUtil.e(
+                            "Runtime",
+                            "Failed to close leaked bridge during createSession rollback",
+                            closeException,
+                        )
                     }
                 }
             }
@@ -2770,10 +3269,11 @@ constructor(
         val previousActiveId: Long
         synchronized(sessionLock) {
             target =
-                sessions[id] ?: run {
-                    LogUtil.e("Runtime", "switchSession: session $id not found")
-                    return
-                }
+                sessions[id]
+                    ?: run {
+                        LogUtil.e("Runtime", "switchSession: session $id not found")
+                        return
+                    }
             // Capture before any stopping happens; used to restore the
             // previous session if the switch/spawn fails.
             previousActiveId = activeSessionId
@@ -2819,7 +3319,10 @@ constructor(
                         // use-after-free once the thread resumes.
                         current.bridge?.releaseGpuSurface()
                     } else {
-                        LogUtil.e("Runtime", "switchSession: session ${current.id} render thread hung — skipping surface release")
+                        LogUtil.e(
+                            "Runtime",
+                            "switchSession: session ${current.id} render thread hung — skipping surface release",
+                        )
                     }
                 } catch (exception: Exception) {
                     LogUtil.e("Runtime", "switchSession: error stopping current session", exception)
@@ -2838,7 +3341,10 @@ constructor(
                 // the monitor skips !running entries forever).
                 val previous = sessions[previousActiveId]
                 if (previous != null && shouldRestorePreviousSession(previous.id, id)) {
-                    LogUtil.w("Runtime", "switchSession: restoring previous session ${previous.id} after failure")
+                    LogUtil.w(
+                        "Runtime",
+                        "switchSession: restoring previous session ${previous.id} after failure",
+                    )
                     previous.running = true
                     previous.renderThreadExited = false
                     previous.restartAttempts = 0
@@ -2846,7 +3352,11 @@ constructor(
                         renderSupervisor.startRenderThread(previous)
                         activeSessionId = previous.id
                     } catch (restoreException: Exception) {
-                        LogUtil.e("Runtime", "switchSession: failed to restore previous session ${previous.id}", restoreException)
+                        LogUtil.e(
+                            "Runtime",
+                            "switchSession: failed to restore previous session ${previous.id}",
+                            restoreException,
+                        )
                     }
                 }
                 return
@@ -2899,7 +3409,10 @@ constructor(
             // Re-validate: the session may have been closed while the first
             // frame was rendering (user closed it, or the monitor reaped it).
             if (sessions[id] !== target) {
-                LogUtil.w("Runtime", "switchSession: session $id was closed during first frame, aborting switch")
+                LogUtil.w(
+                    "Runtime",
+                    "switchSession: session $id was closed during first frame, aborting switch",
+                )
                 return
             }
             // A concurrent switchSession may have published a different
@@ -2942,7 +3455,11 @@ constructor(
                 try {
                     NativeBridge.switchSession(id)
                 } catch (exception: Exception) {
-                    LogUtil.e("Runtime", "switchSession: native switchSession failed for session $id", exception)
+                    LogUtil.e(
+                        "Runtime",
+                        "switchSession: native switchSession failed for session $id",
+                        exception,
+                    )
                 }
                 target.bridge?.let { syncGridDimensions(it) }
                 //  stopped applySettings from resizing background
@@ -2951,7 +3468,10 @@ constructor(
                 // native grid (an ADR-0007 stub returning 0) and can't tell us
                 // the real dims, so resize unconditionally with the latest UI
                 // state.
-                target.bridge?.resize(_state.value.rows.coerceAtLeast(1), _state.value.cols.coerceAtLeast(1))
+                target.bridge?.resize(
+                    _state.value.rows.coerceAtLeast(1),
+                    _state.value.cols.coerceAtLeast(1),
+                )
                 LogUtil.d("Runtime", "switched to session $id")
                 // DECSET 1004 focus reporting is per-window and the new
                 // active session never received a focus-in while backgrounded.
@@ -2961,30 +3481,30 @@ constructor(
                     target.bridge?.focusEvent(true)
                 }
             } catch (exception: Exception) {
-                LogUtil.e("Runtime", "switchSession: failed to start render thread for session $id", exception)
+                LogUtil.e(
+                    "Runtime",
+                    "switchSession: failed to start render thread for session $id",
+                    exception,
+                )
             }
         }
     }
 
     /**
-     * Single entry point for the Activity teardown path (onDestroy): stop
-     * the foreground service when no session is running, or refresh the
-     * notification count when sessions survive. Centralizes the service
-     * lifecycle here instead of MainActivity calling the static methods
-     * directly (which bypassed the runtime's foregroundServiceRunning
-     * flag and its exception protection).
+     * Single entry point for the Activity teardown path (onDestroy): stop the foreground service when
+     * no session is running, or refresh the notification count when sessions survive. Centralizes the
+     * service lifecycle here instead of MainActivity calling the static methods directly (which
+     * bypassed the runtime's foregroundServiceRunning flag and its exception protection).
      *
-     * The count read and the stop decision both happen inside sessionLock
-     *: a createSession landing between the snapshot and the stop
-     * would otherwise leave a live session without its foreground service.
+     * The count read and the stop decision both happen inside sessionLock : a createSession landing
+     * between the snapshot and the stop would otherwise leave a live session without its foreground
+     * service.
      *
-     * note: if onDestroy runs while runtime.start() is mid-bootstrap
-     * (no session inserted yet), this stops the service and start() later
-     * re-inserts a session and re-starts the service. That is the intended
-     * background-session semantics (Termux-style: sessions outlive the
-     * Activity), not a leak — the final state is one live session + one
-     * foreground service. A leak would only occur if start() FAILED after
-     * the service restart, which its rollback (updateForegroundSessionCount(0))
+     * note: if onDestroy runs while runtime.start() is mid-bootstrap (no session inserted yet), this
+     * stops the service and start() later re-inserts a session and re-starts the service. That is the
+     * intended background-session semantics (Termux-style: sessions outlive the Activity), not a leak
+     * — the final state is one live session + one foreground service. A leak would only occur if
+     * start() FAILED after the service restart, which its rollback (updateForegroundSessionCount(0))
      * already handles.
      */
     fun stopForegroundServiceIfIdle() {
@@ -3007,13 +3527,14 @@ constructor(
         // a brand-new render thread is starting (orphaned thread, global
         // event queue double-consumer).
         var wasRunning: Boolean = false
-        val entry = synchronized(sessionLock) {
-            val e = sessions[id] ?: return
-            wasRunning = e.running
-            e.running = false
-            e.closing = true
-            e
-        }
+        val entry =
+            synchronized(sessionLock) {
+                val e = sessions[id] ?: return
+                wasRunning = e.running
+                e.running = false
+                e.closing = true
+                e
+            }
         LogUtil.d("Runtime", "closeSession($id)")
 
         // Stop the render thread for any session, active or not.
@@ -3079,7 +3600,13 @@ constructor(
                 if (remaining.isNotEmpty()) {
                     val newId = remaining.last()
                     activeSessionId = newId
-                    activateReplacementSession(newId, "closeSession", markRunning = true, withRetry = false, syncGrid = true)
+                    activateReplacementSession(
+                        newId,
+                        "closeSession",
+                        markRunning = true,
+                        withRetry = false,
+                        syncGrid = true,
+                    )
                 } else {
                     activeSessionId = 0L
                 }
@@ -3118,11 +3645,10 @@ constructor(
     }
 
     /**
-     * Recompute the active session's grid from the CURRENT native font
-     * metrics: rows = (surface - ModifierBar) / cell_height, cols =
-     * surface / cell_width. No-op when the surface size or metrics aren't
-     * known yet (fonts applied pre-attach). Called after every font-size
-     * change and after the initial font application.
+     * Recompute the active session's grid from the CURRENT native font metrics: rows = (surface -
+     * ModifierBar) / cell_height, cols = surface / cell_width. No-op when the surface size or metrics
+     * aren't known yet (fonts applied pre-attach). Called after every font-size change and after the
+     * initial font application.
      */
     private fun recomputeGridFromFontMetrics() {
         val density = context.resources.displayMetrics.density
@@ -3135,9 +3661,22 @@ constructor(
         val currentCols = _state.value.cols.coerceAtLeast(1)
         if (surfaceW <= 0 || surfaceH <= 0 || cellWidth <= 0f || cellHeight <= 0f) return
         // Compute grid dimensions from physical surface / physical cell metrics.
-        // Both surface and cell are in physical pixels (density-scaled).
-        val newCols = (surfaceW / cellWidth).toInt().coerceAtLeast(1)
-        val newRows = ((surfaceH - barHeightPx) / cellHeight).toInt().coerceAtLeast(1)
+        // Both surface and cell are in physical pixels (density-scaled). The
+        // ModifierBar overlays the bottom of the surface, so its height is
+        // subtracted before computing rows.
+        val (newRows, newCols) =
+            computeGridDimensions(
+                surfaceWidth = surfaceW,
+                surfaceHeight = surfaceH - barHeightPx,
+                cellWidth = cellWidth,
+                cellHeight = cellHeight,
+            )
+        if (newRows == 0 || newCols == 0) {
+            // Degenerate geometry (usable height ≤ 0, e.g. a surface no
+            // taller than the ModifierBar): keep the current grid instead
+            // of collapsing it to one row.
+            return
+        }
         if (newRows == currentRows && newCols == currentCols) return
         LogUtil.d(
             "Runtime",
@@ -3153,6 +3692,7 @@ constructor(
 
     suspend fun applyFontSettings() {
         val fontSizeTenths = computeFontSizeTenths()
+        appliedFontSizeTenths = fontSizeTenths
         val fontFamily = settingsRepository.fontFamily.first()
         val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
         LogUtil.d(
@@ -3165,8 +3705,12 @@ constructor(
                 LogUtil.d("Runtime", "setFontFamily result: $familyResult")
                 // Independent bold/italic families (ghostty-android 4-slot
                 // design): empty = clear the slot (same-family fallback).
-                val boldFamily = terminal.emulator.resolveEffectiveFontFamily(settingsRepository.boldFontFamily.first())
-                val italicFamily = terminal.emulator.resolveEffectiveFontFamily(settingsRepository.italicFontFamily.first())
+                val boldFamily =
+                    terminal.emulator.resolveEffectiveFontFamily(settingsRepository.boldFontFamily.first())
+                val italicFamily =
+                    terminal.emulator.resolveEffectiveFontFamily(
+                        settingsRepository.italicFontFamily.first(),
+                    )
                 entry.bridge?.setFontFamilyForStyle(boldFamily, terminal.emulator.FONT_SLOT_BOLD)
                 entry.bridge?.setFontFamilyForStyle(italicFamily, terminal.emulator.FONT_SLOT_ITALIC)
                 entry.bridge?.setFontSizeInPlace(fontSizeTenths)
@@ -3211,6 +3755,11 @@ constructor(
             // so fast-death recovery must NOT fire for it.
             entry.userTypedSinceSpawn = true
             val written = entry.bridge?.writeToPty(data) ?: false
+            if (written) {
+                // Latency probe input stamp (elapsed-realtime clock: it
+                // survives deep sleep, unlike nanoTime's monotonic base).
+                entry.latencyProbe.onInputWritten(SystemClock.elapsedRealtimeNanos())
+            }
             entry.notifyRender()
             return written
         }
@@ -3226,8 +3775,13 @@ constructor(
 
     fun bridge(): Bridge? = sessions[activeSessionId]?.bridge
 
-    @Volatile
-    private var lastWindowFocus: Boolean = false
+    /**
+     * Input→echo latency summary of the active session (emulator-performance-verification). `NOT
+     * MEASURED` below N=30 — callers must surface that verbatim instead of inventing a number.
+     */
+    fun latencyReport(): String = sessions[activeSessionId]?.latencyProbe?.report() ?: "latency NOT MEASURED n=0"
+
+    @Volatile private var lastWindowFocus: Boolean = false
 
     fun focusChange(focused: Boolean) {
         lastWindowFocus = focused
@@ -3304,10 +3858,21 @@ constructor(
         mode: Byte = 0,
         selectionBgArgb: Int = selectionBgColor,
     ) {
-        LogUtil.d("Runtime", "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection mode=$mode")
-        selectionState.set(SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection, mode))
+        LogUtil.d(
+            "Runtime",
+            "setSelection: start=($startRow,$startCol) end=($endRow,$endCol) active=$hasSelection mode=$mode",
+        )
+        // Full-snapshot overwrite: dragging resets to false here — every
+        // commit path (endSelection/clearSelection/syncSelectionToNative)
+        // funnels through this call, so a finished drag always clears the
+        // P1-1 dragging guard.
+        selectionState.set(
+            SelectionStateSnapshot(startRow, startCol, endRow, endCol, hasSelection, mode),
+        )
         val entry = sessions[activeSessionId]
-        entry?.bridge?.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBgArgb)
+        entry
+            ?.bridge
+            ?.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBgArgb)
         entry?.notifyRender()
     }
 
@@ -3320,15 +3885,16 @@ constructor(
         val entry = sessions[activeSessionId] ?: return null
         val bounds = entry.bridge?.expandAndSetSelection(row, col, mode) ?: return null
         val (start, end) = bounds
-        selectionState.set(SelectionStateSnapshot(start.first, start.second, end.first, end.second, true, mode))
+        selectionState.set(
+            SelectionStateSnapshot(start.first, start.second, end.first, end.second, true, mode),
+        )
         entry.notifyRender()
         return bounds
     }
 
     /**
-     * Resize the active session's terminal grid. Values are clamped to the
-     * native u16 range (1..=65535) BEFORE the bridge call so the PTY/MCP
-     * dimensions and the UI state agree.
+     * Resize the active session's terminal grid. Values are clamped to the native u16 range
+     * (1..=65535) BEFORE the bridge call so the PTY/MCP dimensions and the UI state agree.
      */
     fun resize(
         rows: Int,
@@ -3359,13 +3925,11 @@ constructor(
     }
 
     /**
-     * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the
-     * active session, preserving rows/cols. Called alongside every grid
-     * resize with the terminal surface's pixel dimensions, so pixel-aware
-     * programs (`icat`, fullscreen TUIs) read real pixels from TIOCGWINSZ
-     * instead of 0 (ghostty-android pty_jni.c:84-87). Values are clamped to
-     * the native u16 range like [resize]; a 0 both is legal (clears the
-     * fields) and the ioctl succeeds, so no lower-bound guard is needed.
+     * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the active session, preserving
+     * rows/cols. Called alongside every grid resize with the terminal surface's pixel dimensions, so
+     * pixel-aware programs (`icat`, fullscreen TUIs) read real pixels from TIOCGWINSZ instead of 0
+     * (ghostty-android pty_jni.c:84-87). Values are clamped to the native u16 range like [resize]; a
+     * 0 both is legal (clears the fields) and the ioctl succeeds, so no lower-bound guard is needed.
      */
     fun setPixelSize(widthPx: Int, heightPx: Int) {
         val entry = sessions[activeSessionId] ?: return
@@ -3379,12 +3943,18 @@ constructor(
         val bridge = sessions[activeSessionId]?.bridge ?: return
         bridge.recomputeGrid(width, height)
         syncGridDimensions(bridge)
+        // bridge.recomputeGrid is a logging stub — the real reflow happens
+        // here: rows/cols recomputed from the current surface size and the
+        // native font cell metrics. Without it, surface re-attach after a
+        // restart kept the bootstrap 24x80 grid while glyphs render at the
+        // configured (larger) size: prompts got truncated ("/home/com.ter"
+        // instead of the full path) and wrapping broke.
+        recomputeGridFromFontMetrics()
     }
 
     /**
-     * Hand the Android Surface to the renderer (ADR-0007). If the session
-     * bridge does not exist yet (spawn in progress), the surface is kept
-     * pending and attached right after the session starts.
+     * Hand the Android Surface to the renderer (ADR-0007). If the session bridge does not exist yet
+     * (spawn in progress), the surface is kept pending and attached right after the session starts.
      */
     fun attachSurface(surface: android.view.Surface, width: Int, height: Int) {
         pendingSurface = surface
@@ -3419,24 +3989,22 @@ constructor(
     }
 
     /**
-     * Activate [newId] as the foreground session after its predecessor
-     * closed: final hung-thread join, native ACTIVE_SESSION_ID sync
-     * switchSession), render-thread restart and focus re-send.
+     * Activate [newId] as the foreground session after its predecessor closed: final hung-thread
+     * join, native ACTIVE_SESSION_ID sync switchSession), render-thread restart and focus re-send.
      *
-     * Shared by handleSessionExit, closeDeadSession and closeSession
-     * so this lock-held sequence lives in
-     * exactly one place instead of three drifting copies.
+     * Shared by handleSessionExit, closeDeadSession and closeSession so this lock-held sequence lives
+     * in exactly one place instead of three drifting copies.
      *
-     * Must be called with sessionLock held; the caller already removed the
-     * closing entry and set activeSessionId = [newId].
+     * Must be called with sessionLock held; the caller already removed the closing entry and set
+     * activeSessionId = [newId].
      *
      * @param caller log prefix (e.g. "handleSessionExit")
-     * @param markRunning set replacement.running = true first (closeSession
-     *   needs it; the exit paths already run with the session running)
-     * @param withRetry retry switchSession once on JNI failure (exit paths;
-     *   a user close skips the retry to keep latency bounded)
-     * @param syncGrid call syncGridDimensions on the replacement after the
-     *   render start (closeSession only)
+     * @param markRunning set replacement.running = true first (closeSession needs it; the exit paths
+     *   already run with the session running)
+     * @param withRetry retry switchSession once on JNI failure (exit paths; a user close skips the
+     *   retry to keep latency bounded)
+     * @param syncGrid call syncGridDimensions on the replacement after the render start (closeSession
+     *   only)
      */
     private fun activateReplacementSession(
         newId: Long,
@@ -3446,22 +4014,24 @@ constructor(
         syncGrid: Boolean,
     ) {
         val replacement =
-            sessions[newId] ?: run {
-                LogUtil.w("Runtime", "$caller: new active session $newId already removed")
-                activeSessionId = 0L
-                updateState()
-                return
-            }
+            sessions[newId]
+                ?: run {
+                    LogUtil.w("Runtime", "$caller: new active session $newId already removed")
+                    activeSessionId = 0L
+                    updateState()
+                    return
+                }
         if (markRunning) {
             replacement.running = true
         }
         val bridge =
-            replacement.bridge ?: run {
-                LogUtil.w("Runtime", "$caller: new active session $newId has no bridge")
-                activeSessionId = 0L
-                updateState()
-                return
-            }
+            replacement.bridge
+                ?: run {
+                    LogUtil.w("Runtime", "$caller: new active session $newId has no bridge")
+                    activeSessionId = 0L
+                    updateState()
+                    return
+                }
         // Final join of any hung thread: if it exited meanwhile, clear the
         // flag so a later close() destroys the native session (no leak).
         // Guard against joining ourselves: the exit paths run on a render
@@ -3603,7 +4173,8 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     private fun updateState() {
-        val currentTitle = sessions[activeSessionId]?.bridge?.getActiveSessionTitle() ?: _state.value.title
+        val currentTitle =
+            sessions[activeSessionId]?.bridge?.getActiveSessionTitle() ?: _state.value.title
         // _state.update (CAS) instead of a read-modify-write assignment: the
         // render thread's title CAS could land between our read and write
         // and be overwritten by a stale title (self-heals next cycle, but
@@ -3629,8 +4200,20 @@ constructor(
         // is stale the moment the holder is destroyed — attaching it later
         // would hand the new bridge a dead Surface and render black frames.
         pendingSurface = null
+        setRenderPaused(true)
+    }
+
+    /**
+     * Toggle the native renderer pause flag for every session. The flag lives on the single global
+     * renderer (ffi.rs setRenderPaused), so pausing any session pauses the shared GPU pipeline.
+     *
+     * The flag must be cleared on the surface-restore path (TerminalSurface.surfaceCreated) — nothing
+     * else does, and while it stays set, render_frame short-circuits with Ok(()) and the restored
+     * session renders pure black frames with a healthy-looking render thread (no errors, no restart).
+     */
+    fun setRenderPaused(paused: Boolean) {
         for (entry in sessions.values) {
-            entry.bridge?.setRenderPaused(true)
+            entry.bridge?.setRenderPaused(paused)
         }
     }
 
@@ -3643,10 +4226,9 @@ constructor(
     }
 
     /**
-     * Queue [action] on the same single-thread executor that stops render
-     * threads during pauseRendering. Callers use this to release surfaces /
-     * views only AFTER the render thread's join has confirmed it is no
-     * longer inside native render code — releasing an ANativeWindow while
+     * Queue [action] on the same single-thread executor that stops render threads during
+     * pauseRendering. Callers use this to release surfaces / views only AFTER the render thread's
+     * join has confirmed it is no longer inside native render code — releasing an ANativeWindow while
      * the render thread still uses it is a use-after-free.
      */
     fun runAfterRenderThreadsStopped(action: () -> Unit) {
@@ -3659,10 +4241,9 @@ constructor(
 }
 
 /**
- * True when [file] starts with the ELF magic (0x7f 'E' 'L' 'F').
- * Used to exclude shebang scripts from prefix-shell resolution: the
- * linker-wrapper spawn path can only load real ELF binaries. Top-level
- * (not on the private companion) so installer/settings code can reuse it.
+ * True when [file] starts with the ELF magic (0x7f 'E' 'L' 'F'). Used to exclude shebang scripts
+ * from prefix-shell resolution: the linker-wrapper spawn path can only load real ELF binaries.
+ * Top-level (not on the private companion) so installer/settings code can reuse it.
  */
 internal fun isElf(file: java.io.File): Boolean = try {
     file.inputStream().use { input ->
@@ -3689,26 +4270,28 @@ internal const val FAST_DEATH_THRESHOLD_MS = 1500L
 internal const val MAX_FAST_DEATH_RETRIES = 3
 
 /**
- * Fast-death decision (pure, unit-tested): the shell exited within
- * [FAST_DEATH_THRESHOLD_MS] of spawn, the user typed nothing, and the
- * retry budget is not exhausted.
+ * Fast-death decision (pure, unit-tested): the shell exited within [FAST_DEATH_THRESHOLD_MS] of
+ * spawn, the user typed nothing, and the retry budget is not exhausted.
  */
 internal fun shouldRetryFastDeath(
     aliveMs: Long,
     userTypedSinceSpawn: Boolean,
     fastDeathCount: Int,
-): Boolean = aliveMs <= FAST_DEATH_THRESHOLD_MS && !userTypedSinceSpawn && fastDeathCount < MAX_FAST_DEATH_RETRIES
+): Boolean = aliveMs <= FAST_DEATH_THRESHOLD_MS &&
+    !userTypedSinceSpawn &&
+    fastDeathCount < MAX_FAST_DEATH_RETRIES
 
 /**
- * Exponential backoff for retry [attempt] (1-based):
- * 500ms << (attempt-1), capped at 5000ms (warp's formula).
+ * Exponential backoff for retry [attempt] (1-based): 500ms << (attempt-1), capped at 5000ms (warp's
+ * formula).
  */
 internal fun fastDeathBackoffMs(attempt: Int): Long = minOf(500L shl (attempt - 1), 5000L)
 
-/** Wire payload sent to the native side for MCP run_command results
- *  (d1/d4: exit_code clamped to 0..255 with -1 as the timeout sentinel;
- *  err_code: 0=ok, 1=timeout, 2=exception). Field names are the
- *  cross-FFI contract — see Rust mcp/run_command parsing. */
+/**
+ * Wire payload sent to the native side for MCP run_command results (d1/d4: exit_code clamped to
+ * 0..255 with -1 as the timeout sentinel; err_code: 0=ok, 1=timeout, 2=exception). Field names are
+ * the cross-FFI contract — see Rust mcp/run_command parsing.
+ */
 @Serializable
 internal data class RunCommandPayload(
     @SerialName("exit_code") val exitCode: Int,
@@ -3739,19 +4322,20 @@ internal fun runCommandPayload(
 
 // ── MCP run_command execution) ────────────────────────────
 
-/** MCP run_command process timeout  D1). */
+/** MCP run_command process timeout D1). */
 private const val RUN_COMMAND_TIMEOUT_MS = 30_000L
 
 /**
- * Grace period for draining stdout/stderr after the process exits or is
- * killed. A grandchild that inherited the pipe fds keeps the read open
- * forever; bounding the drain keeps the caller from hanging
- * — previously the two `await()` calls were unbounded).
+ * Grace period for draining stdout/stderr after the process exits or is killed. A grandchild that
+ * inherited the pipe fds keeps the read open forever; bounding the drain keeps the caller from
+ * hanging — previously the two `await()` calls were unbounded).
  */
 private const val RUN_COMMAND_DRAIN_MS = 2_000L
 
-/** Result of [executeRunCommand]: captured streams, exit code and whether
- *  the process had to be killed for exceeding the timeout. */
+/**
+ * Result of [executeRunCommand]: captured streams, exit code and whether the process had to be
+ * killed for exceeding the timeout.
+ */
 internal data class RunCommandResult(
     val stdout: String,
     val stderr: String,
@@ -3761,12 +4345,11 @@ internal data class RunCommandResult(
 
 /**
  * Execute `argv` as a child process with a bounded lifetime:
- *  - `timeoutMs`: the process is force-killed when it does not exit in
- *    time (exitCode -1, timedOut true).
- *  - `drainMs`: after the process exits (or is killed) the stdout/stderr
- *    readers get at most this long to reach EOF. A grandchild that
- *    inherited the pipe fds cannot hang the caller past this bound; the
- *    readers are cancelled and the streams come back empty.
+ * - `timeoutMs`: the process is force-killed when it does not exit in time (exitCode -1, timedOut
+ *   true).
+ * - `drainMs`: after the process exits (or is killed) the stdout/stderr readers get at most this
+ *   long to reach EOF. A grandchild that inherited the pipe fds cannot hang the caller past this
+ *   bound; the readers are cancelled and the streams come back empty.
  *
  * Pure JVM (no Android dependencies): unit-tested on the host.
  */
@@ -3783,18 +4366,19 @@ internal fun executeRunCommand(
     // coreutils applets, nix store paths) must be launched through the
     // system linker, exactly like PtyPair::spawn does on the native side.
     val wrapped = wrapTermuxExec(argv, prefixDir)
-    val process = try {
-        ProcessBuilder(wrapped).redirectErrorStream(false).start()
-    } catch (e: java.io.IOException) {
-        // d: process spawn failure (e.g. invalid binary) must
-        // not crash the MCP server — return an error result instead.
-        return RunCommandResult(
-            stdout = "",
-            stderr = "exec failed: ${e.message ?: e.toString()}\n",
-            exitCode = 127, // 127 = "command not found" convention
-            timedOut = false,
-        )
-    }
+    val process =
+        try {
+            ProcessBuilder(wrapped).redirectErrorStream(false).start()
+        } catch (e: java.io.IOException) {
+            // d: process spawn failure (e.g. invalid binary) must
+            // not crash the MCP server — return an error result instead.
+            return RunCommandResult(
+                stdout = "",
+                stderr = "exec failed: ${e.message ?: e.toString()}\n",
+                exitCode = 127, // 127 = "command not found" convention
+                timedOut = false,
+            )
+        }
     // Readers run on daemon threads with a self-imposed deadline of
     // timeout+drain: they poll via ready() (never blocking on a read that
     // cannot be interrupted) so a grandchild inheriting the pipe fds can
@@ -3824,11 +4408,10 @@ internal fun executeRunCommand(
 }
 
 /**
- * Wrap a `$PREFIX` executable in the system linker when needed.
- * Android 15+ SELinux denies untrusted_app from exec'ing
- * app_data_file binaries directly (`execute_no_trans`); the system linker
- * path is allowed because it only maps the file (`execute`). This mirrors
- * the native `PtyPair::spawn` SPAWN_LINKER logic.
+ * Wrap a `$PREFIX` executable in the system linker when needed. Android 15+ SELinux denies
+ * untrusted_app from exec'ing app_data_file binaries directly (`execute_no_trans`); the system
+ * linker path is allowed because it only maps the file (`execute`). This mirrors the native
+ * `PtyPair::spawn` SPAWN_LINKER logic.
  */
 internal fun wrapTermuxExec(
     argv: List<String>,
@@ -3848,13 +4431,11 @@ internal fun wrapTermuxExec(
 }
 
 /**
- * Reads [stream] on a daemon thread, appending into a shared buffer. The
- * blocking read() returns as soon as the write end of the pipe closes
- * (process exit without descendants) — EOF is detected naturally, unlike
- * ready()-based polling (ready() returns false on EOF). When a grandchild
- * holds the pipe open, [get] joins with a bounded timeout and returns the
- * partial output; the daemon reader is then abandoned (it dies with the
- * process), so the caller can never hang).
+ * Reads [stream] on a daemon thread, appending into a shared buffer. The blocking read() returns as
+ * soon as the write end of the pipe closes (process exit without descendants) — EOF is detected
+ * naturally, unlike ready()-based polling (ready() returns false on EOF). When a grandchild holds
+ * the pipe open, [get] joins with a bounded timeout and returns the partial output; the daemon
+ * reader is then abandoned (it dies with the process), so the caller can never hang).
  */
 private class BoundedStreamRead(
     private val stream: java.io.InputStream,
@@ -3879,10 +4460,11 @@ private class BoundedStreamRead(
                 }
             },
             "run-command-read",
-        ).apply {
-            isDaemon = true
-            start()
-        }
+        )
+            .apply {
+                isDaemon = true
+                start()
+            }
 
     /** Join the reader for at most [remainingMs]; returns what was read. */
     fun get(remainingMs: Long): String {
@@ -3899,46 +4481,47 @@ private class BoundedStreamRead(
 }
 
 /**
- * Fast-death effective lifetime: prefer the native `alive_ms` measurement;
- * when the respawn event predates that field (<= 0) fall back to the
- * Kotlin-side wall-clock since spawn. Pure so the recovery decision is
- * unit-testable.
+ * Fast-death effective lifetime: prefer the native `alive_ms` measurement; when the respawn event
+ * predates that field (<= 0) fall back to the Kotlin-side wall-clock since spawn. Pure so the
+ * recovery decision is unit-testable.
  */
 internal fun resolveAliveMs(aliveMs: Long, nowMs: Long, spawnedAtMs: Long): Long = if (aliveMs > 0) aliveMs else (nowMs - spawnedAtMs).coerceAtLeast(0)
 
 /**
- * Next dead-render-thread restart backoff: double the previous delay up to
- * [maxDelayMs] (the exponential backoff in handleDeadRenderThread).
+ * Next dead-render-thread restart backoff: double the previous delay up to [maxDelayMs] (the
+ * exponential backoff in handleDeadRenderThread).
  */
 internal fun nextRestartDelayMs(currentMs: Long, maxDelayMs: Long): Long = (currentMs * 2).coerceAtMost(maxDelayMs)
 
 /**
- * Dead-render restart budget: attempt counter past [maxAttempts] means the
- * session is closed instead of restarted again.
+ * Dead-render restart budget: attempt counter past [maxAttempts] means the session is closed
+ * instead of restarted again.
  */
 internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Boolean = restartAttempts > maxAttempts
 
 /**
- * Fast-death respawn gate (re-checked under sessionLock inside
- * tryFastDeathRecovery): a closing session or an exhausted retry budget
- * must NOT schedule another respawn, even when the earlier
+ * Fast-death respawn gate (re-checked under sessionLock inside tryFastDeathRecovery): a closing
+ * session or an exhausted retry budget must NOT schedule another respawn, even when the earlier
  * shouldRetryFastDeath passed — the state may have changed while waiting.
  */
-internal fun shouldScheduleFastDeathRetry(closing: Boolean, fastDeathCount: Int, maxRetries: Int): Boolean = !closing && fastDeathCount < maxRetries
+internal fun shouldScheduleFastDeathRetry(
+    closing: Boolean,
+    fastDeathCount: Int,
+    maxRetries: Int,
+): Boolean = !closing && fastDeathCount < maxRetries
 
 /**
- * Initial synchronous render retry (switchSession): keep retrying while the
- * first render result is a failure (< 0) and the attempt counter is still
- * below [maxAttempts]. Pure decision extracted from the retry loop.
+ * Initial synchronous render retry (switchSession): keep retrying while the first render result is
+ * a failure (< 0) and the attempt counter is still below [maxAttempts]. Pure decision extracted
+ * from the retry loop.
  */
 internal fun initialRenderRetryNeeded(result: Int, attempts: Int, maxAttempts: Int): Boolean = result < 0 && attempts < maxAttempts
 
 /**
- * switchSession Phase-3 concurrent-switch guard: while the first frame was
- * rendering (outside sessionLock), another switchSession may have published
- * a different active session. Returns the id of the session whose render
- * thread must be stopped before publishing this switch, or null when the
- * active session did not change under us (or is this very target).
+ * switchSession Phase-3 concurrent-switch guard: while the first frame was rendering (outside
+ * sessionLock), another switchSession may have published a different active session. Returns the id
+ * of the session whose render thread must be stopped before publishing this switch, or null when
+ * the active session did not change under us (or is this very target).
  */
 internal fun concurrentRenderThreadToStop(
     activeSessionIdAfterRender: Long?,
@@ -3953,7 +4536,28 @@ internal fun concurrentRenderThreadToStop(
 }
 
 /**
- * switchSession Phase-1 failure restore: after a failed spawn the previous
- * active session is restarted unless it is the session that just failed.
+ * switchSession Phase-1 failure restore: after a failed spawn the previous active session is
+ * restarted unless it is the session that just failed.
  */
 internal fun shouldRestorePreviousSession(previousId: Long?, failedTargetId: Long): Boolean = previousId != null && previousId != failedTargetId
+
+/**
+ * Pure grid-dimension computation behind recomputeGridFromFontMetrics: cols = floor(surfaceWidth /
+ * cellWidth), rows = floor(surfaceHeight / cellHeight), each clamped to ≥ 1 so a tiny surface still
+ * yields a usable grid. Returns (0, 0) for degenerate input (non-positive surface or cell metrics)
+ * so callers can distinguish "invalid geometry" from a real one-cell grid and keep their current
+ * dimensions instead.
+ */
+internal fun computeGridDimensions(
+    surfaceWidth: Int,
+    surfaceHeight: Int,
+    cellWidth: Float,
+    cellHeight: Float,
+): Pair<Int, Int> {
+    if (surfaceWidth <= 0 || surfaceHeight <= 0 || cellWidth <= 0f || cellHeight <= 0f) {
+        return Pair(0, 0)
+    }
+    val cols = (surfaceWidth / cellWidth).toInt().coerceAtLeast(1)
+    val rows = (surfaceHeight / cellHeight).toInt().coerceAtLeast(1)
+    return Pair(rows, cols)
+}

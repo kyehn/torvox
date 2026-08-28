@@ -17,29 +17,36 @@ sealed interface KeyboardMode {
 
 data class ImeFlagSet(
     val noSuggestions: Boolean = true,
-    val visiblePassword: Boolean = true,
+    // VISIBLE_PASSWORD by default OFF: the password variation makes IMEs
+    // (Gboard etc.) drop the composition/language UI, so CJK input stops
+    // working. Opt-in for users who really want a password-style field.
+    val visiblePassword: Boolean = false,
     val autoCorrect: Boolean = false,
     val fullEditor: Boolean = false,
-    val noExtractUi: Boolean = true,
-    val noPersonalizedLearning: Boolean = true,
+    // No IME restrictions by default: NO_EXTRACT_UI / NO_PERSONALIZED_LEARNING
+    // are opt-in. Privacy-style options make IMEs disable learning,
+    // clipboard suggestions and sometimes the language switcher — the hard
+    // requirement ("输入法不应该有任何限制") is an unrestricted IME.
+    val noExtractUi: Boolean = false,
+    val noPersonalizedLearning: Boolean = false,
 )
 
 fun KeyboardMode.toEditorInfo(outAttrs: EditorInfo) {
     when (this) {
         KeyboardMode.Secure -> {
-            // VISIBLE_PASSWORD | NO_SUGGESTIONS keeps the privacy lock (no
-            // suggestion strip, no personalized learning, no autocorrect) while
-            // still allowing the IME to host its own composition flow, so CJK /
-            // voice / swipe input works. TYPE_NULL would kill composition
-            // entirely (Haven docs: CJK still works because the terminal hosts
-            // composition on top of a VISIBLE_PASSWORD connection).
+            // Unrestricted plain text (termux-style): NO_SUGGESTIONS keeps
+            // the suggestion strip off the terminal screen only — it does
+            // not restrict IME composition. No VISIBLE_PASSWORD and no
+            // privacy IME options (NO_EXTRACT_UI / NO_PERSONALIZED_LEARNING):
+            // those tell the IME it is a password/private field, and Gboard
+            // et al. respond by dropping the composition and language UI
+            // entirely — reported on-device as "not full mode" where
+            // Chinese cannot be typed, plus disabled learning and clipboard
+            // suggestions. The IME is deliberately unrestricted.
             outAttrs.inputType =
                 InputType.TYPE_CLASS_TEXT or
-                InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD or
                 InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            outAttrs.imeOptions =
-                EditorInfo.IME_FLAG_NO_EXTRACT_UI or
-                EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING
+            outAttrs.imeOptions = EditorInfo.IME_ACTION_NONE
         }
 
         KeyboardMode.Standard -> {

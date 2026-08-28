@@ -19,7 +19,7 @@ class FontInfoDtoCodecTest {
                 "cjk_families": ["Noto Sans CJK SC", "Noto Sans CJK JP"],
                 "cell_width_px": 7.0,
                 "cell_height_px": 14.0,
-                "font_size_px": 14.0
+                "font_size": 14.0
             }
             """.trimIndent()
 
@@ -40,7 +40,7 @@ class FontInfoDtoCodecTest {
             """
             {"active": {"name": "Liberation Mono", "monospaced": true},
              "cjk_state": "none", "cjk_families": [],
-             "cell_width_px": 7.0, "cell_height_px": 14.0, "font_size_px": 14.0}
+             "cell_width_px": 7.0, "cell_height_px": 14.0, "font_size": 14.0}
             """.trimIndent()
 
         val dto = FontInfoDto.fromJson(json)

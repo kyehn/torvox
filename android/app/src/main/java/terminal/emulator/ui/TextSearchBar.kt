@@ -45,43 +45,6 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import terminal.emulator.R
-import terminal.emulator.util.charIndexToCellColumn
-
-fun findMatches(
-    text: String,
-    query: String,
-    matchCase: Boolean = false,
-): List<SearchResult> {
-    if (query.isEmpty()) return emptyList()
-    // Reference: GNOME Console kgx-tab.c:191-250 — when the user narrows a
-    // query (backspace), the highlighted match must stay on the current hit
-    // instead of jumping to an earlier one ("baz" → "ba" must not re-match
-    // "bar"). Console detects narrowing via g_strrstr(last_search, search)
-    // and reorders set-regex/find. torvox recomputes all matches here; the
-    // caller (TextSearchBar) should keep the current index pinned when the
-    // new query is a prefix of the previous one — gnome-console
-    // search-narrowing pattern (absorbed; see docs/rejected-technologies.md §9).
-    val lines = text.split("\n")
-    val results = mutableListOf<SearchResult>()
-    for ((lineIndex, line) in lines.withIndex()) {
-        val searchLine = if (matchCase) line else line.lowercase()
-        val searchQuery = if (matchCase) query else query.lowercase()
-        var startIndex = 0
-        while (true) {
-            val foundIndex = searchLine.indexOf(searchQuery, startIndex)
-            if (foundIndex == -1) break
-            results.add(
-                SearchResult(
-                    lineIndex = lineIndex,
-                    startIndex = charIndexToCellColumn(line, foundIndex),
-                    endIndex = charIndexToCellColumn(line, foundIndex + query.length),
-                ),
-            )
-            startIndex = foundIndex + 1
-        }
-    }
-    return results
-}
 
 @Composable
 fun TextSearchBar(

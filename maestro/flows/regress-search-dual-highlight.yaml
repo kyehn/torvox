@@ -1,0 +1,45 @@
+appId: com.termux
+name: "Regression  #2: all matches inverted + current match distinct"
+tags:
+  - e2e
+  - regression
+---
+- launchApp:
+    clearState: false
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Wait"
+    optional: true
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- tapOn:
+    id: "TerminalScreen"
+- inputText: "echo AAA BBB AAA BBB AAA"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 5000
+- tapOn:
+    id: "Key_DRAWER"
+- tapOn:
+    id: "SearchButton"
+- extendedWaitUntil:
+    visible:
+      id: "SearchTextField"
+    timeout: 10000
+- tapOn:
+    id: "SearchTextField"
+- inputText: "AAA"
+- waitForAnimationToEnd:
+    timeout: 3000
+# Screenshot for pixel-logic dual-highlight assertions (all matches inverted,
+# current match distinct) — collected by the verification session.
+- takeScreenshot: regress-search-all-matches
+# Narrowing the query must keep the current match stable (no jump away)
+- inputText: "BBB"
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: regress-search-narrowed-current-stable

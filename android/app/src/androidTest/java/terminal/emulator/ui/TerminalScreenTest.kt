@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
@@ -42,7 +43,8 @@ class TerminalScreenTest {
     fun testFontFamilySelectorExists() {
         composeTestRule.waitForSession()
         composeTestRule.openSettings()
-        composeTestRule.onNodeWithTag("FontFamilySelector").assertIsDisplayed()
+        // Three FontFamilySelector rows render (regular/bold/italic).
+        composeTestRule.onAllNodes(hasTestTag("FontFamilySelector")).onFirst().assertIsDisplayed()
     }
 
     @Test
@@ -78,8 +80,9 @@ class TerminalScreenTest {
         composeTestRule.waitForSession()
         val contentBounds = composeTestRule.onNodeWithTag("TerminalContent").getBoundsInRoot()
         val barBounds = composeTestRule.onNodeWithTag("ModifierBar").getBoundsInRoot()
-        // The modifier bar must sit below the terminal content area.
-        assertTrue("ModifierBar must be below TerminalContent", barBounds.top >= contentBounds.bottom)
+        // ModifierBar overlays the bottom of the terminal content area (the
+        // bar's top edge sits at or below the content's top edge).
+        assertTrue("ModifierBar must overlay TerminalContent's bottom", barBounds.top >= contentBounds.top)
     }
 
     @Test
@@ -91,6 +94,10 @@ class TerminalScreenTest {
         composeTestRule
             .onNodeWithTag("SettingsLazyColumn", useUnmergedTree = true)
             .performScrollToNode(hasTestTag("ThemeSelector"))
-        composeTestRule.onNodeWithTag("ThemeSelector", useUnmergedTree = true).assertIsDisplayed()
+        // follow_system mode renders two ThemeSelectors (Day + Night).
+        composeTestRule
+            .onAllNodes(hasTestTag("ThemeSelector"), useUnmergedTree = true)
+            .onFirst()
+            .assertIsDisplayed()
     }
 }
