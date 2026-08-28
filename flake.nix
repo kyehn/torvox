@@ -163,7 +163,7 @@
             shellHook = ''
               set -e
               nu scripts/fetch-aosp-testkey.nu
-              nu scripts/download-rapidocr-models.nu
+              nu scripts/download-rapidocr-models.nu || true
             '';
           };
         };
