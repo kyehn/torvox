@@ -104,6 +104,17 @@ class ModifierBarTest {
     }
 
     @Test
+    fun modifier_bar_scroll_toggle() {
+        // SCROLL toggles the auto-scroll-reset lock; the armed state is
+        // exposed via the `selected` semantics on the key button.
+        composeTestRule.onNodeWithTag("Key_SCROLL").assertIsNotSelected()
+        composeTestRule.onNodeWithTag("Key_SCROLL").performClick()
+        composeTestRule.onNodeWithTag("Key_SCROLL").assertIsSelected()
+        composeTestRule.onNodeWithTag("Key_SCROLL").performClick()
+        composeTestRule.onNodeWithTag("Key_SCROLL").assertIsNotSelected()
+    }
+
+    @Test
     fun modifier_bar_esc_triggers_action() {
         composeTestRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
         composeTestRule.onNodeWithTag("Key_ESC").performClick()

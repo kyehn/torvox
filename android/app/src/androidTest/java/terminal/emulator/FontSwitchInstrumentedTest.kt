@@ -28,7 +28,18 @@ class FontSwitchInstrumentedTest {
     fun setUp() {
         try {
             device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-            device.executeShellCommand("am start -n $PACKAGE/terminal.emulator.MainActivity")
+            // MainActivity.onCreate() requests POST_NOTIFICATIONS on first run
+            // (Android 13+); the permission dialog overlays the activity and
+            // blocks every UiAutomator lookup below. Grant up front so the
+            // dialog never appears (see TestUtils.waitForSession).
+            grantNotificationPermission()
+            // Previous tests leave the app parked on the settings screen /
+            // dialogs; am start merely brings that state to the foreground.
+            // --activity-clear-task rebuilds the activity (state reset)
+            // without force-stopping: force-stop would kill the
+            // instrumentation process itself, since androidTest runs inside
+            // the target app process.
+            device.executeShellCommand("am start --activity-clear-task -n $PACKAGE/terminal.emulator.MainActivity")
             device.wait(Until.hasObject(By.pkg(PACKAGE).depth(0)), WAIT_TIMEOUT)
             Thread.sleep(5000)
         } catch (exception: Exception) {
@@ -42,16 +53,20 @@ class FontSwitchInstrumentedTest {
     }
 
     private fun openSettings() {
-        val drawerBtn = device.findObject(By.desc("Open session drawer"))
-        if (drawerBtn != null) {
-            drawerBtn.click()
-            Thread.sleep(1500)
-        }
-        val settingsBtn = device.findObject(By.text("Settings"))
-        if (settingsBtn != null) {
-            settingsBtn.click()
-            Thread.sleep(2000)
-        }
+        assertTrue(
+            "Drawer button (Open session drawer) must appear",
+            device.wait(Until.hasObject(By.desc("Open session drawer")), WAIT_TIMEOUT),
+        )
+        device.findObject(By.desc("Open session drawer"))?.click()
+        assertTrue(
+            "Settings entry must appear in the session drawer",
+            device.wait(Until.hasObject(By.text("Settings")), WAIT_TIMEOUT),
+        )
+        device.findObject(By.text("Settings"))?.click()
+        assertTrue(
+            "Settings screen must open (Font Family section visible)",
+            device.wait(Until.hasObject(By.text("Font Family")), WAIT_TIMEOUT),
+        )
     }
 
     private fun scrollTo(
@@ -66,6 +81,18 @@ class FontSwitchInstrumentedTest {
         }
     }
 
+    /** Scroll until the Font Family row (with its Change action) is visible. */
+    private fun scrollToChange() {
+        scrollTo("Font Family")
+        // The title enters the viewport at its bottom edge; the row below it
+        // (Change action) may still be off-screen. One extra swipe fixes it.
+        if (device.findObject(By.text("Change")) == null) {
+            val cx = device.displayWidth / 2
+            device.swipe(cx, device.displayHeight * 3 / 4, cx, device.displayHeight / 4, 10)
+            Thread.sleep(1200)
+        }
+    }
+
     @Test
     fun settings_shows_font_family_section() {
         openSettings()
@@ -77,7 +104,7 @@ class FontSwitchInstrumentedTest {
     @Test
     fun settings_shows_change_button_for_font() {
         openSettings()
-        scrollTo("Font Family")
+        scrollToChange()
         val changeBtn = device.findObject(By.text("Change"))
         assertNotNull("Should see Change button for font family", changeBtn)
     }
@@ -85,7 +112,7 @@ class FontSwitchInstrumentedTest {
     @Test
     fun settings_shows_pick_font_file_button() {
         openSettings()
-        scrollTo("Font Family")
+        scrollToChange()
         val changeBtn = device.findObject(By.text("Change"))
         assertNotNull("Should see Change button", changeBtn)
         changeBtn?.click()
@@ -97,7 +124,7 @@ class FontSwitchInstrumentedTest {
     @Test
     fun font_change_opens_dialog() {
         openSettings()
-        scrollTo("Font Family")
+        scrollToChange()
         val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
         changeBtn.click()
         Thread.sleep(2000)
@@ -112,7 +139,7 @@ class FontSwitchInstrumentedTest {
     @Test
     fun font_dialog_shows_system_default() {
         openSettings()
-        scrollTo("Font Family")
+        scrollToChange()
         val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
         changeBtn.click()
         Thread.sleep(2000)
@@ -125,7 +152,7 @@ class FontSwitchInstrumentedTest {
     @Test
     fun font_dialog_shows_monospace_fonts() {
         openSettings()
-        scrollTo("Font Family")
+        scrollToChange()
         val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
         changeBtn.click()
         Thread.sleep(2000)
@@ -136,7 +163,7 @@ class FontSwitchInstrumentedTest {
     @Test
     fun font_select_changes_font_family() {
         openSettings()
-        scrollTo("Font Family")
+        scrollToChange()
         val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
         changeBtn.click()
         Thread.sleep(3000)
@@ -153,12 +180,14 @@ class FontSwitchInstrumentedTest {
     @Test
     fun app_survives_font_change() {
         openSettings()
-        scrollTo("Font Family")
+        scrollToChange()
         val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
         changeBtn.click()
         Thread.sleep(2000)
-        val firstFont = checkNotNull(device.findObject(By.textContains("Noto"))) {
-            "Font picker must show the Noto family"
+        // Emulator system font list (from FontInfoDto) contains Fira Code /
+        // Droid Sans Mono etc. but no Noto family — pick a font that exists.
+        val firstFont = checkNotNull(device.findObject(By.text("Fira Code"))) {
+            "Font picker must show the Fira Code family"
         }
         firstFont.click()
         Thread.sleep(3000)

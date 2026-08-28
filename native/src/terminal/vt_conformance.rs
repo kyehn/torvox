@@ -2401,8 +2401,8 @@ fn bug_cup_zero_params_treated_as_one() {
 }
 
 /// SU with count=0: upstream Ghostty treats N=0 as a no-op (xterm-compatible),
-/// unlike the ECMA-48 default-parameter rule (0 → 1). libghostty-vt 0.2.1
-/// ships this upstream behavior, so Row1 stays on screen.
+/// unlike the ECMA-48 default-parameter rule (0 → 1). libghostty-vt (git
+/// master) ships this upstream behavior, so Row1 stays on screen.
 #[test]
 fn bug_su_zero_scroll() {
     let mut t = sized_term(5, 20, 100);

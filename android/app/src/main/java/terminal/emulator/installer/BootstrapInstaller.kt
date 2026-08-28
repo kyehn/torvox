@@ -156,8 +156,7 @@ class BootstrapInstaller(
         } catch (exception: Exception) {
             // Log the class only, consistent with BootstrapDownloader: the
             // exception message can embed user-supplied paths.
-            // TEMP-DEBUG: include the message truncated to
-            // diagnose the emulator IOException.
+            // Truncate to 300 chars for diagnostics without leaking full paths.
             Log.e(
                 "BootstrapInstaller",
                 "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.take(300)}",
