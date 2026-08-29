@@ -712,6 +712,27 @@ impl FontPipeline {
         names
     }
 
+    fn primary_supports_cjk(&self) -> bool {
+        let Some(font_id) = self.font_id else {
+            return false;
+        };
+        let db = self.font_system.db();
+        let Some(face) = db.face(font_id) else {
+            return false;
+        };
+        face.families.iter().any(|(name, _)| {
+            let lower = name.to_lowercase();
+            lower.contains("cjk")
+                || lower.contains("chinese")
+                || lower.contains("japanese")
+                || lower.contains("korean")
+                || lower.contains(" sc")
+                || lower.contains(" tc")
+                || lower.contains(" jp")
+                || lower.contains(" kr")
+        })
+    }
+
     pub fn font_information(&self) -> String {
         let db = self.font_system.db();
         let mut parts = Vec::new();
@@ -729,25 +750,10 @@ impl FontPipeline {
         let cjk = self.cjk_fallback_names();
         if !cjk.is_empty() {
             parts.push(format!("CJK fallback: {}", cjk.join(", ")));
+        } else if self.primary_supports_cjk() {
+            parts.push("CJK fallback: skipped (primary font supports CJK)".to_string());
         } else {
-            let primary_is_cjk = self.font_id.and_then(|id| db.face(id)).is_some_and(|face| {
-                face.families.iter().any(|(name, _)| {
-                    let l = name.to_lowercase();
-                    l.contains("cjk")
-                        || l.contains("chinese")
-                        || l.contains("japanese")
-                        || l.contains("korean")
-                        || l.contains(" sc")
-                        || l.contains(" tc")
-                        || l.contains(" jp")
-                        || l.contains(" kr")
-                })
-            });
-            if primary_is_cjk {
-                parts.push("CJK fallback: skipped (primary font supports CJK)".to_string());
-            } else {
-                parts.push("CJK fallback: none".to_string());
-            }
+            parts.push("CJK fallback: none".to_string());
         }
         let (cw, ch) = self.cell_metrics();
         parts.push(format!("Cell: {:.1}x{:.1}px", cw, ch));
@@ -770,25 +776,10 @@ impl FontPipeline {
         let cjk = self.cjk_fallback_names();
         let (cjk_state, cjk_families) = if !cjk.is_empty() {
             ("fallback".to_string(), cjk)
+        } else if self.primary_supports_cjk() {
+            ("skipped".to_string(), Vec::new())
         } else {
-            let primary_is_cjk = self.font_id.and_then(|id| db.face(id)).is_some_and(|face| {
-                face.families.iter().any(|(name, _)| {
-                    let l = name.to_lowercase();
-                    l.contains("cjk")
-                        || l.contains("chinese")
-                        || l.contains("japanese")
-                        || l.contains("korean")
-                        || l.contains(" sc")
-                        || l.contains(" tc")
-                        || l.contains(" jp")
-                        || l.contains(" kr")
-                })
-            });
-            if primary_is_cjk {
-                ("skipped".to_string(), Vec::new())
-            } else {
-                ("none".to_string(), Vec::new())
-            }
+            ("none".to_string(), Vec::new())
         };
         let (cw, ch) = self.cell_metrics();
         FontInfo {
