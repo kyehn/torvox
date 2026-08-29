@@ -4,7 +4,7 @@
 
 ## 必须
 
-- 修改前阅读 `docs/specification/` 下的全部规范
+- 修改前阅读 `docs/specification/` 下的全部规范。
 
 ## 禁止
 
@@ -19,20 +19,20 @@
 
 ## 编码规范
 
-- 编写任何文件前阅读 `docs/specification/`
-- 禁止魔数：使用具名常量，并赋予描述性名称
-- 禁止缩写：使用 `config` 而非 `cfg`、`background` 而非 `bg`、`terminal` 而非 `term`
-- 生产代码中禁止 `#[allow]`（测试辅助代码除外）
-- 禁止硬编码 `/data/.*/files` 形式的应用数据路径
-- Nushell 脚本中禁止 `||`（无效语法）
-- Rust：使用 `std::hint::black_box`，而非已弃用的 `criterion::black_box`
-- Kotlin：使用 `SharingStarted.WhileSubscribed(TIMEOUT_MILLIS)`，并以具名常量提供超时时间
+- 编写任何文件前阅读 `docs/specification/`。
+- 禁止魔数：使用具名常量，并赋予描述性名称。
+- 禁止缩写：使用 `config` 而非 `cfg`、`background` 而非 `bg`、`terminal` 而非 `term`。
+- 生产代码中禁止 `#[allow]`（测试辅助代码除外）。
+- 禁止硬编码 `/data/.*/files` 形式的应用数据路径。
+- Nushell 脚本中禁止 `||`（无效语法）。
+- Rust：使用 `std::hint::black_box`，而非已弃用的 `criterion::black_box`。
+- Kotlin：使用 `SharingStarted.WhileSubscribed(TIMEOUT_MILLIS)`，并以具名常量提供超时时间。
 
 ## 受阻时
 
-- 缺少依赖时：优先检查 `flake.nix`，再提问
-- 遇到合并冲突时：停止操作并展示冲突文件
-- 优先修复根因：避免通过删除文件、跳过测试或添加 `#[allow(...)]` 来掩盖问题
+- 缺少依赖时：优先检查 `flake.nix`，再提问。
+- 遇到合并冲突时：停止操作并展示冲突文件。
+- 优先修复根因：避免通过删除文件、跳过测试或添加 `#[allow(...)]` 来掩盖问题。
 
 ## 受保护文件
 
