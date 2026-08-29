@@ -49,13 +49,7 @@ import terminal.emulator.util.isWideCodePoint
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-// Legacy height reserved for the ModifierBar when it lived inside the
-// terminal Column (see applyGridResize). The bar is now a Compose overlay
-// outside the SurfaceView's weight(1f) Box, so the terminal grid height is
-// `height - imeBottom` without subtracting the bar — double subtraction
-// undersized the grid by exactly the bar height (keyboard-height jump).
-// 80dp kept for reference but no longer used in the hybrid pan-then-reflow
-// path; applyGridResize now uses `height - imeBottom` directly.
+@Suppress("UnusedPrivateProperty")
 private val modifierBarHeightPx: Int by lazy {
     android.content.res.Resources.getSystem().displayMetrics.density.let { density ->
         (80f * density + 0.5f).toInt()
@@ -1168,6 +1162,7 @@ constructor(
 
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
         private const val DRAWER_CLOSE_TAP_GRACE_NANOS = 350_000_000L // 350ms close animation
+        @Suppress("UnusedPrivateProperty")
         private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms settle, spec ime-translation
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
 

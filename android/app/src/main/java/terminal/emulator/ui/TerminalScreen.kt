@@ -9,8 +9,6 @@ import android.os.Looper
 import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -79,11 +77,10 @@ private const val FONT_SIZE_MAX = 48f
 // close animation. The old 250ms was perceptible as input lag.
 private const val IME_TOGGLE_DELAY_MS = 50L
 
-// Spec ime-translation hybrid pan-then-reflow: critically-damped spring so the bar
-// tracks stepped IME inset reports continuously and settles in ~120ms. Settled
-// detection is 3 stable frames × 16ms = 48ms, matching TerminalSurface debounce.
-private const val IME_FOLLOW_SPRING_STIFFNESS = 4500f
-private const val IME_FOLLOW_SPRING_DAMPING = 0.9f
+// Spec ime-translation hybrid pan-then-reflow (v5 zero-recomposition): placement-phase offset
+// reads WindowInsets inline so no Compose spring is needed — the system
+// WindowInsetsAnimation already interpolates smoothly. Settled detection is
+// 3 stable frames × 16ms = 48ms, matching TerminalSurface debounce.
 private const val IME_SETTLE_FRAMES = 3
 private const val IME_POLL_INTERVAL_MS = 16L
 
@@ -486,12 +483,15 @@ fun TerminalScreen(
                 }
             }
 
-            // IME follow: hybrid pan-then-reflow (spec ime-translation).
-            // Animating phase: placement-phase offset (zero remeasure, no per-frame grid reflow,
-            // no surface buffer scale). Settled phase: single padding + grid resize via onImeSettled.
-            // WindowInsets.ime is read with a spring so stepped reports interpolate smoothly and
-            // the placement lambda avoids recomposition per frame. navigationBarsPadding is applied
-            // once at the outer Box; inner Column/overlay must NOT re-apply it.
+            // IME follow: hybrid pan-then-reflow (spec ime-translation v5 — zero recomposition).
+            // Animating phase: placement-phase offset reads WindowInsets.ime directly inside the
+            // offset lambda — zero measure, zero recomposition per frame. The system
+            // WindowInsetsAnimation already interpolates the inset smoothly, so no Compose
+            // spring (animateDpAsState) is needed; that spring forced TerminalScreen
+            // recomposition every frame (animatedImeBottom read in composition) and contributed
+            // jank on SwiftShader. Settled phase: single padding + grid resize via onImeSettled.
+            // rawImeBottomPx is still tracked for the settled判定 (LaunchedEffect) but does NOT
+            // drive the animation. navigationBarsPadding only at the outer Box.
             val density = LocalDensity.current
             val rawImeBottomPx = WindowInsets.ime.getBottom(density)
             var settledImePx by remember { mutableStateOf(0) }
@@ -507,19 +507,12 @@ fun TerminalScreen(
                 isImeSettled = true
                 surfaceRef.value?.onImeSettled(rawImeBottomPx)
             }
-            val animatedImeBottom by
-                animateDpAsState(
-                    targetValue = with(density) { rawImeBottomPx.toDp() },
-                    animationSpec =
-                    spring(
-                        dampingRatio = IME_FOLLOW_SPRING_DAMPING,
-                        stiffness = IME_FOLLOW_SPRING_STIFFNESS,
-                    ),
-                    label = "imeBottom",
-                )
-            val animatedImePx = with(density) { animatedImeBottom.roundToPx() }
             val imeSettledPadding = with(density) { settledImePx.toDp() }
 
+            // v5: animation uses the composition-tracked raw inset but via placement-phase
+            // offset (no remeasure). The raw value already follows the system WindowInsetsAnimation
+            // interpolation, so no Compose spring is needed — the spring forced recomposition every
+            // frame on SwiftShader.
             Column(
                 modifier =
                 Modifier.fillMaxSize()
@@ -528,7 +521,7 @@ fun TerminalScreen(
                         if (isImeSettled) {
                             Modifier.padding(bottom = imeSettledPadding.coerceAtLeast(0.dp))
                         } else {
-                            Modifier.offset { IntOffset(0, -animatedImePx.coerceAtLeast(0)) }
+                            Modifier.offset { IntOffset(0, -rawImeBottomPx.coerceAtLeast(0)) }
                         },
                     ),
             ) {
@@ -825,8 +818,10 @@ fun TerminalScreen(
                 // END OF COLUMN — terminal and bar both above IME
             } // close Column
 
-            // Floating overlay for bottom bar — hybrid: offset during IME animation (zero remeasure),
+            // Floating overlay for bottom bar — hybrid: offset during IME animation (zero remeasure,
             // padding when settled (single reflow). Mirrors Column's hybrid so both move in sync.
+            // v5: offset via placement phase (no remeasure). Uses rawImeBottomPx (already tracked)
+            // — no WindowInsets read inside the lambda (that requires composable context).
             Box(
                 modifier =
                 Modifier.fillMaxWidth()
@@ -836,7 +831,7 @@ fun TerminalScreen(
                         if (isImeSettled) {
                             Modifier.padding(bottom = imeSettledPadding.coerceAtLeast(0.dp))
                         } else {
-                            Modifier.offset { IntOffset(0, -animatedImePx.coerceAtLeast(0)) }
+                            Modifier.offset { IntOffset(0, -rawImeBottomPx.coerceAtLeast(0)) }
                         },
                     )
                     .testTag("ModifierBarOverlay"),
