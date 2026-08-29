@@ -418,16 +418,23 @@ impl FontPipeline {
         glyph_id: swash::GlyphId,
     ) -> bool {
         let scaler_context = &mut self.scaler_context;
-        let font_size = self.font_size;
+        // Match the real raster path (atlas.rs): raster_size = font_size * raster_scale,
+        // hint only when 1:1, Source::Outline only. Using font_size + hint(true) without
+        // Source filter hit embedded bitmap strikes in NotoSansCJK TTC at 14sp (is_vector=false)
+        // while the atlas always rasterizes vector outlines at raster_size with hint(false),
+        // causing try_cjk_outline_fallback to skip ALL CJK on high-density screens.
+        let raster_size = self.font_size * self.raster_scale.max(1.0);
+        let hint = self.raster_scale <= 1.01;
         let db = self.font_system.db();
         let result = db.with_face_data(font_id, |font_data, face_index| {
             let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
             let mut scaler = scaler_context
                 .builder(font_ref)
-                .size(font_size)
-                .hint(true)
+                .size(raster_size)
+                .hint(hint)
                 .build();
-            let image = swash::scale::Render::new(&[]).render(&mut scaler, glyph_id);
+            let image = swash::scale::Render::new(&[swash::scale::Source::Outline])
+                .render(&mut scaler, glyph_id);
             Some(image.is_some_and(|img| {
                 matches!(
                     img.content,
