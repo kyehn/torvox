@@ -244,31 +244,34 @@ impl FontPipeline {
         let font_size = self.font_size;
 
         for (face_id, family_name) in faces {
-            let result = self.font_system.db().with_face_data(face_id, |font_data, face_index| {
-                let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                let charmap = font_ref.charmap();
-                let metrics = font_ref.metrics(&[]);
-                let upem = metrics.units_per_em as f32;
-                if upem == 0.0 {
-                    return Some(None);
-                }
-                let scale = font_size / upem;
-                let mut total_advance = 0.0;
-                let mut found = 0u32;
-                for &test_char in test_chars {
-                    let gid = charmap.map(test_char);
-                    if gid != 0 {
-                        let advance = font_ref.glyph_metrics(&[]).advance_width(gid);
-                        total_advance += advance * scale;
-                        found += 1;
+            let result = self
+                .font_system
+                .db()
+                .with_face_data(face_id, |font_data, face_index| {
+                    let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
+                    let charmap = font_ref.charmap();
+                    let metrics = font_ref.metrics(&[]);
+                    let upem = metrics.units_per_em as f32;
+                    if upem == 0.0 {
+                        return Some(None);
                     }
-                }
-                if found == 0 {
-                    return Some(None);
-                }
-                let avg_advance = total_advance / found as f32;
-                Some(Some(avg_advance))
-            });
+                    let scale = font_size / upem;
+                    let mut total_advance = 0.0;
+                    let mut found = 0u32;
+                    for &test_char in test_chars {
+                        let gid = charmap.map(test_char);
+                        if gid != 0 {
+                            let advance = font_ref.glyph_metrics(&[]).advance_width(gid);
+                            total_advance += advance * scale;
+                            found += 1;
+                        }
+                    }
+                    if found == 0 {
+                        return Some(None);
+                    }
+                    let avg_advance = total_advance / found as f32;
+                    Some(Some(avg_advance))
+                });
             if let Some(Some(Some(advance_px))) = result {
                 let (is_vector, source_quality_penalty): (bool, u8) = {
                     // Majority vote over test_chars: mixed bitmap/vector fonts have some glyphs
@@ -281,10 +284,8 @@ impl FontPipeline {
                             .iter()
                             .filter_map(|&probe_char| {
                                 db.with_face_data(face_id, |font_data, face_index| {
-                                    let font_ref = swash::FontRef::from_index(
-                                        font_data,
-                                        face_index as usize,
-                                    )?;
+                                    let font_ref =
+                                        swash::FontRef::from_index(font_data, face_index as usize)?;
                                     let charmap = font_ref.charmap();
                                     let gid = charmap.map(probe_char);
                                     if gid == 0 {
@@ -710,7 +711,7 @@ fn cjk_family_priority(family_name: &str, locale_tag: &str) -> i16 {
 mod cjk_priority_tests {
     use super::*;
 
-        /// Sans CJK must outrank serif CJK regardless of locale (宋体 complaint).
+    /// Sans CJK must outrank serif CJK regardless of locale (宋体 complaint).
     #[test]
     fn sans_cjk_outranks_serif_cjk() {
         assert!(
@@ -736,8 +737,7 @@ mod cjk_priority_tests {
     fn serif_penalty_guards_vector_vs_bitmap() {
         // Worst Sans (bitmap) = 5-20 = -15; best Serif (vector) = 5-32+10 = -17 → Sans still wins.
         let sans_bitmap = cjk_family_priority("noto sans cjk", "") - CJK_BITMAP_PENALTY as i16;
-        let serif_vector =
-            cjk_family_priority("noto serif cjk", "") + OUTLINE_BONUS as i16;
+        let serif_vector = cjk_family_priority("noto serif cjk", "") + OUTLINE_BONUS as i16;
         assert!(
             sans_bitmap > serif_vector,
             "Sans bitmap ({sans_bitmap}) must beat Serif vector ({serif_vector})"
