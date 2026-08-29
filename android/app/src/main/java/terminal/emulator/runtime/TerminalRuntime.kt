@@ -7,6 +7,7 @@ import android.os.Process
 import android.os.SystemClock
 import android.view.Surface
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
@@ -2442,14 +2443,10 @@ constructor(
     private fun makeBridgeTheme(
         resolvedTheme: terminal.emulator.ui.theme.TerminalTheme,
     ): BridgeTheme {
-        fun colorToInt(color: androidx.compose.ui.graphics.Color): Int = ((color.alpha * 255).toInt() shl 24) or
-            ((color.red * 255).toInt() shl 16) or
-            ((color.green * 255).toInt() shl 8) or
-            (color.blue * 255).toInt()
-        val backgroundColor = colorToInt(resolvedTheme.background)
-        val foregroundColor = colorToInt(resolvedTheme.foreground)
-        val cursor = colorToInt(resolvedTheme.cursor)
-        val ansiInts = resolvedTheme.ansi.map(::colorToInt)
+        val backgroundColor = resolvedTheme.background.toArgb()
+        val foregroundColor = resolvedTheme.foreground.toArgb()
+        val cursor = resolvedTheme.cursor.toArgb()
+        val ansiInts = resolvedTheme.ansi.map { it.toArgb() }
         val resolvedSelectionBg =
             if (resolvedTheme.selectionBg == Color.Transparent) {
                 Color(0xFF45475A)
@@ -2461,7 +2458,7 @@ constructor(
             bg = backgroundColor,
             fg = foregroundColor,
             cursor = cursor,
-            selectionBg = colorToInt(resolvedSelectionBg),
+            selectionBg = resolvedSelectionBg.toArgb(),
             ansi0 = ansiInts[0],
             ansi1 = ansiInts[1],
             ansi2 = ansiInts[2],
