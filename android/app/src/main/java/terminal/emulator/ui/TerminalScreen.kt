@@ -42,6 +42,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
@@ -646,13 +647,7 @@ fun TerminalScreen(
                                 resolvedTerminalTheme.foreground
                             }
 
-                        fun colorToArgb(color: androidx.compose.ui.graphics.Color): Int = android.graphics.Color.argb(
-                            (color.alpha * 255).toInt(),
-                            (color.red * 255).toInt(),
-                            (color.green * 255).toInt(),
-                            (color.blue * 255).toInt(),
-                        )
-                        val themeAccentArgb = colorToArgb(themeAccent)
+                        val themeAccentArgb = themeAccent.toArgb()
 
                         // A single effect keyed on the whole selection state:
                         // when the keys change the running effect is
@@ -708,14 +703,7 @@ fun TerminalScreen(
                                 } else {
                                     resolvedTerminalTheme.foreground
                                 }
-                                    .let { color ->
-                                        android.graphics.Color.argb(
-                                            (color.alpha * 255).toInt(),
-                                            (color.red * 255).toInt(),
-                                            (color.green * 255).toInt(),
-                                            (color.blue * 255).toInt(),
-                                        )
-                                    }
+                                    .toArgb()
                             // the selection menu is the system
                             // ActionMode toolbar (like Termux): the system
                             // positions it, colors it from the theme, and
