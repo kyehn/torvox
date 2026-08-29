@@ -1,8 +1,15 @@
-# Testing Guide
+# 测试指南
 
-## Principles
+## 原则
 
-- Only test public API
-- No flaky tests — use deterministic synchronization
-- Every test must assert concrete behavior — "does not crash" is not a test
+- 仅测试公共 API。
+- 禁止不稳定的测试 — 使用确定性同步机制。
+- 每个测试必须断言具体行为 — “不崩溃”不是有效断言。
 
+## 环境
+
+- 使用 Mesa lavapipe 提供 Vulkan 测试环境。
+
+## 覆盖范围
+
+- 字体设置值与实际渲染尺寸的对照测试。
