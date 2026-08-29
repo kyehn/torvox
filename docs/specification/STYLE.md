@@ -33,8 +33,7 @@
 
 ### 风格规则
 
-- 变量与函数一律使用完整描述性名称：禁止单字母变量（如 `s`、`p`、`w`、`h`、`t`、`e`），禁止缩写（如 `config` 而非 `cfg`、`background` 而非 `bg`、`application` 而非 `app`）。
-- Nushell：使用 `is-not-empty` / `is-empty`，而非 `| length > 0` / `| length == 0`。
+- 使用 `is-not-empty` / `is-empty`，而非 `| length > 0` / `| length == 0`。
 
 ## Nix
 
@@ -55,4 +54,9 @@
 ## 通用
 
 - 尽可能内联中间变量。
-- 一题一档，避免重复。
+- 变量与函数一律使用完整描述性名称：禁止单字母变量（如 `s`、`p`、`w`、`h`、`t`、`e`），禁止缩写（如 `config` 而非 `cfg`、`background` 而非 `bg`、`application` 而非 `app`）。
+- 使用简体中文编写注释和文档。
+
+## Git
+
+- 提交消息保持简洁，仅一行。
