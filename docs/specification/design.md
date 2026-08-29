@@ -4,102 +4,95 @@
 
 ### Rust
 
-- Rust crates
+- Rust crate 结构：
 
-```text
-root workspace/
-├── Cargo.toml
-├── native/
-│   ├── Cargo.toml
-│   └── src/
-│       ├── *.rs
-│       ├── android/  ← JNI exports (ffi.rs)
-│       ├── render/
-│       └── terminal/
-│       ├── test/
-├── exec-bin/
-└── integration-tests/
-```
+  ```text
+  root workspace/
+  ├── Cargo.toml
+  ├── native/
+  │   ├── Cargo.toml
+  │   └── src/
+  │       ├── *.rs
+  │       ├── android/  ← JNI 导出（ffi.rs）
+  │       ├── render/
+  │       └── terminal/
+  │       ├── test/
+  ├── exec-bin/
+  └── integration-tests/
+  ```
 
-- Ghostty as the Single Source of Terminal State.
+- 以 Ghostty 作为终端状态的单一来源（Single Source of Terminal State）。
 
-- Render entirely in Rust via wgpu. Kotlin receives only lightweight events through direct JNI. No grid data crosses the FFI boundary. 
+- 渲染完全在 Rust 侧通过 `wgpu` 完成。Kotlin 仅通过直接 JNI 接收轻量事件，无网格数据跨越 FFI 边界。
 
-- One thread per terminal session, produces flat cell arrays. A shared render thread consumes them and drives wgpu.
+- 每个终端会话独占一个线程，产出扁平化的单元格数组；共享渲染线程消费这些数组并驱动 `wgpu`。
 
-- Session lives in Rust, not Kotlin. PTY fork/exec, the Ghostty Terminal, and the render loop are all Rust-managed. Android's Activity lifecycle requires the app to handle: **Activity recreation** (screen rotation, config change): Surface destroyed and recreated. The old `ANativeWindow` pointer becomes invalid. **Process death**: The OS can kill the app process. All Rust state and PTY processes die with it. **Background → Foreground**: The app must resume rendering without destroying the terminal state.
+- 会话归属于 Rust，而非 Kotlin。PTY 的 `fork` / `exec`、Ghostty 终端与渲染循环均由 Rust 管理。Android Activity 生命周期要求应用正确处理以下场景：
+  - **Activity 重建**（屏幕旋转、配置变更）：Surface 被销毁并重建，旧 `ANativeWindow` 指针失效。
+  - **进程被回收**：系统可能终止应用进程，全部 Rust 状态与 PTY 进程随之消失。
+  - **后台切回前台**：应用须在不销毁终端状态的前提下恢复渲染。
 
-- GPU Vulkan rendering (no CPU/OpenGL fallback)
+- GPU Vulkan 渲染（无 CPU / OpenGL 回退）。
 
-- Upstream `libghostty-vt` / `libghostty-vt-sys` pinned at git master, no local patches
+- 上游 `libghostty-vt` / `libghostty-vt-sys` 固定跟踪 git master，无本地补丁。
 
-- Clipboard Integration: Read and write the system clipboard from terminal sequences (OSC 52) and user interactions
+- 剪贴板集成：通过终端序列（OSC 52）与用户交互读写系统剪贴板。
 
 ### Kotlin
 
-- Logs must be visible in Android's `logcat` for debugging while avoiding performance overhead in the render hot path.
+- 日志必须在 Android `logcat` 中可见以便调试，同时避免在渲染热路径上产生性能开销。
 
-- applicationId = "com.termux"
+- `applicationId = "com.termux"`。
 
-- AOSP testkey (`android/app/aosp-testkey.p12`); self-signing forbidden
+- 使用 AOSP testkey（`android/app/aosp-testkey.p12`）签名，禁止自行签名。
 
 ## 设置
 
-- 字体大小设置条：字体默认大小设置需要考虑常见设备分辨率（参考 termux），根据设备实际分辨率需要对字体大小设置范围进行限制
+- **字体大小**：提供调节条。默认大小与可选范围须参考常见设备分辨率（以 Termux 为基准），并结合设备实际分辨率进行限制。
 
-- 字体设置：字体未手动设置时默认使用系统等宽字体。对于使用cjk的环境（读取系统设置）检查主字体是否支持cjk，如果不支持需要设置cjk fallback，检查系统默认字体是否支持cjk，如果支持使用其作为cjk fallback字体。字体列表允许从字体文件选择，字体列表不显示如“系统默认”等模糊情况。
+- **字体选择**：未手动设置时默认使用系统等宽字体。对于 CJK 环境（读取系统设置判定），检查主字体是否支持 CJK；若不支持则配置 CJK 回退字体，并检查系统默认字体是否支持 CJK，若支持则将其作为 CJK 回退字体。字体列表支持从字体文件选择，列表中不展示“系统默认”等含糊选项。
 
-- 实际字体信息框：显示字体实际使用情况，包括主字体，cjk fallback 情况，字体大小，单元格
+- **实际字体信息框**：展示字体的实际使用情况，包括主字体、CJK 回退情况、字体大小与单元格信息。
 
-- 光标闪烁开关
+- **光标闪烁开关**。
 
-- 光标闪烁速度条，范围/精度需要限制
+- **光标闪烁速度**：提供调节条，范围与精度须受限。
 
-- 光标样式：方块 竖线 下划线
+- **光标样式**：方块、竖线、下划线。
 
-- 软件主题：“日间” “夜间” “跟随系统”三种
+- **软件主题**：“日间”“夜间”“跟随系统”三种。
 
-- 终端主题：针对终端页面和修饰键栏，默认“Dracula Plus主题”，支持用户自定义主题，“跟随系统”开关 指跟随 “软件主题“ 提供日/夜两种终端主题切换
+- **终端主题**：作用于终端页面与修饰键栏，默认“Dracula Plus 主题”，支持用户自定义主题；“跟随系统”开关表示跟随“软件主题”在日 / 夜两种终端主题间切换。
 
-- 终端启动入口
+- **终端启动入口**。
 
-- 终端回滚行数设置条，范围/精度需要限制
+- **终端回滚行数**：提供调节条，范围与精度须受限。
 
-- bootstrap 支持url和本地文件安装，提供termux预设选项。
+- **Bootstrap**：支持 URL 与本地文件安装，提供 Termux 预设选项。
 
-- “清除应用数据” 按钮
+- **清除应用数据按钮**。
 
 ## 终端
 
-- 修饰键栏默认布局跟随termux（基本一致），支持左滑和右滑，左滑显示第二个修饰键栏，右滑显示文本输入框（参考termux）
+- 修饰键栏默认布局跟随 Termux（基本一致），支持左滑与右滑：左滑展示第二排修饰键栏，右滑展示文本输入框（参考 Termux）。
 
 ## 侧边面板
 
 - 会话列表
-
 - 添加会话按钮
-
 - 文本搜索按钮
-
-- 显示/隐藏输入法按钮
-
+- 显示 / 隐藏输入法按钮
 - 设置按钮
 
 ## 软件
 
-- 应用启动时检查应用数据兼容性如果存在问题可以清除应用数据，确保可以正常启动，设置提供 “清除应用数据” 按钮，应用数据 和 用户数据 不同，除bootstrap设置外不得修改用户数据。
-
-## 测试
-
-- Mesa lavapipe 提供 Vulkan 环境
-
-- 字体设置大小和实际大小测试
+- 应用启动时检查应用数据兼容性，若存在问题可清除应用数据以确保正常启动；设置中提供“清除应用数据”按钮。应用数据与用户数据为不同概念，除 Bootstrap 设置外不得修改用户数据。
 
 ## 禁止实现
 
-- 选择菜单 ◀/▶ 锚点移动项
-- bootstrap zip 的 sha256 sidecar 校验
-- 自定义环境变量: 不通过环境变量接收用户设置或自身传递数据
-- 会话数据持久化/恢复
-- 粘贴确认对话框 
+- 选中菜单中的 ◀ / ▶ 锚点移动项
+- Bootstrap zip 的 sha256 sidecar 校验
+- 自定义环境变量：不通过环境变量接收用户设置或在内部传递数据
+- 会话数据持久化 / 恢复
+- 粘贴确认对话框
 - 实体键盘快捷键设置
