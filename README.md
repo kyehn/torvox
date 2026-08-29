@@ -24,7 +24,7 @@ nix develop
 
 | 文档 | 说明 |
 | --- | --- |
-| [`docs/specification/design.md`](docs/specification/design.md) | 架构与产品设计 |
+| [`docs/specification/DESIGN.md`](docs/specification/DESIGN.md) | 架构与产品设计 |
 | [`docs/specification/BUILD.md`](docs/specification/BUILD.md) | 构建指南 |
 | [`docs/specification/STYLE.md`](docs/specification/STYLE.md) | 样式指南 |
 | [`docs/specification/TESTING.md`](docs/specification/TESTING.md) | 测试指南 |

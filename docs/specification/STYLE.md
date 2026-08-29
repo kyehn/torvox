@@ -33,8 +33,7 @@
 
 ### 风格规则
 
-- 变量一律使用完整描述性名称：禁止单字母变量（如 `s`、`p`、`w`、`h`、`t`、`e`）。
-- 函数与变量：使用完整单词，禁止缩写（`config` 而非 `cfg`、`background` 而非 `bg`、`application` 而非 `app`）。
+- 变量与函数一律使用完整描述性名称：禁止单字母变量（如 `s`、`p`、`w`、`h`、`t`、`e`），禁止缩写（如 `config` 而非 `cfg`、`background` 而非 `bg`、`application` 而非 `app`）。
 - Nushell：使用 `is-not-empty` / `is-empty`，而非 `| length > 0` / `| length == 0`。
 
 ## Nix
@@ -42,7 +41,6 @@
 全部环境管理均通过 Nix 完成，禁止使用系统 Shell 构建。
 
 - 始终使用 `nix develop`。
-- 禁止缩写变量名。
 - ShellHook 为主要机制；检查与格式化器在 `flake.nix` 中定义。
 
 ## GitHub Actions
@@ -56,6 +54,5 @@
 
 ## 通用
 
-- 禁止缩写变量名。
 - 尽可能内联中间变量。
 - 一题一档，避免重复。
