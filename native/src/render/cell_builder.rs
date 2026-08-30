@@ -250,9 +250,11 @@ pub fn build_row_runs(cell_row: &[crate::terminal::ghostty_terminal::CellData]) 
         bg: first.bg_color,
         flags: first.flags,
     };
+    let mut fg_bits = current_run.fg.map(f32::to_bits);
+    let mut bg_bits = current_run.bg.map(f32::to_bits);
     for cell in iter {
-        let same_fg = cell.fg_color == current_run.fg;
-        let same_bg = cell.bg_color == current_run.bg;
+        let same_fg = cell.fg_color.map(f32::to_bits) == fg_bits;
+        let same_bg = cell.bg_color.map(f32::to_bits) == bg_bits;
         let same_flags = cell.flags == current_run.flags;
         if same_fg && same_bg && same_flags {
             current_run.length += 1;
@@ -265,6 +267,8 @@ pub fn build_row_runs(cell_row: &[crate::terminal::ghostty_terminal::CellData]) 
                 bg: cell.bg_color,
                 flags: cell.flags,
             };
+            fg_bits = cell.fg_color.map(f32::to_bits);
+            bg_bits = cell.bg_color.map(f32::to_bits);
         }
     }
     runs.push(current_run);
