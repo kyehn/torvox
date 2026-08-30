@@ -12,6 +12,11 @@ use tower_mcp::{CallToolResult, Tool, ToolBuilder, schemars::JsonSchema};
 
 use super::global_state;
 
+/// Timeout for MCP tools that wait for user interaction (clipboard read/write,
+/// file picker, dialog, run_command). Callers should expect up to 5 minutes of
+/// blocking when invoking these tools.
+const INTERACTIVE_TIMEOUT: Duration = Duration::from_secs(300);
+
 /// Input for clipboard_set.
 #[derive(JsonSchema, Deserialize)]
 pub(crate) struct ClipboardSetInput {
@@ -109,7 +114,7 @@ pub(crate) fn clipboard_get_tool() -> Tool {
             }; // guard dropped before await
             match pending {
                 Some((request_id, rx)) => {
-                    match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                    match tokio::time::timeout(INTERACTIVE_TIMEOUT, rx).await {
                         // Empty text is a legitimate result (empty clipboard),
                         // not a failure. Only a dropped sender (session closed)
                         // or the timeout is reported as an error.
@@ -284,7 +289,7 @@ pub(crate) fn pick_file_tool() -> Tool {
             }; // guard + state drop before await
             match rx {
                 Some((request_id, rx)) => {
-                    match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                    match tokio::time::timeout(INTERACTIVE_TIMEOUT, rx).await {
                         Ok(Ok(path)) if !path.is_empty() => Ok(CallToolResult::text(path)),
                         _ => {
                             // Drop the pending registry entry so a
@@ -337,7 +342,7 @@ pub(crate) fn dialog_tool() -> Tool {
             }; // guard + state drop before await
             match rx {
                 Some((request_id, rx)) => {
-                    match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                    match tokio::time::timeout(INTERACTIVE_TIMEOUT, rx).await {
                         Ok(Ok(result)) => Ok(CallToolResult::text(result)),
                         _ => {
                             global_state().cancel_request(session_id, request_id);
@@ -384,7 +389,7 @@ pub(crate) fn run_command_tool() -> Tool {
             }; // guard + state drop before await
             match rx {
                 Some((request_id, rx)) => {
-                    match tokio::time::timeout(Duration::from_secs(300), rx).await {
+                    match tokio::time::timeout(INTERACTIVE_TIMEOUT, rx).await {
                         Ok(Ok(result)) => Ok(CallToolResult::text(result)),
                         _ => {
                             global_state().cancel_request(session_id, request_id);
