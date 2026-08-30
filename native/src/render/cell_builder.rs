@@ -459,11 +459,29 @@ fn build_row_instances_into(
 
     let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
     for (row, range) in row_ranges.iter().enumerate() {
-        if incremental && !dirty_rows.expect("incremental implies Some")[row] {
+        let is_clean = incremental && dirty_rows.is_some_and(|dirty| !dirty[row]);
+        if is_clean {
             // Clean row: reuse the instances built last frame (NFR-010).
-            let cache_ref = cache.as_ref().expect("incremental implies Some");
-            let (cs, ce) = cache_ref.row_slice(row);
-            instances.extend_from_slice(&cache_ref.instances()[cs..ce]);
+            if let Some(cache_ref) = cache.as_ref() {
+                let (cs, ce) = cache_ref.row_slice(row);
+                instances.extend_from_slice(&cache_ref.instances()[cs..ce]);
+            } else {
+                append_row_instances(
+                    cell_w,
+                    cell_h,
+                    ascent_pixels,
+                    raster_scale,
+                    atlas_width,
+                    atlas_height,
+                    cursor,
+                    selection,
+                    &highlights_by_row,
+                    cols,
+                    font_pipeline,
+                    instances,
+                    &cell_data[range.clone()],
+                );
+            }
         } else {
             append_row_instances(
                 cell_w,
