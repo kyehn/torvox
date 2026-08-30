@@ -945,7 +945,7 @@ fn cjk_bearing_y_not_centered() {
 
 #[cfg(test)]
 fn setup_test_gpu_context(device: wgpu::Device, queue: wgpu::Queue) -> Renderer {
-    let gpu = crate::render::context::global_gpu_for_tests();
+    let _gpu = crate::render::context::global_gpu_for_tests();
     let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Quad Vertex Buffer"),
         contents: bytemuck::cast_slice(QUAD_CORNERS),
@@ -973,7 +973,7 @@ fn setup_test_gpu_context_custom(
     width: u32,
     height: u32,
 ) -> Renderer {
-    let gpu = crate::render::context::global_gpu_for_tests();
+    let _gpu = crate::render::context::global_gpu_for_tests();
     let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Quad Vertex Buffer"),
         contents: bytemuck::cast_slice(QUAD_CORNERS),
