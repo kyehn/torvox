@@ -2923,7 +2923,7 @@ fn offscreen_grid_render_uses_depth_attachment() {
 /// geometry derives from each path's own config and is not a semantic.
 #[test]
 fn snapshot_and_cell_data_paths_agree_on_colors() {
-    use crate::render::cell_builder::{build_instances_from_cell_data, CellInstanceConfig};
+    use crate::render::cell_builder::{CellInstanceConfig, build_instances_from_cell_data};
     use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
     let mut font_pipeline = ascii_font();
@@ -3113,7 +3113,7 @@ fn kgp_atlas_zero_size_clears_texture() {
 
 #[cfg(test)]
 mod dirty_band_tests {
-    use crate::render::cell_builder::{compute_dirty_bands, DirtyBand};
+    use crate::render::cell_builder::{DirtyBand, compute_dirty_bands};
 
     #[test]
     fn empty_mask_yields_no_bands() {
