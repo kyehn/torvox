@@ -1824,6 +1824,106 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>
     jni_export_guard!(&mut env, -1, { render_inner(session_id as u64) })
 }
 
+/// Compute the cursor blink phase and apply it to the cursor visibility.
+/// Returns the blink phase (0 = visible, 1 = hidden).
+fn compute_cursor_blink(render_state: &RenderState, cursor: &mut crate::render::CellCursor) -> u64 {
+    let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
+    if !cursor_blink_enabled {
+        return 0;
+    }
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64);
+    let speed = render_state
+        .cursor_blink_speed_ms
+        .load(Ordering::Relaxed)
+        .max(50);
+    let phase_reset_ms = render_state
+        .cursor_blink_phase_reset_ms
+        .load(Ordering::Relaxed);
+    let phase = now_ms.saturating_sub(phase_reset_ms);
+    let blink_phase = (phase / speed) % 2;
+    if blink_phase == 1 {
+        cursor.visible = false;
+    }
+    blink_phase
+}
+
+/// Build a cursor from a `CursorInfo` snapshot, applying the style override
+/// and cursor color from render state.
+fn build_cursor(
+    render_state: &RenderState,
+    cursor_info: &crate::terminal::ghostty_terminal::CursorInfo,
+) -> crate::render::CellCursor {
+    crate::render::CellCursor {
+        row: cursor_info.row,
+        col: cursor_info.col,
+        visible: cursor_info.visible,
+        style: render_state
+            .cursor_style_override
+            .unwrap_or(cursor_info.style),
+        color: render_state.cursor_color,
+    }
+}
+
+/// Compute the selection range adjusted for scrollback offset.
+fn compute_render_selection(
+    selection: Option<crate::render::cell_builder::SelectionRange>,
+    scrollback: u32,
+) -> Option<crate::render::cell_builder::SelectionRange> {
+    selection.map(|mut sel| {
+        sel.start_row -= scrollback as i32;
+        sel.end_row -= scrollback as i32;
+        sel
+    })
+}
+
+/// Mark overlay rows (current selection, previous selection, search
+/// highlights) as dirty in the mask. These are per-row visual overlays
+/// whose addition/removal changes pixels without touching cell content.
+fn mark_overlay_dirty_rows(
+    dirty_mask: &mut Vec<bool>,
+    rows_usize: usize,
+    render_selection: &Option<crate::render::cell_builder::SelectionRange>,
+    previous_selection: Option<crate::render::cell_builder::SelectionRange>,
+    highlight_rows: &[i32],
+) {
+    if let Some(sel) = render_selection {
+        let start = sel.start_row.max(0) as usize;
+        let end = (sel.end_row + 1).max(0) as usize;
+        for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
+            *slot = true;
+        }
+    }
+    // Previous selection: clearing/shrinking a selection must
+    // repaint the rows it used to cover.
+    if let Some(old_sel) = previous_selection {
+        let start = old_sel.start_row.max(0) as usize;
+        let end = (old_sel.end_row + 1).max(0) as usize;
+        for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
+            *slot = true;
+        }
+    }
+    // Search highlight rows, current AND last drawn: highlights are
+    // per-row overlays; adding/removing/moving them changes pixels
+    // without changing cell content.
+    for r in highlight_rows {
+        if *r >= 0 && (*r as usize) < rows_usize {
+            dirty_mask[*r as usize] = true;
+        }
+    }
+}
+
+/// Collect highlight row numbers from current and last-drawn highlights.
+fn collect_highlight_rows(render_state: &RenderState) -> Vec<i32> {
+    render_state
+        .search_highlights
+        .iter()
+        .chain(render_state.last_drawn_search_highlights.iter())
+        .map(|hl| hl.row)
+        .collect()
+}
+
 fn render_inner(session_id: u64) -> jint {
     // ── Phase 1: Pre-render housekeeping (single RENDER_STATE lock) ───────
     // Consume pending bg image / flash phase, check surface readiness,
@@ -1948,65 +2048,22 @@ fn render_inner(session_id: u64) -> jint {
             // every CursorInfo push.
             let scrollback = cursor_info.scrollback_length;
             render_state.cached_scrollback = scrollback;
-            let mut cursor = crate::render::CellCursor {
-                row: cursor_info.row,
-                col: cursor_info.col,
-                visible: cursor_info.visible,
-                style: render_state
-                    .cursor_style_override
-                    .unwrap_or(cursor_info.style),
-                color: render_state.cursor_color,
-            };
-            // Cursor blink.
-            let mut blink_phase = 0u64;
-            let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
-            if cursor_blink_enabled {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64);
-                let speed = render_state
-                    .cursor_blink_speed_ms
-                    .load(Ordering::Relaxed)
-                    .max(50);
-                let phase_reset_ms = render_state
-                    .cursor_blink_phase_reset_ms
-                    .load(Ordering::Relaxed);
-                let phase = now_ms.saturating_sub(phase_reset_ms);
-                blink_phase = (phase / speed) % 2;
-                if blink_phase == 1 {
-                    cursor.visible = false;
-                }
-            }
-            let render_selection = render_state.selection.map(|mut sel| {
-                sel.start_row -= scrollback as i32;
-                sel.end_row -= scrollback as i32;
-                sel
-            });
+            let mut cursor = build_cursor(render_state, &cursor_info);
+            let blink_phase = compute_cursor_blink(render_state, &mut cursor);
+            let render_selection = compute_render_selection(render_state.selection, scrollback);
             // Build dirty mask using pre-allocated buffer.
             let rows_usize = rows as usize;
             // Immutable snapshots first: the mask is a &mut borrow of
             // render_state.dirty_mask and cannot coexist with reads of the
             // other render_state fields below.
-            // Pure-scroll detection (): if every surviving row of
-            // Scroll-shift GPU blit disabled for reliability: content similarity
-            // (e.g. seq 1 200) triggers false shift detection and stale fragments.
-            // Cost is ~2-3ms extra per scroll frame, well within 8ms budget.
             let scroll_up_rows: Option<u32> = None;
             let previous_cursor_row = render_state
                 .last_frame
                 .as_ref()
                 .map(|(_, old_cursor_info, _, _)| old_cursor_info.row);
-            let previous_selection_rows = render_state.last_drawn_selection.map(|mut sel| {
-                sel.start_row -= scrollback as i32;
-                sel.end_row -= scrollback as i32;
-                sel
-            });
-            let highlight_rows: Vec<i32> = render_state
-                .search_highlights
-                .iter()
-                .chain(render_state.last_drawn_search_highlights.iter())
-                .map(|hl| hl.row)
-                .collect();
+            let previous_selection_rows =
+                compute_render_selection(render_state.last_drawn_selection, scrollback);
+            let highlight_rows = collect_highlight_rows(render_state);
             let dirty_mask = &mut render_state.dirty_mask;
             dirty_mask.clear();
             dirty_mask.resize(rows_usize, false);
@@ -2046,30 +2103,13 @@ fn render_inner(session_id: u64) -> jint {
             {
                 dirty_mask[prev_row as usize] = true;
             }
-            if let Some(sel) = &render_selection {
-                let start = sel.start_row.max(0) as usize;
-                let end = (sel.end_row + 1).max(0) as usize;
-                for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
-                    *slot = true;
-                }
-            }
-            // Previous selection: clearing/shrinking a selection must
-            // repaint the rows it used to cover.
-            if let Some(old_sel) = previous_selection_rows {
-                let start = old_sel.start_row.max(0) as usize;
-                let end = (old_sel.end_row + 1).max(0) as usize;
-                for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
-                    *slot = true;
-                }
-            }
-            // Search highlight rows, current AND last drawn: highlights are
-            // per-row overlays; adding/removing/moving them changes pixels
-            // without changing cell content.
-            for r in highlight_rows {
-                if r >= 0 && (r as usize) < rows_usize {
-                    dirty_mask[r as usize] = true;
-                }
-            }
+            mark_overlay_dirty_rows(
+                dirty_mask,
+                rows_usize,
+                &render_selection,
+                previous_selection_rows,
+                &highlight_rows,
+            );
             let result = render_state.renderer.render_cell_data(
                 &cells,
                 rows,
@@ -2114,35 +2154,15 @@ fn render_inner(session_id: u64) -> jint {
                     .unwrap_or(cached_cursor.style),
                 color: render_state.cursor_color,
             };
-            // Cursor blink.
-            let mut blink_phase = 0u64;
-            let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
-            if cursor_blink_enabled {
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64);
-                let speed = render_state
-                    .cursor_blink_speed_ms
-                    .load(Ordering::Relaxed)
-                    .max(50);
-                let phase_reset_ms = render_state
-                    .cursor_blink_phase_reset_ms
-                    .load(Ordering::Relaxed);
-                let phase = now_ms.saturating_sub(phase_reset_ms);
-                blink_phase = (phase / speed) % 2;
-                if blink_phase == 1 {
-                    cursor.visible = false;
-                }
-            }
+            let blink_phase = compute_cursor_blink(render_state, &mut cursor);
             // Idle repaint gate (P2-1): only repaint when something actually
             // changed — blink phase flip, style change, selection change,
             // search highlights active, or content-dirty flag raised.
+            let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
             let phase_changed = render_state.last_blink_phase != Some(blink_phase);
             let style_changed =
                 render_state.last_drawn_style_version != render_state.cursor_style_version;
             let selection_changed = render_state.selection != render_state.last_drawn_selection;
-            // Changed, not merely present: "present" made every idle frame
-            // repaint for as long as a search stayed active.
             let highlights_changed =
                 render_state.search_highlights != render_state.last_drawn_search_highlights;
             let bg_image_pending = render_state.pending_bg_image.is_some();
@@ -2166,28 +2186,11 @@ fn render_inner(session_id: u64) -> jint {
                 return 0;
             }
             let scrollback = render_state.cached_scrollback;
-            let render_selection = render_state.selection.map(|mut sel| {
-                sel.start_row -= scrollback as i32;
-                sel.end_row -= scrollback as i32;
-                sel
-            });
-            // Dirty mask: cursor row(s) + selection rows + highlight rows
-            // need rebuild on idle (cell content hasn't changed). The old
-            // `fill(true)` fallback is gone: the accumulator keeps clean
-            // rows' pixels, so band-limited redraws are sufficient and the
-            // blink frame now costs one row band instead of a full redraw.
+            let render_selection = compute_render_selection(render_state.selection, scrollback);
             let rows_usize = cached_rows as usize;
-            let previous_selection_rows = render_state.last_drawn_selection.map(|mut sel| {
-                sel.start_row -= scrollback as i32;
-                sel.end_row -= scrollback as i32;
-                sel
-            });
-            let highlight_rows: Vec<i32> = render_state
-                .search_highlights
-                .iter()
-                .chain(render_state.last_drawn_search_highlights.iter())
-                .map(|hl| hl.row)
-                .collect();
+            let previous_selection_rows =
+                compute_render_selection(render_state.last_drawn_selection, scrollback);
+            let highlight_rows = collect_highlight_rows(render_state);
             let dirty_mask = &mut render_state.dirty_mask;
             dirty_mask.clear();
             dirty_mask.resize(rows_usize, false);
@@ -2196,25 +2199,13 @@ fn render_inner(session_id: u64) -> jint {
             if (cursor.row as usize) < rows_usize {
                 dirty_mask[cursor.row as usize] = true;
             }
-            if let Some(sel) = &render_selection {
-                let start = sel.start_row.max(0) as usize;
-                let end = (sel.end_row + 1).max(0) as usize;
-                for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
-                    *slot = true;
-                }
-            }
-            if let Some(old_sel) = previous_selection_rows {
-                let start = old_sel.start_row.max(0) as usize;
-                let end = (old_sel.end_row + 1).max(0) as usize;
-                for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
-                    *slot = true;
-                }
-            }
-            for r in highlight_rows {
-                if r >= 0 && (r as usize) < rows_usize {
-                    dirty_mask[r as usize] = true;
-                }
-            }
+            mark_overlay_dirty_rows(
+                dirty_mask,
+                rows_usize,
+                &render_selection,
+                previous_selection_rows,
+                &highlight_rows,
+            );
             let result = render_state.renderer.render_cell_data(
                 cached_cells,
                 cached_rows,
