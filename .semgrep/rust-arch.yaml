@@ -1,7 +1,4 @@
-# Cross-crate architecture enforcement (single-crate architecture)
-# All Rust code lives in native/src/ — rules enforce module boundaries within the crate.
 rules:
-  # @REQ_ANDR_014 — DocumentsProvider root via filesDir not hardcoded
   - id: no-hardcoded-paths
     pattern-regex: '/data/[a-zA-Z0-9._]+/files'
     paths:
