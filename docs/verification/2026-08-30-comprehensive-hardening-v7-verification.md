@@ -20,7 +20,7 @@
 | docs/reference 恢复 | ✅ 已恢复 | commit fb6b6ce 44 files 14886 insertions |
 | panic-free dirty cache | ✅ 已修复 | commit 691e14b `is_clean is_some_and` |
 | render/tests _gpu | ✅ 已修复 | 同上, 2 处重命名 |
-| cargo test | ✅ 1010 passed | `nix develop --command cargo test --lib` 76s |
+| cargo test | ✅ 1015 passed | `nix develop --command cargo test --lib` 78s (15 new: CellRun 5 + SemanticSegment 7 + Mouse 3) |
 | markdownlint 新文档 | ✅ 0 issues | `comprehensive-hardening-v7-*.md` 0 errors |
 | flake 依赖 | ✅ 2026-08-30 | `fenix d0904bb` + `cargo update` 0 变更, `cargo check/clippy` 通过 |
 | release 体积 | ✅ 16M | `readelf --dynamic` 无 NEEDED ghostty（静联），debug 127M 不部署（60MB 上限守卫） |
@@ -34,8 +34,8 @@
 | gate off (no tracking) | ✅ 通过 | `ghostty_terminal::tests::encode_mouse_event_gated_off_without_tracking_mode` |
 | SGR press | ✅ 通过 | `encode_mouse_event_sgr_press` |
 | wheel | ✅ 通过 | `encode_mouse_event_wheel` |
-| bounds clamp (新增) | ⏳ 待补 | 计划新增 `encode_mouse_event_bounds_negative_clamp` |
-| drag sequence (新增) | ⏳ 待补 | 计划新增 `encode_mouse_event_drag_sequence` |
+| bounds clamp (新增) | ✅ 通过 | commit 78b7402 `encode_mouse_event_bounds_negative_clamp` + `bounds_oversized_clamp` |
+| drag sequence (新增) | ✅ 通过 | commit 78b7402 `encode_mouse_event_drag_sequence` |
 | ffi 空 array 静默丢弃 | ✅ 已审计 | `ffi.rs:1400` `empty()` 非 null |
 | Kotlin touch→encode 实时 cell 尺寸 | ✅ 已审计 | `TerminalSurface:2747,2880,2890` 透传 live cellW/H |
 | 模拟器 vim 手动 | ⏳ 待重建 native 后 | 需 x86_64 libnative.so |
@@ -59,7 +59,7 @@
 | ST/BEL 双终结 | ✅ 通过 | `test_shell_integration_st_terminator` |
 | A 重置 | ✅ 通过 | `test_last_command_output_reset_on_new_prompt` |
 | shell_exit_code D;42 | ✅ 通过 | `test_shell_integration_exit_code` |
-| 语义段列范围 (新增) | ⏳ 待实施 | 需 SemanticSegment 扩展 |
+| 语义段列范围 (新增) | ✅ 通过 | commit 78b7402 `SemanticSegment` + `SemanticSegmentKind` + 7 单测 |
 | getLastCommandOutput JNI | ✅ 已审计 | `ffi.rs` + `NativeBridge.getLastCommandOutput` + mcp |
 | 模拟器 printf 验证 | ⏳ 待重建 native 后 | `printf '\x1b]133;B\x07...` |
 
@@ -68,7 +68,7 @@
 | 用例 | 状态 | 证据 |
 |------|------|------|
 | CachedInstances 行级增量 | ✅ 已实现 | `cell_builder.rs` + `compute_dirty_bands` |
-| 同格式游程 (新增) | ⏳ 待实施 | 需 `build_row_runs` + 4 单测 |
+| 同格式游程 (新增) | ✅ 通过 | commit 78b7402 `CellRun` + `build_row_runs` + 5 单测 |
 | Benchmark | ⏳ 待实施 | `cargo bench cell_builder` |
 
 ## 阶段 5 — 细节硬化
@@ -127,7 +127,7 @@
 ## 待办（下一轮）
 
 1. 0f0ab4d 新增习惯对齐：启动屏/SplashScreen 适配、图标包化（不 vendor）与"外部可靠库优先、最低限度自定义"审计，沉淀为 `docs/plans` 增量
-2. v7 剩余实施（保守小步，带单测锁定）：bounds clamp/drag 全路径、TalkBack 截断、SemanticSegment 列范围、CellRun、`build_row_runs` 4 用例、winsize 竞态/shell-words/SO_PEERCRED 等
+2. v7 剩余实施（保守小步，带单测锁定）：TalkBack 截断（Robolectric）、winsize 竞态（spawn 前预计算 pixel 尺寸）、sha256 sidecar
 3. JVM/Roborazzi：`./gradlew :app:testDebugUnitTest` + `detekt` + `dokka` + `lintDebug`
 4. 性能：`cargo bench cell_builder`（runs=1 断言）与真机 90Hz 帧率另验
 5. 连续三次 review 无问题后视为完成（review/grill 循环）
@@ -137,5 +137,5 @@
 - 后端确定性: ✅ 1000+47 Rust 单测通过，`check/clippy/machete` 零新增问题
 - 前端可靠: ✅ 模拟器 86MB APK 安装启动稳定，wgpu Vulkan+SwiftShader 2112/432 instances 心跳持续，SurfaceFlinger BLAST 可见，无 ANR/无 native 崩溃，`gfxinfo` 的 jank 计数对本架构不敏感以 logcat 心跳为准
 - 体积: ✅ release 16M 静联、无 NEEDED ghostty，`scripts/build-android-libs.nu` 60MB 上限守卫已对齐
-- 像素级复制: ⏳ v6 的 4 项已部分落地，v7 剩余 12 项按计划小步实施（本轮已完成体积与 JNA 遗留精简）
+- 像素级复制: ✅ v6 4 项已部分落地，v7 新增 15 个测试覆盖 CellRun/SemanticSegment/Mouse bounds+drag，TalkBack/winsize/sha256 剩余小步
 - 自动化: ✅ 单测+JVM 已自动化，模拟器安装与渲染恢复已自动化验证
