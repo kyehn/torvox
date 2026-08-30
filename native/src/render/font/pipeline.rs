@@ -388,32 +388,53 @@ impl FontPipeline {
         log::error!("FONT_SELECT: no font found in system!");
     }
 
-    pub fn set_font_family(&mut self, family_name: &str) -> bool {
+    /// Reset the glyph atlas allocator, clear the bitmap, bump the
+    /// generation counter, and re-rasterize ASCII glyphs. Called whenever
+    /// font size, raster scale, or font family changes.
+    fn reset_atlas(&mut self) {
+        self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
+            self.atlas_width as i32,
+            self.atlas_height as i32,
+        ));
+        self.atlas_bitmap.fill(0);
+        self.atlas_generation = self.atlas_generation.wrapping_add(1);
+        self.reset_dirty_rect_full();
+        self.rasterize_ascii();
+    }
+
+    /// Clear all shape/glyph lookup caches (identity caches that map
+    /// codepoints to glyph IDs). Called before any font-family or locale
+    /// change that invalidates glyph identity resolution.
+    fn clear_identity_caches(&mut self) {
         self.caches.shape_cache.clear();
         self.caches.glyph_id_cache.clear();
         self.caches.cjk_glyph_cache.clear();
         self.caches.ascii_glyph_ids = [None; 128];
+    }
+
+    /// Rediscover all fallback font layers (CJK, symbol, Nerd, emoji)
+    /// and re-rasterize ASCII glyphs. Called after any font change that
+    /// may affect which fallback fonts are available.
+    fn rediscover_fallback_fonts(&mut self) {
+        self.cjk_fallback_ids.clear();
+        self.symbol_fallback_ids.clear();
+        self.nerd_fallback_ids.clear();
+        self.emoji_fallback_ids.clear();
+        let system_locale = self.system_locale.clone();
+        self.find_cjk_fallback_fonts(&system_locale);
+        self.find_symbol_fallback_fonts();
+        self.find_nerd_fallback_fonts();
+        self.find_emoji_fallback_fonts();
+    }
+
+    pub fn set_font_family(&mut self, family_name: &str) -> bool {
+        self.clear_identity_caches();
         if family_name.is_empty() {
             self.font_id = None;
             self.find_monospace_font();
             self.caches.glyph_cache.clear();
-            self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
-                self.atlas_width as i32,
-                self.atlas_height as i32,
-            ));
-            self.atlas_bitmap.fill(0);
-            self.atlas_generation = self.atlas_generation.wrapping_add(1);
-            self.reset_dirty_rect_full();
-            self.cjk_fallback_ids.clear();
-            self.symbol_fallback_ids.clear();
-            self.nerd_fallback_ids.clear();
-            self.emoji_fallback_ids.clear();
-            let system_locale = self.system_locale.clone();
-            self.find_cjk_fallback_fonts(&system_locale);
-            self.find_symbol_fallback_fonts();
-            self.find_nerd_fallback_fonts();
-            self.find_emoji_fallback_fonts();
-            self.rasterize_ascii();
+            self.reset_atlas();
+            self.rediscover_fallback_fonts();
             return true;
         }
         let found = {
@@ -434,23 +455,8 @@ impl FontPipeline {
             );
             self.font_id = Some(id);
             self.caches.glyph_cache.clear();
-            self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
-                self.atlas_width as i32,
-                self.atlas_height as i32,
-            ));
-            self.atlas_bitmap.fill(0);
-            self.atlas_generation = self.atlas_generation.wrapping_add(1);
-            self.reset_dirty_rect_full();
-            self.cjk_fallback_ids.clear();
-            self.symbol_fallback_ids.clear();
-            self.nerd_fallback_ids.clear();
-            self.emoji_fallback_ids.clear();
-            let system_locale = self.system_locale.clone();
-            self.find_cjk_fallback_fonts(&system_locale);
-            self.find_symbol_fallback_fonts();
-            self.find_nerd_fallback_fonts();
-            self.find_emoji_fallback_fonts();
-            self.rasterize_ascii();
+            self.reset_atlas();
+            self.rediscover_fallback_fonts();
             return true;
         }
         log::warn!(
@@ -480,10 +486,7 @@ impl FontPipeline {
     /// family was found and set.
     pub fn set_font_family_for_style(&mut self, family_name: &str, slot: u8) -> bool {
         let slot = slot.min(2) as usize;
-        self.caches.shape_cache.clear();
-        self.caches.glyph_id_cache.clear();
-        self.caches.cjk_glyph_cache.clear();
-        self.caches.ascii_glyph_ids = [None; 128];
+        self.clear_identity_caches();
         if family_name.is_empty() {
             self.styled_font_ids[slot] = None;
             return true;
@@ -512,10 +515,7 @@ impl FontPipeline {
     }
 
     pub fn set_system_locale(&mut self, locale: &str) {
-        self.caches.shape_cache.clear();
-        self.caches.glyph_id_cache.clear();
-        self.caches.cjk_glyph_cache.clear();
-        self.caches.ascii_glyph_ids = [None; 128];
+        self.clear_identity_caches();
         self.system_locale = locale.to_string();
         self.cjk_fallback_ids.clear();
         self.find_cjk_fallback_fonts(&self.system_locale.clone());
@@ -525,14 +525,7 @@ impl FontPipeline {
         self.font_size = new_size;
         self.caches.shape_cache.clear();
         self.caches.glyph_cache.clear();
-        self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
-            self.atlas_width as i32,
-            self.atlas_height as i32,
-        ));
-        self.atlas_bitmap.fill(0);
-        self.atlas_generation = self.atlas_generation.wrapping_add(1);
-        self.reset_dirty_rect_full();
-        self.rasterize_ascii();
+        self.reset_atlas();
         let (cw, ch) = self.cell_metrics();
         log::debug!(
             "FONT_SIZE_IN_PLACE: size={} cell={:.1}x{:.1}",
@@ -555,14 +548,7 @@ impl FontPipeline {
         self.raster_scale = scale;
         self.caches.shape_cache.clear();
         self.caches.glyph_cache.clear();
-        self.atlas = guillotiere::AtlasAllocator::new(guillotiere::size2(
-            self.atlas_width as i32,
-            self.atlas_height as i32,
-        ));
-        self.atlas_bitmap.fill(0);
-        self.atlas_generation = self.atlas_generation.wrapping_add(1);
-        self.reset_dirty_rect_full();
-        self.rasterize_ascii();
+        self.reset_atlas();
         log::debug!("RASTER_SCALE: scale={:.3}", scale);
     }
 
@@ -712,6 +698,27 @@ impl FontPipeline {
         names
     }
 
+    fn primary_supports_cjk(&self) -> bool {
+        let Some(font_id) = self.font_id else {
+            return false;
+        };
+        let db = self.font_system.db();
+        let Some(face) = db.face(font_id) else {
+            return false;
+        };
+        face.families.iter().any(|(name, _)| {
+            let lower = name.to_lowercase();
+            lower.contains("cjk")
+                || lower.contains("chinese")
+                || lower.contains("japanese")
+                || lower.contains("korean")
+                || lower.contains(" sc")
+                || lower.contains(" tc")
+                || lower.contains(" jp")
+                || lower.contains(" kr")
+        })
+    }
+
     pub fn font_information(&self) -> String {
         let db = self.font_system.db();
         let mut parts = Vec::new();
@@ -729,25 +736,10 @@ impl FontPipeline {
         let cjk = self.cjk_fallback_names();
         if !cjk.is_empty() {
             parts.push(format!("CJK fallback: {}", cjk.join(", ")));
+        } else if self.primary_supports_cjk() {
+            parts.push("CJK fallback: skipped (primary font supports CJK)".to_string());
         } else {
-            let primary_is_cjk = self.font_id.and_then(|id| db.face(id)).is_some_and(|face| {
-                face.families.iter().any(|(name, _)| {
-                    let l = name.to_lowercase();
-                    l.contains("cjk")
-                        || l.contains("chinese")
-                        || l.contains("japanese")
-                        || l.contains("korean")
-                        || l.contains(" sc")
-                        || l.contains(" tc")
-                        || l.contains(" jp")
-                        || l.contains(" kr")
-                })
-            });
-            if primary_is_cjk {
-                parts.push("CJK fallback: skipped (primary font supports CJK)".to_string());
-            } else {
-                parts.push("CJK fallback: none".to_string());
-            }
+            parts.push("CJK fallback: none".to_string());
         }
         let (cw, ch) = self.cell_metrics();
         parts.push(format!("Cell: {:.1}x{:.1}px", cw, ch));
@@ -770,25 +762,10 @@ impl FontPipeline {
         let cjk = self.cjk_fallback_names();
         let (cjk_state, cjk_families) = if !cjk.is_empty() {
             ("fallback".to_string(), cjk)
+        } else if self.primary_supports_cjk() {
+            ("skipped".to_string(), Vec::new())
         } else {
-            let primary_is_cjk = self.font_id.and_then(|id| db.face(id)).is_some_and(|face| {
-                face.families.iter().any(|(name, _)| {
-                    let l = name.to_lowercase();
-                    l.contains("cjk")
-                        || l.contains("chinese")
-                        || l.contains("japanese")
-                        || l.contains("korean")
-                        || l.contains(" sc")
-                        || l.contains(" tc")
-                        || l.contains(" jp")
-                        || l.contains(" kr")
-                })
-            });
-            if primary_is_cjk {
-                ("skipped".to_string(), Vec::new())
-            } else {
-                ("none".to_string(), Vec::new())
-            }
+            ("none".to_string(), Vec::new())
         };
         let (cw, ch) = self.cell_metrics();
         FontInfo {
