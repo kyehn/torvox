@@ -64,9 +64,9 @@ pub(crate) use snapshot_reference::{
 /// for the whole benchmark body, guaranteeing one benchmark at a time
 /// scroll bench joined the lock for the same reason).
 #[cfg(any(test, feature = "test-util"))]
+#[cfg_attr(not(test), allow(dead_code))]
 // Only referenced from #[cfg(test)] benches; the lib build with
 // `--features test-util` (clippy) has no callers.
-#[allow(dead_code)]
 pub(crate) static GPU_BENCH_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 // ── Public Constants ─────────────────────────────────────────────────────
