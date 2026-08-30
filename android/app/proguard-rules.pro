@@ -9,13 +9,5 @@
 -keepattributes InnerClasses
 -keepattributes EnclosingMethod
 
--dontwarn com.sun.jna.**
--keep class com.sun.jna.** { *; }
--keep class * implements com.sun.jna.Library { *; }
--keepclassmembers class * implements com.sun.jna.Library {
-    <methods>;
-}
--keep class com.sun.jna.**$* { *; }
-
 -keep class io.cucumber.** { *; }
 -keep class terminal.emulator.cucumber.** { *; }

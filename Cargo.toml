@@ -52,6 +52,16 @@ opt-level = 1
 debug = "line-tables-only"
 strip = "none"
 
+[profile.release]
+# 显式声明以锁定体积语义：BUILD.md 要求 release/dev/debug .so 大小
+# 必须合理、过大必归因。Cargo 默认 release 已为 opt-level=3 /
+# strip=debuginfo；此处保留默认优化等级，仅显式声明 strip 以与
+# build-android-libs.nu 的 60MB 上限及 NEEDED 校验对齐（实测 release
+# ~16MB 静联 libghostty-vt，不含 NEEDED；debug ~127MB 带符号）。
+# 不启用 opt-level="s"/lto/codegen-units=1：体积已达标，激进 LTO 会
+# 显著拉长 CI release 构建时间，得不偿失。
+strip = "debuginfo"
+
 [profile.dev-android]
 inherits = "dev"
 strip = "debuginfo"
