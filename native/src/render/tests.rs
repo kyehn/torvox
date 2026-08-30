@@ -951,13 +951,7 @@ fn setup_test_gpu_context(device: wgpu::Device, queue: wgpu::Queue) -> Renderer 
         contents: bytemuck::cast_slice(QUAD_CORNERS),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let mut context = Renderer::new_inner(
-        gpu.instance.clone(),
-        gpu.adapter.clone(),
-        device,
-        queue,
-        quad_vertex_buffer,
-    );
+    let mut context = Renderer::new_inner(device, queue, quad_vertex_buffer);
     context.surface_config = Some(wgpu::SurfaceConfiguration {
         width: 50,
         height: 50,
@@ -985,13 +979,7 @@ fn setup_test_gpu_context_custom(
         contents: bytemuck::cast_slice(QUAD_CORNERS),
         usage: wgpu::BufferUsages::VERTEX,
     });
-    let mut context = Renderer::new_inner(
-        gpu.instance.clone(),
-        gpu.adapter.clone(),
-        device.clone(),
-        queue,
-        quad_vertex_buffer,
-    );
+    let mut context = Renderer::new_inner(device.clone(), queue, quad_vertex_buffer);
     context.surface_config = Some(wgpu::SurfaceConfiguration {
         width,
         height,
