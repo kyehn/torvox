@@ -210,6 +210,67 @@ pub fn compute_dirty_bands(dirty: &[bool]) -> Vec<(usize, usize)> {
     bands
 }
 
+/// Contiguous run of cells sharing the same visual attributes within a
+/// single row. Produced by [`build_row_runs`]; used to count merge savings
+/// and drive diagnostic logs. Not part of the GPU pipeline — instances are
+/// still generated per-cell, but dirty-row comparison can short-circuit on
+/// run-level equality (termlib CellRun pattern).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CellRun {
+    /// Starting column index (inclusive) within the row.
+    pub start_col: u32,
+    /// Number of cells in this run (always ≥ 1).
+    pub length: u32,
+    /// Foreground color (RGBA float, bytemuck-equivalent for comparison).
+    pub fg: [f32; 4],
+    /// Background color (RGBA float, bytemuck-equivalent for comparison).
+    pub bg: [f32; 4],
+    /// Packed style flags (bold, italic, underline, etc.).
+    pub flags: u32,
+}
+
+/// Scan a row of `CellData` and merge adjacent cells with identical
+/// `fg_color`, `bg_color`, and `flags` into contiguous runs.
+///
+/// Returns an empty `Vec` when `cell_row` is empty. Each run has
+/// `length ≥ 1`; runs never span across rows.
+///
+/// This is a pure function with no allocation beyond the output `Vec`,
+/// suitable for per-frame calls on dirty rows.
+pub fn build_row_runs(cell_row: &[crate::terminal::ghostty_terminal::CellData]) -> Vec<CellRun> {
+    let mut runs: Vec<CellRun> = Vec::new();
+    let mut iter = cell_row.iter();
+    let Some(first) = iter.next() else {
+        return runs;
+    };
+    let mut current_run = CellRun {
+        start_col: first.col,
+        length: 1,
+        fg: first.fg_color,
+        bg: first.bg_color,
+        flags: first.flags,
+    };
+    for cell in iter {
+        let same_fg = cell.fg_color == current_run.fg;
+        let same_bg = cell.bg_color == current_run.bg;
+        let same_flags = cell.flags == current_run.flags;
+        if same_fg && same_bg && same_flags {
+            current_run.length += 1;
+        } else {
+            runs.push(current_run);
+            current_run = CellRun {
+                start_col: cell.col,
+                length: 1,
+                fg: cell.fg_color,
+                bg: cell.bg_color,
+                flags: cell.flags,
+            };
+        }
+    }
+    runs.push(current_run);
+    runs
+}
+
 /// Row-level instance cache for incremental rendering (FR-013 / NFR-010).
 ///
 /// Mirrors the test-only reference in `snapshot_reference::build_cell_instances_into`
@@ -1417,6 +1478,87 @@ mod tests {
                 "empty-cell block top {origin_y} != reference glyph top {expected_top}"
             );
         }
+    }
+
+    // ── CellRun tests ───────────────────────────────────────────────
+
+    /// Five identical-format cells must merge into a single run.
+    #[test]
+    fn cell_run_single_format() {
+        let fg = [1.0, 0.0, 0.0, 1.0];
+        let bg = [0.0, 0.0, 0.0, 1.0];
+        let cells: Vec<CellData> = (0..5)
+            .map(|col| cell_data(0, col, 'x', fg, bg, 0))
+            .collect();
+        let runs = build_row_runs(&cells);
+        assert_eq!(runs.len(), 1, "5 same-format cells → 1 run");
+        assert_eq!(runs[0].start_col, 0);
+        assert_eq!(runs[0].length, 5);
+        assert_eq!(runs[0].fg, fg);
+        assert_eq!(runs[0].bg, bg);
+    }
+
+    /// Background color change in the middle splits into 2 runs.
+    #[test]
+    fn cell_run_mixed_format() {
+        let fg = [1.0, 1.0, 1.0, 1.0];
+        let bg_a = [0.0, 0.0, 0.0, 1.0];
+        let bg_b = [1.0, 0.0, 0.0, 1.0];
+        let cells = vec![
+            cell_data(0, 0, 'a', fg, bg_a, 0),
+            cell_data(0, 1, 'b', fg, bg_a, 0),
+            cell_data(0, 2, 'c', fg, bg_b, 0), // bg change
+            cell_data(0, 3, 'd', fg, bg_b, 0),
+        ];
+        let runs = build_row_runs(&cells);
+        assert_eq!(runs.len(), 2, "bg change → 2 runs");
+        assert_eq!(runs[0].length, 2);
+        assert_eq!(runs[1].start_col, 2);
+        assert_eq!(runs[1].length, 2);
+    }
+
+    /// Flags change (bold) splits into 2 runs.
+    #[test]
+    fn cell_run_flags_change() {
+        let fg = [1.0, 1.0, 1.0, 1.0];
+        let bg = [0.0, 0.0, 0.0, 1.0];
+        let cells = vec![
+            cell_data(0, 0, 'a', fg, bg, 0),
+            cell_data(0, 1, 'b', fg, bg, 0),
+            cell_data(0, 2, 'c', fg, bg, 1 << cell_flags::BOLD),
+        ];
+        let runs = build_row_runs(&cells);
+        assert_eq!(runs.len(), 2, "flags change → 2 runs");
+        assert_eq!(runs[0].length, 2);
+        assert_eq!(runs[1].length, 1);
+        assert_eq!(runs[1].flags, 1 << cell_flags::BOLD);
+    }
+
+    /// Empty row produces 0 runs.
+    #[test]
+    fn cell_run_empty_row() {
+        let runs = build_row_runs(&[]);
+        assert!(runs.is_empty(), "empty row must produce 0 runs");
+    }
+
+    /// Every cell has a different format → each is its own run.
+    #[test]
+    fn cell_run_all_different() {
+        let cells: Vec<CellData> = (0..5)
+            .enumerate()
+            .map(|(i, col)| {
+                cell_data(
+                    0,
+                    col as u32,
+                    'a',
+                    [i as f32, 0.0, 0.0, 1.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                    0,
+                )
+            })
+            .collect();
+        let runs = build_row_runs(&cells);
+        assert_eq!(runs.len(), 5, "all-different → N runs");
     }
 }
 

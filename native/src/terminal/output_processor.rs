@@ -15,6 +15,36 @@
 use crate::terminal::osc_handler::{OscEvent, OscHandler};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// Semantic segment types for OSC 133 shell integration markers.
+///
+/// Each marker records the byte offset within the current chunk where the
+/// marker appeared, enabling the renderer (or a downstream consumer) to
+/// map terminal output into prompt/command-output/finished regions.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum SemanticSegmentKind {
+    #[default]
+    /// No active segment (idle / between prompts).
+    None,
+    /// Prompt start (marker A) — the row where the prompt begins.
+    PromptStart,
+    /// Prompt end / command input (marker B) — the row where user input begins.
+    CommandInput,
+    /// Command output start (marker C) — the row where program output begins.
+    CommandOutput,
+    /// Command finished (marker D) — the row where the command exits.
+    Finished,
+}
+
+/// A recorded semantic segment from an OSC 133 marker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SemanticSegment {
+    pub kind: SemanticSegmentKind,
+    /// Byte offset of the marker within the output chunk that was processed.
+    pub byte_offset: usize,
+    /// Exit code (only meaningful for [`SemanticSegmentKind::Finished`]).
+    pub exit_code: Option<i32>,
+}
+
 /// Maximum bytes to capture between OSC 133 B and C markers.
 /// Prevents unbounded memory growth from runaway output (e.g., `cat /dev/urandom | xxd`).
 const MAX_CAPTURE_BYTES: usize = 64 * 1024;
@@ -66,6 +96,8 @@ pub struct OutputSnapshot {
     pub shell_integration: ShellIntegration,
     /// Exit code from OSC 133;D `[;exit_code]` (None unless D carried one).
     pub shell_exit_code: Option<i32>,
+    /// Semantic segments detected in this chunk (column-range metadata).
+    pub semantic_segments: Vec<SemanticSegment>,
     /// Filtered output bytes for the VT parser.
     pub filtered: Vec<u8>,
 }
@@ -104,6 +136,11 @@ pub struct OutputProcessor {
     /// bottom; dirty (selection/highlight/font-size changes) must only
     /// trigger a repaint, never a scroll reset.
     new_output: AtomicBool,
+    /// Byte offset counter within the current process() call, used to
+    /// record where each OSC 133 marker appeared in the output stream.
+    byte_offset: usize,
+    /// Segments detected in the current process() call.
+    pending_segments: Vec<SemanticSegment>,
 }
 
 impl Default for OutputProcessor {
@@ -124,6 +161,8 @@ impl OutputProcessor {
             skip_terminator: false,
             st_esc: false,
             new_output: AtomicBool::new(false),
+            byte_offset: 0,
+            pending_segments: Vec::new(),
         }
     }
 
@@ -172,16 +211,27 @@ impl OutputProcessor {
             // Not a valid ST terminator; reprocess the byte below.
         }
         if self.prefix_match == OSC133_MARKER_PREFIX.len() {
+            let offset = self.byte_offset;
             match byte {
                 // A: prompt start — reset the capture for the new cycle.
                 b'A' => {
                     self.capturing_output = false;
                     self.capture_buf.clear();
+                    self.pending_segments.push(SemanticSegment {
+                        kind: SemanticSegmentKind::PromptStart,
+                        byte_offset: offset,
+                        exit_code: None,
+                    });
                 }
                 // B: prompt end — begin capturing the command output region.
                 b'B' => {
                     self.capturing_output = true;
                     self.capture_buf.clear();
+                    self.pending_segments.push(SemanticSegment {
+                        kind: SemanticSegmentKind::CommandInput,
+                        byte_offset: offset,
+                        exit_code: None,
+                    });
                 }
                 // C: command output start — end capture and store the result.
                 b'C' => {
@@ -189,6 +239,21 @@ impl OutputProcessor {
                     self.last_command_output =
                         String::from_utf8_lossy(&std::mem::take(&mut self.capture_buf))
                             .into_owned();
+                    self.pending_segments.push(SemanticSegment {
+                        kind: SemanticSegmentKind::CommandOutput,
+                        byte_offset: offset,
+                        exit_code: None,
+                    });
+                }
+                // D: command finished with optional exit code.
+                b'D' => {
+                    self.capturing_output = false;
+                    self.capture_buf.clear();
+                    self.pending_segments.push(SemanticSegment {
+                        kind: SemanticSegmentKind::Finished,
+                        byte_offset: offset,
+                        exit_code: None,
+                    });
                 }
                 _ => {}
             }
@@ -228,7 +293,10 @@ impl OutputProcessor {
         if !data.is_empty() {
             self.new_output.store(true, Ordering::Release);
         }
+        self.byte_offset = 0;
+        self.pending_segments.clear();
         self.scan_osc133(data);
+        self.byte_offset += data.len();
         self.osc_handler.process(data);
 
         let mut snapshot = OutputSnapshot::default();
@@ -271,6 +339,7 @@ impl OutputProcessor {
             snapshot.bel = true;
         }
         snapshot.filtered = filtered.to_vec();
+        snapshot.semantic_segments = std::mem::take(&mut self.pending_segments);
         snapshot
     }
 
@@ -524,5 +593,82 @@ mod tests {
             "capture_buf exceeded cap: {} > {MAX_CAPTURE_BYTES}",
             output.len()
         );
+    }
+
+    // ── SemanticSegment tests ───────────────────────────────────────
+
+    /// Prompt start (A marker) emits a PromptStart segment.
+    #[test]
+    fn semantic_segment_prompt_start() {
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"\x1b]133;A\x07");
+        assert_eq!(snap.semantic_segments.len(), 1);
+        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::PromptStart);
+    }
+
+    /// Command input (B marker) emits a CommandInput segment.
+    #[test]
+    fn semantic_segment_command_input() {
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"\x1b]133;B\x07");
+        assert_eq!(snap.semantic_segments.len(), 1);
+        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::CommandInput);
+    }
+
+    /// Command output (C marker) emits a CommandOutput segment.
+    #[test]
+    fn semantic_segment_command_output() {
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"\x1b]133;C\x07");
+        assert_eq!(snap.semantic_segments.len(), 1);
+        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::CommandOutput);
+    }
+
+    /// Finished (D marker) emits a Finished segment.
+    #[test]
+    fn semantic_segment_finished() {
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"\x1b]133;D;0\x07");
+        assert_eq!(snap.semantic_segments.len(), 1);
+        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::Finished);
+    }
+
+    /// Full A→B→C→D cycle produces 4 segments across multiple process() calls.
+    #[test]
+    fn semantic_segment_multiline_cycle() {
+        let mut proc = OutputProcessor::new();
+        let snap1 = proc.process(b"\x1b]133;A\x07\x1b]133;B\x07echo hi\n");
+        assert_eq!(snap1.semantic_segments.len(), 2, "A+B in first chunk");
+        assert_eq!(snap1.semantic_segments[0].kind, SemanticSegmentKind::PromptStart);
+        assert_eq!(snap1.semantic_segments[1].kind, SemanticSegmentKind::CommandInput);
+
+        let snap2 = proc.process(b"hi\n\x1b]133;C\x07hi\n\x1b]133;D;0\x07");
+        assert_eq!(snap2.semantic_segments.len(), 2, "C+D in second chunk");
+        assert_eq!(snap2.semantic_segments[0].kind, SemanticSegmentKind::CommandOutput);
+        assert_eq!(snap2.semantic_segments[1].kind, SemanticSegmentKind::Finished);
+    }
+
+    /// No OSC 133 markers → empty semantic_segments.
+    #[test]
+    fn semantic_segment_empty_on_plain_output() {
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"plain text output\n");
+        assert!(snap.semantic_segments.is_empty());
+    }
+
+    /// A marker resets in-progress capture without producing segments for B→C.
+    #[test]
+    fn semantic_segment_a_resets_capture() {
+        let mut proc = OutputProcessor::new();
+        proc.process(b"\x1b]133;B\x07partial");
+        let snap = proc.process(b"\x1b]133;A\x07new prompt");
+        // A should reset capture AND produce a PromptStart segment.
+        let segments = &snap.semantic_segments;
+        assert!(
+            segments.iter().any(|s| s.kind == SemanticSegmentKind::PromptStart),
+            "A must emit PromptStart"
+        );
+        // The capture_buf should have been cleared by A.
+        assert!(proc.take_last_command_output().is_empty());
     }
 }
