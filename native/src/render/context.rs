@@ -99,13 +99,9 @@ fn global_gpu() -> &'static GlobalGpu {
 pub struct Renderer {
     /// wgpu instance — kept so surfaces can be created from native
     /// window handles after construction (ADR-0007: `attach_surface`).
-    /// Read only on Android (attach_surface); construction sites pass it
-    /// on every platform.
-    #[allow(dead_code)]
     pub(crate) instance: wgpu::Instance,
     /// Adapter — kept for surface capability queries (ADR-0007
     /// attach_surface picks the format via get_capabilities).
-    #[allow(dead_code)]
     pub(crate) adapter: wgpu::Adapter,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
