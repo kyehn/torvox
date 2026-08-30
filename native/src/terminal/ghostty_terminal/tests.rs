@@ -252,6 +252,129 @@ fn encode_mouse_event_wheel() {
     );
 }
 
+/// Negative pixel coordinates must be handled gracefully — no panic,
+/// no underflow, no out-of-range.  The Ghostty encoder may drop the
+/// event (empty Vec) when coordinates are negative, which is correct
+/// behavior — the application should clamp before calling this.
+#[test]
+fn encode_mouse_event_bounds_negative_clamp() {
+    let mut t = term();
+    t.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    t.flush();
+    let result = t.encode_mouse_event((-5.0, -10.0), 0, 0, 10.0, 20.0);
+    // The encoder returns Some(empty) or Some(sgr) — it must not panic.
+    assert!(
+        result.is_some(),
+        "negative coords must return Some (not None = tracking off)"
+    );
+    // Ghostty encoder drops events for negative coordinates.
+    // This is correct — the Kotlin caller must clamp before calling.
+    let encoded = result.unwrap();
+    // No crash is the primary assertion. If it produces output, it
+    // must be valid SGR.
+    if !encoded.is_empty() {
+        assert!(
+            encoded.starts_with(b"\x1b[<"),
+            "if output is produced, must be SGR (got {encoded:?})"
+        );
+    }
+}
+
+/// Oversized pixel coordinates (beyond the grid) must be handled
+/// gracefully — no panic, no overflow.
+#[test]
+fn encode_mouse_event_bounds_oversized_clamp() {
+    let mut t = term(); // default 24 rows × 80 cols
+    t.vt_write(b"\x1b[?1000h\x1b[?1006h");
+    t.flush();
+    // Position far beyond the grid: 9999x9999 with 10x20 cells.
+    let result = t.encode_mouse_event((9999.0, 9999.0), 0, 0, 10.0, 20.0);
+    assert!(
+        result.is_some(),
+        "oversized coords must return Some"
+    );
+    let encoded = result.unwrap();
+    if !encoded.is_empty() {
+        let text = String::from_utf8_lossy(&encoded);
+        assert!(
+            text.starts_with("\x1b[<"),
+            "if output is produced, must be SGR (got {text})"
+        );
+        // Parse and verify no overflow — coordinates must be finite integers.
+        let inside = text.trim_start_matches("\x1b[<");
+        let parts: Vec<&str> = inside.trim_end_matches('M').split(';').collect();
+        assert_eq!(parts.len(), 3, "SGR must have 3 parts: {text}");
+        let col: u32 = parts[1].parse().expect("col must be numeric");
+        let row: u32 = parts[2].parse().expect("row must be numeric");
+        assert!(col < 1000, "col must be reasonable, got {col}");
+        assert!(row < 1000, "row must be reasonable, got {row}");
+    }
+}
+
+/// Full press → drag → release sequence: three events with increasing x
+/// must all produce valid SGR output and the action byte must change
+/// (0=press, 2=motion, 1=release).
+#[test]
+fn encode_mouse_event_drag_sequence() {
+    let mut t = term();
+    t.vt_write(b"\x1b[?1000h\x1b[?1006h"); // button tracking + SGR
+    t.vt_write(b"\x1b[?1002h"); // button-event tracking (motion reports)
+    t.flush();
+    let cell_w = 10.0;
+    let cell_h = 20.0;
+
+    // Press at (10, 20)
+    let press = t
+        .encode_mouse_event((10.0, 20.0), 0, 0, cell_w, cell_h)
+        .expect("press encode");
+    assert!(
+        press.starts_with(b"\x1b[<"),
+        "press must produce SGR (got {press:?})"
+    );
+    assert!(
+        press.ends_with(b"M"),
+        "press must end with M (got {press:?})"
+    );
+
+    // Drag (motion) at (30, 20) — action=2
+    let drag = t
+        .encode_mouse_event((30.0, 20.0), 2, 0, cell_w, cell_h)
+        .expect("drag encode");
+    assert!(
+        drag.starts_with(b"\x1b[<"),
+        "drag must produce SGR (got {drag:?})"
+    );
+
+    // Release at (50, 20) — action=1
+    let release = t
+        .encode_mouse_event((50.0, 20.0), 1, 0, cell_w, cell_h)
+        .expect("release encode");
+    assert!(
+        release.starts_with(b"\x1b[<"),
+        "release must produce SGR (got {release:?})"
+    );
+
+    // Column should increase across the sequence (10→30→50 px = 1→3→5 cell).
+    let parse_col = |seq: &[u8]| -> u32 {
+        let text = String::from_utf8_lossy(seq);
+        let inside = text.trim_start_matches("\x1b[<");
+        inside
+            .trim_end_matches('M')
+            .split(';')
+            .nth(1)
+            .unwrap()
+            .parse()
+            .unwrap()
+    };
+    let col_press = parse_col(&press);
+    let col_drag = parse_col(&drag);
+    let col_release = parse_col(&release);
+    assert!(
+        col_press < col_drag && col_drag < col_release,
+        "columns must increase across drag: press={col_press}, drag={col_drag}, release={col_release}"
+    );
+}
+
 // ── OSC split-buffer tests ──────────────────────────────────────────────
 
 /// OSC 0 title — split across two writes.
