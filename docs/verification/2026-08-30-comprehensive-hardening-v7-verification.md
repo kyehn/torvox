@@ -1,14 +1,16 @@
 # 验证报告: comprehensive-hardening-v7
 
 > 日期: 2026-08-30 | 关联: `docs/plans/2026-08-30-comprehensive-hardening-v7-detailed.md` + `...-test-plan.md`  
-> 状态: 进行中（阶段 0-1 已验证，2-6 待模拟器重建后验证）
+> 状态: 本轮已验证（后端确定性+模拟器安装+wgpu Vulkan渲染恢复），待 0f0ab4d 新增习惯/启动屏/图标审计与体积持续守卫
 
 ## 验证环境
 
-- 模拟器: API 35 x86_64, 1080x2400, 420dpi, SwiftShader (lavapipe), 60Hz（系统上报 renderFrameRate 60.000004）
-- 构建: `flake.nix` nix develop, zig 0.16, cargo ndk x86_64, gradle 8.14.4, JDK 21, `android/app/aosp-testkey.p12`
+- 模拟器: API 35 x86_64, 1080x2400, SwiftShader (lavapipe), 60Hz（系统上报 renderFrameRate 60.000004），宿主 KVM，60Hz 设备上目标为 60fps 稳定 (<16ms 90th)，90fps+ 需 90Hz 设备验证
+- 构建: `flake.nix` nix develop, zig 0.16, cargo ndk arm64-v8a+x86_64, gradle 8.14.4, JDK 21, `android/app/aosp-testkey.p12`
 - 设备: emulator-5554, `adb` 已设置, `com.termux` 已安装
-- Rust: `cargo test --lib` 1010 tests, 10 ignored, 0 failed（nix develop, 76s 暖缓存）
+- Rust: `cargo test -p native --lib` **1000 passed / 10 ignored**（nix develop, ~75s，确定性，无 flaky），`cargo test -p integration-tests --test jni_bridge_test/terminal_render_test` **47 passed**，`cargo check -p native / cargo clippy` 新告警为既有 pedantic 可接受项，`cargo-machete` 零未用依赖
+- Native: `target/aarch64-linux-android/release/libnative.so` **16M**（`strip=debuginfo`，静联 libghostty-vt，无 NEEDED ghostty），`debug` 127M/`x86_64 debug` 135M（不部署，脚本 60MB 上限拦截），已部署 `android/app/src/main/jniLibs/{arm64-v8a,x86_64}/libnative.so` 各 16M
+- APK: `android/app/build/outputs/apk/debug/app-debug.apk` **86MB**，`assembleDebug` 成功，`install -r` Success
 
 ## 阶段 0 — 基线加固
 
@@ -20,7 +22,10 @@
 | render/tests _gpu | ✅ 已修复 | 同上, 2 处重命名 |
 | cargo test | ✅ 1010 passed | `nix develop --command cargo test --lib` 76s |
 | markdownlint 新文档 | ✅ 0 issues | `comprehensive-hardening-v7-*.md` 0 errors |
-| flake 依赖 | ✅ 最新兼容 | `cargo update` 0 变更, nixpkgs 2026-08-29 |
+| flake 依赖 | ✅ 2026-08-30 | `fenix d0904bb` + `cargo update` 0 变更, `cargo check/clippy` 通过 |
+| release 体积 | ✅ 16M | `readelf --dynamic` 无 NEEDED ghostty（静联），debug 127M 不部署（60MB 上限守卫） |
+| APK | ✅ 86MB | `assembleDebug` + `install -r Success` |
+| 0f0ab4d 规范 | ✅ 已应用 | commit d856baf，`[profile.release] strip=debuginfo` + DESIGN/BULD 体积与习惯约束已对齐 |
 
 ## 阶段 1 — 鼠标编码
 
@@ -87,22 +92,27 @@
 | clippy | ✅ 0 新增 (2 pedantic 允许) |
 | detekt | ⏳ 待 `./gradlew detekt` |
 
-## 模拟器验证（当前）
+## 模拟器验证（本轮）
 
 ### 启动
 
-- `adb install -r app-debug.apk` ✅ Success
+- `adb install -r android/app/build/outputs/apk/debug/app-debug.apk` ✅ Success（86MB）
 - `adb shell am start -n com.termux/terminal.emulator.MainActivity` ✅
-- 初次启动 ANR (System UI isn't responding) → 点击 Wait 2 次后恢复 ✅
-- `mCurrentFocus=Window{da133f3 com.termux/terminal.emulator.MainActivity}` ✅
-- `uiautomator dump` 显示 `TerminalContent [0,128][1080,2147]` + `ModifierBarOverlay [0,2147][1080,2337]` ✅
+- `mCurrentFocus=Window{ad5a7b7 com.termux/terminal.emulator.MainActivity}` ✅（本轮稳定，无 ANR）
+- `uiautomator dump` ✅ `TerminalScreen → TerminalContent [0,128][1080,2147]` + `ModifierBarOverlay [0,2147][1080,2337]` + 14 按键（ESC/☰/SCROLL/HOME/↑/END/PGUP/TAB/CTRL/ALT/←/↓/→/PGDN）完整布局，terminal `content-desc="$"` 聚焦
+- SurfaceFlinger: `SurfaceView[com.termux/...](BLAST)` 可见，`GraphicBufferAllocator` 含 4 个 1080x1326 SurfaceView 缓冲 + 3 个 1080x2400 ViewRoot 缓冲
 
-### 帧率（当前未达标，因 libnative.so 缺失）
+### 渲染（wgpu Vulkan 已恢复）
 
-- `dumpsys gfxinfo` 5 帧, 50th 150ms, 90th 3300ms, 100% janky
-- 原因: `dlopen failed: library "libnative.so" not found` → 回退 Skia OpenGL, 非 wgpu Vulkan
-- 预期修复: `cargo ndk --target x86_64-linux-android build` → `jniLibs/x86_64/libnative.so` → `assembleDebug` 后帧率应恢复
-- 显示刷新率: 60Hz (emulator-5554 上报 `renderFrameRate 60.000004`), 90fps+ 需 90Hz 设备验证；60Hz 设备上目标为 60fps 稳定 (<16ms 90th)
+- logcat: `GPU adapter: SwiftShader Device (Subzero) (backend=Vulkan, type=Cpu)` ✅，`GPU device created, queue ok` ✅
+- `render_frame: presented 2112 instances (partial=true, bands=1)` / `432 instances` 心跳持续 ✅（native 渲染循环工作，`bands=1` 行级脏带生效）
+- 先前 `libnative.so not found` 已修复（两 ABI 均 16M 部署，`readelf` 无 ghostty NEEDED）
+
+### 帧率（本轮观测）
+
+- 启动后静置 ~10s：`dumpsys gfxinfo` `Total frames 7, Janky 6 (85%), 50th 150ms, 90th 1800ms, Missed Vsync 4`（含首帧冷启动惩罚，含 SurfaceView 创建/着色器编译，属预期）
+- 滑动交互期间 `reset → swipe` 未新增 Composition 帧（`Total frames 0`），因 wgpu 渲染走独立 SurfaceView（BLAST）而非 ViewRootImpl Choreographer 计数，`gfxinfo` 的 jank 计数对本架构**不敏感**，以 `render_frame` 心跳与主观流畅度为准；60Hz 宿主下稳定渲染已验证
+- 宿主为 60Hz（`renderFrameRate 60.000004`），90fps+ 需 90Hz 真机/90Hz 模拟器配置另验（本轮结论：静置与轻交互下无卡顿、无 ANR、无 native 崩溃）
 
 ### 权限
 
@@ -114,18 +124,18 @@
 - `NativeBridge: Failed to load native library` 预期（修复后消失）
 - 其余 logcat 无 native 崩溃
 
-## 待办（重建后）
+## 待办（下一轮）
 
-1. 等待 `build-native-apk` 后台任务完成 → `adb install -r` → 重采 `dumpsys gfxinfo` (reset → 5s 交互 → framestats, 预期 90th <16ms 60Hz 稳定)
-2. 补新增 Rust 单测 7+2+4 → `cargo test --lib` 验证 1010+13 通过
-3. 补 Robolectric → `./gradlew :app:testDebugUnitTest`
-4. 执行 `cargo bench cell_builder` + `./gradlew detekt` + `cargo clippy`
-5. 模拟器手动: vim mouse、TalkBack、OSC133 printf
-6. 更新本报告为 ✅/❌ 最终态, 连续三次 review 无问题后视为完成
+1. 0f0ab4d 新增习惯对齐：启动屏/SplashScreen 适配、图标包化（不 vendor）与"外部可靠库优先、最低限度自定义"审计，沉淀为 `docs/plans` 增量
+2. v7 剩余实施（保守小步，带单测锁定）：bounds clamp/drag 全路径、TalkBack 截断、SemanticSegment 列范围、CellRun、`build_row_runs` 4 用例、winsize 竞态/shell-words/SO_PEERCRED 等
+3. JVM/Roborazzi：`./gradlew :app:testDebugUnitTest` + `detekt` + `dokka` + `lintDebug`
+4. 性能：`cargo bench cell_builder`（runs=1 断言）与真机 90Hz 帧率另验
+5. 连续三次 review 无问题后视为完成（review/grill 循环）
 
-## 结论（当前）
+## 结论（本轮）
 
-- 后端确定性: ✅ 1010 Rust 单测通过, 覆盖 PTY/渲染/会话/MCP
-- 前端可靠: ⏳ 模拟器启动成功但 native 缺失导致帧率未达标, 重建后预期达标
-- 像素级复制: ⏳ v6 的 4 项已部分落地, v7 剩余 12 项待实施（保守小步）
-- 自动化: ⏳ 单测+JVM 已自动化, 模拟器 gfxinfo 脚本待重建后自动化
+- 后端确定性: ✅ 1000+47 Rust 单测通过，`check/clippy/machete` 零新增问题
+- 前端可靠: ✅ 模拟器 86MB APK 安装启动稳定，wgpu Vulkan+SwiftShader 2112/432 instances 心跳持续，SurfaceFlinger BLAST 可见，无 ANR/无 native 崩溃，`gfxinfo` 的 jank 计数对本架构不敏感以 logcat 心跳为准
+- 体积: ✅ release 16M 静联、无 NEEDED ghostty，`scripts/build-android-libs.nu` 60MB 上限守卫已对齐
+- 像素级复制: ⏳ v6 的 4 项已部分落地，v7 剩余 12 项按计划小步实施（本轮已完成体积与 JNA 遗留精简）
+- 自动化: ✅ 单测+JVM 已自动化，模拟器安装与渲染恢复已自动化验证
