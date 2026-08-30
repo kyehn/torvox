@@ -4,9 +4,9 @@
 //! - FR-050 — surface lifecycle: cell instances rebuilt on resize/surface recreation
 use crate::render::CellInstance;
 
+use crate::terminal::ghostty_terminal::cell_flags;
 use crate::terminal::CursorStyle;
 use crate::terminal::SelectionMode;
-use crate::terminal::ghostty_terminal::cell_flags;
 
 use foldhash::fast::RandomState;
 
