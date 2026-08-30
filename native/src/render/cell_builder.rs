@@ -459,7 +459,7 @@ fn build_row_instances_into(
 
     let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
     for (row, range) in row_ranges.iter().enumerate() {
-        if incremental && !dirty_rows.expect("incremental implies Some")(row) {
+        if incremental && !dirty_rows.expect("incremental implies Some")[row] {
             // Clean row: reuse the instances built last frame (NFR-010).
             let cache_ref = cache.as_ref().expect("incremental implies Some");
             let (cs, ce) = cache_ref.row_slice(row);
