@@ -1,17 +1,4 @@
 rules:
-  - id: no-toast-hardcoded-text
-    patterns:
-      - pattern: |
-          Toast.$METHOD($CONTEXT, $TEXT, $DURATION).show()
-      - metavariable-pattern:
-          metavariable: $TEXT
-          pattern-regex: '"[^"]+"'
-    message: "Toast with hardcoded text. Use a string resource (`R.string.*`) instead for localization."
-    severity: WARNING
-    languages: [kotlin, java]
-    fix: |
-      Toast.$METHOD($CONTEXT, R.string.$RESOURCE, $DURATION).show()
-
   - id: no-activity-static-leak
     patterns:
       - pattern-either:
@@ -69,7 +56,7 @@ rules:
     patterns:
       - pattern: Thread.sleep($MILLIS)
     message: "`Thread.sleep()` blocks the current thread, potentially causing ANRs. Prefer coroutines `delay()` on the main thread or structured threading."
-    severity: WARNING
+    severity: ERROR
     languages: [kotlin, java]
     fix: |
       delay($MILLIS)

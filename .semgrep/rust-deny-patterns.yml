@@ -72,14 +72,14 @@ rules:
           // $COMMENT
           #[allow(dead_code)]
     message: "`#[allow(dead_code)]` suppresses compiler warnings. Add a comment explaining why the item is intentionally unused."
-    severity: WARNING
+    severity: ERROR
     languages: [rust]
 
   - id: no-eprintln-library
     patterns:
       - pattern: eprintln!($ARG)
     message: "`eprintln!` in library code writes to stderr. Use a logging framework instead."
-    severity: WARNING
+    severity: ERROR
     languages: [rust]
     paths:
       exclude:
