@@ -184,7 +184,8 @@ impl OutputProcessor {
     /// into [`Self::last_command_output`]. A new A (prompt start) resets
     /// any in-progress capture.
     fn scan_osc133(&mut self, data: &[u8]) {
-        for &byte in data {
+        for (index, &byte) in data.iter().enumerate() {
+            self.byte_offset = index;
             self.scan_osc133_byte(byte);
         }
     }
@@ -296,7 +297,6 @@ impl OutputProcessor {
         self.byte_offset = 0;
         self.pending_segments.clear();
         self.scan_osc133(data);
-        self.byte_offset += data.len();
         self.osc_handler.process(data);
 
         let mut snapshot = OutputSnapshot::default();
@@ -670,5 +670,20 @@ mod tests {
         );
         // The capture_buf should have been cleared by A.
         assert!(proc.take_last_command_output().is_empty());
+    }
+
+    /// Byte offset reflects the actual position of each marker letter in the chunk.
+    #[test]
+    fn semantic_segment_byte_offset_position() {
+        let mut proc = OutputProcessor::new();
+        // "xx" + ESC]133;A + BEL + "yy" + ESC]133;B + BEL
+        // A letter is at offset 8 (0..2=xx, 2=ESC, 3=], 4=1, 5=3, 6=3, 7=;, 8=A)
+        // B letter is at offset 18 (+ 9..18: BEL + yy + ESC]133;)
+        let snap = proc.process(b"xx\x1b]133;A\x07yy\x1b]133;B\x07");
+        assert_eq!(snap.semantic_segments.len(), 2);
+        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::PromptStart);
+        assert_eq!(snap.semantic_segments[0].byte_offset, 8, "A letter at offset 8");
+        assert_eq!(snap.semantic_segments[1].kind, SemanticSegmentKind::CommandInput);
+        assert_eq!(snap.semantic_segments[1].byte_offset, 18, "B letter at offset 18");
     }
 }
