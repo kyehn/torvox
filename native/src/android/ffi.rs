@@ -2145,15 +2145,7 @@ fn render_inner(session_id: u64) -> jint {
             else {
                 return 0;
             };
-            let mut cursor = crate::render::CellCursor {
-                row: cached_cursor.row,
-                col: cached_cursor.col,
-                visible: cached_cursor.visible,
-                style: render_state
-                    .cursor_style_override
-                    .unwrap_or(cached_cursor.style),
-                color: render_state.cursor_color,
-            };
+            let mut cursor = build_cursor(render_state, &cached_cursor);
             let blink_phase = compute_cursor_blink(render_state, &mut cursor);
             // Idle repaint gate (P2-1): only repaint when something actually
             // changed — blink phase flip, style change, selection change,
