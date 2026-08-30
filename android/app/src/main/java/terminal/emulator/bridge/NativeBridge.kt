@@ -254,7 +254,7 @@ object NativeBridge {
     external fun dialogResult(sessionId: Long, requestId: Long, result: String)
 
     /**
-     * Answer an MCP `run_command` request  D1). `result` is the
+     * Answer an MCP `run_command` request (same request/response routing as [dialogResult]). `result` is the
      * JSON payload `{"exit_code":N,"stdout":...,"stderr":...}` produced by
      * [terminal.emulator.runtime.TerminalRuntime.dispatchRunCommandRequest].
      * Like [dialogResult], must be answered exactly once.
