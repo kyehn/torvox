@@ -3338,10 +3338,21 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
             if offset + 16 > payload.len() {
                 break;
             }
-            let row = i32::from_le_bytes(payload[offset..offset + 4].try_into().unwrap());
-            let start_col = i32::from_le_bytes(payload[offset + 4..offset + 8].try_into().unwrap());
-            let end_col_exclusive =
-                i32::from_le_bytes(payload[offset + 8..offset + 12].try_into().unwrap());
+            let row = i32::from_le_bytes(
+                payload[offset..offset + 4]
+                    .try_into()
+                    .expect("4-byte slice"),
+            );
+            let start_col = i32::from_le_bytes(
+                payload[offset + 4..offset + 8]
+                    .try_into()
+                    .expect("4-byte slice"),
+            );
+            let end_col_exclusive = i32::from_le_bytes(
+                payload[offset + 8..offset + 12]
+                    .try_into()
+                    .expect("4-byte slice"),
+            );
             let color = [
                 payload[offset + 12],
                 payload[offset + 13],
