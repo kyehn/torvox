@@ -2157,12 +2157,12 @@ constructor(
     }
 
     /**
-     * Dispatch one MCP `run_command` request D1). The raw command string is tokenized to argv with
+     * Dispatch one MCP `run_command` request (same request/response routing as [dialogResult]). The raw command string is tokenized to argv with
      * [ArgumentTokenizer] (no shell, no metacharacter interpretation) and executed in the app's
      * process. The captured stdout/stderr and exit code are returned to the native MCP tool via
      * `NativeBridge.runCommandResult`.
      *
-     * Runs on the IO scope): the poll loop launches it without awaiting so a 30 s command cannot
+     * Runs on the IO scope: the poll loop launches it without awaiting so a 30 s command cannot
      * freeze keyboard / clipboard / signal polling.
      */
     private fun dispatchRunCommandRequest(
@@ -4319,7 +4319,7 @@ internal fun runCommandPayload(
 
 // ── MCP run_command execution) ────────────────────────────
 
-/** MCP run_command process timeout D1). */
+/** MCP run_command process timeout (seconds). */
 private const val RUN_COMMAND_TIMEOUT_MS = 30_000L
 
 /**
