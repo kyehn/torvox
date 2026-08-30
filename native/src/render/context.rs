@@ -35,7 +35,11 @@ impl FrameContext {
 }
 
 pub(crate) struct GlobalGpu {
+    /// wgpu instance — only stored for `attach_surface` (Android).
+    #[cfg(target_os = "android")]
     pub(crate) instance: wgpu::Instance,
+    /// Adapter — only stored for surface capability queries (Android).
+    #[cfg(target_os = "android")]
     pub(crate) adapter: wgpu::Adapter,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
@@ -52,9 +56,11 @@ fn global_gpu() -> &'static GlobalGpu {
     static INSTANCE: OnceLock<GlobalGpu> = OnceLock::new();
     INSTANCE.get_or_init(|| {
         match futures::executor::block_on(crate::render::wgpu_backend::initialize_wgpu()) {
-            Ok((instance, adapter, device, queue)) => GlobalGpu {
-                instance,
-                adapter,
+            Ok((_inst, _adapt, device, queue)) => GlobalGpu {
+                #[cfg(target_os = "android")]
+                instance: _inst,
+                #[cfg(target_os = "android")]
+                adapter: _adapt,
                 device,
                 queue,
             },
@@ -97,12 +103,6 @@ fn global_gpu() -> &'static GlobalGpu {
 /// its entire lifetime.  `begin_frame()` and `render_frame()` must be called
 /// from the same thread, with `&mut self`.
 pub struct Renderer {
-    /// wgpu instance — kept so surfaces can be created from native
-    /// window handles after construction (ADR-0007: `attach_surface`).
-    pub(crate) instance: wgpu::Instance,
-    /// Adapter — kept for surface capability queries (ADR-0007
-    /// attach_surface picks the format via get_capabilities).
-    pub(crate) adapter: wgpu::Adapter,
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
     pub(crate) surface: Option<std::sync::Arc<wgpu::Surface<'static>>>,
@@ -348,15 +348,11 @@ impl Drop for Renderer {
 impl Renderer {
     /// Shared initialization for all constructors.
     pub(crate) fn new_inner(
-        instance: wgpu::Instance,
-        adapter: wgpu::Adapter,
         device: wgpu::Device,
         queue: wgpu::Queue,
         quad_vertex_buffer: wgpu::Buffer,
     ) -> Self {
         Self {
-            instance,
-            adapter,
             device,
             queue,
             surface: None,
@@ -418,7 +414,7 @@ impl Renderer {
 
     /// Create a new Renderer with full async initialization.
     pub async fn new() -> Result<Self, GpuError> {
-        let (instance, adapter, device, queue) =
+        let (_instance, _adapter, device, queue) =
             crate::render::wgpu_backend::initialize_wgpu().await?;
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Quad Vertex Buffer"),
@@ -426,21 +422,13 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Ok(Self::new_inner(
-            instance,
-            adapter,
-            device,
-            queue,
-            quad_vertex_buffer,
-        ))
+        Ok(Self::new_inner(device, queue, quad_vertex_buffer))
     }
 
     /// Create a Renderer sharing the global wgpu instance/adapter/device.
     /// Useful for headless contexts (e.g., tests, screenshot capture).
     pub fn new_with_no_surface() -> Self {
         let gpu = global_gpu();
-        let instance = gpu.instance.clone();
-        let adapter = gpu.adapter.clone();
         let device = gpu.device.clone();
         let queue = gpu.queue.clone();
         let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -449,7 +437,7 @@ impl Renderer {
             usage: wgpu::BufferUsages::VERTEX,
         });
 
-        Self::new_inner(instance, adapter, device, queue, quad_vertex_buffer)
+        Self::new_inner(device, queue, quad_vertex_buffer)
     }
 
     /// Attach an Android `ANativeWindow` as the render surface (ADR-0007).
@@ -487,14 +475,15 @@ impl Renderer {
         }
         let handle = AndroidNdkWindowHandle::new(non_null.cast());
         // SAFETY:
-        // - `self.instance` is a valid wgpu Instance;
+        // - `global_gpu().instance` is a valid wgpu Instance;
         // - the handle wraps a caller-guaranteed live ANativeWindow (JNI
         //   attachWindow contract) that stays valid until detachWindow
         //   drops the resulting surface — wgpu takes its own reference at
         //   creation, and the caller releases theirs right after this call;
         // - display handle is None on Android (no X11/Wayland display).
         let surface = unsafe {
-            self.instance
+            global_gpu()
+                .instance
                 .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
                     // Must match the instance display (wgpu_backend sets
                     // AndroidDisplayHandle at instance creation); wgpu-core rejects
@@ -533,7 +522,7 @@ impl Renderer {
         // scale used across the renderer for consistent cell metrics).
         let scaled_width = ((width as f32 * crate::render::RENDER_SCALE) as u32).max(1);
         let scaled_height = ((height as f32 * crate::render::RENDER_SCALE) as u32).max(1);
-        let caps = surface.get_capabilities(&self.adapter);
+        let caps = surface.get_capabilities(&global_gpu().adapter);
         // Dirty-band compositing needs the swapchain texture to accept a
         // copy from the frame accumulator. Universally supported on
         // Vulkan; if an exotic driver omits it we fall back to legacy
