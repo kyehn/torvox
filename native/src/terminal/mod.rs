@@ -32,7 +32,6 @@ pub mod url_regex;
 #[cfg(any(test, feature = "test-util"))]
 pub(crate) mod action_parser;
 #[cfg(any(test, feature = "test-util"))]
-#[cfg(any(test, feature = "test-util"))]
 pub(crate) mod sgr_parser;
 #[cfg(any(test, feature = "test-util"))]
 #[cfg(test)]
