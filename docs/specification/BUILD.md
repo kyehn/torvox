@@ -14,3 +14,4 @@
 - 构建顺序：先构建 `.so`，再构建 APK。APK 构建阶段要求 `jniLibs/` 与 `assets/bin/` 已填充。
 - 校验 `libnative.so` 是否包含 `libghostty-vt.so` 的 `NEEDED` 条目：若为动态链接，需将 `libghostty-vt.so` 复制到 `jniLibs/<abi>/`；若为静态链接则跳过。
 - 检查 APK 至少包含一个 `.so`。
+- release/dev/debug `.so` 文件大小必须合理，如果较大必须找出原因解决
