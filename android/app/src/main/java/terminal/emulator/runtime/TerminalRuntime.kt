@@ -264,23 +264,16 @@ constructor(
      */
     @Volatile var onFrameRendered: (() -> Unit)? = null
 
-    init {
-        // Sync bell handler mode from persisted setting on startup.
-        // Uses a local scope since the class-level `scope` is not yet initialized.
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
-            val modeId = settingsRepository.bellMode.first()
-            bellHandler.setMode(BellMode.fromId(modeId))
-        }
-    }
-
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     // In-flight native bell-flash animation; cancelled and restarted on each
     // new bell so a burst always restarts from phase 1.0.
     @Volatile private var bellFlashJob: Job? = null
 
-    // Keep bell handler mode in sync with persisted setting at runtime  fix).
     init {
+        // Keep bell handler mode in sync with persisted setting at runtime.
+        // `collect` immediately emits the current value, so no separate
+        // one-shot read is needed.
         scope.launch {
             settingsRepository.bellMode.collect { modeId ->
                 bellHandler.setMode(BellMode.fromId(modeId))
