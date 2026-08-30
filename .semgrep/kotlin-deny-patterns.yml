@@ -26,7 +26,7 @@ rules:
     patterns:
       - pattern: $VAR!!
     message: "Non-null assertion `!!` throws NullPointerException if the value is null. Use safe calls (`?.`), Elvis (`?:`), or proper null handling."
-    severity: WARNING
+    severity: ERROR
     languages: [kotlin]
     paths:
       exclude:
@@ -38,7 +38,7 @@ rules:
     patterns:
       - pattern: thread { ... }
     message: "Raw `thread { }` is discouraged. Use `viewModelScope.launch` or `lifecycleScope.launch` with `Dispatchers.IO` for background work."
-    severity: WARNING
+    severity: ERROR
     languages: [kotlin]
 
   - id: no-system-exit
@@ -65,5 +65,5 @@ rules:
           metavariable: $CALLBACK
           pattern: AsyncCallback
     message: "Raw `object : AsyncCallback` blocks the callback style. Use coroutines (`suspend` functions) instead."
-    severity: WARNING
+    severity: ERROR
     languages: [kotlin]
