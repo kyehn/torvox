@@ -2,13 +2,14 @@
 
 > 日期: 2026-08-30 | 关联: `docs/plans/2026-08-30-comprehensive-hardening-v7-detailed.md` + `...-test-plan.md`  
 > 状态: 本轮已验证（后端确定性+模拟器安装+wgpu Vulkan渲染恢复），待 0f0ab4d 新增习惯/启动屏/图标审计与体积持续守卫
+> 测试: 1016 passed (16 new), 0 failed, 10 ignored, clippy 0 warnings
 
 ## 验证环境
 
 - 模拟器: API 35 x86_64, 1080x2400, SwiftShader (lavapipe), 60Hz（系统上报 renderFrameRate 60.000004），宿主 KVM，60Hz 设备上目标为 60fps 稳定 (<16ms 90th)，90fps+ 需 90Hz 设备验证
 - 构建: `flake.nix` nix develop, zig 0.16, cargo ndk arm64-v8a+x86_64, gradle 8.14.4, JDK 21, `android/app/aosp-testkey.p12`
 - 设备: emulator-5554, `adb` 已设置, `com.termux` 已安装
-- Rust: `cargo test -p native --lib` **1000 passed / 10 ignored**（nix develop, ~75s，确定性，无 flaky），`cargo test -p integration-tests --test jni_bridge_test/terminal_render_test` **47 passed**，`cargo check -p native / cargo clippy` 新告警为既有 pedantic 可接受项，`cargo-machete` 零未用依赖
+- Rust: `cargo test -p native --lib` **1016 passed / 10 ignored**（nix develop, ~78s，确定性，无 flaky），`cargo test -p integration-tests --test jni_bridge_test/terminal_render_test` **47 passed**，`cargo check -p native / cargo clippy` 零警告零错误，`cargo-machete` 零未用依赖
 - Native: `target/aarch64-linux-android/release/libnative.so` **16M**（`strip=debuginfo`，静联 libghostty-vt，无 NEEDED ghostty），`debug` 127M/`x86_64 debug` 135M（不部署，脚本 60MB 上限拦截），已部署 `android/app/src/main/jniLibs/{arm64-v8a,x86_64}/libnative.so` 各 16M
 - APK: `android/app/build/outputs/apk/debug/app-debug.apk` **86MB**，`assembleDebug` 成功，`install -r` Success
 
@@ -20,7 +21,7 @@
 | docs/reference 恢复 | ✅ 已恢复 | commit fb6b6ce 44 files 14886 insertions |
 | panic-free dirty cache | ✅ 已修复 | commit 691e14b `is_clean is_some_and` |
 | render/tests _gpu | ✅ 已修复 | 同上, 2 处重命名 |
-| cargo test | ✅ 1015 passed | `nix develop --command cargo test --lib` 78s (15 new: CellRun 5 + SemanticSegment 7 + Mouse 3) |
+| cargo test | ✅ 1016 passed | `nix develop --command cargo test -p native --lib` 78s (16 new: CellRun 5 + SemanticSegment 8 + Mouse 3) |
 | markdownlint 新文档 | ✅ 0 issues | `comprehensive-hardening-v7-*.md` 0 errors |
 | flake 依赖 | ✅ 2026-08-30 | `fenix d0904bb` + `cargo update` 0 变更, `cargo check/clippy` 通过 |
 | release 体积 | ✅ 16M | `readelf --dynamic` 无 NEEDED ghostty（静联），debug 127M 不部署（60MB 上限守卫） |
@@ -59,7 +60,7 @@
 | ST/BEL 双终结 | ✅ 通过 | `test_shell_integration_st_terminator` |
 | A 重置 | ✅ 通过 | `test_last_command_output_reset_on_new_prompt` |
 | shell_exit_code D;42 | ✅ 通过 | `test_shell_integration_exit_code` |
-| 语义段列范围 (新增) | ✅ 通过 | commit 78b7402 `SemanticSegment` + `SemanticSegmentKind` + 7 单测 |
+| 语义段列范围 (新增) | ✅ 通过 | commit 78b7402+73ae798 `SemanticSegment` + `SemanticSegmentKind` + 8 单测 (byte_offset 追踪) |
 | getLastCommandOutput JNI | ✅ 已审计 | `ffi.rs` + `NativeBridge.getLastCommandOutput` + mcp |
 | 模拟器 printf 验证 | ⏳ 待重建 native 后 | `printf '\x1b]133;B\x07...` |
 
@@ -132,10 +133,19 @@
 4. 性能：`cargo bench cell_builder`（runs=1 断言）与真机 90Hz 帧率另验
 5. 连续三次 review 无问题后视为完成（review/grill 循环）
 
+## 本轮 (2026-08-30 补充) 更新
+
+- 测试计数修正: 1000→1016 (16 new: CellRun 5 + SemanticSegment 8 + Mouse 3)
+- SemanticSegment 修正: 7→8 测试 (含 byte_offset_position)
+- clippy: 2 pedantic 已通过 to_bits() 修复消除，当前 0 warnings 0 errors
+- 模拟器验证: 重新构建 x86_64 release .so (22MB)，APK 86MB 安装成功，wgpu Vulkan 持续渲染
+- 连续审查: 3 轮审查完成无问题（cell_builder.rs / output_processor.rs / tests.rs / mod.rs）
+- git push: 4 commits (78b7402, 380d2a9, 0561b8b, 73ae798) 已推送
+
 ## 结论（本轮）
 
-- 后端确定性: ✅ 1000+47 Rust 单测通过，`check/clippy/machete` 零新增问题
+- 后端确定性: ✅ 1016+47 Rust 单测通过，`check/clippy` 零警告零错误，`machete` 零未用依赖
 - 前端可靠: ✅ 模拟器 86MB APK 安装启动稳定，wgpu Vulkan+SwiftShader 2112/432 instances 心跳持续，SurfaceFlinger BLAST 可见，无 ANR/无 native 崩溃，`gfxinfo` 的 jank 计数对本架构不敏感以 logcat 心跳为准
 - 体积: ✅ release 16M 静联、无 NEEDED ghostty，`scripts/build-android-libs.nu` 60MB 上限守卫已对齐
-- 像素级复制: ✅ v6 4 项已部分落地，v7 新增 15 个测试覆盖 CellRun/SemanticSegment/Mouse bounds+drag，TalkBack/winsize/sha256 剩余小步
+- 像素级复制: ✅ v6 4 项已部分落地，v7 新增 16 个测试覆盖 CellRun/SemanticSegment/Mouse bounds+drag，TalkBack/winsize/sha256 剩余小步
 - 自动化: ✅ 单测+JVM 已自动化，模拟器安装与渲染恢复已自动化验证
