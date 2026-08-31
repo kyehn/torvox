@@ -1,6 +1,10 @@
 [allowlist]
 description = "allow test key and build artifacts"
 paths = [
-    ".*aosp-testkey.*",
-    ".*target.*",
+    "android/app/aosp-testkey.p12",
+    "target/",
+]
+regexes = [
+    "pkcs12",
+    "generic-api-key",
 ]
