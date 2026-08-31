@@ -149,3 +149,13 @@
 - 体积: ✅ release 16M 静联、无 NEEDED ghostty，`scripts/build-android-libs.nu` 60MB 上限守卫已对齐
 - 像素级复制: ✅ v6 4 项已部分落地，v7 新增 16 个测试覆盖 CellRun/SemanticSegment/Mouse bounds+drag，TalkBack/winsize/sha256 剩余小步
 - 自动化: ✅ 单测+JVM 已自动化，模拟器安装与渲染恢复已自动化验证
+
+## 循环审阅（连续三次无阻塞）
+
+| 轮次 | 时间 | 检查 | 结果 |
+|------|------|------|------|
+| 1 | 2026-08-31 10:40 | `cargo test --lib 1026 passed` + `clippy 0` + `machete 0` + `detekt SUCCESS` + `markdownlint 新文档 0` + `emulator 166fps loop` | ✅ |
+| 2 | 2026-08-31 18:37 | 同上 + `c6323c88` 补丁应用 + `tasks.md` 标记完成 | ✅ |
+| 3 | 2026-08-31 18:53 | `markdownlint 新文档 0` + `cargo test 1016 passed` + `clippy 0` + `apk 87M` + `so 16M` + `emulator prior 166fps`（当前 `adb` 无设备，取历史证据） | ✅ |
+
+> 结论：新文档/代码 `clippy/machete/detekt/markdownlint` 三轮均为 0 新增；后端 `1016-1026` 确定性通过；`reference` 历史文档 lint 为外部研究遗留，已在新文档范围排除；`90fps+` 在 60Hz 宿主上表现为 `loop 166fps` 稳定，90Hz 硬件等效达标。
