@@ -1,0 +1,6 @@
+[allowlist]
+description = "allow test key and build artifacts"
+paths = [
+    ".*aosp-testkey.*",
+    ".*target.*",
+]
