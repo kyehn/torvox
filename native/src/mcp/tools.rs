@@ -17,6 +17,15 @@ use super::global_state;
 /// blocking when invoking these tools.
 const INTERACTIVE_TIMEOUT: Duration = Duration::from_secs(300);
 
+/// Tokenize a raw command line into argv using POSIX shell-words rules.
+/// Replaces hand-rolled `ArgumentTokenizer` (Kotlin DrJava port) for Rust-side
+/// validation; Kotlin host still uses the same rules for exec. No `sh -c`
+/// semantics: `;`/`|`/`&&` remain inert data.
+// ponytail: shell-words crate covers POSIX quoting/escaping; hand-rolled state machine if perf matters
+pub(crate) fn tokenize_command(command: &str) -> Result<Vec<String>, String> {
+    shell_words::split(command).map_err(|e| e.to_string())
+}
+
 /// Input for clipboard_set.
 #[derive(JsonSchema, Deserialize)]
 pub(crate) struct ClipboardSetInput {
@@ -515,5 +524,18 @@ mod tests {
                 tool.name
             );
         }
+    }
+
+    #[test]
+    fn tokenize_command_handles_quotes_and_escapes() {
+        assert_eq!(
+            tokenize_command(r#"echo "hello world" --flag"#).unwrap(),
+            vec!["echo", "hello world", "--flag"]
+        );
+        assert_eq!(
+            tokenize_command("echo 'a b' c\\ d").unwrap(),
+            vec!["echo", "a b", "c d"]
+        );
+        assert!(tokenize_command(r#"echo "unclosed"#).is_err());
     }
 }
