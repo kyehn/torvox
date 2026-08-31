@@ -385,6 +385,11 @@ pub(crate) fn run_command_tool() -> Tool {
              captured stdout/stderr. Shell metacharacters are NOT interpreted.",
         )
         .handler(|input: RunCommandInput| async move {
+            if let Err(reason) = tokenize_command(&input.command) {
+                return Ok(CallToolResult::error(format!(
+                    "invalid command: {reason}"
+                )));
+            }
             let (session_id, rx) = {
                 let state = global_state();
                 let guard = state.0.on_run_command.lock();
