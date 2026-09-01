@@ -11,7 +11,7 @@
 
 - [x] 恢复 `docs/reference` 44 文件（`3fc8b6d` baseline）
 - [x] 修复 cell_builder 索引 bug
-- [x] cargo test 1017 暖缓存基线（63.67s, 0 failed）
+- [x] cargo test 995+32 暖缓存基线（57s, 0 failed）
 - [x] OpenSpec v8 change 文档（proposal/design/tasks）
 
 ## 进行中（阶段 1 — 代码修复）
@@ -43,7 +43,7 @@
 
 ## 待做（阶段 5 — 收口）
 
-- [ ] cargo test 1017 确认全绿（3 次重复零 flaky）
+- [ ] cargo test 995+32 确认全绿（3 次重复零 flaky）
 - [ ] 更新 comprehensive-hardening-v7/tasks.md 勾选
 - [ ] git commit + push
 
@@ -73,7 +73,7 @@ P0 实现率：12/16（75%），剩余 4 项属于 UI 交互层或可选增强�
 ## 验证闭环
 
 ```
-cargo test 1017 → clippy 0 → machete 0 → 构建验证 → 模拟器 90fps+ → 三轮 review
+cargo test 995+32 → clippy 0 → machete 0 → 构建验证 → 模拟器 90fps+ → 三轮 review
 ```
 
 每次提交前通过 L1-L3（本地），L7-L8（预发布）在模拟器上执行。

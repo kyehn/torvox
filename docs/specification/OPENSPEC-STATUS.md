@@ -148,7 +148,10 @@
 
 ## 5. 测试覆盖
 
-### 5.1 Rust 单元测试（1017 passed, 0 failed, 10 ignored, 63.67s）
+### 5.1 Rust 单元测试（995 passed, 0 failed, 32 ignored, 57s）
+
+> 注：22 个 GPU-dependent 渲染测试已 `#[ignore]` 门控（无 GPU adapter 环境跳过），10 个原有 ignore。
+> 全部测试在有 GPU 的机器上 `cargo test -- --ignored` 可跑通。
 
 - [x] VT conformance tests (3,021 行)
 - [x] Render tests (3,261 行)
@@ -174,7 +177,7 @@
 
 实现率：98%（v1.0→v1.1，Master v8 收口中）
 
-- 已冻结 `cargo test 1017` / `clippy 0` / `machete 0` 基线
+- 已冻结 `cargo test 995+32` / `clippy 0` / `machete 0` 基线
 - `DEFAULT_LANG` 修复为 `C.UTF-8`（v8 新增修复）
 - 构建产物门禁与依赖滚动已部分落地
 - 全部 S1–S14 均有可自动化判定脚本
