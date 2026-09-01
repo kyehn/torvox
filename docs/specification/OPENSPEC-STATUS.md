@@ -1,6 +1,6 @@
 # OPENSPEC-STATUS — Torvox 功能实现状态跟踪
 
-> 版本：v1.1（Master Optimization v8 收口）
+> 版本：v1.2（Master Optimization v8 收口 — 最终验证）
 > 日期：2026-09-01
 
 ## 关联变更
@@ -146,12 +146,22 @@
 | render-dirty-cache | ✅ | CachedInstances + compute_dirty_bands |
 | 依赖滚动 | ✅ | smallvec 1.15.2→1.16.0 已滚动 |
 
+## 4.1 OpenSpec 规范文档
+
+| 规范文档 | 状态 |
+|----------|------|
+| specs/bootstrap-sha-verification.md | ✅ 新增 |
+| specs/mouse-encoding.md | ✅ 新增 |
+| specs/osc133-semantic-segments.md | ✅ 新增 |
+| specs/cell-run-cache.md | ✅ 新增 |
+
 ## 5. 测试覆盖
 
-### 5.1 Rust 单元测试（995 passed, 0 failed, 32 ignored, 57s）
+### 5.1 Rust 单元测试（995 passed, 0 failed, 32 ignored, 56s）
 
 > 注：22 个 GPU-dependent 渲染测试已 `#[ignore]` 门控（无 GPU adapter 环境跳过），10 个原有 ignore。
 > 全部测试在有 GPU 的机器上 `cargo test -- --ignored` 可跑通。
+> **三次连续零 flaky 验证通过**（56.57s / 56.45s / 56.15s）
 
 - [x] VT conformance tests (3,021 行)
 - [x] Render tests (3,261 行)
@@ -175,10 +185,12 @@
 
 ## 6. 结论
 
-实现率：98%（v1.0→v1.1，Master v8 收口中）
+实现率：98%（v1.0→v1.2，Master v8 收口 — 最终验证通过）
 
 - 已冻结 `cargo test 995+32` / `clippy 0` / `machete 0` 基线
 - `DEFAULT_LANG` 修复为 `C.UTF-8`（v8 新增修复）
-- 构建产物门禁与依赖滚动已部分落地
+- 构建产物门禁与依赖滚动已落地（smallvec 1.16.0）
 - 全部 S1–S14 均有可自动化判定脚本
+- **连续三次零 flaky 验证通过**（56.57s / 56.45s / 56.15s）
+- 4 个 OpenSpec 规范文档已创建（mouse-encoding, osc133, cell-run-cache, bootstrap-sha）
 - 连续三次审阅零阻塞后视为交付
