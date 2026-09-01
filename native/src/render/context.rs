@@ -52,6 +52,8 @@ pub(crate) fn global_gpu_for_tests() -> &'static GlobalGpu {
     global_gpu()
 }
 
+
+
 fn global_gpu() -> &'static GlobalGpu {
     static INSTANCE: OnceLock<GlobalGpu> = OnceLock::new();
     INSTANCE.get_or_init(|| {
