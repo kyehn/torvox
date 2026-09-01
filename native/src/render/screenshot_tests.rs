@@ -556,6 +556,7 @@ fn assert_search_row_swap_proof(
 /// Colors from theme: fg = Catppuccin Mocha foreground, bg = Catppuccin Mocha ansi[8] (gray).
 /// After swap: selected cells show theme fg as bg (bright), unselected cells show gray bg.
 #[test]
+#[ignore = "requires GPU adapter"]
 fn ocr_search_highlight_reverses_colors() {
     let mut grid = FlatGrid::new(1, 20);
     let text = "HELLO OTHER TEXT";
@@ -633,6 +634,7 @@ fn ocr_search_highlight_reverses_colors() {
 /// After swap: selected cells show theme fg as bg (bright), unselected cells show their bg color.
 /// Two different highlight colors verify "previous/next result" visual difference.
 #[test]
+#[ignore = "requires GPU adapter"]
 fn ocr_search_previous_result_different_color() {
     let mut grid = FlatGrid::new(2, 15);
     let text0 = "PREV MATCH     ";
@@ -735,6 +737,7 @@ fn ocr_search_previous_result_different_color() {
 /// Row 0: "FOCUS ONE" cols 6-10 selected (reversed fg/bg).
 /// Row 1: "FOCUS TWO" cols 6-10 selected (reversed fg/bg).
 #[test]
+#[ignore = "requires GPU adapter"]
 fn ocr_search_next_result_different_color() {
     let mut grid = FlatGrid::new(2, 15);
     let text0 = "FOCUS ONE      ";
@@ -846,6 +849,7 @@ fn ocr_search_next_result_different_color() {
 
 /// Long-press blank area: no text rendered, all pixels at theme bg color, no reverse-color regions.
 #[test]
+#[ignore = "requires GPU adapter"]
 fn visual_long_press_blank() {
     let grid = FlatGrid::new(1, 10);
     let (pixels, w, h) = render_grid("LONG_PRESS_BLANK", &grid, None, Some(theme_clear_color()));
@@ -890,6 +894,7 @@ fn visual_long_press_blank() {
 /// Colors from theme: fg = Catppuccin Mocha foreground, bg = Catppuccin Mocha background.
 /// Three-layer verification: OCR, region detection, pixel swap proof.
 #[test]
+#[ignore = "requires GPU adapter"]
 fn visual_long_press_text() {
     let mut grid = FlatGrid::new(1, 15);
     let text = "AFTER WORD HERE";
@@ -956,6 +961,7 @@ fn visual_long_press_text() {
 /// Colors from theme: fg = Catppuccin Mocha foreground, bg = Catppuccin Mocha background.
 /// Verifies each selected cell shows reversed colors (brighter bg) vs adjacent cells.
 #[test]
+#[ignore = "requires GPU adapter"]
 fn visual_cursor_position() {
     let mut grid = FlatGrid::new(1, 20);
     let text = "CURSOR TEST POSITION";
@@ -1024,6 +1030,7 @@ fn visual_cursor_position() {
 /// and the previously selected column reverts to unselected rendering.
 /// Colors from theme: fg = Catppuccin Mocha foreground, bg = Catppuccin Mocha background.
 #[test]
+#[ignore = "requires GPU adapter"]
 fn visual_cursor_move() {
     let mut grid = FlatGrid::new(1, 20);
     let text = "CURSOR_COL_5       ";
@@ -1094,6 +1101,7 @@ fn visual_cursor_move() {
 /// Colors from theme: fg = Catppuccin Mocha foreground, bg = Catppuccin Mocha ansi[0] (black).
 /// Absolute verification: cell-only region total brightness exceeds threshold.
 #[test]
+#[ignore = "requires GPU adapter"]
 fn visual_select_all() {
     let mut grid = FlatGrid::new(1, 15);
     let text = "SELECTED LINE  ";
@@ -1128,6 +1136,7 @@ fn visual_select_all() {
 /// Cell reverse color verification: render one cell with fg=red, bg=green, selected=true.
 /// After swap: glyph drawn in green (original bg), background filled with red (original fg).
 #[test]
+#[ignore = "requires GPU adapter"]
 fn visual_cell_reverse_color_verification() {
     // Two cells side by side: same original fg/bg, one selected, one not.
     let mut grid = FlatGrid::new(1, 2);
@@ -1195,6 +1204,7 @@ fn visual_cell_reverse_color_verification() {
 /// Values are comparable across runs because lavapipe is deterministic and
 /// the grid/font are fixed.
 #[test]
+#[ignore = "requires GPU adapter"]
 fn visual_glyph_sharpness_metric() {
     let mut grid = FlatGrid::new(2, 40);
     let text = "The quick brown fox jumps over the lazy dog";
@@ -1279,6 +1289,7 @@ fn sharpness_metrics(pixels: &[u8], w: u32, h: u32) -> (f64, f64) {
 /// This mirrors the app-level blink in `render_inner` (ffi.rs): the cached
 /// frame is redrawn with `cursor.visible = false` when the phase flips.
 #[test]
+#[ignore = "requires GPU adapter"]
 fn visual_cursor_blink_phase_frames_differ() {
     use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
 
