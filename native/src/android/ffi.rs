@@ -351,14 +351,22 @@ struct RenderState {
 /// on first use. Panics on GPU init failure (fatal — no graceful
 /// degradation, per project policy: a terminal without rendering is
 /// broken and must not limp along).
+/// Default cursor blink speed in milliseconds.
+const DEFAULT_CURSOR_BLINK_SPEED_MS: u64 = 600;
+/// Default font pipeline atlas cell size in pixels.
+const DEFAULT_FONT_CELL_SIZE: f32 = 14.0;
+
 fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
     let mut guard = RENDER_STATE
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
     if guard.is_none() {
         let renderer = crate::render::context::Renderer::new_with_no_surface();
-        let font_pipeline =
-            crate::render::font::FontPipeline::new(ATLAS_SIZE as i32, ATLAS_SIZE as i32, 14.0);
+        let font_pipeline = crate::render::font::FontPipeline::new(
+            ATLAS_SIZE as i32,
+            ATLAS_SIZE as i32,
+            DEFAULT_FONT_CELL_SIZE,
+        );
         *guard = Some(RenderState {
             renderer,
             font_pipeline,
@@ -368,7 +376,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             pending_bg_image_clear: false,
             pending_flash_phase: None,
             cursor_blink_enabled: AtomicBool::new(true),
-            cursor_blink_speed_ms: AtomicU64::new(600),
+            cursor_blink_speed_ms: AtomicU64::new(DEFAULT_CURSOR_BLINK_SPEED_MS),
             cursor_blink_phase_reset_ms: AtomicU64::new(0),
             last_frame: None,
             last_blink_phase: None,
@@ -447,6 +455,8 @@ pub(crate) fn push_event(event: Event) {
 /// a misbehaving client; an empty answer is the xterm-compatible "empty
 /// clipboard" response.
 const CLIPBOARD_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+/// Retry interval while waiting for Kotlin clipboard reply.
+const CLIPBOARD_POLL_INTERVAL_MS: u64 = 50;
 
 #[cfg(feature = "mcp")]
 fn wait_for_clipboard_answer(mut rx: tokio::sync::oneshot::Receiver<String>) -> String {
@@ -459,7 +469,7 @@ fn wait_for_clipboard_answer(mut rx: tokio::sync::oneshot::Receiver<String>) -> 
                 if std::time::Instant::now() >= deadline {
                     return String::new();
                 }
-                std::thread::sleep(std::time::Duration::from_millis(50));
+                std::thread::sleep(std::time::Duration::from_millis(CLIPBOARD_POLL_INTERVAL_MS));
             }
         }
     }

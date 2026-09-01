@@ -94,6 +94,12 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+/// Default terminal rows for MCP terminal info.
+const DEFAULT_TERMINAL_ROWS: u32 = 24;
+/// Default terminal cols for MCP terminal info.
+const DEFAULT_TERMINAL_COLS: u32 = 80;
+
+
 // ── SO_PEERCRED peer validation, termux AmSocketServer) ──
 
 /// Maximum number of consecutive rejected (foreign-uid) connections before
@@ -330,8 +336,8 @@ impl McpState {
             on_session_exit_code: Mutex::new(None),
             on_session_last_command_output: Mutex::new(None),
             on_cancel_request: Mutex::new(None),
-            terminal_rows: AtomicU32::new(24),
-            terminal_cols: AtomicU32::new(80),
+            terminal_rows: AtomicU32::new(DEFAULT_TERMINAL_ROWS),
+            terminal_cols: AtomicU32::new(DEFAULT_TERMINAL_COLS),
             active_session_id: AtomicU64::new(0),
         }))
     }
