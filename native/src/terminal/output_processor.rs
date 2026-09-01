@@ -603,7 +603,10 @@ mod tests {
         let mut proc = OutputProcessor::new();
         let snap = proc.process(b"\x1b]133;A\x07");
         assert_eq!(snap.semantic_segments.len(), 1);
-        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::PromptStart);
+        assert_eq!(
+            snap.semantic_segments[0].kind,
+            SemanticSegmentKind::PromptStart
+        );
     }
 
     /// Command input (B marker) emits a CommandInput segment.
@@ -612,7 +615,10 @@ mod tests {
         let mut proc = OutputProcessor::new();
         let snap = proc.process(b"\x1b]133;B\x07");
         assert_eq!(snap.semantic_segments.len(), 1);
-        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::CommandInput);
+        assert_eq!(
+            snap.semantic_segments[0].kind,
+            SemanticSegmentKind::CommandInput
+        );
     }
 
     /// Command output (C marker) emits a CommandOutput segment.
@@ -621,7 +627,10 @@ mod tests {
         let mut proc = OutputProcessor::new();
         let snap = proc.process(b"\x1b]133;C\x07");
         assert_eq!(snap.semantic_segments.len(), 1);
-        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::CommandOutput);
+        assert_eq!(
+            snap.semantic_segments[0].kind,
+            SemanticSegmentKind::CommandOutput
+        );
     }
 
     /// Finished (D marker) emits a Finished segment.
@@ -630,7 +639,10 @@ mod tests {
         let mut proc = OutputProcessor::new();
         let snap = proc.process(b"\x1b]133;D;0\x07");
         assert_eq!(snap.semantic_segments.len(), 1);
-        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::Finished);
+        assert_eq!(
+            snap.semantic_segments[0].kind,
+            SemanticSegmentKind::Finished
+        );
     }
 
     /// Full A→B→C→D cycle produces 4 segments across multiple process() calls.
@@ -639,13 +651,25 @@ mod tests {
         let mut proc = OutputProcessor::new();
         let snap1 = proc.process(b"\x1b]133;A\x07\x1b]133;B\x07echo hi\n");
         assert_eq!(snap1.semantic_segments.len(), 2, "A+B in first chunk");
-        assert_eq!(snap1.semantic_segments[0].kind, SemanticSegmentKind::PromptStart);
-        assert_eq!(snap1.semantic_segments[1].kind, SemanticSegmentKind::CommandInput);
+        assert_eq!(
+            snap1.semantic_segments[0].kind,
+            SemanticSegmentKind::PromptStart
+        );
+        assert_eq!(
+            snap1.semantic_segments[1].kind,
+            SemanticSegmentKind::CommandInput
+        );
 
         let snap2 = proc.process(b"hi\n\x1b]133;C\x07hi\n\x1b]133;D;0\x07");
         assert_eq!(snap2.semantic_segments.len(), 2, "C+D in second chunk");
-        assert_eq!(snap2.semantic_segments[0].kind, SemanticSegmentKind::CommandOutput);
-        assert_eq!(snap2.semantic_segments[1].kind, SemanticSegmentKind::Finished);
+        assert_eq!(
+            snap2.semantic_segments[0].kind,
+            SemanticSegmentKind::CommandOutput
+        );
+        assert_eq!(
+            snap2.semantic_segments[1].kind,
+            SemanticSegmentKind::Finished
+        );
     }
 
     /// No OSC 133 markers → empty semantic_segments.
@@ -665,7 +689,9 @@ mod tests {
         // A should reset capture AND produce a PromptStart segment.
         let segments = &snap.semantic_segments;
         assert!(
-            segments.iter().any(|s| s.kind == SemanticSegmentKind::PromptStart),
+            segments
+                .iter()
+                .any(|s| s.kind == SemanticSegmentKind::PromptStart),
             "A must emit PromptStart"
         );
         // The capture_buf should have been cleared by A.
@@ -681,9 +707,21 @@ mod tests {
         // B letter is at offset 18 (+ 9..18: BEL + yy + ESC]133;)
         let snap = proc.process(b"xx\x1b]133;A\x07yy\x1b]133;B\x07");
         assert_eq!(snap.semantic_segments.len(), 2);
-        assert_eq!(snap.semantic_segments[0].kind, SemanticSegmentKind::PromptStart);
-        assert_eq!(snap.semantic_segments[0].byte_offset, 8, "A letter at offset 8");
-        assert_eq!(snap.semantic_segments[1].kind, SemanticSegmentKind::CommandInput);
-        assert_eq!(snap.semantic_segments[1].byte_offset, 18, "B letter at offset 18");
+        assert_eq!(
+            snap.semantic_segments[0].kind,
+            SemanticSegmentKind::PromptStart
+        );
+        assert_eq!(
+            snap.semantic_segments[0].byte_offset, 8,
+            "A letter at offset 8"
+        );
+        assert_eq!(
+            snap.semantic_segments[1].kind,
+            SemanticSegmentKind::CommandInput
+        );
+        assert_eq!(
+            snap.semantic_segments[1].byte_offset, 18,
+            "B letter at offset 18"
+        );
     }
 }
