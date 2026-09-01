@@ -289,10 +289,7 @@ fn encode_mouse_event_bounds_oversized_clamp() {
     t.flush();
     // Position far beyond the grid: 9999x9999 with 10x20 cells.
     let result = t.encode_mouse_event((9999.0, 9999.0), 0, 0, 10.0, 20.0);
-    assert!(
-        result.is_some(),
-        "oversized coords must return Some"
-    );
+    assert!(result.is_some(), "oversized coords must return Some");
     let encoded = result.unwrap();
     if !encoded.is_empty() {
         let text = String::from_utf8_lossy(&encoded);
