@@ -4,7 +4,7 @@
 
 ## 概述
 
-以 openspec 为长期规范载体，完成全代码库逐步评审、保守精简、依赖滚动、自动化验证闭环，模拟器 90fps+ 可复现、后端确定性 1017 已达标、UI 可靠可测，连续三次审阅无问题后交付。
+以 openspec 为长期规范载体，完成全代码库逐步评审、保守精简、依赖滚动、自动化验证闭环，模拟器 90fps+ 可复现、后端确定性 995+32 已达标、UI 可靠可测，连续三次审阅无问题后交付。
 
 ## 动机
 
@@ -17,7 +17,7 @@
 
 | ID | 判定 | 阈值 | 验证命令 |
 |----|------|------|----------|
-| S1 | Rust 单元测试全绿 | 1017+ passed, 0 failed | `cargo test -p native --lib` |
+| S1 | Rust 单元测试全绿 | 995+ passed, 0 failed, 32 ignored (GPU-dependent) | `cargo test -p native --lib` |
 | S2 | Clippy 零新增告警 | 0 warnings | `cargo clippy -- -D warnings` |
 | S3 | 未用依赖零 | machete 0 | `cargo machete` |
 | S4 | Release .so 体积守卫 | arm64 14–18M, 无 NEEDED ghostty | `readelf --dynamic` + `ls -lh` |

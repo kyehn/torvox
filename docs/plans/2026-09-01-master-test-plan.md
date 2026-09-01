@@ -31,7 +31,7 @@
 | render/cell_builder | 68 | 含 CellRun 5 cases |
 | terminal/ghostty_terminal/mouse | 15 | 含 encode_mouse 5 cases |
 | integration-tests | 47 | 全绿 |
-| **合计** | **1017+** | **0 failed** |
+| **合计** | **995+** | **0 failed** |
 
 ### 2.2 验收测试（模拟器 ADB）
 
