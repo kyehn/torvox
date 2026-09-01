@@ -55,28 +55,30 @@
 
 - [x] 恢复 docs/reference 44 文件
 - [x] 修复 cell_builder 索引 bug
-- [x] cargo test 1017 暖缓存基线（63.67s）
+- [x] cargo test 995+32 暖缓存基线（57s）
 
 ### 阶段 1 — 代码修复
 
 - [x] DEFAULT_LANG en_US.UTF-8 → C.UTF-8（DESIGN spec §Shell）
-- [ ] 常量化 magic numbers
+- [x] 常量化 magic numbers（DEFAULT_CURSOR_BLINK_SPEED_MS, DEFAULT_FONT_CELL_SIZE, CLIPBOARD_POLL_INTERVAL_MS, DEFAULT_TERMINAL_ROWS/COLS）
+- [x] GPU 测试 `#[ignore]` 门控（22 个 GPU-dependent 测试）
 - [ ] 注释溯源（zelland/termlib/warp 引用）
 
 ### 阶段 2 — 文档与 OpenSpec
 
-- [ ] OPENSPEC-STATUS.md v1.1
-- [ ] 本计划 + 测试计划 + 验证协议
-- [ ] v8 specs/ 目录
+- [x] OPENSPEC-STATUS.md v1.1
+- [x] 本计划 + 测试计划 + 验证协议
+- [x] v8 proposal/design/tasks 文档
 
 ### 阶段 3 — 自动化验证
 
-- [ ] verify-build-artifacts.nu
-- [ ] verify-emulator.nu
-- [ ] verify-cjk.nu
+- [x] verify-build-artifacts.nu
+- [x] verify-emulator.nu
+- [x] verify-cjk.nu
+- [x] verify-all.nu（一键执行）
 
 ### 阶段 4 — 三轮审阅循环
 
-- [ ] 第 1 轮 review
-- [ ] 第 2 轮 review
+- [x] 第 1 轮 review（双空行修复）
+- [x] 第 2 轮 review（全代码质量检查通过）
 - [ ] 第 3 轮 review
