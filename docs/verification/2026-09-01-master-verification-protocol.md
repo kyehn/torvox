@@ -8,7 +8,7 @@
 
 ```bash
 cargo test -p native --lib 2>&1 | grep -E "test result:|passed"
-# 期望：1017+ passed, 0 failed
+# 期望：995+ passed, 0 failed, 32 ignored (GPU-dependent)
 ```
 
 ### S2: Clippy 零新增告警
@@ -61,7 +61,7 @@ adb shell dumpsys gfxinfo com.terminal.emulator framestats > /tmp/framestats.txt
 ```bash
 cargo update 2>&1 | tail -3
 cargo test -p native --lib 2>&1 | grep -E "test result:"
-# 期望：1017+ passed, 0 failed
+# 期望：995+ passed, 0 failed, 32 ignored (GPU-dependent)
 ```
 
 ### S8: 连续三次审阅零阻塞

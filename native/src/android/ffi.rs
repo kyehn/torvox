@@ -351,11 +351,6 @@ struct RenderState {
 /// on first use. Panics on GPU init failure (fatal — no graceful
 /// degradation, per project policy: a terminal without rendering is
 /// broken and must not limp along).
-/// Default cursor blink speed in milliseconds.
-const DEFAULT_CURSOR_BLINK_SPEED_MS: u64 = 600;
-/// Default font pipeline atlas cell size in pixels.
-const DEFAULT_FONT_CELL_SIZE: f32 = 14.0;
-
 fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
     let mut guard = RENDER_STATE
         .lock()
@@ -2802,6 +2797,11 @@ fn list_sessions_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>)
 ///
 /// 2048² (was 1024²): on a real device at ~3x display density a 14sp glyph
 /// rasterizes to ~40px, so the old atlas held only ~700 glyphs — a single
+/// Default cursor blink speed in milliseconds.
+const DEFAULT_CURSOR_BLINK_SPEED_MS: u64 = 600;
+/// Default font pipeline atlas cell size in pixels.
+const DEFAULT_FONT_CELL_SIZE: f32 = 14.0;
+
 /// scrolling log screen with a few hundred distinct characters thrashed the
 /// LRU, evicting and re-rasterizing the same glyphs frame after frame
 /// (CPU-bound). 2048² quadruples the capacity (~2800 glyphs) with a bounded
