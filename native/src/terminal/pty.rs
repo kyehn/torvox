@@ -16,7 +16,7 @@ use crate::terminal::shell_env::ShellEnv;
 const DEFAULT_TERM: &str = "xterm-256color";
 const DEFAULT_COLORTERM: &str = "truecolor";
 const DEFAULT_TERM_PROGRAM: &str = "terminal";
-const DEFAULT_LANG: &str = "en_US.UTF-8";
+const DEFAULT_LANG: &str = "C.UTF-8";
 /// Android does not have a writable /tmp, so we use /data/local/tmp
 /// which is guaranteed to be writable by the app process on all API levels.
 const ANDROID_TMPDIR: &str = "/data/local/tmp";
@@ -918,7 +918,7 @@ mod tests {
     #[test]
     fn base_env_includes_lang() {
         let env = base_env(None);
-        assert!(env.iter().any(|(k, v)| k == "LANG" && v == "en_US.UTF-8"));
+        assert!(env.iter().any(|(k, v)| k == "LANG" && v == "C.UTF-8"));
     }
 
     #[test]
