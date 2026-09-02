@@ -18,6 +18,7 @@ ghostty-android 的 Android 端分三层（约 30 个 Java 文件 + 4 个 C 文�
 | `cpp/`（native） | `pty_jni.c`（PTY/fork/exec）、`terminal_jni.c`（libghostty-vt 绑定，~2300 行）、`kitty_unicode.c`、`png_decode.c`（stb_image）、`chroot_ng_embed.c`、CMakeLists.txt |
 
 **整体架构要点**（CLAUDE.md + docs/architecture.md）：
+
 - 纯 Java 自绘（无 AppCompat/Material/Compose 运行时依赖，主依赖只有 `org.tukaani:xz`），minSdk 29（Zig 构建的 libghostty-vt.a 用 ELF TLS）、targetSdk 36。
 - native 回调（write-pty/bell/title/size）**只缓冲不回调 Java**：效果在 `feed()` 后由 Java 轮询（`TerminalEmulator` 全同步锁）。
 - 主题色通过 `TerminalEmulator.setColors` 推进 libghostty-vt；主屏 chrome（顶栏/标签/键帽/搜索）由 `ChromePalette` 从主题背景派生。
@@ -50,6 +51,7 @@ ghostty-android 的 Android 端分三层（约 30 个 Java 文件 + 4 个 C 文�
 **Chrome（ui/Chrome.java，:23）** —— 纯代码视图的"设计令牌"门面：`color` :28、`dp` :33、`dimen` :38 解析 `res/values` 令牌；`rounded` :45（圆角实心矩形）、`ripple` :62（accent 半透明按压涟漪 + 圆角 mask）、`stateful` :92（pressed/normal 状态列表，用于 sticky 修饰键的锁定态）。设计意图（注释 :15-22）：布局与 Java 画同一套颜色，杜绝手写 hex 常量。
 
 **ChromePalette（ui/ChromePalette.java，:34）** —— **主屏 chrome 随主题背景派生**（`from(Context, terminalBg)` :81）：
+
 - 亮度判定 `Color.luminance(bg) < 0.5f`（:84）：深色 → 原样使用 stock 令牌（indigo-on-near-black 品牌身份，默认主题渲染不变）；浅色（如 Solarized Light）→ 浅 chrome：surface 向黑步进（0.045/0.08/0.13/0.18 混合，`mix` :121），ink 翻成近黑中性色，accent 保持品牌 indigo。
 - 附带**palette 解析版 drawable 工厂**（Chrome 的孪生）：`rounded` :131、`ripple` :145、`pressRipple` :160、`barSurface` :180（surface1 + 一条发丝线 divider，`edgeAtBottom` 选顶/底边——顶栏/搜索条用底边、extra-keys 工具栏用顶边）。
 
@@ -78,6 +80,7 @@ ghostty-android 的 Android 端分三层（约 30 个 Java 文件 + 4 个 C 文�
 ### 2.4 字体：TerminalFontStore（ui/TerminalFontStore.java，:20）
 
 **4 个槽位**：regular/italic/bold/bold-italic（`DEFAULT/ITALIC/BOLD/BOLD_ITALIC` :22-25），每个一个固定文件（`terminal_font_default` 等，:27-30）存在 `getFilesDir()`。
+
 - `importFrom` :53 —— **把 document-provider 选的字体复制进 app 私有存储**（注释 :16-18：content URI 权限不跨进程存活），先写临时文件再原子 rename（:74-78）。
 - `load` :82 —— `Typeface.createFromFile`，失败返回 null（调用方据此自愈清路径）。
 - 设计点：缺 italic 文件时 TerminalView 回退到合成斜体（ThemeActivity 注释 :100-101）；字体是**全局外观设置**，不属主题 working copy（不标 dirty）。
@@ -85,6 +88,7 @@ ghostty-android 的 Android 端分三层（约 30 个 Java 文件 + 4 个 C 文�
 ### 2.5 背景图：BackgroundImageStore（ui/BackgroundImageStore.java，:27）
 
 与字体同思路：`importFrom` :51 把 picked 的 `content://` URI **复制到固定私有文件**（`terminal_background`，:29），持久化的就是这个路径（`AppSettings.backgroundImagePath`）。
+
 - `decode(path, reqW, reqH, blurPercent)` :76 —— 先 `inJustDecodeBounds` 读尺寸 → 2 的幂 `inSampleSize` 降采样（:91，保持 ≥ 请求尺寸的最小采样）→ 可选模糊。
 - `blur` :105 —— **自写双趟 box blur**（水平+垂直，`BLUR_PASSES=2` :38 近似高斯），工作位图最长边 ≤ `BLUR_MAX_DIM=1080`（:36，模糊本来就会丢细节，先缩小再模糊省内存），半径 = `blurPercent/100 × 0.05 × 短边`。注释 :99-104 明确选 box blur 而非 RenderScript/RenderEffect 是为了全 API 级别可移植。
 - `clear` :65、内存安全：模糊中回收中间位图（:107 `scaleDown` 收缩时回收 src）。
@@ -94,12 +98,14 @@ ghostty-android 的 Android 端分三层（约 30 个 Java 文件 + 4 个 C 文�
 **ExtraKey（ui/ExtraKey.java，:48）** —— 不可变按键描述符。三类（`Kind` :50）：`KEY`（非打印键走 `TerminalView.dispatchKey`）、`TEXT`（字面字符串走 `dispatchText`）、`MODIFIER`（粘性 CTRL/ALT）。KEY/TEXT 可带 `mods` 位掩码 = **单击组合键**（Ctrl-C、Ctrl-→），与粘性修饰键正交（分发时 OR 合并，注释 :20-26）。`id` 是持久化令牌：目录键 `"esc"`、`"lit:<text>"`（自定义文本键）、`"combo:<mods>:<base>"`（修饰组合，mods 取 `"CAS"` 子集）。工厂 `key/text/modifier/comboKey/comboText` :78-95，装饰器 `withWidth` :98 / `withSecondary` :103（swipe-up 副键，含宽 1.0/1.5/2.0 与副键引用）。
 
 **ExtraKeysConfig（ui/ExtraKeysConfig.java，:52）** —— extra keys 的"真相源"：内置目录 + 命名 profile（每个 = 有序行 × 键位）。
+
 - 常量：`DEFAULT_IDS` :75（esc ins del pgup home up end / tab ctrl alt pgdn left down right）、`DEFAULT_ROWS` :103（两行拆分的倒 T 箭头簇）、`MAX_ROWS` :83（=4，行吃纵向空间）、`MAX_PROFILES` :86（=8）、`COMBO_PRESET_IDS` :114（Ctrl-C/d/z/l/r/a/e/u/k/w/\\、Shift-Tab、Ctrl-←/→ 的"添加键"预设面板）。
 - 持久化单 JSON 值（key `"order"` :56），**读取器兼容 v2/v1/v0 三种形状**（:35-44：v2 对象含 profiles 数组、v1 数组套数组 = 单 Default profile 多行、v0 扁平数组 = 单行），老安装自动迁移。
 - 目录刻意限定在 native `map_keycode` 真能编码的键（注释 :48-50："提供按了没反应的键 = 死按钮"）。
 - `reset` :689、测试缝 `seedRawForTest` :696（迁移测试直接注入原始持久化值）。
 
 **ExtraKeysView（ui/ExtraKeysView.java，:54）** —— 软键盘上方的全宽弹性网格"键盘"：行 = 水平 LinearLayout，键 `layout_weight = key.width`（1.0/1.5/2.0），**永不滚出屏幕**（注释 :36-40）。
+
 - 手势（:42-52）：tap 主键；**swipe up 发副键**（`swipeThresholdPx` :84 = 2×touchSlop 与 20dp 取大）；长按 KEY/TEXT 自动重复（`REPEAT_INTERVAL_MS=80` :81）、长按 MODIFIER 锁定。
 - 粘性修饰：`TerminalView.StickyModifiers` 单例（:57，`attachTerminal` :122 注入），`updateToggles` 实时重着色已按下的 ModButton（:90）。
 - 视图开关与配置：`setRowEnabled` :137（整条隐藏但不动配置）、`setHideWhenKeyboardHidden` :146（IME 收起时工具栏隐藏，`setKeyboardVisible` :177 由 Activity 喂 IME 状态）、`setShowSwitch` :155（多 profile 时前导切换列，`buildSwitchColumn` :227：点按循环切换、长按列表选择）、`setKeyVerticalPaddingDp` :166（行高旋钮）。
@@ -115,6 +121,7 @@ ghostty-android 的 Android 端分三层（约 30 个 Java 文件 + 4 个 C 文�
 ### 2.7 搜索：SearchBarView（ui/SearchBarView.java，:45）
 
 Find bar：圆角查询框（前导搜索图标）+ 匹配计数 + 大小写开关 + 上一个/下一个 + 关闭。
+
 - **覆盖式布局**（注释 :35-38）：是主布局 FrameLayout 的子层（顶栏下方），**打开不改变 terminal 尺寸 → 不触发 SIGWINCH**；200ms 滑入/淡出。
 - `Listener` :47 接口把查询委托回 MainActivity → TerminalView 搜索方法；实现 `TerminalView.SearchListener` :45 接收 native 推回的实时计数。
 - 输入防抖 `DEBOUNCE_MS=150` :54（`postDelayed` :110-114）；IME 回车：待发查询先 flush、否则当"下一个"（:116-120）。
@@ -124,6 +131,7 @@ Find bar：圆角查询框（前导搜索图标）+ 匹配计数 + 大小写开�
 ### 2.8 标签页：TabStripView（ui/TabStripView.java，:49)
 
 会话标签条：横向滚动圆角 pill 行（每 pill 带 ✕，活动项 accent 边框环）+ **钉死的 + 按钮**（永不滚出视口）。
+
 - `Listener` :51：onTabSelected/Closed/NewTab/**onNewTabLongPress**（长按 + 开非默认会话类型，MainActivity :241 接 rootfs 未装则进 onboarding setup-only）。
 - **OSC 9;4 进度**：`TabProgress` :60（`PROGRESS_*` 状态 + 0..100），`TabRing` :288 自定义 Drawable 在 ✕ 周围画进度环（indeterminate 自旋动画 :318），错误红/暂停黄（:107-108）——与 ✕ 几何分离，两个信号不打架（注释 :39-41）。
 - **`update` :158 原地调和而非重建**：标题变化只改 label（:174）、活动态只改样式（:177），`paletteGen` :79 代际计数让换主题时统一 restyle；`LayoutTransition` 动画开合（:185 `transitionsArmed` 首次布局后才武装，避免初始动画）。
@@ -136,6 +144,7 @@ Find bar：圆角查询框（前导搜索图标）+ 匹配计数 + 大小写开�
 **SettingsSection（ui/SettingsSection.java，:12）** —— 一个标题 + 一组 Setting（渲染为一张卡片）。
 
 **Setting（ui/Setting.java，:40）** —— **声明式设置行抽象**（torvox 已吸收此模式，见 §4.7）：
+
 - 基类：title + summary + 可选 `enabledWhen` 门控（:69，返回 false 整行置灰；**任一设置变更即重估全部门控**，如"隐藏 extra-keys 工具栏 → 编辑器行置灰"，:48-51）+ `navigates`（:75 行尾加 chevron，点击开新屏）+ `notifyChanged` :91。
 - 子类：`Toggle` :109（Switch，点行也可切换）、`Choice` :130（固定列表取值，AlertDialog 单选）、`Slider` :340（SeekBar + 只读数值，条独占交互——`:397` 行背景置 null 去掉死涟漪）、`Action`（点击执行，用于打开主题编辑器/备份等）。
 - 抽象 `createControl` :99 / `onRowClick` :106 —— 屏幕层对类型无感知（注释 :28-38：新增类型 = 加兄弟子类，无需改宿主）。
@@ -147,6 +156,7 @@ Find bar：圆角查询框（前导搜索图标）+ 匹配计数 + 大小写开�
 ### 2.10 引导：OnboardingActivity（ui/OnboardingActivity.java，:49）
 
 首次运行向导，三步：欢迎 hero（功能亮点）→ 发行版选择（`UserlandDistro.bundled` 枚举 APK 内 rootfs assets；含"仅 Android shell"卡）→ 安装（tar.xz 解压，**按压缩资产已知大小显示确定进度**）。
+
 - `EXTRA_SETUP_ONLY` :52 —— 跳过欢迎步（新标签长按 + / 设置里"Install Linux"入口复用）。
 - 自愈：已装 rootfs 时直接 `RESULT_OK` 结束并补写 onboarding 完成标记（:102-107）；取消返回不标记完成 → 下次启动再展示（注释 :39-42）。
 - 安装完成写回 shell/home 等 userland 设置（:601-603）。
@@ -157,6 +167,7 @@ Find bar：圆角查询框（前导搜索图标）+ 匹配计数 + 大小写开�
 **app/build.gradle** —— 无 AppCompat/Material 依赖；`minSdk 29`（:19，注释：Zig 构建的 libghostty-vt.a 用 ELF TLS，bionic 自 29 才支持）、`targetSdk 36`、NDK 28.2、ABI 仅 `arm64-v8a, x86_64`（:25-27，与预编译 libghostty-vt.a 对应）；`externalNativeBuild` CMake（:30-34）；rootfs assets 目录存在才注入 sourceSets（:41-42 注释）；运行时依赖只有 `org.tukaani:xz:1.10`（:65，纯 Java XZ 解码，tar 解析自写——rootfs 只需文件/目录/链接）。
 
 **CMakeLists.txt（app/src/main/cpp/CMakeLists.txt）** —— 三层静态库 + 一个 JNI so：
+
 - `ghostty-vt` 静态导入 :8-10（`prebuilt/${ANDROID_ABI}/libghostty-vt.a`）。
 - `arm64chroot` :12-45 —— AArch64 用户态模拟器（qemu-user 风格 ISA 模拟 + proot 式 rootfs 容器），**源码清单从子模块自己的 Makefile 正则提取**（:30-37，防两份清单漂移），`-w` 编译、`ANDROID_JNI` 宏（main 改名）。
 - `chroot-ng` :69-93 —— 原生 AArch64 引擎（seccomp/SIGSYS 路径翻译 + 用户态 ELF 加载器，guest 代码直接跑在 CPU 上），仅 arm64-v8a；freestanding 编译，`memset=cng_embed_memset` 等预处理器改名（:80-89）防止与 Bionic 符号冲突；`--exclude-libs` :137 隐藏全部符号。
@@ -164,11 +175,13 @@ Find bar：圆角查询框（前导搜索图标）+ 匹配计数 + 大小写开�
 - `libterm.so` :105 —— `pty_jni.c + terminal_jni.c + kitty_unicode.c`，`-Wall -Werror`；`:119-127` 链接：`-Wl,--whole-archive` 强拉 arm64chroot（弱引用钩子 exec_fpsimd/sysreg_exec/sysreg_init/smccc_conduit 若不强拉会被链接器丢弃 → 所有 guest FP/SIMD 与 MRS/MSR 变成 SIGILL，注释 :112-118 详细解释）。
 
 **pty_jni.c** —— Java 持有 master fd（ParcelFileDescriptor），此文件只做 Java 做不了的：openpt/fork/exec、TIOCSWINSZ、waitpid/kill。
+
 - `spawn_on_pty` :67 —— open `/dev/ptmx` → grantpt/unlockpt/ptsname_r → **初始 winsize 就带像素字段**（:84-87：ws_xpixel/ws_ypixel = cols×cell_w，注释 :80-83：Kitty icat 之类程序用 TIOCGWINSZ 像素值给图像定尺寸，且会话固定网格尺寸不再 resize，必须初始就正确）→ fork 子进程：setsid、slave 变成控制 tty（:101-108）、**清空信号掩码与 disposition**（:110-118，注释：fork 继承 ART 线程的信号处理，execve 会重置但进程内引擎不会——chroot-ng 的 guest 原生 fault 若落到 ART 的 SIGSEGV handler 会在无 ART 的进程里造 Java 崩溃报告）。
 - 两种 spawn：`execve()`（Android shell）或进程内 `arm64chroot_main()`/`chroot_ng_main()`（userland，按 argv[0] 选择；W^X 政策禁止 exec app data 下任何东西，引擎从不 exec guest 二进制，:12-16）。
 - `hasChrootNg` :236 —— JNI 编译期能力探测，Java 侧据此隐藏引擎开关。
 
 **terminal_jni.c**（~2300 行，libghostty-vt 绑定）—— 结构：
+
 - `TermCtx` :30-98：terminal/render_state 句柄、reused 的 mouse/key event、grid 尺寸、**write-pty 回写缓冲**（out/out_len :70-73）、搜索状态（`SearchMatch` 环 :75-90，`search_dirty` 每次 feed 置位 :339）。
 - 回调全部**通过 typedef 赋值**（:141-145，注释 :139-140：签名漂移编译期失败而不是运行时栈损坏）。
 - `terminalNew` :147 —— **scrollback 字节预算换算**（注释 :154-166，关键洞见）：ghostty 的 max_scrollback 是**字节**预算不是行数，每行裸网格 8×(cols+1) 字节，但每页还有固定元数据（styles/graphemes/hyperlinks/strings），实测每保留行 ~1.6× 裸网格成本 → **按 2× 上浮**（:167-169）。
@@ -209,6 +222,7 @@ Find bar：圆角查询框（前导搜索图标）+ 匹配计数 + 大小写开�
 **torvox 现状**（`ui/theme/TerminalTheme.kt`）：`TerminalTheme` data class（:13-24，含 selectionBg）+ `BuiltInThemes` 16 个（:26+，Dracula Plus/Catppuccin×2/Nord/…）+ `dynamicTerminalTheme` :561（Material You 动态色映射到终端主题）。模式：固定/日/夜（SettingsRepository `themeName/dayThemeName/nightThemeName/themeMode` :23-26）。应用路径：`TerminalRuntime.kt:505` `BuiltInThemes.byName` → `bridge.setTheme`（Bridge.kt:529 打包 54 字节 → NativeBridge.setTheme → Rust）。**主题与 chrome 解耦**：Material 主题独立于终端主题。
 
 **ghostty-android 的增量**：
+
 1. **用户自定义主题全链路**：ThemeStore（JSON 持久化 + 容错 + 重名替换）+ ThemeActivity（working copy + dirty + Save/Save as + 删除）+ ColorPickerDialog + ThemePreviewView。torvox 完全没有这一档。
 2. **`toPalette256` 的 6×6×6 立方生成**：ghostty 引擎只主题化 16 色，其余由标准 xterm 生成规则补齐。torvox 的 setTheme 打包 54 字节 ≈ 19 色 ×3 字节，同样只传 16 色 + fg/bg/cursor——若 torvox 想主题化 256 色程序输出，需要 Rust 侧等价生成（或在 Kotlin 侧生成后全量传 256 色，768 字节）。
 3. **ChromePalette 亮度派生**：浅色终端主题 → 浅 chrome。torvox 的 Compose UI 可等价实现：从 `terminalBackground` 计算 luminance，动态切 `lightColorScheme/darkColorScheme`。
@@ -228,7 +242,7 @@ torvox：`fontFamily`（monospace/sans-serif/serif 族名，`FontUtils.resolveEf
 | 模糊 | **Java 自写双趟 box blur**（≤1080 工作位图） | **Rust 侧模糊**（`bridge.setBackgroundParams(radius, alpha×10)`） |
 | 透明度 | alpha 2.55 缩放 :426 | alpha×10 送 native |
 | 失效自愈 | 解码失败清路径 :424 | runCatching 吞异常 |
-| 冷启动竞态 | 无（同步路径，applyAllSettings） | 有专门处理：等 bridge 最多 15s（:1138-1143，注释 round-203 实测） |
+| 冷启动竞态 | 无（同步路径，applyAllSettings） | 有专门处理：等 bridge 最多 15s（:1138-1143，注释 实测） |
 
 **点评**：torvox 的模糊在 Rust（可能质量更好/更省内存），URI 方案有**权限失效风险**（用户撤销/系统清理后 URI 不可读，Coil 静默失败 = 背景图悄悄消失）；ghostty-android 的"import 时复制到私有存储"方案更稳。吸收建议：torvox 可在选图时复制文件、存文件路径（或至少存 URI 时在桥接失败后自愈清路径——ghostty-android :424 的 stale/corrupt 自愈模式）。
 
@@ -237,6 +251,7 @@ torvox：`fontFamily`（monospace/sans-serif/serif 族名，`FontUtils.resolveEf
 torvox：`ModifierBar.kt`（固定两行等宽、`ModifierKey` :52 含 ctrl/alt/isToggle/isSessionButton、`defaultModifierKeys` :63）+ `ToolbarPreferences.kt`（SharedPreferences JSON 布局 :72-144，ToolbarKey 枚举 30 个内置键含符号覆盖/长按重复/repeatable、Custom 文本键）+ `ModifierState`（CTRL/ALT 粘性）。无宽度、无副键、无多 profile、无编辑器 UI、无自动重复（除了 repeatable 标记——需确认实现）。
 
 ghostty-android 增量（torvox 缺口）：
+
 1. **WYSIWYG 编辑器**（ExtraKeysActivity）：profile 条 + 活动 grid 即改即存（无 Save 步骤，注释 :50-53）、点按编辑（换键/宽度/副键/删除）、长按拖放（平台 DnD + 间隙视图 `gapView` + 底部危险删除条）、行高滑杆（2–28dp）、"Add keys" 预设面板（COMBO_PRESET_IDS）。
 2. **弹性宽度**（weight 1/1.5/2）——torvox 等宽。
 3. **swipe-up 副键**（含右上角提示）。
@@ -278,6 +293,7 @@ torvox 已明确吸收 ghostty-android 的声明式 Setting 模式（SettingsCom
 | 选择 | C 侧 selection API + 快照镜像 | Rust SelectionState + setSelection |
 
 **可借鉴的 C 层细节**（与语言无关的设计知识）：
+
 1. `terminalNew` 的 **scrollback 字节预算 2× 系数**（:167-169）——torvox 的 Rust 侧如果也走 `max_scrollback` 字节预算，同样适用（实测每保留行 ~1.6× 裸网格成本）。
 2. 回调必须走 typedef 赋值（编译期签名检查）——torvox Rust 侧 bindgen 自动保证，无需动作。
 3. `terminalFeed` 的 **NUL 剥离**（:317-335）——mpv --vo=kitty 的 APC 块尾 NUL 会毁掉整帧 Kitty 图形；torvox 若支持 Kitty 图形（GFX 快照说明支持），Rust 侧 feed 前应有同样防御（可在 `feed_bytes`/process_bytes 入口做 memchr 检查，无 NUL 走零拷贝快路径）。
@@ -319,13 +335,16 @@ ghostty-android 是**纯 Java + 自绘 View + 无 androidx 运行时依赖**的�
 
 **1. 用户自定义主题（ThemeStore + 256 色生成）**
 torvox 已有 `TerminalTheme` data class 与 `BuiltInThemes`。吸收：
+
 ```kotlin
 // ghostty-android TerminalTheme.java:55 toPalette256 直译
 // 注意：只主题化 16 ANSI 色，16-231 用标准 xterm 6×6×6 立方
 // （levels = {0, 95, 135, 175, 215, 255}），232-255 为 24 级灰阶。
 fun TerminalTheme.toPalette256(): List<Color>
 ```
+
 用户主题存储（`ThemeStore.java:110 saveUserTheme` 模式）：
+
 ```kotlin
 // 参照 ghostty-android ThemeStore：单 JSON 数组 {name, colors}，
 // 读取逐条容错（坏条目跳过而非全丢），preset 名不可覆盖，
@@ -334,6 +353,7 @@ fun TerminalTheme.toPalette256(): List<Color>
 
 **2. 设置 UI 的 enabledWhen 门控补齐**
 `SettingsComponents.kt` 已声明吸收 ghostty-android 模式，但缺 `Setting.enabledWhen`（Setting.java:69）。注释建议：
+
 ```kotlin
 // ghostty-android Setting.java:48-51：门控在"任一设置变更"时重估，
 // 一个开关能实时置灰另一行（如"隐藏 extra-keys 工具栏 → 编辑器行置灰"）。
@@ -344,6 +364,7 @@ fun TerminalTheme.toPalette256(): List<Color>
 
 **3. 背景图"复制到私有存储 + 自愈"**
 `BackgroundImageStore.java:51 importFrom` 与 `MainActivity.java:424` 的 stale/corrupt 自愈。注释建议：
+
 ```kotlin
 // ghostty-android BackgroundImageStore：content:// URI 权限不跨进程存活，
 // 选图时复制进 filesDir 固定文件，持久化的是文件路径；
@@ -353,6 +374,7 @@ fun TerminalTheme.toPalette256(): List<Color>
 
 **4. 搜索 UX 细节**
 `SearchBarView.java`：150ms 防抖（:54）、IME 回车 flush 待发查询或当"下一个"（:116-120）、`IME_FLAG_NO_EXTRACT_UI`（:105）、覆盖层不触发 SIGWINCH（:35-38）。注释建议：
+
 ```kotlin
 // ghostty-android SearchBarView：搜索条是覆盖层而非布局列成员，
 // 打开/关闭不改变终端尺寸 → 不产生 SIGWINCH；
@@ -362,6 +384,7 @@ fun TerminalTheme.toPalette256(): List<Color>
 
 **5. OSC 9;4 进度环**
 torvox 无此功能。ghostty-android 链路：`OscSideScanner`（term/，跨 read 边界状态机 + 1MiB 上限）→ `TabStripView.TabRing`（:288，✕ 旁进度环，indeterminate 自旋）。torvox 渲染在 Rust：**应在 Rust 侧解析 OSC 9;4**（libghostty 不暴露该序列，与 OscSideScanner 同理），经 PollEvent 上抛。注释建议：
+
 ```kotlin
 // ghostty-android OscSideScanner：libghostty 不暴露的序列在 Java 侧
 // 用跨 read 边界携带状态 + 1MiB 上限的状态机补全（OSC 52 剪贴板、
@@ -377,12 +400,14 @@ torvox 无此功能。ghostty-android 链路：`OscSideScanner`（term/，跨 re
 **8. Glyphs 图标化**：`Glyphs.java` 的码点→矢量图标映射（:47-65 MAP）。torvox 已有 NerdKeyLabels（Nerd Font 字形），二选一即可；若走矢量图标路线，`CenteredIconSpan.getSize:117` 的"字体行盒∪图标盒"修复对应 Compose 的 `Placeable` 尺寸处理。
 
 **9. winsize 像素字段**：`pty_jni.c:84-87`。Rust PTY spawn 处补 `ws_xpixel/ws_ypixel`，让 `icat` 等程序能正确按像素定尺寸。注释建议：
+
 ```rust
 // ghostty-android pty_jni.c:80-87：初始 winsize 必须带像素字段，
 // Kitty icat 经 TIOCGWINSZ 读取；会话以最终网格尺寸 spawn 后不再 resize。
 ```
 
 **10. NUL 剥离**：`terminal_jni.c:317-335`。Rust feed 入口（若支持 Kitty 图形）：
+
 ```rust
 // ghostty-android terminal_jni.c:317：mpv --vo=kitty 每帧 APC 块尾带 NUL，
 // VT 引擎原样收集会毁掉 base64 图像数据致整帧黑屏；feed 前剥离，
@@ -417,6 +442,7 @@ torvox 无此功能。ghostty-android 链路：`OscSideScanner`（term/，跨 re
 ### ExtraKeysConfig.java（699 行）
 
 完整额外按键配置系统：
+
 - `DEFAULT_IDS`（:75-88）：esc/ins/del/pgup/home/up/end/tab/ctrl/alt/pgdn/left/down/right——**与 torvox ModifierBar 同款双行布局**（:103-105 DEFAULT_ROWS）
 - `KeySpec`（:133-163）：id + flex 宽度 + 可选 secondaryId（长按第二功能）
 - **`CUSTOM_PREFIX = "lit:"`**（:59）：自定义字符键；**`COMBO_PREFIX = "combo:"`**（:67）
@@ -432,6 +458,7 @@ torvox 无此功能。ghostty-android 链路：`OscSideScanner`（term/，跨 re
 ## deep-v1 增量（2026-08-07 全文件精读轮 #2：term/ 模块）
 
 ### 本次精读文件
+
 - OscSideScanner.java（term/OscSideScanner.java 完整 200 行）
 - ScreenSnapshot.java（前 60 行 + meta 布局）
 - SessionCommand.java（完整）、StorageBindings.java（前 80 行）
@@ -439,6 +466,7 @@ torvox 无此功能。ghostty-android 链路：`OscSideScanner`（term/，跨 re
 - RootfsBackup.java / SessionService.java / TerminalNative.java（结构确认）
 
 ### OscSideScanner（libghostty-vt 不回调的 OSC 旁路扫描）
+
 - 4 态状态机（GROUND/ESC/OSC/OSC_ESC）+ **MAX_PAYLOAD=1MB 上限**（超限丢弃并在终止符处重同步）+ NUL 忽略（匹配引擎 NUL strip）+ 跨 PTY read 边界保持状态
 - OSC 52 剪贴板：`52;<sel>;<base64|?>`——写/查询两通道；sel 空默认 "c"；Base64 解码失败静默丢弃
 - OSC 9;4 进度（ConEmu）：`9;4;<state>[;<value>]`——state 0-4 校验、value 0-100 clamp
@@ -446,21 +474,26 @@ torvox 无此功能。ghostty-android 链路：`OscSideScanner`（term/，跨 re
 - **torvox 对照**：torvox OSC 52 由 ghostty 引擎 + event.rs Clipboard 处理（已有）；**OSC 9;4 进度 torvox 无（P3）**——libghostty-vt 同样不回调，torvox 若需 ConEmu 进度条可参考此旁路模式（但 torvox 有 poll_notification OSC 9 通道，9;4 可扩展）
 
 ### ScreenSnapshot meta[16] 布局
+
 - meta[0-5]：cursorInViewport/cursorX/cursorY/cursorStyle/cursorVisible/cursorBlinking；meta[7-8]：defaultBg/defaultFg；**meta[15]：cursorColor（OSC 12 覆盖）**
 - graphemes 溢出缓冲：slot0=记录数 + [cellIndex, count, cp0...]——**与 torvox CellData.grapheme_extra 同构**（确认 torvox 设计）
 - **torvox 对照**：torvox CellCursor 含 cursorStyle/cursorVisible，cursorBlinking 由 Kotlin 侧设置——**meta[15] cursorColor（OSC 12）torvox 未处理**（P3 记录）
 
 ### SessionCommand.androidShell 环境变量（7 个）
+
 PATH=/system/bin、HOME、TMPDIR、TERM=xterm-256color、LANG=en_US.UTF-8、ANDROID_ROOT、ANDROID_DATA——**torvox base_env 已超越**（参考 termux-kotlin 透传 14 系统变量，P1 已修）
 
 ### UserlandRootfs（tar 解包安全——与 torvox BootstrapInstaller 同理念）
+
 - 手写 tar 解析（readBlock/isZeroBlock/octal/parsePax 扩展头）+ **withinRoot 防路径逃逸** + deleteIfSymlink + chmod 恢复 + staging→publish 原子
 - **torvox 对照**：torvox BootstrapInstaller zip-slip 防护（MAX_SYMLINKS_BYTES + symlink-path escape guard + staging 原子安装）——**同理念不同格式（tar vs zip），torvox 已实现等价防护**（确认）
 
 ### StorageBindings（arm64chroot bind mounts）
+
 proot/chroot 方案的标准 mount 集（Documents/Pictures/DCIM/Music/Downloads/Movies → /mnt/*）——torvox 用 linker64 方案（不同架构，不适用）
 
 ### 新增汇总
+
 | # | 发现 | 级别 |
 |---|------|------|
 | 1 | OSC 9;4 进度（ConEmu）torvox 无 | P3 |

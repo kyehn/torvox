@@ -1,5 +1,6 @@
+---
 suite:
-  name: Round-231 Symptom Regression Suite
+  name: Symptom Regression Suite
   tags:
     - regression
 flows:

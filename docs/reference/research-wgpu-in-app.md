@@ -2,7 +2,7 @@
 
 > 研究日期：2026-08-06 | 克隆位置：`repositories/refs/wgpu-in-app`（depth 1，commit 见 git log）
 > 研究方式：**主代理亲自逐文件完整阅读**（非子代理生成）
-> 项目链接：https://github.com/jinleili/wgpu-in-app
+> 项目链接：<https://github.com/jinleili/wgpu-in-app>
 > 许可证：MIT | 语言：Rust（wgpu 30）+ Kotlin（Compose）+ Swift
 
 ## 0. 项目定位
@@ -16,6 +16,7 @@
 **`ViewSize`（:64-69）**：`#[repr(C)]` 的 `{width: u32, height: u32}`——JNI/Swift FFI 边界结构。
 
 **归一化函数族（:71-131）**：
+
 - `normalize_view_size`（:71-73）：`(0,0)` → `(1,1)`，防止 0 尺寸导致 wgpu 报错
 - `normalize_scale_factor`（:75-81）：非法（0/负/NaN/Inf）→ 1.0
 - `physical_size_from_logical_size`（:84-102）：逻辑×缩放 → 物理，各轴单独校验
@@ -27,17 +28,19 @@
 **`IASDQContext`（:152-174）**：`Instance/Adapter/Device/Queue` + `Surface<'static>` + `SurfaceConfiguration` 打包，**全部可 Clone**（注释 :151：wgpu v24 起 Instance/Adapter/Device/Queue 可 Clone）。`update_config_format`（:163-173）在运行期切换格式，view_formats 特例处理（webgl 不支持 view_formats）。
 
 **`SurfaceFrame` trait（:198-250）**：
+
 - `view_size()` / `resize_surface()` / `resize_surface_by_size()` / `pintch()` / `touch()` / `normalize_touch_point()` / `enter_frame()` / `get_current_frame_view()` / `create_current_frame_view()`
 - **`create_current_frame_view`（:215-249）**：acquire 四分支处理——
-  - `Success | Suboptimal` → 直接用
-  - `Timeout | Outdated | Lost` → `surface.configure` 重配后重试一次，仍失败 `panic!`
-  - `Occluded` → 返回 `None`（跳过本帧，不 panic）
-  - `Validation` → `panic!("Validation error acquiring texture")`
-  - view 格式默认 `config.format.add_srgb_suffix()`（:242，sRGB 优先）
+- `Success | Suboptimal` → 直接用
+- `Timeout | Outdated | Lost` → `surface.configure` 重配后重试一次，仍失败 `panic!`
+- `Occluded` → 返回 `None`（跳过本帧，不 panic）
+- `Validation` → `panic!("Validation error acquiring texture")`
+- view 格式默认 `config.format.add_srgb_suffix()`（:242，sRGB 优先）
 
 **`create_iasdq_context`（:306-363）**：adapter/device 请求 → `surface.get_capabilities` → format 选择：wasm32 去 sRGB（Chrome WebGPU 不支持 sRGB，:317-323）；view_formats 三档（:324-344）：webgl `vec![]`、**Android `vec![format]`**（:329-339，注释详述 Android 不支持 SURFACE_VIEW_FORMATS downlevel flag）、其余 `[srgb, non-srgb]` 双格式。`get_default_config` 创建 config。
 
 **`request_device`（:365-423）**：
+
 - `PowerPreference::from_env().unwrap_or(HighPerformance)`（:371-372）——**环境变量可覆盖电源偏好**
 - `apply_limit_buckets: false`（:375）——不应用 wgpu 的 limit 分档（要完整 limits）
 - NVIDIA 特例（:399-402）：unix 上 NVIDIA 去 `EXPERIMENTAL_RAY_QUERY`（wgpu 已知问题）
@@ -50,6 +53,7 @@
 ### 1.2 `app-surface/src/android.rs`（123 行，Android 平台实现）
 
 **`NativeWindow`（:50-122）**：
+
 - `new`（:61-70）：`ANativeWindow_fromSurface(env, surface)`——注释明确"返回时引用计数 +1，防止安卓端意外释放"（:63-64）
 - 内部 `Arc<Mutex<*mut ANativeWindow>>`（:51）——跨线程共享裸指针
 - `get_raw_window`（:72-75）/ `get_width`（:77-79）/ `get_height`（:81-83）/ `view_size`（:85-87）
@@ -58,6 +62,7 @@
 - **`unsafe impl Send/Sync`（:122-123）**：ANativeWindow 是引用计数对象（NDK 合约）
 
 **`AppSurface`（:10-48）**：
+
 - `new`（:18-43）：`Arc<NativeWindow>` → `InstanceDescriptor::new_with_display_handle(Box::new(native_window.clone()))` → **`Backends::VULKAN` 硬编码**（:20）→ `create_surface(SurfaceTarget::Window(handle))` → `futures_lite::future::block_on(create_iasdq_context(...))`（同步阻塞创建）
 - `scale_factor: normalize_scale_factor(1.0)`（:39）——Android 上 scale=1（物理像素即逻辑）
 
@@ -66,6 +71,7 @@
 **`IOSViewObj`（:12-25）**：Swift 传入的 `{view, metal_layer, maximum_frames, callback_to_swift}`——CAMetalLayer 指针直接给 Rust。
 
 **`AppSurface`（:27-71）**：
+
 - `new`：`msg_send![obj.view, frame]` 取 CGRect → `physical_size_from_logical_size` → **`Backends::METAL` 硬编码**（:47）→ `create_surface_unsafe(SurfaceTargetUnsafe::CoreAnimationLayer(obj.metal_layer))`（:59-62，**iOS 不用 raw-window-handle，直接传 CAMetalLayer**）
 - `get_scale_factor`（:63-67）：`contentScaleFactor`
 
@@ -99,6 +105,7 @@
 ### 1.9 `wgpu-in-app/src/ffi/android.rs`（40 行，JNI 导出）
 
 **`#[jni_fn("name.jinleili.wgpu.RustBridge")]` 宏**（:11）：自动生成 `Java_name_jinleili_wgpu_RustBridge_<fn名>` 符号——不用手写 `#[no_mangle] pub extern "C" fn Java_...`。4 个导出：
+
 - `createWgpuCanvas`（:12-19）：`WgpuCanvas::new(AppSurface::new(...))` → `Box::into_raw` → jlong
 - `enterFrame`（:23-26）：`&mut *(obj as *mut WgpuCanvas)` 可变借用
 - `changeExample`（:30-34）
@@ -120,6 +127,7 @@
 **`RustBridge.kt`（12 行）**：`System.loadLibrary("wgpu_in_app")` + 4 个 external fun（`createWgpuCanvas(surface: Surface, idx: Int): Long` 等）。
 
 **`WGPUSurfaceView.kt`（85 行，Android 渲染循环关键）**：
+
 - `SurfaceView + SurfaceHolder.Callback2`
 - init（:27-37）：`holder.addCallback(this)`、**`setZOrderMediaOverlay(true)`**（:35，让系统 UI 覆盖 SurfaceView 之上）+ `holder.setFormat(PixelFormat.TRANSPARENT)`（:36）——SurfaceView 透明 + Compose 可叠加
 - **`surfaceCreated`（:43-49）**：`rustBrige.createWgpuCanvas(h.surface, idx)` 同步创建整个 wgpu 对象树 + `setWillNotDraw(false)`
@@ -147,7 +155,7 @@
 
 | wgpu-in-app 功能 | 位置 | torvox 对应 | 对比结论 |
 |---|---|---|---|
-| NativeWindow RAII（fromSurface+release） | android.rs:50-96 | `native/src/render/context.rs`（round-12 已实现同款） | **torvox 已有**（`attach_surface`/`NativeWindow`） |
+| NativeWindow RAII（fromSurface+release） | android.rs:50-96 | `native/src/render/context.rs`（已实现同款） | **torvox 已有**（`attach_surface`/`NativeWindow`） |
 | 渲染循环在 UI 线程（onDraw+invalidate） | WGPUSurfaceView.kt:67-76 | `TerminalRuntime` 独立渲染线程 + notifyRender | **torvox 更优**（不阻塞 UI 线程） |
 | surfaceCreated/Destroyed 整树创建/销毁 wgpu | WGPUSurfaceView.kt:43-57 | ADR-0007 惰性 attach（跨 surface 存活） | **torvox 更优**（surface 重建不重建 pipeline） |
 | acquire 四分支（Timeout/Outdated/Lost 重配重试，Occluded 跳过） | lib.rs:222-237 | `pass.rs:132-181`（含 SwiftShader panic 兼容 + Mali-G57 检测） | **torvox 更完善** |
@@ -186,23 +194,24 @@
 ## 4. 可吸收到 torvox 的具体内容
 
 1. **`jni_fn` 宏**（P0）：`#[jni_fn("terminal.emulator.bridge.NativeBridge")] pub fn initSession(...)` 自动生成 `Java_terminal_emulator_bridge_NativeBridge_initSession` 符号。torvox `ffi.rs` 有 40+ 个手写 `#[no_mangle] pub extern "C" fn Java_...`——宏消除类名/函数名拼写错误风险。代码注释建议：
-   ```rust
-   // JNI 导出符号名由 jni_fn 宏生成（参考 wgpu-in-app wgpu-in-app/src/ffi/android.rs:11）
-   // #[jni_fn("terminal.emulator.bridge.NativeBridge")] 展开为
-   // #[no_mangle] pub extern "C" fn Java_terminal_emulator_bridge_NativeBridge_<fn名>
-   ```
-2. **acquire 四分支注释固化**（P0）：torvox `pass.rs` 已有实现，把 wgpu-in-app 的 Occluded→None 语义对照注释（lib.rs:222-237）写入。
-3. **normalize_view_size 防御**（P1）：torvox 在 `resize` 前 clamp 尺寸 ≥1（避免 configure 0×0 panic）。参考 lib.rs:71-73。
-4. **PowerPreference::from_env + WGPU_BACKEND**（P1）：调试时切换 GPU/后端。参考 lib.rs:371-372 + app_surface_use_winit.rs:68。
-5. **wgpu_hal/naga 日志降噪**（P2）：torvox env_logger 配置加 `.filter_module("wgpu_hal", Error)`。参考 lib.rs:33-34。
-6. **log_panics::init**（P2）：Rust panic 写 logcat（torvox 有 catch_unwind + JNI 异常抛出，可补充 log_panics 双保险）。参考 lib.rs:24。
-7. **Touch/stylus 模型**（远期）：repr(C) Touch 结构体，未来手写笔支持。参考 touch.rs:19-42。
+
+ ```rust
+ // JNI 导出符号名由 jni_fn 宏生成（参考 wgpu-in-app wgpu-in-app/src/ffi/android.rs:11）
+ // #[jni_fn("terminal.emulator.bridge.NativeBridge")] 展开为
+ // #[no_mangle] pub extern "C" fn Java_terminal_emulator_bridge_NativeBridge_<fn名>
+ ```
+1. **acquire 四分支注释固化**（P0）：torvox `pass.rs` 已有实现，把 wgpu-in-app 的 Occluded→None 语义对照注释（lib.rs:222-237）写入。
+2. **normalize_view_size 防御**（P1）：torvox 在 `resize` 前 clamp 尺寸 ≥1（避免 configure 0×0 panic）。参考 lib.rs:71-73。
+3. **PowerPreference::from_env + WGPU_BACKEND**（P1）：调试时切换 GPU/后端。参考 lib.rs:371-372 + app_surface_use_winit.rs:68。
+4. **wgpu_hal/naga 日志降噪**（P2）：torvox env_logger 配置加 `.filter_module("wgpu_hal", Error)`。参考 lib.rs:33-34。
+5. **log_panics::init**（P2）：Rust panic 写 logcat（torvox 有 catch_unwind + JNI 异常抛出，可补充 log_panics 双保险）。参考 lib.rs:24。
+6. **Touch/stylus 模型**（远期）：repr(C) Touch 结构体，未来手写笔支持。参考 touch.rs:19-42。
 
 ## 5. 项目文档吸收价值
 
 - **README"为什么不用 winit"**（README.MD:1-28）：论证非游戏 App 不应被窗口库接管事件循环——torvox 架构文档可引用（torvox 同样不用 winit）
 - README 的 Android 环境设置/构建流程：torvox 的 flake.nix 已覆盖（更优）
-- 中文文档：https://jinleili.github.io/learn-wgpu-zh/integration-and-debugging/ —— wgpu 集成与调试的权威中文资料
+- 中文文档：<https://jinleili.github.io/learn-wgpu-zh/integration-and-debugging/> —— wgpu 集成与调试的权威中文资料
 
 ## 6. 结论
 
@@ -211,6 +220,7 @@ wgpu-in-app 是"不用 winit 集成 wgpu"的样板，与 torvox 依赖栈完全�
 ## deep-v1 增量（2026-08-07 全文件精读轮）
 
 ### 已精读文件清单（本次逐行读毕）
+
 - `wgpu-in-app/src/lib.rs`（39 行）：WgpuCanvas 门面——`enter_frame`/`resize`/`change_example` 转发 + `Box<dyn Example>` 多态
 - `wgpu-in-app/src/wgpu_canvas.rs`（58 行）：见上
 - `wgpu-in-app/src/ffi/android.rs`（40 行）：**jni_fn 宏模式**——`#[jni_fn("name.jinleili.wgpu.RustBridge")]` 自动生成导出符号；**Box::into_raw/from_raw 生命周期管理**（createWgpuCanvas 返回 jlong 句柄，dropWgpuCanvas 回收）
@@ -237,6 +247,7 @@ wgpu-in-app 是"不用 winit 集成 wgpu"的样板，与 torvox 依赖栈完全�
 | 6 | **normalize_view_size/scale_factor 防御**：所有尺寸入口 clamp ≥1、scale_factor 非法回退 1.0——torvox resize 前是否 clamp？ | P2 | lib.rs:71-81 |
 
 ### 依赖评估（deep-v1 确认）
+
 - `jni_fn`（=0.1.x 宏 crate）：**适用，先进激进**——torvox ffi.rs 40+ 手写符号名，宏消除拼写错误（P0 候选，代码注释已建议）
 - `futures-lite`（block_on）：torvox 用 tokio——不换
 - `ndk-sys` vs torvox `ndk` crate：等价
@@ -244,11 +255,13 @@ wgpu-in-app 是"不用 winit 集成 wgpu"的样板，与 torvox 依赖栈完全�
 - `log_panics`：P2（torvox 有 catch_unwind + JNI 异常，可补充）
 
 ### 文档吸收
+
 - README.MD 的"为什么不用 winit"论证（非游戏 App 不应被窗口库接管事件循环）——torvox 架构文档可引用（torvox 同样不用 winit）
 
 ## deep-v2 增量（R31 全文件核对补漏）
 
 ### web_rwh/（wasm 平台，345 行——R1-R6 未覆盖，R31 补）
+
 - `web_rwh/mod.rs`（142 行）：wasm 的 RawWindowHandle 实现（canvas → rwh 桥）
 - `web_rwh/canvas.rs`（113 行）：Canvas 包装（scale_factor + physical_resolution）
 - `web_rwh/offscreen_canvas.rs`（90 行）：OffscreenCanvasWrapper（SendSyncWrapper + OffscreenCanvas 离屏渲染）

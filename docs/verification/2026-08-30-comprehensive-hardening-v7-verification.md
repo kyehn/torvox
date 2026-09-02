@@ -1,7 +1,7 @@
 # 验证报告: comprehensive-hardening-v7
 
 > 日期: 2026-08-30 | 关联: `docs/plans/2026-08-30-comprehensive-hardening-v7-detailed.md` + `...-test-plan.md`  
-> 状态: 本轮已验证（后端确定性+模拟器安装+wgpu Vulkan渲染恢复），待 0f0ab4d 新增习惯/启动屏/图标审计与体积持续守卫
+> 状态: 本轮已验证（后端确定性+模拟器安装+wgpu Vulkan渲染恢复），待 新增习惯/启动屏/图标审计与体积持续守卫
 > 测试: 1016 passed (16 new), 0 failed, 10 ignored, clippy 0 warnings
 
 ## 验证环境
@@ -17,16 +17,16 @@
 
 | 检查 | 结果 | 证据 |
 |------|------|------|
-| cell_builder 索引 bug | ✅ 已修复 | commit b8bf25e `dirty_rows[ row ]` |
-| docs/reference 恢复 | ✅ 已恢复 | commit fb6b6ce 44 files 14886 insertions |
-| panic-free dirty cache | ✅ 已修复 | commit 691e14b `is_clean is_some_and` |
+| cell_builder 索引 bug | ✅ 已修复 | `dirty_rows[ row ]` |
+| docs/reference 恢复 | ✅ 已恢复 | 44 files 14886 insertions |
+| panic-free dirty cache | ✅ 已修复 | `is_clean is_some_and` |
 | render/tests _gpu | ✅ 已修复 | 同上, 2 处重命名 |
 | cargo test | ✅ 1016 passed | `nix develop --command cargo test -p native --lib` 78s (16 new: CellRun 5 + SemanticSegment 8 + Mouse 3) |
 | markdownlint 新文档 | ✅ 0 issues | `comprehensive-hardening-v7-*.md` 0 errors |
-| flake 依赖 | ✅ 2026-08-30 | `fenix d0904bb` + `cargo update` 0 变更, `cargo check/clippy` 通过 |
+| flake 依赖 | ✅ 2026-08-30 | `fenix` + `cargo update` 0 变更, `cargo check/clippy` 通过 |
 | release 体积 | ✅ 16M | `readelf --dynamic` 无 NEEDED ghostty（静联），debug 127M 不部署（60MB 上限守卫） |
 | APK | ✅ 86MB | `assembleDebug` + `install -r Success` |
-| 0f0ab4d 规范 | ✅ 已应用 | commit d856baf，`[profile.release] strip=debuginfo` + DESIGN/BULD 体积与习惯约束已对齐 |
+| 规范 | ✅ 已应用 | `[profile.release] strip=debuginfo` + DESIGN/BULD 体积与习惯约束已对齐 |
 
 ## 阶段 1 — 鼠标编码
 
@@ -35,8 +35,8 @@
 | gate off (no tracking) | ✅ 通过 | `ghostty_terminal::tests::encode_mouse_event_gated_off_without_tracking_mode` |
 | SGR press | ✅ 通过 | `encode_mouse_event_sgr_press` |
 | wheel | ✅ 通过 | `encode_mouse_event_wheel` |
-| bounds clamp (新增) | ✅ 通过 | commit 78b7402 `encode_mouse_event_bounds_negative_clamp` + `bounds_oversized_clamp` |
-| drag sequence (新增) | ✅ 通过 | commit 78b7402 `encode_mouse_event_drag_sequence` |
+| bounds clamp (新增) | ✅ 通过 | `encode_mouse_event_bounds_negative_clamp` + `bounds_oversized_clamp` |
+| drag sequence (新增) | ✅ 通过 | `encode_mouse_event_drag_sequence` |
 | ffi 空 array 静默丢弃 | ✅ 已审计 | `ffi.rs:1400` `empty()` 非 null |
 | Kotlin touch→encode 实时 cell 尺寸 | ✅ 已审计 | `TerminalSurface:2747,2880,2890` 透传 live cellW/H |
 | 模拟器 vim 手动 | ⏳ 待重建 native 后 | 需 x86_64 libnative.so |
@@ -60,7 +60,7 @@
 | ST/BEL 双终结 | ✅ 通过 | `test_shell_integration_st_terminator` |
 | A 重置 | ✅ 通过 | `test_last_command_output_reset_on_new_prompt` |
 | shell_exit_code D;42 | ✅ 通过 | `test_shell_integration_exit_code` |
-| 语义段列范围 (新增) | ✅ 通过 | commit 78b7402+73ae798 `SemanticSegment` + `SemanticSegmentKind` + 8 单测 (byte_offset 追踪) |
+| 语义段列范围 (新增) | ✅ 通过 | `SemanticSegment` + `SemanticSegmentKind` + 8 单测 (byte_offset 追踪) |
 | getLastCommandOutput JNI | ✅ 已审计 | `ffi.rs` + `NativeBridge.getLastCommandOutput` + mcp |
 | 模拟器 printf 验证 | ⏳ 待重建 native 后 | `printf '\x1b]133;B\x07...` |
 
@@ -69,7 +69,7 @@
 | 用例 | 状态 | 证据 |
 |------|------|------|
 | CachedInstances 行级增量 | ✅ 已实现 | `cell_builder.rs` + `compute_dirty_bands` |
-| 同格式游程 (新增) | ✅ 通过 | commit 78b7402 `CellRun` + `build_row_runs` + 5 单测 |
+| 同格式游程 (新增) | ✅ 通过 | `CellRun` + `build_row_runs` + 5 单测 |
 | Benchmark | ⏳ 待实施 | `cargo bench cell_builder` |
 
 ## 阶段 5 — 细节硬化
@@ -99,7 +99,7 @@
 
 - `adb install -r android/app/build/outputs/apk/debug/app-debug.apk` ✅ Success（86MB）
 - `adb shell am start -n com.termux/terminal.emulator.MainActivity` ✅
-- `mCurrentFocus=Window{ad5a7b7 com.termux/terminal.emulator.MainActivity}` ✅（本轮稳定，无 ANR）
+- `mCurrentFocus=Window{com.termux/terminal.emulator.MainActivity}` ✅（本轮稳定，无 ANR）
 - `uiautomator dump` ✅ `TerminalScreen → TerminalContent [0,128][1080,2147]` + `ModifierBarOverlay [0,2147][1080,2337]` + 14 按键（ESC/☰/SCROLL/HOME/↑/END/PGUP/TAB/CTRL/ALT/←/↓/→/PGDN）完整布局，terminal `content-desc="$"` 聚焦
 - SurfaceFlinger: `SurfaceView[com.termux/...](BLAST)` 可见，`GraphicBufferAllocator` 含 4 个 1080x1326 SurfaceView 缓冲 + 3 个 1080x2400 ViewRoot 缓冲
 
@@ -127,7 +127,7 @@
 
 ## 待办（下一轮）
 
-1. 0f0ab4d 新增习惯对齐：启动屏/SplashScreen 适配、图标包化（不 vendor）与"外部可靠库优先、最低限度自定义"审计，沉淀为 `docs/plans` 增量
+1. 新增习惯对齐：启动屏/SplashScreen 适配、图标包化（不 vendor）与"外部可靠库优先、最低限度自定义"审计，沉淀为 `docs/plans` 增量
 2. v7 剩余实施（保守小步，带单测锁定）：TalkBack 截断（Robolectric）、winsize 竞态（spawn 前预计算 pixel 尺寸）、sha256 sidecar
 3. JVM/Roborazzi：`./gradlew :app:testDebugUnitTest` + `detekt` + `dokka` + `lintDebug`
 4. 性能：`cargo bench cell_builder`（runs=1 断言）与真机 90Hz 帧率另验
@@ -140,7 +140,7 @@
 - clippy: 2 pedantic 已通过 to_bits() 修复消除，当前 0 warnings 0 errors
 - 模拟器验证: 重新构建 x86_64 release .so (22MB)，APK 86MB 安装成功，wgpu Vulkan 持续渲染
 - 连续审查: 3 轮审查完成无问题（cell_builder.rs / output_processor.rs / tests.rs / mod.rs）
-- git push: 4 commits (78b7402, 380d2a9, 0561b8b, 73ae798) 已推送
+- git push: 4 commits 已推送
 
 ## 结论（本轮）
 
@@ -155,7 +155,7 @@
 | 轮次 | 时间 | 检查 | 结果 |
 |------|------|------|------|
 | 1 | 2026-08-31 10:40 | `cargo test --lib 1026 passed`、`clippy 0`、`machete 0`、`detekt SUCCESS`、`markdownlint 新文档 0`、`emulator 166fps loop` | ✅ |
-| 2 | 2026-08-31 18:37 | 同轮次 1 + `c6323c88` 补丁应用 + `tasks.md` 标记完成 | ✅ |
+| 2 | 2026-08-31 18:37 | 同轮次 1 + 补丁应用 + `tasks.md` 标记完成 | ✅ |
 | 3 | 2026-08-31 18:53 | `cargo test 1016 passed`、`clippy 0`、`markdownlint 新文档 0`、`APK 87M`、`libnative.so 16M`、`emulator prior 166fps`（当前 `adb` 无设备，取历史证据） | ✅ |
 
 > 结论：新文档与代码的 `clippy`/`machete`/`detekt`/`markdownlint` 三轮均无新增告警；后端 `1016–1026` 确定性通过。
