@@ -1,3 +1,4 @@
+#!/usr/bin/env -S nix develop --command nu
 # verify-cjk.nu — CJK 渲染验证脚本
 # 用法：nu scripts/verify-cjk.nu
 # 前提：模拟器已启动，应用已安装
