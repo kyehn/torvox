@@ -1,3 +1,4 @@
+#!/usr/bin/env -S nix develop --command nu
 # verify-emulator.nu — 模拟器验证脚本
 # 用法：nu scripts/verify-emulator.nu
 # 前提：模拟器已启动，adb 已连接
