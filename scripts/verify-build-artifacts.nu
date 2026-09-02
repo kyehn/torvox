@@ -1,3 +1,4 @@
+#!/usr/bin/env -S nix develop --command nu
 # verify-build-artifacts.nu — 构建产物验证脚本
 # 用法：nu scripts/verify-build-artifacts.nu
 
