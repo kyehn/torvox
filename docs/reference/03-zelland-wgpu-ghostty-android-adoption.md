@@ -11,29 +11,29 @@
 
 ```rust
 pub fn draw_ghostty_state(&mut self, state: &mut GhosttyRenderStateWrapper, cursor_pos: (u16, u16)) {
-    let dirty = state.get_dirty();
-    if dirty == GHOSTTY_RENDER_STATE_DIRTY_FALSE { return; }
-    let mut changed = false;
-    state.with_rows(|line_idx, is_dirty, cells| {
-        if is_dirty || line_idx as usize >= self.row_cache.len() {
-            let runs = build_row_runs(cells);
-            let row_idx = line_idx as usize;
-            if row_idx >= self.row_cache.len() { self.row_cache.resize(row_idx + 1, Vec::new()); }
-            if self.row_cache[row_idx] != runs {   // 行级去重
-                self.row_cache[row_idx] = runs;
-                changed = true;
-            }
-        }
-    });
-    // 终端变小时收缩缓存（防止幽灵行）
-    let (_num_cols, num_rows) = state.get_size();
-    if self.row_cache.len() > num_rows as usize {
-        self.row_cache.truncate(num_rows as usize);
-        changed = true;
-    }
-    // 光标位置每帧更新，与文本变化解耦
-    ...
-    if !changed { return; }   // 跳过昂贵的 text pipeline（shape + prepare）
+ let dirty = state.get_dirty();
+ if dirty == GHOSTTY_RENDER_STATE_DIRTY_FALSE { return; }
+ let mut changed = false;
+ state.with_rows(|line_idx, is_dirty, cells| {
+ if is_dirty || line_idx as usize >= self.row_cache.len() {
+ let runs = build_row_runs(cells);
+ let row_idx = line_idx as usize;
+ if row_idx >= self.row_cache.len() { self.row_cache.resize(row_idx + 1, Vec::new()); }
+ if self.row_cache[row_idx] != runs { // 行级去重
+ self.row_cache[row_idx] = runs;
+ changed = true;
+ }
+ }
+ });
+ // 终端变小时收缩缓存（防止幽灵行）
+ let (_num_cols, num_rows) = state.get_size();
+ if self.row_cache.len() > num_rows as usize {
+ self.row_cache.truncate(num_rows as usize);
+ changed = true;
+ }
+ // 光标位置每帧更新，与文本变化解耦
+ ...
+ if !changed { return; } // 跳过昂贵的 text pipeline（shape + prepare）
 }
 ```
 
@@ -64,16 +64,16 @@ pub fn draw_ghostty_state(&mut self, state: &mut GhosttyRenderStateWrapper, curs
 
 ```rust
 pub fn update_font_size(&mut self, css_px: f32, dpr: f32) {
-    let physical = css_px * dpr;
-    self.cell_height = physical;
-    self.cell_width = physical * 0.45;
-    let font_size = physical * 0.75;
-    self.text_buffer.set_metrics(...);
-    self.row_cache.clear();   // 字体变化必须清行缓存
-    self.render();
+ let physical = css_px * dpr;
+ self.cell_height = physical;
+ self.cell_width = physical * 0.45;
+ let font_size = physical * 0.75;
+ self.text_buffer.set_metrics(...);
+ self.row_cache.clear(); // 字体变化必须清行缓存
+ self.render();
 }
 pub fn get_cell_size() -> (f32, f32) {
-    with_renderer(|r| (r.cell_width, r.cell_height))
+ with_renderer(|r| (r.cell_width, r.cell_height))
 }
 ```
 
@@ -102,22 +102,22 @@ pub fn get_cell_size() -> (f32, f32) {
 
 ```rust
 pub fn process_mouse(&self, x: f32, y: f32, action: &str) -> Vec<Vec<u8>> {
-    let mouse_mode = self.get_mouse_mode();
-    if !mouse_mode { log::warn!("process_mouse: mouse_mode=false, event dropped"); return vec![]; }
-    ...
+ let mouse_mode = self.get_mouse_mode();
+ if !mouse_mode { log::warn!("process_mouse: mouse_mode=false, event dropped"); return vec![]; }
+ ...
 }
 pub fn encode_mouse_event(&self, x_px: f32, y_px: f32, action: &str) -> Option<Vec<u8>> {
-    // 使用 Ghostty 官方 C API 编码：
-    ghostty_mouse_encoder_new(...);
-    ghostty_mouse_encoder_setopt_from_terminal(encoder, self.term.inner);
-    // 用渲染器实时 cell 尺寸做像素→cell 映射
-    let (cell_w, cell_h) = crate::renderer::get_cell_size();
-    let size = GhosttyMouseEncoderSize { screen_width, screen_height, cell_width, cell_height, ... };
-    ghostty_mouse_encoder_setopt(encoder, OPT_SIZE, &size);
-    ghostty_mouse_event_set_position(event, { x, y });
-    ghostty_mouse_event_set_action(event, PRESS/RELEASE);
-    ghostty_mouse_event_set_button(event, LEFT/RIGHT/FOUR/FIVE);
-    ghostty_mouse_encoder_encode(encoder, event, buf, &mut out_len);
+ // 使用 Ghostty 官方 C API 编码：
+ ghostty_mouse_encoder_new(...);
+ ghostty_mouse_encoder_setopt_from_terminal(encoder, self.term.inner);
+ // 用渲染器实时 cell 尺寸做像素→cell 映射
+ let (cell_w, cell_h) = crate::renderer::get_cell_size();
+ let size = GhosttyMouseEncoderSize { screen_width, screen_height, cell_width, cell_height, ... };
+ ghostty_mouse_encoder_setopt(encoder, OPT_SIZE, &size);
+ ghostty_mouse_event_set_position(event, { x, y });
+ ghostty_mouse_event_set_action(event, PRESS/RELEASE);
+ ghostty_mouse_event_set_button(event, LEFT/RIGHT/FOUR/FIVE);
+ ghostty_mouse_encoder_encode(encoder, event, buf, &mut out_len);
 }
 ```
 
@@ -175,16 +175,16 @@ pub fn createWgpuCanvas(env: *mut JNIEnv, _: JClass, surface: jobject, idx: jint
 
 ```rust
 let view_formats = if cfg!(feature = "webgl") {
-    vec![]   // WebGL 不支持 view_formats
+ vec![] // WebGL 不支持 view_formats
 } else if cfg!(target_os = "android") {
-    // Android 不支持 view_formats:
-    // Downlevel flags DownlevelFlags(SURFACE_VIEW_FORMATS) are required
-    // but not supported on the device.
-    vec![format]   // format 与 view_formats 相同 → configure 自动忽略
+ // Android 不支持 view_formats:
+ // Downlevel flags DownlevelFlags(SURFACE_VIEW_FORMATS) are required
+ // but not supported on the device.
+ vec![format] // format 与 view_formats 相同 → configure 自动忽略
 } else if format.is_srgb() {
-    vec![format, format.remove_srgb_suffix()]
+ vec![format, format.remove_srgb_suffix()]
 } else {
-    vec![format.add_srgb_suffix(), format.remove_srgb_suffix()]
+ vec![format.add_srgb_suffix(), format.remove_srgb_suffix()]
 };
 ```
 
@@ -223,11 +223,11 @@ private long toolbarSelGeom = Long.MIN_VALUE;
 
 ```java
 boolean continues = now - lastTapTime <= tapTimeoutMs
-        && abs(e.getX() - lastTapX) <= tapSlopPx && abs(e.getY() - lastTapY) <= tapSlopPx;
+ && abs(e.getX() - lastTapX) <= tapSlopPx && abs(e.getY() - lastTapY) <= tapSlopPx;
 tapCount = continues ? tapCount + 1 : 1;
-if (tapCount == 1) { finishSelection(); return; }        // 单击 → 取消选择
-else if (tapCount == 2) { selectWordAt(x, y); }          // 双击 → 词
-else { selectLineAt(x, y); }                             // 三击 → 行
+if (tapCount == 1) { finishSelection(); return; } // 单击 → 取消选择
+else if (tapCount == 2) { selectWordAt(x, y); } // 双击 → 词
+else { selectLineAt(x, y); } // 三击 → 行
 ```
 
 **本地**：`onDoubleTap`（TerminalSurface.kt:1350）已有词选择（快速连点 = 行）；三击→行在快速连点分支。本地注释已记录 ghostty-android 的 tapCount 模式差异。
@@ -238,30 +238,30 @@ else { selectLineAt(x, y); }                             // 三击 → 行
 ```java
 @Override
 public void onGetContentRect(ActionMode mode, View view, Rect outRect) {
-    int top = snapshot.selectionStartVisible() ? snapshot.selectionStartY() * cellHeight : 0;
-    int bottom = snapshot.selectionEndVisible()
-            ? (snapshot.selectionEndY() + 1) * cellHeight + handleHeight
-            : getHeight();
-    int left = 0, right = getWidth();
-    if (同一行) {
-        left = textMarginLeft + (int)(snapshot.selectionStartX() * cellWidth);
-        right = textMarginLeft + (int)((snapshot.selectionEndX() + 1) * cellWidth);
-    }
-    outRect.set(left, top, right, bottom);
+ int top = snapshot.selectionStartVisible() ? snapshot.selectionStartY() * cellHeight : 0;
+ int bottom = snapshot.selectionEndVisible()
+ ? (snapshot.selectionEndY() + 1) * cellHeight + handleHeight
+ : getHeight();
+ int left = 0, right = getWidth();
+ if (同一行) {
+ left = textMarginLeft + (int)(snapshot.selectionStartX() * cellWidth);
+ right = textMarginLeft + (int)((snapshot.selectionEndX() + 1) * cellWidth);
+ }
+ outRect.set(left, top, right, bottom);
 }
 ```
 
-**本地**：用默认顶部 ActionMode（TYPE_FLOATING 在 API-35 SwiftShader 模拟器不渲染——已实证，见 ae0c253 提交信息）。
+**本地**：用默认顶部 ActionMode（TYPE_FLOATING 在 API-35 SwiftShader 模拟器不渲染——已实证，见 提交信息）。
 **决定**：保留顶部 ActionMode（模拟器可见性实证优先），但把 `onGetContentRect` 的实现代码保留/补注释——真机上 TYPE_FLOATING 可用时切换。
 
 ### 6.4 selectionGeometryKey 工具栏重定位（TerminalView.java:1157）
 
 ```java
 private long selectionGeometryKey() {
-    if (!snapshot.hasSelection()) return Long.MIN_VALUE;
-    long flags = (startVisible ? 1 : 0) | (endVisible ? 2 : 0);
-    return (flags << 48) | (startX & 0xFFF) << 36 | (startY & 0xFFF) << 24
-            | (endX & 0xFFF) << 12 | (endY & 0xFFF);
+ if (!snapshot.hasSelection()) return Long.MIN_VALUE;
+ long flags = (startVisible ? 1 : 0) | (endVisible ? 2 : 0);
+ return (flags << 48) | (startX & 0xFFF) << 36 | (startY & 0xFFF) << 24
+ | (endX & 0xFFF) << 12 | (endY & 0xFFF);
 }
 ```
 
@@ -282,9 +282,9 @@ else if (py >= rows * cellHeight) { session.emulator.scrollBy(1); }
 
 ```java
 private void reshowToolbar() {
-    toolbarSelGeom = selectionGeometryKey();
-    actionMode.invalidateContentRect();
-    actionMode.hide(0);   // 立即重显，避免 ~2s hide duration
+ toolbarSelGeom = selectionGeometryKey();
+ actionMode.invalidateContentRect();
+ actionMode.hide(0); // 立即重显，避免 ~2s hide duration
 }
 ```
 
@@ -306,20 +306,21 @@ private void reshowToolbar() {
 ```java
 static File file(Context context) { return new File(context.getFilesDir(), FILE); }
 static String importFrom(Context context, Uri src) {
-    // 复制到私有存储（文件持久 + 无 SAF 权限失效问题）
-    try (InputStream in = resolver.openInputStream(src); OutputStream out = ...) { ... }
+ // 复制到私有存储（文件持久 + 无 SAF 权限失效问题）
+ try (InputStream in = resolver.openInputStream(src); OutputStream out = ...) { ... }
 }
 static Bitmap decode(String path, int reqW, int reqH, int blurPercent) {
-    // 降采样（power-of-two）+ 可选高斯模糊（BLUR_MAX_DIM=1080 上限）
+ // 降采样（power-of-two）+ 可选高斯模糊（BLUR_MAX_DIM=1080 上限）
 }
 ```
 
 **核心模式**：
+
 1. **复制私有存储**：选图后立即复制到 `filesDir`，后续读取不依赖 SAF URI。
 2. **自愈**：文件缺失/不可解码 → 返回 null → UI 回退纯色背景（不崩溃）。
 3. **模糊预算**：blur 在 ≤1080px 副本上跑，半径 = 短边 5%，2 次 box-blur ≈ 高斯。
 
-**本地**：背景图链路存在（`setBackgroundImage` JNI + 双字节序修复 round-211）；需检查是否复制到私有存储 + 自愈。
+**本地**：背景图链路存在（`setBackgroundImage` JNI + 双字节序修复）；需检查是否复制到私有存储 + 自愈。
 
 ### 7.3 TabStripView 原地调和
 
@@ -330,11 +331,14 @@ ghostty-android 的标签栏在 onDraw 中自绘（无 Compose/RecyclerView 依�
 ## 8. ghostty-android — native 层三知识
 
 1. **scrollback 字节预算**：scrollback 行数据按字节预算限制，防止无限增长。
-   - 本地：`DEFAULT_SCROLLBACK_LINES=50_000`（行数预算）——方向一致，行数 vs 字节。
-2. **NUL 剥离**：从终端读文本时剥离 NUL 字节。
-   - 本地：`read_line_text` 返回 `Option<String>`；**未显式剥离 NUL**。需补（`cell_to_text`/`read_line_text` 处）。
-3. **winsize 像素字段**：TIOCSWINSZ 的 ws_xpixel/ws_ypixel 填像素值。
-   - 本地：`PtyPair` 是否填像素字段？需查 pty.rs。
+
+- 本地：`DEFAULT_SCROLLBACK_LINES=50_000`（行数预算）——方向一致，行数 vs 字节。
+1. **NUL 剥离**：从终端读文本时剥离 NUL 字节。
+
+- 本地：`read_line_text` 返回 `Option<String>`；**未显式剥离 NUL**。需补（`cell_to_text`/`read_line_text` 处）。
+1. **winsize 像素字段**：TIOCSWINSZ 的 ws_xpixel/ws_ypixel 填像素值。
+
+- 本地：`PtyPair` 是否填像素字段？需查 pty.rs。
 
 ---
 

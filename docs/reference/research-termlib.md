@@ -8,14 +8,14 @@
 
 ```
 lib/src/main/java/org/connectbot/terminal/
-├── SelectionManager.kt (448)   # 选择状态机（mutableStateOf 驱动）
+├── SelectionManager.kt (448) # 选择状态机（mutableStateOf 驱动）
 ├── TerminalScreenState.kt (393) # 屏幕状态（snapshot/lines/scrollback）
-├── SemanticType.kt (86)        # OSC 133 语义分段（无障碍导航）
-├── TerminalNative.kt (258)     # JNI 封装（libvterm）
+├── SemanticType.kt (86) # OSC 133 语义分段（无障碍导航）
+├── TerminalNative.kt (258) # JNI 封装（libvterm）
 ├── TerminalEmulator.kt / Terminal.kt / TerminalCallbacks.kt
 ├── ImeInputView.kt / KeyboardHandler.kt / ModifierManager.kt
 ├── ScrollController.kt / UrlDetection.kt / OscParser.kt
-└── lib/src/main/cpp/libvterm/   # vendored libvterm（C 解析器）
+└── lib/src/main/cpp/libvterm/ # vendored libvterm（C 解析器）
 ```
 
 ## 2. 选择系统：`SelectionManager.kt`
@@ -24,9 +24,9 @@ lib/src/main/java/org/connectbot/terminal/
 
 ```kotlin
 internal class SelectionManager {
-    var mode by mutableStateOf<SelectionMode>(SelectionMode.NONE); private set
-    var selectionRange by mutableStateOf<SelectionRange?>(null); private set
-    var isSelecting by mutableStateOf(false); private set
+ var mode by mutableStateOf<SelectionMode>(SelectionMode.NONE); private set
+ var selectionRange by mutableStateOf<SelectionRange?>(null); private set
+ var isSelecting by mutableStateOf(false); private set
 }
 ```
 
@@ -35,35 +35,38 @@ internal class SelectionManager {
 ### 2.2 SelectionRange.contains（多行范围判定算法）
 
 `SelectionManager.kt:103-126`：
+
 ```kotlin
 fun contains(row: Int, col: Int): Boolean {
-    val minRow = minOf(startRow, endRow)
-    val maxRow = maxOf(startRow, endRow)
-    if (row !in minRow..maxRow) return false
-    if (startRow == endRow) {
-        val minCol = minOf(startCol, endCol)
-        val maxCol = maxOf(startCol, endCol)
-        return col in minCol..maxCol
-    }
-    return when (row) {
-        minRow -> col >= if (startRow < endRow) startCol else endCol
-        maxRow -> col <= if (startRow < endRow) endCol else startCol
-        else -> true
-    }
+ val minRow = minOf(startRow, endRow)
+ val maxRow = maxOf(startRow, endRow)
+ if (row !in minRow..maxRow) return false
+ if (startRow == endRow) {
+ val minCol = minOf(startCol, endCol)
+ val maxCol = maxOf(startCol, endCol)
+ return col in minCol..maxCol
+ }
+ return when (row) {
+ minRow -> col >= if (startRow < endRow) startCol else endCol
+ maxRow -> col <= if (startRow < endRow) endCol else startCol
+ else -> true
+ }
 }
 ```
+
 **正确处理反向选择**（startRow > endRow 时首行从 endCol 开始）。**对比 torvox**：torvox 的 `SelectionRange::contains`（Rust `cell_builder.rs`）语义相同，但需自查反向选择处理（Kotlin 侧 `startSelection` 是否规范化端点）。
 
 ### 2.3 模式切换：toggleMode 循环
 
 ```kotlin
 fun toggleMode(...) {
-    mode = when (mode) {
-        CHARACTER -> WORD; WORD -> LINE; LINE -> CHARACTER; NONE -> CHARACTER
-    }
-    adjustSelectionForMode(cols, snapshot, scrollbackPosition)
+ mode = when (mode) {
+ CHARACTER -> WORD; WORD -> LINE; LINE -> CHARACTER; NONE -> CHARACTER
+ }
+ adjustSelectionForMode(cols, snapshot, scrollbackPosition)
 }
 ```
+
 `adjustSelectionForMode`（:288-320）：LINE 模式扩到整行（`startCol=0, endCol=cols-1`）；WORD 模式用 `findWordBoundaries(line, col)` 从 snapshot 行扩展。scrollbackPosition 参数处理滚动偏移（`getSnapshotLine` :322-327 从 scrollback 数组取行）。
 
 **对比 torvox**：torvox 的 SelectionMode 有 5 种（Char/Word/Line/Semantic/Block），termlib 只有 3 种 + 循环切换。termlib 的"选择中切换模式自动调整范围"（adjustSelectionForMode）是 torvox 缺失的 UX——torvox 切换模式后范围不自动扩展。
@@ -71,6 +74,7 @@ fun toggleMode(...) {
 ### 2.4 键盘移动选择（无障碍导航）
 
 `moveSelectionUp/Down/Left/Right`（:182-236）：
+
 - `isSelecting` 时：只移动 end 点（类似手柄拖动）
 - 结束后：移动整个范围（start+end 一起）
 
@@ -87,12 +91,14 @@ fun toggleMode(...) {
 ## 3. SemanticType：OSC 133 语义分段（创新功能）
 
 `SemanticType.kt`：
+
 ```kotlin
 enum class SemanticType {
-    DEFAULT, PROMPT, COMMAND_INPUT, COMMAND_OUTPUT, COMMAND_FINISHED, ANNOTATION, HYPERLINK
+ DEFAULT, PROMPT, COMMAND_INPUT, COMMAND_OUTPUT, COMMAND_FINISHED, ANNOTATION, HYPERLINK
 }
 data class SemanticSegment(startCol, endCol, semanticType, metadata, promptId)
 ```
+
 - 解析 OSC 133 A/B/C/D 序列，把终端行分段为 prompt/命令/输出
 - 支撑"跳到下一个 prompt"无障碍导航 + screen reader 上下文
 - OSC 8 HYPERLINK 与 URL 检测（`UrlDetection.kt`）
@@ -102,6 +108,7 @@ data class SemanticSegment(startCol, endCol, semanticType, metadata, promptId)
 ## 4. 测试基础设施（值得借鉴）
 
 termlib 有 **19 个测试文件**，覆盖：
+
 - `SelectionManagerTest.kt`、`SelectionControllerTest.kt`、`HandleDragTest.kt`（选择状态机、拖拽）
 - `TerminalScreenStateScrollTest.kt`、`TerminalScreenStateUrlTest.kt`
 - `SemanticTypeTest.kt`、`TerminalUrlExtractionTest.kt`
@@ -138,6 +145,7 @@ SelectionManager.kt (torvox) 或 ViewModel:
 ## 8. 结论
 
 termlib 是**架构最接近的 Compose 参考**。三个明确缺口/借鉴点：
+
 1. **resize 时钳制选择范围**（clampToDimensions）——torvox 需自查
 2. **模式切换自动调整范围**（adjustSelectionForMode）——torvox 切换 SelectionMode 后范围不扩展
 3. **键盘移动选择**（无障碍导航）——功能缺口
@@ -158,7 +166,7 @@ termlib 是**架构最接近的 Compose 参考**。三个明确缺口/借鉴点�
 - `TRAILING_DETECTED_URL_PUNCTUATION = {., ,, ;, :, !}`：URL 尾随标点修剪
 - `countOpenLessThanClose`：括号配对计数——`)` 只在闭合计数 > 打开计数时修剪（`foo(bar)` 的 `)` 保留，`foo(bar)).` 修剪多余的 `)`）
 
-**torvox 对照**：SelectionExpander.findUrlStart/expandWord（:22-80）URL 展开到空白为止——**未修剪尾随标点/括号**。功能缺口 P0：`https://x.com/a).` 会选中 `).`。round-214 只修了"前导引号/词收缩"，尾随侧未处理。
+**torvox 对照**：SelectionExpander.findUrlStart/expandWord（:22-80）URL 展开到空白为止——**未修剪尾随标点/括号**。功能缺口 P0：`https://x.com/a).` 会选中 `).`。只修了"前导引号/词收缩"，尾随侧未处理。
 
 ### 测试套件清单（27 个测试文件，未覆盖项）
 

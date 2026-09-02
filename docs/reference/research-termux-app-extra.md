@@ -23,12 +23,12 @@
 
 ```
 PTY master fd ──读线程──> ByteQueue ──主线程 Handler──> TerminalEmulator.append()
-                                                              │ 逐字节
-                                                              ▼
-                                              processByte() → processCodePoint() → emitCodePoint()
-                                                              │
-                                                              ▼
-                                              TerminalBuffer（双缓冲：mMainBuffer / mAltBuffer）
+ │ 逐字节
+ ▼
+ processByte() → processCodePoint() → emitCodePoint()
+ │
+ ▼
+ TerminalBuffer（双缓冲：mMainBuffer / mAltBuffer）
 ```
 
 模块文件清单（`terminal-emulator/src/main/java/com/termux/terminal/`）：
@@ -76,6 +76,7 @@ PTY master fd ──读线程──> ByteQueue ──主线程 Handler──> Te
 | `isAlternateBufferActive()` | :351-353 | `mScreen == mAltBuffer` |
 
 **要点**：
+
 1. **双缓冲**：`mMainBuffer`（transcript 2000 行默认，可配 100-50000，:147-149）与 `mAltBuffer`（无历史），切换点 `doCsiQuestionMark` :1254-1272；`SavedScreenState` 保存/恢复光标与滚动区（:1502/:1516）。
 2. **滚动计数**：`mScrollCounter` 递增统计（scrollDownOneLine :2207）。
 3. **delayed wrap**：光标在最后一列时并不立即换行，记 `mAboutToAutoWrap`，下一个可打印字符才真正换行——这是 `BS` 回退上一行（processCodePoint :590-599）的基础。
@@ -88,8 +89,8 @@ PTY master fd ──读线程──> ByteQueue ──主线程 Handler──> Te
 ```java
 // 外部 ↔ 内部坐标映射（TerminalBuffer.java:176-181）
 public int externalToInternalRow(int externalRow) {
-    final int internalRow = mScreenFirstRow + externalRow;
-    return (internalRow < 0) ? (mTotalRows + internalRow) : (internalRow % mTotalRows);
+ final int internalRow = mScreenFirstRow + externalRow;
+ return (internalRow < 0) ? (mTotalRows + internalRow) : (internalRow % mTotalRows);
 }
 ```
 
@@ -109,6 +110,7 @@ public int externalToInternalRow(int externalRow) {
 | `getActiveTranscriptRows/getActiveRows` | :147-153 | 历史行数 / 总行数 |
 
 **getSelectedText 的宽字符与换行语义（:60-106，torvox 对比锚点）**：
+
 1. 列→字符索引用 `lineObject.findStartOfColumn(x)`（TerminalRow:92），**宽字符首列选取自动扩展到整字符**（:77-82：`x2Index == x1Index` 时取下一列起点）；
 2. 行尾处理：`lastPrintingCharIndex` 找到最后非空格字符；**若该行是软换行（wrap），保留尾部空格**（:87-89），否则裁掉——保证 wrap 行拼接时无空格、非 wrap 行不拖尾空格；
 3. 行间分隔：`joinBackLines`（wrap 行不插 `\n`）与 `joinFullLines`（整行占满才不插 `\n`）两个开关组合出三种 transcript 模式（:101-103）。
@@ -130,21 +132,22 @@ public int externalToInternalRow(int externalRow) {
 ```java
 // TerminalSession.java:123-172 initializeEmulator()
 mTerminalFileDescriptor = JNI.createSubprocess(mShellPath, mCwd, mArgs, mEnv, processId, rows, columns, cellWidth, cellHeight);
-new Thread("TermSessionInputReader") {  // :133  PTY → mProcessToTerminalIOQueue → MSG_NEW_INPUT
-    int read = termIn.read(buffer);     // 阻塞读 4KB
-    mProcessToTerminalIOQueue.write(...); mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
+new Thread("TermSessionInputReader") { // :133 PTY → mProcessToTerminalIOQueue → MSG_NEW_INPUT
+ int read = termIn.read(buffer); // 阻塞读 4KB
+ mProcessToTerminalIOQueue.write(...); mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
 }
-new Thread("TermSessionOutputWriter") { // :150  mTerminalToProcessIOQueue → PTY
-    int bytesToWrite = mTerminalToProcessIOQueue.read(buffer, true); // 阻塞等
-    termOut.write(buffer, 0, bytesToWrite);
+new Thread("TermSessionOutputWriter") { // :150 mTerminalToProcessIOQueue → PTY
+ int bytesToWrite = mTerminalToProcessIOQueue.read(buffer, true); // 阻塞等
+ termOut.write(buffer, 0, bytesToWrite);
 }
-new Thread("TermSessionWaiter") {       // :166  waitpid → MSG_PROCESS_EXITED
-    int processExitCode = JNI.waitFor(mShellPid);
-    mMainThreadHandler.sendMessage(MSG_PROCESS_EXITED, processExitCode);
+new Thread("TermSessionWaiter") { // :166 waitpid → MSG_PROCESS_EXITED
+ int processExitCode = JNI.waitFor(mShellPid);
+ mMainThreadHandler.sendMessage(MSG_PROCESS_EXITED, processExitCode);
 }
 ```
 
 要点：
+
 1. **延迟启动**：构造（:82-89）只存参数；`updateSize()`（:103-110）首次调用时才 `initializeEmulator`（创建子进程 + 起线程），之后每次 resize 只 `JNI.setPtyWindowSize` + `mEmulator.resize`；
 2. **双 ByteQueue 解耦**：读线程与主线程、主线程与写线程之间零锁等待（ByteQueue 内部 synchronized + wait/notify）；
 3. **主线程回调**：`MainThreadHandler` 处理 `MSG_NEW_INPUT`（把队列字节喂给 emulator 后 `notifyScreenUpdate()` → `mClient.onTextChanged`）与 `MSG_PROCESS_EXITED`（写 `[Process completed (code N) - press Enter]` 到屏幕 :355-365）；
@@ -159,6 +162,7 @@ new Thread("TermSessionWaiter") {       // :166  waitpid → MSG_PROCESS_EXITED
 ### 1.8 JNI.java + jni/termux.c —— PTY 子进程（Android 版 fork/exec）
 
 `termux.c create_subprocess()`（:25-115）流程：
+
 1. `open("/dev/ptmx", O_RDWR|O_CLOEXEC)` :36 → `grantpt/unlockpt/ptsname_r` :44-49；
 2. termios：**`IUTF8` 置位、`IXON|IXOFF` 清除**（:54-59，注释明确：防 Ctrl+S 锁死显示——Android mksh 的坑）；
 3. `TIOCSWINSZ` 设初始尺寸（ws_xpixel=cols×cellWidth，:62-63）；
@@ -190,6 +194,7 @@ new Thread("TermSessionWaiter") {       // :166  waitpid → MSG_PROCESS_EXITED
 ### 2.2 TermuxConstants.java（84KB，路径体系）
 
 关键常量（TermuxConstants.java:588-600 附近）：
+
 - `TERMUX_FILES_DIR_PATH = /data/data/com.termux/files`（:588）
 - `TERMUX_PREFIX_DIR_PATH = .../files/usr`（:595，即 $PREFIX）
 - `TERMUX_HOME_DIR_PATH`、`TERMUX_TMP_PREFIX_DIR_PATH`、`TERMUX_ENV_FILE_PATH`/`TERMUX_ENV_TEMP_FILE_PATH`（termux.env 原子写，见 §2.4）
@@ -202,6 +207,7 @@ new Thread("TermSessionWaiter") {       // :166  waitpid → MSG_PROCESS_EXITED
 ### 2.4 TermuxShellEnvironment.java —— 子进程环境
 
 `getEnvironment()`（:68-112）：Android 基础环境 + Termux 项：
+
 - `PREFIX`/`TERMUX__PREFIX`、`HOME`/`TERMUX__HOME`、`TERMUX__ROOTFS_DIR`、`TERMUX__APPS_DIR`（:89-95）；
 - 非 failsafe：`TMPDIR=$PREFIX/tmp`、`PATH=$PREFIX/bin`（apt-android-7，:106）；**Android 5 变体额外 `LD_LIBRARY_PATH=$PREFIX/lib`**（:100-103）——Android 7+ 依赖 DT_RUNPATH 故不设；
 - `writeEnvironmentToFile()`（:46-63）：**temp 文件 + rename 原子写** `termux.env`（shell 侧可 source）。
@@ -215,6 +221,7 @@ new Thread("TermSessionWaiter") {       // :166  waitpid → MSG_PROCESS_EXITED
 ### 2.6 TermuxSession.java（termux-shared，runner 层）
 
 `execute(...)`（:77-285）：
+
 1. 可执行文件选择：未指定时按 `LOGIN_SHELL_BINARIES` 在 $PREFIX/bin 探测（:96-103），失败回退 `/system/bin/sh`（failsafe，:105-114），命中则 `-l` 登录 shell；
 2. 组装环境（TermuxShellEnvironment）+ `TerminalSession` 构造；
 3. 与 `ExecutionCommand`（插件/任务框架）绑定；`setStdoutOnExit` 时退出回调携带 transcript（:68-74 注释）。
@@ -274,21 +281,23 @@ torvox 已自行实现等效机制（见 §5.4 对比与 §7 建议）。
 ### 3.3 TermuxInstaller.java —— bootstrap 安装（含 getZip）
 
 流程（类 javadoc :45-63 与代码一致）：
+
 1. **前置校验**：files 目录可访问（:75）、主用户检查（:80，Android N+ 多用户）、SDK 变体兼容（:109，`checkIfMinOrMaxSdkVersionIsIncompatible` :282-316）；
 2. **幂等**：$PREFIX 存在且非空 → 直接 `whenDone.run()`（:116-121）；
 3. 后台线程（:128-279）：
-   - 删 staging 与 prefix（:137-148）→ 重建两个目录（:151-162）；
-   - `loadZipBytes()`（:454-458，`System.loadLibrary("termux-bootstrap")` + `getZip()`）→ **`ZipInputStream` 流式解压**（:170-216）：`SYMLINKS.txt` 先收集（:173-179），其余条目写入 staging，`bin/`、`libexec/`、`lib/apt/*`、second-stage 脚本 `Os.chmod(0700)`（:207-212）；
-   - `Os.symlink` 全部链接（:220-222）→ `TERMUX_STAGING_PREFIX_DIR.renameTo(TERMUX_PREFIX_DIR)`（:226-228，**staging 原子换入**）；
-   - **second stage**：执行 `$PREFIX/etc/termux/bootstrap/termux-bootstrap-second-stage.sh`（:231-257，AppShell runner），失败则删 prefix 报错；
-   - `TermuxShellEnvironment.writeEnvironmentToFile`（:262）重建 termux.env；
-4. 错误路径：`showBootstrapErrorDialog`（:318-340）"重试"= 删 prefix 重装；崩溃通知 `sendBootstrapCrashReportNotification`（:342+）。
+
+- 删 staging 与 prefix（:137-148）→ 重建两个目录（:151-162）；
+- `loadZipBytes()`（:454-458，`System.loadLibrary("termux-bootstrap")` + `getZip()`）→ **`ZipInputStream` 流式解压**（:170-216）：`SYMLINKS.txt` 先收集（:173-179），其余条目写入 staging，`bin/`、`libexec/`、`lib/apt/*`、second-stage 脚本 `Os.chmod(0700)`（:207-212）；
+- `Os.symlink` 全部链接（:220-222）→ `TERMUX_STAGING_PREFIX_DIR.renameTo(TERMUX_PREFIX_DIR)`（:226-228，**staging 原子换入**）；
+- **second stage**：执行 `$PREFIX/etc/termux/bootstrap/termux-bootstrap-second-stage.sh`（:231-257，AppShell runner），失败则删 prefix 报错；
+- `TermuxShellEnvironment.writeEnvironmentToFile`（:262）重建 termux.env；
+1. 错误路径：`showBootstrapErrorDialog`（:318-340）"重试"= 删 prefix 重装；崩溃通知 `sendBootstrapCrashReportNotification`（:342+）。
 
 ```java
 // TermuxInstaller.java:454-461 —— zip 从 native 库按 ABI 取
 public static byte[] loadZipBytes() {
-    System.loadLibrary("termux-bootstrap");
-    return getZip();
+ System.loadLibrary("termux-bootstrap");
+ return getZip();
 }
 public static native byte[] getZip();
 ```
@@ -336,6 +345,7 @@ public static native byte[] getZip();
 ## 4. docs/ 目录
 
 `docs/en/index.md` 仅为占位（指向 wiki）。实质文档：
+
 - `README.md`：安装源差异（F-Droid 通用 APK vs GitHub 分 ABI，:76-90）、**Android 12+ phantom process 警告**（:20，`[Process completed (signal 9)]`）、fork 指南（:261-266）；
 - 其余在 GitHub wiki（TermuxConstants javadoc 链接）。
 
@@ -366,7 +376,7 @@ public static native byte[] getZip();
 | 输入 | `writeCodePoint` 手写 UTF-8（:183-217） | `Session::write` 直接写 PTY（session.rs:414-420） |
 | 信号 | `Os.kill(SIGKILL)`（finishIfRunning :235） | `send_signal(signum)`（session.rs:470-477，更通用） |
 
-结论：**torvox 的线程模型更现代**（channel 背压 + 渲染线程轮询），termux 的主线程 Handler 模型在 torvox 的 GPU 渲染架构下不可行。无可吸收项，但 termux 的"resize 时才初始化 emulator"（TerminalSession.java:103-110）与"PTY 尺寸含像素值"（termux.c:62）值得对照——torvox resize 已处理 dropped grid 自愈（session.rs:428-455，round-112/113）。
+结论：**torvox 的线程模型更现代**（channel 背压 + 渲染线程轮询），termux 的主线程 Handler 模型在 torvox 的 GPU 渲染架构下不可行。无可吸收项，但 termux 的"resize 时才初始化 emulator"（TerminalSession.java:103-110）与"PTY 尺寸含像素值"（termux.c:62）值得对照——torvox resize 已处理 dropped grid 自愈（session.rs:428-455，/113）。
 
 ### 5.3 TermuxInstaller 的 bootstrap 安装（含 termux-bootstrap.c getZip）—— **torvox 有（分发方式不同）**
 
@@ -383,7 +393,8 @@ public static native byte[] getZip();
 ### 5.4 termux-exec 机制 —— **torvox 已有等效实现（且更完整）**
 
 torvox `pty.rs`：
-- `build_env`（:676-703）：**`LD_PRELOAD=$PREFIX/lib/libtermux-exec.so`**（:679-688，round-215 注释完整复述了 termux-exec 原理）；
+
+- `build_env`（:676-703）：**`LD_PRELOAD=$PREFIX/lib/libtermux-exec.so`**（:679-688，注释完整复述了 termux-exec 原理）；
 - `spawn`（:157-166+）：**`use_linker` 分支**——shell 在 $PREFIX 下时用 `/system/bin/linker64 $PREFIX/bin/bash` 间接 exec（Android 15+ SELinux 拒绝 app_data_file 直接 execute_no_trans，注释 :148-156）；
 - 测试覆盖：`build_env_adds_ld_preload_for_prefixed_shell`（pty.rs:1086）、`build_env_no_ld_preload_without_prefix`（:1105）。
 
@@ -433,18 +444,20 @@ torvox `pty.rs`：
 ## 7. 可吸收到 torvox 的具体内容（含代码注释建议）
 
 1. **wrap 感知的选择文本拼接**（最高价值）：`TerminalViewModel.extractSelectedText`（TerminalViewModel.kt:476-556）目前每行硬插 `\n`（:553）。termux 的语义（TerminalBuffer.java:86-103）：wrap 行拼接不插换行、保留尾空格。**建议**：给 `TerminalQueryPort.scrollbackLine` 增加 `lineWrap(row): Boolean` 查询（ghostty grid 已有 wrap 标志），Kotlin 侧仿 :87-103 逻辑：
-   ```kotlin
-   // 参考 termux-app TerminalBuffer.getSelectedText :86-103 (research-termux-app-extra.md §1.3)
-   // wrap 行: 不插 '\n' 且保留行尾空格; 非 wrap 行: 裁尾空格后插 '\n'
-   ```
-2. **宽字符列边界修正**（高价值）：`extractSelectedText` 的 `substring(lo.col, hi.col+1)`（:501-503）在含 CJK 行上会切错 char 边界。termux 的 `findStartOfColumn`（TerminalRow.java:92-120）思想：**用 WcWidth 在字符串上把列号换算成 char 索引**。建议新增 `TerminalViewModel` 工具函数 `columnToCharIndex(line, col)`，或在 native 侧提供列→字节偏移查询（ghostty 有 `grid.cursorCell` 类似 API 可查）。
-3. **当前会话 handle 持久化**（中价值）：参照 `TermuxAppSharedPreferences.getCurrentSession/setCurrentSession`（:174-181）+ `getTerminalSessionForHandle`（TermuxService.java:919-927），把 `RuntimeState.activeSessionId` 写入 DataStore/SharedPreferences，Activity 冷启动后恢复会话而非新建。
-4. **内嵌 bootstrap 的 ABI 汇编技巧**（可选）：`termux-bootstrap-zip.S` 的 `.incbin` + 汇编期 `blob_size`（:16-18）是零成本内嵌二进制的标准手法；若未来做离线安装，可直接照搬到 Android.mk/CMake（.S 汇编器通用）。
-5. **`isTermuxSessionsEmpty` 幂等引导**（低价值）：TermuxActivity.java:397-410 的"空会话才引导"模式，torvox `ensureDefaultSession` 已有同等语义。
-6. **注释建议落点**（供直接复制进代码）：
-   - `TerminalViewModel.kt` extractSelectedText 处补 wrap 语义注释（见 1）；
-   - `TerminalSurface.kt:1110` gridRow 换算处补 termux 坐标对照（`termux 外部坐标 -mActiveTranscriptRows…mScreenRows-1，mTopRow≤0；torvox scrollOffset≥0，gridRow = scrollbackLen - offset + row`）；
-   - `BootstrapInstaller.kt:160` chmod 处补 termux 对照（`termux 只对 bin/、libexec/、lib/apt/* 设 0700，TermuxInstaller.java:207-212`）。
+
+ ```kotlin
+ // 参考 termux-app TerminalBuffer.getSelectedText :86-103 (research-termux-app-extra.md §1.3)
+ // wrap 行: 不插 '\n' 且保留行尾空格; 非 wrap 行: 裁尾空格后插 '\n'
+ ```
+1. **宽字符列边界修正**（高价值）：`extractSelectedText` 的 `substring(lo.col, hi.col+1)`（:501-503）在含 CJK 行上会切错 char 边界。termux 的 `findStartOfColumn`（TerminalRow.java:92-120）思想：**用 WcWidth 在字符串上把列号换算成 char 索引**。建议新增 `TerminalViewModel` 工具函数 `columnToCharIndex(line, col)`，或在 native 侧提供列→字节偏移查询（ghostty 有 `grid.cursorCell` 类似 API 可查）。
+2. **当前会话 handle 持久化**（中价值）：参照 `TermuxAppSharedPreferences.getCurrentSession/setCurrentSession`（:174-181）+ `getTerminalSessionForHandle`（TermuxService.java:919-927），把 `RuntimeState.activeSessionId` 写入 DataStore/SharedPreferences，Activity 冷启动后恢复会话而非新建。
+3. **内嵌 bootstrap 的 ABI 汇编技巧**（可选）：`termux-bootstrap-zip.S` 的 `.incbin` + 汇编期 `blob_size`（:16-18）是零成本内嵌二进制的标准手法；若未来做离线安装，可直接照搬到 Android.mk/CMake（.S 汇编器通用）。
+4. **`isTermuxSessionsEmpty` 幂等引导**（低价值）：TermuxActivity.java:397-410 的"空会话才引导"模式，torvox `ensureDefaultSession` 已有同等语义。
+5. **注释建议落点**（供直接复制进代码）：
+
+- `TerminalViewModel.kt` extractSelectedText 处补 wrap 语义注释（见 1）；
+- `TerminalSurface.kt:1110` gridRow 换算处补 termux 坐标对照（`termux 外部坐标 -mActiveTranscriptRows…mScreenRows-1，mTopRow≤0；torvox scrollOffset≥0，gridRow = scrollbackLen - offset + row`）；
+- `BootstrapInstaller.kt:160` chmod 处补 termux 对照（`termux 只对 bin/、libexec/、lib/apt/* 设 0700，TermuxInstaller.java:207-212`）。
 
 ## 8. 项目文档吸收价值
 
@@ -457,6 +470,7 @@ torvox `pty.rs`：
 ## 9. 结论
 
 termux-app v0.119.0-beta.3 的其余模块与 torvox 的关系是"**同题异解，torvox 整体领先**"：
+
 - PTY/线程模型、termux-exec、bootstrap 安装：torvox 已有等效或更强实现（linker 间接 exec、原子换入、看门狗）；
 - **真正缺口只有两个**，都集中在选择文本提取：① 软换行（wrap）感知的行拼接；② 宽字符列→char 索引换算（§7-1/7-2）。二者都有 termux 的成熟参考实现（TerminalBuffer.java:52-106 + TerminalRow.java:92-120），移植成本低、收益直接（CJK 场景选择复制正确性）；
 - 文档层面值得吸收：Android 12+ phantom process 预警、PTY 两条 Android 经验（IUTF8/IXON、sigprocmask）的出处标注。
@@ -464,6 +478,7 @@ termux-app v0.119.0-beta.3 的其余模块与 torvox 的关系是"**同题异解
 ## deep-v5 增量（复核第 2 轮：MORE 按钮机制）
 
 TextSelectionCursorController.java：
+
 - `ACTION_COPY=1 / ACTION_PASTE=2 / ACTION_MORE=3`（:33-35）；菜单构建 :116-120（COPY + PASTE（`setEnabled(clipboard.hasPrimaryClip())`）+ MORE）
 - **MORE 语义**（:145-149）：先 `mStoredSelectedText = getSelectedText()` 存文本，再交 TerminalViewClient 处理（分享/翻译等扩展）——`getStoredSelectedText()`（:380）/`unsetStoredSelectedText()`（:385）成对管理
 - 防竞态（:130-132）：菜单点击时 `!isActive()` 直接 return（对话框关闭中误点防护）
@@ -473,6 +488,7 @@ TextSelectionCursorController.java：
 ## deep-v1 增量（2026-08-07 全文件精读轮 #2）
 
 ### 本次精读文件
+
 - `termux-shared/.../shell/am/AmSocketServer.java` + `net/socket/local/LocalSocketManager.java`
 - `termux-shared/.../terminal/io/BellHandler.java`
 - app 模块文件清单核对（TermuxShellManager/extrakeys/settings fragments——extra 已覆盖）
@@ -488,10 +504,12 @@ TextSelectionCursorController.java：
 | 错误 | JNI 异常必须 catch Throwable（:105 注释） | torvox jni_export_guard 同理念 | 确认 |
 
 ### BellHandler（termux 铃声 62 行完整）
+
 - **振动** 50ms + `MIN_PAUSE = 3×DURATION` 合并策略（快速连续 BEL 合并为一次，`lastBell` 跟踪下次调度）+ Samsung Android 8 已知异常捕获
 - **torvox 对照**：torvox bellToneGenerator（ToneGenerator 缓存实例）——**音调 vs 振动差异**。torvox 用音调（TerminalRuntime 缓存 ToneGenerator）。termux 用振动（无音频输出场景更可靠）。**P3 记录**：torvox 可加"铃声+振动"双通道或设置项
 
 ### 新增汇总
+
 | # | 发现 | 级别 |
 |---|------|------|
 | 1 | getPeerCred 对端凭据检查（SO_PEERCRED）——torvox MCP 无 | P2 |

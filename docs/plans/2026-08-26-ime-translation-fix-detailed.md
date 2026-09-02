@@ -2,7 +2,7 @@
 
 ## Reference: 26-Project Pixel Study
 
-Source: <https://github.com/kyehn/torvox/tree/3fc8b6d7952abc8754e54110579c57e78c3d40ec/docs/reference> (44 files, 1.3MiB)
+Source: <https://github.com/kyehn/torvox/tree/main/docs/reference> (44 files, 1.3MiB)
 
 | Project | Technique Copied | Torvox File:Line | Priority |
 |---|---|---|---|
@@ -47,12 +47,12 @@ Total 26 projects indexed in `00-PERSONAL-RESEARCH-INDEX.md`, gaps in `issue-mat
 ## Feasibility & Verification
 
 - Feasible: Single translation path is universally supported (Compose `offset` + `adjustNothing`), zero native changes, `getLocationInWindow` already includes offset, single overlay already 0 IPC.
-- Verified: `b89f089` → `069e0e1` 2-file change, `nix develop -c cargo test` 997, `gradle assembleDebug` 9s incremental, `pm clear` + `screencap` shows `$` at top, `logcat` `presented 2112 instances` steady, no `FATAL`.
+- Verified: 2-file change, `nix develop -c cargo test` 997, `gradle assembleDebug` 9s incremental, `pm clear` + `screencap` shows `$` at top, `logcat` `presented 2112 instances` steady, no `FATAL`.
 - External libs: `androidx.compose.animation:animateDpAsState spring`, `WindowInsets.ime`, `PopupWindow TYPE_APPLICATION_SUB_PANEL`, `wgpu Mailbox` — all trusted, no custom abstraction.
 
 ## Risk & Rollback
 
 - Risk: `offset` triggers layout on every frame (vs `graphicsLayer` draw only) — acceptable at 120fps for 1080x2400, `Choreographer` vsync will show janky<5%.
-- Rollback: `git revert 069e0e1` restores padding+resize, squashed returns but terminal visible.
+- Rollback: `git revert` restores padding+resize, squashed returns but terminal visible.
 
 Trace: 6 event(s).

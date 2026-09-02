@@ -1,6 +1,6 @@
 # 深度研究：ghostty-android 渲染层 — 亲自逐文件阅读补充
 
-> 研究日期：2026-08-06 | 项目链接：https://github.com/sylirre/ghostty-android-terminal
+> 研究日期：2026-08-06 | 项目链接：<https://github.com/sylirre/ghostty-android-terminal>
 > 前置：`research-ghostty-android.md`（选择系统，亲自精读）；本文补充**渲染层**（onDraw/drawRowText/kitty graphics/壁纸）
 
 ## 1. onDraw 分层（TerminalView.java:1509-1600，亲自精读）
@@ -8,23 +8,24 @@
 ```
 onDraw:
 1. snapshotSmooth（平滑滚动时取 viewport + 上方一行，:1514-1524）
-2. canvas.drawColor(snapshot.defaultBg())          ← 主题背景
-3. drawBackgroundImage(canvas)                      ← 壁纸（center-crop + alpha 叠加）
-4. canvas.translate(0, offsetPx)                    ← 平滑滚动偏移
-5. drawRowBackground（先所有背景 run，:1540-1543）  ← 背景先画，字形不被覆盖
-6. updateGraphics() + drawImages(canvas, true)      ← kitty graphics z<0（背景上、文字下）
-7. updateCursorBlink() + updateTextBlink()          ← 光标/文字闪烁状态更新
-8. drawCursor(canvas)                               ← 光标
-9. drawRowText（逐行，:1548-1552）                   ← 文字
-10. drawImages(canvas, false)                       ← kitty graphics z>=0（文字上，kitty 默认）
+2. canvas.drawColor(snapshot.defaultBg()) ← 主题背景
+3. drawBackgroundImage(canvas) ← 壁纸（center-crop + alpha 叠加）
+4. canvas.translate(0, offsetPx) ← 平滑滚动偏移
+5. drawRowBackground（先所有背景 run，:1540-1543） ← 背景先画，字形不被覆盖
+6. updateGraphics() + drawImages(canvas, true) ← kitty graphics z<0（背景上、文字下）
+7. updateCursorBlink() + updateTextBlink() ← 光标/文字闪烁状态更新
+8. drawCursor(canvas) ← 光标
+9. drawRowText（逐行，:1548-1552） ← 文字
+10. drawImages(canvas, false) ← kitty graphics z>=0（文字上，kitty 默认）
 11. drawSizeOverlay + drawSelectionHandles + drawBellFlash
 ```
 
-**torvox 对比**：torvox 的 wgpu 渲染在 shader 中处理背景/字形/光标（单 pass 实例化），z-order 由实例顺序决定。ghostty-android 的分层顺序（背景→图→光标→文字→图）是 CPU 渲染的必要顺序，torvox 的 GPU 实例化天然满足。**bell flash**（drawBellFlash :1580-1593：白色 alpha 96*phase 矩形 + postInvalidateDelayed(16)）——torvox 有 flashBell 等价（round-216 已实现）。
+**torvox 对比**：torvox 的 wgpu 渲染在 shader 中处理背景/字形/光标（单 pass 实例化），z-order 由实例顺序决定。ghostty-android 的分层顺序（背景→图→光标→文字→图）是 CPU 渲染的必要顺序，torvox 的 GPU 实例化天然满足。**bell flash**（drawBellFlash :1580-1593：白色 alpha 96*phase 矩形 + postInvalidateDelayed(16)）——torvox 有 flashBell 等价（已实现）。
 
 ## 2. drawRowText run 批处理（TerminalView.java:1800-1870，亲自精读）
 
 **核心算法**（:1803-1835）：
+
 - 同一 fg/attr 的 ASCII 连续字形合并为 run → 一次 `canvas.drawText(runText)`（:1832）
 - **run 中断条件**（:1819-1825）：cp==0（空单元格）/ fg 或 attr 变化 / ATTR_WIDE（宽字形前进 2 格）/ grapheme cluster（组合字符必须整簇交给字体整形）/ **cp > 0x7F（非 ASCII 可能走 fallback 字体、advance 不同）**
 - 下划线独立绘制（drawUnderline，run 覆盖 [runStart, x) 全宽）

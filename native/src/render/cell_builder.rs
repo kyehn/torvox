@@ -629,7 +629,7 @@ fn append_row_instances(
         if let Some(hl) = cell_highlight(cd.row, cd.col, highlights_by_row) {
             apply_search_highlight(&mut fg_color, &mut bg_color, *hl);
         }
-        // Round-234 (spec cursor-rendering "宽字符光标几何"): wide-char
+        // (spec cursor-rendering "宽字符光标几何"): wide-char
         // cursors must cover the FULL glyph. build_cell_data emits ONE CellData
         // per wide char with width=2 (the trailing grid column has no CellData
         // of its own — review-1 verified internal.rs consumes both columns), so

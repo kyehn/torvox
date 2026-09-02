@@ -2,7 +2,7 @@
 
 ## Why
 
-当前 `main` (808e794) 在模拟器与真机均可复现 4 项 P0 用户感知缺陷，且与 2026-08-27 声称已闭环的 `full-closure-v3` 描述不一致（代码未落地或回退）：
+当前 `main` 在模拟器与真机均可复现 4 项 P0 用户感知缺陷，且与 2026-08-27 声称已闭环的 `full-closure-v3` 描述不一致（代码未落地或回退）：
 
 | # | 现象 | 复现路径 | 影响 | 2026-08-27 声称 | 当前代码实际 |
 |---|------|----------|------|-----------------|--------------|
@@ -64,6 +64,6 @@
 ## Impact
 
 - **用户感知**：4 项 P0 全部闭环，可在无真机网络的模拟器上 90fps+ 验证（`dumpsys gfxinfo framestats` + `screenrecord` 逐帧）。
-- **兼容性**：无破坏性 API；`font_info` JSON 字段 `font_size_px`→`font_size` 已在 808e794 改过，本变更保持。
+- **兼容性**：无破坏性 API；`font_info` JSON 字段 `font_size_px`→`font_size` 已在主线改过，本变更保持。
 - **风险**：`reconfigure_swapchain` 在部分模拟器驱动不支持时回退路径已保留；Serf 罚 32 若未来出现更高优先级的 CJK 字体可通过 `cjk_family_priority` 单测调整；IME 3 帧 settle 若过短导致过早重排可调至 4 帧。
 - **验证**：`nix develop -c cargo test --workspace` 997 pass、`cargo clippy --deny warnings`、`gradle spotlessCheck detekt`、`adb` 4 场景录屏 + 日志审计（见 tasks.md）。
