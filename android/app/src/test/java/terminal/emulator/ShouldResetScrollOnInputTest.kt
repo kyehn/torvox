@@ -17,62 +17,62 @@ import org.junit.Test
  */
 class ShouldResetScrollOnInputTest {
 
-  private val cr = byteArrayOf('\r'.code.toByte())
-  private val lf = byteArrayOf('\n'.code.toByte())
-  private val crlf = byteArrayOf('l'.code.toByte(), 's'.code.toByte(), '\r'.code.toByte())
+    private val cr = byteArrayOf('\r'.code.toByte())
+    private val lf = byteArrayOf('\n'.code.toByte())
+    private val crlf = byteArrayOf('l'.code.toByte(), 's'.code.toByte(), '\r'.code.toByte())
 
-  @Test
-  fun bareCarriageReturnTriggersSnap() {
-    assertTrue(shouldResetScrollOnInput(cr, hasSelectionOrDrag = false))
-  }
+    @Test
+    fun bareCarriageReturnTriggersSnap() {
+        assertTrue(shouldResetScrollOnInput(cr, hasSelectionOrDrag = false))
+    }
 
-  @Test
-  fun bareLineFeedTriggersSnap() {
-    assertTrue(shouldResetScrollOnInput(lf, hasSelectionOrDrag = false))
-  }
+    @Test
+    fun bareLineFeedTriggersSnap() {
+        assertTrue(shouldResetScrollOnInput(lf, hasSelectionOrDrag = false))
+    }
 
-  @Test
-  fun commandWithTrailingNewlineTriggersSnap() {
-    assertTrue(shouldResetScrollOnInput(crlf, hasSelectionOrDrag = false))
-  }
+    @Test
+    fun commandWithTrailingNewlineTriggersSnap() {
+        assertTrue(shouldResetScrollOnInput(crlf, hasSelectionOrDrag = false))
+    }
 
-  @Test
-  fun printableInputWithoutNewlineDoesNotSnap() {
-    assertFalse(
-        shouldResetScrollOnInput(
-            byteArrayOf('l'.code.toByte(), 's'.code.toByte()),
-            hasSelectionOrDrag = false,
-        ),
-    )
-  }
+    @Test
+    fun printableInputWithoutNewlineDoesNotSnap() {
+        assertFalse(
+            shouldResetScrollOnInput(
+                byteArrayOf('l'.code.toByte(), 's'.code.toByte()),
+                hasSelectionOrDrag = false,
+            ),
+        )
+    }
 
-  @Test
-  fun emptyWriteDoesNotSnap() {
-    assertFalse(shouldResetScrollOnInput(ByteArray(0), hasSelectionOrDrag = false))
-  }
+    @Test
+    fun emptyWriteDoesNotSnap() {
+        assertFalse(shouldResetScrollOnInput(ByteArray(0), hasSelectionOrDrag = false))
+    }
 
-  @Test
-  fun activeSelectionSuppressesSnap() {
-    assertFalse(shouldResetScrollOnInput(crlf, hasSelectionOrDrag = true))
-  }
+    @Test
+    fun activeSelectionSuppressesSnap() {
+        assertFalse(shouldResetScrollOnInput(crlf, hasSelectionOrDrag = true))
+    }
 
-  @Test
-  fun activeHandleDragSuppressesSnap() {
-    assertFalse(shouldResetScrollOnInput(cr, hasSelectionOrDrag = true))
-  }
+    @Test
+    fun activeHandleDragSuppressesSnap() {
+        assertFalse(shouldResetScrollOnInput(cr, hasSelectionOrDrag = true))
+    }
 
-  @Test
-  fun controlBytesOtherThanCrLfDoNotTrigger() {
-    // Tab, ESC, CSI bytes are common in raw keyboard mode; none of them
-    // commits "back to live screen" intent.
-    val tabEsc = byteArrayOf('\t'.code.toByte(), 0x1B, 0x5B) // \t ESC [
-    assertFalse(shouldResetScrollOnInput(tabEsc, hasSelectionOrDrag = false))
-  }
+    @Test
+    fun controlBytesOtherThanCrLfDoNotTrigger() {
+        // Tab, ESC, CSI bytes are common in raw keyboard mode; none of them
+        // commits "back to live screen" intent.
+        val tabEsc = byteArrayOf('\t'.code.toByte(), 0x1B, 0x5B) // \t ESC [
+        assertFalse(shouldResetScrollOnInput(tabEsc, hasSelectionOrDrag = false))
+    }
 
-  @Test
-  fun crlfInsideLargerPasteTriggersSnapOncePerCall() {
-    // Multi-line paste: decision is per-call boolean, caller applies it once.
-    val paste = "\n".repeat(3).toByteArray()
-    assertTrue(shouldResetScrollOnInput(paste, hasSelectionOrDrag = false))
-  }
+    @Test
+    fun crlfInsideLargerPasteTriggersSnapOncePerCall() {
+        // Multi-line paste: decision is per-call boolean, caller applies it once.
+        val paste = "\n".repeat(3).toByteArray()
+        assertTrue(shouldResetScrollOnInput(paste, hasSelectionOrDrag = false))
+    }
 }
