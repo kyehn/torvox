@@ -457,7 +457,8 @@ impl super::GhosttyTerminal {
     /// Encode a mouse event (pixel position, action, button) into terminal
     /// escape sequences using the Ghostty mouse encoder. `cell_w`/`cell_h`
     /// are the renderer's live cell dimensions so the pixel→cell mapping
-    /// matches what is displayed (zelland `get_cell_size()` pattern).
+    /// matches what is displayed (zelland `get_cell_size()` pattern,
+    /// src-tauri/src/terminal.rs:41-90 + ghostty_mouse_encoder SGR/1006).
     ///
     /// Returns `None` when mouse reporting is disabled (no DECSET
     /// 1000/1002/1003) or encoding fails — the caller drops the event.
