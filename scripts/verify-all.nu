@@ -1,3 +1,4 @@
+#!/usr/bin/env -S nix develop --command nu
 # verify-all.nu — 一键运行所有验证脚本
 # 用法：nu scripts/verify-all.nu
 

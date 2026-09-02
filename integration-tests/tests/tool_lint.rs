@@ -624,6 +624,10 @@ fn nu_scripts_are_valid() {
         "setup-emulator.nu",
         "test-gradle.nu",
         "test-emulator.nu",
+        "verify-all.nu",
+        "verify-build-artifacts.nu",
+        "verify-cjk.nu",
+        "verify-emulator.nu",
     ]
     .into_iter()
     .collect();
@@ -795,6 +799,7 @@ fn all_dependencies_are_allowlisted() {
         "schemars",
         "serde",
         "serde_json",
+        "shell-words",
         "strsim",
         "swash",
         "thiserror",
