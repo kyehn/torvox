@@ -99,7 +99,6 @@ const DEFAULT_TERMINAL_ROWS: u32 = 24;
 /// Default terminal cols for MCP terminal info.
 const DEFAULT_TERMINAL_COLS: u32 = 80;
 
-
 // ── SO_PEERCRED peer validation, termux AmSocketServer) ──
 
 /// Maximum number of consecutive rejected (foreign-uid) connections before

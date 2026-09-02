@@ -1129,7 +1129,7 @@ mod tests {
     /// full pixel rect (: stale cursor pixels persisted because
     /// empty cells emit no covering quads over LoadOp::Load).
     #[test]
-#[ignore = "requires GPU adapter"]
+    #[ignore = "requires GPU adapter"]
     fn band_clear_instances_cover_band_rect() {
         let renderer = Renderer::new_with_no_surface();
         let bands = vec![
