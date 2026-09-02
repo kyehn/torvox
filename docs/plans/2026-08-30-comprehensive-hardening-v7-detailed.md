@@ -79,8 +79,8 @@ v6 已规约 4 项高价值采纳（鼠标编码 / 无障碍 / OSC133 / CellRun�
 
 ### 阶段 0 — 基线加固（0.5 天，已完成部分）
 
-- 修复 `cell_builder.rs:462` 索引 bug（已提交 b8bf25e）
-- 恢复 `docs/reference/` 44 文件（已提交 fb6b6ce）
+- 修复 `cell_builder.rs:462` 索引 bug（已提交）
+- 恢复 `docs/reference/` 44 文件（已提交）
 - 验证 `cargo test --lib` 1000 passed（nix develop，76s）
 - 扩展 lens 超时至 120s（.pi/lens.toml 或 CI env）
 

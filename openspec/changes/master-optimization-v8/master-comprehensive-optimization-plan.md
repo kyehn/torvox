@@ -1,7 +1,7 @@
 # Master Comprehensive Optimization Plan — v8
 
 > 日期：2026-09-01 | 状态：活跃
-> 从 `3fc8b6d` baseline 出发，参考 26 项目优点，以 openspec 为长期规范载体
+> 从 baseline 出发，参考 26 项目优点，以 openspec 为长期规范载体
 
 ## 总览
 
@@ -9,7 +9,7 @@
 
 ## 已完成（阶段 0 — 基线冻结）
 
-- [x] 恢复 `docs/reference` 44 文件（`3fc8b6d` baseline）
+- [x] 恢复 `docs/reference` 44 文件（baseline）
 - [x] 修复 cell_builder 索引 bug
 - [x] cargo test 995+32 暖缓存基线（57s, 0 failed）
 - [x] OpenSpec v8 change 文档（proposal/design/tasks）
