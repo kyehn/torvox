@@ -183,6 +183,7 @@ impl OutputProcessor {
     /// between the B (prompt end) and C (command output start) markers
     /// into [`Self::last_command_output`]. A new A (prompt start) resets
     /// any in-progress capture.
+    /// (termlib OscParser handleOsc133 + SemanticType, FinalTerm spec: OSC 133 ; A/B/C/D)
     fn scan_osc133(&mut self, data: &[u8]) {
         for (index, &byte) in data.iter().enumerate() {
             self.byte_offset = index;
