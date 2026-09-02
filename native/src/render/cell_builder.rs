@@ -231,6 +231,7 @@ pub struct CellRun {
 
 /// Scan a row of `CellData` and merge adjacent cells with identical
 /// `fg_color`, `bg_color`, and `flags` into contiguous runs.
+/// (termlib CellRun pattern, termlib/CellRun.kt: run-length merging)
 ///
 /// Returns an empty `Vec` when `cell_row` is empty. Each run has
 /// `length ≥ 1`; runs never span across rows.
