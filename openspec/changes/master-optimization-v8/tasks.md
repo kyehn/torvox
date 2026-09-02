@@ -18,9 +18,9 @@
 
 - [x] T10 常量化 ffi.rs 中 magic numbers（DEFAULT_CURSOR_BLINK_SPEED_MS, DEFAULT_FONT_CELL_SIZE, CLIPBOARD_POLL_INTERVAL_MS）
 - [x] T11 常量化 mcp/mod.rs 中 magic numbers（DEFAULT_TERMINAL_ROWS, DEFAULT_TERMINAL_COLS）
-- [ ] T12 注释溯源：encode_mouse_event 补 zelland 引用
-- [ ] T13 注释溯源：scan_osc133 补 termlib 引用
-- [ ] T14 注释溯源：build_row_runs 补 termlib CellRun 引用
+- [x] T12 注释溯源：encode_mouse_event 补 zelland 引用（public_api.rs: encode_mouse_event + zelland get_cell_size）
+- [x] T13 注释溯源：scan_osc133 补 termlib 引用（output_processor.rs: scan_osc133 + FinalTerm）
+- [x] T14 注释溯源：build_row_runs 补 termlib CellRun 引用（cell_builder.rs: build_row_runs）
 - [x] T15 创建 dependency-changelog-2026-09-01.md
 - [x] T16 验证 comprehensive-hardening-v7/tasks.md 勾选与实现对齐
 - [x] T10b GPU 测试 `#[ignore]` 门控（22 个 GPU-dependent 测试）
