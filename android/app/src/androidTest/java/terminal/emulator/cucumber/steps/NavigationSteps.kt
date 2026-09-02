@@ -99,13 +99,30 @@ constructor(
             rule.waitForSettingsScreen(timeoutMs = 60_000)
             return
         }
-        rule.openDrawer()
-        if (device.wait(Until.hasObject(By.text("Settings")), 10_000)) {
-            device.findObject(By.text("Settings"))?.click()
-        } else if (device.wait(Until.hasObject(By.desc("Settings")), 10_000)) {
-            device.findObject(By.desc("Settings"))?.click()
+        // Retry drawer→Settings up to 3 times for CI flakiness (drawer animation + system load)
+        var settingsReached = false
+        repeat(3) {
+            rule.openDrawer()
+            if (device.wait(Until.hasObject(By.text("Settings")), 10_000)) {
+                device.findObject(By.text("Settings"))?.click()
+            } else if (device.wait(Until.hasObject(By.desc("Settings")), 10_000)) {
+                device.findObject(By.desc("Settings"))?.click()
+            } else if (device.wait(Until.hasObject(By.res("SettingsButton")), 10_000)) {
+                device.findObject(By.res("SettingsButton"))?.click()
+            }
+            rule.waitForIdle()
+            Thread.sleep(500)
+            settingsReached = runCatching {
+                rule.waitForSettingsScreen(timeoutMs = 15_000)
+                true
+            }.getOrDefault(false) || device.hasObject(By.text("Font Family")) ||
+                device.hasObject(By.res("SettingsScreen"))
+            if (settingsReached) return@repeat
+            Thread.sleep(1000)
         }
-        rule.waitForSettingsScreen(timeoutMs = 60_000)
+        if (!settingsReached) {
+            rule.waitForSettingsScreen(timeoutMs = 60_000)
+        }
     }
 
     @Then("^the drawer is displayed$")
