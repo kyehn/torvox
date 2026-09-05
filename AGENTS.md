@@ -5,6 +5,7 @@
 ## 必须
 
 - 修改前阅读 `docs/specification/` 下的全部规范。
+- openspec/specs 目录保存 项目功能及其他 的详细设计规范文档，使用 openspec 命令管理，需要保持更新和正确，只是参考文档，docs/specification/ 为实际标准。
 
 ## 禁止
 
@@ -34,12 +35,8 @@
 - 遇到合并冲突时：停止操作并展示冲突文件。
 - 优先修复根因：避免通过删除文件、跳过测试或添加 `#[allow(...)]` 来掩盖问题。
 
-## 受保护文件
+## 禁止修改文件
 
-- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md`
+只允许修正拼写 / 语法错误，或修正格式 / 排版，不可更改实际内容。需用户明确要求后方可修改，禁止非法修改
 
-  需用户明确要求后方可修改。
-
-- `AGENTS.md`、`docs/specification/`
-
-  如需修改，可添加简洁注释；允许修正拼写 / 语法错误，支持调整格式 / 排版。
+- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/`
