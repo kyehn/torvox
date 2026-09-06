@@ -35,9 +35,10 @@ tags:
 - assertVisible:
     id: "AddSessionButton"
 - takeScreenshot: session_drawer_default
-# Close drawer by tapping outside
-- tapOn:
-    point: 70%,50%
+# 用返回键关闭抽屉（产品支持的 dismiss 路径，TerminalScreen BackHandler）：
+# 原先按坐标点外部关闭，抽屉宽 280dp，在小屏设备上 70% 落点可能仍在抽屉内，
+# 点到会话项导致抽屉未关闭，后续断言 flaky。
+- pressKey: Back
 - waitForAnimationToEnd:
     timeout: 2000
 - assertVisible:
