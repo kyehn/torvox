@@ -4,8 +4,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
@@ -85,8 +85,13 @@ constructor(
         composeRuleHolder.composeRule
             .onNodeWithTag("CursorStyleSelector", useUnmergedTree = true)
             .assertIsDisplayed()
+        // 选项药丸有专用标签（SettingsComponents.kt SettingsSelectorPill），
+        // 按标签定位比按文本更精确；点击前必须滚入视口，否则触摸注入失败。
         composeRuleHolder.composeRule
-            .onNodeWithText("Bar")
+            .onNodeWithTag("CursorStyle_bar", useUnmergedTree = true)
+            .performScrollTo()
+        composeRuleHolder.composeRule
+            .onNodeWithTag("CursorStyle_bar", useUnmergedTree = true)
             .performClick()
         composeRuleHolder.composeRule.waitForIdle()
     }
