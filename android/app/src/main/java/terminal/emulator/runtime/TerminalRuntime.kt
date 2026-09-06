@@ -225,6 +225,11 @@ internal data class SessionEntry(
     }
 
     @Volatile var scrollOffset: Int = 0
+
+    /** Per-pixel scroll remainder (px, positive = content down), picked up
+     * by the render thread alongside [scrollOffset]. Reset to 0 on gesture
+     * end / session switch so no stale offset leaks into the next gesture. */
+    @Volatile var scrollRemainderPx: Float = 0f
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -904,6 +909,18 @@ constructor(
     }
 
     /**
+     * sync per-pixel scroll remainder from the gesture layer so the render
+     * thread forwards it to native (mirrors [setScrollOffset]: store +
+     * notify, the render thread performs the JNI crossing under the
+     * surface lock).
+     */
+    fun setScrollRemainderPx(px: Float) {
+        val entry = sessions[activeSessionId] ?: return
+        entry.scrollRemainderPx = px
+        entry.notifyRender()
+    }
+
+    /**
      * sync scroll-active state from TerminalViewModel so the render thread knows whether to
      * auto-reset scroll on new output.
      */
@@ -1412,6 +1429,7 @@ constructor(
                         var diagCount = 0
                         var consecutiveErrors = 0
                         var lastScrollOffset = Int.MAX_VALUE
+                        var lastScrollRemainderPx = Float.NaN
                         var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
                         // Per-thread frame-duration statistics: reset whenever the
                         // render thread restarts (fresh lifetime, no stale history).
@@ -1515,6 +1533,11 @@ constructor(
                                 if (currentScrollOffset != lastScrollOffset) {
                                     bridge.setScrollOffset(currentScrollOffset)
                                     lastScrollOffset = currentScrollOffset
+                                }
+                                val currentRemainderPx = entry.scrollRemainderPx
+                                if (currentRemainderPx != lastScrollRemainderPx) {
+                                    bridge.setScrollYPx(currentRemainderPx)
+                                    lastScrollRemainderPx = currentRemainderPx
                                 }
                                 entry.lastRenderStart = System.nanoTime()
                                 // Combined render + consumeNewOutput in a single JNI
