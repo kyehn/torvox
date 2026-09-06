@@ -36,6 +36,15 @@ nix-on-droid 等非 termux 布局的 bootstrap（可执行文件散布 `nix/stor
 - **WHEN** 安装含 `EXECUTABLES.txt` 的 nix 风格 bootstrap
 - **THEN** `nix/store` 下所列二进制获得可执行位，shell 可启动
 
+### Requirement: nix 二进制执行方式
+
+glibc 动态链接的 nix/store 二进制（INTERP/RUNPATH 指向 `/nix/store`）MUST 经 proot 运行（`proot -r $PREFIX -b /system/proc/dev/sys` + `PROOT_TMP_DIR=$PREFIX/tmp`），直接 exec 会报 `No such file or directory`；`bin/login` 为静态 ELF，可直接执行（亦为 `isInstalled` 的 login 判定项）。
+
+#### Scenario: nix 命令可用
+
+- **WHEN** 经上述 proot 绑定运行 `nix --version`
+- **THEN** 输出版本号；直接执行则报缺 interpreter（预期行为，非安装失败）
+
 ### Requirement: 子进程环境变量
 
 shell 子进程启动时，系统 SHALL 设置：`PREFIX=$FILES/usr`、`HOME=$FILES/home`、`PATH=$PREFIX/bin` 起始并透传系统 PATH、`TMPDIR=$PREFIX/tmp`（无 prefix 时 `/data/local/tmp`）、`LANG=C.UTF-8`、`TERM=xterm-256color`、`COLORTERM=truecolor`、`SHELL=<shell 路径>`、`PWD=<工作目录>`、`USER`、`LINES`/`COLUMNS`；Android 7+ MUST NOT 设置 `LD_LIBRARY_PATH`。系统 MUST NOT 设置 `TERM_PROGRAM`/`TERM_PROGRAM_VERSION`（无消费者，已删除；用户覆盖可经 extra 机制加回）。
