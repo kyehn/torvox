@@ -2,9 +2,12 @@ package terminal.emulator.cucumber.steps
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.platform.app.InstrumentationRegistry
 import io.cucumber.java.en.Given
 import io.cucumber.java.en.Then
@@ -30,6 +33,14 @@ constructor(
         composeRuleHolder.composeRule
             .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
             .assertIsDisplayed()
+        // 字体设置项在小屏设备上位于首屏下方，必须先滚动到标题再断言，
+        // 否则 onNodeWithText 会因节点不在视口内而断言失败。
+        composeRuleHolder.composeRule
+            .onNodeWithTag("SettingsLazyColumn", useUnmergedTree = true)
+            .performScrollToNode(hasText("Font Family"))
+        composeRuleHolder.composeRule
+            .onNodeWithText("Font Family")
+            .performScrollTo()
         composeRuleHolder.composeRule
             .onNodeWithText("Font Family")
             .assertIsDisplayed()
@@ -39,6 +50,9 @@ constructor(
         // "change the font family" means.
         composeRuleHolder.composeRule
             .onAllNodes(hasTestTag("FontFamilySelector"), useUnmergedTree = true)[0]
+            .performScrollTo()
+        composeRuleHolder.composeRule
+            .onAllNodes(hasTestTag("FontFamilySelector"), useUnmergedTree = true)[0]
             .performClick()
         composeRuleHolder.composeRule.waitForIdle()
     }
@@ -46,6 +60,12 @@ constructor(
     @When("^the user attempts to load an invalid font file$")
     fun userAttemptsToLoadInvalidFont() {
         composeRuleHolder.composeRule.openSettings()
+        composeRuleHolder.composeRule
+            .onNodeWithTag("SettingsLazyColumn", useUnmergedTree = true)
+            .performScrollToNode(hasText("Font Family"))
+        composeRuleHolder.composeRule
+            .onNodeWithText("Font Family")
+            .performScrollTo()
         composeRuleHolder.composeRule
             .onNodeWithText("Font Family")
             .assertIsDisplayed()
