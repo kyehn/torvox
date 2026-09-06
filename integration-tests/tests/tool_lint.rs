@@ -796,6 +796,7 @@ fn all_dependencies_are_allowlisted() {
         "raw-window-handle",
         "regex",
         "renderdoc",
+        "roxmltree",
         "schemars",
         "serde",
         "serde_json",
