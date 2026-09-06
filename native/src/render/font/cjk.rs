@@ -74,24 +74,7 @@ impl FontPipeline {
     const EMOJI_TEST_CHARS: [char; 2] = ['\u{1f600}', '\u{1f44d}'];
 
     pub(crate) fn find_cjk_fallback_fonts(&mut self, system_locale: &str) {
-        let locale_tag = match system_locale {
-            s if s.starts_with("zh") || s.starts_with("ja") || s.starts_with("ko") => {
-                match system_locale {
-                    s if s.starts_with("zh-CN") || s.starts_with("zh-Hans") => "sc",
-                    s if s.starts_with("zh-TW")
-                        || s.starts_with("zh-Hant")
-                        || s.starts_with("zh-HK") =>
-                    {
-                        "tc"
-                    }
-                    s if s.starts_with("zh") => "sc",
-                    s if s.starts_with("ja") => "jp",
-                    s if s.starts_with("ko") => "kr",
-                    _ => "",
-                }
-            }
-            _ => "",
-        };
+        let locale_tag = locale_tag(system_locale);
 
         if let Some(primary_id) = self.font_id {
             let db = self.font_system.db();
@@ -110,15 +93,22 @@ impl FontPipeline {
         }
 
         const MAX_CJK_FALLBACK_FONTS: usize = 3;
-        // CJK scoring: known families + locale tag + generic "cjk" tags
-        // (see CJK_PRIORITY_* constants), plus the locale boost.
-        let test_chars = ['中', '日', '가'];
-        let ids = self.scan_fallback_candidates(
-            &test_chars,
-            Self::is_cjk_candidate_family,
-            |family_name| cjk_family_priority(family_name, locale_tag),
-            MAX_CJK_FALLBACK_FONTS,
-        );
+        // fonts.xml first: exact (filename, index) matches outrank
+        // heuristic scoring; the scan below only fills the remainder.
+        let mut ids = self.fonts_xml_cjk_fallback_ids(system_locale, MAX_CJK_FALLBACK_FONTS);
+        if ids.len() < MAX_CJK_FALLBACK_FONTS {
+            // CJK scoring: known families + locale tag + generic "cjk" tags
+            // (see CJK_PRIORITY_* constants), plus the locale boost.
+            let test_chars = ['中', '日', '가'];
+            let mut scanned = self.scan_fallback_candidates(
+                &test_chars,
+                Self::is_cjk_candidate_family,
+                |family_name| cjk_family_priority(family_name, locale_tag),
+                MAX_CJK_FALLBACK_FONTS,
+            );
+            scanned.retain(|id| !ids.contains(id));
+            ids.extend(scanned.into_iter().take(MAX_CJK_FALLBACK_FONTS - ids.len()));
+        }
         self.cjk_fallback_ids = ids.clone();
         if ids.is_empty() {
             log::warn!(
@@ -131,6 +121,104 @@ impl FontPipeline {
             self.cjk_fallback_ids.len(),
             MAX_CJK_FALLBACK_FONTS
         );
+    }
+
+    /// Resolve CJK fallback faces from the system `fonts.xml` language
+    /// chain. Reads `/system/etc/fonts.xml` (then `fonts_fallback.xml`),
+    /// matches `locale_fonts_xml_langs` blocks in order, and maps each
+    /// `(filename, index)` to a loaded face. Empty when unavailable — the
+    /// caller falls back to heuristic scanning.
+    #[cfg(any(target_os = "android", test))]
+    fn fonts_xml_cjk_fallback_ids(
+        &self,
+        system_locale: &str,
+        max_results: usize,
+    ) -> Vec<fontdb::ID> {
+        let xml = std::fs::read_to_string("/system/etc/fonts.xml")
+            .or_else(|_| std::fs::read_to_string("/system/etc/fonts_fallback.xml"));
+        let Ok(xml) = xml else {
+            return Vec::new();
+        };
+        Self::match_fonts_xml_fallbacks(self.font_system.db(), &xml, system_locale, max_results)
+    }
+
+    /// Pure matching core of [`Self::fonts_xml_cjk_fallback_ids`]:
+    /// exact `(file name, TTC index)` hits win; when an index misses,
+    /// same-file faces filtered by the locale tag fill in.
+    /// `pub(crate)` for the `mod.rs` integration tests.
+    #[cfg(any(target_os = "android", test))]
+    pub(crate) fn match_fonts_xml_fallbacks(
+        db: &fontdb::Database,
+        xml: &str,
+        system_locale: &str,
+        max_results: usize,
+    ) -> Vec<fontdb::ID> {
+        let (_, lang_fallbacks) = super::font_db::parse_fonts_xml_families(xml);
+        let langs = super::font_db::locale_fonts_xml_langs(system_locale);
+        let locale_tag = locale_tag(system_locale);
+        let mut ids = Vec::new();
+        for wanted in langs {
+            let Some((_, filenames)) = lang_fallbacks
+                .iter()
+                .find(|(lang, _)| lang.split(',').any(|tag| tag == *wanted))
+            else {
+                continue;
+            };
+            for (filename, index) in filenames {
+                let same_file: Vec<(fontdb::ID, String, u32)> = db
+                    .faces()
+                    .filter_map(|face| {
+                        let path = match &face.source {
+                            fontdb::Source::File(path) => path,
+                            fontdb::Source::SharedFile(path, _) => path,
+                            fontdb::Source::Binary(_) => return None,
+                        };
+                        path.file_name()
+                            .and_then(|name| name.to_str())
+                            .filter(|name| name.eq_ignore_ascii_case(filename))?;
+                        let family = face
+                            .families
+                            .first()
+                            .map(|(name, _)| name.to_lowercase())
+                            .unwrap_or_default();
+                        Some((face.id, family, face.index))
+                    })
+                    .collect();
+                // Exact (filename, index) hit wins; otherwise the first
+                // same-file face matching the locale tag fills in.
+                let hit = same_file
+                    .iter()
+                    .find(|(_, _, face_index)| *face_index == *index)
+                    .or_else(|| {
+                        same_file
+                            .iter()
+                            .find(|(_, family, _)| locale_token_match(family, locale_tag))
+                    });
+                if let Some((id, _, _)) = hit
+                    && !ids.contains(id)
+                {
+                    log::debug!("FONTS_XML_FALLBACK: file='{filename}' index={index} id={id:?}");
+                    ids.push(*id);
+                }
+                if ids.len() >= max_results {
+                    return ids;
+                }
+            }
+            if !ids.is_empty() {
+                break;
+            }
+        }
+        ids
+    }
+
+    /// Non-Android stub: no `fonts.xml` exists, heuristic scanning covers it.
+    #[cfg(not(any(target_os = "android", test)))]
+    fn fonts_xml_cjk_fallback_ids(
+        &self,
+        _system_locale: &str,
+        _max_results: usize,
+    ) -> Vec<fontdb::ID> {
+        Vec::new()
     }
 
     /// Resolve the symbol layer (moke chain: after CJK, before Nerd).
@@ -663,6 +751,19 @@ mod tests {
         assert!(!FontPipeline::is_symbol_candidate_family(""));
         assert!(!FontPipeline::is_nerd_candidate_family(""));
         assert!(!FontPipeline::is_emoji_candidate_family(""));
+    }
+}
+
+/// Map a system locale tag to the CJK variant token used for the
+/// locale boost (`sc`/`tc`/`jp`/`kr`, empty when not a CJK locale).
+fn locale_tag(system_locale: &str) -> &'static str {
+    match system_locale {
+        s if s.starts_with("zh-CN") || s.starts_with("zh-Hans") => "sc",
+        s if s.starts_with("zh-TW") || s.starts_with("zh-Hant") || s.starts_with("zh-HK") => "tc",
+        s if s.starts_with("zh") => "sc",
+        s if s.starts_with("ja") => "jp",
+        s if s.starts_with("ko") => "kr",
+        _ => "",
     }
 }
 
