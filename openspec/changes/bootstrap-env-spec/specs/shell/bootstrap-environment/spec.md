@@ -29,6 +29,8 @@
 
 ### Requirement: nix bootstrap 兼容
 
+nix bootstrap 上游来源为 `nix-community/nix-on-droid`（其构建脚本生成 termux 兼容格式：`SYMLINKS.txt` 同为 `old←new`、`EXECUTABLES.txt` 为权威可执行列表）；kudzu 侧经 `nix-on-droid.nix` 纳入 `proot`（提交 `6238b26`）解决 glibc 二进制在 Android 上的执行问题。torvox 安装器不假设任何 fork 仓库存在，只认包内格式契约。
+
 nix-on-droid 等非 termux 布局的 bootstrap（可执行文件散布 `nix/store/<hash>/bin/`）MUST 随包提供 `EXECUTABLES.txt`（每行一路径），安装器 SHALL 按该列表逐个 chmod；其 `SYMLINKS.txt` 与 termux 同为 `old←new` 格式，安装器同一解析路径处理，不得为 nix 布局另建分支。
 
 #### Scenario: nix bootstrap 可安装
