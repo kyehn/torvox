@@ -41,28 +41,30 @@ tags:
 - waitForAnimationToEnd:
     timeout: 2000
 - takeScreenshot: selection_copy_visible
-# Tap Copy if visible
+# 选择菜单是 PopupWindow，Maestro 跨窗口看不到其中的文本按钮，
+# 该步骤总是跳过；复制真实路径由 cucumber 选择场景覆盖。
 - tapOn:
     text: "Copy"
     optional: true
 - waitForAnimationToEnd:
     timeout: 1000
-# Tap on terminal to deselect
-- tapOn:
-    id: "TerminalContent"
-    optional: true
+# 用返回键退出选择（产品支持的 dismiss 路径，TerminalScreen BackHandler）：
+# Popup 显示期间 Maestro 看不到主窗口节点，必须先退出选择再继续。
+- pressKey: Back
 - waitForAnimationToEnd:
-    timeout: 1000
-# Long press again for paste option
-- longPressOn:
+    timeout: 2000
+- takeScreenshot: selection_cleared
+- assertVisible:
+    id: "TerminalContent"
+- assertVisible:
+    id: "ModifierBar"
+# 退出选择后终端仍可输入
+- tapOn:
     id: "TerminalContent"
 - waitForAnimationToEnd:
     timeout: 2000
-- takeScreenshot: paste_available
-# Tap Paste if visible
-- tapOn:
-    text: "Paste"
-    optional: true
+- inputText: "echo COPY_PASTE_BACK_OK"
+- pressKey: Enter
 - waitForAnimationToEnd:
-    timeout: 1000
+    timeout: 2000
 - takeScreenshot: copy_paste_complete
