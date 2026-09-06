@@ -112,6 +112,10 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         NativeBridge.setScrollOffset(sessionIdProvider(), offset)
     }
 
+    override fun setScrollYPx(offsetPx: Float) {
+        NativeBridge.setScrollYPx(sessionIdProvider(), offsetPx)
+    }
+
     override fun getTerminalText(): String? = NativeBridge.getTerminalText(sessionIdProvider())
 
     override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? = NativeBridge.selectionText(sessionIdProvider(), startRow, startCol, endRow, endCol, rectangle)

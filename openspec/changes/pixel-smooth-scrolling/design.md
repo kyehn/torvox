@@ -50,5 +50,5 @@
 
 ## Open Questions
 
-- Q1：cell 管线全局 Y 平移用 uniform 还是实例顶点——实现前读 `cell_builder.rs` 实例布局后定（不影响 spec 与任务分解）。
-- Q2：松手对齐取整 vs 回弹——实现时二选一，spec 已允许任一收敛行为。
+- Q1（已决）：cell 管线全局 Y 平移用 shader uniform——经 `cell_uniforms` 单一构造点改投影矩阵平移行实现，零实例布局改动，单测 `scroll_px_offset_translates_viewport_down` 覆盖。
+- Q2（已决）：松手对齐采用归零（回弹语义）——tap 结束/fling 结束/新手势 onDown 时余量发 0，行偏移保留；已在模拟器验证对齐到底部。
