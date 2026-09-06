@@ -1798,8 +1798,16 @@ constructor(
                 val ch = cellHeight.coerceAtLeast(1f)
                 val rawAmount = floor((scrollAccumulatorPx / ch).toDouble()).toInt()
                 if (rawAmount != 0) {
-                    scrollAccumulatorPx -= rawAmount * ch
                     val newOffset = (scrollOffset + rawAmount).coerceIn(0, scrollbackLen)
+                    // Deduct only applied rows, then clamp the remainder at
+                    // the edges: truncated rows at a clamped edge would
+                    // otherwise keep accumulating and expose empty space.
+                    scrollAccumulatorPx -= (newOffset - scrollOffset) * ch
+                    if ((newOffset == 0 && scrollAccumulatorPx < 0f) ||
+                        (newOffset == scrollbackLen && scrollAccumulatorPx > 0f)
+                    ) {
+                        scrollAccumulatorPx = 0f
+                    }
                     if (newOffset != scrollOffset) {
                         scrollOffset = newOffset
                         onScrollChanged?.invoke(scrollOffset)
