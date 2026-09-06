@@ -113,6 +113,8 @@ mod tests {
 
     const TEST_DATA_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/test_data");
     const FIXTURE_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../test_fonts");
+    /// 图集每个像素的字节数（RGBA）。
+    const BYTES_PER_PIXEL: usize = 4;
 
     // ── emoji classification boundary tests ────────────────────
     // Mirrors warp lib.rs:2192-2307 (classify_char + boundary pins). The
@@ -576,7 +578,8 @@ mod tests {
         let mut rgba = Vec::with_capacity(w * h * 4);
         for y in 0..h {
             for x in 0..w {
-                let alpha = atlas[(ay + y) * atlas_width + ax + x];
+                // 图集为 RGBA 格式，步长必须按像素换算为字节偏移，红色通道即覆盖度。
+                let alpha = atlas[((ay + y) * atlas_width + ax + x) * BYTES_PER_PIXEL];
                 rgba.extend_from_slice(&[0, 0, 0, alpha]);
             }
         }
@@ -1669,21 +1672,21 @@ mod tests {
 
     // ──: bold/italic glyph synthesis ─────────────────────────
 
-    /// Count non-zero alpha pixels in the glyph's atlas region (RGBA atlas).
-    fn glyph_pixel_count(info: &GlyphInfo, bitmap: &[u8], atlas_width: usize) -> usize {
+    /// 提取字形在图集区域的覆盖度字节（RGBA 图集的红色通道）。
+    fn glyph_region_alpha(info: &GlyphInfo, bitmap: &[u8], atlas_width: usize) -> Vec<u8> {
         if info.allocation_id.is_none() || info.width <= 0 || info.height <= 0 {
-            return 0;
+            return Vec::new();
         }
-        let mut count = 0usize;
+        let mut region = Vec::with_capacity(info.width as usize * info.height as usize);
         for y in 0..info.height as usize {
-            let row = (info.atlas_y as usize + y) * atlas_width;
             for x in 0..info.width as usize {
-                if bitmap[row + info.atlas_x as usize + x] > 0 {
-                    count += 1;
-                }
+                let offset =
+                    ((info.atlas_y as usize + y) * atlas_width + info.atlas_x as usize + x)
+                        * BYTES_PER_PIXEL;
+                region.push(bitmap[offset]);
             }
         }
-        count
+        region
     }
 
     fn styled_test_pipeline() -> (FontPipeline, String) {
@@ -1725,16 +1728,23 @@ mod tests {
             italic.atlas_x, regular.atlas_x,
             "italic and regular glyphs must not share a cache entry"
         );
-        // Either a real italic face was resolved (its metrics are the
-        // designer's own — may be narrower) or the shear synthesis applied;
-        // the only invariant is that the styled bitmap differs.
+        // 真实斜体字面或剪切合成都会改变位图内容，直接比较区域字节，
+        // 避免像素计数偶然相同导致的误判。
         let bitmap = p.atlas_bitmap();
         let atlas_width = p.atlas_width as usize;
-        let regular_pixels = glyph_pixel_count(&regular, &bitmap, atlas_width);
-        let italic_pixels = glyph_pixel_count(&italic, &bitmap, atlas_width);
+        let regular_alpha = glyph_region_alpha(&regular, &bitmap, atlas_width);
+        let italic_alpha = glyph_region_alpha(&italic, &bitmap, atlas_width);
+        assert!(
+            regular_alpha.iter().any(|&alpha| alpha > 0),
+            "常规字形区域必须有墨水"
+        );
+        assert!(
+            italic_alpha.iter().any(|&alpha| alpha > 0),
+            "斜体字形区域必须有墨水"
+        );
         assert_ne!(
-            regular_pixels, italic_pixels,
-            "italic bitmap must differ from regular (real face or shear)"
+            regular_alpha, italic_alpha,
+            "斜体位图必须与常规不同（真实字面或剪切合成）"
         );
     }
 
