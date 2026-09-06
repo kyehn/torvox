@@ -85,33 +85,89 @@ pub(crate) fn load_font_database() -> fontdb::Database {
 
 #[cfg(target_os = "android")]
 pub(crate) fn resolve_system_monospace_from_fonts_xml() -> Option<String> {
-    let xml_path = std::path::Path::new("/system/etc/fonts.xml");
-    let content = std::fs::read_to_string(xml_path).ok()?;
-
-    let monospace_names = ["monospace", "sans-serif mono", "serif mono"];
-    for mono_name in &monospace_names {
-        let pattern = format!("name=\"{}\"", mono_name);
-        if let Some(family_start) = content.find(&pattern) {
-            let family_end = content[family_start..].find("</family>");
-            if let Some(offset) = family_end {
-                let family_block = &content[family_start..family_start + offset];
-                if let Some(font_start) = family_block.find("<font ") {
-                    let after_font = &family_block[font_start..];
-                    if let Some(gt_pos) = after_font.find('>') {
-                        let text_start = gt_pos + 1;
-                        if let Some(lt_pos) = after_font[text_start..].find('<') {
-                            let filename = after_font[text_start..text_start + lt_pos].trim();
-                            if !filename.is_empty() {
-                                log::debug!("FONT_XML: monospace target='{}'", filename);
-                                return Some(filename.to_string());
-                            }
-                        }
-                    }
-                }
-            }
+    for xml_path in ["/system/etc/fonts.xml", "/system/etc/fonts_fallback.xml"] {
+        let content = std::fs::read_to_string(xml_path).ok()?;
+        let (monospace, _) = parse_fonts_xml_families(&content);
+        if let Some(filename) = monospace.into_iter().next() {
+            log::debug!("FONT_XML: monospace target='{filename}'");
+            return Some(filename);
         }
     }
     None
+}
+
+/// Parsed `fonts.xml`: monospace filenames plus ordered
+/// `(lang, [(filename, ttc_index)])` fallback entries.
+#[cfg(any(target_os = "android", test))]
+type FontsXmlFamilies = (Vec<String>, Vec<(String, Vec<(String, u32)>)>);
+
+/// Parse `fonts.xml` content into monospace filenames plus ordered
+/// `(lang, [(filename, ttc_index)])` fallback entries. Pure function so
+/// host tests can feed real device snippets. Unknown elements are
+/// ignored; unparseable input yields empty lists (caller falls back to
+/// heuristic scanning).
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn parse_fonts_xml_families(xml: &str) -> FontsXmlFamilies {
+    let mut monospace = Vec::new();
+    let mut lang_fallbacks = Vec::new();
+    let document = match roxmltree::Document::parse(xml) {
+        Ok(document) => document,
+        Err(_) => return (monospace, lang_fallbacks),
+    };
+    let root = document.root_element();
+    if !matches!(root.tag_name().name(), "familyset" | "fontconfig") {
+        return (monospace, lang_fallbacks);
+    }
+    for family in root
+        .children()
+        .filter(|node| node.is_element() && node.tag_name().name() == "family")
+    {
+        let mut filenames = Vec::new();
+        for font in family
+            .children()
+            .filter(|node| node.is_element() && node.tag_name().name() == "font")
+        {
+            let Some(filename) = font.text().map(str::trim).filter(|text| !text.is_empty()) else {
+                continue;
+            };
+            let index = font
+                .attribute("index")
+                .and_then(|value| value.parse().ok())
+                .unwrap_or(0);
+            filenames.push((filename.to_string(), index));
+        }
+        if filenames.is_empty() {
+            continue;
+        }
+        if let Some(name) = family.attribute("name") {
+            if ["monospace", "sans-serif mono", "serif mono"].contains(&name) {
+                monospace.extend(filenames.into_iter().map(|(filename, _)| filename));
+            }
+        } else if let Some(lang) = family.attribute("lang") {
+            lang_fallbacks.push((lang.to_string(), filenames));
+        }
+    }
+    (monospace, lang_fallbacks)
+}
+
+/// Map a system locale tag to `fonts.xml` `lang` candidates in priority
+/// order. AOSP uses `zh-Hans`/`zh-Hant`; older builds may use `zh-CN`.
+#[cfg(any(target_os = "android", test))]
+pub(crate) fn locale_fonts_xml_langs(locale: &str) -> &'static [&'static str] {
+    if locale.starts_with("zh-CN") || locale.starts_with("zh-Hans") || locale == "zh" {
+        &["zh-Hans", "zh-CN", "zh", "und-Hani"]
+    } else if locale.starts_with("zh-TW")
+        || locale.starts_with("zh-Hant")
+        || locale.starts_with("zh-HK")
+    {
+        &["zh-Hant", "zh-TW", "zh-HK", "zh", "und-Hani"]
+    } else if locale.starts_with("ja") {
+        &["ja"]
+    } else if locale.starts_with("ko") {
+        &["ko"]
+    } else {
+        &[]
+    }
 }
 
 #[cfg(not(target_os = "android"))]
@@ -175,6 +231,77 @@ mod tests {
     #[test]
     fn font_dirs_start_with_system_fonts() {
         assert_eq!(FONT_DIRS[0], "/system/fonts/");
+    }
+
+    /// Minimal AOSP-shaped snippet mirroring the real API 35 emulator
+    /// file: monospace with attributes, an unattributed `<font>`, and
+    /// `lang` blocks sharing one TTC with distinct `index` values.
+    const FONTS_XML_SNIPPET: &str = r#"<?xml version="1.0" encoding="utf-8"?>
+<familyset version="23">
+    <family name="monospace">
+        <font weight="400" style="normal">DroidSansMono.ttf</font>
+    </family>
+    <family name="casual">
+        <font>ComingSoon.ttf</font>
+    </family>
+    <family lang="zh-Hans">
+        <font weight="400" style="normal" index="2" postScriptName="NotoSansCJKJP-Regular">
+            NotoSansCJK-Regular.ttc
+        </font>
+    </family>
+    <family lang="ja">
+        <font weight="400" style="normal" index="0" postScriptName="NotoSansCJKJP-Regular">
+            NotoSansCJK-Regular.ttc
+        </font>
+    </family>
+</familyset>"#;
+
+    #[test]
+    fn parse_fonts_xml_monospace_and_lang_blocks() {
+        let (monospace, lang_fallbacks) = super::parse_fonts_xml_families(FONTS_XML_SNIPPET);
+        assert_eq!(monospace, vec!["DroidSansMono.ttf"]);
+        assert_eq!(lang_fallbacks.len(), 2);
+        assert_eq!(lang_fallbacks[0].0, "zh-Hans");
+        assert_eq!(
+            lang_fallbacks[0].1,
+            vec![("NotoSansCJK-Regular.ttc".to_string(), 2)]
+        );
+        assert_eq!(lang_fallbacks[1].0, "ja");
+        assert_eq!(
+            lang_fallbacks[1].1,
+            vec![("NotoSansCJK-Regular.ttc".to_string(), 0)]
+        );
+    }
+
+    #[test]
+    fn parse_fonts_xml_rejects_garbage() {
+        assert_eq!(
+            super::parse_fonts_xml_families("not xml at all"),
+            (Vec::new(), Vec::new())
+        );
+        assert_eq!(
+            super::parse_fonts_xml_families("<html></html>"),
+            (Vec::new(), Vec::new())
+        );
+        assert_eq!(
+            super::parse_fonts_xml_families(""),
+            (Vec::new(), Vec::new())
+        );
+    }
+
+    #[test]
+    fn locale_fonts_xml_langs_matches_aosp_tags() {
+        assert_eq!(
+            super::locale_fonts_xml_langs("zh-CN"),
+            &["zh-Hans", "zh-CN", "zh", "und-Hani"]
+        );
+        assert_eq!(
+            super::locale_fonts_xml_langs("zh-TW"),
+            &["zh-Hant", "zh-TW", "zh-HK", "zh", "und-Hani"]
+        );
+        assert_eq!(super::locale_fonts_xml_langs("ja"), &["ja"]);
+        assert_eq!(super::locale_fonts_xml_langs("ko"), &["ko"]);
+        assert!(super::locale_fonts_xml_langs("en-US").is_empty());
     }
 }
 

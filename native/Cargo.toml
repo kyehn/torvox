@@ -31,6 +31,7 @@ shell-words = { workspace = true }
 futures = { workspace = true }
 bytemuck = { workspace = true }
 thiserror = { workspace = true }
+roxmltree = "0.20"
 
 # Ghostty VT
 libghostty-vt = { workspace = true, features = ["png"] }
