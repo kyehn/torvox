@@ -40,11 +40,12 @@ tags:
       text: "Terminal Theme"
     direction: DOWN
 - takeScreenshot: theme_section_visible
-# Scroll to Font Family section
+# 字体设置位于主题设置上方（SettingsScreen.kt 先渲染 Appearance 再渲染主题），
+# 此时列表已滚到主题区，必须向上滚动才能找到字体项。
 - scrollUntilVisible:
     element:
       text: "Font Family"
-    direction: DOWN
+    direction: UP
 - takeScreenshot: font_section_visible
 # Go back to terminal
 - tapOn:
