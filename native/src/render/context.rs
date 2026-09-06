@@ -130,6 +130,12 @@ pub struct Renderer {
     /// drives the decay animation; the renderer only composites a white
     /// full-screen quad at `BELL_FLASH_ALPHA_255/255 * phase`.
     pub(crate) flash_phase: f32,
+    /// Viewport Y pixel offset for per-pixel smooth scrolling (positive =
+    /// content moves down). Driven by the Kotlin gesture remainder via
+    /// `set_viewport_scroll_px`; consumed by `cell_uniforms` as a
+    /// projection translation. Always within one row height in practice
+    /// (the row channel carries whole rows); 0 = aligned.
+    pub(crate) viewport_scroll_px: f32,
     pub(crate) atlas_texture: Option<wgpu::Texture>,
     pub(crate) atlas_view: Option<wgpu::TextureView>,
     pub(crate) atlas_sampler: Option<wgpu::Sampler>,
@@ -369,6 +375,7 @@ impl Renderer {
             flash_uniform_buffer: None,
             flash_bind_group: None,
             flash_phase: 0.0,
+            viewport_scroll_px: 0.0,
             atlas_texture: None,
             atlas_view: None,
             atlas_sampler: None,
@@ -721,6 +728,15 @@ impl Renderer {
         self.flash_phase = phase.max(0.0);
     }
 
+    /// Set the viewport Y pixel offset for per-pixel smooth scrolling.
+    /// Non-finite input is ignored; the Kotlin side keeps the value
+    /// within one row height (whole rows travel the row channel).
+    pub fn set_viewport_scroll_px(&mut self, px: f32) {
+        if px.is_finite() {
+            self.viewport_scroll_px = px;
+        }
+    }
+
     pub fn set_kgp_atlas(&mut self, rgba_data: &[u8], width: u32, height: u32) {
         if width == 0 || height == 0 {
             self.kgp_texture = None;
@@ -777,6 +793,21 @@ pub fn orthographic_projection(width: f32, height: f32) -> [[f32; 4]; 4] {
         [0.0, 0.0, 1.0, 0.0],
         [-1.0, 1.0, 0.0, 1.0],
     ]
+}
+
+/// Translate an orthographic projection by a viewport Y pixel offset
+/// (positive = content moves down). Screen Y grows downward while NDC Y
+/// grows upward, so the offset subtracts from the translation row.
+/// Zero height or zero offset leaves the matrix untouched.
+pub fn apply_scroll_px_offset(
+    mut proj: [[f32; 4]; 4],
+    scroll_px: f32,
+    height: f32,
+) -> [[f32; 4]; 4] {
+    if height > 0.0 && scroll_px != 0.0 {
+        proj[3][1] -= scroll_px * 2.0 / height;
+    }
+    proj
 }
 
 // ── Inlined from atlas.rs ─────────────────────────────────────────
@@ -885,7 +916,11 @@ impl Renderer {
         atlas_width: f32,
         atlas_height: f32,
     ) -> crate::render::pipeline::GpuUniforms {
-        let proj = crate::render::orthographic_projection(projection_width, projection_height);
+        let proj = crate::render::apply_scroll_px_offset(
+            crate::render::orthographic_projection(projection_width, projection_height),
+            self.viewport_scroll_px,
+            projection_height,
+        );
         crate::render::pipeline::GpuUniforms {
             projection: proj,
             atlas_size: [atlas_width, atlas_height],
@@ -973,7 +1008,7 @@ impl Renderer {
     /// bind group is bound by buffer object identity, and wgpu reads the
     /// buffer contents at draw time, so rewriting the bytes is sufficient
     /// to flip `image_active` (wallpaper visibility) and the projection.
-    fn refresh_cell_uniforms(&mut self, projection_width: f32, projection_height: f32) {
+    pub(crate) fn refresh_cell_uniforms(&mut self, projection_width: f32, projection_height: f32) {
         let Some(buf) = self.cell_uniform_buffer.as_ref() else {
             return;
         };

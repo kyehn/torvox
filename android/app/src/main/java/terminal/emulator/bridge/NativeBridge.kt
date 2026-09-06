@@ -445,4 +445,6 @@ object NativeBridge {
     external fun getGridRowsColsPacked(sessionId: Long): Long
 
     external fun setScrollOffset(sessionId: Long, offset: Int)
+
+    external fun setScrollYPx(sessionId: Long, offsetPx: Float)
 }
