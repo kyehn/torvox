@@ -3476,6 +3476,11 @@ constructor(
             try {
                 renderSupervisor.startRenderThread(target)
                 activeSessionId = id
+                // Clear any stale per-pixel scroll remainder from the
+                // previous session: the native viewport offset is global,
+                // so the new session must start aligned (its own render
+                // thread also forwards its zero remainder on first frame).
+                setScrollRemainderPx(0f)
                 // Sync the native ACTIVE_SESSION_ID so pollEvent/process_output
                 // operate on the new session. Without this, all sessions except
                 // the first share one native-active session and multi-session
