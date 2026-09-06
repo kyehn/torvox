@@ -27,6 +27,15 @@
 - **WHEN** 安装完成
 - **THEN** `bin/` 下 shell 二进制可直接执行，无需手动 chmod
 
+### Requirement: nix bootstrap 兼容
+
+nix-on-droid 等非 termux 布局的 bootstrap（可执行文件散布 `nix/store/<hash>/bin/`）MUST 随包提供 `EXECUTABLES.txt`（每行一路径），安装器 SHALL 按该列表逐个 chmod；其 `SYMLINKS.txt` 与 termux 同为 `old←new` 格式，安装器同一解析路径处理，不得为 nix 布局另建分支。
+
+#### Scenario: nix bootstrap 可安装
+
+- **WHEN** 安装含 `EXECUTABLES.txt` 的 nix 风格 bootstrap
+- **THEN** `nix/store` 下所列二进制获得可执行位，shell 可启动
+
 ### Requirement: 子进程环境变量
 
 shell 子进程启动时，系统 SHALL 设置：`PREFIX=$FILES/usr`、`HOME=$FILES/home`、`PATH=$PREFIX/bin` 起始并透传系统 PATH、`TMPDIR=$PREFIX/tmp`（无 prefix 时 `/data/local/tmp`）、`LANG=C.UTF-8`、`TERM=xterm-256color`、`COLORTERM=truecolor`、`SHELL=<shell 路径>`、`PWD=<工作目录>`、`USER`、`LINES`/`COLUMNS`；Android 7+ MUST NOT 设置 `LD_LIBRARY_PATH`。系统 MUST NOT 设置 `TERM_PROGRAM`/`TERM_PROGRAM_VERSION`（无消费者，已删除；用户覆盖可经 extra 机制加回）。
