@@ -41,6 +41,8 @@ tags:
     timeout: 2000
 - takeScreenshot: selection_active
 # Trigger copy (selection handle / context action)
+# 选择菜单是 PopupWindow，Maestro 跨窗口看不到其中的文本按钮，
+# 该步骤总是跳过；复制真实路径由 cucumber 选择场景覆盖。
 - tapOn:
     text: "Copy"
     optional: true
@@ -51,13 +53,24 @@ tags:
     text: "Copied"
     optional: true
 - takeScreenshot: selection_copied
-# Deselect and confirm the terminal is still interactive
-- tapOn:
-    id: "TerminalContent"
-    optional: true
+# 用返回键退出选择（产品支持的 dismiss 路径，TerminalScreen BackHandler）：
+# Popup 显示期间 Maestro 看不到主窗口节点，必须先退出选择再断言。
+- pressKey: Back
 - waitForAnimationToEnd:
-    timeout: 1000
+    timeout: 2000
+- takeScreenshot: selection_cleared
+# Deselect and confirm the terminal is still interactive
+- assertVisible:
+    id: "TerminalContent"
 - assertVisible:
     id: "ModifierBar"
-- assertVisible:
+# 退出选择后终端仍可输入
+- tapOn:
     id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 2000
+- inputText: "echo SELECTION_BACK_OK"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 2000
+- takeScreenshot: selection_flow_complete
