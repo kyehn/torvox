@@ -1453,6 +1453,117 @@ mod tests {
     }
 
     #[test]
+    fn fonts_xml_index_match_resolves_exact_face() {
+        let mut db = fontdb::Database::new();
+        if !try_load_cjk_fonts(&mut db) {
+            eprintln!("SKIP: fonts_xml_index_match_resolves_exact_face (no CJK fonts)");
+            return;
+        }
+        // Pick a TTC face so (filename, index) mapping is exercised.
+        let (filename, index) = db
+            .faces()
+            .filter_map(|face| {
+                let path = match &face.source {
+                    fontdb::Source::File(path) => path,
+                    fontdb::Source::SharedFile(path, _) => path,
+                    fontdb::Source::Binary(_) => return None,
+                };
+                let name = path.file_name()?.to_str()?.to_string();
+                (path.extension()?.to_str()?.eq_ignore_ascii_case("ttc"))
+                    .then_some((name, face.index))
+            })
+            .next()
+            .expect("CJK TTC face must exist after try_load_cjk_fonts");
+        let xml = format!(
+            r#"<familyset version="23"><family lang="zh-Hans"><font weight="400" style="normal" index="{index}">{filename}</font></family></familyset>"#
+        );
+        let ids = FontPipeline::match_fonts_xml_fallbacks(&db, &xml, "zh-CN", 3);
+        assert_eq!(ids.len(), 1, "exact (filename, index) hit expected");
+        let face = db.face(ids[0]).expect("matched face exists");
+        assert_eq!(face.index, index, "TTC index must match fonts.xml");
+        let matched_name = match &face.source {
+            fontdb::Source::File(path) => path,
+            fontdb::Source::SharedFile(path, _) => path,
+            fontdb::Source::Binary(_) => panic!("matched face must be file-backed"),
+        }
+        .file_name()
+        .and_then(|name| name.to_str())
+        .expect("file-backed face has a name");
+        assert_eq!(matched_name, filename);
+    }
+
+    #[test]
+    fn fonts_xml_missing_file_falls_back_to_scan() {
+        // Unknown filename: no exact hit, caller fills from the scan.
+        let mut db = fontdb::Database::new();
+        if !try_load_cjk_fonts(&mut db) {
+            eprintln!("SKIP: fonts_xml_missing_file_falls_back_to_scan (no CJK fonts)");
+            return;
+        }
+        let xml = r#"<familyset version="23"><family lang="zh-Hans"><font index="2">NoSuchFont-Regular.ttc</font></family></familyset>"#;
+        let ids = FontPipeline::match_fonts_xml_fallbacks(&db, xml, "zh-CN", 3);
+        assert!(
+            ids.is_empty(),
+            "unknown file must yield no exact hit: {ids:?}"
+        );
+    }
+
+    /// Locate the nix-provided Maple Mono NF CN font (flake.nix). The
+    /// store hash is unstable, so discover by directory prefix instead
+    /// of hardcoding the full path.
+    fn find_maple_mono_font() -> Option<std::path::PathBuf> {
+        let store = std::fs::read_dir("/nix/store").ok()?;
+        for entry in store.flatten() {
+            let path = entry.path();
+            if path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.contains("MapleMono"))
+            {
+                let candidate = path.join("share/fonts/truetype/MapleMonoNormal-NF-CN-Medium.ttf");
+                if candidate.is_file() {
+                    return Some(candidate);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn maple_mono_primary_skips_cjk_fallback() {
+        // Maple Mono NF CN ships CJK glyphs: as the primary font it must
+        // cover CJK directly with no fallback layer (spec: skip path).
+        // CJK + Latin resolve through the same cache, keeping CJK render
+        // speed on par with Latin (no per-glyph fallback scan).
+        let Some(font_path) = find_maple_mono_font() else {
+            eprintln!("SKIP: maple_mono_primary_skips_cjk_fallback (no Maple Mono in /nix/store)");
+            return;
+        };
+        let mut pipeline = FontPipeline::new(512, 512, 14.0);
+        let family = pipeline
+            .load_font_file(&font_path)
+            .expect("maple mono loads");
+        assert!(
+            pipeline.set_font_family(&family),
+            "maple mono selectable as primary"
+        );
+        pipeline.set_system_locale("zh-CN");
+        assert!(
+            pipeline.cjk_fallback_names().is_empty(),
+            "CJK-capable primary must skip fallback, got: {:?}",
+            pipeline.cjk_fallback_names()
+        );
+        let latin = pipeline.glyph_information('A').expect("latin resolves");
+        let cjk = pipeline.glyph_information('中').expect("CJK resolves");
+        assert!(latin.width > 0 && cjk.width > 0);
+        // Second pass must hit the caches (no repeated fallback scans).
+        let latin_again = pipeline.glyph_information('A').expect("latin cached");
+        let cjk_again = pipeline.glyph_information('中').expect("CJK cached");
+        assert_eq!(latin.width, latin_again.width);
+        assert_eq!(cjk.width, cjk_again.width);
+    }
+
+    #[test]
     fn atlas_defrag_recovers_from_full_atlas() {
         let mut pipeline = FontPipeline::new(64, 64, 14.0);
         let mut successes = 0u32;

@@ -2709,6 +2709,14 @@ constructor(
             // reach the native font database here. Called before
             // spawnTerminal it was a silent no-op.
             bridge.setExtraFontPaths(listOf(fontsDir.absolutePath))
+            // Same sessionId-gating applies to the system locale: the
+            // pre-spawn setSystemLocale above was dropped by
+            // Bridge.setSystemLocale's sessionId == 0 guard, leaving the
+            // native pipeline at locale "" (no CJK locale boost). Re-apply
+            // now so CJK fallback ordering matches the system locale.
+            bridge.setSystemLocale(
+                java.util.Locale.getDefault().toLanguageTag(),
+            )
 
             try {
                 val initialFontFamily = settingsRepository.fontFamily.first()
@@ -3065,6 +3073,13 @@ constructor(
             // silently drop the user's theme (the native session would
             // keep the default palette). Mirrors the start() ordering.
             bridge.setTheme(config.theme)
+            // Same sessionId-gating applies to the system locale: the
+            // pre-spawn setSystemLocale above was dropped while
+            // sessionId == 0, leaving CJK fallback ordering without the
+            // locale boost. Re-apply now that spawn assigned the ID.
+            bridge.setSystemLocale(
+                java.util.Locale.getDefault().toLanguageTag(),
+            )
 
             val entry: SessionEntry
             val abandonedByStart: Boolean
