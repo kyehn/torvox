@@ -1700,6 +1700,7 @@ dependencies = [
  "raw-window-handle",
  "regex",
  "renderdoc",
+ "roxmltree",
  "schemars",
  "serde",
  "serde_json",
