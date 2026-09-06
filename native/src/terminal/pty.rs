@@ -15,7 +15,6 @@ use crate::terminal::shell_env::ShellEnv;
 
 const DEFAULT_TERM: &str = "xterm-256color";
 const DEFAULT_COLORTERM: &str = "truecolor";
-const DEFAULT_TERM_PROGRAM: &str = "terminal";
 const DEFAULT_LANG: &str = "C.UTF-8";
 /// Android does not have a writable /tmp, so we use /data/local/tmp
 /// which is guaranteed to be writable by the app process on all API levels.
@@ -730,11 +729,6 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
     let mut result = vec![
         ("TERM".to_string(), DEFAULT_TERM.to_string()),
         ("COLORTERM".to_string(), DEFAULT_COLORTERM.to_string()),
-        ("TERM_PROGRAM".to_string(), DEFAULT_TERM_PROGRAM.to_string()),
-        (
-            "TERM_PROGRAM_VERSION".to_string(),
-            env!("CARGO_PKG_VERSION").to_string(),
-        ),
         ("LANG".to_string(), DEFAULT_LANG.to_string()),
     ];
     //  (recheck): passthrough of Android system env vars.
@@ -916,6 +910,20 @@ mod tests {
     }
 
     #[test]
+    fn base_env_is_minimal_set() {
+        // Minimal contract: TERM/COLORTERM/LANG plus TMPDIR (falls back
+        // to /data/local/tmp without a prefix). TERM_PROGRAM* were removed
+        // (no consumer); everything else is layered by build_env.
+        let keys: std::collections::BTreeSet<String> =
+            base_env(None).into_iter().map(|(k, _)| k).collect();
+        let expected: std::collections::BTreeSet<String> = ["COLORTERM", "LANG", "TERM", "TMPDIR"]
+            .into_iter()
+            .map(str::to_string)
+            .collect();
+        assert_eq!(keys, expected);
+    }
+
+    #[test]
     fn base_env_includes_lang() {
         let env = base_env(None);
         assert!(env.iter().any(|(k, v)| k == "LANG" && v == "C.UTF-8"));
@@ -963,24 +971,6 @@ mod tests {
                 .iter()
                 .any(|(k, v)| k == "COLORTERM" && v == "truecolor")
         );
-    }
-
-    #[test]
-    fn build_env_includes_term_program() {
-        let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
-        assert!(
-            result
-                .iter()
-                .any(|(k, v)| k == "TERM_PROGRAM" && v == "terminal")
-        );
-    }
-
-    #[test]
-    fn build_env_includes_program_version() {
-        let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
-        assert!(result.iter().any(|(k, _)| k == "TERM_PROGRAM_VERSION"));
     }
 
     #[test]

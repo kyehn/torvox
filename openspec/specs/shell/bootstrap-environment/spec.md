@@ -29,7 +29,7 @@
 
 ### Requirement: 子进程环境变量
 
-shell 子进程启动时，系统 SHALL 设置：`PREFIX=$FILES/usr`、`HOME=$FILES/home`、`PATH=$PREFIX/bin` 起始并透传系统 PATH、`TMPDIR=$PREFIX/tmp`（无 prefix 时 `/data/local/tmp`）、`LANG=C.UTF-8`、`TERM=xterm-256color`、`COLORTERM=truecolor`、`SHELL=<shell 路径>`、`PWD=<工作目录>`、`USER`、`LINES`/`COLUMNS`；Android 7+ MUST NOT 设置 `LD_LIBRARY_PATH`。
+shell 子进程启动时，系统 SHALL 设置：`PREFIX=$FILES/usr`、`HOME=$FILES/home`、`PATH=$PREFIX/bin` 起始并透传系统 PATH、`TMPDIR=$PREFIX/tmp`（无 prefix 时 `/data/local/tmp`）、`LANG=C.UTF-8`、`TERM=xterm-256color`、`COLORTERM=truecolor`、`SHELL=<shell 路径>`、`PWD=<工作目录>`、`USER`、`LINES`/`COLUMNS`；Android 7+ MUST NOT 设置 `LD_LIBRARY_PATH`。系统 MUST NOT 设置 `TERM_PROGRAM`/`TERM_PROGRAM_VERSION`（无消费者，已删除；用户覆盖可经 extra 机制加回）。
 
 #### Scenario: 环境变量完整
 
@@ -65,7 +65,7 @@ shell 子进程启动时，系统 SHALL 设置：`PREFIX=$FILES/usr`、`HOME=$FI
 
 ### Requirement: 与 termux 的有意差异
 
-以下与 termux-app 实现有意不同，MUST 保持现状：子进程实际 `LANG` 为 `C.UTF-8`（`$PREFIX/etc/termux/termux.env` 兼容文件沿用 termux 上游模板仍写 `en_US.UTF-8`，该文件仅供包内脚本 source，不代表子进程环境）；禁止随 zip 分发的外部 `.sha256` sidecar 校验（本地 `.bootstrap-version.json` 版本 pin 用于判断是否需要重装，不属 sidecar，不违反）。
+以下与 termux-app 实现有意不同，MUST 保持现状：子进程实际 `LANG` 为 `C.UTF-8`（对抗审查结论：最小 bootstrap 无 locale 数据时 `en_US.UTF-8` 会回退异常，`C.UTF-8` 永真；`$PREFIX/etc/termux/termux.env` 兼容文件沿用 termux 上游模板仍写 `en_US.UTF-8`，该文件仅供包内脚本 source，不代表子进程环境）；禁止随 zip 分发的外部 `.sha256` sidecar 校验（本地 `.bootstrap-version.json` 版本 pin 用于判断是否需要重装，不属 sidecar，不违反）。
 
 #### Scenario: 差异不回归
 
