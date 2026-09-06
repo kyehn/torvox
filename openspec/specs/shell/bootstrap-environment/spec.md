@@ -27,6 +27,26 @@
 - **WHEN** 安装完成
 - **THEN** `bin/` 下 shell 二进制可直接执行，无需手动 chmod
 
+### Requirement: nix bootstrap 兼容
+
+nix bootstrap 上游来源为 `nix-community/nix-on-droid`（其构建脚本生成 termux 兼容格式：`SYMLINKS.txt` 同为 `old←new`、`EXECUTABLES.txt` 为权威可执行列表）；kudzu 侧经 `nix-on-droid.nix` 纳入 `proot`（提交 `6238b26`）解决 glibc 二进制在 Android 上的执行问题。torvox 安装器不假设任何 fork 仓库存在，只认包内格式契约。
+
+nix-on-droid 等非 termux 布局的 bootstrap（可执行文件散布 `nix/store/<hash>/bin/`）MUST 随包提供 `EXECUTABLES.txt`（每行一路径），安装器 SHALL 按该列表逐个 chmod；其 `SYMLINKS.txt` 与 termux 同为 `old←new` 格式，安装器同一解析路径处理，不得为 nix 布局另建分支。
+
+#### Scenario: nix bootstrap 可安装
+
+- **WHEN** 安装含 `EXECUTABLES.txt` 的 nix 风格 bootstrap
+- **THEN** `nix/store` 下所列二进制获得可执行位，shell 可启动
+
+### Requirement: nix 二进制执行方式
+
+glibc 动态链接的 nix/store 二进制（INTERP/RUNPATH 指向 `/nix/store`）MUST 经 proot 运行（`proot -r $PREFIX -b /system:/system -b /proc:/proc -b /dev:/dev -b /sys:/sys` + `PROOT_TMP_DIR=$PREFIX/tmp`），直接 exec 会报 `No such file or directory`；`bin/login` 为静态 ELF，可直接执行（亦为 `isInstalled` 的 login 判定项）。
+
+#### Scenario: nix 命令可用
+
+- **WHEN** 经上述 proot 绑定运行 `nix --version`
+- **THEN** 输出版本号；直接执行则报缺 interpreter（预期行为，非安装失败）
+
 ### Requirement: 子进程环境变量
 
 shell 子进程启动时，系统 SHALL 设置：`PREFIX=$FILES/usr`、`HOME=$FILES/home`、`PATH=$PREFIX/bin` 起始并透传系统 PATH、`TMPDIR=$PREFIX/tmp`（无 prefix 时 `/data/local/tmp`）、`LANG=C.UTF-8`、`TERM=xterm-256color`、`COLORTERM=truecolor`、`SHELL=<shell 路径>`、`PWD=<工作目录>`、`USER`、`LINES`/`COLUMNS`；Android 7+ MUST NOT 设置 `LD_LIBRARY_PATH`。系统 MUST NOT 设置 `TERM_PROGRAM`/`TERM_PROGRAM_VERSION`（无消费者，已删除；用户覆盖可经 extra 机制加回）。
