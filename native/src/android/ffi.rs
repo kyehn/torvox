@@ -303,6 +303,10 @@ struct RenderState {
     /// Blink phase (0 = visible half, 1 = hidden half) of the last drawn
     /// frame; used to detect phase flips while idle.
     last_blink_phase: Option<u64>,
+    /// Viewport Y pixel offset at last draw — used by the idle repaint
+    /// gate to detect per-pixel scroll remainder changes and force a
+    /// redraw (the offset moves pixels without touching cell content).
+    last_scroll_px: f32,
     /// Selection state at last draw — used by the idle repaint gate to
     /// detect selection changes and force a redraw.
     last_drawn_selection: Option<crate::render::cell_builder::SelectionRange>,
@@ -375,6 +379,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             cursor_blink_phase_reset_ms: AtomicU64::new(0),
             last_frame: None,
             last_blink_phase: None,
+            last_scroll_px: 0.0,
             last_drawn_selection: None,
             last_drawn_search_highlights: Vec::new(),
             cursor_style_override: None,
@@ -2134,6 +2139,7 @@ fn render_inner(session_id: u64) -> jint {
                 render_state.last_drawn_selection = render_state.selection;
                 render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
                 render_state.last_drawn_style_version = render_state.cursor_style_version;
+                render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
             }
             match result {
                 Ok(()) => 1,
@@ -2164,12 +2170,16 @@ fn render_inner(session_id: u64) -> jint {
                 render_state.search_highlights != render_state.last_drawn_search_highlights;
             let bg_image_pending = render_state.pending_bg_image.is_some();
             let flash_phase_pending = render_state.pending_flash_phase.is_some();
+            let scroll_px_changed =
+                (render_state.renderer.viewport_scroll_px - render_state.last_scroll_px).abs()
+                    > f32::EPSILON;
             let needs_repaint = (!cursor_blink_enabled
                 && (style_changed
                     || selection_changed
                     || highlights_changed
                     || bg_image_pending
                     || flash_phase_pending
+                    || scroll_px_changed
                     || content_dirty))
                 || (cursor_blink_enabled
                     && (phase_changed
@@ -2178,6 +2188,7 @@ fn render_inner(session_id: u64) -> jint {
                         || highlights_changed
                         || bg_image_pending
                         || flash_phase_pending
+                        || scroll_px_changed
                         || content_dirty));
             if !needs_repaint {
                 return 0;
@@ -2221,6 +2232,7 @@ fn render_inner(session_id: u64) -> jint {
                 render_state.last_drawn_selection = render_state.selection;
                 render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
                 render_state.last_drawn_style_version = render_state.cursor_style_version;
+                render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
                 // NOTE: last_frame NOT updated on idle — cells unchanged.
             }
             match result {
@@ -4122,6 +4134,36 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
                 "setScrollOffset: scroll_viewport send failed (target={target} delta={delta}); will retry"
             );
         }
+    })
+}
+
+/// Set the viewport Y pixel offset for per-pixel smooth scrolling
+/// (positive = content moves down, matching the Kotlin gesture
+/// remainder sign). Applies to the shared cell uniforms immediately so
+/// the next presented frame carries the offset; the render thread's
+/// idle gate also observes the change via `last_scroll_px`.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
+    mut env: JNIEnv,
+    _class: JClass,
+    _session_id: jlong,
+    offset_px: jfloat,
+) {
+    jni_export_guard!(&mut env, (), {
+        if !offset_px.is_finite() {
+            return;
+        }
+        let mut state = render_state_mut();
+        let Some(render_state) = state.as_mut() else {
+            return;
+        };
+        render_state.renderer.set_viewport_scroll_px(offset_px);
+        let (width, height) = (
+            render_state.renderer.projection_width as f32,
+            render_state.renderer.projection_height as f32,
+        );
+        render_state.renderer.refresh_cell_uniforms(width, height);
+        log::debug!("setScrollYPx: {offset_px}");
     })
 }
 

@@ -1415,6 +1415,7 @@ constructor(
         removeCallbacks(flingStepRunnable)
         isScrolling = false
         scrollAccumulatorPx = 0f
+        viewModel?.runtime?.setScrollRemainderPx(0f)
         onScrollingStateChanged?.invoke(false)
     }
 
@@ -1738,6 +1739,7 @@ constructor(
                 // Reset sub-cell accumulator at gesture start so the first
                 // onScroll distance is measured from a clean origin.
                 scrollAccumulatorPx = 0f
+                viewModel?.runtime?.setScrollRemainderPx(0f)
                 return true
             }
 
@@ -1803,6 +1805,14 @@ constructor(
                         onScrollChanged?.invoke(scrollOffset)
                         viewModel?.runtime?.forceRender()
                     }
+                }
+                // Per-pixel remainder: mirror the sub-row accumulator to the
+                // renderer so content follows the finger within the row.
+                // Gated on non-empty scrollback — with no history any offset
+                // would expose empty space.
+                if (scrollbackLen > 0) {
+                    viewModel?.runtime?.setScrollRemainderPx(scrollAccumulatorPx)
+                    viewModel?.runtime?.forceRender()
                 }
                 return true
             }
@@ -1889,8 +1899,11 @@ constructor(
                     // Just end the scroll state; do NOT reset scrollOffset to 0
                     // because that would undo the user's scroll on every tap,
                     // making scrollback feel unusable ("scrolling doesn't work").
+                    // The pixel remainder IS reset so the view settles on a
+                    // whole row instead of stopping mid-row.
                     isScrolling = false
                     scrollAccumulatorPx = 0f
+                    viewModel?.runtime?.setScrollRemainderPx(0f)
                     onScrollingStateChanged?.invoke(false)
                     return true
                 }

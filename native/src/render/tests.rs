@@ -39,6 +39,50 @@ fn orthographic_projection_identity() {
     assert!((proj[1][1] + 2.0 / 600.0).abs() < f32::EPSILON);
 }
 
+#[test]
+fn scroll_px_offset_translates_viewport_down() {
+    // Positive offset moves content down: NDC Y shrinks by 2*px/height.
+    let base = orthographic_projection(800.0, 600.0);
+    let moved = apply_scroll_px_offset(base, 30.0, 600.0);
+    assert!((moved[3][1] - (1.0 - 30.0 * 2.0 / 600.0)).abs() < 1e-6);
+    // Untouched rows (exact copy of the input rows).
+    assert!(
+        moved[0]
+            .iter()
+            .zip(base[0])
+            .all(|(a, b)| (a - b).abs() < 1e-9)
+    );
+    assert!(
+        moved[1]
+            .iter()
+            .zip(base[1])
+            .all(|(a, b)| (a - b).abs() < 1e-9)
+    );
+    assert!(
+        moved[2]
+            .iter()
+            .zip(base[2])
+            .all(|(a, b)| (a - b).abs() < 1e-9)
+    );
+    // Zero offset / zero height are identity.
+    let identity = apply_scroll_px_offset(base, 0.0, 600.0);
+    assert!(
+        identity
+            .iter()
+            .flatten()
+            .zip(base.iter().flatten())
+            .all(|(a, b)| (a - b).abs() < 1e-9)
+    );
+    let zero_height = apply_scroll_px_offset(base, 30.0, 0.0);
+    assert!(
+        zero_height
+            .iter()
+            .flatten()
+            .zip(base.iter().flatten())
+            .all(|(a, b)| (a - b).abs() < 1e-9)
+    );
+}
+
 /// 120fps+ requires decoupling fps from Hz: prefer Immediate (no vsync)
 /// when available so the pipeline can sustain 120+ presents per second even
 /// on 60Hz panels. Hz and fps are unrelated — tearing is preferred over

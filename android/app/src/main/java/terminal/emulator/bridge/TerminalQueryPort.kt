@@ -45,6 +45,9 @@ interface TerminalQueryPort {
     fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>?
     fun setScrollOffset(offset: Int)
 
+    /** Viewport Y pixel remainder for per-pixel smooth scrolling (positive = content down). */
+    fun setScrollYPx(offsetPx: Float)
+
     fun getTerminalText(): String?
     fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String?
     fun hyperlinkAt(row: Int, col: Int): String?

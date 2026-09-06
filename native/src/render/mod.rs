@@ -44,6 +44,7 @@ pub use cell_builder::{CellCursor, CellRun, build_instances_from_cell_data, buil
 pub(crate) use cell_builder::{SearchHighlight, SelectionRange, blend_highlight, cell_highlight};
 pub use context::FrameContext;
 pub use context::Renderer;
+pub use context::apply_scroll_px_offset;
 pub use context::orthographic_projection;
 pub use cpu_frame::{CpuCell, CpuCursor, CpuFrame, TextHit, TextItem};
 pub use invalidation::{FrameInvalidation, InvalidationLevel};
