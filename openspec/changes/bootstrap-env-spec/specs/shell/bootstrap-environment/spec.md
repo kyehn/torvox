@@ -38,7 +38,7 @@ nix-on-droid 等非 termux 布局的 bootstrap（可执行文件散布 `nix/stor
 
 ### Requirement: nix 二进制执行方式
 
-glibc 动态链接的 nix/store 二进制（INTERP/RUNPATH 指向 `/nix/store`）MUST 经 proot 运行（`proot -r $PREFIX -b /system/proc/dev/sys` + `PROOT_TMP_DIR=$PREFIX/tmp`），直接 exec 会报 `No such file or directory`；`bin/login` 为静态 ELF，可直接执行（亦为 `isInstalled` 的 login 判定项）。
+glibc 动态链接的 nix/store 二进制（INTERP/RUNPATH 指向 `/nix/store`）MUST 经 proot 运行（`proot -r $PREFIX -b /system:/system -b /proc:/proc -b /dev:/dev -b /sys:/sys` + `PROOT_TMP_DIR=$PREFIX/tmp`），直接 exec 会报 `No such file or directory`；`bin/login` 为静态 ELF，可直接执行（亦为 `isInstalled` 的 login 判定项）。
 
 #### Scenario: nix 命令可用
 
