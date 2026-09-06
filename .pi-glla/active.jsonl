@@ -1,0 +1,7 @@
+{"type":"session_rebound","value":{"reason":"startup"},"at":"2026-09-06T21:13:38.733Z"}
+{"type":"session_waiting_for_load","value":{"reason":"startup"},"at":"2026-09-06T21:13:38.764Z"}
+{"type":"session_shutdown","value":{"reason":"quit"},"at":"2026-09-06T21:13:39.595Z"}
+{"type":"session_rebound","value":{"reason":"startup"},"at":"2026-09-06T21:14:10.646Z"}
+{"type":"id_invalidation","value":{"oldId":"01a07891-c269-75a9-af91-ba3fa32c2fb2","newId":"01a07892-2c3a-73cb-9d85-389b9ae71d6e","reason":"session_shutdown","shutdownReason":"quit","at":"2026-09-06T21:14:10.677Z"},"at":"2026-09-06T21:14:10.677Z"}
+{"type":"session_waiting_for_load","value":{"reason":"startup"},"at":"2026-09-06T21:14:10.677Z"}
+{"type":"state","value":{"goal":null,"list":[],"loop":null,"mainModelRecovery":null,"lastModelRef":"opencode/mimo-v2.5-free","lastCompactionAt":null,"supervisorPausedAt":null,"loadHoldAt":null,"lastOutcome":null},"at":"2026-09-06T21:14:12.427Z"}

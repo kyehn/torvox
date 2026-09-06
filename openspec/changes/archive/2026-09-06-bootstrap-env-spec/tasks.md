@@ -6,5 +6,5 @@
 
 ## 2. 回归门控（后续实现轮次引用）
 
-- [ ] 2.1 安装失败保留旧 prefix 的用例存在且通过
-- [ ] 2.2 新会话 env 断言（PREFIX/HOME/PATH/TMPDIR/LANG/TERM）用例存在且通过
+- [x] 2.1 安装失败保留旧 prefix 的用例存在且通过（BootstrapInstallerTest staging/原子重命名覆盖，testDebugUnitTest 通过）
+- [x] 2.2 新会话 env 断言（PREFIX/HOME/PATH/TMPDIR/LANG/TERM）用例存在且通过（pty.rs build_env 系列 35/35 通过）
