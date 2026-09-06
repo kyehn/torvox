@@ -1022,6 +1022,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     override fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? = runCatching { queryPort.searchAllInScrollback(query, caseSensitive, fuzzyMatch) }.getOrNull()
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
+    override fun setScrollYPx(offsetPx: Float) = queryPort.setScrollYPx(offsetPx)
+
     override fun getTerminalText(): String? = runCatching { queryPort.getTerminalText() }.getOrNull()
     override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? = runCatching { queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle) }.getOrNull()
     override fun hyperlinkAt(row: Int, col: Int): String? = runCatching { queryPort.hyperlinkAt(row, col) }.getOrNull()
