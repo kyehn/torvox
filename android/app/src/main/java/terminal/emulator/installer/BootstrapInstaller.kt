@@ -107,25 +107,16 @@ class BootstrapInstaller(
     }
 
     /**
-     * Shell entry exists in termux layout (bin/login ELF or bin/bash) or
-     * nix-on-droid layout (store bash-interactive; that bootstrap ships
-     * only bin/env at top level). Same literal as SecondStageRunner's
-     * nix detection; keep them in sync.
+     * Shell entry exists in termux layout (bin/login ELF or bin/bash).
      */
     private fun hasShellBinary(): Boolean =
         (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
-            File(prefixDir, "bin/bash").exists() ||
-            (
-                File(prefixDir, "nix/store").isDirectory &&
-                    File(prefixDir, "nix/store").listFiles()?.any { it.isDirectory && it.name.contains("bash-interactive") } == true
-                )
+            File(prefixDir, "bin/bash").exists()
 
     /**
      * A bootstrap is installed when its shell binary and the second-stage
-     * termux.env both exist. The shell binary is login-first (nix-on-droid)
-     * with bash fallback (termux), mirroring TerminalRuntime's resolution;
-     * only real ELF binaries qualify (termux's bin/login is a shebang
-     * script, nix's is a static ELF).
+     * termux.env both exist. Only real ELF binaries qualify (termux's
+     * bin/login is a shebang script, so it must not be selected).
      */
     fun isInstalled(): Boolean = // termux.env is written last by the second stage; requiring it here
         // means a failed/wedged second stage (e.g. writeTermuxEnv hitting a
@@ -211,10 +202,8 @@ class BootstrapInstaller(
                 }
             }
         }
-        // nix-on-droid bootstraps keep most executables under
-        // nix/store/<hash>/bin/ and usr/bin/, which the EXEC_PREFIXES
-        // prefix match cannot see — the archive's EXECUTABLES.txt is the
-        // authoritative list for those (matches termux-app
+        // Executables from EXECUTABLES.txt need +x permission — the archive's
+        // EXECUTABLES.txt is the authoritative list (matches termux-app
         // TermuxInstaller.java:233-240).
         for (executable in executables) {
             try {
@@ -361,26 +350,19 @@ class BootstrapInstaller(
             //     absolute targets that resolve inside the canonical
             //     prefix path.
             if (target.startsWith("/")) {
-                // nix-on-droid bootstrap (bootstrap-aarch64.zip): SYMLINKS.txt
-                // uses absolute targets like `/nix/store/<hash>-<pkg>/bin/...`
-                // that only resolve inside the proot environment whose root is
-                // the prefix. They are safe here because delete() never follows
-                // symlinks (only the link inode is removed), and the links are
-                // inert until a proot session resolves them. Restrict to the
-                // /nix/ tree — anything else keeps the strict prefix check.
-                if (!target.startsWith("/nix/")) {
-                    val canonicalPrefix = prefixDir.canonicalPath
-                    val resolvedAbsolute =
-                        try {
-                            File(target).canonicalPath
-                        } catch (exception: Exception) {
-                            throw java.io.IOException("Unsafe symlink target: $target (${exception.message})", exception)
-                        }
-                    if (resolvedAbsolute != canonicalPrefix &&
-                        !resolvedAbsolute.startsWith("$canonicalPrefix/")
-                    ) {
-                        throw java.io.IOException("Unsafe symlink target: $target")
+                // Absolute symlinks: only allow targets that resolve inside
+                // the canonical prefix path.
+                val canonicalPrefix = prefixDir.canonicalPath
+                val resolvedAbsolute =
+                    try {
+                        File(target).canonicalPath
+                    } catch (exception: Exception) {
+                        throw java.io.IOException("Unsafe symlink target: $target (${exception.message})", exception)
                     }
+                if (resolvedAbsolute != canonicalPrefix &&
+                    !resolvedAbsolute.startsWith("$canonicalPrefix/")
+                ) {
+                    throw java.io.IOException("Unsafe symlink target: $target")
                 }
             } else {
                 val linkParent = File(linkPath).parent

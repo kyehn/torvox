@@ -1027,12 +1027,7 @@ constructor(
         if (failsafeRequested) {
             return buildFailsafeConfig(rows, cols, configReads, bridgeTheme, homeDir)
         }
-        // Prefix shell resolution mirrors nix-on-droid-app
-        // (UnixShellEnvironment.LOGIN_SHELL_BINARIES = login, bash, zsh,
-        // fish, sh): nix-on-droid bootstraps expose bin/login (a static
-        // proot entry point), termux bootstraps expose bin/bash. The first
-        // existing candidate wins; completeness additionally requires the
-        // bootstrap's own tree (termux: lib/; nix-on-droid: nix/).
+        // Prefix shell resolution: termux bootstraps expose bin/bash.
         // Only ELF candidates are eligible: termux also ships a bin/login
         // *script* (motd + exec, shebang #!/data/.../usr/bin/sh) which the
         // linker-wrapper spawn path cannot load ("bad ELF magic" —
@@ -1040,10 +1035,7 @@ constructor(
         val prefixShell = findPrefixShell(prefixDir)
         val prefixComplete =
             prefixShell != null &&
-                (
-                    java.io.File("$prefixDir/lib").isDirectory ||
-                        java.io.File("$prefixDir/nix").isDirectory
-                    ) &&
+                java.io.File("$prefixDir/lib").isDirectory &&
                 java.io.File("$prefixDir/etc").isDirectory
         val effectivePrefix = if (prefixComplete) prefixDir else ""
         val effectiveShell = if (prefixComplete) Shell.Custom("$prefixDir/$prefixShell") else shell
@@ -1062,41 +1054,18 @@ constructor(
             }
         val effectivePath: String =
             if (prefixComplete) {
-                val nixStore = java.io.File(prefixDir, "nix/store")
-                val nixBinDirs = if (nixStore.isDirectory) {
-                    nixStore.listFiles()
-                        ?.filter { it.isDirectory && it.name.contains("-nix-") }
-                        ?.joinToString(":") { "${it.absolutePath}/bin" }
-                        ?: ""
-                } else ""
                 val base = "$prefixDir/bin"
                 val systemPath = System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
-                if (nixBinDirs.isNotEmpty()) "$base:$nixBinDirs:$systemPath" else "$base:$systemPath"
+                "$base:$systemPath"
             } else {
                 System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
             }
         ensureMkshPromptRc(effectiveHome)
-        val isNixBootstrap = prefixComplete && java.io.File(prefixDir, "nix/store").isDirectory
         val effectiveEnv =
             if (!prefixComplete) {
                 withMkshEnvInjection(configReads.environmentVariables, effectiveHome)
             } else {
-                val baseEnv = configReads.environmentVariables
-                if (isNixBootstrap) {
-                    val prefix = java.io.File(prefixDir)
-                    val nixStore = java.io.File(prefix, "nix/store")
-                    val nixState = java.io.File(prefix, "var/nix")
-                    val nixProfiles = java.io.File(prefix, "nix/var/nix/profiles")
-                    val nixConf = java.io.File(prefix, "etc/nix")
-                    baseEnv + mapOf(
-                        "NIX_CONF_DIR" to nixConf.absolutePath,
-                        "NIX_STORE" to nixStore.absolutePath,
-                        "NIX_STATE_DIR" to nixState.absolutePath,
-                        "NIX_PROFILES" to nixProfiles.absolutePath,
-                    )
-                } else {
-                    baseEnv
-                }
+                configReads.environmentVariables
             }
         return TerminalConfig(
             shell = effectiveShell,
@@ -2399,25 +2368,9 @@ constructor(
     )
 
     /**
-     * Find the prefix shell binary. For nix-on-droid bootstraps, skip
-     * `bin/login` (proot entry point, requires SELinux execute_no_trans
-     * which untrusted_app lacks) and use bash directly from the nix store.
-     * For termux-style bootstraps, use the normal login-first resolution.
+     * Find the prefix shell binary using login-first ELF resolution.
      */
     private fun findPrefixShell(prefixDir: String): String? {
-        val nixStore = java.io.File(prefixDir, "nix/store")
-        if (nixStore.isDirectory) {
-            // Find bash-interactive in the nix store and return its path
-            // relative to prefixDir so buildConfig can construct the full path.
-            val nixBash = nixStore.listFiles()?.firstOrNull { dir ->
-                dir.isDirectory && dir.name.contains("bash-interactive")
-            }?.let { bashDir ->
-                java.io.File(bashDir, "bin/bash").takeIf { it.exists() }
-            }
-            if (nixBash != null) {
-                return nixBash.absolutePath.removePrefix("$prefixDir/")
-            }
-        }
         // Termux-style: login-first ELF resolution.
         return listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
             .firstOrNull { candidate ->
@@ -4444,7 +4397,7 @@ internal fun executeRunCommand(
     // binaries (execute_no_trans) for untrusted_app. termux-exec's
     // LD_PRELOAD hook wraps child execs for the shell, but run_command
     // spawns directly via ProcessBuilder — so a $PREFIX binary (echo,
-    // coreutils applets, nix store paths) must be launched through the
+    // coreutils applets) must be launched through the
     // system linker, exactly like PtyPair::spawn does on the native side.
     val wrapped = wrapTermuxExec(argv, prefixDir)
     val process =
