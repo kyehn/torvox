@@ -1062,16 +1062,43 @@ constructor(
             }
         val effectivePath: String =
             if (prefixComplete) {
-                "$prefixDir/bin:${System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }}"
+                val nixStore = java.io.File(prefixDir, "nix/store")
+                val nixBinDirs = if (nixStore.isDirectory) {
+                    nixStore.listFiles()
+                        ?.filter { it.isDirectory && it.name.contains("-nix-") }
+                        ?.joinToString(":") { "${it.absolutePath}/bin" }
+                        ?: ""
+                } else ""
+                val base = "$prefixDir/bin"
+                val systemPath = System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
+                if (nixBinDirs.isNotEmpty()) "$base:$nixBinDirs:$systemPath" else "$base:$systemPath"
             } else {
                 System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
             }
         ensureMkshPromptRc(effectiveHome)
+        val isNixBootstrap = prefixComplete && java.io.File(prefixDir, "nix/store").isDirectory
         val effectiveEnv =
             if (!prefixComplete) {
                 withMkshEnvInjection(configReads.environmentVariables, effectiveHome)
             } else {
-                configReads.environmentVariables
+                val baseEnv = configReads.environmentVariables
+                if (isNixBootstrap) {
+                    val prefix = java.io.File(prefixDir)
+                    val nixStore = java.io.File(prefix, "nix/store")
+                    val nixState = java.io.File(prefix, "var/nix")
+                    val nixProfiles = java.io.File(prefix, "nix/var/nix/profiles")
+                    val nixConf = java.io.File(prefix, "etc/nix")
+                    val nixPath = "nixpkgs=${java.io.File(nixStore, "nixpkgs").absolutePath}"
+                    baseEnv + mapOf(
+                        "NIX_PATH" to nixPath,
+                        "NIX_CONF_DIR" to nixConf.absolutePath,
+                        "NIX_STORE" to nixStore.absolutePath,
+                        "NIX_STATE_DIR" to nixState.absolutePath,
+                        "NIX_PROFILES" to nixProfiles.absolutePath,
+                    )
+                } else {
+                    baseEnv
+                }
             }
         return TerminalConfig(
             shell = effectiveShell,
@@ -2373,9 +2400,32 @@ constructor(
         val environmentVariables: Map<String, String>,
     )
 
-    private fun findPrefixShell(prefixDir: String): String? = listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh").firstOrNull { candidate ->
-        val file = java.io.File("$prefixDir/$candidate")
-        file.isFile && isElf(file)
+    /**
+     * Find the prefix shell binary. For nix-on-droid bootstraps, skip
+     * `bin/login` (proot entry point, requires SELinux execute_no_trans
+     * which untrusted_app lacks) and use bash directly from the nix store.
+     * For termux-style bootstraps, use the normal login-first resolution.
+     */
+    private fun findPrefixShell(prefixDir: String): String? {
+        val nixStore = java.io.File(prefixDir, "nix/store")
+        if (nixStore.isDirectory) {
+            // Find bash-interactive in the nix store and return its path
+            // relative to prefixDir so buildConfig can construct the full path.
+            val nixBash = nixStore.listFiles()?.firstOrNull { dir ->
+                dir.isDirectory && dir.name.contains("bash-interactive")
+            }?.let { bashDir ->
+                java.io.File(bashDir, "bin/bash").takeIf { it.exists() }
+            }
+            if (nixBash != null) {
+                return nixBash.absolutePath.removePrefix("$prefixDir/")
+            }
+        }
+        // Termux-style: login-first ELF resolution.
+        return listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
+            .firstOrNull { candidate ->
+                val file = java.io.File("$prefixDir/$candidate")
+                file.isFile && isElf(file)
+            }
     }
 
     internal suspend fun computeFontSizeTenths(): Int {
