@@ -326,28 +326,70 @@ class SecondStageRunner(
     private fun writeTermuxEnv() {
         val envFile = File(prefixDir, "etc/termux/termux.env")
         envFile.parentFile?.mkdirs()
-        // Same login-first resolution as TerminalRuntime: nix-on-droid
-        // bootstraps provide bin/login, termux bootstraps provide bin/bash.
-        // Only real ELF binaries qualify (termux's bin/login is a shebang
-        // script that the linker-wrapper spawn cannot load).
-        val shellBinary =
-            listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
-                .firstOrNull { candidate ->
-                    val file = File(prefixDir, candidate)
-                    file.isFile && isElf(file)
-                }
-                ?: "bin/bash"
+
+        // Detect nix-on-droid bootstrap: has nix/store with bash-interactive.
+        // Proot requires SELinux execute_no_trans which untrusted_app lacks,
+        // so we run bash directly from the nix store, bypassing login/proot.
+        val nixStore = File(prefixDir, "nix/store")
+        val nixBash = if (nixStore.isDirectory) {
+            nixStore.listFiles()?.firstOrNull { dir ->
+                dir.isDirectory && dir.name.contains("bash-interactive")
+            }?.let { bashDir ->
+                File(bashDir, "bin/bash").takeIf { it.exists() }
+            }
+        } else null
+
+        val isNixBootstrap = nixBash != null
+        val shellBinary: String
+        val pathValue: String
+
+        if (isNixBootstrap) {
+            // Use bash directly from the nix store. The nix store bin
+            // directories contain nix, nix-env, nixos-rebuild etc.
+            shellBinary = nixBash!!.absolutePath
+            val nixBinDirs = nixStore.listFiles()
+                ?.filter { it.isDirectory && it.name.contains("-nix-") }
+                ?.map { File(it, "bin").absolutePath }
+                ?.joinToString(":")
+                ?: ""
+            val prefixBin = File(prefixDir, "bin").absolutePath
+            pathValue = buildString {
+                append(nixBash!!.parentFile.parentFile.resolve("bin").absolutePath)
+                if (nixBinDirs.isNotEmpty()) append(":").append(nixBinDirs)
+                append(":").append(prefixBin)
+                append("/system/bin:/system/xbin")
+            }
+        } else {
+            // Termux-style: prefer bin/login, fallback to bin/bash etc.
+            shellBinary = (
+                listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
+                    .firstOrNull { candidate ->
+                        val file = File(prefixDir, candidate)
+                        file.isFile && isElf(file)
+                    } ?: "bin/bash"
+            ).let { File(prefixDir, it).absolutePath }
+            pathValue = "${File(prefixDir, "bin").absolutePath}:/system/bin:/system/xbin"
+        }
+
         envFile.writeText(
-            """
-HOME=${homeDir.absolutePath}
-PREFIX=${prefixDir.absolutePath}
-PATH=${File(prefixDir, "bin").absolutePath}:/system/bin:/system/xbin
-TMPDIR=${File(prefixDir, "tmp").absolutePath}
-SHELL=${File(prefixDir, shellBinary).absolutePath}
-LANG=en_US.UTF-8
-TERM=xterm-256color
-COLORTERM=truecolor
-            """.trimIndent(),
+            buildString {
+                appendLine("HOME=${homeDir.absolutePath}")
+                appendLine("PREFIX=${prefixDir.absolutePath}")
+                appendLine("PATH=$pathValue")
+                appendLine("TMPDIR=${File(prefixDir, "tmp").absolutePath}")
+                appendLine("SHELL=$shellBinary")
+                appendLine("LANG=en_US.UTF-8")
+                appendLine("TERM=xterm-256color")
+                appendLine("COLORTERM=truecolor")
+                if (isNixBootstrap) {
+                    appendLine("NIX_PATH=nixpkgs=${File(nixStore, "nixpkgs").absolutePath}")
+                    appendLine("NIX_CONF_DIR=${File(prefixDir, "etc/nix").absolutePath}")
+                    appendLine("NIX_STORE=${nixStore.absolutePath}")
+                    appendLine("NIX_STATE_DIR=${File(prefixDir, "var/nix").absolutePath}")
+                    appendLine("NIX_PROFILES=${File(prefixDir, "nix/var/nix/profiles").absolutePath}")
+                }
+            }.trimEnd(),
         )
+        Log.w("SecondStageRunner", "writeTermuxEnv: isNix=$isNixBootstrap shell=$shellBinary")
     }
 }
