@@ -346,7 +346,9 @@ class SecondStageRunner(
         if (isNixBootstrap) {
             // Use bash directly from the nix store. The nix store bin
             // directories contain nix, nix-env, nixos-rebuild etc.
-            shellBinary = nixBash!!.absolutePath
+            val bash = requireNotNull(nixBash)
+            shellBinary = bash.absolutePath
+            val bashBinDir = requireNotNull(bash.parentFile?.parentFile)
             val nixBinDirs = nixStore.listFiles()
                 ?.filter { it.isDirectory && it.name.contains("-nix-") }
                 ?.map { File(it, "bin").absolutePath }
@@ -354,7 +356,7 @@ class SecondStageRunner(
                 ?: ""
             val prefixBin = File(prefixDir, "bin").absolutePath
             pathValue = buildString {
-                append(nixBash!!.parentFile.parentFile.resolve("bin").absolutePath)
+                append(bashBinDir.resolve("bin").absolutePath)
                 if (nixBinDirs.isNotEmpty()) append(":").append(nixBinDirs)
                 append(":").append(prefixBin)
                 append("/system/bin:/system/xbin")
