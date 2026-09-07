@@ -192,6 +192,40 @@ class BootstrapInstallerTest {
         assertTrue("usr/bin/env must exist", File(prefixDir, "usr/bin/env").exists())
     }
 
+    /**
+     * Real nix-on-droid bootstrap layout (bootstrap-unstable x86_64):
+     * top level ships only bin/env; there is no bin/login and no
+     * bin/bash. The shell entry is nix/store/*-bash-interactive-*/bin/bash.
+     * Detection must recognize it, or a perfect install reports
+     * "not installed" forever (device-verified symptom).
+     */
+    @Test
+    fun installed_recognizesStoreBashInteractive() {
+        val storeBash = File(prefixDir, "nix/store/7a60q5dgnv6z96c279rc1nalyiw4mgqn-bash-interactive-5.3p15/bin/bash")
+        requireNotNull(storeBash.parentFile).mkdirs()
+        storeBash.writeText("x")
+        File(prefixDir, "etc/termux/termux.env").apply {
+            requireNotNull(parentFile).mkdirs()
+            writeText("PREFIX=${prefixDir.absolutePath}\n")
+        }
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+        assertTrue("isInstalled must be true for store bash-interactive layout", installer.isInstalled())
+        assertFalse("needsInstall must be false for store bash-interactive layout", installer.needsInstall())
+    }
+
+    @Test
+    fun installed_rejectsStoreWithoutBashInteractive() {
+        val other = File(prefixDir, "nix/store/abc123-foo-1.0/bin/foo")
+        requireNotNull(other.parentFile).mkdirs()
+        other.writeText("x")
+        File(prefixDir, "etc/termux/termux.env").apply {
+            requireNotNull(parentFile).mkdirs()
+            writeText("PREFIX=${prefixDir.absolutePath}\n")
+        }
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+        assertFalse("isInstalled must be false without a shell entry", installer.isInstalled())
+    }
+
     /** parseSymlinks keeps the nix `target←linkPath` direction for absolute store paths. */
     @Test
     fun parseSymlinks_keepsNixStoreDirection() {
