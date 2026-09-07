@@ -348,6 +348,7 @@ class SecondStageRunner(
             // directories contain nix, nix-env, nixos-rebuild etc.
             val bash = requireNotNull(nixBash)
             shellBinary = bash.absolutePath
+            val bashBinDir = requireNotNull(bash.parentFile?.parentFile)
             val nixBinDirs = nixStore.listFiles()
                 ?.filter { it.isDirectory && it.name.contains("-nix-") }
                 ?.map { File(it, "bin").absolutePath }
@@ -355,7 +356,7 @@ class SecondStageRunner(
                 ?: ""
             val prefixBin = File(prefixDir, "bin").absolutePath
             pathValue = buildString {
-                append(bash.parentFile.parentFile.resolve("bin").absolutePath)
+                append(bashBinDir.resolve("bin").absolutePath)
                 if (nixBinDirs.isNotEmpty()) append(":").append(nixBinDirs)
                 append(":").append(prefixBin)
                 append("/system/bin:/system/xbin")
