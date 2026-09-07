@@ -66,11 +66,13 @@ tags:
     optional: true
 - tapOn:
     text: "nix-bootstrap-x86_64.zip"
-# Extraction of the ~310MB zip takes minutes on the emulator.
+# Extraction of the ~310MB zip takes 20+ minutes on the emulator
+# (measured 1.4G extracted at ~15 min and still going); the result
+# wait must cover the full extract + postinst, not just the copy.
 - extendedWaitUntil:
     visible:
       id: "BootstrapResultText"
-    timeout: 600000
+    timeout: 1800000
 - assertVisible:
     id: "BootstrapResultText"
 - assertVisible:

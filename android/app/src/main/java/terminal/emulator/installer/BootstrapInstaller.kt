@@ -103,11 +103,22 @@ class BootstrapInstaller(
             val pinned = readVersionPin(prefixDir) ?: return true
             return pinned != zipSha256
         }
-        return !(
-            (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
-                File(prefixDir, "bin/bash").exists()
-            )
+        return !hasShellBinary()
     }
+
+    /**
+     * Shell entry exists in termux layout (bin/login ELF or bin/bash) or
+     * nix-on-droid layout (store bash-interactive; that bootstrap ships
+     * only bin/env at top level). Same literal as SecondStageRunner's
+     * nix detection; keep them in sync.
+     */
+    private fun hasShellBinary(): Boolean =
+        (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
+            File(prefixDir, "bin/bash").exists() ||
+            (
+                File(prefixDir, "nix/store").isDirectory &&
+                    File(prefixDir, "nix/store").listFiles()?.any { it.isDirectory && it.name.contains("bash-interactive") } == true
+                )
 
     /**
      * A bootstrap is installed when its shell binary and the second-stage
@@ -121,8 +132,7 @@ class BootstrapInstaller(
         // full disk) is not reported as a healthy install, so the retry path
         // stays open instead of leaving a permanently broken environment.
         (
-            (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
-                File(prefixDir, "bin/bash").exists()
+            hasShellBinary()
             ) &&
             File(prefixDir, "etc/termux/termux.env").exists()
 
