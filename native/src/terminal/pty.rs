@@ -219,12 +219,55 @@ impl PtyPair {
         // execve()'s FIRST argument is the executable PATH; argv[0] is
         // passed separately in args_ptrs. With the linker, the path is
         // /system/bin/linker64 and argv = [linker64, bash].
+        //
+        // Nix-on-droid login: when the shell is $PREFIX/bin/login (an ELF
+        // that sets up proot + login-inner), pass --config so the login
+        // binary uses the override config written during bootstrap install.
+        // The config contains corrected installation_dir paths and
+        // login-inner configuration (first_run settings, user shell, etc.).
+        let is_nix_login = !prefix.is_empty()
+            && (shell.ends_with("/bin/login") || shell.ends_with("/bin/login-inner"));
+        // Extra argv CStrings that must outlive fork(). Dropped after execve.
+        let nix_config_flag;
+        let nix_config_path;
+        let (nix_flag_ptr, nix_path_ptr): (*const libc::c_char, *const libc::c_char) =
+            if is_nix_login {
+                let config_path = format!("{prefix}/etc/nix-on-droid/login-config.toml");
+                if std::path::Path::new(&config_path).exists() {
+                    log::info!("nix login: using override config {config_path}");
+                    nix_config_flag =
+                        std::ffi::CString::new("--config").map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?;
+                    nix_config_path =
+                        std::ffi::CString::new(config_path).map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?;
+                    (nix_config_flag.as_ptr(), nix_config_path.as_ptr())
+                } else {
+                    (std::ptr::null(), std::ptr::null())
+                }
+            } else {
+                (std::ptr::null(), std::ptr::null())
+            };
         let exec_path_ptr = linker_cstr.as_ref().map_or(shell_ptr, |c| c.as_ptr());
         let working_directory_ptr = working_directory_cstr.as_ptr();
+        let has_nix_config = !nix_flag_ptr.is_null();
         let args_ptrs: Vec<*const libc::c_char> = if let Some(linker_cstr) = &linker_cstr {
-            vec![linker_cstr.as_ptr(), shell_ptr, std::ptr::null()]
+            let mut args = Vec::with_capacity(6);
+            args.push(linker_cstr.as_ptr());
+            args.push(shell_ptr);
+            if has_nix_config {
+                args.push(nix_flag_ptr);
+                args.push(nix_path_ptr);
+            }
+            args.push(std::ptr::null());
+            args
         } else {
-            vec![shell_ptr, std::ptr::null()]
+            let mut args = Vec::with_capacity(5);
+            args.push(shell_ptr);
+            if has_nix_config {
+                args.push(nix_flag_ptr);
+                args.push(nix_path_ptr);
+            }
+            args.push(std::ptr::null());
+            args
         };
         let env_ptrs: Vec<*const libc::c_char> = env_cstrings
             .iter()
@@ -793,13 +836,17 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     // dlopens (naming from termux-exec's lib/ld-preload build). Falling
     // back to the bare name keeps older bootstraps working.
     if let Some(p) = prefix_str {
-        let exec_lib =
+        let ld_preload =
             if std::path::Path::new(&format!("{p}/lib/libtermux-exec-ld-preload.so")).exists() {
-                format!("{p}/lib/libtermux-exec-ld-preload.so")
+                Some(format!("{p}/lib/libtermux-exec-ld-preload.so"))
+            } else if std::path::Path::new(&format!("{p}/lib/libtermux-exec.so")).exists() {
+                Some(format!("{p}/lib/libtermux-exec.so"))
             } else {
-                format!("{p}/lib/libtermux-exec.so")
+                None
             };
-        result.push(("LD_PRELOAD".to_string(), exec_lib));
+        if let Some(path) = ld_preload {
+            result.push(("LD_PRELOAD".to_string(), path));
+        }
     }
     result.push(("HOME".to_string(), env.home.clone()));
     result.push(("USER".to_string(), env.user.clone()));
@@ -1427,21 +1474,78 @@ mod pdeathsig_tests {
     use super::*;
 
     #[test]
-    fn build_env_adds_ld_preload_for_prefixed_shell() {
+    fn build_env_adds_ld_preload_when_file_exists() {
+        // When the libtermux-exec.so file exists in the prefix, LD_PRELOAD
+        // must be set (termux case).
+        let tmp = std::env::temp_dir().join(format!("torvox-pty-test-{}", std::process::id()));
+        let lib = tmp.join("lib");
+        std::fs::create_dir_all(&lib).expect("create tmp lib");
+        std::fs::write(lib.join("libtermux-exec.so"), b"ELF").expect("touch file");
+        let prefix = tmp.to_str().unwrap().to_string();
         let env = ShellEnv {
-            home: "/data/user/0/com.termux/files/home".to_string(),
+            home: format!("{}/home", prefix),
             user: "shell".to_string(),
-            path: "/data/user/0/com.termux/files/usr/bin:/system/bin".to_string(),
-            working_directory: "/data/user/0/com.termux/files/home".to_string(),
-            prefix: Some("/data/user/0/com.termux/files/usr".to_string()),
+            path: format!("{}/bin:/system/bin", prefix),
+            working_directory: format!("{}/home", prefix),
+            prefix: Some(prefix.clone()),
             extra: vec![],
         };
-        let result = build_env(&env, "/data/user/0/com.termux/files/usr/bin/bash", 24, 80);
+        let result = build_env(&env, &format!("{}/bin/bash", prefix), 24, 80);
         assert!(
             result.iter().any(|(k, v)| {
-                k == "LD_PRELOAD" && v == "/data/user/0/com.termux/files/usr/lib/libtermux-exec.so"
+                k == "LD_PRELOAD" && *v == format!("{}/lib/libtermux-exec.so", prefix)
             }),
-            "LD_PRELOAD must point at libtermux-exec.so for prefixed shells"
+            "LD_PRELOAD must point at libtermux-exec.so when the file exists"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn build_env_adds_ld_preload_variant_when_present() {
+        // The direct-ld-preload variant is preferred over the bare name.
+        let tmp = std::env::temp_dir().join(format!("torvox-pty-test-{}", std::process::id()));
+        let lib = tmp.join("lib");
+        std::fs::create_dir_all(&lib).expect("create tmp lib");
+        std::fs::write(lib.join("libtermux-exec-ld-preload.so"), b"ELF").expect("touch ld");
+        std::fs::write(lib.join("libtermux-exec.so"), b"ELF").expect("touch bare");
+        let prefix = tmp.to_str().unwrap().to_string();
+        let env = ShellEnv {
+            home: format!("{}/home", prefix),
+            user: "testuser".to_string(),
+            path: "/usr/bin:/bin".to_string(),
+            working_directory: format!("{}/home", prefix),
+            prefix: Some(prefix.clone()),
+            extra: vec![],
+        };
+        let result = build_env(&env, &format!("{}/bin/bash", prefix), 24, 80);
+        let preload = result
+            .iter()
+            .find(|(k, _)| k == "LD_PRELOAD")
+            .map(|(_, v)| v.clone());
+        assert_eq!(
+            preload.as_deref(),
+            Some(format!("{}/lib/libtermux-exec-ld-preload.so", prefix).as_str()),
+            "ld-preload variant must be preferred over bare name",
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn build_env_skips_ld_preload_when_absent() {
+        // nix-on-droid case: prefix is set but lib/libtermux-exec.so does
+        // not exist — LD_PRELOAD must be omitted to avoid CANNOT LINK.
+        let env = ShellEnv {
+            home: "/tmp/test_home".to_string(),
+            user: "testuser".to_string(),
+            path: "/usr/bin:/bin".to_string(),
+            working_directory: "/tmp/test_home".to_string(),
+            prefix: Some("/data/data/com.termux/files/usr".to_string()),
+            extra: vec![],
+        };
+        let result = build_env(&env, "/data/data/com.termux/files/usr/bin/bash", 24, 80);
+        assert!(
+            !result.iter().any(|(k, _)| k == "LD_PRELOAD"),
+            "must not set LD_PRELOAD when libtermux-exec.so is absent (nix-on-droid)"
         );
     }
 
@@ -1461,32 +1565,4 @@ mod pdeathsig_tests {
             "no LD_PRELOAD for system shells"
         );
     }
-}
-
-#[test]
-fn build_env_uses_ld_preload_variant_when_present() {
-    // The direct-ld-preload variant is preferred (SELinux execve
-    // interception); fall back to the bare name for old bootstraps.
-    let env = ShellEnv {
-        home: "/tmp/test_home".to_string(),
-        user: "testuser".to_string(),
-        path: "/usr/bin:/bin".to_string(),
-        working_directory: "/tmp/test_home".to_string(),
-        prefix: Some("/data/data/com.termux/files/usr".to_string()),
-        extra: vec![],
-    };
-    let result = build_env(&env, "/data/data/com.termux/files/usr/bin/bash", 24, 80);
-    let preload = result
-        .iter()
-        .find(|(k, _)| k == "LD_PRELOAD")
-        .map(|(_, v)| v.clone());
-    // On the build host the preload variant does not exist, so the
-    // fallback bare name is used — the important contract is that an
-    // LD_PRELOAD pointing at the prefix lib dir is always set.
-    assert!(
-        preload
-            .as_deref()
-            .is_some_and(|v| v.starts_with("/data/data/com.termux/files/usr/lib/libtermux-exec")),
-        "expected LD_PRELOAD=.../libtermux-exec*.so, got {preload:?}",
-    );
 }
