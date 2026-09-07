@@ -219,53 +219,17 @@ impl PtyPair {
         // execve()'s FIRST argument is the executable PATH; argv[0] is
         // passed separately in args_ptrs. With the linker, the path is
         // /system/bin/linker64 and argv = [linker64, bash].
-        //
-        // Nix-on-droid login: when the shell is $PREFIX/bin/login (an ELF
-        // that sets up proot + login-inner), pass --config so the login
-        // binary uses the override config written during bootstrap install.
-        // The config contains corrected installation_dir paths and
-        // login-inner configuration (first_run settings, user shell, etc.).
-        let is_nix_login = !prefix.is_empty()
-            && (shell.ends_with("/bin/login") || shell.ends_with("/bin/login-inner"));
-        // Extra argv CStrings that must outlive fork(). Dropped after execve.
-        let nix_config_flag;
-        let nix_config_path;
-        let (nix_flag_ptr, nix_path_ptr): (*const libc::c_char, *const libc::c_char) =
-            if is_nix_login {
-                let config_path = format!("{prefix}/etc/nix-on-droid/login-config.toml");
-                if std::path::Path::new(&config_path).exists() {
-                    log::info!("nix login: using override config {config_path}");
-                    nix_config_flag =
-                        std::ffi::CString::new("--config").map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?;
-                    nix_config_path =
-                        std::ffi::CString::new(config_path).map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?;
-                    (nix_config_flag.as_ptr(), nix_config_path.as_ptr())
-                } else {
-                    (std::ptr::null(), std::ptr::null())
-                }
-            } else {
-                (std::ptr::null(), std::ptr::null())
-            };
         let exec_path_ptr = linker_cstr.as_ref().map_or(shell_ptr, |c| c.as_ptr());
         let working_directory_ptr = working_directory_cstr.as_ptr();
-        let has_nix_config = !nix_flag_ptr.is_null();
         let args_ptrs: Vec<*const libc::c_char> = if let Some(linker_cstr) = &linker_cstr {
-            let mut args = Vec::with_capacity(6);
+            let mut args = Vec::with_capacity(4);
             args.push(linker_cstr.as_ptr());
             args.push(shell_ptr);
-            if has_nix_config {
-                args.push(nix_flag_ptr);
-                args.push(nix_path_ptr);
-            }
             args.push(std::ptr::null());
             args
         } else {
-            let mut args = Vec::with_capacity(5);
+            let mut args = Vec::with_capacity(3);
             args.push(shell_ptr);
-            if has_nix_config {
-                args.push(nix_flag_ptr);
-                args.push(nix_path_ptr);
-            }
             args.push(std::ptr::null());
             args
         };
@@ -868,10 +832,9 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     // TERMUX_APP__PACKAGE_NAME variables are injected by the JNI layer
     // (initSession) when a prefix is configured. Without
     // TERMUX_APP__DATA_DIR, termux-exec's execve hook falls back to the
-    // package name baked into the bootstrap (nix-on-droid builds with
-    // `com.termux.nix`), so it does not recognize $PREFIX paths and every
-    // execve of a Termux binary fails with EACCES (SELinux
-    // execute_no_trans on app_data_file).
+    // package name baked into the bootstrap, so it does not recognize
+    // $PREFIX paths and every execve of a Termux binary fails with
+    // EACCES (SELinux execute_no_trans on app_data_file).
     //
     // Reference (std::env overlay): terminal.rs insert_zed_terminal_env
     //:123-161 copies HOME/PATH/SHELL/TMPDIR/LANG then applies the overlay.
@@ -1532,8 +1495,8 @@ mod pdeathsig_tests {
 
     #[test]
     fn build_env_skips_ld_preload_when_absent() {
-        // nix-on-droid case: prefix is set but lib/libtermux-exec.so does
-        // not exist — LD_PRELOAD must be omitted to avoid CANNOT LINK.
+        // Prefix is set but lib/libtermux-exec.so does not exist —
+        // LD_PRELOAD must be omitted to avoid CANNOT LINK.
         let env = ShellEnv {
             home: "/tmp/test_home".to_string(),
             user: "testuser".to_string(),
@@ -1545,7 +1508,7 @@ mod pdeathsig_tests {
         let result = build_env(&env, "/data/data/com.termux/files/usr/bin/bash", 24, 80);
         assert!(
             !result.iter().any(|(k, _)| k == "LD_PRELOAD"),
-            "must not set LD_PRELOAD when libtermux-exec.so is absent (nix-on-droid)"
+            "must not set LD_PRELOAD when libtermux-exec.so is absent"
         );
     }
 
