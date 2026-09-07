@@ -40,12 +40,14 @@ nix-on-droid 等非 termux 布局的 bootstrap（可执行文件散布 `nix/stor
 
 ### Requirement: nix 二进制执行方式
 
-glibc 动态链接的 nix/store 二进制（INTERP/RUNPATH 指向 `/nix/store`）MUST 经 proot 运行（`proot -r $PREFIX -b /system:/system -b /proc:/proc -b /dev:/dev -b /sys:/sys` + `PROOT_TMP_DIR=$PREFIX/tmp`），直接 exec 会报 `No such file or directory`；`bin/login` 为静态 ELF，可直接执行（亦为 `isInstalled` 的 login 判定项）。
+glibc 动态链接的 nix/store 二进制（实测 `bootstrap-unstable` x86_64：bash 的 INTERP 为 `/nix/store/n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84/lib/ld-linux-x86-64.so.2`、RUNPATH 指向 `/nix/store` 下 ncurses/readline/glibc 三目录）在 adb shell 上下文经 proot 运行已验证（`proot -r $PREFIX -b /system:/system -b /proc:/proc -b /dev:/dev -b /sys:/sys` + `PROOT_TMP_DIR=$PREFIX/tmp` → `nix --version` 输出版本号）；直接 exec 报缺 interpreter（预期行为，非安装失败）。应用进程上下文（untrusted_app：seccomp + SELinux enforcing）中 proot/login 链路尚未验证通过，不得声称可用——待端到端设备测试结论后再锁定。`bin/login` 为静态 ELF，可直接执行（亦为 `isInstalled` 的 login 判定项）。注意：当前 bypass（SHELL 直指 nix-store bash）跳过了 login-inner 的 first_run（`nix-env --switch-profile /nix/var/nix/profiles/system` + 上游模板脚手架）；`nixos-rebuild switch` 是否需要其产物尚未验证，部署前必须先确认，否则 bypass shell 可用但部署目标仍失败。
+
+参考对照（2026-09-07，sylirre/ghostty-android-terminal 源码）：该项目为绕开同一限制（W^X 禁止 exec 应用数据下 ELF、无 loader 可用）采用进程内用户态 ELF 装载引擎（arm64chroot/chroot-ng，来宾 exec 转为进程内 reload），彻底避开 exec/proot/ptrace——证实本限制的真实性；但该方案体量远超本项目“简单”约束，列为已评估拒绝，仅保留 proot 与直接装载两条待验证路径。
 
 #### Scenario: nix 命令可用
 
-- **WHEN** 经上述 proot 绑定运行 `nix --version`
-- **THEN** 输出版本号；直接执行则报缺 interpreter（预期行为，非安装失败）
+- **WHEN** 在 adb shell 上下文经上述 proot 绑定运行 `nix --version`
+- **THEN** 输出版本号；直接执行则报缺 interpreter（预期行为，非安装失败）；应用进程上下文的等价断言待设备测试后补充
 
 ### Requirement: 子进程环境变量
 
