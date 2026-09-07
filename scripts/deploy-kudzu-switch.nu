@@ -15,8 +15,8 @@ def run_as [cmd: string] {
 def main [--flake-subdir: string = "home/kudzu"] {
     # 1. Preconditions.
     let prefix = "/data/data/com.termux/files/usr"
-    let env = (try { run_as "ls files/usr/etc/termux/termux.env" } catch { "" })
-    if ($env | is-empty) { print "ERROR: bootstrap not installed (termux.env missing)"; exit 1 }
+    let marker = (try { run_as "ls files/usr/etc/termux/termux.env" } catch { "" })
+    if ($marker | is-empty) { print "ERROR: bootstrap not installed (termux.env missing)"; exit 1 }
     let flake = (try { run_as $"ls files/usr/($flake_subdir)/flake.nix" } catch { "" })
     if ($flake | is-empty) { print $"ERROR: flake not staged at files/usr/($flake_subdir)/flake.nix"; exit 1 }
     let proot = (try { run_as "ls files/usr/nix/store/*-proot-termux-static-*/bin/proot" } catch { "" })
