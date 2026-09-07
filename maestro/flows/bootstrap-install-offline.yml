@@ -82,3 +82,17 @@ tags:
     timeout: 30000
 - assertVisible:
     id: "TerminalScreen"
+# Probe the post-install shell over IME (loop mandate: real input +
+# OCR, no shortcuts). After a nix bootstrap this exercises the
+# nix-store bash spawn path itself: readable `nix ...` output means
+# the loader question is settled positive; a dead prompt settles it
+# negative. The screenshot is OCR-read outside Maestro.
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 3000
+- inputText: "nix --version"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 5000
+- takeScreenshot: nix_version_probed
