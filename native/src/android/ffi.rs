@@ -743,13 +743,11 @@ fn init_session_inner(
                 // termux-exec's execve hook only forwards
                 // app-data executables to the system linker when the path is
                 // under TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR.
-                // The nix-on-droid bootstrap is compiled with the built-in
-                // package name `com.termux.nix`, so without these variables
-                // every execve of a $PREFIX binary fails with EACCES
-                // (SELinux execute_no_trans) — `cat: Permission denied`.
-                // Derive the Termux paths from the prefix
-                // (`.../files/usr` → files dir → app data dir) instead of
-                // adding a new JNI parameter.
+                // Without these variables every execve of a $PREFIX binary
+                // fails with EACCES (SELinux execute_no_trans) —
+                // `cat: Permission denied`. Derive the Termux paths from the
+                // prefix (`.../files/usr` → files dir → app data dir) instead
+                // of adding a new JNI parameter.
                 extra.extend(termux_env_vars(&prefix));
             }
             // User-defined overrides land last: they shadow TERM /
