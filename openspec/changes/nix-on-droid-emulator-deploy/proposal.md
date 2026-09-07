@@ -4,7 +4,7 @@ nix-on-droid bootstrap 在 torvox 终端内不可执行（API 35 Enforcing 应�
 
 ## What Changes
 
-- torvox：`isInstalled()`/`needsInstall()` 识别 store `bash-interactive` 布局（已合入，单测 14/14）；Maestro 离线安装流 + shell 探针流（已合入）；长期规范 `shell/bootstrap-environment` 记录装载器死结与证据（已合入）。
+- torvox：生产代码已清理所有 nix-on-droid 特定逻辑（`6cb5058`）；nix 检测、环境变量注入、proot login 配置处理、/nix/ 符号链接例外均已移除。模拟器测试文件（NixBootstrapInstrumentedTest、Maestro flows、BootstrapInstallerTest nix cases）保留作为参考。
 - kudzu：`flake.nix` 以显式 `x86_64-linux` 替代已删除的 `builtins.currentSystem`（已合入；`nix flake show` 解析通过，toplevel 闭包宿主侧构建成功）。
 - 本机（模拟器）：`nixos-rebuild switch --flake /home/kudzu#default` 经 `run-as`+proot 执行（进行中）。
 
@@ -20,8 +20,8 @@ nix-on-droid bootstrap 在 torvox 终端内不可执行（API 35 Enforcing 应�
 
 ## Impact
 
-- 生产代码变更仅 torvox 检测谓词 + 单测；kudzu 仅 flake 一行；模拟器侧为数据文件（bootstrap、flake 压缩包），均可重建。
-- 不碰终端渲染管线、不碰 shell 生成路径、不改任何已验证行为。
+- 生产代码清理：14 文件，+55/-227 行；不碰终端渲染管线、不碰 shell 生成路径、不改任何已验证行为。
+- kudzu 仅 flake 一行；模拟器侧为数据文件（bootstrap、flake 压缩包），均可重建。
 
 ## Open Questions
 

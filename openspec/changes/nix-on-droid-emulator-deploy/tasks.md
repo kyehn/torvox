@@ -25,7 +25,19 @@
 - [ ] 3.6d `nixos-rebuild switch --flake /home/kudzu#default` 完成（含下载、顶层组装、激活；当前正在二进制替换阶段）。冻结事项：在此项关闭前不得再跑 GC——已抓取未激活的闭包路径无 root 保护，会被回收导致重下。
 - [ ] 3.7 激活验证：`/nix/var/nix/profiles/system` 指向 kudzu 闭包；home-manager 落盘检查（只读 `run-as` 巡检，不执行新二进制）
 
-## 4. 收尾（待 3.6–3.7）
+## 5. 生产代码清理（已完成）
 
-- [ ] 4.1 将完整验证命令链记入部署 runbook（不提前写结局）
-- [ ] 4.2 本 change 归档（`openspec/changes/archive/`）
+- [x] 5.1 移除 SecondStageRunner.kt 中的 nix store 检测和 NIX 环境变量注入
+- [x] 5.2 移除 TerminalRuntime.kt 中的 nix store PATH/ENV、前缀完成检查、findPrefixShell nix 检测
+- [x] 5.3 移除 BootstrapInstaller.kt 中的 nix store bash-interactive 检测和 /nix/ 符号链接例外
+- [x] 5.4 移除 pty.rs 中的 nix login --config 标志注入
+- [x] 5.5 移除 SettingsScreen.kt 中的 nix-on-droid 前缀 shell 检测
+- [x] 5.6 移除所有语言字符串资源中的 launch_location_status_nix
+- [x] 5.7 清理 pty.rs、ffi.rs、text_utils.rs 中的 nix-on-droid 注释引用
+- [x] 5.8 构建验证通过，APK 安装到模拟器并正常运行
+- [x] 5.9 Git 提交推送（`6cb5058`）
+
+## 6. 收尾（待 5 完成后重新评估）
+
+- [ ] 6.1 将完整验证命令链记入部署 runbook（不提前写结局）
+- [ ] 6.2 本 change 归档（`openspec/changes/archive/`）
