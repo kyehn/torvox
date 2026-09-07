@@ -1,0 +1,84 @@
+appId: com.termux
+name: Install nix-on-droid bootstrap from file (offline)
+tags:
+  - e2e
+---
+# Prerequisite (staged outside this flow): push the bootstrap zip to
+# shared storage first:
+#   adb push nix-bootstrap-x86_64.zip /sdcard/Download/nix-bootstrap-x86_64.zip
+# Uses the "Install from File" button (OfflineInstallButton) + system
+# file picker. No network required.
+- launchApp:
+    clearState: true
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    text: "Allow"
+    optional: true
+- waitForAnimationToEnd:
+    timeout: 5000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "TerminalScreen"
+# Open drawer and enter Settings (same path as open-settings.yml).
+- tapOn:
+    id: "Key_DRAWER"
+- extendedWaitUntil:
+    visible:
+      id: "SessionDrawer"
+    timeout: 15000
+- tapOn:
+    id: "SettingsButton"
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertVisible:
+    id: "SettingsScreen"
+# Scroll to the Bootstrap section's offline button.
+- scrollUntilVisible:
+    element:
+      id: "OfflineInstallButton"
+    direction: DOWN
+- tapOn:
+    id: "OfflineInstallButton"
+# System file picker (DocumentsUI): open roots, go to Downloads,
+# pick the staged zip. Picker layout varies by image; each step is
+# optional except the final file tap, and the flow is re-run
+# until the install succeeds ("循环直到成功安装").
+- tapOn:
+    text: "Show roots"
+    optional: true
+- tapOn:
+    text: "Downloads"
+    optional: true
+- tapOn:
+    text: "Download"
+    optional: true
+- tapOn:
+    text: "nix-bootstrap-x86_64.zip"
+# Extraction of the ~310MB zip takes minutes on the emulator.
+- extendedWaitUntil:
+    visible:
+      id: "BootstrapResultText"
+    timeout: 600000
+- assertVisible:
+    id: "BootstrapResultText"
+- assertVisible:
+    text: "Bootstrap installed from file"
+# installOffline appends postinst diagnostics after the headline;
+# Maestro text match is substring-based so the headline assertion
+# holds with or without diagnostics. Relaunch and confirm the
+# terminal still comes up (install must not corrupt sessions).
+- launchApp:
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "TerminalScreen"
