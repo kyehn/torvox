@@ -1088,9 +1088,7 @@ constructor(
                     val nixState = java.io.File(prefix, "var/nix")
                     val nixProfiles = java.io.File(prefix, "nix/var/nix/profiles")
                     val nixConf = java.io.File(prefix, "etc/nix")
-                    val nixPath = "nixpkgs=${java.io.File(nixStore, "nixpkgs").absolutePath}"
                     baseEnv + mapOf(
-                        "NIX_PATH" to nixPath,
                         "NIX_CONF_DIR" to nixConf.absolutePath,
                         "NIX_STORE" to nixStore.absolutePath,
                         "NIX_STATE_DIR" to nixState.absolutePath,

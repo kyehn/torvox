@@ -26,4 +26,4 @@ nix-on-droid bootstrap 在 torvox 终端内不可执行（API 35 Enforcing 应�
 ## Open Questions
 
 - 激活（activation）阶段在 `run-as` 用户下的行为（profile 链接、home-manager 落盘）待 switch 完成给出证据。
-- `NIX_PATH` 指向不存在目录的 nit：flakes 路径不受影响，暂缓。
+- `NIX_PATH` 指向不存在目录的 nit：已解决——删除该变量的写入与运行时注入（目标 `$store/nixpkgs` 在 bootstrap 中不存在，上游亦无任何修复，flakes 不受影响）。
