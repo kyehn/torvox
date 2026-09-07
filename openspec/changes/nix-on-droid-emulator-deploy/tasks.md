@@ -18,7 +18,10 @@
 - [x] 3.3 flake 压缩包送达模拟器并解包至 proot 可见路径（`$PREFIX/home/kudzu`， guest `/home/kudzu`）
 - [x] 3.4 取证：60s `connect-timeout` 解决 flake input 获取；`--option substitute true` 恢复二进制替换（77 路径/45.9MB，而非 2550 源码构建）
 - [x] 3.5 设备 store GC 回收 306MB，预建 `files/usr/build`，删除已用暂存释放 311MB
-- [ ] 3.6 `nixos-rebuild switch --flake /home/kudzu#default` 完成（含下载、顶层组装、激活）
+- [x] 3.6a flake 属性修正（`#default`；nixos-rebuild-ng 会自加 `nixosConfigurations.` 前缀，显式全路径反被双重前缀）
+- [x] 3.6b UID 映射（login-inner `setUser` 等价操作：guest `passwd`/`group` 内 65534→10215，`run-as id` 实测值）
+- [x] 3.6c `id` shim（求值期 `builtins.exec ["id"]` 在 guest 内解析到不可执行的 `/system/bin/id`；以 store bash 为 shebang 的设备侧 shim 遮蔽之，`id -u`/`id -g` 均返回 10215 已验证； guest 内无现成 coreutils/busybox 可用）
+- [ ] 3.6d `nixos-rebuild switch --flake /home/kudzu#default` 完成（含下载、顶层组装、激活；当前正在二进制替换阶段）
 - [ ] 3.7 激活验证：`/nix/var/nix/profiles/system` 指向 kudzu 闭包；home-manager 落盘检查（只读 `run-as` 巡检，不执行新二进制）
 
 ## 4. 收尾（待 3.6–3.7）
