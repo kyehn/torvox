@@ -91,7 +91,6 @@ import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.runtime.LogUtil
-import terminal.emulator.runtime.isElf
 import terminal.emulator.settings.parseEnvironmentVariables
 import terminal.emulator.settings.serializeEnvironmentVariables
 import terminal.emulator.ui.theme.TerminalTheme
@@ -1204,24 +1203,14 @@ internal fun TerminalThemeModeSelector(
 @Composable
 private fun PrefixShellStatus(secondaryText: Color) {
     // Show what the runtime actually resolves as the launch location:
-    // the prefix bootstrap (nix-on-droid bin/login or termux bin/bash) or
-    // the system fallback. Mirrors TerminalRuntime prefixShell resolution.
+    // the prefix bootstrap (termux bin/bash) or the system fallback.
     val context = LocalContext.current
     val prefixDir = File(context.filesDir, "usr")
-    // Pure logic first (no resource access inside remember — lint
-    // LocalContextGetResourceValueCall): pick the string resource id.
     val (statusResId, prefixArg) =
         remember(prefixDir) {
-            val login = File(prefixDir, "bin/login")
             val bash = File(prefixDir, "bin/bash")
-            // Only real ELF binaries count: termux ships bin/login as a
-            // shebang script (motd), nix-on-droid as a static ELF.
-            val loginIsNix = login.isFile && isElf(login)
-            when {
-                loginIsNix -> R.string.launch_location_status_nix to prefixDir.absolutePath
-                bash.exists() -> R.string.launch_location_status_termux to prefixDir.absolutePath
-                else -> R.string.launch_location_status_none to ""
-            }
+            if (bash.exists()) R.string.launch_location_status_termux to prefixDir.absolutePath
+            else R.string.launch_location_status_none to ""
         }
     val status = stringResource(statusResId, prefixArg)
     Text(status, style = MaterialTheme.typography.bodySmall, color = secondaryText)

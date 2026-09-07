@@ -85,12 +85,11 @@ pub(crate) fn encode_modifiers(input: &[u8], mods: i32) -> Vec<u8> {
 /// needs to recognize `$PREFIX` paths.
 ///
 /// Without `TERMUX_APP__DATA_DIR` / `TERMUX_APP__LEGACY_DATA_DIR`,
-/// termux-exec falls back to the package name baked into the bootstrap
-/// (nix-on-droid builds with `com.termux.nix`), so it does not recognize
-/// `$PREFIX` binaries and every execve of one fails with EACCES
-/// (SELinux execute_no_trans on app_data_file). The paths are derived
-/// from the prefix (`.../files/usr` → files dir → app data dir) so no
-/// extra JNI parameter is needed.
+/// termux-exec falls back to the package name baked into the bootstrap,
+/// so it does not recognize `$PREFIX` binaries and every execve of one
+/// fails with EACCES (SELinux execute_no_trans on app_data_file). The
+/// paths are derived from the prefix (`.../files/usr` → files dir → app
+/// data dir) so no extra JNI parameter is needed.
 pub(crate) fn termux_env_vars(prefix: &str) -> Vec<(String, String)> {
     let files_dir = prefix
         .strip_suffix("/usr")
