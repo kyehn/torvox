@@ -51,11 +51,18 @@ tags:
 - tapOn:
     text: "Show roots"
     optional: true
+# "Show roots"/"Downloads" matched the real DocumentsUI (device-verified);
+# the bare "Download" variant never exists (WARNED twice) and is dropped.
 - tapOn:
     text: "Downloads"
     optional: true
-- tapOn:
-    text: "Download"
+# The file list may need scrolling on small screens; scroll first
+# so the required tap below cannot miss an off-screen entry.
+- scrollUntilVisible:
+    element:
+      text: "nix-bootstrap-x86_64.zip"
+    direction: DOWN
+    timeout: 30000
     optional: true
 - tapOn:
     text: "nix-bootstrap-x86_64.zip"
