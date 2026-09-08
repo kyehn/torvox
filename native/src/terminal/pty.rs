@@ -195,10 +195,14 @@ impl PtyPair {
         // *its own* execve() calls (running `ls`, `apt`,...) go through
         // the same linker indirection.
         let prefix = env.prefix.as_deref().unwrap_or("");
-        let use_linker =
-            !prefix.is_empty() && shell.starts_with(&format!("{prefix}/")) && !shell.contains('\0');
+        let use_linker = !prefix.is_empty()
+            && shell.starts_with(&format!("{prefix}/"))
+            && !shell.contains('\0')
+            && is_pie(shell);
         if use_linker {
             log::info!("SPAWN_LINKER: shell={shell} prefix={prefix}");
+        } else if !prefix.is_empty() && shell.starts_with(&format!("{prefix}/")) {
+            log::info!("SPAWN_DIRECT_ET_EXEC: shell={shell} (non-PIE, skip linker)");
         } else {
             log::info!("SPAWN_DIRECT: shell={shell} prefix={prefix:?}");
         }
@@ -870,6 +874,27 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
     }
 
     result
+}
+
+/// Returns `true` if the ELF at `path` is PIE (ET_DYN, e_type == 3).
+/// Android linker refuses non-PIE (ET_EXEC) binaries from app data.
+fn is_pie(path: &str) -> bool {
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut header = [0u8; 20];
+    if file.read_exact(&mut header).is_err() {
+        return false;
+    }
+    // ELF magic: 0x7f 'E' 'L' 'F'
+    if header[0] != 0x7f || header[1] != b'E' || header[2] != b'L' || header[3] != b'F' {
+        return false;
+    }
+    // e_type is at offset 16 (2 bytes, little-endian).
+    let e_type = u16::from_le_bytes([header[16], header[17]]);
+    const ET_DYN: u16 = 3;
+    e_type == ET_DYN
 }
 
 #[cfg(test)]

@@ -1,7 +1,7 @@
 appId: com.termux
 name: Probe post-install shell over IME (nix bootstrap)
 tags:
-  - e2e
+  - nix
 ---
 # Post-install shell probe. Assumes a bootstrap is ALREADY installed
 # (by bootstrap-install-offline.yml); this flow never clears state and

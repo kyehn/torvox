@@ -23,9 +23,9 @@ import java.io.File
  * commands run with the shell uid, and `am start` launches MainActivity in
  * the REAL app process, which installs inside its own sandbox.
  *
- * The app writes its result marker to files/nix-install-result.txt via the
+ * The app writes its result marker to files/install-result.txt via the
  * EXTRA_INSTALL_BOOTSTRAP intent (install runs in a throwaway prefix
- * files/usr-nix-test, keeping any existing termux bootstrap untouched).
+ * files/usr, keeping any existing termux bootstrap untouched).
  *
  * Verifies the  contract:
  *  - absolute /nix/store/... symlink targets are accepted
@@ -38,7 +38,7 @@ class NixBootstrapInstrumentedTest {
     companion object {
         private const val TAG = "NixBootstrapTest"
         private const val ZIP_PATH = "/data/user/0/com.termux/files/nix-bootstrap.zip"
-        private const val RESULT_PATH = "/data/user/0/com.termux/files/nix-install-result.txt"
+        private const val RESULT_PATH = "/data/user/0/com.termux/files/install-result.txt"
         private const val MAIN_ACTIVITY = "terminal.emulator.MainActivity"
         private const val INSTALL_EXTRA = "terminal.emulator.install_bootstrap"
     }
@@ -90,14 +90,14 @@ class NixBootstrapInstrumentedTest {
         Assert.assertTrue("needsInstall must be false with matching pin: $result", result.contains("needsInstall=false"))
 
         // Verify the store tree and ELF binary from the shell side.
-        val loginHead = shell("od -An -tx1 -N4 /data/user/0/com.termux/files/usr-nix-test/bin/login")
+        val loginHead = shell("od -An -tx1 -N4 /data/user/0/com.termux/files/usr/bin/login")
         Assert.assertTrue("bin/login must be ELF (7f 45 4c 46), got: $loginHead", loginHead.contains("7f 45 4c 46"))
         // executeShellCommand runs /system/bin/sh; count store entries
         // line-by-line instead of relying on a wc pipeline.
-        val storeLines = shell("ls -1 /data/user/0/com.termux/files/usr-nix-test/nix/store").lines().filter { it.isNotBlank() }
+        val storeLines = shell("ls -1 /data/user/0/com.termux/files/usr/nix/store").lines().filter { it.isNotBlank() }
         Assert.assertTrue("nix/store must be populated, got ${storeLines.size} entries", storeLines.size > 5)
         val envLine =
-            shell("grep ^SHELL= /data/user/0/com.termux/files/usr-nix-test/etc/termux/termux.env").trim()
+            shell("grep ^SHELL= /data/user/0/com.termux/files/usr/etc/termux/termux.env").trim()
         Assert.assertTrue("SHELL must point at bin/login: $envLine", envLine.endsWith("/bin/login"))
 
         Log.i(TAG, "nix bootstrap end-to-end verified: store=${storeLines.size} $envLine")

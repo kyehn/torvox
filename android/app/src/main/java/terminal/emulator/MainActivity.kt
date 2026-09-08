@@ -296,7 +296,7 @@ class MainActivity : ComponentActivity() {
      * its own `:install` process: when the main process is an
      * instrumentation target it carries the TEST package's SELinux
      * category and cannot write filesDir, emulator-verified).
-     * The service writes files/nix-install-result.txt on completion.
+     * The service writes files/install-result.txt on completion.
      */
     private fun installBootstrapFromPath(zipPath: String) {
         LogUtil.d("MainActivity", "delegating bootstrap install to :install process")

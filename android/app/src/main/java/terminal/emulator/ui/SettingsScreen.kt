@@ -1208,9 +1208,13 @@ private fun PrefixShellStatus(secondaryText: Color) {
     val prefixDir = File(context.filesDir, "usr")
     val (statusResId, prefixArg) =
         remember(prefixDir) {
-            val bash = File(prefixDir, "bin/bash")
-            if (bash.exists()) R.string.launch_location_status_termux to prefixDir.absolutePath
-            else R.string.launch_location_status_none to ""
+            val hasShell = listOf("bin/bash", "bin/login", "bin/zsh", "bin/fish")
+                .any { File(prefixDir, it).exists() }
+            if (hasShell) {
+                R.string.launch_location_status_termux to prefixDir.absolutePath
+            } else {
+                R.string.launch_location_status_none to ""
+            }
         }
     val status = stringResource(statusResId, prefixArg)
     Text(status, style = MaterialTheme.typography.bodySmall, color = secondaryText)
