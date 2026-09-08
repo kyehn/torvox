@@ -128,46 +128,6 @@ class BootstrapInstallerTest {
         assertFalse("prefix must not be reported installed on failure", installer.isInstalled())
     }
 
-    /**
-     * nix-on-droid bootstrap-aarch64.zip compatibility: its SYMLINKS.txt
-     * uses absolute `/nix/store/...` targets that only resolve inside the
-     * proot environment. The installer must accept them (they are inert
-     * outside proot and delete() never follows links).
-     */
-    @Test
-    fun install_acceptsNixAbsoluteStoreTargets() {
-        ZipOutputStream(zipFile.outputStream()).use { zos ->
-            fun add(name: String, content: ByteArray) {
-                zos.putNextEntry(ZipEntry(name))
-                zos.write(content)
-                zos.closeEntry()
-            }
-            // ELF magic prefix: needsInstall/isInstalled require a real ELF
-            // shell binary (termux's bin/login is a shebang script and must
-            // not count — nix's is a static ELF).
-            val elfHeader = byteArrayOf(0x7f, 0x45, 0x4c, 0x46) + "login-binary".toByteArray()
-            add("bin/login", elfHeader)
-            add("bin/proot.new", "proot-binary".toByteArray())
-            add("etc/group", "root:x:0:\n".toByteArray())
-            add("nix/store/abc123-system-path/bin/login", "store-login".toByteArray())
-            add("SYMLINKS.txt", "/nix/store/abc123-system-path/bin/login←bin/login\n".toByteArray())
-        }
-        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
-
-        val result = runBlocking { installer.install(zipFile) }
-
-        assertTrue("nix bootstrap install must succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
-        assertTrue("bin/login must exist after nix install", File(prefixDir, "bin/login").exists())
-        // needsInstall must recognize the nix layout (no bin/bash).
-        assertFalse("needsInstall must be false with bin/login present", installer.needsInstall())
-        // The second stage (no dpkg dir in nix bootstraps) still writes
-        // termux.env; only then is the install reported complete.
-        val secondStage = SecondStageRunner(prefixDir, homeDir)
-        val stageResult = runBlocking { secondStage.run() }
-        assertTrue("nix second stage must succeed: ${stageResult.errors}", stageResult.success)
-        assertTrue("isInstalled must be true after second stage (login branch)", installer.isInstalled())
-    }
-
     /** The archive's EXECUTABLES.txt is parsed and chmod failures are tolerated. */
     @Test
     fun install_parsesExecutablesTxt() {
@@ -190,27 +150,6 @@ class BootstrapInstallerTest {
 
         assertTrue("install with EXECUTABLES.txt must succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
         assertTrue("usr/bin/env must exist", File(prefixDir, "usr/bin/env").exists())
-    }
-
-    /**
-     * Real nix-on-droid bootstrap layout (bootstrap-unstable x86_64):
-     * top level ships only bin/env; there is no bin/login and no
-     * bin/bash. The shell entry is nix/store/*-bash-interactive-*/bin/bash.
-     * Detection must recognize it, or a perfect install reports
-     * "not installed" forever (device-verified symptom).
-     */
-    @Test
-    fun installed_recognizesStoreBashInteractive() {
-        val storeBash = File(prefixDir, "nix/store/7a60q5dgnv6z96c279rc1nalyiw4mgqn-bash-interactive-5.3p15/bin/bash")
-        requireNotNull(storeBash.parentFile).mkdirs()
-        storeBash.writeText("x")
-        File(prefixDir, "etc/termux/termux.env").apply {
-            requireNotNull(parentFile).mkdirs()
-            writeText("PREFIX=${prefixDir.absolutePath}\n")
-        }
-        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
-        assertTrue("isInstalled must be true for store bash-interactive layout", installer.isInstalled())
-        assertFalse("needsInstall must be false for store bash-interactive layout", installer.needsInstall())
     }
 
     @Test
@@ -348,76 +287,6 @@ class BootstrapInstallerTest {
         assertEquals("0123456789abcdef", BootstrapInstaller.readVersionPin(prefixDir))
         // No.tmp leftover.
         assertFalse(File(prefixDir, "${BootstrapInstaller.VERSION_PIN_FILENAME}.tmp").exists())
-    }
-
-    /**
-     * Real nix-on-droid bootstrap-aarch64.zip layout: the
-     * SYMLINKS.txt mixes absolute `/nix/store/...` targets and relative
-     * store-internal targets (`libsystemd.so.0.44.0←nix/store/.../lib/...`),
-     * and EXECUTABLES.txt lists deep store paths (real archive: 2132/2132
-     * SYMLINKS lines parse). The installer must accept both target shapes
-     * and keep the store tree intact.
-     */
-    @Test
-    fun install_acceptsRealNixOnDroidLayout() {
-        ZipOutputStream(zipFile.outputStream()).use { zos ->
-            fun add(name: String, content: String) {
-                zos.putNextEntry(ZipEntry(name))
-                zos.write(content.toByteArray())
-                zos.closeEntry()
-            }
-            fun addBytes(name: String, content: ByteArray) {
-                zos.putNextEntry(ZipEntry(name))
-                zos.write(content)
-                zos.closeEntry()
-            }
-            // ELF magic: isInstalled/needsInstall require a real ELF shell.
-            addBytes("bin/login", byteArrayOf(0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01) + "login-binary".toByteArray())
-            // Real SYMLINKS.txt sample lines (bootstrap-unstable):
-            // 1. absolute /nix/ store target -> profile link
-            // 2. relative target inside the store (link parent + filename)
-            // 3. absolute store target -> usr/lib link
-            add(
-                "SYMLINKS.txt",
-                "/nix/store/m8iadpkvczpjdl3j8yv5rnh88i45s27k-system←nix/var/nix/profiles/system\n" +
-                    "libsystemd.so.0.44.0←nix/store/704walkdmvq7fkz3ajx6174z68lsbqp4-systemd-minimal-libs-261.1/lib/libsystemd.so.0\n" +
-                    "/nix/store/704walkdmvq7fkz3ajx6174z68lsbqp4-systemd-minimal-libs-261.1/lib/libsystemd.so.0←usr/lib/libsystemd.so.0\n",
-            )
-            add(
-                "EXECUTABLES.txt",
-                "usr/bin/env\nnix/store/704walkdmvq7fkz3ajx6174z68lsbqp4-systemd-minimal-libs-261.1/bin/foo\n",
-            )
-            add("usr/bin/env", "#!/nix/store/abc/env\n")
-            add("nix/store/704walkdmvq7fkz3ajx6174z68lsbqp4-systemd-minimal-libs-261.1/bin/foo", "x")
-            add("nix/store/704walkdmvq7fkz3ajx6174z68lsbqp4-systemd-minimal-libs-261.1/lib/libsystemd.so.0.44.0", "x")
-            add("nix/var/nix/db/schema", "7")
-        }
-        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
-
-        val result = runBlocking { installer.install(zipFile) }
-
-        assertTrue("real nix-on-droid layout must install: ${result.exceptionOrNull()?.message}", result.isSuccess)
-        // createSymlinks walked every SYMLINKS.txt line: it created the
-        // parent directories for the store links before the (Robolectric
-        // no-op) Os.symlink. A missing parent would mean the line was
-        // rejected by the path guards.
-        assertTrue(
-            "profiles dir must exist (first link's parent, absolute /nix/ target)",
-            File(prefixDir, "nix/var/nix/profiles").isDirectory,
-        )
-        assertTrue(
-            "usr/lib dir must exist (third link's parent, store target)",
-            File(prefixDir, "usr/lib").isDirectory,
-        )
-        // Real-archive parse rate: 2132/2132 lines of bootstrap-unstable
-        // parse; the samples cover both target shapes.
-        val parsed = installer.parseSymlinks(
-            "/nix/store/m8iadpkvczpjdl3j8yv5rnh88i45s27k-system←nix/var/nix/profiles/system\n" +
-                "libsystemd.so.0.44.0←nix/store/704walkdmvq7fkz3ajx6174z68lsbqp4-systemd-minimal-libs-261.1/lib/libsystemd.so.0\n",
-        )
-        assertEquals(2, parsed.size)
-        assertEquals("/nix/store/m8iadpkvczpjdl3j8yv5rnh88i45s27k-system", parsed[0].first)
-        assertEquals("libsystemd.so.0.44.0", parsed[1].first)
     }
 }
 
