@@ -1,7 +1,7 @@
 appId: com.termux
 name: Install nix-on-droid bootstrap from file (offline)
 tags:
-  - e2e
+  - nix
 ---
 # Prerequisite (staged outside this flow): push the bootstrap zip to
 # shared storage first:
