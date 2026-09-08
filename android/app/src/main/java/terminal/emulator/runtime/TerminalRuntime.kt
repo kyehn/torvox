@@ -1035,8 +1035,8 @@ constructor(
         val prefixShell = findPrefixShell(prefixDir)
         val prefixComplete =
             prefixShell != null &&
-                java.io.File("$prefixDir/lib").isDirectory &&
                 java.io.File("$prefixDir/etc").isDirectory
+        LogUtil.d("Runtime", "prefixShell=$prefixShell prefixComplete=$prefixComplete prefixDir=$prefixDir")
         val effectivePrefix = if (prefixComplete) prefixDir else ""
         val effectiveShell = if (prefixComplete) Shell.Custom("$prefixDir/$prefixShell") else shell
         val effectiveHome =

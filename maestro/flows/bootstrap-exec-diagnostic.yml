@@ -1,7 +1,7 @@
 appId: com.termux
 name: Diagnose guest-binary exec from app context (nix bootstrap)
 tags:
-  - e2e
+  - nix
 ---
 # Exec-diagnostic probe. Assumes a bootstrap is ALREADY installed and the
 # terminal is reachable (system shell or nix shell — either works, since

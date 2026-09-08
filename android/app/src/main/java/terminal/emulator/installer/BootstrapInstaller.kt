@@ -109,9 +109,8 @@ class BootstrapInstaller(
     /**
      * Shell entry exists in termux layout (bin/login ELF or bin/bash).
      */
-    private fun hasShellBinary(): Boolean =
-        (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
-            File(prefixDir, "bin/bash").exists()
+    private fun hasShellBinary(): Boolean = (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
+        File(prefixDir, "bin/bash").exists()
 
     /**
      * A bootstrap is installed when its shell binary and the second-stage
@@ -138,7 +137,12 @@ class BootstrapInstaller(
                 return@withContext Result.failure(Exception("Failed to hash bootstrap zip: ${exception.message}"))
             }
         try {
-            cleanupOld()
+            // Only clear the staging area. The existing prefix must survive until the
+            // new bootstrap is fully extracted and atomically swapped in (see atomicRename),
+            // otherwise a failed install would leave the user with no working bootstrap.
+            // This staging + atomic-swap design matches termux TermuxInstaller.java:137-257
+            // (staging dir + SYMLINKS.txt + renameTo atomic switch + rollback).
+            delete(stagingDir)
             createDirectories()
             onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
             val symlinks = extractZip(zipFile)
@@ -172,15 +176,6 @@ class BootstrapInstaller(
             }
             Result.failure(exception)
         }
-    }
-
-    private fun cleanupOld() {
-        // Only clear the staging area. The existing prefix must survive until the
-        // new bootstrap is fully extracted and atomically swapped in (see atomicRename),
-        // otherwise a failed install would leave the user with no working bootstrap.
-        // This staging + atomic-swap design matches termux TermuxInstaller.java:137-257
-        // (staging dir + SYMLINKS.txt + renameTo atomic switch + rollback).
-        delete(stagingDir)
     }
 
     private fun createDirectories() {

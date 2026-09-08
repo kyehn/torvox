@@ -21,14 +21,16 @@ import java.io.File
  *
  * Triggered by MainActivity (EXTRA_INSTALL_BOOTSTRAP intent /
  * INSTALL_BOOTSTRAP broadcast). Writes the outcome to
- * files/nix-install-result.txt so shell-side tests can assert on it.
+ * files/install-result.txt so shell-side tests can assert on it.
  */
 class BootstrapInstallService : Service() {
     companion object {
         private const val TAG = "BootstrapInstallService"
         const val EXTRA_ZIP_PATH = "zipPath"
-        private const val RESULT_FILE = "nix-install-result.txt"
-        private const val TEST_PREFIX = "usr-nix-test"
+        private const val RESULT_FILE = "install-result.txt"
+        private const val PREFIX_DIR_NAME = "usr"
+        private const val HOME_DIR_NAME = "home"
+        private const val STAGING_DIR_NAME = "usr-staging"
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -58,22 +60,26 @@ class BootstrapInstallService : Service() {
     }
 
     private fun install(zipPath: String): String {
-        val prefixDir = File(filesDir, TEST_PREFIX)
-        val homeDir = File(filesDir, "home-nix-test")
-        val stagingDir = File(filesDir, "usr-nix-test-staging")
+        val prefixDir = File(filesDir, PREFIX_DIR_NAME)
+        val homeDir = File(filesDir, HOME_DIR_NAME)
+        val stagingDir = File(filesDir, STAGING_DIR_NAME)
+        // Move zip to a safe location before deleting homeDir —
+        // homeDir.deleteRecursively() would destroy the zip if it lives there.
+        val preserved = File(filesDir, "bootstrap-preserved.zip")
+        File(zipPath).copyTo(preserved, overwrite = true)
         prefixDir.deleteRecursively()
         homeDir.deleteRecursively()
         stagingDir.deleteRecursively()
         return runBlocking {
             val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
-            val install = installer.install(File(zipPath))
+            val install = installer.install(preserved)
             if (install.isFailure) {
                 install.exceptionOrNull()?.message ?: "install failed"
             } else {
                 val stage = SecondStageRunner(prefixDir, homeDir).run()
                 if (stage.success) {
                     // needsInstall(zipSha256) verifies the marker round-trip.
-                    val zipSha256 = BootstrapInstaller.sha256Of(File(zipPath))
+                    val zipSha256 = BootstrapInstaller.sha256Of(preserved)
                     "OK prefix=$prefixDir shell=" +
                         (
                             listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")

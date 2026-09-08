@@ -619,6 +619,7 @@ fn nu_scripts_are_valid() {
         "build-android-libs.nu",
         "build-apk.nu",
         "check-rust.nu",
+        "deploy-kudzu-switch.nu",
         "download-rapidocr-models.nu",
         "fetch-aosp-testkey.nu",
         "setup-emulator.nu",
