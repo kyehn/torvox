@@ -29,7 +29,7 @@
 - [x] 3.10 模拟器联网（2026-09-09）：宿主 NAT 不转发（网关通、外网不通）→ 宿主 CONNECT 代理（10.0.2.2:18882，经网关 TCP 可达已验证）+ 设备 nix 经 `https_proxy` + `NIX_SSL_CERT_FILE`（store 内 nss bundle；bootstrap 自带 cert 路径在 guest 不可见）→ flake 拉取成功。另发现：终端降级 shell 被 SELinux 禁写（读+执行正常）。
 - [x] 3.11 设备 nix-2.34 无 `builtins.exec`（实证 `hasAttr` 为 false）→ login 注出 `NIX_ON_DROID_UID/GID`，users-groups 改读 env（空回退 65534）；kudzu flake.lock 跟进 unstable（含修复 rev）；id shim（guest /bin/id → 10209）覆盖求值期调用。
 - [x] 3.12 新 toplevel 离线激活（2026-09-09）：宿主构建（含修复 rev）→ file 缓存导入 → gcroot 保护 → `switch-to-configuration switch` → `profiles/system`（system-2-link）指向新闭包，home-manager 落盘。教训：toybox tar 随机丢小文件（narinfo/nar 须 diff 补齐）；store 只读属性清库前须 `chmod -R u+w`；DB 脏后宿主建空库推送比 repair 可靠。
-- [ ] 3.13 `nixos-rebuild switch` 前端：求值/dry-build 已通；ng 包装构建在设备 proot 下读 host `/` 被拒（`proot -r` 换根后推进到 substituters 下载，但 5.8G 盘装不下全量：bootstrap 1.3 + toplevel 2.1 + 工具链增量）。待更大 data 分区或精简闭包后重跑。
+- [ ] 3.13 `nixos-rebuild switch` 前端：求值/dry-build/换根构建全通；ng 须用 lock 版 rev（最新 rev 无 substitutes 被迫源码构建）；sandbox=false 时 HOME 须指不存在路径；当前唯一卡点是 5.8G 盘 ENOSPC（bootstrap 1.3 + toplevel 2.1 + ng 工具链增量放不下；已清 git 缓存仍差 ~1G）。待更大 data 分区后重跑，命令链见 runbook。
 
 ## 5. 生产代码清理（已完成）
 

@@ -78,5 +78,8 @@ nix copy --to file:///tmp/kudzu-cache /tmp/kudzu-toplevel
 ## 7. 已知硬顶（莫再试，按序）
 
 - `nixos-rebuild switch` 前端全量构建：5.8G 盘装不下（bootstrap 1.3 + toplevel 2.1 + 工具链增量），须更大 data 分区或精简闭包（精简≈阉割 home-manager，不建议）。
+- ng 须用 lock 版 rev（`github:NixOS/nixpkgs/<lock-rev>#nixos-rebuild-ng`）：最新 rev 无 substitutes，会触发 Python 等源码构建。
+- sandbox=false 时 `HOME` 须指不存在路径（否则 nix 报 homeless-shelter 纯度错误）。
+- 求值另需 guest `/bin/id` shim（输出设备 UID）+ `/bin` 绑定在 PATH 前。
 - 设备 nix-2.34 无 `builtins.exec`：求值靠 `NIX_ON_DROID_UID/GID` env（login 注出）。
 - 终端降级 shell 被 SELinux 禁写：读+执行正常，写操作走 run-as。
