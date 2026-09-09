@@ -1,6 +1,6 @@
 ## Why
 
-nix-on-droid bootstrap 在 torvox 终端内不可执行（API 35 Enforcing 应用上下文：静态二进制无解释器可借道，glibc 二进制无兼容装载器；设备端三路径证伪：linker 间接速死、`fast-death respawn` 降级、直接执行 RC=126）。但 `run-as` 上下文可执行（SELinux 域不同）：proot + 翻译后 nix 2.34.8 实测可用。kudzu（`kyehn/kudzu`）的模拟器部署因此走 `run-as`+proot 通道，而非终端 shell。
+nix-on-droid bootstrap 在 torvox 终端内不可执行（API 35 Enforcing 应用上下文：静态 ET_EXEC 二进制无解释器可借道且 linker 拒绝加载，glibc 二进制无兼容装载器；设备端证伪：linker 间接速死、`fast-death respawn` 降级、直接执行 RC=126）。2026-09-08 更新：死结已解——login/login-inner/proot 全静态 PIE 化后 linker64 桥接可加载，shell 经 fallback 直接链启动交互（scrollback=11），kudzu 经离线 switch 激活（`profiles/system` 指向 kudzu 闭包）。`run-as` 上下文可执行（SELinux 域不同）：proot + 翻译后 nix 2.34.8 实测可用。剩余缺口：`nixos-rebuild` 前端需 flake 求值（模拟器无外网，未跑）。
 
 ## What Changes
 

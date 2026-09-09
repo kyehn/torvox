@@ -22,8 +22,10 @@
 - [x] 3.6a flake 属性修正（`#default`；nixos-rebuild-ng 会自加 `nixosConfigurations.` 前缀，显式全路径反被双重前缀）
 - [x] 3.6b UID 映射（login-inner `setUser` 等价操作：guest `passwd`/`group` 内 65534→10215，`run-as id` 实测值）
 - [x] 3.6c `id` shim（求值期 `builtins.exec ["id"]` 在 guest 内解析到不可执行的 `/system/bin/id`；以 store bash 为 shebang 的设备侧 shim 遮蔽之，`id -u`/`id -g` 均返回 10215 已验证； guest 内无现成 coreutils/busybox 可用）
-- [ ] 3.6d `nixos-rebuild switch --flake /home/kudzu#default` 完成（含下载、顶层组装、激活；当前正在二进制替换阶段）。冻结事项：在此项关闭前不得再跑 GC——已抓取未激活的闭包路径无 root 保护，会被回收导致重下。
-- [ ] 3.7 激活验证：`/nix/var/nix/profiles/system` 指向 kudzu 闭包；home-manager 落盘检查（只读 `run-as` 巡检，不执行新二进制）
+- [x] 3.6d `switch-to-configuration switch` 完成离线激活（2026-09-08）：宿主构建 kudzu toplevel（2.1GiB）→ file 缓存推送 → 设备 `nix copy --from` 导入 → switch 激活 → `/nix/var/nix/profiles/system` 指向 kudzu 闭包（system-1-link）。`nixos-rebuild` 前端未跑（模拟器无外网，flake inputs 不可 fetch；求值留待有网环境）。教训：设备 `nix-collect-garbage` 误删 profiles 引用的 toplevel（437 路径/1.9GiB），switch 前不得再跑 GC。
+- [x] 3.7 激活验证：`/nix/var/nix/profiles/system` 指向 kudzu 闭包 ✓；home-manager 落盘 ✓（`.nix-profile` 存在；switch 有非致命 home-manager 告警）。
+- [x] 3.8 全静态 PIE 链（2026-09-08，nix-on-droid 9 提交）：`buildGoModule` 忽略 `buildFlags`（源码实证）→ `GOFLAGS` 经 preBuild 传 `-buildmode=pie`（login/login-inner 全静态 PIE 零依赖）；proot `-static`→`-static-pie`；`SYMLINKS.txt` 相对化（`realpath -s -m --relative-to`，绝对被安装器拒，错相对致 guest ELOOP）；`first_run` 禁用（离线必败且阻塞 shell）；`fallback_shell` 移顶层；`--guest` 显式分支（proot 直通 host 路径使启发式失效）；proot 失败 fallback 直接链；cwd 自动绑定；登录 shell 用 `/system/bin/sh`（glibc 链在 app 域无解）。
+- [x] 3.9 干净按钮安装验证（2026-09-08）：`pm clear` 后从文件安装最终包 → shell 存活 → IME 输入 `echo` 回显 scrollback=11。
 
 ## 5. 生产代码清理（已完成）
 
