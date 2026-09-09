@@ -22,8 +22,14 @@
 - [x] 3.6a flake 属性修正（`#default`；nixos-rebuild-ng 会自加 `nixosConfigurations.` 前缀，显式全路径反被双重前缀）
 - [x] 3.6b UID 映射（login-inner `setUser` 等价操作：guest `passwd`/`group` 内 65534→10215，`run-as id` 实测值）
 - [x] 3.6c `id` shim（求值期 `builtins.exec ["id"]` 在 guest 内解析到不可执行的 `/system/bin/id`；以 store bash 为 shebang 的设备侧 shim 遮蔽之，`id -u`/`id -g` 均返回 10215 已验证； guest 内无现成 coreutils/busybox 可用）
-- [ ] 3.6d `nixos-rebuild switch --flake /home/kudzu#default` 完成（含下载、顶层组装、激活；当前正在二进制替换阶段）。冻结事项：在此项关闭前不得再跑 GC——已抓取未激活的闭包路径无 root 保护，会被回收导致重下。
-- [ ] 3.7 激活验证：`/nix/var/nix/profiles/system` 指向 kudzu 闭包；home-manager 落盘检查（只读 `run-as` 巡检，不执行新二进制）
+- [x] 3.6d `switch-to-configuration switch` 完成离线激活（2026-09-08）：宿主构建 kudzu toplevel（2.1GiB）→ file 缓存推送 → 设备 `nix copy --from` 导入 → switch 激活 → `/nix/var/nix/profiles/system` 指向 kudzu 闭包（system-1-link）。`nixos-rebuild` 前端未跑（模拟器无外网，flake inputs 不可 fetch；求值留待有网环境）。教训：设备 `nix-collect-garbage` 误删 profiles 引用的 toplevel（437 路径/1.9GiB），switch 前不得再跑 GC。
+- [x] 3.7 激活验证：`/nix/var/nix/profiles/system` 指向 kudzu 闭包 ✓；home-manager 落盘 ✓（`.nix-profile` 存在；switch 有非致命 home-manager 告警）。
+- [x] 3.8 全静态 PIE 链（2026-09-08，nix-on-droid 9 提交）：`buildGoModule` 忽略 `buildFlags`（源码实证）→ `GOFLAGS` 经 preBuild 传 `-buildmode=pie`（login/login-inner 全静态 PIE 零依赖）；proot `-static`→`-static-pie`；`SYMLINKS.txt` 相对化（`realpath -s -m --relative-to`，绝对被安装器拒，错相对致 guest ELOOP）；`first_run` 禁用（离线必败且阻塞 shell）；`fallback_shell` 移顶层；`--guest` 显式分支（proot 直通 host 路径使启发式失效）；proot 失败 fallback 直接链；cwd 自动绑定；登录 shell 用 `/system/bin/sh`（glibc 链在 app 域无解）。
+- [x] 3.9 干净按钮安装验证（2026-09-08）：`pm clear` 后从文件安装最终包 → shell 存活 → IME 输入 `echo` 回显 scrollback=11。
+- [x] 3.10 模拟器联网（2026-09-09）：宿主 NAT 不转发（网关通、外网不通）→ 宿主 CONNECT 代理（10.0.2.2:18882，经网关 TCP 可达已验证）+ 设备 nix 经 `https_proxy` + `NIX_SSL_CERT_FILE`（store 内 nss bundle；bootstrap 自带 cert 路径在 guest 不可见）→ flake 拉取成功。另发现：终端降级 shell 被 SELinux 禁写（读+执行正常）。
+- [x] 3.11 设备 nix-2.34 无 `builtins.exec`（实证 `hasAttr` 为 false）→ login 注出 `NIX_ON_DROID_UID/GID`，users-groups 改读 env（空回退 65534）；kudzu flake.lock 跟进 unstable（含修复 rev）；id shim（guest /bin/id → 10209）覆盖求值期调用。
+- [x] 3.12 新 toplevel 离线激活（2026-09-09）：宿主构建（含修复 rev）→ file 缓存导入 → gcroot 保护 → `switch-to-configuration switch` → `profiles/system`（system-2-link）指向新闭包，home-manager 落盘。教训：toybox tar 随机丢小文件（narinfo/nar 须 diff 补齐）；store 只读属性清库前须 `chmod -R u+w`；DB 脏后宿主建空库推送比 repair 可靠。
+- [ ] 3.13 `nixos-rebuild switch` 前端：求值/dry-build/换根构建全通；ng 须用 lock 版 rev（最新 rev 无 substitutes 被迫源码构建）；sandbox=false 时 HOME 须指不存在路径；当前唯一卡点是 5.8G 盘 ENOSPC（bootstrap 1.3 + toplevel 2.1 + ng 工具链增量放不下；已清 git 缓存仍差 ~1G）。待更大 data 分区后重跑，命令链见 runbook。2026-09-09 补记：wipe 三路均失败（Settings 确认键无响应、recovery 不可交互、bootloader 被忽略），托管镜像改不了分区；精简=阉割已否决。
 
 ## 5. 生产代码清理（已完成）
 
@@ -39,5 +45,5 @@
 
 ## 6. 收尾（待 5 完成后重新评估）
 
-- [ ] 6.1 将完整验证命令链记入部署 runbook（不提前写结局）
+- [x] 6.1 将完整验证命令链记入部署 runbook（`runbook.md`：构建/安装/shell/联网/部署判定标准、空间红线、硬顶清单，不写结局推论）
 - [ ] 6.2 本 change 归档（`openspec/changes/archive/`）
