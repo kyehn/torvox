@@ -26,6 +26,10 @@
 - [x] 3.7 激活验证：`/nix/var/nix/profiles/system` 指向 kudzu 闭包 ✓；home-manager 落盘 ✓（`.nix-profile` 存在；switch 有非致命 home-manager 告警）。
 - [x] 3.8 全静态 PIE 链（2026-09-08，nix-on-droid 9 提交）：`buildGoModule` 忽略 `buildFlags`（源码实证）→ `GOFLAGS` 经 preBuild 传 `-buildmode=pie`（login/login-inner 全静态 PIE 零依赖）；proot `-static`→`-static-pie`；`SYMLINKS.txt` 相对化（`realpath -s -m --relative-to`，绝对被安装器拒，错相对致 guest ELOOP）；`first_run` 禁用（离线必败且阻塞 shell）；`fallback_shell` 移顶层；`--guest` 显式分支（proot 直通 host 路径使启发式失效）；proot 失败 fallback 直接链；cwd 自动绑定；登录 shell 用 `/system/bin/sh`（glibc 链在 app 域无解）。
 - [x] 3.9 干净按钮安装验证（2026-09-08）：`pm clear` 后从文件安装最终包 → shell 存活 → IME 输入 `echo` 回显 scrollback=11。
+- [x] 3.10 模拟器联网（2026-09-09）：宿主 NAT 不转发（网关通、外网不通）→ 宿主 CONNECT 代理（10.0.2.2:18882，经网关 TCP 可达已验证）+ 设备 nix 经 `https_proxy` + `NIX_SSL_CERT_FILE`（store 内 nss bundle；bootstrap 自带 cert 路径在 guest 不可见）→ flake 拉取成功。另发现：终端降级 shell 被 SELinux 禁写（读+执行正常）。
+- [x] 3.11 设备 nix-2.34 无 `builtins.exec`（实证 `hasAttr` 为 false）→ login 注出 `NIX_ON_DROID_UID/GID`，users-groups 改读 env（空回退 65534）；kudzu flake.lock 跟进 unstable（含修复 rev）；id shim（guest /bin/id → 10209）覆盖求值期调用。
+- [x] 3.12 新 toplevel 离线激活（2026-09-09）：宿主构建（含修复 rev）→ file 缓存导入 → gcroot 保护 → `switch-to-configuration switch` → `profiles/system`（system-2-link）指向新闭包，home-manager 落盘。教训：toybox tar 随机丢小文件（narinfo/nar 须 diff 补齐）；store 只读属性清库前须 `chmod -R u+w`；DB 脏后宿主建空库推送比 repair 可靠。
+- [ ] 3.13 `nixos-rebuild switch` 前端：求值/dry-build 已通；ng 包装构建在设备 proot 下读 host `/` 被拒（`proot -r` 换根后推进到 substituters 下载，但 5.8G 盘装不下全量：bootstrap 1.3 + toplevel 2.1 + 工具链增量）。待更大 data 分区或精简闭包后重跑。
 
 ## 5. 生产代码清理（已完成）
 
