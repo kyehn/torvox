@@ -2254,19 +2254,19 @@ constructor(
 
     /**
      * Called once per IME transition after the 48ms settle window (3×16ms) by TerminalScreen's
-     * LaunchedEffect. Performs the single settled reflow: `applyGridResize` → `recomputeGrid` →
-     * `attachSurface(reconfigure)`. `onApplyWindowInsets` deliberately does NOT resize per frame — it
-     * only records `lastImeBottom` and clears selection.
+     * LaunchedEffect. Pans the view instead of reflowing the grid: the PTY rows/cols stay
+     * fixed so existing rows never rewrap (no line shuffle, no lost content). The view shifts
+     * up only by the overflow amount — content that fits keeps every pixel in place.
      */
     fun onImeSettled(settledBottom: Int) {
-        // Deduplicate: if already at settled value and grid is valid, no reflow needed.
-        // Keep the early return to avoid double resize on config change duplicates.
-        if (settledBottom == lastImeBottom && lastImeBottom != 0 && rows != 0 && cols != 0) {
-            return
-        }
         lastImeBottom = settledBottom
         if (width <= 0 || height <= 0) return
-        resizeManager.applyGridResize(width, height, settledBottom)
+        val cellHeight = viewModel?.runtime?.cellHeight ?: return
+        if (cellHeight <= 0f || rows <= 0) return
+        // overflow = grid bottom below the visible bottom (view height minus IME inset);
+        // clamp to [0, inset] so an empty grid never moves and a full grid tracks the keyboard.
+        val panPx = (rows * cellHeight - (height - settledBottom)).coerceIn(0f, settledBottom.toFloat())
+        translationY = -panPx
     }
 
     /**
