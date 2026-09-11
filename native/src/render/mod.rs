@@ -29,7 +29,7 @@ pub(crate) mod snapshot_reference;
 // procedural geometry + depth-attached LOD grid are crate-test-only — the
 // production `Renderer` keeps zero depth attachments (2D terminal rendering
 // needs none), so this module must not ship in the normal build or leak into
-// `integration-tests` (which enables `test-util`).
+// the native integration tests (which enable `test-util`).
 #[cfg(test)]
 pub(crate) mod procedural_geometry;
 pub(crate) mod wgpu_backend;
@@ -183,9 +183,10 @@ impl KittyGraphicsInstance {
     }
 }
 
-// ── Test-util surface for integration-tests ──────────────────────────────
-// integration-tests enables `test-util` and reaches the render internals
-// (reference snapshot path + instance types) through this single module.
+// ── Test-util surface for the native integration tests ─────────────────────
+// The `terminal_render_test` target enables `test-util` (via required-features)
+// and reaches the render internals (reference snapshot path + instance types)
+// through this single module.
 pub mod gpu {
     pub use super::cell_builder::{CellCursor, CellInstanceConfig, build_instances_from_cell_data};
     pub use super::cell_builder::{CellRun, SearchHighlight, SelectionRange, build_row_runs};

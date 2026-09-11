@@ -1,18 +1,12 @@
-//! Cross-crate integration tests.
-//!
-//! These tests verify end-to-end behavior that exercises multiple
-//! core types through the terminal crate's GhosttyTerminal API.
+//! Native integration tests: end-to-end behavior exercising multiple
+//! core types through the native crate's GhosttyTerminal API.
 
-#[cfg(test)]
 mod config_file_validation {
     use std::fs;
 
     fn workspace_root() -> String {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        manifest_dir
-            .strip_suffix("/integration-tests")
-            .unwrap()
-            .to_string()
+        manifest_dir.strip_suffix("/native").unwrap().to_string()
     }
 
     #[test]
@@ -203,7 +197,6 @@ mod config_file_validation {
     }
 }
 
-#[cfg(test)]
 mod vt_to_snapshot_pipeline {
     use native::terminal::ghostty_terminal::GhosttyTerminal;
 
@@ -293,7 +286,6 @@ mod vt_to_snapshot_pipeline {
     }
 }
 
-#[cfg(test)]
 mod config_driven_session {
     use native::terminal::ghostty_terminal::GhosttyTerminal;
 
@@ -331,7 +323,6 @@ mod config_driven_session {
     }
 }
 
-#[cfg(test)]
 mod session_e2e {
     use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
@@ -413,7 +404,6 @@ mod session_e2e {
     }
 }
 
-#[cfg(test)]
 mod common {
     use native::terminal::session::Session;
     use std::time::{Duration, Instant};
@@ -461,7 +451,6 @@ mod common {
     }
 }
 
-#[cfg(test)]
 mod linux_pty_shell_interaction {
     use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
@@ -611,7 +600,6 @@ mod linux_pty_shell_interaction {
     }
 }
 
-#[cfg(test)]
 mod linux_signal_handling {
     use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
@@ -693,7 +681,6 @@ mod linux_signal_handling {
     }
 }
 
-#[cfg(test)]
 mod linux_exit_behavior {
     use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
@@ -781,7 +768,6 @@ mod linux_exit_behavior {
     }
 }
 
-#[cfg(test)]
 mod linux_scrollback {
     use native::terminal::ShellEnv;
     use std::time::Duration;
@@ -835,7 +821,6 @@ mod linux_scrollback {
     }
 }
 
-#[cfg(test)]
 mod linux_unicode_handling {
     use native::terminal::ShellEnv;
     use std::time::Duration;
@@ -893,7 +878,6 @@ mod linux_unicode_handling {
     }
 }
 
-#[cfg(test)]
 mod linux_ansi_sequences {
     use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
@@ -1130,7 +1114,6 @@ while True:\n    b = os.read(0, 4096)\n    if not b: break\n    os.write(1, b)\n
     }
 }
 
-#[cfg(test)]
 mod linux_binary_safety {
     use native::terminal::ShellEnv;
     use std::time::Duration;
@@ -1190,7 +1173,6 @@ mod linux_binary_safety {
     }
 }
 
-#[cfg(test)]
 mod linux_session_lifecycle {
     use native::terminal::ShellEnv;
     use std::time::{Duration, Instant};
@@ -1267,14 +1249,13 @@ mod linux_session_lifecycle {
     }
 }
 
-#[cfg(test)]
 mod build_config_validation {
     use std::fs;
     use std::path::PathBuf;
 
     fn workspace_root() -> PathBuf {
         let manifest_dir = env!("CARGO_MANIFEST_DIR");
-        let root = manifest_dir.strip_suffix("/integration-tests").unwrap();
+        let root = manifest_dir.strip_suffix("/native").unwrap();
         PathBuf::from(root)
     }
 
