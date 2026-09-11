@@ -25,3 +25,4 @@ tags:
 - pressKey: Enter
 - waitForAnimationToEnd:
     timeout: 15000
+- takeScreenshot: fork_nix_version

@@ -13,3 +13,4 @@ tags:
 - pressKey: Enter
 - waitForAnimationToEnd:
     timeout: 60000
+- takeScreenshot: fork_nix_build
