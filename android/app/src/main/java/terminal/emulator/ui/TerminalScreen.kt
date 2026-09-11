@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -815,33 +816,34 @@ fun TerminalScreen(
       LaunchedEffect(state.isRunning) {
         if (!state.isRunning) return@LaunchedEffect
         while (true) {
-          delay(500)
-          val bridge = viewModel.runtime.bridge() ?: continue
-          val len = bridge.scrollbackLength()
-          if (len <= 0) continue
-          val lines = (maxOf(0, len - 5) until len).mapNotNull { bridge.scrollbackLine(it) }
-          debugText = lines.joinToString("\n")
+          delay(300)
+          val bridge = viewModel.runtime.bridge()
+          val len = bridge?.scrollbackLength() ?: 0
+          debugText = "sb=$len run=${state.isRunning}"
+          if (len > 0) {
+            val lines = (maxOf(0, len - 5) until len).mapNotNull { bridge?.scrollbackLine(it) }
+            debugText = lines.joinToString("\n")
+          }
         }
       }
-      if (debugText.isNotEmpty()) {
-        Box(
-            modifier =
-                Modifier.fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .background(Color.Black.copy(alpha = 0.75f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .testTag("DebugOverlay"),
-        ) {
-          Text(
-              text = debugText,
-              color = Color(0xFF00FF00),
-              fontSize = 11.sp,
-              fontFamily = FontFamily.Monospace,
-              maxLines = 8,
-              overflow = TextOverflow.Ellipsis,
-          )
-        }
+      Box(
+          modifier =
+              Modifier.fillMaxWidth()
+                  .align(Alignment.TopCenter)
+                  .zIndex(10f)
+                  .padding(horizontal = 8.dp, vertical = 4.dp)
+                  .background(Color.Black.copy(alpha = 0.85f), RoundedCornerShape(6.dp))
+                  .padding(horizontal = 8.dp, vertical = 4.dp)
+                  .testTag("DebugOverlay"),
+      ) {
+        Text(
+            text = debugText.ifEmpty { "loading..." },
+            color = Color(0xFF00FF00),
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            maxLines = 10,
+            overflow = TextOverflow.Ellipsis,
+        )
       }
 
       // Floating overlay for bottom bar — hybrid: offset during IME animation (zero remeasure,

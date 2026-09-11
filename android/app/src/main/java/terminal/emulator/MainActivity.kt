@@ -246,6 +246,7 @@ class MainActivity : ComponentActivity() {
       requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
     }
     wireMcpRequestHandlers()
+    ExecBin.ensureInstalled(this)
     checkShizukuAuthorization()
     handleLaunchIntent(intent)
     setContent {
