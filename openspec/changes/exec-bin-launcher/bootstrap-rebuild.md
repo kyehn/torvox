@@ -18,10 +18,15 @@
    `user.home` → 其下 `home`（上游默认指向 `com.termux.nix` 且为只读）。
 2. 首登阻塞关：`build.initialBuild` 经 `mkForce` 关闭（离线首登不等待）。
 3. `bootstrap.nix` 对绝对 `SYMLINKS.txt` 目标做前缀相对化（全相对 `←`）。
-4. 构建全程加 cachix：`--option extra-substituters
-   https://nix-on-droid.cachix.org` 及配套公钥（公钥以本次运行前从
-   nix-on-droid 官方文档现查为准，禁止凭记忆填写），否则回退本地编译
-   LLVM 工具链。
+4. 构建全程加二进制缓存（2026-09-11 由 fork 源码
+   `modules/config/nix.nix:179-190` 现查，禁止凭记忆填写）：
+   `--option extra-substituters "https://cache.nixos.org
+   https://seilunako.cachix.org https://nix-community.cachix.org"`
+   `--option extra-trusted-public-keys "cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=
+   seilunako.cachix.org-1:e/aJJI1S5hPY/BPeiVZcuPjt5ZjBRRo9dlYHmvwXPFM=
+   nix-community.cachix.org-1:mB9FSh9qf2dCimDSUo8Zy7bkq5CX+/rkCWyvRCYg3Fs="`，
+   否则回退本地编译 LLVM 工具链。注意本 fork 用 seilunako +
+   nix-community 缓存（非 nix-on-droid.cachix.org）。
 5. 不重编 fork login（不用 static-PIE 替代）；不编译 proot（闭包内预构建
    musl static 已验证存在）。
 
