@@ -31,3 +31,10 @@
 - Shizuku 桥接（DESIGN 开关）：设置开关 + 启动 gate 对话框（关闭/退出）+ 授权检查；`Shell.Custom(files/shizuku-login.sh)` 经系统 `app_process` + `rish_shizuku.dex` 由 Shizuku 服务器（root）以 PTY 为 stdio 运行 prefix `login`。`Shizuku login bridge active` 日志为准。
 - 真实终端输入验证（Maestro `inputText` + 会话转储回读，`adb shell` 仅作读写通道、未执行验证命令）：`nix --version` → `nix (Nix) 2.20.5`；hermetic `nix build`（`builtins.derivation` + `--option build-users-group '' --option sandbox false`）→ 输出路径并 `cat` 得 `ok`，构建器在设备端真实执行。
 - 否决项：上游无 Go 版 login（零 `.go` 文件，`login` 为 shell 脚本）；PR490 仅版本升级，无 Android-libc proot 可下载物；`rish` 须走官方 `app_process + dex` 通道，直接 exec `librish.so`（ET_DYN）段错误。
+
+## 6. fork（kyehn/nix-on-droid @01490c5）实证结论（设备端，真机终端输入）
+
+- fork 自带 Go 版 `login`/`login-inner`（`overlays/session-login[-inner]`，`CGO_ENABLED=0` + `-buildmode=pie`），`proot-termux` 为 Termux proot 分支，默认安装路径已是 `com.termux`，包格式同契约（`SYMLINKS.txt ←` 全相对、`EXECUTABLES.txt`、`etc/passwd` 占位 `65534` 由 login-inner `setUser` 改写）。
+- 包体积 298M（完整闭包，`bootstrap-x86_64.zip` 经 cachix/源码构建，无 LLVM），应用内安装器 `OK shell=bin/login installed=true`（约 60s）。
+- 关键发现：fork 的 Go `login` 实为动态链接（带 `/nix/store/...-glibc/.../ld-linux` INTERP，无 NEEDED，`CGO_ENABLED` 改字符串仍无效），Android 上直接 exec 报 ENOENT。torvox 侧修复：`ShizukuGate.chainLoadPrefix` 以纯 Kotlin 嗅探 ELF INTERP，用 prefix 自带 glibc loader 链式加载（lib 路径在生成时枚举，`-c` 负载零引号，逐层 shell 原样透传）。
+- 真实终端输入验证（Maestro `inputText` + `DUMP_TERMINAL` 回读）：`nix --version` → `nix (Nix) 2.34.8`；hermetic `nix build`（`--option build-users-group ''`，fork 配置自带 `nix-command flakes` + `sandbox=false`）→ `/nix/store/d45cdcwji3axn5bdvf1f3mqhja89mycw-t`，`cat` 得 `ok`。
