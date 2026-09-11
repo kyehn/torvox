@@ -743,13 +743,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "exec-bin"
-version = "0.1.0"
-dependencies = [
- "nix",
-]
-
-[[package]]
 name = "exr"
 version = "1.74.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1314,17 +1307,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "integration-tests"
-version = "0.1.0"
-dependencies = [
- "futures",
- "native",
- "regex-lite",
- "toml",
- "wgpu",
-]
-
-[[package]]
 name = "interpolate_name"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1710,6 +1692,7 @@ dependencies = [
  "swash",
  "thiserror 2.0.20",
  "tokio",
+ "toml",
  "tower-mcp",
  "wgpu",
  "wgpu-types",
@@ -2458,12 +2441,6 @@ dependencies = [
  "memchr",
  "regex-syntax",
 ]
-
-[[package]]
-name = "regex-lite"
-version = "0.1.9"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cab834c73d247e67f4fae452806d17d3c7501756d98c8808d7c9c7aa7d18f973"
 
 [[package]]
 name = "regex-syntax"
