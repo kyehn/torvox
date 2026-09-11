@@ -139,24 +139,6 @@ internal data class SessionEntry(
     // thread polling a destroyed native session (global event queue
     // double-consumer, native UAF risk).
     @Volatile var closing: Boolean = false,
-    //  fast-death recovery (warp WarpTerminalService.kt:906-915):
-    // spawn timestamp (elapsedRealtime) so a shell that dies within
-    // FAST_DEATH_THRESHOLD_MS can be detected and retried with
-    // /system/bin/sh. Reset on every (re)spawn.
-    @Volatile var spawnedAtRealtimeMs: Long = SystemClock.elapsedRealtime(),
-    // Consecutive fast-death retries for this session (bounded by
-    // MAX_FAST_DEATH_RETRIES; never reset — a session that fast-dies
-    // repeatedly stays dead after the budget is exhausted).
-    @Volatile var fastDeathCount: Int = 0,
-    // True once the user typed anything into this session; a fast exit
-    // AFTER user input is a legitimate quick exit (e.g. `exit`), not a
-    // broken shell, so fast-death recovery is skipped.
-    @Volatile var userTypedSinceSpawn: Boolean = false,
-    // True between the fast-death detection and the respawn completing.
-    // The render monitor must NOT restart the render thread in this
-    // window: the old thread's exit event is consumed, polling the dead
-    // session would re-trigger fast-death (double respawn race) — the
-    // respawn thread restarts the render thread itself.
     // when true (SCROLL button active), new output should NOT
     // auto-reset scroll — the user intentionally wants to stay browsing.
     @Volatile var scrollActive: Boolean = false,
@@ -169,7 +151,6 @@ internal data class SessionEntry(
     // bypasses writeToPty), echo pairing happens in the render loop when a
     // frame consumes the native new_output flag.
     val latencyProbe: LatencyProbe = LatencyProbe(),
-    @Volatile var fastDeathRetryScheduled: Boolean = false,
     // the shell exited and the [Process completed (code X)]
     // prompt was fed to the terminal (see feedProcessCompletedPrompt).
     // The session stays visible and running until the user presses Enter.
@@ -507,31 +488,20 @@ constructor(
         entry: SessionEntry,
         exitCode: Int,
         // native-measured child lifetime (ms); 0 when the
-        // event predates the field (or is a sweep). Fast-death uses this
-        // instead of Kotlin event-latency timing.
+        // event predates the field (or is a sweep).
         aliveMs: Long,
     ) {
-        //  fast-death recovery (warp WarpTerminalService.kt:906-915):
-        // a shell that dies within FAST_DEATH_THRESHOLD_MS of spawn with no
-        // user input is almost certainly a broken bootstrap/prefix shell
-        // (or a misconfigured login binary). Retry with /system/bin/sh and
-        // exponential backoff before surfacing the exit. The respawn runs
-        // on a separate thread so the backoff delay never blocks the render
-        // thread (which owns this call site). Extracted to
-        // [tryFastDeathRecovery] for the detekt complexity limit.
+        // 启动入口失败不得回退：shell 退出即走 [Process completed] 提示，
+        // 输出保留显示，由用户确认关闭；此前失败自动降级系统 shell 的路径已删除。
         // this function runs both for the initial shell exit
         // (from the poll.exit branch) and, after the user presses Enter on
         // the [Process completed] prompt, for the confirmed close (render
-        // loop re-dispatch). Fast-death recovery was already ruled out when
-        // the prompt was first shown, so it is skipped for confirmed closes.
+        // loop re-dispatch); the prompt path is skipped for confirmed closes.
         val confirmedClose = entry.processCompletedConfirmed
-        if (!confirmedClose) {
-            if (tryFastDeathRecovery(entry, exitCode, aliveMs)) return
-            // Foreground session: keep it visible with a [Process completed]
-            // prompt instead of closing immediately. The entry stays in
-            // sessions with running=true until Enter, which then closes it.
-            if (maybeShowProcessCompletedPrompt(entry, exitCode)) return
-        }
+        // Foreground session: keep it visible with a [Process completed]
+        // prompt instead of closing immediately. The entry stays in
+        // sessions with running=true until Enter, which then closes it.
+        if (!confirmedClose && maybeShowProcessCompletedPrompt(entry, exitCode)) return
         LogUtil.i("Runtime", "session ${entry.id} exited with code $exitCode")
         // Phase 1 (locked): capture the possibly-hung thread; the actual
         // join runs UNLOCKED below (up to THREAD_JOIN_TIMEOUT_MS) so a hung
@@ -619,130 +589,6 @@ constructor(
             updateForegroundSessionCount(sessions.size)
             updateState()
         }
-    }
-
-    /**
-     * fast-death detection: when the child's native lifetime is within [FAST_DEATH_THRESHOLD_MS], the
-     * user typed nothing, and the retry budget is not exhausted, log + schedule the /system/bin/sh
-     * respawn and return true (the exit is consumed). Extracted from handleSessionExit for the detekt
-     * complexity limit.
-     */
-    private fun tryFastDeathRecovery(
-        entry: SessionEntry,
-        exitCode: Int,
-        aliveMs: Long,
-    ): Boolean {
-        val effectiveAliveMs =
-            resolveAliveMs(
-                aliveMs,
-                SystemClock.elapsedRealtime(),
-                entry.spawnedAtRealtimeMs,
-            )
-        if (!shouldRetryFastDeath(effectiveAliveMs, entry.userTypedSinceSpawn, entry.fastDeathCount)) {
-            return false
-        }
-        val attempt: Int
-        synchronized(sessionLock) {
-            if (
-                !shouldScheduleFastDeathRetry(entry.closing, entry.fastDeathCount, MAX_FAST_DEATH_RETRIES)
-            ) {
-                return false
-            }
-            entry.fastDeathCount++
-            attempt = entry.fastDeathCount
-            entry.renderWatchDog?.stop()
-            entry.renderWatchDog = null
-            // Block the render monitor from restarting the render
-            // thread while the respawn is pending (see field doc).
-            entry.fastDeathRetryScheduled = true
-        }
-        val backoffMs = fastDeathBackoffMs(attempt)
-        LogUtil.w(
-            "Runtime",
-            "Fast death detected for session ${entry.id} (attempt $attempt/$MAX_FAST_DEATH_RETRIES, alive ${effectiveAliveMs}ms, exitCode $exitCode); retrying in ${backoffMs}ms with /system/bin/sh",
-        )
-        scheduleFastDeathRetry(entry, backoffMs)
-        return true
-    }
-
-    /**
-     * fast-death recovery (warp WarpTerminalService.kt:906-915): after the backoff delay, clear the
-     * grid, kill the dead child, respawn with /system/bin/sh and restart the render thread. Runs on
-     * its own thread so the delay never blocks the render/poll loop. On respawn failure the session
-     * is removed exactly like a normal exit.
-     */
-    private fun scheduleFastDeathRetry(entry: SessionEntry, backoffMs: Long) {
-        Thread(
-            {
-                try {
-                    Thread.sleep(backoffMs)
-                    synchronized(sessionLock) {
-                        if (!sessions.containsKey(entry.id) || entry.closing) return@Thread
-                    }
-                    // Clear the grid so the failed shell's stderr diagnostic
-                    // does not bleed into the fallback session (warp clears
-                    // with the same ESC[2J ESC[H sequence).
-                    entry.bridge?.feedTerminal("\u001b[2J\u001b[H".toByteArray())
-                    val bridge = entry.bridge ?: return@Thread
-                    val grid = bridge.getGridRowsColsPacked()
-                    val rows = ((grid shr 32) and 0xFFFF).toInt().coerceAtLeast(1)
-                    val cols = (grid and 0xFFFF).toInt().coerceAtLeast(1)
-                    // Close the dead child's native session first: the PTY
-                    // child already exited, so this is fast; without it
-                    // initSession would leak the old native Session.
-                    try {
-                        bridge.close()
-                    } catch (closeException: Exception) {
-                        LogUtil.e(
-                            "Runtime",
-                            "fast-death: bridge close failed for session ${entry.id}",
-                            closeException,
-                        )
-                    }
-                    val respawned = bridge.spawnTerminal(rows, cols, "/system/bin/sh")
-                    if (respawned <= 0L) {
-                        LogUtil.e(
-                            "Runtime",
-                            "fast-death respawn failed for session ${entry.id}, surfacing exit",
-                        )
-                        synchronized(sessionLock) {
-                            sessions.remove(entry.id)
-                            entry.fastDeathRetryScheduled = false
-                            updateForegroundSessionCount(sessions.size)
-                            updateState()
-                        }
-                        return@Thread
-                    }
-                    synchronized(sessionLock) {
-                        if (entry.closing) return@synchronized
-                        entry.running = true
-                        entry.renderThreadExited = false
-                        entry.spawnedAtRealtimeMs = SystemClock.elapsedRealtime()
-                        entry.userTypedSinceSpawn = false
-                        entry.fastDeathRetryScheduled = false
-                        renderSupervisor.startRenderThread(entry)
-                    }
-                    // The respawned native session has no window attached
-                    // (spawnTerminal re-created it with a fresh session id).
-                    // Re-attach the surface so the render thread has
-                    // something to draw into — otherwise the fallback shell
-                    // runs but renders black frames until the next
-                    // surfaceCreated.
-                    attachPendingSurface(bridge)
-                    LogUtil.w(
-                        "Runtime",
-                        "fast-death respawn OK for session ${entry.id} (/system/bin/sh rows=$rows cols=$cols)",
-                    )
-                } catch (exception: Exception) {
-                    LogUtil.e("Runtime", "fast-death retry failed for session ${entry.id}", exception)
-                }
-            },
-            "FastDeath-${entry.id}",
-        )
-            .apply {
-                isDaemon = true
-                start()
-            }
     }
 
     private fun closeDeadSession(entry: SessionEntry) {
@@ -1027,11 +873,9 @@ constructor(
         if (failsafeRequested) {
             return buildFailsafeConfig(rows, cols, configReads, bridgeTheme, homeDir)
         }
-        // Prefix shell resolution: termux bootstraps expose bin/bash.
-        // Only ELF candidates are eligible: termux also ships a bin/login
-        // *script* (motd + exec, shebang #!/data/.../usr/bin/sh) which the
-        // linker-wrapper spawn path cannot load ("bad ELF magic" —
-        // emulator-verified), so it must not be selected.
+        // 前缀 shell 解析：登录优先。候选为 ELF 二进制或系统解释器启动脚本；
+        // 私有目录 shebang 脚本不计入（其解释器本身尚不可用，linker 亦无法加载），由后续 ELF 候选承接。
+        // 系统脚本经内核 shebang 直接执行，不走 linker 桥接（pty 侧非 PIE 即直接执行）。
         val prefixShell = findPrefixShell(prefixDir)
         val prefixComplete =
             prefixShell != null &&
@@ -1211,11 +1055,6 @@ constructor(
             // holding sessionLock across a join blocks every session operation.
             synchronized(sessionLock) {
                 if (!entry.running) return
-                // while a fast-death respawn is pending the
-                // render thread must stay dead — the respawn thread starts
-                // it with the fresh /system/bin/sh session. Restarting now
-                // would poll the consumed-exit session and double-respawn.
-                if (entry.fastDeathRetryScheduled) return
                 if (!entry.renderThreadExited) {
                     val thread = entry.renderThreadRef
                     if (thread != null && thread.isAlive) return
@@ -2368,14 +2207,16 @@ constructor(
     )
 
     /**
-     * Find the prefix shell binary using login-first ELF resolution.
+     * Find the prefix shell binary using login-first resolution.
+     * 可执行项为 ELF 二进制或系统解释器启动脚本：后者经内核 shebang 直接执行，不走 linker 桥接；
+     * 私有目录 shebang 脚本不计入，其解释器本身尚不可用，仍由后续 ELF 候选承接。
      */
     private fun findPrefixShell(prefixDir: String): String? {
-        // Termux-style: login-first ELF resolution.
+        // 登录优先，ELF 与系统脚本均可选中，顺序即优先级。
         return listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
             .firstOrNull { candidate ->
                 val file = java.io.File("$prefixDir/$candidate")
-                file.isFile && isElf(file)
+                file.isFile && (isElf(file) || isSystemShellScript(file))
             }
     }
 
@@ -2775,15 +2616,9 @@ constructor(
                 recomputeGridFromFontMetrics()
                 appliedFontSizeTenths = config.font_size_tenths
                 bridge.setTheme(config.theme)
-                val cursorStyle = settingsRepository.cursorStyle.first()
-                bridge.setCursorStyle(cursorStyle)
-                val cursorBlinkEnabled = settingsRepository.cursorBlink.first()
-                bridge.setCursorBlinkEnabled(cursorBlinkEnabled)
-                val cursorBlinkSpeedMs = settingsRepository.cursorSpeed.first()
-                bridge.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
                 LogUtil.d(
                     "Runtime",
-                    "settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.font_size_tenths} theme=${config.theme.name} cursorStyle=$cursorStyle cursorBlink=$cursorBlinkEnabled cursorSpeed=$cursorBlinkSpeedMs",
+                    "settings applied: fontFamily=$effectiveFont fontSizeTenths=${config.font_size_tenths} theme=${config.theme.name}",
                 )
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
@@ -3059,12 +2894,6 @@ constructor(
                 val initialFontFamily = settingsRepository.fontFamily.first()
                 val effectiveFont = terminal.emulator.resolveEffectiveFontFamily(initialFontFamily)
                 bridge.setFontFamily(effectiveFont)
-                val cursorStyle = settingsRepository.cursorStyle.first()
-                bridge.setCursorStyle(cursorStyle)
-                val cursorBlinkEnabled = settingsRepository.cursorBlink.first()
-                bridge.setCursorBlinkEnabled(cursorBlinkEnabled)
-                val cursorBlinkSpeedMs = settingsRepository.cursorSpeed.first()
-                bridge.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
             } catch (exception: Exception) {
                 if (exception is kotlinx.coroutines.CancellationException) throw exception
                 LogUtil.e(
@@ -3653,9 +3482,6 @@ constructor(
         val config = buildConfig()
         val fontFamily = settingsRepository.fontFamily.first()
         val effectiveFontFamily = terminal.emulator.resolveEffectiveFontFamily(fontFamily)
-        val cursorStyle = settingsRepository.cursorStyle.first()
-        val cursorBlinkEnabled = settingsRepository.cursorBlink.first()
-        val cursorBlinkSpeedMs = settingsRepository.cursorSpeed.first()
         // buildConfig() defaults to 24x80; resizing every session to that
         // on ANY settings change would shrink live PTYs (vim/htop get a
         // spurious SIGWINCH and reflow). Keep each session's current grid
@@ -3669,9 +3495,6 @@ constructor(
             entry.bridge?.setFontSize(config.font_size_tenths)
             entry.bridge?.setFontFamily(effectiveFontFamily)
             entry.bridge?.setTheme(config.theme)
-            entry.bridge?.setCursorStyle(cursorStyle)
-            entry.bridge?.setCursorBlinkEnabled(cursorBlinkEnabled)
-            entry.bridge?.setCursorBlinkSpeedMs(cursorBlinkSpeedMs)
             entry.notifyRender()
         }
         // Font metrics changed — but grid dimensions stay fixed.
@@ -3784,10 +3607,6 @@ constructor(
                 }
                 return true
             }
-            // any user input marks the session as interactive —
-            // a later fast exit is a legitimate quick exit (e.g. `exit`),
-            // so fast-death recovery must NOT fire for it.
-            entry.userTypedSinceSpawn = true
             val written = entry.bridge?.writeToPty(data) ?: false
             if (written) {
                 // Latency probe input stamp (elapsed-realtime clock: it
@@ -4293,33 +4112,25 @@ internal fun isElf(file: java.io.File): Boolean = try {
     false
 }
 
-//  fast-death recovery (warp WarpTerminalService.kt:906-915).
-// Top-level (not on the private companion) so the unit tests can reach
-// the pure decision/backoff logic.
-
-/** A shell exiting within this window after spawn with no user input is treated as broken. */
-internal const val FAST_DEATH_THRESHOLD_MS = 1500L
-
-/** Bounded fast-death retries per session; exhausted → the exit is surfaced. */
-internal const val MAX_FAST_DEATH_RETRIES = 3
-
 /**
- * Fast-death decision (pure, unit-tested): the shell exited within [FAST_DEATH_THRESHOLD_MS] of
- * spawn, the user typed nothing, and the retry budget is not exhausted.
+ * 系统解释器启动脚本判定：首行 shebang 指向系统路径（`/system/bin/`）的脚本可由应用进程直接执行，
+ * 无需经 linker 桥接；指向应用私有目录的脚本不计入（其解释器本身尚不可用）。
+ * 与安装器/启动路径共享，供通用 bootstrap 启动器脚本使用，不针对特定发行版。
  */
-internal fun shouldRetryFastDeath(
-    aliveMs: Long,
-    userTypedSinceSpawn: Boolean,
-    fastDeathCount: Int,
-): Boolean = aliveMs <= FAST_DEATH_THRESHOLD_MS &&
-    !userTypedSinceSpawn &&
-    fastDeathCount < MAX_FAST_DEATH_RETRIES
-
-/**
- * Exponential backoff for retry [attempt] (1-based): 500ms << (attempt-1), capped at 5000ms (warp's
- * formula).
- */
-internal fun fastDeathBackoffMs(attempt: Int): Long = minOf(500L shl (attempt - 1), 5000L)
+internal fun isSystemShellScript(file: java.io.File): Boolean = try {
+    file.inputStream().use { input ->
+        val header = ByteArray(64)
+        val read = input.read(header)
+        if (read <= 0) {
+            false
+        } else {
+            val firstLine = header.decodeToString(0, read).lineSequence().firstOrNull().orEmpty()
+            firstLine.startsWith("#!/system/bin/")
+        }
+    }
+} catch (_: Exception) {
+    false
+}
 
 /**
  * Wire payload sent to the native side for MCP run_command results (d1/d4: exit_code clamped to
@@ -4515,13 +4326,6 @@ private class BoundedStreamRead(
 }
 
 /**
- * Fast-death effective lifetime: prefer the native `alive_ms` measurement; when the respawn event
- * predates that field (<= 0) fall back to the Kotlin-side wall-clock since spawn. Pure so the
- * recovery decision is unit-testable.
- */
-internal fun resolveAliveMs(aliveMs: Long, nowMs: Long, spawnedAtMs: Long): Long = if (aliveMs > 0) aliveMs else (nowMs - spawnedAtMs).coerceAtLeast(0)
-
-/**
  * Next dead-render-thread restart backoff: double the previous delay up to [maxDelayMs] (the
  * exponential backoff in handleDeadRenderThread).
  */
@@ -4532,17 +4336,6 @@ internal fun nextRestartDelayMs(currentMs: Long, maxDelayMs: Long): Long = (curr
  * instead of restarted again.
  */
 internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Boolean = restartAttempts > maxAttempts
-
-/**
- * Fast-death respawn gate (re-checked under sessionLock inside tryFastDeathRecovery): a closing
- * session or an exhausted retry budget must NOT schedule another respawn, even when the earlier
- * shouldRetryFastDeath passed — the state may have changed while waiting.
- */
-internal fun shouldScheduleFastDeathRetry(
-    closing: Boolean,
-    fastDeathCount: Int,
-    maxRetries: Int,
-): Boolean = !closing && fastDeathCount < maxRetries
 
 /**
  * Initial synchronous render retry (switchSession): keep retrying while the first render result is

@@ -52,7 +52,7 @@ pub enum Event {
         code: i32,
         /// how long the child actually lived (ms, from fork to
         /// waitpid). Native-side measurement — immune to Kotlin event
-        /// handling latency — so fast-death recovery can rely on it.
+        /// handling latency; diagnostics payload.
         alive_ms: u64,
     },
     /// Request Kotlin to show a dialog (input/confirm/select).

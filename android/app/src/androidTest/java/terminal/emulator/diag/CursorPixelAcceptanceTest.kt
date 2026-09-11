@@ -86,7 +86,6 @@ class CursorPixelAcceptanceTest {
     @Test
     fun cursorBlockMatchesRenderCursorCell() {
         val b = bridge()
-        b.setCursorBlinkEnabled(false)
         Thread.sleep(250)
 
         fun assertCursorAtItsCell(stage: String): Pair<Int, Int> {

@@ -141,16 +141,11 @@
     <string name="cd_file_manager">打开文件管理器</string>
 
     <!-- Cursor -->
-    <string name="cursor_blink">光标闪烁</string>
-    <string name="cursor_blink_desc">切换光标闪烁动画</string>
-    <string name="cursor_speed">闪烁速度</string>
-    <string name="cursor_style_label">光标样式</string>
 
     <!-- CJK Warning -->
     <string name="cjk_fallback_missing_warning">未检测到中日韩备用字体。东亚字符可能无法正确渲染。</string>
     <string name="save">保存</string>
     <string name="delete">删除</string>
-    <string name="user_themes">用户主题</string>
     <string name="install">安装</string>
 
     <!-- Missing translations (sync with values/strings.xml) -->
@@ -158,7 +153,6 @@
     <string name="accessibility_previous_line">上一行</string>
     <string name="accessibility_read_screen">朗读屏幕</string>
     <string name="alt_toggle">Alt 切换</string>
-    <string name="ansi_color">ANSI %1$d（%2$s）</string>
     <string name="arrow_down">向下箭头</string>
     <string name="arrow_left">向左箭头</string>
     <string name="arrow_right">向右箭头</string>
@@ -197,24 +191,14 @@
     <string name="clear_app_data_desc">重置所有设置、会话和日志。不会删除引导程序文件或主目录。</string>
     <string name="clear_app_data_done">应用数据已清除。请重新启动应用以完成完全重置。</string>
     <string name="close_session">关闭会话</string>
-    <string name="color_new">新</string>
-    <string name="color_old">旧</string>
     <string name="compose_key">Compose 键</string>
     <string name="control_toggle">Ctrl 切换</string>
     <string name="create">创建</string>
-    <string name="create_theme_title">创建主题 — %1$s</string>
-    <string name="cursor_bar">竖线</string>
-    <string name="cursor_follow_terminal">跟随终端</string>
-    <string name="cursor_block">方块</string>
     <string name="cursor_label">光标</string>
-    <string name="cursor_underline">下划线</string>
     <string name="disable_fuzzy_match">禁用模糊匹配</string>
     <string name="dismiss_selection">取消选择</string>
     <string name="edit">编辑</string>
     <string name="edit_modifier_bar">编辑修饰键栏</string>
-    <string name="edit_theme">编辑主题</string>
-    <string name="edit_theme_desc">自定义当前用户主题的颜色</string>
-    <string name="edit_theme_title">编辑主题 — %1$s</string>
     <string name="enable_fuzzy_match">启用模糊匹配</string>
     <string name="end_key">End</string>
     <string name="environment_variables">环境变量</string>
@@ -236,7 +220,6 @@
     <string name="font_read_failed">无法读取字体文件</string>
     <string name="foreground">前景</string>
     <string name="function_key_layer">功能键层</string>
-    <string name="hex">Hex</string>
     <string name="home_key">Home</string>
     <string name="italic_font_family">斜体字体</string>
     <string name="keyboard_shortcuts">键盘快捷键</string>
@@ -245,14 +228,11 @@
     <string name="modifier_bar_available_keys">可用键（点按添加）</string>
     <string name="modifier_bar_current_layout">当前布局</string>
     <string name="modifier_bar_edit_hint_remove">当前布局（点按某个键以移除）</string>
-    <string name="new_theme_name">新主题名称</string>
     <string name="no_font_loaded">未加载字体</string>
     <string name="open_session_drawer">打开会话抽屉</string>
-    <string name="overwrite">覆盖</string>
     <string name="page_down">Page Down</string>
     <string name="page_up">Page Up</string>
     <string name="reset_to_default">重置为默认</string>
-    <string name="save_as_new">另存为新主题</string>
     <string name="search_no_results_accessible">未找到结果</string>
     <string name="search_result_accessible">第 %1$d 个，共 %2$d 个</string>
     <string name="selection">选择</string>
@@ -265,8 +245,6 @@
     <string name="shortcut_reserved_key">保留键</string>
     <string name="shortcut_reset">重置</string>
     <string name="tab_key">Tab</string>
-    <string name="tap_a_color_to_edit">点按颜色进行编辑</string>
-    <string name="theme_name">主题名称</string>
     <string name="toggle_keyboard">显示或隐藏键盘</string>
     <string name="toggle_scroll">切换滚动</string>
 </resources>

@@ -5,8 +5,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
-import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipe
 import io.cucumber.java.en.Given
@@ -27,7 +25,7 @@ constructor(
         composeRuleHolder.composeRule.openSettings()
     }
 
-    @Then("^theme selector, font size slider, cursor style selector are displayed$")
+    @Then("^theme selector and font size slider are displayed$")
     fun settingsSectionsDisplayed() {
         composeRuleHolder.composeRule
             .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
@@ -74,34 +72,6 @@ constructor(
         }
         composeRuleHolder.composeRule
             .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
-    }
-
-    @When("^the cursor style is changed from block to bar$")
-    fun cursorStyleChangedToBar() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SettingsLazyColumn", useUnmergedTree = true)
-            .performScrollToNode(hasTestTag("CursorStyleSelector"))
-        composeRuleHolder.composeRule
-            .onNodeWithTag("CursorStyleSelector", useUnmergedTree = true)
-            .assertIsDisplayed()
-        // 选项药丸有专用标签（SettingsComponents.kt SettingsSelectorPill），
-        // 按标签定位比按文本更精确；点击前必须滚入视口，否则触摸注入失败。
-        composeRuleHolder.composeRule
-            .onNodeWithTag("CursorStyle_bar", useUnmergedTree = true)
-            .performScrollTo()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("CursorStyle_bar", useUnmergedTree = true)
-            .performClick()
-        composeRuleHolder.composeRule.waitForIdle()
-    }
-
-    @Then("^the bar cursor style is selected$")
-    fun barCursorStyleSelected() {
-        composeRuleHolder.composeRule.waitForIdle()
-        // The cursor style selector is present and reflects the chosen style.
-        composeRuleHolder.composeRule
-            .onNodeWithTag("CursorStyleSelector", useUnmergedTree = true)
             .assertIsDisplayed()
     }
 }

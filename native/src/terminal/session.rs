@@ -193,8 +193,8 @@ pub struct Session {
     /// Exit code captured from waitpid, `None` while process runs.
     pub(crate) exit_code: Arc<Mutex<Option<i32>>>,
     /// child alive duration (ms, fork → waitpid), written by
-    /// the wait thread on exit. Consumed by ffi::poll_event for the
-    /// fast-death Exit event payload.
+    /// the wait thread on exit. Carried in the Exit event payload
+    /// for diagnostics.
     pub(crate) exit_alive_ms: Arc<Mutex<Option<u64>>>,
     /// fork timestamp, the start point for [Self::exit_alive_ms].
     spawned_at: std::time::Instant,
@@ -395,15 +395,18 @@ impl Session {
             log::info!("wait thread: waiting for child pid={child_pid}");
             let result = nix::sys::wait::waitpid(child_pid, None);
             // record the child's real lifetime (fork → waitpid)
-            // for the fast-death Exit event — Kotlin event handling latency
-            // must not skew the fast-death decision.
+            // for the Exit event diagnostics payload.
             *exit_alive_ms.lock() = Some(spawned_at.elapsed().as_millis() as u64);
             if let Ok(nix::sys::wait::WaitStatus::Exited(_, code)) = result
                 && code >= 100
             {
-                // codes >= 100 encode execve errno + 100.
+                // codes >= 100 MAY encode execve errno + 100 (our child writes
+                // "execve failed: errno=" to the PTY first — that marker is
+                // authoritative). Shells also exit 126/127 conventionally
+                // (e.g. a launcher script whose inner exec was denied), so a
+                // code like 126 without the PTY marker is NOT an execve failure.
                 log::error!(
-                    "wait thread: child execve FAILED errno={} (exit code {code})",
+                    "wait thread: child exited with code {code} (possible execve errno={}; see PTY output for the authoritative marker)",
                     code - 100
                 );
             }

@@ -6,6 +6,7 @@ import android.os.IBinder
 import kotlinx.coroutines.runBlocking
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
+import terminal.emulator.runtime.isSystemShellScript
 import java.io.File
 
 /**
@@ -43,8 +44,7 @@ class BootstrapInstallService : Service() {
         }
         Thread {
             // runCatching instead of try/catch(Exception): detekt
-            // TooGenericExceptionCaught; the install path returns Results,
-            // only the marker write can throw IOException.
+            // TooGenericExceptionCaught; the install path returns Results.
             val result =
                 runCatching { install(zipPath) }
                     .getOrElse { "FAILED: ${it.message ?: it.javaClass.simpleName}" }
@@ -78,16 +78,16 @@ class BootstrapInstallService : Service() {
             } else {
                 val stage = SecondStageRunner(prefixDir, homeDir).run()
                 if (stage.success) {
-                    // needsInstall(zipSha256) verifies the marker round-trip.
-                    val zipSha256 = BootstrapInstaller.sha256Of(preserved)
                     "OK prefix=$prefixDir shell=" +
                         (
                             listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh")
-                                .firstOrNull { isElf(File(prefixDir, it)) } ?: "none"
+                                .firstOrNull {
+                                    val entry = File(prefixDir, it)
+                                    entry.isFile && (isElf(entry) || isSystemShellScript(entry))
+                                } ?: "none"
                             ) +
                         " installed=${installer.isInstalled()}" +
-                        " pinned=${BootstrapInstaller.readVersionPin(prefixDir) == zipSha256}" +
-                        " needsInstall=${installer.needsInstall(zipSha256)}"
+                        " needsInstall=${installer.needsInstall()}"
                 } else {
                     "SECOND_STAGE_FAILED: ${stage.errors}"
                 }

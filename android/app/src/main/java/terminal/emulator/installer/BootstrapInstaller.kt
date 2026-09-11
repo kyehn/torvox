@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.isElf
+import terminal.emulator.runtime.isSystemShellScript
 import java.io.File
 import java.io.FileInputStream
 import java.util.zip.ZipFile
@@ -34,88 +35,26 @@ class BootstrapInstaller(
         // is ~150 MB; the limit gives headroom while preventing a hostile
         // archive from filling the data partition.
         private const val MAX_EXTRACTED_BYTES = 1L * 1024 * 1024 * 1024
-
-        // Install marker (warp bootstrap.rs VERSION_PIN_FILENAME analog):
-        // stores the sha256 of the zip that produced the prefix, written
-        // AFTER the atomic rename so a kill-mid-extract leaves no marker.
-        internal const val VERSION_PIN_FILENAME = ".bootstrap-version.json"
-
-        /**
-         * SHA-256 of [file], streamed (constant memory; a bootstrap zip is
-         * ~300MB). Throws IOException on read failure.
-         */
-        internal fun sha256Of(file: File): String {
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
-            FileInputStream(file).use { input ->
-                val buffer = ByteArray(COPY_BUFFER_SIZE)
-                while (true) {
-                    val read = input.read(buffer)
-                    if (read < 0) break
-                    digest.update(buffer, 0, read)
-                }
-            }
-            return digest.digest().joinToString("") { "%02x".format(it) }
-        }
-
-        /** Parse the marker's sha256; null when absent or malformed. */
-        internal fun readVersionPin(prefixDir: File): String? {
-            val marker = File(prefixDir, VERSION_PIN_FILENAME)
-            if (!marker.isFile) return null
-            return try {
-                val text = marker.readText()
-                val key = "\"sha256\":"
-                val idx = text.indexOf(key)
-                if (idx < 0) {
-                    null
-                } else {
-                    val valueStart = text.indexOf('"', idx + key.length)
-                    val valueEnd = valueStart.let { s -> if (s < 0) -1 else text.indexOf('"', s + 1) }
-                    if (valueStart < 0 || valueEnd < 0) null else text.substring(valueStart + 1, valueEnd)
-                }
-            } catch (_: Exception) {
-                null
-            }
-        }
-
-        /** Atomically write the version pin (temp + rename, no torn marker). */
-        internal fun writeVersionPin(prefixDir: File, sha256: String) {
-            val marker = File(prefixDir, VERSION_PIN_FILENAME)
-            val tmp = File(prefixDir, "$VERSION_PIN_FILENAME.tmp")
-            tmp.writeText(
-                """{"sha256":"$sha256","installedAt":${System.currentTimeMillis()}}""",
-            )
-            if (!tmp.renameTo(marker)) {
-                tmp.delete()
-                throw java.io.IOException("Failed to write version pin")
-            }
-        }
     }
 
     /**
-     * True when the prefix must be (re-)installed. With [zipSha256] (the
-     * sha256 of the zip about to be installed): marker missing OR marker
-     * mismatch → true; matching marker → false. Without it, falls back to
-     * the shell-binary check so callers that never pass a hash (e.g. the
-     * second-stage-only path) keep working.
+     * True when the prefix must be (re-)installed: no shell entry present.
+     * 安装状态不做任何标记文件，只认启动入口存在性。
      */
-    fun needsInstall(zipSha256: String? = null): Boolean {
-        if (zipSha256 != null) {
-            val pinned = readVersionPin(prefixDir) ?: return true
-            return pinned != zipSha256
-        }
-        return !hasShellBinary()
-    }
+    fun needsInstall(): Boolean = !hasShellBinary()
 
     /**
-     * Shell entry exists in termux layout (bin/login ELF or bin/bash).
+     * 启动入口存在性：ELF 二进制或系统解释器启动脚本均可（后者经内核 shebang 直接执行）；
+     * 私有目录 shebang 脚本不计入，其解释器本身尚不可用。
      */
-    private fun hasShellBinary(): Boolean = (File(prefixDir, "bin/login").isFile && isElf(File(prefixDir, "bin/login"))) ||
+    private fun hasShellBinary(): Boolean = (
+        File(prefixDir, "bin/login").isFile &&
+            (isElf(File(prefixDir, "bin/login")) || isSystemShellScript(File(prefixDir, "bin/login")))
+        ) ||
         File(prefixDir, "bin/bash").exists()
 
     /**
-     * A bootstrap is installed when its shell binary and the second-stage
-     * termux.env both exist. Only real ELF binaries qualify (termux's
-     * bin/login is a shebang script, so it must not be selected).
+     * 安装完成的 shell 入口与第二阶段 termux.env 均存在时视为已安装。
      */
     fun isInstalled(): Boolean = // termux.env is written last by the second stage; requiring it here
         // means a failed/wedged second stage (e.g. writeTermuxEnv hitting a
@@ -127,15 +66,6 @@ class BootstrapInstaller(
             File(prefixDir, "etc/termux/termux.env").exists()
 
     suspend fun install(zipFile: File): Result<Unit> = withContext(Dispatchers.IO) {
-        // hash BEFORE extraction so a corrupted zip is detected
-        // even if extraction never completes (and so needsInstall(zipSha256)
-        // can compare). ~1s per 300MB on emulator — first-launch-only.
-        val zipSha256 =
-            try {
-                sha256Of(zipFile)
-            } catch (exception: Exception) {
-                return@withContext Result.failure(Exception("Failed to hash bootstrap zip: ${exception.message}"))
-            }
         try {
             // Only clear the staging area. The existing prefix must survive until the
             // new bootstrap is fully extracted and atomically swapped in (see atomicRename),
@@ -143,6 +73,7 @@ class BootstrapInstaller(
             // This staging + atomic-swap design matches termux TermuxInstaller.java:137-257
             // (staging dir + SYMLINKS.txt + renameTo atomic switch + rollback).
             delete(stagingDir)
+            delete(File(prefixDir.parentFile, "${prefixDir.name}.prev"))
             createDirectories()
             onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
             val symlinks = extractZip(zipFile)
@@ -153,10 +84,6 @@ class BootstrapInstaller(
             createSymlinks(symlinks)
             atomicRename()
             ensureHomeAndTmp()
-            // Marker AFTER the atomic rename: a kill-mid-extract leaves no
-            // marker, so the next launch re-installs instead of trusting a
-            // half-extracted tree (warp bootstrap.rs step 8).
-            writeVersionPin(prefixDir, zipSha256)
             Result.success(Unit)
         } catch (exception: Exception) {
             // Log the class only, consistent with BootstrapDownloader: the
@@ -377,17 +304,14 @@ class BootstrapInstaller(
         }
     }
 
+    /** 上一次安装的旧目录：固定单备份，安装成功后保留，由用户手动删除。 */
     private fun atomicRename() {
         val staging = stagingDir
         val prefix = prefixDir
         if (prefix.exists()) {
-            // Move the old prefix aside first (rename is atomic on the same
-            // filesystem), then swap in the new one. Deleting the old prefix
-            // before renaming leaves a window where a process kill loses the
-            // working bootstrap with no way to recover except a 150 MB
-            // re-download.
-            val backupName = "${prefix.name}.old-${System.currentTimeMillis()}"
-            val backup = File(prefix.parentFile, backupName)
+            // 旧目录先整体移入固定备份（同文件系统 rename 为原子操作），再换入新目录；
+            // 失败则恢复备份，旧环境保持可用；成功后备份保留，由用户手动删除。
+            val backup = File(prefix.parentFile, "${prefix.name}.prev")
             if (!prefix.renameTo(backup)) {
                 throw Exception("Failed to move old prefix aside: ${prefix.path}")
             }
@@ -397,7 +321,6 @@ class BootstrapInstaller(
                 backup.renameTo(prefix)
                 throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
             }
-            delete(backup)
         } else if (!staging.renameTo(prefix)) {
             throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
         }

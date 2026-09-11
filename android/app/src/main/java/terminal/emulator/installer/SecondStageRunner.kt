@@ -5,6 +5,7 @@ import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.isElf
+import terminal.emulator.runtime.isSystemShellScript
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -328,12 +329,12 @@ class SecondStageRunner(
         val envFile = File(prefixDir, "etc/termux/termux.env")
         envFile.parentFile?.mkdirs()
 
-        // Termux-style: prefer bin/login, fallback to bin/bash etc.
+        // 登录优先：ELF 二进制或系统解释器启动脚本均可（与启动路径一致）。
         val shellBinary =
             (
                 listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh").firstOrNull { candidate ->
                     val file = File(prefixDir, candidate)
-                    file.isFile && isElf(file)
+                    file.isFile && (isElf(file) || isSystemShellScript(file))
                 } ?: "bin/bash"
                 )
                 .let { File(prefixDir, it).absolutePath }
