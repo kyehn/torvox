@@ -410,13 +410,7 @@ object NativeBridge {
      */
     external fun setFlashState(sessionId: Long, phase: Float)
 
-    external fun setCursorBlink(sessionId: Long, enabled: Boolean, speedMs: Int)
-
-    external fun resetCursorBlink(sessionId: Long)
-
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
-
-    external fun setCursorStyle(sessionId: Long, style: String)
 
     /** App-level cursor color override in linear RGB (0..1 per channel);
      *  0xFFFFFFFF sentinel clears the override (follow the terminal). */

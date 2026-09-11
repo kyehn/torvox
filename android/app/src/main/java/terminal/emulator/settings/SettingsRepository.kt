@@ -38,9 +38,6 @@ constructor(
         val BACKGROUND_IMAGE_PATH = stringPreferencesKey("bg_image_path")
         val BACKGROUND_BLUR_RADIUS = intPreferencesKey("bg_blur_radius")
         val BACKGROUND_ALPHA = floatPreferencesKey("bg_alpha")
-        val CURSOR_BLINK = booleanPreferencesKey("cursor_blink")
-        val CURSOR_STYLE = stringPreferencesKey("cursor_style")
-        val CURSOR_SPEED = intPreferencesKey("cursor_speed")
         val BELL_MODE = intPreferencesKey("bell_mode")
         val SHORTCUT_PASTE = stringPreferencesKey("shortcut_paste")
         val SHORTCUT_NEW_SESSION = stringPreferencesKey("shortcut_new_session")
@@ -60,14 +57,6 @@ constructor(
         const val DEFAULT_SHELL = "/system/bin/sh"
         const val DEFAULT_BACKGROUND_BLUR_RADIUS = 0
         const val DEFAULT_BACKGROUND_ALPHA = 0.8f
-        const val DEFAULT_CURSOR_SPEED_MS = 530
-
-        /**
-         * (spec cursor-rendering "光标样式来源优先级"): the app default is "follow the terminal" (empty string →
-         * JNI override None) so DECSCUSR from running programs wins. Only an explicit user pick in
-         * Settings overrides the VT.
-         */
-        const val DEFAULT_CURSOR_STYLE = ""
         const val DEFAULT_BELL_MODE = 0
 
         /**
@@ -138,11 +127,6 @@ constructor(
         }
     val backgroundAlpha: Flow<Float> =
         provider.dataStore.data.map { it[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA }
-    val cursorBlink: Flow<Boolean> = provider.dataStore.data.map { it[Keys.CURSOR_BLINK] ?: true }
-    val cursorStyle: Flow<String> =
-        provider.dataStore.data.map { it[Keys.CURSOR_STYLE] ?: DEFAULT_CURSOR_STYLE }
-    val cursorSpeed: Flow<Int> =
-        provider.dataStore.data.map { it[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS }
     val bellMode: Flow<Int> = provider.dataStore.data.map { it[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE }
 
     /**
@@ -170,9 +154,6 @@ constructor(
         val backgroundImagePath: String = "",
         val backgroundBlurRadius: Int = DEFAULT_BACKGROUND_BLUR_RADIUS,
         val backgroundAlpha: Float = DEFAULT_BACKGROUND_ALPHA,
-        val cursorBlink: Boolean = true,
-        val cursorStyle: String = DEFAULT_CURSOR_STYLE,
-        val cursorSpeed: Int = DEFAULT_CURSOR_SPEED_MS,
         val bellMode: Int = DEFAULT_BELL_MODE,
         val shortcutPaste: String = "",
         val shortcutNewSession: String = "",
@@ -205,9 +186,6 @@ constructor(
                 backgroundBlurRadius =
                 prefs[Keys.BACKGROUND_BLUR_RADIUS] ?: DEFAULT_BACKGROUND_BLUR_RADIUS,
                 backgroundAlpha = prefs[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA,
-                cursorBlink = prefs[Keys.CURSOR_BLINK] ?: true,
-                cursorStyle = prefs[Keys.CURSOR_STYLE] ?: DEFAULT_CURSOR_STYLE,
-                cursorSpeed = prefs[Keys.CURSOR_SPEED] ?: DEFAULT_CURSOR_SPEED_MS,
                 bellMode = prefs[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE,
                 shortcutPaste = prefs[Keys.SHORTCUT_PASTE] ?: "",
                 shortcutNewSession = prefs[Keys.SHORTCUT_NEW_SESSION] ?: "",
@@ -270,12 +248,6 @@ constructor(
     suspend fun setBackgroundBlurRadius(radius: Int) = put(Keys.BACKGROUND_BLUR_RADIUS, radius)
 
     suspend fun setBackgroundAlpha(alpha: Float) = put(Keys.BACKGROUND_ALPHA, alpha)
-
-    suspend fun setCursorBlink(enabled: Boolean) = put(Keys.CURSOR_BLINK, enabled)
-
-    suspend fun setCursorStyle(style: String) = put(Keys.CURSOR_STYLE, style)
-
-    suspend fun setCursorSpeed(speedMs: Int) = put(Keys.CURSOR_SPEED, speedMs)
 
     suspend fun setBellMode(id: Int) = put(Keys.BELL_MODE, id)
 

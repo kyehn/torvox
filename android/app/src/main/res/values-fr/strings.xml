@@ -113,20 +113,14 @@
     <string name="on">Activé</string>
     <string name="off">Désactivé</string>
     <string name="cjk_fallback_missing_warning">Aucune police de secours CJK détectée. Les caractères d\'Asie de l\'Est peuvent ne pas s\'afficher correctement.</string>
-    <string name="cursor_blink">Clignotement du curseur</string>
-    <string name="cursor_blink_desc">Activer/désactiver l\'animation du clignotement du curseur</string>
-    <string name="cursor_speed">Vitesse de clignotement</string>
-    <string name="cursor_style_label">Style du curseur</string>
     <string name="save">Enregistrer</string>
     <string name="delete">Supprimer</string>
-    <string name="user_themes">Thèmes personnalisés</string>
 
     <!-- Missing translations (sync with values/strings.xml) -->
     <string name="accessibility_next_line">Ligne suivante</string>
     <string name="accessibility_previous_line">Ligne précédente</string>
     <string name="accessibility_read_screen">Lire l\'écran</string>
     <string name="alt_toggle">Basculer Alt</string>
-    <string name="ansi_color">ANSI %1$d (%2$s)</string>
     <string name="arrow_down">Flèche bas</string>
     <string name="arrow_left">Flèche gauche</string>
     <string name="arrow_right">Flèche droite</string>
@@ -165,23 +159,14 @@
     <string name="clear_app_data_desc">Réinitialise tous les paramètres, sessions et journaux. Ne supprime pas les fichiers bootstrap ni le répertoire personnel.</string>
     <string name="clear_app_data_done">Données de l\'application effacées. Redémarrez l\'application pour un reset complet.</string>
     <string name="close_session">Fermer la session</string>
-    <string name="color_new">Nouveau</string>
-    <string name="color_old">Ancien</string>
     <string name="compose_key">Touche Compose</string>
     <string name="control_toggle">Basculer Ctrl</string>
     <string name="create">Créer</string>
-    <string name="create_theme_title">Créer un thème — %1$s</string>
-    <string name="cursor_bar">Barre</string>
-    <string name="cursor_block">Bloc</string>
     <string name="cursor_label">Curseur</string>
-    <string name="cursor_underline">Souligné</string>
     <string name="disable_fuzzy_match">Désactiver la correspondance floue</string>
     <string name="dismiss_selection">Annuler la sélection</string>
     <string name="edit">Modifier</string>
     <string name="edit_modifier_bar">Modifier la barre de modification</string>
-    <string name="edit_theme">Modifier le thème</string>
-    <string name="edit_theme_desc">Personnaliser les couleurs du thème utilisateur actuel</string>
-    <string name="edit_theme_title">Modifier le thème — %1$s</string>
     <string name="enable_fuzzy_match">Activer la correspondance floue</string>
     <string name="end_key">Fin</string>
     <string name="environment_variables">Variables d\'environnement</string>
@@ -203,7 +188,6 @@
     <string name="font_read_failed">Impossible de lire le fichier de police</string>
     <string name="foreground">Premier plan</string>
     <string name="function_key_layer">Couche de touches de fonction</string>
-    <string name="hex">Hex</string>
     <string name="home_key">Début</string>
     <string name="italic_font_family">Police en italique</string>
     <string name="keyboard_shortcuts">Raccourcis clavier</string>
@@ -212,14 +196,11 @@
     <string name="modifier_bar_available_keys">Touches disponibles (touchez pour ajouter)</string>
     <string name="modifier_bar_current_layout">Disposition actuelle</string>
     <string name="modifier_bar_edit_hint_remove">Disposition actuelle (touchez une touche pour la retirer)</string>
-    <string name="new_theme_name">Nouveau nom de thème</string>
     <string name="no_font_loaded">Aucune police chargée</string>
     <string name="open_session_drawer">Ouvrir le tiroir de sessions</string>
-    <string name="overwrite">Remplacer</string>
     <string name="page_down">Page suivante</string>
     <string name="page_up">Page précédente</string>
     <string name="reset_to_default">Réinitialiser aux valeurs par défaut</string>
-    <string name="save_as_new">Enregistrer comme nouveau</string>
     <string name="search_no_results_accessible">Aucun résultat trouvé</string>
     <string name="search_result_accessible">Résultat %1$d sur %2$d</string>
     <string name="selection">Sélection</string>
@@ -232,8 +213,6 @@
     <string name="shortcut_reserved_key">Touche réservée</string>
     <string name="shortcut_reset">Réinitialiser</string>
     <string name="tab_key">Tab</string>
-    <string name="tap_a_color_to_edit">Touchez une couleur pour la modifier</string>
-    <string name="theme_name">Nom du thème</string>
     <string name="toggle_keyboard">Afficher ou masquer le clavier</string>
     <string name="toggle_scroll">Basculer le défilement</string>
 

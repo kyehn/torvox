@@ -374,42 +374,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
-    @Volatile private var cursorBlinkEnabled = true
-
-    @Volatile private var cursorBlinkSpeedMs = 600
-
-    fun setCursorBlinkEnabled(enabled: Boolean) {
-        cursorBlinkEnabled = enabled
-        Log.d(TAG, "setCursorBlink($enabled, speed=$cursorBlinkSpeedMs)")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setCursorBlink(sessionId, enabled, cursorBlinkSpeedMs)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setCursorBlinkEnabled failed: ${exception.javaClass.simpleName}")
-        }
-    }
-
-    fun setCursorBlinkSpeedMs(ms: Int) {
-        cursorBlinkSpeedMs = ms.coerceIn(100, 1000)
-        Log.d(TAG, "setCursorBlinkSpeedMs(${cursorBlinkSpeedMs}ms)")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setCursorBlink(sessionId, cursorBlinkEnabled, cursorBlinkSpeedMs)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setCursorBlinkSpeedMs failed: ${exception.javaClass.simpleName}")
-        }
-    }
-
-    fun resetCursorBlink() {
-        Log.d(TAG, "resetCursorBlink()")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.resetCursorBlink(sessionId)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "resetCursorBlink failed: ${exception.javaClass.simpleName}")
-        }
-    }
-
     fun setBackgroundImage(rgbaData: ByteArray, width: Int, height: Int) {
         if (sessionId == 0L) return
         try {
@@ -491,8 +455,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     data class ExitInfo(
         val sessionId: Long,
         val exitCode: Int,
-        // child lifetime (ms) measured natively — the
-        // fast-death decision uses this, not Kotlin event latency.
+        // child lifetime (ms) measured natively — diagnostics payload,
+        // not Kotlin event latency.
         val exitAliveMs: Long = 0,
     )
 
@@ -790,16 +754,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             NativeBridge.setRasterScale(sessionId, scale)
         } catch (exception: RuntimeException) {
             LogUtil.e("Bridge", "setRasterScale failed: ${exception.javaClass.simpleName}")
-        }
-    }
-
-    fun setCursorStyle(style: String) {
-        Log.d(TAG, "setCursorStyle($style)")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setCursorStyle(sessionId, style)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setCursorStyle failed: ${exception.javaClass.simpleName}")
         }
     }
 

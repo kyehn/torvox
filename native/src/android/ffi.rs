@@ -265,22 +265,11 @@ struct RenderState {
     /// (same deferred pattern as the background image). `0.0` turns the
     /// flash off. Kotlin drives the decay animation.
     pending_flash_phase: Option<f32>,
-    /// App-level cursor blink (user setting, distinct from the VT cursor
-    /// visibility the terminal itself controls). `enabled` + `speed_ms`
-    /// come from `setCursorBlink`; `phase_reset_ms` is updated by
-    /// `resetCursorBlink` so a user interaction restarts the blink phase
-    /// with the cursor visible.
-    ///
-    /// These three are atomics (not plain fields under the render-state
-    /// lock) on purpose: they are written by UI-thread JNI calls
-    /// (`setCursorBlink`/`resetCursorBlink`) and read by the render
-    /// thread, and the render thread holds the render-state lock for the
-    /// whole frame (incl. `render_cell_data`, ~0.5 s/frame on software
-    /// renderers). Plain fields would make each UI call block behind the
-    /// render thread's lock; bursts of setting calls (e.g. the test
-    /// battery) then accumulate past the 5 s ANR window. Atomics keep the
-    /// UI path lock-free; Relaxed ordering is fine (single-writer burst +
-    /// render-thread reader, staleness bounded by the next frame).
+    /// App-level cursor blink state. Fixed defaults (no user setting):
+    /// blink disabled, cursor steady and square. The fields stay atomic
+    /// because the render thread reads them while holding the render-state
+    /// lock for the whole frame; Relaxed ordering is fine (render-thread
+    /// reader, staleness bounded by the next frame).
     cursor_blink_enabled: AtomicBool,
     cursor_blink_speed_ms: AtomicU64,
     cursor_blink_phase_reset_ms: AtomicU64,
@@ -314,11 +303,10 @@ struct RenderState {
     /// rendering must mark their rows when they change or are cleared,
     /// otherwise stale highlight pixels would persist in the accumulator.
     last_drawn_search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
-    /// App-level cursor style override (user setting), applied on top of
-    /// the terminal's own cursor style. `None` = follow the terminal.
+    /// App-level cursor style override, fixed to follow the terminal
+    /// (`None`). No user setting.
     cursor_style_override: Option<crate::terminal::CursorStyle>,
-    /// Bumped by `setCursorStyle`; idle repaint happens when it changes
-    /// (same gate as the blink phase).
+    /// Style version counter, fixed (no setter remains).
     cursor_style_version: u64,
     last_drawn_style_version: u64,
     /// App-level cursor color override (user theme), applied on top of the
@@ -374,7 +362,7 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             pending_bg_image: None,
             pending_bg_image_clear: false,
             pending_flash_phase: None,
-            cursor_blink_enabled: AtomicBool::new(true),
+            cursor_blink_enabled: AtomicBool::new(false),
             cursor_blink_speed_ms: AtomicU64::new(DEFAULT_CURSOR_BLINK_SPEED_MS),
             cursor_blink_phase_reset_ms: AtomicU64::new(0),
             last_frame: None,
@@ -3670,55 +3658,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundP
     })
 }
 
-/// Set the app-level cursor blink (user setting). `enabled=false` forces
-/// the cursor to follow only the terminal's own visibility; `enabled=true`
-/// blinks at `speed_ms` (clamped 50..=2000) from the last phase reset.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorBlink(
-    mut env: JNIEnv,
-    _class: JClass,
-    _session_id: jlong,
-    enabled: jboolean,
-    speed_ms: jint,
-) {
-    jni_export_guard!(&mut env, (), {
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            let enabled = enabled != 0;
-            let speed = (speed_ms as u64).clamp(50, 2000);
-            render_state
-                .cursor_blink_enabled
-                .store(enabled, Ordering::Relaxed);
-            render_state
-                .cursor_blink_speed_ms
-                .store(speed, Ordering::Relaxed);
-            log::info!("setCursorBlink: enabled={enabled} speed={speed}ms");
-        }
-    })
-}
-
-/// Restart the app-level blink phase with the cursor visible (called on
-/// user interaction so the cursor reappears immediately).
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetCursorBlink(
-    mut env: JNIEnv,
-    _class: JClass,
-    _session_id: jlong,
-) {
-    jni_export_guard!(&mut env, (), {
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |d| d.as_millis() as u64);
-            render_state
-                .cursor_blink_phase_reset_ms
-                .store(now_ms, Ordering::Relaxed);
-            log::info!("resetCursorBlink: phase reset");
-        }
-    })
-}
-
 /// Pause/resume the renderer (e.g. while the settings screen is open or
 /// the surface is destroyed). The Rust renderer already checks
 /// `render_paused` in render_frame; this JNI export is the missing wire.
@@ -3734,34 +3673,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPause
         if let Some(render_state) = state.as_mut() {
             render_state.renderer.set_render_paused(paused != 0);
             log::info!("setRenderPaused: paused={}", paused != 0);
-        }
-    })
-}
-
-/// App-level cursor style override ("block" | "bar" | "underline").
-/// Any other value clears the override (follow the terminal).
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorStyle(
-    mut env: JNIEnv,
-    _class: JClass,
-    _session_id: jlong,
-    style: JString,
-) {
-    jni_export_guard!(&mut env, (), {
-        let style_str = match env.get_string(&style) {
-            Ok(s) => s.to_string_lossy().into_owned(),
-            Err(_) => return,
-        };
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            render_state.cursor_style_override = match style_str.as_str() {
-                "block" => Some(crate::terminal::CursorStyle::Block),
-                "bar" => Some(crate::terminal::CursorStyle::Bar),
-                "underline" => Some(crate::terminal::CursorStyle::Underline),
-                _ => None,
-            };
-            render_state.cursor_style_version = render_state.cursor_style_version.wrapping_add(1);
-            log::info!("setCursorStyle: {style_str}");
         }
     })
 }

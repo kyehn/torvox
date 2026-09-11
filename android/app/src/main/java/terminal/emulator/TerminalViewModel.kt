@@ -52,9 +52,6 @@ import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.SmartCopy
 import terminal.emulator.ui.clampSelection
-import terminal.emulator.ui.theme.BuiltInThemes
-import terminal.emulator.ui.theme.UserThemeStore
-import terminal.emulator.ui.theme.resolveTerminalThemeName
 import terminal.emulator.util.charCellWidth
 import javax.inject.Inject
 
@@ -277,17 +274,6 @@ constructor(
 
     @Volatile private var lastGridCols = 0
     private val fontManager = FontManager()
-    private val userThemeStore = UserThemeStore(context)
-
-    // Hot StateFlow mirror of the DataStore (cold flow + recomposition would
-    // resubscribe per frame and miss updates; stateIn keeps one collector).
-    private val _userThemes =
-        kotlinx.coroutines.flow.MutableStateFlow<List<terminal.emulator.ui.theme.TerminalTheme>>(
-            emptyList(),
-        )
-    val userThemes:
-        kotlinx.coroutines.flow.StateFlow<List<terminal.emulator.ui.theme.TerminalTheme>> =
-        _userThemes.asStateFlow()
 
     // ── Keyboard shortcuts ────────────────────────────────────────────
     private val _shortcutBindings =
@@ -1554,26 +1540,6 @@ constructor(
                 }
             }
         }
-        viewModelScope.launch {
-            settings
-                .map { it.cursorBlink }
-                .distinctUntilChanged()
-                .collect { enabled ->
-                    val bridge = runtime.bridge() ?: return@collect
-                    bridge.setCursorBlinkEnabled(enabled)
-                    runtime.forceRender()
-                }
-        }
-        viewModelScope.launch {
-            settings
-                .map { it.cursorSpeed }
-                .distinctUntilChanged()
-                .collect { speed ->
-                    val bridge = runtime.bridge() ?: return@collect
-                    bridge.setCursorBlinkSpeedMs(speed.coerceIn(100, 1000))
-                    runtime.forceRender()
-                }
-        }
     }
 
     /**
@@ -1602,12 +1568,6 @@ constructor(
                 onComplete()
             }
         }
-    }
-
-    fun resetCursorBlink() {
-        val bridge = runtime.bridge() ?: return
-        bridge.resetCursorBlink()
-        runtime.forceRender()
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1961,95 +1921,13 @@ constructor(
         }
     }
 
-    fun setCursorBlink(enabled: Boolean) = applyCursorSetting({ settingsRepository.setCursorBlink(enabled) }) { bridge ->
-        bridge.setCursorBlinkEnabled(enabled)
-    }
-
-    fun setCursorSpeed(speedMs: Int) = applyCursorSetting({ settingsRepository.setCursorSpeed(speedMs) }) { bridge ->
-        bridge.setCursorBlinkSpeedMs(speedMs.coerceIn(100, 1000))
-    }
-
-    fun setCursorStyle(style: String) = applyCursorSetting({ settingsRepository.setCursorStyle(style) }) { bridge ->
-        bridge.setCursorStyle(style)
-    }
-
     fun setBellMode(modeId: Int) {
         viewModelScope.launch {
             settingsRepository.setBellMode(modeId)
         }
     }
 
-    /**
-     * Persist a cursor setting then push it to the bridge and force a render. Shared by the three
-     * cursor setters (R10: architecture).
-     */
-    private fun applyCursorSetting(
-        persist: suspend () -> Unit,
-        applyToBridge: (terminal.emulator.bridge.Bridge) -> Unit,
-    ) {
-        viewModelScope.launch {
-            persist()
-            val bridge = runtime.bridge() ?: return@launch
-            applyToBridge(bridge)
-            runtime.forceRender()
-        }
-    }
-
     fun setThemeName(name: String) = applyThemeSettings { settingsRepository.setThemeName(name) }
-
-    // User-created themes (ghostty-android ThemeStore pattern): save the
-    // current resolved theme under a new name, or delete a saved user theme.
-    // Persisted in DataStore via [UserThemeStore]; a name collision replaces
-    // the existing entry.
-    init {
-        viewModelScope.launch {
-            userThemeStore.userThemes.collect { _userThemes.value = it }
-        }
-    }
-
-    fun saveCurrentThemeAs(name: String, isDark: Boolean) {
-        if (name.isBlank()) return
-        viewModelScope.launch {
-            val mode = settingsRepository.themeMode.first()
-            val resolved =
-                resolveTerminalThemeName(
-                    mode,
-                    settingsRepository.themeName.first(),
-                    settingsRepository.dayThemeName.first(),
-                    settingsRepository.nightThemeName.first(),
-                    isDark,
-                )
-            val current = BuiltInThemes.byName(resolved)
-            userThemeStore.save(current.copy(name = name.trim()))
-        }
-    }
-
-    fun deleteUserTheme(name: String) {
-        viewModelScope.launch {
-            userThemeStore.delete(name)
-            // If the deleted theme was selected, fall back to the default.
-            val current = settingsRepository.themeName.first()
-            if (current == name) settingsRepository.setThemeName("Dracula Plus")
-        }
-    }
-
-    /**
-     * Overwrite an existing user theme with a new definition from the theme editor. The name must
-     * match an existing user theme.
-     */
-    fun overwriteUserTheme(theme: terminal.emulator.ui.theme.TerminalTheme) {
-        viewModelScope.launch {
-            userThemeStore.save(theme)
-        }
-    }
-
-    /** Save an edited theme as a brand-new user theme. */
-    fun saveEditedThemeAsNew(name: String, theme: terminal.emulator.ui.theme.TerminalTheme) {
-        if (name.isBlank()) return
-        viewModelScope.launch {
-            userThemeStore.save(theme.copy(name = name.trim()))
-        }
-    }
 
     fun setDayThemeName(name: String) = applyThemeSettings {
         settingsRepository.setDayThemeName(name)

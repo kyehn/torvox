@@ -27,10 +27,10 @@ import java.io.File
  * EXTRA_INSTALL_BOOTSTRAP intent (install runs in a throwaway prefix
  * files/usr, keeping any existing termux bootstrap untouched).
  *
- * Verifies the  contract:
- *  - absolute /nix/store/... symlink targets are accepted
+ * Verifies the contract:
+ *  - SYMLINKS.txt targets are prefix-relative (no absolute targets)
  *  - EXECUTABLES.txt entries are chmod'ed
- *  - bin/login is a real ELF and isInstalled() recognizes it
+ *  - bin/login is a `/system/bin/` launcher script and isInstalled() recognizes it
  *  - the second stage (no dpkg dir) still writes termux.env
  */
 @RunWith(JUnit4::class)
@@ -85,13 +85,11 @@ class NixBootstrapInstrumentedTest {
         Assert.assertTrue("install must succeed: $result", result.startsWith("OK "))
         Assert.assertTrue("login shell must be selected: $result", result.contains("shell=bin/login"))
         Assert.assertTrue("isInstalled must be true: $result", result.contains("installed=true"))
-        // the sha256 version-pin sidecar must round-trip.
-        Assert.assertTrue("version pin must match: $result", result.contains("pinned=true"))
-        Assert.assertTrue("needsInstall must be false with matching pin: $result", result.contains("needsInstall=false"))
+        Assert.assertTrue("needsInstall must be false after install: $result", result.contains("needsInstall=false"))
 
-        // Verify the store tree and ELF binary from the shell side.
-        val loginHead = shell("od -An -tx1 -N4 /data/user/0/com.termux/files/usr/bin/login")
-        Assert.assertTrue("bin/login must be ELF (7f 45 4c 46), got: $loginHead", loginHead.contains("7f 45 4c 46"))
+        // Verify the store tree and launcher script from the shell side.
+        val loginHead = shell("head -c 14 /data/user/0/com.termux/files/usr/bin/login")
+        Assert.assertTrue("bin/login must be a /system/bin/sh launcher, got: $loginHead", loginHead.startsWith("#!/system/bin/sh"))
         // executeShellCommand runs /system/bin/sh; count store entries
         // line-by-line instead of relying on a wc pipeline.
         val storeLines = shell("ls -1 /data/user/0/com.termux/files/usr/nix/store").lines().filter { it.isNotBlank() }

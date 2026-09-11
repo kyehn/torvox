@@ -32,25 +32,6 @@ class FeatureVerificationTest {
     }
 
     @Test
-    fun cursorStyle_blockIsDefault() {
-        composeTestRule.onNodeWithTag("CursorStyle_block").assertIsDisplayed()
-    }
-
-    @Test
-    fun cursorStyle_canSwitchToBar() {
-        composeTestRule.onNodeWithTag("CursorStyle_bar").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("CursorStyle_bar").assertIsDisplayed()
-    }
-
-    @Test
-    fun cursorStyle_canSwitchToUnderline() {
-        composeTestRule.onNodeWithTag("CursorStyle_underline").performClick()
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithTag("CursorStyle_underline").assertIsDisplayed()
-    }
-
-    @Test
     fun backgroundImage_sectionExists() {
         composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(
             hasTestTag("BackgroundImageStatus"),

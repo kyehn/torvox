@@ -633,7 +633,6 @@ constructor(
                         // EmptyFinish: when committing from empty composing, clear any stale state
                         // to prevent Gboard double-submit on next composition start.
                         terminalViewModel?.consumeOneShotModifiers()
-                        terminalViewModel?.resetCursorBlink()
                         return true
                     }
 
@@ -642,7 +641,6 @@ constructor(
                             return true
                         }
                         return if (event.action == KeyEvent.ACTION_DOWN) {
-                            viewModel?.resetCursorBlink()
                             handleKeyEvent(event)
                         } else {
                             true
@@ -1935,7 +1933,6 @@ constructor(
                     return true
                 }
                 viewModel?.clearSelection()
-                viewModel?.resetCursorBlink()
                 suppressUntilNanos = 0L
                 keyboardRequested = true
                 requestFocus()
@@ -1956,7 +1953,6 @@ constructor(
             override fun onLongPress(event: MotionEvent) {
                 if (scaleFactor < ZOOM_THRESHOLD_LOW || scaleFactor > ZOOM_THRESHOLD_HIGH) return
                 isAfterLongPress = true
-                viewModel?.resetCursorBlink()
                 longPressDragging = true
                 longPressStartX = event.x
                 longPressStartY = event.y
