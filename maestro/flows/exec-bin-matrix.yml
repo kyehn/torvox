@@ -16,6 +16,11 @@ tags:
 # Every step below is real terminal input; screenshots carry overlay
 # text. adb is used only for setup/install/push/screenshot-readback,
 # never for executing validation commands.
+# exec-bin itself lives at files/exec-bin (app_data_file), so the
+# failsafe shell cannot exec it directly either (same EACCES ban) —
+# every $E invocation below goes through /system/bin/linker64, which
+# MAPS exec-bin (allowed) instead of exec'ing it. exec-bin then routes
+# its target the same way (prefix glibc chain-load for the Go login).
 - extendedWaitUntil:
     visible:
       id: "TerminalScreen"
@@ -43,10 +48,10 @@ tags:
 - waitForAnimationToEnd:
     timeout: 20000
 - takeScreenshot: exec_e2_linker
-# E3: via exec-bin chain-load (core proof).
+# E3: via linker-mapped exec-bin chain-load (core proof).
 - tapOn:
     id: "TerminalContent"
-- inputText: "$E $U/login --dry-run; echo E3-RC=$?"
+- inputText: "/system/bin/linker64 $E $U/login --dry-run; echo E3=$?"
 - pressKey: Enter
 - waitForAnimationToEnd:
     timeout: 30000
@@ -56,7 +61,7 @@ tags:
 # login owns the PTY until its guest shell exits.
 - tapOn:
     id: "TerminalContent"
-- inputText: "$E $U/login"
+- inputText: "/system/bin/linker64 $E $U/login"
 - pressKey: Enter
 - waitForAnimationToEnd:
     timeout: 90000
@@ -73,18 +78,18 @@ tags:
 - waitForAnimationToEnd:
     timeout: 15000
 - takeScreenshot: exec_e4_rc
-# E5: exec-bin starts prefix bash (builtins only).
+# E5: linker-mapped exec-bin starts prefix bash (builtins only).
 - tapOn:
     id: "TerminalContent"
-- inputText: "$E $U/sh -c 'echo E5-HI'; echo E5-RC=$?"
+- inputText: "/system/bin/linker64 $E $U/sh -c 'echo E5-HI'; echo E5=$?"
 - pressKey: Enter
 - waitForAnimationToEnd:
     timeout: 30000
 - takeScreenshot: exec_e5_bash
-# E6: exec-bin starts static proot (linker-mapped).
+# E6: linker-mapped exec-bin starts static proot.
 - tapOn:
     id: "TerminalContent"
-- inputText: "$E $U/proot --version; echo E6-RC=$?"
+- inputText: "/system/bin/linker64 $E $U/proot --version; echo E6=$?"
 - pressKey: Enter
 - waitForAnimationToEnd:
     timeout: 30000
