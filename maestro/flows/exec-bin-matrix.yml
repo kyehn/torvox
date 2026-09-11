@@ -5,8 +5,17 @@ tags:
 ---
 # Prereqs: fork bootstrap installed (bin/login present),
 # files/exec-bin staged by the app, Shizuku switch OFF.
-# Every step is real terminal input; screenshots carry overlay text.
-# adb is used only for install/push/screenshot-readback.
+# Session MUST be failsafe: without Shizuku the app's auto-spawn of
+# bin/login cannot succeed (bionic linker vs glibc NEEDED), leaving a
+# dead session with no live shell. Harness starts failsafe via the
+# setup channel BEFORE this flow (MainActivity read the
+# com.termux.app.failsafe_session extra with ACTION_RUN):
+#   adb shell am start -n com.termux/terminal.emulator.MainActivity
+#     -a android.intent.action.RUN
+#     --ez com.termux.app.failsafe_session true
+# Every step below is real terminal input; screenshots carry overlay
+# text. adb is used only for setup/install/push/screenshot-readback,
+# never for executing validation commands.
 - extendedWaitUntil:
     visible:
       id: "TerminalScreen"
