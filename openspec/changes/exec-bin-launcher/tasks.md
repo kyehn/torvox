@@ -20,8 +20,18 @@
   `/sdcard/Download` 残留确认——经查亦随擦除消失，按前者）、应用内安装器安装。
   Shizuku 保持未安装（本变更禁 Shizuku，E 矩阵只读应用域裁决）。
 
-- [ ] 3.1 安装：新 APK 安装 + `kyehn-bootstrap` 经应用内安装器安装
-     （`bootstrap-install-offline.yml`，约 20min 解压）
+- [x] 3.0a 配给恢复：fork 已按 `bootstrap-rebuild.md` 重建——零改动源码、
+      全程缓存命中（`seilunako.cachix.org` 264.5MiB，`--max-jobs 0`
+      守住零 LLVM），`bin/login`（动态 glibc 9.5M）+ `bin/proot.new`
+      （静态 musl）验包无误，已推送 `/sdcard/Download`；新 APK 已重装
+      并经 `pm list` 确认 `package:com.termux`。
+- [ ] 3.1 安装：`kyehn-bootstrap` 经应用内安装器安装
+     （`bootstrap-install-offline.yml`，约 20min 解压）。尝试 1 未达安装：
+     新机首启遭遇 `System UI isn't responding` ANR，对话框遮挡致
+     `TerminalScreen` 断言失败；logcat 无应用 FATAL（非应用崩溃，系整机
+     负载瞬态）。副产品：失败截图证明 debug overlay 可被 screencap 捕获
+     （绿色 `loading...` 字样清晰）——截图取证链成立。已加
+     `dismiss-anr.yml`（已提交），待其完成后重跑安装流。
 - [ ] 3.2 E1 直接 exec：`$PREFIX/bin/login --dry-run; echo RC=$?`
 - [ ] 3.3 E2 系统 linker：`linker64 $PREFIX/bin/login --dry-run; echo RC=$?`
 - [ ] 3.4 E3 exec-bin：`files/exec-bin $PREFIX/bin/login --dry-run; echo RC=$?`
