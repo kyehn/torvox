@@ -163,10 +163,6 @@
     <string name="bg_opacity_label" translatable="false">Opacity: %1$d%%</string>
 
     <!-- Cursor Settings -->
-    <string name="cursor_blink">Cursor Blink</string>
-    <string name="cursor_blink_desc">Toggle cursor blinking animation</string>
-    <string name="cursor_speed">Blink Speed</string>
-    <string name="cursor_style_label">Cursor Style</string>
 
     <!-- Bell Mode -->
     <string name="bell_mode">Bell Mode</string>
@@ -174,7 +170,6 @@
 
     <string name="save">Save</string>
     <string name="delete">Delete</string>
-    <string name="user_themes">User themes</string>
 
     <!-- Accessibility -->
     <string name="selection_accessible">Selected: %1$s</string>
@@ -210,32 +205,19 @@
     <string name="shortcut_reset">Reset</string>
 
     <!-- Theme Editor -->
-    <string name="edit_theme">Edit Theme</string>
-    <string name="edit_theme_desc">Customize colors of the current user theme</string>
 
     
     <!-- i18n: user-facing strings that were previously hardcoded -->
-    <string name="new_theme_name">New theme name</string>
     <string name="clear">Clear</string>
     <string name="modifier_bar">Modifier Bar</string>
     <string name="modifier_bar_current_layout">Current layout</string>
     <string name="edit">Edit</string>
     <string name="edit_modifier_bar">Edit Modifier Bar</string>
     <string name="reset_to_default">Reset to Default</string>
-    <string name="theme_name">Theme name</string>
-    <string name="overwrite">Overwrite</string>
-    <string name="save_as_new">Save as new</string>
-    <string name="hex">Hex</string>
     <string name="session_number">Session %1$d</string>
     <string name="background">Background</string>
-    <string name="color_old">Old</string>
-    <string name="color_new">New</string>
     <string name="bold_font_family">Bold font family</string>
     <string name="italic_font_family">Italic font family</string>
-    <string name="cursor_follow_terminal">Follow terminal</string>
-    <string name="cursor_block">Block</string>
-    <string name="cursor_bar">Bar</string>
-    <string name="cursor_underline">Underline</string>
     <string name="close_session">Close Session</string>
     <string name="toggle_scroll">Toggle Scroll</string>
     <string name="toggle_keyboard">Show or hide the keyboard</string>
@@ -275,10 +257,6 @@
     <string name="cursor_label">Cursor</string>
     <string name="selection">Selection</string>
     <string name="create">Create</string>
-    <string name="edit_theme_title">Edit theme — %1$s</string>
-    <string name="create_theme_title">Create theme — %1$s</string>
-    <string name="ansi_color">ANSI %1$d (%2$s)</string>
-    <string name="tap_a_color_to_edit">Tap a color to edit</string>
     <string name="modifier_bar_edit_hint_remove">Current layout (tap a key to remove)</string>
     <string name="modifier_bar_available_keys">Available keys (tap to add)</string>
 </resources>

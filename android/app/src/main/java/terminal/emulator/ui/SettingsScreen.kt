@@ -302,9 +302,6 @@ private fun AppearanceSectionContent(
     val fontFamily = settings.fontFamily
     val boldFontFamily = settings.boldFontFamily
     val italicFontFamily = settings.italicFontFamily
-    val cursorBlinkEnabled = settings.cursorBlink
-    val cursorSpeedMs = settings.cursorSpeed
-    val cursorStyleValue = settings.cursorStyle
     val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
     val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
     val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
@@ -348,32 +345,6 @@ private fun AppearanceSectionContent(
         secondaryText = secondaryText,
     )
     Spacer(modifier = Modifier.height(12.dp))
-    SettingsSwitchRow(
-        title = stringResource(R.string.cursor_blink),
-        description = stringResource(R.string.cursor_blink_desc),
-        checked = cursorBlinkEnabled,
-        onToggle = { viewModel.setCursorBlink(it) },
-        colors = SettingsColors(textColor, textColor, accentColor, backgroundColor),
-    )
-    if (cursorBlinkEnabled) {
-        Spacer(modifier = Modifier.height(8.dp))
-        CursorSpeedSlider(
-            value = cursorSpeedMs.toFloat(),
-            onValueChange = { viewModel.setCursorSpeed(it.toInt()) },
-            textColor = textColor,
-            secondaryText = secondaryText,
-            accentColor = accentColor,
-        )
-    }
-    Spacer(modifier = Modifier.height(8.dp))
-    CursorStyleSelector(
-        selectedStyle = cursorStyleValue,
-        onStyleSelected = { viewModel.setCursorStyle(it) },
-        textColor = textColor,
-        accentColor = accentColor,
-        cardBackground = backgroundColor,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
     BellModeSelector(
         selectedModeId = settings.bellMode,
         onModeSelected = { viewModel.setBellMode(it) },
@@ -420,21 +391,11 @@ private fun TerminalThemeSection(
     val dayThemeName = settings.dayThemeName
     val nightThemeName = settings.nightThemeName
     val themeName = settings.themeName
-    // User-created themes (ghostty-android ThemeStore pattern) merged into
-    // the pick list; `remember` keyed on the flow so a save re-renders.
-    val userThemes by viewModel.userThemes.collectAsStateWithLifecycle()
+    // 主题来自内置集合；自定义主题为禁止实现。
     val allThemes =
-        remember(userThemes) {
-            (terminal.emulator.ui.theme.BuiltInThemes.all + userThemes).toImmutableList()
+        remember {
+            terminal.emulator.ui.theme.BuiltInThemes.all.toImmutableList()
         }
-    var saveThemeName by rememberSaveable { mutableStateOf("") }
-    val context = LocalContext.current
-    val systemInDarkTheme = androidx.compose.foundation.isSystemInDarkTheme()
-
-    // Theme editor dialog state — opened when user taps "Edit" on a user theme.
-    var editingTheme by rememberSaveable {
-        mutableStateOf<terminal.emulator.ui.theme.TerminalTheme?>(null)
-    }
 
     SectionHeader(stringResource(R.string.theme), sectionTitleColor)
     SettingsCard(cardBackground) {
@@ -487,84 +448,6 @@ private fun TerminalThemeSection(
             }
         }
         Spacer(modifier = Modifier.height(12.dp))
-        // User themes (ghostty-android ThemeStore pattern): save the current
-        // resolved theme under a name, or delete a saved user theme.
-        Row(
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            OutlinedTextField(
-                value = saveThemeName,
-                onValueChange = { saveThemeName = it },
-                placeholder = { Text(stringResource(R.string.new_theme_name), color = secondaryText) },
-                singleLine = true,
-                modifier = Modifier.weight(1f).testTag("SaveThemeName"),
-            )
-            Button(
-                onClick = {
-                    val name = saveThemeName.trim()
-                    if (name.isNotEmpty()) {
-                        viewModel.saveCurrentThemeAs(name, systemInDarkTheme)
-                        saveThemeName = ""
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                modifier = Modifier.testTag("SaveThemeButton"),
-            ) {
-                Text(stringResource(R.string.save), color = MaterialTheme.colorScheme.onPrimary)
-            }
-        }
-        if (userThemes.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.user_themes),
-                color = secondaryText,
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-            userThemes.forEach { theme ->
-                Row(
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        theme.name,
-                        color = textColor,
-                        style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f).testTag("UserTheme_${theme.name}"),
-                    )
-                    TextButton(
-                        onClick = { editingTheme = theme },
-                        modifier = Modifier.testTag("EditTheme_${theme.name}"),
-                    ) {
-                        Text(stringResource(R.string.edit_theme), color = MaterialTheme.colorScheme.primary)
-                    }
-                    TextButton(
-                        onClick = { viewModel.deleteUserTheme(theme.name) },
-                        modifier = Modifier.testTag("DeleteTheme_${theme.name}"),
-                    ) {
-                        Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
-                    }
-                }
-            }
-        }
-    }
-
-    // Theme editor dialog — edits a working copy of the theme.
-    editingTheme?.let { theme ->
-        terminal.emulator.ui.theme.ThemeEditorDialog(
-            theme = theme,
-            isOverwriteExisting = true,
-            onSaveAsNew = { edited ->
-                viewModel.saveEditedThemeAsNew(edited.name, edited)
-                editingTheme = null
-            },
-            onOverwrite = { edited ->
-                viewModel.overwriteUserTheme(edited)
-                editingTheme = null
-            },
-            onDismiss = { editingTheme = null },
-        )
     }
 }
 
@@ -1880,58 +1763,6 @@ private fun FontInfoSection(
             )
         }
     }
-}
-
-private const val CURSOR_SPEED_RANGE_MIN = 100f
-private const val CURSOR_SPEED_RANGE_MAX = 1000f
-private const val CURSOR_SPEED_RANGE_STEPS = 17
-
-@Composable
-private fun CursorSpeedSlider(
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    textColor: Color,
-    secondaryText: Color,
-    accentColor: Color,
-) {
-    SettingsSliderRow(
-        title = stringResource(R.string.cursor_speed),
-        value = value,
-        valueRange = CURSOR_SPEED_RANGE_MIN..CURSOR_SPEED_RANGE_MAX,
-        steps = CURSOR_SPEED_RANGE_STEPS,
-        colors =
-        SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
-        onValueChange = onValueChange,
-        valueFormatter = { "${it.toInt()}ms" },
-    )
-}
-
-@Composable
-private fun CursorStyleSelector(
-    selectedStyle: String,
-    onStyleSelected: (String) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-    cardBackground: Color,
-) {
-    val styles =
-        listOf(
-            // "follow the terminal" is the default (DECSCUSR
-            // from running programs wins unless the user picks explicitly).
-            "" to stringResource(R.string.cursor_follow_terminal),
-            "block" to stringResource(R.string.cursor_block),
-            "bar" to stringResource(R.string.cursor_bar),
-            "underline" to stringResource(R.string.cursor_underline),
-        )
-    SettingsSelectorRow(
-        title = stringResource(R.string.cursor_style_label),
-        selectedKey = selectedStyle,
-        options = styles.toImmutableList(),
-        colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
-        onOptionSelected = onStyleSelected,
-        testTag = "CursorStyleSelector",
-        optionTestTagPrefix = "CursorStyle",
-    )
 }
 
 @Composable

@@ -52,3 +52,34 @@ class IsElfTest {
         assertFalse(isElf(File("/nonexistent/definitely-missing")))
     }
 }
+
+/**
+ * 系统解释器启动脚本判定：仅 `#!/system/bin/` 开头计入，可直接执行；
+ * 私有目录 shebang 与普通文本均不计入。
+ */
+class IsSystemShellScriptTest {
+    private fun scriptFile(content: String): File = File.createTempFile("system-script-test", ".sh").apply {
+        writeText(content)
+        deleteOnExit()
+    }
+
+    @Test
+    fun `system shell shebang is accepted`() {
+        assertTrue(isSystemShellScript(scriptFile("#!/system/bin/sh\nset -eu\nexec proot-static\n")))
+    }
+
+    @Test
+    fun `private directory shebang is rejected`() {
+        assertFalse(isSystemShellScript(scriptFile("#!/data/data/com.termux/files/usr/bin/sh\nexec bash\n")))
+    }
+
+    @Test
+    fun `plain text without shebang is rejected`() {
+        assertFalse(isSystemShellScript(scriptFile("hello world\n")))
+    }
+
+    @Test
+    fun `missing file is rejected`() {
+        assertFalse(isSystemShellScript(File("/nonexistent/definitely-missing")))
+    }
+}

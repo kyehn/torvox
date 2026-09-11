@@ -113,20 +113,14 @@
     <string name="on">켜짐</string>
     <string name="off">꺼짐</string>
     <string name="cjk_fallback_missing_warning">CJK 대체 글꼴이 감지되지 않았습니다. 동아시아 문자가 올바르게 표시되지 않을 수 있습니다.</string>
-    <string name="cursor_blink">커서 깜빡임</string>
-    <string name="cursor_blink_desc">커서 깜빡임 애니메이션 켜기/끄기</string>
-    <string name="cursor_speed">깜빡임 속도</string>
-    <string name="cursor_style_label">커서 스타일</string>
     <string name="save">저장</string>
     <string name="delete">삭제</string>
-    <string name="user_themes">사용자 테마</string>
 
     <!-- Missing translations (sync with values/strings.xml) -->
     <string name="accessibility_next_line">다음 줄</string>
     <string name="accessibility_previous_line">이전 줄</string>
     <string name="accessibility_read_screen">화면 읽기</string>
     <string name="alt_toggle">Alt 전환</string>
-    <string name="ansi_color">ANSI %1$d (%2$s)</string>
     <string name="arrow_down">아래 화살표</string>
     <string name="arrow_left">왼쪽 화살표</string>
     <string name="arrow_right">오른쪽 화살표</string>
@@ -165,23 +159,14 @@
     <string name="clear_app_data_desc">모든 설정, 세션, 로그를 재설정합니다. 부트스트랩 파일과 홈 디렉터리는 삭제되지 않습니다.</string>
     <string name="clear_app_data_done">앱 데이터가 지워졌습니다. 전체 재설정을 위해 앱을 다시 시작하세요.</string>
     <string name="close_session">세션 닫기</string>
-    <string name="color_new">새로 만들기</string>
-    <string name="color_old">기존</string>
     <string name="compose_key">Compose 키</string>
     <string name="control_toggle">Ctrl 전환</string>
     <string name="create">만들기</string>
-    <string name="create_theme_title">테마 만들기 — %1$s</string>
-    <string name="cursor_bar">막대</string>
-    <string name="cursor_block">블록</string>
     <string name="cursor_label">커서</string>
-    <string name="cursor_underline">밑줄</string>
     <string name="disable_fuzzy_match">퍼지 매칭 비활성화</string>
     <string name="dismiss_selection">선택 해제</string>
     <string name="edit">편집</string>
     <string name="edit_modifier_bar">Modifier 바 편집</string>
-    <string name="edit_theme">테마 편집</string>
-    <string name="edit_theme_desc">현재 사용자 테마의 색상을 사용자 지정</string>
-    <string name="edit_theme_title">테마 편집 — %1$s</string>
     <string name="enable_fuzzy_match">퍼지 매칭 활성화</string>
     <string name="end_key">End</string>
     <string name="environment_variables">환경 변수</string>
@@ -203,7 +188,6 @@
     <string name="font_read_failed">글꼴 파일을 읽지 못했습니다</string>
     <string name="foreground">전경</string>
     <string name="function_key_layer">기능 키 레이어</string>
-    <string name="hex">Hex</string>
     <string name="home_key">Home</string>
     <string name="italic_font_family">기울임꼴 글꼴 패밀리</string>
     <string name="keyboard_shortcuts">키보드 단축키</string>
@@ -212,14 +196,11 @@
     <string name="modifier_bar_available_keys">사용 가능한 키(탭하여 추가)</string>
     <string name="modifier_bar_current_layout">현재 레이아웃</string>
     <string name="modifier_bar_edit_hint_remove">현재 레이아웃(탭하여 제거)</string>
-    <string name="new_theme_name">새 테마 이름</string>
     <string name="no_font_loaded">로드된 글꼴 없음</string>
     <string name="open_session_drawer">세션 서랍 열기</string>
-    <string name="overwrite">덮어쓰기</string>
     <string name="page_down">Page Down</string>
     <string name="page_up">Page Up</string>
     <string name="reset_to_default">기본값으로 재설정</string>
-    <string name="save_as_new">새로 저장</string>
     <string name="search_no_results_accessible">결과를 찾을 수 없습니다</string>
     <string name="search_result_accessible">%2$d개 중 %1$d번째</string>
     <string name="selection">선택</string>
@@ -232,8 +213,6 @@
     <string name="shortcut_reserved_key">예약된 키</string>
     <string name="shortcut_reset">재설정</string>
     <string name="tab_key">Tab</string>
-    <string name="tap_a_color_to_edit">색상을 탭하여 편집</string>
-    <string name="theme_name">테마 이름</string>
     <string name="toggle_keyboard">키보드 표시 또는 숨기기</string>
     <string name="toggle_scroll">스크롤 전환</string>
 

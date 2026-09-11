@@ -113,7 +113,6 @@ class CursorOffsetDiagnosticTest {
 
     private fun logCursor(stage: String) {
         val b = bridge()
-        b.setCursorBlinkEnabled(false) // blink-off phase would hide the block
         Thread.sleep(150)
         val density =
             InstrumentationRegistry.getInstrumentation().targetContext.resources.displayMetrics.density
