@@ -92,7 +92,7 @@ fn jni_bridge_init_session() {
     } else {
         root.join("target/debug")
     };
-    let jni_dir = root.join("integration-tests/jni");
+    let jni_dir = root.join("native/jni");
     let class_output = root.join("target/jni-test-classes");
 
     build_cdylib(&root);
