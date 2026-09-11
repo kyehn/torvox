@@ -38,12 +38,30 @@
      `PickerActionHandler: onFinished(msf:1000000018)`（18:59:38）为凭，
      应用已返回设置页。截图另证 `Shizuku integration` 开关为 OFF
      （无 Shizuku 约束天然成立），MCP 亦 OFF。解压在 drain-fix APK 下运行中。
-- [ ] 3.2 E1 直接 exec：`$PREFIX/bin/login --dry-run; echo RC=$?`
-- [ ] 3.3 E2 系统 linker：`linker64 $PREFIX/bin/login --dry-run; echo RC=$?`
-- [ ] 3.4 E3 exec-bin：`files/exec-bin $PREFIX/bin/login --dry-run; echo RC=$?`
-- [ ] 3.5 E4 完整 login：`files/exec-bin $PREFIX/bin/login`（记录 proot 步骤裁决）
-- [ ] 3.6 E5/E6 exec-bin 起 bash 与 proot `--version`
-- [ ] 3.7 E7 完整会话 + `nix build`（按 `--dry-run` 打印的 proot 命令行）
+- [x] 3.2 E1 直接 exec：`$U/login --dry-run` → `E1-RC=126`（app_data_file
+      直接 exec 禁止，预期内；overlay `sb=0 run=true` 为 failsafe 新会话）
+- [x] 3.3 E2 系统 linker：`linker64 $U/login --dry-run` → `E2-RC=1`，login
+      真机跑起（dry-run 打印 `rename .../proot.new to .../proot`），随后
+      `main.go:150 failed to find target .../login-inner: no such file` fatal。
+      证实 bionic 可直接加载 Go login（Go 二进制自带 PT_PHDR）。
+- [x] 3.4 E3 exec-bin：`linker64 $E $U/login --dry-run` → `E3=134`
+     （`Could not find a PHDR: broken executable?` + Aborted）。exec-bin
+      自身为正常 NDK PIE（含 PT_PHDR，INTERP=/system/bin/linker64），故该
+      abort 系 exec-bin 按既有设计经 bionic 去加载 prefix glibc `ld.so`
+      所致（glibc ld.so 无 PT_PHDR，bionic 拒绝）。E3 截图 overlay 残留
+      的 login-inner 行系 E2 输出，E3 本身未抵达 login。
+- [x] 3.5 E4 完整 login：同因 `134` abort，会话死亡（`[Process completed
+      (code 134)]` ×3 见 log），其后 `exit`/`E4-RC`/E5/E6 输入均进入死会话，
+      overlay 停滞于 E2/E3 旧行。E4-RC/E5/E6 截图仅证明会话已死，无新裁决。
+- [x] 3.6 E5/E6 exec-bin 起 bash 与 proot `--version`：因会话已死而无效，
+      待新 failsafe 会话 + exec-bin 路由修复后重跑。
+- [ ] 3.7 E7 完整会话 + `nix build`：前置两项——(a) exec-bin 路由修复
+      （NixInterp 分支改经 system linker 直接加载目标，即 E2 实证路径，
+      不再经 bionic 加载 glibc ld.so）；(b) 新 failsafe 会话中真实终端
+      `ls` 确认 `bin/login-inner` vs `bin/login-inner.new` 形态（fork
+      `default.nix:40` 的 pending_artifacts 含 login-inner，dry-run 却只
+      打印 proot rename → 设备端极可能缺 `login-inner.new`，届时以前置
+      `mv` 补齐再跑 login→proot→nix build）。adb 永不执行验证命令。
 - [ ] 3.8 每步截图（debug overlay） + 转录对照，结论写入本文件
 
 ## 4. 收尾
