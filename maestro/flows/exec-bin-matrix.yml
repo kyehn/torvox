@@ -51,6 +51,28 @@ tags:
 - waitForAnimationToEnd:
     timeout: 30000
 - takeScreenshot: exec_e3_execbin_dryrun
+# E4: full login through exec-bin (the crux: login runs proot via
+# raw syscall.Exec; the device gives a loud verdict, recorded as-is).
+# login owns the PTY until its guest shell exits.
+- tapOn:
+    id: "TerminalContent"
+- inputText: "$E $U/login"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 90000
+- takeScreenshot: exec_e4_login
+# Leave the guest (or the failed login) to reclaim the host shell.
+- inputText: "exit"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    id: "TerminalContent"
+- inputText: "echo E4-RC=$?"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 15000
+- takeScreenshot: exec_e4_rc
 # E5: exec-bin starts prefix bash (builtins only).
 - tapOn:
     id: "TerminalContent"
