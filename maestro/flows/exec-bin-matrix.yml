@@ -5,8 +5,17 @@ tags:
 ---
 # Prereqs: fork bootstrap installed (bin/login present),
 # files/exec-bin staged by the app, Shizuku switch OFF.
-# Every step is real terminal input; screenshots carry overlay text.
-# adb is used only for install/push/screenshot-readback.
+# Session MUST be failsafe: without Shizuku the app's auto-spawn of
+# bin/login cannot succeed (bionic linker vs glibc NEEDED), leaving a
+# dead session with no live shell. Harness starts failsafe via the
+# setup channel BEFORE this flow (MainActivity read the
+# com.termux.app.failsafe_session extra with ACTION_RUN):
+#   adb shell am start -n com.termux/terminal.emulator.MainActivity
+#     -a android.intent.action.RUN
+#     --ez com.termux.app.failsafe_session true
+# Every step below is real terminal input; screenshots carry overlay
+# text. adb is used only for setup/install/push/screenshot-readback,
+# never for executing validation commands.
 - extendedWaitUntil:
     visible:
       id: "TerminalScreen"
@@ -42,6 +51,28 @@ tags:
 - waitForAnimationToEnd:
     timeout: 30000
 - takeScreenshot: exec_e3_execbin_dryrun
+# E4: full login through exec-bin (the crux: login runs proot via
+# raw syscall.Exec; the device gives a loud verdict, recorded as-is).
+# login owns the PTY until its guest shell exits.
+- tapOn:
+    id: "TerminalContent"
+- inputText: "$E $U/login"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 90000
+- takeScreenshot: exec_e4_login
+# Leave the guest (or the failed login) to reclaim the host shell.
+- inputText: "exit"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 20000
+- tapOn:
+    id: "TerminalContent"
+- inputText: "echo E4-RC=$?"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 15000
+- takeScreenshot: exec_e4_rc
 # E5: exec-bin starts prefix bash (builtins only).
 - tapOn:
     id: "TerminalContent"
