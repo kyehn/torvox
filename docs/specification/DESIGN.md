@@ -6,11 +6,13 @@
 
 ## 习惯
 
+- 只允许设置下面出现的环境变量，不允许未声明情况，尽量不要读取环境变量
+
 - 尽量选择简洁 可靠 优雅 先进 激进 不妥协的设计方案
 
 - 下面如“有 a b c 项”指有且只有，不可有未声明行为。
 
-- 所有异常处理代码必须最少出现并且最简处理，极端情况/错误 -> 输出日志并崩溃退出，设置数据错误 -> 清除设置数据。所有 failback 必须严格限制，只允许下面声明的回退。
+- 所有异常处理代码必须最少出现并且最简处理，极端情况/错误 -> 输出日志并崩溃退出，设置数据错误 -> 清除设置数据。所有 Fallback 必须严格限制，只允许下面声明的回退。
 
 - 最小体积，不做任何多余或不必要功能，能不做则无必要。
 
@@ -18,7 +20,7 @@
 
 - 不做过多冗余，减少兜底，尽早抛出错误，避免浪费资源。
 
-- 不做任何未要求的 failback 机制，输出日志并崩溃退出。
+- 不做任何未要求的 Fallback 机制，输出日志并崩溃退出。
 
 - 使用通用规范，最大限度使用外部可靠库，最低限度自定义实现。
 
@@ -131,8 +133,18 @@
   - 原子化替换 /data/data/com.termux/files/usr/ 目录，（安装前删除存在的上上一次安装的旧目录，安装完成后上一次的旧目录由用户手动删除）
   - 不记录 Bootstrap 状态，不得生成安装标记
   - 不得特殊化设置权限，按照 termux 同款流程设置，不额外设置某些目录
+  - 只允许设置下面的环境变量：
+    - `HOME` 和 `TERMUX_HOME_DIR_PATH` 为 /data/data/com.termux/files/home
+    - `PREFIX` 和 `TERMUX_PREFIX_DIR_PATH` 为 /data/data/com.termux/files/usr
+    - `TMPDIR` 和 `TERMUX_TMP_PREFIX_DIR_PATH` 为 /data/data/com.termux/files/usr/tmp
+    - `LANG` 为 `en_US.UTF-8`
+    - `COLORTERM` 为 `truecolor`
+    - `TERM` 为 `xterm-256color`
+    - `TERMUX_VERSION` 为 0.119.0-beta.3
+  - 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD`
+  - 宿主透传变量，仅宿主存在时透传，不硬编：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
   
-- **Shizuku 集成开关**。支持从 https://github.com/rikkaapps/shizuku 获取权限并提供给 Shell。启动时（终端启动前）检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/退出应用
+- **Shizuku 集成开关**。支持从 https://github.com/rikkaapps/shizuku 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出）
 
 - **清除应用数据按钮**。
 
@@ -144,7 +156,7 @@
 
 - 支持 CJK，能正常处理，比如退格一次一个汉字而不是两次一个汉字。
 
-- cjk 字体应该被正常渲染且和设置（或failback）的字体对应（而不是其他字体，如 Noto Sans CJK SC 而不是宋体或JP字形），cjk 字体渲染速度应该和西文字体基本一致。
+- cjk 字体应该被正常渲染且和设置（或Fallback）的字体对应（而不是其他字体，如 Noto Sans CJK SC 而不是宋体或JP字形），cjk 字体渲染速度应该和西文字体基本一致。
 
 - 退格应该流畅，渲染不应卡顿
 
@@ -160,11 +172,11 @@
 
 ### Shell
 
-- 默认 LANG 为 C.UTF-8
+- 默认 LANG 为 en_US.UTF-8
 
-- shell 崩溃（非主动退出）不关闭会话（参考termux），正常退出时关闭会话
+- shell 崩溃（非主动正常退出）保留现场不关闭会话（参考termux），正常退出时（如 exit 命令）关闭会话
 
-- 启动入口失败不得 failback，保留输出显示（参考termux）
+- 启动入口失败不得 Fallback，保留输出显示（参考termux）
 
 ### 修饰键栏
 
@@ -204,11 +216,11 @@
 
 ### Shortcuts 菜单
 
-- **Failsafe 新会话 按钮**：设计应该和 termux 基本相同
+- **Failsafe 新会话 按钮**：设计应该和 termux 基本相同，即临时让 /system/bin/sh 取代登录入口并为此新建一个会话
 
 ## 禁止实现
 
-- 选中菜单中的 ◀ / ▶ 锚点移动项：左右指针应该可以拖动。
+- 选中菜单中的 ◀ / ▶ 锚点移动项：左右指针应该可以直接拖动。
 - Bootstrap zip 的 sha256 sidecar 校验。
 - 自定义环境变量：不通过环境变量接收用户设置或在内部传递数据。
 - 会话数据持久化 / 恢复。

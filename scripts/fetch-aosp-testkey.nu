@@ -1,12 +1,8 @@
 #!/usr/bin/env -S nix develop --command nu
-# Download AOSP test signing key via git clone and convert to PKCS#12.
-# Idempotent: skips if aosp-testkey.p12 already exists.
-# No fallback — errors propagate.
 
 def main [] {
     let p12 = ($env.PWD | path join "android" "app" "aosp-testkey.p12")
     if ($p12 | path exists) {
-        print $"SKIP: ($p12) already exists"
         return
     }
 
@@ -24,5 +20,4 @@ def main [] {
     ^openssl pkcs12 -export -in $pem -inkey $pk8_pem -out $p12 -password pass:android -name testkey
 
     rm -rf $tmp
-    print $"OK: ($p12)"
 }
