@@ -49,7 +49,7 @@ glibc 动态链接的 nix/store 二进制直接 exec 报缺 interpreter（预期
 #### Scenario: nix 命令可用
 
 - **WHEN** 在 adb shell 上下文经上述 proot 绑定运行 `nix --version`
-- **THEN** 输出版本号；直接执行则报缺 interpreter（预期行为，非安装失败）；应用进程上下文的等价断言待设备测试后补充
+- **THEN** 输出版本号；直接执行则报缺 interpreter（预期行为，非安装失败）；应用进程上下文经 Shizuku 桥接（开关 + 授权 + `shizuku-login.sh`，`Shizuku login bridge active` 为准）在真实终端输入下同样输出版本号，且 hermetic `nix build` 产物可 `cat` 读回
 
 ### Requirement: 子进程环境变量
 
