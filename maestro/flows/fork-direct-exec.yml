@@ -1,0 +1,24 @@
+appId: com.termux
+name: App-domain direct exec of static fork binaries
+tags:
+  - nix
+---
+# Decisive W^X test: in the failsafe shell (app domain, untrusted_app),
+# directly execute the freshly installed static login and proot.
+# RC=0 + dry-run output => static binaries map fine => Shizuku-free path open.
+# Permission denied/126 => app-data exec blocked even for static => lib-dir phase.
+# Harness starts the failsafe session via adb (setup only); all validation
+# below is real terminal input. Readback via DUMP_TERMINAL transport.
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 8000
+- inputText: "/data/data/com.termux/files/usr/bin/login --dry-run; echo DIRECT-RC=$?"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 20000
+- inputText: "/data/data/com.termux/files/usr/bin/proot --version; echo PROOT-RC=$?"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 15000
+- takeScreenshot: fork_direct_exec

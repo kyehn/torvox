@@ -1,0 +1,71 @@
+appId: com.termux
+name: OSC52 clipboard proof of fork nix session
+tags:
+  - nix
+---
+# Screenshot proof that the fork Go-login session runs nix, without
+# relying on GPU-surface capture (uncapturable on this emulator):
+# 1. Real terminal input runs nix --version / nix build / cat, transcript
+#    goes to /tmp/proof.txt (all inside the proot session).
+# 2. The shell pushes proof.txt to the Android clipboard via OSC 52
+#    (Ghostty ClipboardEvent -> setClipboardText, no dialog).
+# 3. The clipboard is pasted into a Compose dialog field (capturable)
+#    and screenshotted. Dialog is dismissed without saving.
+- launchApp:
+    stopApp: true
+- waitForAnimationToEnd:
+    timeout: 20000
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 30000
+- assertVisible:
+    id: "TerminalScreen"
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 20000
+- inputText: "nix --version > /tmp/proof.txt 2>&1; cat /tmp/proof.txt"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 15000
+- inputText: "nix --option build-users-group \"\" build --impure --expr 'builtins.derivation {name=\"t\"; system=\"x86_64-linux\"; builder=\"/bin/sh\"; args=[\"-c\" \"echo ok > $out\"];}' --print-out-paths >> /tmp/proof.txt 2>&1; tail -1 /tmp/proof.txt"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 60000
+- inputText: "cat $(grep /nix/store/ /tmp/proof.txt | tail -1) >> /tmp/proof.txt 2>&1; printf '\\e]52;c;%s\\a' \"$(base64 -w0 < /tmp/proof.txt)\"; echo CLIPBOARD-SENT"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 10000
+- pressKey: Back
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "Key_DRAWER"
+- extendedWaitUntil:
+    visible:
+      id: "SessionDrawer"
+    timeout: 30000
+- tapOn:
+    id: "SettingsButton"
+- waitForAnimationToEnd:
+    timeout: 5000
+- assertVisible:
+    id: "SettingsScreen"
+- scrollUntilVisible:
+    element:
+      id: "EnvironmentVariablesEditor"
+    direction: DOWN
+- tapOn:
+    id: "EnvironmentVariablesEditor"
+- waitForAnimationToEnd:
+    timeout: 3000
+- tapOn:
+    id: "EnvVarsDialogField"
+- waitForAnimationToEnd:
+    timeout: 2000
+- pasteText
+- waitForAnimationToEnd:
+    timeout: 3000
+- takeScreenshot: osc52_proof
+- pressKey: Back

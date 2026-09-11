@@ -1634,7 +1634,8 @@ private fun EnvironmentVariablesDialog(
               value = text,
               onValueChange = { text = it },
               placeholder = { Text(stringResource(R.string.environment_variables_hint)) },
-              modifier = Modifier.fillMaxWidth().heightIn(min = 160.dp),
+              modifier =
+                  Modifier.fillMaxWidth().heightIn(min = 160.dp).testTag("EnvVarsDialogField"),
               colors =
                   OutlinedTextFieldDefaults.colors(
                       focusedBorderColor = accentColor,
