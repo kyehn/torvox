@@ -10,7 +10,15 @@
 - [x] 2.1 `ExecBin.ensureInstalled`：`assets/bin/<abi>/exec-bin` 同步到
       `files/exec-bin`，`MainActivity.onCreate` 调用
 
-## 3. 设备实验（待执行，需新 APK + fork bootstrap 安装）
+## 3. 设备实验（待执行，需重新配给：模拟器已被擦除）
+
+- [ ] 3.0 环境重建（2026-09-11 17:5x UTC 实测：`run-as: unknown package:
+  com.termux`，`pm list packages` 无 termux/shizuku，`/tmp` 本地产物亦被清空——
+  为整机擦除，非单个卸载；`b740e69d7` 轮询永不到达，作废）：重装 APK
+  （`android/app/build/outputs/apk/debug/app-debug.apk`，含 overlay + ExecBin）、
+  重推 bootstrap zip（本地副本已失，需由 fork 重新出包或由设备端
+  `/sdcard/Download` 残留确认——经查亦随擦除消失，按前者）、应用内安装器安装。
+  Shizuku 保持未安装（本变更禁 Shizuku，E 矩阵只读应用域裁决）。
 
 - [ ] 3.1 安装：新 APK 安装 + `kyehn-bootstrap` 经应用内安装器安装
      （`bootstrap-install-offline.yml`，约 20min 解压）
