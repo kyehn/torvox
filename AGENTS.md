@@ -5,7 +5,7 @@
 ## 必须
 
 - 修改前阅读 `docs/specification/` 下的全部规范。
-- openspec/specs 目录保存 项目功能及其他 的详细设计规范文档，使用 openspec 命令管理，需要保持更新和正确，只是参考文档，docs/specification/ 为实际标准。
+- openspec/specs 目录保存 项目功能及其他 的详细设计规范文档，使用 openspec 命令管理，需要保持更新和正确，修改前编写 changes 和 specs 文档，修改验证后对文档进行更新实际情况和补充实现细节，openspec/specs 只是参考文档不是规范，docs/specification/ 和用户提示为实际标准。
 
 ## 禁止
 

@@ -219,15 +219,76 @@ impl PtyPair {
         } else {
             None
         };
+        // 脚本经解释器直调：内核 shebang 语义要求执行脚本文件本身，
+        // 而应用数据目录脚本无 execute_no_trans 许可（设备实证 EACCES）。
+        // 显式执行解释器并以脚本为参数只需对脚本的读许可，与内核
+        // 等价且满足 SELinux。解释器在前缀内且为 PIE 时仍走 linker 桥接。
+        let script_dispatch: Option<(std::ffi::CString, Option<std::ffi::CString>)> =
+            if linker_cstr.is_none() {
+                read_shebang_interpreter(shell)
+            } else {
+                None
+            };
+        if let Some((interpreter, _)) = &script_dispatch {
+            log::info!(
+                "SPAWN_SCRIPT: shell={shell} interpreter={}",
+                interpreter.to_string_lossy()
+            );
+        }
         let shell_ptr = shell_cstr.as_ptr();
         // execve()'s FIRST argument is the executable PATH; argv[0] is
         // passed separately in args_ptrs. With the linker, the path is
-        // /system/bin/linker64 and argv = [linker64, bash].
-        let exec_path_ptr = linker_cstr.as_ref().map_or(shell_ptr, |c| c.as_ptr());
+        // /system/bin/linker64 and argv = [linker64, bash]. With a script,
+        // the path is the interpreter (via the linker when the interpreter
+        // itself lives under the prefix) and argv = [argv0, interpreter,
+        // optarg?, script], mirroring kernel shebang dispatch.
+        let script_linker_cstr: Option<std::ffi::CString> = match &script_dispatch {
+            Some((interpreter, _)) => {
+                let interpreter_text = interpreter.to_string_lossy();
+                let interpreter_under_prefix =
+                    !prefix.is_empty() && interpreter_text.starts_with(&format!("{prefix}/"));
+                if interpreter_under_prefix && is_pie(&interpreter_text) {
+                    let linker = if cfg!(any(target_arch = "aarch64", target_arch = "x86_64")) {
+                        "/system/bin/linker64"
+                    } else {
+                        "/system/bin/linker"
+                    };
+                    log::info!("SPAWN_SCRIPT_LINKER: shell={shell} interpreter={interpreter_text}");
+                    Some(
+                        std::ffi::CString::new(linker)
+                            .map_err(|_| PtyError::Fork(nix::errno::Errno::EINVAL))?,
+                    )
+                } else {
+                    None
+                }
+            }
+            None => None,
+        };
+        let exec_path_ptr = if let Some(linker_cstr) = linker_cstr.as_ref() {
+            linker_cstr.as_ptr()
+        } else if let Some((interpreter, _)) = script_dispatch.as_ref() {
+            script_linker_cstr
+                .as_ref()
+                .map_or(interpreter.as_ptr(), |c| c.as_ptr())
+        } else {
+            shell_ptr
+        };
         let working_directory_ptr = working_directory_cstr.as_ptr();
         let args_ptrs: Vec<*const libc::c_char> = if let Some(linker_cstr) = &linker_cstr {
             let mut args = Vec::with_capacity(4);
             args.push(linker_cstr.as_ptr());
+            args.push(shell_ptr);
+            args.push(std::ptr::null());
+            args
+        } else if let Some((interpreter, interpreter_argument)) = &script_dispatch {
+            let mut args = Vec::with_capacity(6);
+            if let Some(script_linker) = &script_linker_cstr {
+                args.push(script_linker.as_ptr());
+            }
+            args.push(interpreter.as_ptr());
+            if let Some(argument) = interpreter_argument {
+                args.push(argument.as_ptr());
+            }
             args.push(shell_ptr);
             args.push(std::ptr::null());
             args
@@ -897,6 +958,39 @@ fn is_pie(path: &str) -> bool {
     e_type == ET_DYN
 }
 
+/// Reads the `#!` interpreter of a script: `(interpreter, optional single
+/// argument)`, mirroring kernel binfmt_script (at most one optional argument;
+/// extra tokens are ignored). Returns `None` for non-scripts or unreadable
+/// files. Called pre-fork; no allocation happens in the child.
+fn read_shebang_interpreter(path: &str) -> Option<(std::ffi::CString, Option<std::ffi::CString>)> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut header = [0u8; 256];
+    let read = file.read(&mut header).ok()?;
+    if read < 2 || header[0] != b'#' || header[1] != b'!' {
+        return None;
+    }
+    let first_line = std::str::from_utf8(&header[2..read])
+        .ok()?
+        .lines()
+        .next()
+        .unwrap_or("")
+        .trim();
+    let mut tokens = first_line.split_whitespace();
+    let interpreter = tokens.next().filter(|token| !token.is_empty())?;
+    let argument = tokens.next().map(str::to_string);
+    if interpreter.is_empty() || interpreter.contains('\0') {
+        return None;
+    }
+    let interpreter_cstr = std::ffi::CString::new(interpreter).ok()?;
+    let argument_cstr = argument
+        .filter(|argument| !argument.contains('\0'))
+        .map(std::ffi::CString::new)
+        .transpose()
+        .ok()?;
+    Some((interpreter_cstr, argument_cstr))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -933,6 +1027,34 @@ mod tests {
             }
         }
         output
+    }
+
+    #[test]
+    fn shebang_plain_interpreter_parses() {
+        let path = std::env::temp_dir().join("torvox-shebang-plain.sh");
+        std::fs::write(&path, "#!/system/bin/sh\nset -eu\n").unwrap();
+        let (interpreter, argument) = read_shebang_interpreter(path.to_str().unwrap()).unwrap();
+        assert_eq!(interpreter.to_str().unwrap(), "/system/bin/sh");
+        assert!(argument.is_none());
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn shebang_single_argument_parses() {
+        let path = std::env::temp_dir().join("torvox-shebang-arg.sh");
+        std::fs::write(&path, "#!/system/bin/sh -eu\n").unwrap();
+        let (interpreter, argument) = read_shebang_interpreter(path.to_str().unwrap()).unwrap();
+        assert_eq!(interpreter.to_str().unwrap(), "/system/bin/sh");
+        assert_eq!(argument.unwrap().to_str().unwrap(), "-eu");
+        std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn shebang_missing_returns_none() {
+        let path = std::env::temp_dir().join("torvox-shebang-plain-bin");
+        std::fs::write(&path, [0x7fu8, b'E', b'L', b'F', 2]).unwrap();
+        assert!(read_shebang_interpreter(path.to_str().unwrap()).is_none());
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]
@@ -1103,7 +1225,7 @@ mod tests {
         // Point the server at a per-process temp socket so the started
         // listener never collides with a production path. set_enabled(false)
         // below signals graceful shutdown and joins the server thread.
-        let dir = std::env::temp_dir().join(format!("torvox-pty-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("torvox-pty-test-mcp-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         crate::mcp::set_socket_path(dir.join("mcp.sock").to_string_lossy().into_owned());
         crate::mcp::set_enabled(true);
@@ -1465,10 +1587,12 @@ mod pdeathsig_tests {
     fn build_env_adds_ld_preload_when_file_exists() {
         // When the libtermux-exec.so file exists in the prefix, LD_PRELOAD
         // must be set (termux case).
-        let tmp = std::env::temp_dir().join(format!("torvox-pty-test-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("torvox-pty-test-preload-{}", std::process::id()));
         let lib = tmp.join("lib");
         std::fs::create_dir_all(&lib).expect("create tmp lib");
-        std::fs::write(lib.join("libtermux-exec.so"), b"ELF").expect("touch file");
+        std::fs::write(lib.join("libtermux-exec.so"), [0x7fu8, b'E', b'L', b'F'])
+            .expect("touch file");
         let prefix = tmp.to_str().unwrap().to_string();
         let env = ShellEnv {
             home: format!("{}/home", prefix),
@@ -1491,7 +1615,8 @@ mod pdeathsig_tests {
     #[test]
     fn build_env_adds_ld_preload_variant_when_present() {
         // The direct-ld-preload variant is preferred over the bare name.
-        let tmp = std::env::temp_dir().join(format!("torvox-pty-test-{}", std::process::id()));
+        let tmp =
+            std::env::temp_dir().join(format!("torvox-pty-test-variant-{}", std::process::id()));
         let lib = tmp.join("lib");
         std::fs::create_dir_all(&lib).expect("create tmp lib");
         std::fs::write(lib.join("libtermux-exec-ld-preload.so"), b"ELF").expect("touch ld");

@@ -52,6 +52,7 @@ class BootstrapInstallerTest {
     @After
     fun cleanup() {
         prefixDir.deleteRecursively()
+        File(prefixDir.parentFile, "${prefixDir.name}.prev").deleteRecursively()
         homeDir.deleteRecursively()
         stagingDir.deleteRecursively()
         zipFile.delete()
@@ -165,6 +166,34 @@ class BootstrapInstallerTest {
         assertFalse("isInstalled must be false without a shell entry", installer.isInstalled())
     }
 
+    @Test
+    fun installed_acceptsSystemInterpreterLoginScript() {
+        File(prefixDir, "bin/login").apply {
+            requireNotNull(parentFile).mkdirs()
+            writeText("#!/system/bin/sh\nset -eu\nexec ./bin/proot-static\n")
+        }
+        File(prefixDir, "etc/termux/termux.env").apply {
+            requireNotNull(parentFile).mkdirs()
+            writeText("PREFIX=${prefixDir.absolutePath}\n")
+        }
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+        assertTrue("isInstalled must be true with a system launcher script", installer.isInstalled())
+    }
+
+    @Test
+    fun installed_rejectsPrivateDirectoryLoginScript() {
+        File(prefixDir, "bin/login").apply {
+            requireNotNull(parentFile).mkdirs()
+            writeText("#!/data/data/com.termux/files/usr/bin/sh\nexec bash\n")
+        }
+        File(prefixDir, "etc/termux/termux.env").apply {
+            requireNotNull(parentFile).mkdirs()
+            writeText("PREFIX=${prefixDir.absolutePath}\n")
+        }
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+        assertFalse("isInstalled must be false with a private-interpreter script alone", installer.isInstalled())
+    }
+
     /** parseSymlinks keeps the nix `target←linkPath` direction for absolute store paths. */
     @Test
     fun parseSymlinks_keepsNixStoreDirection() {
@@ -228,27 +257,8 @@ class BootstrapInstallerTest {
         )
     }
 
-    // ── sha256 version-pin sidecar (warp bootstrap.rs) ────────
-
     @Test
-    fun install_writes_version_pin_with_zip_sha256() {
-        val zip = buildFakeBootstrapZip(withSymlinks = true)
-        val expectedSha = BootstrapInstaller.sha256Of(zip)
-        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
-
-        val result = runBlocking { installer.install(zip) }
-
-        assertTrue("install must succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
-        val marker = File(prefixDir, BootstrapInstaller.VERSION_PIN_FILENAME)
-        assertTrue("version pin must exist after install", marker.isFile)
-        val pinned = BootstrapInstaller.readVersionPin(prefixDir)
-        assertEquals("pin sha256 must match zip", expectedSha, pinned)
-        assertFalse("needsInstall(same sha) must be false", installer.needsInstall(expectedSha))
-        assertTrue("needsInstall(mismatched sha) must be true", installer.needsInstall("deadbeef"))
-    }
-
-    @Test
-    fun install_failure_leaves_no_version_pin() {
+    fun install_failure_cleans_staging_and_reports_not_installed() {
         val zip = buildFakeBootstrapZip(withSymlinks = true)
         // Corrupt the zip: truncate it so extraction fails.
         zip.writeBytes(zip.readBytes().copyOf(200))
@@ -257,36 +267,29 @@ class BootstrapInstallerTest {
         val result = runBlocking { installer.install(zip) }
 
         assertTrue("corrupted zip install must fail", result.isFailure)
-        assertFalse(
-            "no version pin on failure",
-            File(prefixDir, BootstrapInstaller.VERSION_PIN_FILENAME).exists(),
-        )
-        // needsInstall with any hash is true (no marker).
-        assertTrue(installer.needsInstall("abc"))
-        assertTrue(installer.needsInstall(null))
+        assertFalse("staging must be cleaned on failure", stagingDir.exists())
+        assertFalse("prefix must not be reported installed on failure", installer.isInstalled())
+        assertTrue(installer.needsInstall())
     }
 
     @Test
-    fun needsInstall_detects_marker_mismatch_and_missing_marker() {
-        // No marker at all → needsInstall true even with a shell binary.
+    fun needsInstall_reflects_shell_entry_presence() {
         File(prefixDir, "bin").mkdirs()
         File(prefixDir, "bin/login").writeBytes(byteArrayOf(0x7f, 0x45, 0x4c, 0x46) + "x".toByteArray())
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
-        assertTrue("no marker must need install", installer.needsInstall("abc"))
-
-        // Matching marker → false.
-        BootstrapInstaller.writeVersionPin(prefixDir, "abc")
-        assertFalse("matching marker must not need install", installer.needsInstall("abc"))
-        assertTrue("different zip sha must need install", installer.needsInstall("def"))
+        assertFalse("shell entry present must not need install", installer.needsInstall())
     }
 
     @Test
-    fun version_pin_survives_atomic_write() {
-        prefixDir.mkdirs()
-        BootstrapInstaller.writeVersionPin(prefixDir, "0123456789abcdef")
-        assertEquals("0123456789abcdef", BootstrapInstaller.readVersionPin(prefixDir))
-        // No.tmp leftover.
-        assertFalse(File(prefixDir, "${BootstrapInstaller.VERSION_PIN_FILENAME}.tmp").exists())
+    fun install_keeps_single_previous_backup() {
+        val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+        assertTrue(runBlocking { installer.install(buildFakeBootstrapZip(true)) }.isSuccess)
+        val backup = File(prefixDir.parentFile, "${prefixDir.name}.prev")
+        assertFalse("no backup after first install", backup.exists())
+        File(prefixDir, "bin/bash").writeText("#!/bin/sh\nfirst\n")
+        assertTrue(runBlocking { installer.install(buildFakeBootstrapZip(true)) }.isSuccess)
+        assertTrue("previous prefix kept as single backup", backup.isDirectory)
+        assertTrue("backup holds the previous tree", File(backup, "bin/bash").readText().contains("first"))
     }
 }
 
