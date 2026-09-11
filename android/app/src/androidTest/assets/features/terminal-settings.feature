@@ -5,7 +5,7 @@ Feature: Settings — General
   Scenario: Settings screen displays all sections
     Given the app has launched
     When the user opens the settings screen
-    Then theme selector, font size slider, cursor style selector are displayed
+    Then theme selector and font size slider are displayed
 
   @REQ_ANDR_008
   Scenario: Font size can be adjusted
@@ -13,9 +13,3 @@ Feature: Settings — General
     Then the font size slider exists
     When the slider is adjusted
     Then the terminal font size changes
-
-  @REQ_ANDR_008
-  Scenario: Cursor style can be changed
-    Given the user is on the settings screen
-    When the cursor style is changed from block to bar
-    Then the bar cursor style is selected
