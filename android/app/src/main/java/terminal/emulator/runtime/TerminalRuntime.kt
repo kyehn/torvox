@@ -886,23 +886,8 @@ constructor(
         "prefixShell=$prefixShell prefixComplete=$prefixComplete prefixDir=$prefixDir",
     )
     val effectivePrefix = if (prefixComplete) prefixDir else ""
-    // DESIGN Shizuku switch: the app domain cannot exec prefix binaries
-    // (untrusted_app W^X, EACCES/126 device-verified), so an authorized
-    // switch routes the nix login through the Shizuku server via rish.
-    val shizukuLogin =
-        prefixComplete &&
-            prefixShell == "bin/login" &&
-            configReads.shizukuEnabled &&
-            ShizukuGate.isAuthorized()
-    if (shizukuLogin) {
-      LogUtil.d("Runtime", "Shizuku login bridge active")
-    }
     val effectiveShell =
-        when {
-          shizukuLogin -> Shell.Custom(ShizukuGate.ensureWrapper(context, prefixDir).absolutePath)
-          prefixComplete -> Shell.Custom("$prefixDir/$prefixShell")
-          else -> shell
-        }
+        resolveEffectiveShell(prefixDir, prefixShell, prefixComplete, configReads, shell)
     val effectiveHome =
         if (prefixComplete) {
           homeDir
@@ -2212,6 +2197,31 @@ constructor(
     private const val INITIAL_RESTART_DELAY_MS = 100L
     private const val MAX_RESTART_DELAY_MS = 1000L
     private const val GRACE_PERIOD_AFTER_RESTART_MS = 300L
+  }
+
+  /**
+   * DESIGN Shizuku switch: the app domain cannot exec prefix binaries (untrusted_app W^X,
+   * EACCES/126 device-verified), so an authorized switch routes the nix login through the Shizuku
+   * server via rish. Extracted from buildConfig so it stays under the detekt LongMethod limit.
+   */
+  private fun resolveEffectiveShell(
+      prefixDir: String,
+      prefixShell: String?,
+      prefixComplete: Boolean,
+      configReads: ConfigReads,
+      shell: Shell,
+  ): Shell {
+    val shizukuLogin =
+        prefixComplete &&
+            prefixShell == "bin/login" &&
+            configReads.shizukuEnabled &&
+            ShizukuGate.isAuthorized()
+    if (shizukuLogin) {
+      LogUtil.d("Runtime", "Shizuku login bridge active")
+      return Shell.Custom(ShizukuGate.ensureWrapper(context, prefixDir).absolutePath)
+    }
+    if (prefixComplete) return Shell.Custom("$prefixDir/$prefixShell")
+    return shell
   }
 
   private data class ConfigReads(
