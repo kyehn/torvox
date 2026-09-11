@@ -22,7 +22,7 @@
 - [x] 4.2 归档 `nix-on-droid-emulator-deploy`
 - [x] 4.3 单元测试与构建全绿（Rust 1005/0、Kotlin 定向套件、spotless、detekt）
 - [x] 4.4 真实终端输入验证 `login` 登录与 `nix build`（Shizuku 桥接已实现并打通，见 §5）
-- [ ] 4.5 推送到 `main`
+- [x] 4.5 推送到 `main`
 
 ## 5. 应用域实证结论（2026-09-11 设备端，Shizuku 桥接打通）
 
