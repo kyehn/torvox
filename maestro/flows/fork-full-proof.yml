@@ -1,0 +1,37 @@
+appId: com.termux
+name: Fork full proof - terminal ready
+tags:
+  - nix
+---
+# App is already showing terminal (modifier keys visible).
+# Type commands directly with screenshots.
+- extendedWaitUntil:
+    visible:
+      id: "TerminalScreen"
+    timeout: 15000
+- tapOn:
+    id: "TerminalContent"
+- waitForAnimationToEnd:
+    timeout: 5000
+# Step 1: nix --version
+- inputText: "nix --version"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 20000
+- takeScreenshot: proof_01_nix_version
+# Step 2: nix build
+- tapOn:
+    id: "TerminalContent"
+- inputText: "nix --option build-users-group \"\" build --impure --expr 'builtins.derivation {name=\"t\"; system=\"x86_64-linux\"; builder=\"/bin/sh\"; args=[\"-c\" \"echo ok > $out\"];}' --print-out-paths"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 60000
+- takeScreenshot: proof_02_nix_build
+# Step 3: cat the output
+- tapOn:
+    id: "TerminalContent"
+- inputText: "cat /nix/store/d45cdcwji3axn5bdvf1f3mqhja89mycw-t"
+- pressKey: Enter
+- waitForAnimationToEnd:
+    timeout: 15000
+- takeScreenshot: proof_03_cat_output
