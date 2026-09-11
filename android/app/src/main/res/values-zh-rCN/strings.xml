@@ -126,6 +126,14 @@
     <string name="mcp_server">MCP 服务器</string>
     <string name="mcp_server_desc">通过模型上下文协议暴露终端</string>
 
+    <!-- Shizuku 集成 -->
+    <string name="shizuku_integration">Shizuku 集成</string>
+    <string name="shizuku_integration_desc">使用 Shizuku 权限运行 prefix shell（nix proot 必需）</string>
+    <string name="shizuku_required_title">需要 Shizuku 授权</string>
+    <string name="shizuku_required_message">已开启 Shizuku 集成但未获得授权，请关闭开关或退出应用。</string>
+    <string name="shizuku_turn_off">关闭</string>
+    <string name="shizuku_exit">退出应用</string>
+
     <!-- Text Search -->
     <string name="text_search">文本搜索</string>
     <string name="text_search_desc">搜索终端输出</string>

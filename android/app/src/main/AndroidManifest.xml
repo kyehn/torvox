@@ -49,6 +49,15 @@
             android:exported="false"
             android:process=":install" />
 
+        <!-- Shizuku privileged execution (DESIGN Shizuku switch): the manager binds
+             this provider to deliver the user's grant to this package. -->
+        <provider
+            android:name="rikka.shizuku.ShizukuProvider"
+            android:authorities="${applicationId}.shizuku"
+            android:multiprocess="false"
+            android:enabled="true"
+            android:exported="true" />
+
         <provider
             android:name=".TerminalDocumentsProvider"
             android:authorities="terminal.emulator.documents"

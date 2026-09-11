@@ -125,6 +125,14 @@
     <string name="mcp_server">MCP Server</string>
     <string name="mcp_server_desc">Expose terminal via Model Context Protocol socket</string>
 
+    <!-- Shizuku integration (DESIGN: privileged prefix shells, e.g. nix proot) -->
+    <string name="shizuku_integration">Shizuku integration</string>
+    <string name="shizuku_integration_desc">Run prefix shells with Shizuku privileges (required for nix proot)</string>
+    <string name="shizuku_required_title">Shizuku authorization required</string>
+    <string name="shizuku_required_message">Shizuku integration is on but not authorized. Turn it off or exit the app.</string>
+    <string name="shizuku_turn_off">Turn off</string>
+    <string name="shizuku_exit">Exit app</string>
+
     <!-- Environment Variables -->
     <string name="environment_variables">Environment Variables</string>
     <string name="environment_variables_desc">Extra KEY=VALUE vars (one per line) for new sessions</string>

@@ -21,14 +21,13 @@
 - [x] 4.1 更新 `shell/bootstrap-environment` 规约（无标记、无回退、单备份轮转）
 - [x] 4.2 归档 `nix-on-droid-emulator-deploy`
 - [x] 4.3 单元测试与构建全绿（Rust 1005/0、Kotlin 定向套件、spotless、detekt）
-- [ ] 4.4 真实终端输入验证 `login` 登录与 `nix build`（应用域现状见下；需 Shizuku 桥接后续项）
+- [x] 4.4 真实终端输入验证 `login` 登录与 `nix build`（Shizuku 桥接已实现并打通，见 §5）
 - [ ] 4.5 推送到 `main`
 
-## 5. 应用域实证结论（2026-09-11 设备端）
+## 5. 应用域实证结论（2026-09-11 设备端，Shizuku 桥接打通）
 
-- 安装链全通：应用内安装器 `OK shell=bin/login installed=true`，脚本启动器被选中并经解释器直调启动（`SPAWN_SCRIPT`，单测 39/39）。
-- 失败点唯一：`login` 内 `exec proot-static` 报 EACCES（`proot-static` 为 ET_EXEC，应用域无执行许可；`ptrace` 同样受限）。
-  此前 `errno=26` 为误读：`126` 系 shell 惯例退出码（`wait` 日志已修正措辞，以 PTY 标记为准）。
-- 上游无可直接下载的静态 PIE `login`/`proot`（Go 版 login 与 Android-libc proot 均不存在，PR490 仅为版本升级，均已实证）。
-- `run-as` 域（即 shell 权限域）全链可用：`login`→`proot`→`login-inner` 已跑通，仅缺用户 profile。
-- 结论：应用内可用 nix 须经 shell 权限域执行，即 Shizuku 桥接（DESIGN 已要求 Shizuku 开关，立为后续独立变更）。
+- 安装链全通：应用内安装器 `OK shell=bin/login installed=true`（torvox 路径 bootstrap：`com.termux` 路径、`initialBuild=false`、SYMLINKS 相对化、profile 守卫 + `passwd/group` 合成， cachix 订阅、全程无编译）。
+- 应用域直接 exec `proot-static` 仍被拒绝（EACCES/126，`untrusted_app` W^X，`files/` 与 `/data/local/tmp` 均不可执行；APK `lib/` 内二进制可执行，实证 `EXIT=139` 而非 126）。
+- Shizuku 桥接（DESIGN 开关）：设置开关 + 启动 gate 对话框（关闭/退出）+ 授权检查；`Shell.Custom(files/shizuku-login.sh)` 经系统 `app_process` + `rish_shizuku.dex` 由 Shizuku 服务器（root）以 PTY 为 stdio 运行 prefix `login`。`Shizuku login bridge active` 日志为准。
+- 真实终端输入验证（Maestro `inputText` + 会话转储回读，`adb shell` 仅作读写通道、未执行验证命令）：`nix --version` → `nix (Nix) 2.20.5`；hermetic `nix build`（`builtins.derivation` + `--option build-users-group '' --option sandbox false`）→ 输出路径并 `cat` 得 `ok`，构建器在设备端真实执行。
+- 否决项：上游无 Go 版 login（零 `.go` 文件，`login` 为 shell 脚本）；PR490 仅版本升级，无 Android-libc proot 可下载物；`rish` 须走官方 `app_process + dex` 通道，直接 exec `librish.so`（ET_DYN）段错误。
