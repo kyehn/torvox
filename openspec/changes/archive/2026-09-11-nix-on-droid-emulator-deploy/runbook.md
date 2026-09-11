@@ -54,7 +54,7 @@ curl -x http://127.0.0.1:18882 https://api.github.com  # 须 200
 `NIX_SSL_CERT_FILE=<store 内 nss bundle>`（bootstrap 自带 cert 在 guest 不可见）
 `NIX_ON_DROID_UID/GID=$(run-as id 实测值)`，`TMPDIR=/tmp`（guest 可见值，勿用 host 路径）。
 
-判定：`nix flake metadata github:kyehn/nix-on-droid/unstable` 成功 resolve。
+判定：`nix flake metadata github:nix-community/nix-on-droid/master` 成功 resolve。
 
 ## 5. 部署 kudzu
 

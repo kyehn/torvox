@@ -1,8 +1,8 @@
-# 变更：遵循 4fa1fb0 设计基线并打通 nix-on-droid 启动
+# 变更：遵循设计基线并打通 nix-on-droid 启动
 
 ## Why
 
-`4fa1fb0` 已原文合并到 `main`：`docs/specification/DESIGN.md` 为实际标准，新增最小体积、无回退、可删禁止实现等硬约束；旧生产代码（含安装标记、失败自动降级、禁止实现类设置项）与之冲突。同时主目标不变：nix-on-droid 经 bootstrap 正规安装后 `login` 成功登录且内含 `nix build` 可用，验证只认真实终端输入。本变更在遵循上游 nix-on-droid 包格式契约（`SYMLINKS.txt old←new`、`EXECUTABLES.txt` 权威列表、sh 脚本 `login` 调 `proot-static`）的前提下做通用实现，不加发行版特判。
+设计基线提交已原文合并到 `main`：`docs/specification/DESIGN.md` 为实际标准，新增最小体积、无回退、可删禁止实现等硬约束；旧生产代码（含安装标记、失败自动降级、禁止实现类设置项）与之冲突。同时主目标不变：nix-on-droid 经 bootstrap 正规安装后 `login` 成功登录且内含 `nix build` 可用，验证只认真实终端输入。本变更在遵循上游 nix-on-droid 包格式契约（`SYMLINKS.txt old←new`、`EXECUTABLES.txt` 权威列表、sh 脚本 `login` 调 `proot-static`）的前提下做通用实现，不加发行版特判。
 
 ## What Changes
 
