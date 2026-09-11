@@ -67,8 +67,13 @@ renderdoc = "0.12.1"
 naga = { version = "30", default-features = false, features = ["wgsl-in", "spv-out"] }
 image = { workspace = true }
 proptest = { workspace = true }
+toml = { workspace = true }
 shuttle = "0.9"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+
+[[test]]
+name = "terminal_render_test"
+required-features = ["test-util"]
 
 [[bench]]
 name = "vt_typing"
