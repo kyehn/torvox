@@ -31,7 +31,13 @@
      `TerminalScreen` 断言失败；logcat 无应用 FATAL（非应用崩溃，系整机
      负载瞬态）。副产品：失败截图证明 debug overlay 可被 screencap 捕获
      （绿色 `loading...` 字样清晰）——截图取证链成立。已加
-     `dismiss-anr.yml`（已提交），待其完成后重跑安装流。
+     `dismiss-anr.yml`（已提交），待其完成后重跑安装流。尝试 2 安装中：
+     直接重跑仍因 Recent 空列表失败，截图证实 search-tap 误中历史建议行
+     （文件行未渲染——MediaStore 未就绪）；遂加 MediaStore 就位门
+     （`content query` 轮询，20s 确认索引），重跑 search-tap 命中文件行，
+     `PickerActionHandler: onFinished(msf:1000000018)`（18:59:38）为凭，
+     应用已返回设置页。截图另证 `Shizuku integration` 开关为 OFF
+     （无 Shizuku 约束天然成立），MCP 亦 OFF。解压在 drain-fix APK 下运行中。
 - [ ] 3.2 E1 直接 exec：`$PREFIX/bin/login --dry-run; echo RC=$?`
 - [ ] 3.3 E2 系统 linker：`linker64 $PREFIX/bin/login --dry-run; echo RC=$?`
 - [ ] 3.4 E3 exec-bin：`files/exec-bin $PREFIX/bin/login --dry-run; echo RC=$?`
