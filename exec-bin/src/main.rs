@@ -8,11 +8,12 @@
 //! which SELinux permits.
 //!
 //! Routing (`resolve`, pure and host-tested):
-//! - 64-bit ELF with a `/nix/store` INTERP (fork Go login): chain-load
-//!   through the prefix's own glibc loader, discovered from the INTERP path
-//!   itself (`<prefix>/nix/store/<hash>-glibc-…/lib/ld-linux…` → prefix is
-//!   the ancestor above `nix/store`; every `<prefix>/nix/store/*/lib` joins
-//!   the loader search path). No new dependencies, no config, no flags.
+//! - 64-bit ELF with a `/nix/store` INTERP (fork Go login): load it directly
+//!   through the system linker, exactly like a bionic binary. Device-verified
+//!   (E2): bionic maps the Go binary fine (it carries its own PT_PHDR) and
+//!   the login runs to its own logic. Never route through the prefix glibc
+//!   loader: glibc `ld.so` ships without PT_PHDR, which bionic refuses with
+//!   `Could not find a PHDR` (device-verified E3=134).
 //! - Any other ELF (bionic dynamic, static PIE, static non-PIE): attempt via
 //!   the system linker and let the device give the verdict (static non-PIE
 //!   is expected to be refused — the failure is loud, never silent).
@@ -120,20 +121,14 @@ fn resolve(command: &str, args: &[String], lookup: &dyn Fn(&str) -> Option<Strin
             .collect();
     }
     match sniff(&target) {
-        Sniff::NixInterp(interp) => {
-            let Some((loader, lib_dirs)) = find_prefix_loader(&target, &interp) else {
-                eprintln!("exec: prefix glibc loader not found for {target} (INTERP {interp})");
-                std::process::exit(1);
-            };
+        // A `/nix/store` INTERP names a loader absent on-device; bionic
+        // loads the target itself instead (E2-verified for the Go login).
+        Sniff::NixInterp | Sniff::Elf | Sniff::Unknown => {
             std::iter::once(system_linker().to_string())
-                .chain([loader, "--library-path".to_string(), lib_dirs, target])
+                .chain(std::iter::once(target))
                 .chain(args.iter().cloned())
                 .collect()
         }
-        Sniff::Elf | Sniff::Unknown => std::iter::once(system_linker().to_string())
-            .chain(std::iter::once(target))
-            .chain(args.iter().cloned())
-            .collect(),
         Sniff::Script(interpreter, optarg) => {
             // Recurse: a prefix interpreter gets the same routing treatment.
             let mut routed = resolve(&interpreter, &[], lookup);
@@ -156,8 +151,8 @@ fn system_linker() -> &'static str {
 }
 
 enum Sniff {
-    /// 64-bit ELF with a `/nix/store` INTERP (carries the INTERP string).
-    NixInterp(String),
+    /// 64-bit ELF with a `/nix/store` INTERP (loader absent on-device).
+    NixInterp,
     /// Any other ELF (bionic dynamic, static PIE, static non-PIE).
     Elf,
     /// `#!` script (carries interpreter + optional single argument).
@@ -225,7 +220,7 @@ fn sniff_elf(file: &mut std::fs::File, path: &str) -> Sniff {
         if let Some(interp) = read_cstring_at(path, offset)
             && interp.starts_with("/nix/store/")
         {
-            return Sniff::NixInterp(interp);
+            return Sniff::NixInterp;
         }
         return Sniff::Elf;
     }
@@ -261,41 +256,6 @@ fn sniff_script(file: &mut std::fs::File) -> Sniff {
         return Sniff::Unknown;
     }
     Sniff::Script(interpreter, parts.next().map(str::to_string))
-}
-
-/// Locate the prefix glibc loader for a target whose INTERP is a build-time
-/// absolute `/nix/store/<pkg>/lib/ld-linux…` path (absent on Android — proot
-/// remaps it at runtime). The store is content-addressed, so the same `<pkg>`
-/// exists verbatim under the install prefix: the loader is
-/// `<prefix>/nix/store/<pkg>/lib/ld-linux…` where `<prefix>` is the first
-/// ancestor of `target` containing a `nix/store` directory (mirrors
-/// ShizukuGate.chainLoadPrefix discovery). Every `<prefix>/nix/store/*/lib`
-/// joins the loader search path. Returns (loader, colon-joined lib dirs).
-fn find_prefix_loader(target: &str, interp: &str) -> Option<(String, String)> {
-    let rest = interp.strip_prefix("/nix/store/")?;
-    let mut prefix = std::path::Path::new(target).parent()?;
-    let prefix = loop {
-        if prefix.join("nix/store").is_dir() {
-            break prefix;
-        }
-        prefix = prefix.parent()?;
-    };
-    let loader = prefix.join("nix/store").join(rest);
-    if !loader.is_file() {
-        return None;
-    }
-    let mut lib_dirs: Vec<String> = Vec::new();
-    for entry in std::fs::read_dir(prefix.join("nix/store")).ok()?.flatten() {
-        let lib = entry.path().join("lib");
-        if lib.is_dir() {
-            lib_dirs.push(lib.to_string_lossy().into_owned());
-        }
-    }
-    if lib_dirs.is_empty() {
-        return None;
-    }
-    lib_dirs.sort();
-    Some((loader.to_string_lossy().into_owned(), lib_dirs.join(":")))
 }
 
 /// Read a NUL-terminated string at a file offset (INTERP path).
@@ -359,12 +319,6 @@ mod routing_tests {
             let dir =
                 std::env::temp_dir().join(format!("exec-bin-test-{}-{n}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
-            let glibc_lib = dir.join("nix/store/hash-glibc/lib");
-            let other_lib = dir.join("nix/store/hash-other/lib");
-            std::fs::create_dir_all(&glibc_lib).unwrap();
-            std::fs::create_dir_all(&other_lib).unwrap();
-            std::fs::write(glibc_lib.join("ld-linux-x86-64.so.2"), b"x").unwrap();
-            std::fs::write(other_lib.join("libfoo.so"), b"x").unwrap();
             Self { dir }
         }
 
@@ -395,19 +349,18 @@ mod routing_tests {
     }
 
     #[test]
-    fn nix_interp_chain_loads_through_prefix_loader() {
+    fn nix_interp_loads_directly_through_system_linker() {
+        // Device-verified (E2): bionic maps the Go login itself; routing
+        // through the prefix glibc loader aborts with `Could not find a
+        // PHDR` (E3=134), so the target goes straight to the system linker.
         let prefix = FakePrefix::create();
         let target = prefix.login();
         std::fs::create_dir_all(target.parent().unwrap()).unwrap();
         craft_elf(&target, 3, Some(&prefix.interp()));
         let argv = resolve(target.to_str().unwrap(), &[], &lookup_for(&prefix.dir));
         assert!(argv[0] == "/system/bin/linker64" || argv[0] == "/system/bin/linker");
-        assert!(argv[1].ends_with("ld-linux-x86-64.so.2"), "argv: {argv:?}");
-        assert!(argv[1].contains("hash-glibc"), "argv: {argv:?}");
-        assert_eq!(argv[2], "--library-path");
-        assert!(argv[3].contains("hash-glibc"), "argv: {argv:?}");
-        assert!(argv[3].contains("hash-other"), "argv: {argv:?}");
-        assert_eq!(argv[4], target.to_str().unwrap());
+        assert_eq!(argv.len(), 2);
+        assert_eq!(argv[1], target.to_str().unwrap());
     }
 
     #[test]
