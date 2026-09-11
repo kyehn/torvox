@@ -29,7 +29,7 @@
 
 ### Requirement: nix bootstrap 兼容
 
-nix bootstrap 上游来源为 `nix-community/nix-on-droid`（其构建脚本生成 termux 兼容格式：`SYMLINKS.txt` 同为 `old←new`、`EXECUTABLES.txt` 为权威可执行列表）；kudzu 侧经 `nix-on-droid.nix` 纳入 `proot`（提交 `6238b26`）解决 glibc 二进制在 Android 上的执行问题。torvox 安装器不假设任何 fork 仓库存在，只认包内格式契约。
+nix bootstrap 上游来源为 `nix-community/nix-on-droid`（其构建脚本生成 termux 兼容格式：`SYMLINKS.txt` 同为 `old←new`、`EXECUTABLES.txt` 为权威可执行列表）。torvox 安装器不假设任何 fork 仓库存在，只认包内格式契约。
 
 nix-on-droid 等非 termux 布局的 bootstrap（可执行文件散布 `nix/store/<hash>/bin/`）MUST 随包提供 `EXECUTABLES.txt`（每行一路径），安装器 SHALL 按该列表逐个 chmod；其 `SYMLINKS.txt` 与 termux 同为 `old←new` 格式，安装器同一解析路径处理，不得为 nix 布局另建分支。
 
@@ -40,9 +40,9 @@ nix-on-droid 等非 termux 布局的 bootstrap（可执行文件散布 `nix/stor
 
 ### Requirement: nix 二进制执行方式
 
-glibc 动态链接的 nix/store 二进制（实测 `bootstrap-unstable` x86_64：bash 的 INTERP 为 `/nix/store/n51dhmdbik1kfrsm62j5knavmigwrl1a-glibc-2.42-84/lib/ld-linux-x86-64.so.2`、RUNPATH 指向 `/nix/store` 下 ncurses/readline/glibc 三目录）在 adb shell 上下文经 proot 运行已验证（`proot -r $PREFIX -b /system:/system -b /proc:/proc -b /dev:/dev -b /sys:/sys` + `PROOT_TMP_DIR=$PREFIX/tmp` → `nix --version` 输出版本号）；直接 exec 报缺 interpreter（预期行为，非安装失败）。应用进程上下文（untrusted_app）的端到端结论（2026-09-08 设备实证，见变更记录）：`bin/login` 须为静态 PIE（ET_DYN、无动态依赖；`buildGoModule` 忽略 `buildFlags`，须经 `GOFLAGS` 传 `-buildmode=pie`）方可经 linker64 桥接加载，ET_EXEC 直接 exec 报 EACCES（errno=13，exit 113）；proot 须同样为静态 PIE（`-static-pie`），否则 login 的 exec 报 EACCES；应用上下文内 proot 可能因 ptrace 受限失败，login 此时 MUST fallback 直接 exec 而非 Fatal，登录 shell（`/system/bin/sh`，host/guest 双通）仍可启动交互（scrollback=11 实测）。`SYMLINKS.txt` 的 target MUST 为相对 link 父目录的路径（绝对路径被安装器拒绝，错误的相对化在 guest 内造成 ELOOP）；nix-on-droid 侧已用 `realpath -s -m --relative-to` 生成。
+glibc 动态链接的 nix/store 二进制直接 exec 报缺 interpreter（预期行为，非安装失败）；特权 shell 上下文（`run-as` 实证）经 `login`→`proot-static`→`login-inner` 全链可用。应用进程上下文（untrusted_app）的设备端结论（2026-09-11 实证）：`bin/login` 为 `/system/bin/` shebang 脚本时经解释器直调启动（`SPAWN_SCRIPT`）；其内部 `exec proot-static` 报 EACCES（`proot-static` 为 ET_EXEC，应用域无执行许可，`ptrace` 同样受限），shell 以退出码 126 结束并经 `[Process completed]` 保留输出显示，不做任何回退。`SYMLINKS.txt` 的 target MUST 为相对 link 父目录的路径（绝对路径被安装器拒绝）。
 
-装载器死结（2026-09-07 设备端证实，2026-09-08 部分推翻）：bootstrap 内 login/login-inner/proot 若为静态 ET_EXEC 则不可执行——linker 拒绝 ET_EXEC（`unexpected e_type: 2`），直接 exec 报 EACCES（`execute_no_trans`，errno=13）。出路为全静态 PIE 化（login 经 `GOFLAGS`、proot 经 `-static-pie`），此时 linker64 桥接可加载，子进程正常运行。端到端证据链（2026-09-08）：ET_EXEC 时 `SPAWN_DIRECT_ET_EXEC` → `execve FAILED errno=13` → exit 113；PIE 化后 `SPAWN_LINKER` → execve 成功 → login 运行（exit 1 为应用层 Fatal，非装载失败）。shell 可用性结论更新：经 fallback 直接链 + `/system/bin/sh` 登录 shell，终端交互已验证（`echo` 回显，scrollback=11）；`nixos-rebuild switch` 的激活阶段已验证（宿主构建 toplevel → 离线导入设备 store → `switch-to-configuration switch` → `profiles/system` 指向 kudzu 闭包，home-manager 落盘；`nixos-rebuild` 前端因模拟器无外网未跑，求值阶段留待有网环境）。
+应用域内可用 nix 须经特权域执行（Shizuku 桥接，见独立变更），本规约只锁定安装器与启动路径行为。
 
 参考对照（sylirre/ghostty-android-terminal 源码）：该项目为绕开同一限制（W^X 禁止 exec 应用数据下 ELF）采用进程内用户态 ELF 装载引擎，彻底避开 exec/proot/ptrace——独立证实本限制的真实性；但该方案体量远超本项目“简单”约束，列为已评估拒绝。
 
