@@ -236,7 +236,7 @@ class SecondStageRunner(
   internal fun systemLinker(): String =
       if (terminal.emulator.is64BitAbi()) "/system/bin/linker64" else "/system/bin/linker"
 
-  /** Base env for prefix executables: PREFIX + termux-exec preload. */
+  /** Base env for prefix executables: spec-whitelist variables only. */
   internal fun prefixEnvironment(): Map<String, String> =
       mapOf(
           "HOME" to homeDir.absolutePath,
