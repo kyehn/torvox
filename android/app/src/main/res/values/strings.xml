@@ -171,9 +171,6 @@
     <string name="search_result_accessible">Match %1$d of %2$d</string>
     <string name="search_no_results_accessible">No results found</string>
 
-    <!-- Paste confirmation -->
-
-    <!-- Keyboard Shortcuts -->
     <string name="bootstrap_error">Bootstrap failed: %1$s</string>
     <string name="bootstrap_installed_success">Bootstrap installed successfully</string>
     <string name="bootstrap_installed_from_file">Bootstrap installed from file</string>

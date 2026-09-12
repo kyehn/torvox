@@ -123,8 +123,6 @@
     <!-- USB Serial -->
 
     <!-- MCP Server -->
-    <string name="mcp_server">MCP 服务器</string>
-    <string name="mcp_server_desc">通过模型上下文协议暴露终端</string>
 
     <!-- Shizuku 集成 -->
     <string name="shizuku_integration">Shizuku 集成</string>
@@ -165,14 +163,6 @@
     <string name="arrow_left">向左箭头</string>
     <string name="arrow_right">向右箭头</string>
     <string name="arrow_up">向上箭头</string>
-    <string name="background">背景</string>
-    <string name="bell_mode">响铃模式</string>
-    <string name="bell_mode_desc">终端响铃的行为方式</string>
-    <string name="bg_blur_label">模糊：%1$d</string>
-    <string name="bg_image_choose">选择图片</string>
-    <string name="bg_image_none">无背景图片</string>
-    <string name="bg_image_set">背景图片已设置</string>
-    <string name="bg_opacity_label">不透明度：%1$d%%</string>
     <string name="bold_font_family">粗体字体</string>
     <string name="bootstrap_already_in_progress">引导程序安装已在进行中</string>
     <string name="bootstrap_cancelled">下载已取消</string>
@@ -209,10 +199,6 @@
     <string name="edit_modifier_bar">编辑修饰键栏</string>
     <string name="enable_fuzzy_match">启用模糊匹配</string>
     <string name="end_key">End</string>
-    <string name="environment_variables">环境变量</string>
-    <string name="environment_variables_desc">新会话的额外 KEY=VALUE 变量（每行一个）</string>
-    <string name="environment_variables_hint">KEY=VALUE\n每行一个</string>
-    <string name="environment_variables_save">保存</string>
     <string name="escape">Esc</string>
     <string name="font_applied">字体已应用：%1$s</string>
     <string name="font_apply_failed">字体应用失败：%1$s</string>
@@ -230,8 +216,6 @@
     <string name="function_key_layer">功能键层</string>
     <string name="home_key">Home</string>
     <string name="italic_font_family">斜体字体</string>
-    <string name="keyboard_shortcuts">键盘快捷键</string>
-    <string name="keyboard_shortcuts_desc">配置硬件键盘快捷键</string>
     <string name="modifier_bar">修饰键栏</string>
     <string name="modifier_bar_available_keys">可用键（点按添加）</string>
     <string name="modifier_bar_current_layout">当前布局</string>
@@ -246,12 +230,6 @@
     <string name="selection">选择</string>
     <string name="selection_accessible">已选择：%1$s</string>
     <string name="session_number">会话 %1$d</string>
-    <string name="shortcut_already_in_use">已被占用</string>
-    <string name="shortcut_capture_prompt">按下修饰键 + 按键组合</string>
-    <string name="shortcut_capture_title">录制快捷键</string>
-    <string name="shortcut_need_modifier">按下修饰键 + 按键</string>
-    <string name="shortcut_reserved_key">保留键</string>
-    <string name="shortcut_reset">重置</string>
     <string name="tab_key">Tab</string>
     <string name="toggle_keyboard">显示或隐藏键盘</string>
     <string name="toggle_scroll">切换滚动</string>
