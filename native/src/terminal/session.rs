@@ -994,7 +994,12 @@ mod tests {
 
     #[test]
     fn session_after_exit_returns_error() {
-        spawn_and_exit();
+        let mut session = spawn_and_exit();
+        let result = session.write(b"echo after-exit\n");
+        assert!(
+            matches!(result, Err(SessionError::Closed)),
+            "write after exit must report Closed, got: {result:?}"
+        );
     }
 
     #[test]
