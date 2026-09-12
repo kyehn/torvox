@@ -1,21 +1,22 @@
+# language: zh-CN
 @REQ_TERM_003 @REQ_ANDR_005 @REQ_SYS_004
-Feature: Terminal Session
+功能: 终端会话
 
   @REQ_TERM_003
-  Scenario: Session drawer shows session list
-    Given the app has launched
-    When the session drawer is opened
-    Then the session list is displayed
-    And an "Add Session" button exists
+  场景: 会话抽屉显示会话列表
+    假如 应用已启动
+    当 打开会话抽屉
+    那么 会话列表已显示
+    而且 存在"新建会话"按钮
 
   @REQ_ANDR_005
-  Scenario: Multiple sessions can be created
-    Given the app has launched
-    When the user adds a new session
-    Then both sessions appear in the drawer
+  场景: 可以创建多个会话
+    假如 应用已启动
+    当 新增会话
+    那么 抽屉中出现两个会话
 
   @REQ_TERM_003
-  Scenario: Session switching works
-    Given the app has launched with multiple sessions
-    When the user switches to a different session
-    Then the terminal shows the new session content
+  场景: 会话切换生效
+    假如 应用已启动并创建了多个会话
+    当 切换到其他会话
+    那么 终端显示新会话内容

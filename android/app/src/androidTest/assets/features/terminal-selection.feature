@@ -1,42 +1,32 @@
-Feature: Text Selection
-  The terminal supports long-press text selection with
-  selection handles and a context menu.
-
-  NOTE: word-selection scenarios are @wip pending a cucumber round: the
-  native data path has landed (Bridge.isCellEmpty/expandAndSetSelection are
-  real JNI), and long-press now shows the system ActionMode menu; the
-  step definitions may reference pre-ActionMode nodes.
+# language: zh-CN
+功能: 文本选择
+  终端支持长按选择文本，带选择手柄与上下文菜单。
 
   @REQ_SEL_001
-  Scenario: Long press empty area shows paste popup
-    Given the terminal displays text
-    When the user long-presses on an empty area
-    Then the paste popup appears
+  场景: 长按空白区域显示粘贴菜单
+    假如 终端显示文本
+    当 长按空白区域
+    那么 粘贴菜单已出现
 
-  @wip @REQ_SEL_001
-  Scenario: Long press text highlights the word
-    Given the terminal displays text
-    When the user long-presses on a character
-    Then the word is selected
-    And a selection handle appears
+  @REQ_SEL_001
+  场景: 长按文本选中单词
+    假如 终端显示文本
+    当 长按字符
+    那么 单词被选中
+    而且 出现选择手柄
 
-  @wip @REQ_SEL_001
-  Scenario: Selection handles adjust selected region
-    Given text is selected in the terminal
-    When the user drags the selection handle forward
-    Then the selection extends to the drag target
-    When the user drags the selection handle backward
-    Then the selection shrinks to the drag target
+  @REQ_SEL_001
+  场景: 拖动手柄调整选区
+    假如 终端中的文本已被选中
+    当 向前拖动选择手柄
+    那么 选区扩展到拖动目标
+    当 向后拖动选择手柄
+    那么 选区收缩到拖动目标
 
-  @wip @REQ_SEL_001
-  Scenario: Double tap selects word
-    Given the terminal displays text
-    When the user double-taps on a word
-    Then the word is selected
-
-  @wip @REQ_SEL_002
-  Scenario: Copy copies selected text to clipboard
-    Given text is selected in the terminal
-    When the user triggers copy
-    Then the text is available on the clipboard
-
+  # 双击选中场景已删除：模拟事件无法触发双击识别（系统在第一次抬起后即移除
+  # TAP 处理），原步骤退化为长按，与上一场景重复，不检查任何双击结果。
+  @REQ_SEL_002
+  场景: 复制将所选文本送入剪贴板
+    假如 终端中的文本已被选中
+    当 触发复制
+    那么 所选文本已在剪贴板

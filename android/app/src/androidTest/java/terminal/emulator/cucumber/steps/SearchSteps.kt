@@ -5,124 +5,89 @@ import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
-import io.cucumber.java.en.Given
-import io.cucumber.java.en.Then
-import io.cucumber.java.en.When
-import terminal.emulator.cucumber.ComposeRuleHolder
+import io.cucumber.java.zh_cn.假如
+import io.cucumber.java.zh_cn.当
+import io.cucumber.java.zh_cn.那么
 import javax.inject.Inject
+import terminal.emulator.cucumber.ComposeRuleHolder
 
 class SearchSteps
 @Inject
 constructor(
     private val composeRuleHolder: ComposeRuleHolder,
 ) {
-    @Given("^a terminal session is active$")
-    fun terminalSessionIsActive() {
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen")
-            .assertIsDisplayed()
-    }
+  @假如("^终端会话处于活动状态$")
+  fun terminalSessionIsActive() {
+    composeRuleHolder.composeRule.waitForIdle()
+    composeRuleHolder.composeRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
+  }
 
-    @Given("^the terminal has search highlights active$")
-    fun terminalHasSearchHighlightsActive() {
-        // Open search bar and search for something common
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchButton")
-            .performClick()
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .performClick()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .performTextInput("the")
-        composeRuleHolder.composeRule.waitForIdle()
-    }
+  @假如("^终端已有搜索高亮$")
+  fun terminalHasSearchHighlightsActive() {
+    composeRuleHolder.composeRule.onNodeWithTag("SearchButton").performClick()
+    composeRuleHolder.composeRule.waitForIdle()
+    composeRuleHolder.composeRule.onNodeWithTag("SearchTextField").performClick()
+    composeRuleHolder.composeRule.onNodeWithTag("SearchTextField").performTextInput("the")
+    composeRuleHolder.composeRule.waitForIdle()
+  }
 
-    @Given("^the search bar is visible$")
-    fun searchBarIsVisible() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchButton")
-            .performClick()
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TextSearchBar")
-            .assertIsDisplayed()
-    }
+  @假如("^搜索栏可见$")
+  fun searchBarIsVisible() {
+    composeRuleHolder.composeRule.onNodeWithTag("SearchButton").performClick()
+    composeRuleHolder.composeRule.waitForIdle()
+    composeRuleHolder.composeRule.onNodeWithTag("TextSearchBar").assertIsDisplayed()
+  }
 
-    @When("^the user opens the search bar from the session panel$")
-    fun userOpensSearchBar() {
-        val composeRule = composeRuleHolder.composeRule
+  @当("^从会话面板打开搜索栏$")
+  fun userOpensSearchBar() {
+    val composeRule = composeRuleHolder.composeRule
+    // 抽屉内容在关闭时仍被组合，直接点击 SearchButton 即可。
+    composeRule.onNodeWithTag("SearchButton").performClick()
+    composeRule.waitForIdle()
+    // 点击后抽屉关闭协程需要时间，等动画跑完。
+    composeRule.waitForIdle()
+  }
 
-        // Tap SearchButton directly (ModalNavigationDrawer composes drawer content even when closed)
-        composeRule
-            .onNodeWithTag("SearchButton")
-            .performClick()
-        composeRule.waitForIdle()
+  @当("^关闭搜索栏$")
+  fun userClosesSearchBar() {
+    composeRuleHolder.composeRule.onNodeWithTag("SearchClose").performClick()
+    composeRuleHolder.composeRule.waitForIdle()
+  }
 
-        // After SearchButton click, handle the drawer close coroutine launch timing
-        // The onClose launches a coroutine; wait for animations
-        composeRule.waitForIdle()
-    }
+  @当("^弹出软键盘$")
+  fun softKeyboardOpens() {
+    composeRuleHolder.composeRule.onNodeWithTag("SearchTextField").performClick()
+    composeRuleHolder.composeRule.waitForIdle()
+  }
 
-    @When("^the user closes the search bar$")
-    fun userClosesSearchBar() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchClose")
-            .performClick()
-        composeRuleHolder.composeRule.waitForIdle()
-    }
+  @那么("^搜索栏显示在底部$")
+  fun searchBarIsDisplayedAtBottom() {
+    val composeRule = composeRuleHolder.composeRule
+    composeRule.waitForIdle()
+    // 搜索栏在底部，检查其内部节点。
+    composeRule.onNodeWithTag("SearchTextField").assertIsDisplayed()
+    composeRule.onNodeWithTag("SearchClose").assertIsDisplayed()
+  }
 
-    @When("^the soft keyboard opens$")
-    fun softKeyboardOpens() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .performClick()
-        composeRuleHolder.composeRule.waitForIdle()
-    }
+  @那么("^修饰键栏已隐藏$")
+  fun modifierBarIsHidden() {
+    composeRuleHolder.composeRule.onNodeWithTag("ModifierBar").assertIsNotDisplayed()
+  }
 
-    @Then("^the search bar is displayed at the bottom$")
-    fun searchBarIsDisplayedAtBottom() {
-        val composeRule = composeRuleHolder.composeRule
-        composeRule.waitForIdle()
+  @那么("^修饰键栏重新可见$")
+  fun modifierBarIsVisibleAgain() {
+    composeRuleHolder.composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
+  }
 
-        // The search bar is at the bottom; check its internal nodes
-        composeRule
-            .onNodeWithTag("SearchTextField")
-            .assertIsDisplayed()
-        composeRule
-            .onNodeWithTag("SearchClose")
-            .assertIsDisplayed()
-    }
+  @那么("^搜索高亮全部消失$")
+  fun allSearchHighlightsDisappear() {
+    composeRuleHolder.composeRule.waitForIdle()
+    // 关闭搜索栏会移除结果计数/高亮界面。
+    composeRuleHolder.composeRule.onNodeWithTag("SearchResultCount").assertIsNotDisplayed()
+  }
 
-    @Then("^the modifier bar is hidden$")
-    fun modifierBarIsHidden() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("ModifierBar")
-            .assertIsNotDisplayed()
-    }
-
-    @Then("^the modifier bar is visible again$")
-    fun modifierBarIsVisibleAgain() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("ModifierBar")
-            .assertIsDisplayed()
-    }
-
-    @Then("^all search highlights disappear$")
-    fun allSearchHighlightsDisappear() {
-        composeRuleHolder.composeRule.waitForIdle()
-        // Closing the search bar removes the result counter / highlight UI.
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchResultCount")
-            .assertIsNotDisplayed()
-    }
-
-    @Then("^the search bar remains visible above the keyboard$")
-    fun searchBarRemainsVisibleAboveKeyboard() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("SearchTextField")
-            .assertIsDisplayed()
-    }
+  @那么("^搜索栏仍在键盘上方$")
+  fun searchBarRemainsVisibleAboveKeyboard() {
+    composeRuleHolder.composeRule.onNodeWithTag("SearchTextField").assertIsDisplayed()
+  }
 }

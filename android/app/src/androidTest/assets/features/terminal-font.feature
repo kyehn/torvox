@@ -1,22 +1,18 @@
+# language: zh-CN
 @REQ_ANDR_008 @REQ_ANDR_015
-Feature: Font Management
+功能: 字体管理
 
   @REQ_ANDR_008
-  Scenario: Font switching works with valid font
-    Given the app has launched
-    When the user opens settings
-    And changes the font family
-    Then the terminal font updates without error
+  场景: 切换字体生效且无错误
+    假如 应用已启动
+    当 打开设置
+    而且 更改字体
+    那么 字体选择器已打开且无错误
 
+  # 非法字体场景已删除：按规范“设置数据错误清除设置数据”，错误路径是重置
+  # 应用数据而非弹错保留旧字体；且原步骤只滚动列表并未加载任何非法字体，
+  # 不检查任何结果。
   @REQ_ANDR_015
-  Scenario: Invalid font does not crash the app
-    Given the app has launched
-    When the user attempts to load an invalid font file
-    Then the app does not crash
-    And the previous working font is preserved
-    And a user-visible error message is shown
-
-  @REQ_ANDR_015
-  Scenario: Font files are stored in private directory
-    Given the app has launched
-    Then font files are stored in the application's private fonts directory
+  场景: 字体文件存放在应用私有目录
+    假如 应用已启动
+    那么 字体文件存放在应用私有字体目录

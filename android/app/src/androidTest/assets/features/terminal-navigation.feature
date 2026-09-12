@@ -1,23 +1,24 @@
+# language: zh-CN
 @REQ_ANDR_002 @REQ_ANDR_003
-Feature: Navigation
+功能: 导航
 
   @REQ_ANDR_002
-  Scenario: Settings back navigation returns to terminal
-    Given the user is on the settings screen
-    When the back button is pressed
-    Then the terminal screen is displayed
+  场景: 设置界面返回后回到终端
+    假如 用户在设置界面
+    当 按下返回键
+    那么 终端界面已显示
 
   @REQ_ANDR_003
-  Scenario: Drawer opens and closes
-    Given the app has launched
-    When the user opens the session drawer
-    Then the drawer is displayed
-    When the user closes the drawer
-    Then the terminal screen is fully visible
+  场景: 抽屉打开与关闭
+    假如 应用已启动
+    当 打开会话抽屉
+    那么 抽屉已显示
+    当 关闭抽屉
+    那么 终端界面完全可见
 
   @REQ_ANDR_003
-  Scenario: Navigation between settings and drawer
-    Given the app has launched
-    When the user opens the session drawer
-    And navigates to settings from the drawer
-    Then the settings screen is displayed
+  场景: 从抽屉进入设置
+    假如 应用已启动
+    当 打开会话抽屉
+    而且 从抽屉进入设置
+    那么 设置界面已显示
