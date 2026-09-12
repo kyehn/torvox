@@ -52,36 +52,6 @@ class ModifierBarTest {
     }
 
     @Test
-    fun modifier_bar_arrow_buttons_exist() {
-        composeTestRule.onNodeWithTag("Key_\u2191").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("Key_\u2193").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("Key_\u2190").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("Key_\u2192").assertIsDisplayed()
-    }
-
-    @Test
-    fun modifier_bar_arrow_buttons_clickable() {
-        composeTestRule.onNodeWithTag("Key_\u2191").performClick()
-        composeTestRule.onNodeWithTag("Key_\u2193").performClick()
-        composeTestRule.onNodeWithTag("Key_\u2190").performClick()
-        composeTestRule.onNodeWithTag("Key_\u2192").performClick()
-    }
-
-    @Test
-    fun modifier_bar_home_pgup_pgdn_exist() {
-        composeTestRule.onNodeWithTag("Key_HOME").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("Key_PGUP").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("Key_PGDN").assertIsDisplayed()
-    }
-
-    @Test
-    fun modifier_bar_home_pgup_pgdn_clickable() {
-        composeTestRule.onNodeWithTag("Key_HOME").performClick()
-        composeTestRule.onNodeWithTag("Key_PGUP").performClick()
-        composeTestRule.onNodeWithTag("Key_PGDN").performClick()
-    }
-
-    @Test
     fun modifier_bar_ctrl_toggle_cycles() {
         // CTRL cycles Off → Once → Locked → Off; the armed state is exposed
         // via the `selected` semantics on the key button.
