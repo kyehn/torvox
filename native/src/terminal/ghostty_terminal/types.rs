@@ -20,15 +20,13 @@ pub struct SearchMatch {
     pub end_col: u32,
 }
 
-/// Cursor style enum — replaces the deleted terminal_core::cursor::CursorStyle.
-/// Ghostty is the single source of truth for cursor style.
+/// Cursor style. Ghostty is the single source of truth for cursor style,
+/// but the spec pins the cursor to the default block: the snapshot
+/// conversion maps every upstream style to [`CursorStyle::Block`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorStyle {
     #[default]
-    Default,
     Block,
-    Bar,
-    Underline,
 }
 
 /// Selection mode — used by the renderer for selection rendering.
@@ -186,18 +184,6 @@ pub struct DumpedGrid {
     pub scrollback: Vec<Vec<CellSnapshot>>,
 }
 
-/// Semantic classification of terminal content for clipboard copy behavior.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum SemanticContent {
-    /// Normal terminal output.
-    #[default]
-    Output,
-    /// User-typed input.
-    Input,
-    /// Command prompt text.
-    Prompt,
-}
-
 /// A snapshot of a single terminal cell for serialization across FFI.
 #[derive(Clone, Debug, Default)]
 pub struct CellSnapshot {
@@ -214,7 +200,6 @@ pub struct CellSnapshot {
     pub blink: bool,
     pub hidden: bool,
     pub uri: Option<String>,
-    pub semantic: SemanticContent,
     pub overline: bool,
     pub double_underline: bool,
     pub width: u8,
@@ -250,7 +235,6 @@ static DEFAULT_CELL: CellSnapshot = CellSnapshot {
     blink: false,
     hidden: false,
     uri: None,
-    semantic: SemanticContent::Output,
     overline: false,
     double_underline: false,
     width: 1,

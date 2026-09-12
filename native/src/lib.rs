@@ -4,23 +4,7 @@
 //! android-gui crates into a single unit for faster compilation and simpler
 //! cross-module refactoring.
 //!
-//! ## Feature flags
-//!
-//! | Feature   | Deps pulled | Purpose | Default |
-//! |-----------|-------------|---------|---------|
-//! | `mcp`     | tower-mcp, axum, tokio, schemars | Embed MCP server (dialog/pickfile/clipboard tools) | **on** (default) |
-//! | `test-util` | `mcp` + bytemuck | Enable test-only types (FlatGrid, SearchHighlight) | off |
-//!
-//! ```text
-//! # Dev / CI (run tests with MCP support)
-//! cargo test --features test-util
-//!
-//! # Production (Android release — MCP compiled in, disabled at runtime)
-//! cargo build --release
-//! ```
-//!
-//! The MCP server is compiled by default but *not started* until the user
-//! enables it in settings (`MCP_ENABLED` starts `false`).
+//! No feature flags — every capability is always compiled in.
 //!
 //! ## Module hierarchy
 //!
@@ -29,9 +13,7 @@
 //! ├── terminal/       — Ghostty VT parsing, PTY management, Session
 //! ├── render/         — wgpu pipeline, cosmic-text shaping, swash glyphs
 //! ├── android/        — JNI FFI exports, NDK bridge, logging
-//! ├── mcp/            — MCP server (feature-gated, tower-mcp)
-//! ├── test/           — LiveTest TCP protocol (cfg(test) only)
-//! └── screenshot_tests — included into render::tests
+//! └── (unit tests live beside the code under `#[cfg(test)]`)
 //! ```
 
 pub mod event;
@@ -48,14 +30,6 @@ pub mod android;
 /// Platform-independent logcat chunking. Kept outside the
 /// `android` module so the exact algorithm is unit-testable on the host.
 pub mod log_chunk;
-
-// ── MCP (JSON-RPC over Unix socket for local IPC) ────────────────────────
-#[cfg(feature = "mcp")]
-pub mod mcp;
-
-// ── LiveTest TCP protocol (test infrastructure, cfg(test) only) ──────────
-#[cfg(test)]
-pub mod test;
 
 #[cfg(test)]
 mod prop_tests;

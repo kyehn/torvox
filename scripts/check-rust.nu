@@ -4,5 +4,5 @@ def main [] {
     cargo fmt --check
     cargo clippy --all -- --deny warnings
     cargo test --workspace
-    cargo test -p native --lib --test-threads 1
+    cargo test -p native --lib -- --test-threads 1
 }

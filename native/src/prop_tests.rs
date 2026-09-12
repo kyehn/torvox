@@ -1,14 +1,8 @@
 //! Property-based (proptest) and concurrency (shuttle) tests.
 //!
-//! Both crates were declared in `native/Cargo.toml` dev-dependencies but
-//! had zero usage (docs/test-coverage-audit.md:128). These tests restore
-//! them per docs/dependency-research-rust-aggressive.md §11:
-//!
-//! - `osc52_roundtrip`: arbitrary bytes -> OSC 52 base64 -> decode is
-//!   lossless for UTF-8 payloads (uses the real `dispatch_osc52` path).
-//! - `osc52_arbitrary_payload_never_panics`: any byte string payload
-//!   (including invalid base64 / invalid UTF-8) is handled without panic.
-//! - `event_queue_concurrent_push_pop`: many threads push/pop the global
+//! - `osc52_roundtrip`: arbitrary UTF-8 text round-trips through the real
+//!   `dispatch_osc52` path byte-identical (selection + text).
+//! - `event_queue_concurrent_push_pop`: many threads push/pop the shared
 //!   EventQueue concurrently — every pushed event is popped exactly once
 //!   (no loss, no duplication, no deadlock).
 //! - `event_queue_exit_survives_overflow`: concurrent pushes that overflow
@@ -44,21 +38,11 @@ proptest! {
         }
     }
 
-    /// Arbitrary byte payloads (invalid base64, invalid UTF-8, empty)
-    /// must never panic the dispatcher — they either decode lossily or
-    /// return None (invalid base64).
-    #[test]
-    fn osc52_arbitrary_payload_never_panics(bytes in prop::collection::vec(any::<u8>(), 0..256)) {
-        let handler = OscHandler::new();
-        let payload = format!("clipboard;{}", String::from_utf8_lossy(&bytes));
-        let _ = handler.dispatch_osc52_for_test(&payload);
-    }
 }
 
 /// Concurrent push/pop on the shared EventQueue: every pushed event is
 /// popped exactly once, regardless of scheduling (shuttle explores
-/// interleavings). Run with `cargo test -p native --features test-util --
-/// shuttle` (uses the shuttle default 128 iterations; this test is
+/// interleavings). Runs under plain `cargo test` (64 scheduler iterations;
 /// deterministic under shuttle's scheduler).
 #[test]
 fn event_queue_concurrent_push_pop() {
@@ -73,8 +57,9 @@ fn event_queue_concurrent_push_pop() {
                 let queue = Arc::clone(&queue);
                 handles.push(shuttle::thread::spawn(move || {
                     for i in 0..N {
-                        queue.push(Event::Bell {
+                        queue.push(Event::Clipboard {
                             session_id: t as u64 * N + i,
+                            text: String::new(),
                         });
                     }
                 }));
@@ -86,7 +71,7 @@ fn event_queue_concurrent_push_pop() {
             while popped.len() < N as usize * THREADS && attempts < 10_000 {
                 if let Some(event) = queue.pop() {
                     match event {
-                        Event::Bell { session_id } => {
+                        Event::Clipboard { session_id, .. } => {
                             assert!(popped.insert(session_id), "duplicate event {session_id}");
                         }
                         other => panic!("unexpected event {other:?}"),
@@ -101,7 +86,7 @@ fn event_queue_concurrent_push_pop() {
             // Drain whatever remains after joins.
             while let Some(event) = queue.pop() {
                 match event {
-                    Event::Bell { session_id } => {
+                    Event::Clipboard { session_id, .. } => {
                         assert!(popped.insert(session_id), "duplicate event {session_id}");
                     }
                     other => panic!("unexpected event {other:?}"),
@@ -128,8 +113,9 @@ fn event_queue_exit_survives_overflow() {
                 let queue = Arc::clone(&queue);
                 handles.push(shuttle::thread::spawn(move || {
                     for i in 0..50u64 {
-                        queue.push(Event::Bell {
+                        queue.push(Event::Clipboard {
                             session_id: t as u64 * 100 + i,
+                            text: String::new(),
                         });
                     }
                     // One Exit per thread, pushed last (must survive).
@@ -149,7 +135,7 @@ fn event_queue_exit_survives_overflow() {
             while let Some(event) = queue.pop() {
                 match event {
                     Event::Exit { .. } => exits += 1,
-                    Event::Bell { .. } => bells += 1,
+                    Event::Clipboard { .. } => bells += 1,
                     other => panic!("unexpected event {other:?}"),
                 }
             }

@@ -4,7 +4,7 @@
 //! sub-module performs text shaping (cosmic-text), glyph rasterization (swash),
 //! and atlas packing (guillotiere); [`context`] owns the `Renderer` struct;
 //! `pipeline` builds wgpu pipelines; `pass` drives per-frame rendering;
-//! `surface` manages Android surface lifecycle.
+//! [`context`] owns the Android surface lifecycle.
 //!
 //! The atlas alpha-coverage texture uses `Rgba8Unorm` (R channel = coverage,
 //! GBA = 0), a **linear** (non-sRGB) format; glyph coverage data is already in
@@ -14,7 +14,6 @@
 //! - FR-050 — Android surface lifecycle (attach/detach) recreates the wgpu surface and pipeline
 
 // ── Sub-modules ──────────────────────────────────────────────────────────
-pub mod cpu_frame;
 pub mod font;
 pub mod invalidation;
 #[cfg(not(target_os = "android"))]
@@ -24,14 +23,11 @@ pub(crate) mod cell_builder;
 pub mod context;
 mod pass;
 mod pipeline;
-pub(crate) mod snapshot_reference;
 // Off-screen render-verification path (research-wgpu-example §6.1/§6.2):
 // procedural geometry + depth-attached LOD grid are crate-test-only — the
 // production `Renderer` keeps zero depth attachments (2D terminal rendering
 // needs none), so this module must not ship in the normal build or leak into
 // the native integration tests (which enable `test-util`).
-#[cfg(test)]
-pub(crate) mod procedural_geometry;
 pub(crate) mod wgpu_backend;
 
 #[cfg(test)]
@@ -46,28 +42,17 @@ pub use context::FrameContext;
 pub use context::Renderer;
 pub use context::apply_scroll_px_offset;
 pub use context::orthographic_projection;
-pub use cpu_frame::{CpuCell, CpuCursor, CpuFrame, TextHit, TextItem};
 pub use invalidation::{FrameInvalidation, InvalidationLevel};
 #[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
 pub use pipeline::{GpuUniforms, image_active_value};
-#[cfg(test)]
-#[allow(unused_imports)]
-pub(crate) use snapshot_reference::{
-    FlatGrid, SnapshotConfig, build_cell_instances_from_flat, build_cell_instances_from_snapshot,
-    build_cell_instances_into, color_f32x4_eq,
-};
 
-/// Serialises GPU/CPU benchmarks: under software Vulkan (Mesa Lavapipe)
-/// each test creates its own wgpu device, and parallel benchmarks contend
-/// for CPU so hard throughput thresholds become flaky. The lock is held
-/// for the whole benchmark body, guaranteeing one benchmark at a time
-/// scroll bench joined the lock for the same reason).
+/// Serialises GPU benchmarks: under software Vulkan (Mesa Lavapipe) each
+/// test creates its own wgpu device, and parallel benchmarks contend for
+/// CPU so hard throughput thresholds become flaky. The lock is held for
+/// the whole benchmark body, guaranteeing one benchmark at a time.
 #[cfg(test)]
-#[cfg_attr(not(test), allow(dead_code))]
-// Only referenced from #[cfg(test)] benches; the lib build with
-// `--features test-util` (clippy) has no callers.
 pub(crate) static GPU_BENCH_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 // ── Public Constants ─────────────────────────────────────────────────────
@@ -183,20 +168,14 @@ impl KittyGraphicsInstance {
     }
 }
 
-// ── Test-util surface for the native integration tests ─────────────────────
-// The `terminal_render_test` target enables `test-util` (via required-features)
-// and reaches the render internals (reference snapshot path + instance types)
-// through this single module.
+// ── Re-export surface for benches and render tests ─────────────────────────
+// Benches and in-crate tests reach the render internals (instance types +
+// builders) through this single module.
 pub mod gpu {
     pub use super::cell_builder::{CellCursor, CellInstanceConfig, build_instances_from_cell_data};
     pub use super::cell_builder::{CellRun, SearchHighlight, SelectionRange, build_row_runs};
     pub use super::context::{Renderer, orthographic_projection};
     pub use super::pipeline::{GpuUniforms, image_active_value};
-    #[cfg(test)]
-    pub use super::snapshot_reference::{
-        FlatGrid, SnapshotConfig, build_cell_instances_from_flat,
-        build_cell_instances_from_snapshot, build_cell_instances_into,
-    };
     pub use super::{
         CATPPUCCIN_MOCHA_BG, CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE,
     };

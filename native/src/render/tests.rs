@@ -144,58 +144,6 @@ fn cell_instance_buffer_layout() {
 }
 
 #[test]
-fn flat_grid_new() {
-    let grid = FlatGrid::new(10, 20);
-    assert_eq!(grid.rows, 10);
-    assert_eq!(grid.cols, 20);
-    assert_eq!(grid.chars.len(), 200);
-    assert!(grid.chars.iter().all(|&c| c == ' '));
-}
-
-#[test]
-fn flat_grid_set_and_get_cell() {
-    let mut grid = FlatGrid::new(5, 5);
-    let foreground = [1.0, 0.0, 0.0, 1.0];
-    let background = [0.0, 0.0, 0.0, 1.0];
-    grid.set_cell(2, 3, 'A', foreground, background);
-
-    let (character, foreground_out, background_out) = grid.cell(2, 3).unwrap();
-    assert_eq!(character, 'A');
-    assert!(f32_arrays_equal(&foreground_out, &foreground));
-    assert!(f32_arrays_equal(&background_out, &background));
-}
-
-#[test]
-fn flat_grid_out_of_bounds() {
-    let grid = FlatGrid::new(3, 3);
-    assert!(grid.cell(3, 0).is_none());
-    assert!(grid.cell(0, 3).is_none());
-}
-
-#[test]
-fn build_cell_instances_from_flat_basic() {
-    let mut grid = FlatGrid::new(1, 4);
-    grid.set_cell(0, 0, 'A', [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0]);
-    grid.set_cell(0, 1, ' ', [0.0, 0.0, 0.0, 0.0], [0.5, 0.5, 0.5, 1.0]);
-    grid.set_cell(0, 2, 'B', [0.0, 1.0, 0.0, 1.0], [0.2, 0.2, 0.2, 1.0]);
-    grid.set_cell(0, 3, 'C', [1.0, 0.0, 1.0, 1.0], [0.3, 0.3, 0.3, 1.0]);
-
-    let mut font_pipeline = ascii_font();
-    let (cell_w, _cell_h) = font_pipeline.cell_metrics();
-
-    let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
-    assert_eq!(instances.len(), 4);
-
-    let cell0 = &instances[0];
-    assert!(f32_arrays_equal(&cell0.quad_origin, &[0.0, 0.0]));
-    assert!(f32_arrays_equal(&cell0.bg_color, &[0.0, 0.0, 0.0, 1.0]));
-
-    let cell1 = &instances[1];
-    assert!(f32_arrays_equal(&cell1.quad_origin, &[cell_w, 0.0]));
-    assert!(f32_arrays_equal(&cell1.bg_color, &[0.5, 0.5, 0.5, 1.0]));
-}
-
-#[test]
 fn cell_instance_pod_roundtrip() {
     let c = CellInstance {
         quad_origin: [1.0, 2.0],
@@ -222,29 +170,6 @@ fn cell_instance_zeroable() {
     assert!(f32_arrays_equal(&c.fg_color, &[0.0, 0.0, 0.0, 0.0]));
     assert!(f32_eq(c.flags, 0.0));
     assert!(f32_arrays_equal(&c.bearing, &[0.0, 0.0]));
-}
-
-#[test]
-fn color_f32x4_eq_exact_match() {
-    assert!(color_f32x4_eq([1.0, 0.5, 0.0, 1.0], [1.0, 0.5, 0.0, 1.0]));
-}
-
-#[test]
-fn color_f32x4_eq_mismatch() {
-    assert!(!color_f32x4_eq([1.0, 0.0, 0.0, 1.0], [0.0, 1.0, 0.0, 1.0]));
-}
-
-#[test]
-fn color_f32x4_eq_zero_vs_near_zero() {
-    assert!(!color_f32x4_eq(
-        [0.0, 0.0, 0.0, 0.0],
-        [0.0001, 0.0, 0.0, 0.0]
-    ));
-}
-
-#[test]
-fn color_f32x4_eq_negative_zero() {
-    assert!(!color_f32x4_eq([0.0, 0.0, 0.0, 0.0], [-0.0, 0.0, 0.0, 0.0]));
 }
 
 #[test]
@@ -282,90 +207,6 @@ fn orthographic_projection_basic() {
     );
     assert!((result[1] - (0.98)).abs() < 1e-6, "result[1]={}", result[1]);
     assert!((result[3] - 1.0).abs() < 1e-6, "result[3]={}", result[3]);
-}
-
-#[test]
-fn flat_grid_zero_size() {
-    let grid = FlatGrid::new(0, 0);
-    assert_eq!(grid.chars.len(), 0);
-    assert_eq!(grid.foreground.len(), 0);
-}
-
-#[test]
-fn flat_grid_set_out_of_bounds_no_panic() {
-    let mut grid = FlatGrid::new(2, 2);
-    // out of bounds — should not panic, value not stored
-    grid.set_cell(100, 100, 'X', [1.0; 4], [0.0; 4]);
-    assert_eq!(grid.chars.len(), 4);
-}
-
-#[test]
-fn flat_grid_default_chars_are_spaces() {
-    let grid = FlatGrid::new(3, 3);
-    assert!(grid.chars.iter().all(|&c| c == ' '));
-}
-
-#[test]
-fn flat_grid_default_fg_is_white() {
-    let grid = FlatGrid::new(2, 2);
-    for f in &grid.foreground {
-        assert!(f32_arrays_equal(f, &[1.0, 1.0, 1.0, 1.0]));
-    }
-}
-
-#[test]
-fn flat_grid_default_bg_is_black() {
-    let grid = FlatGrid::new(2, 2);
-    for b in &grid.background {
-        assert!(f32_arrays_equal(b, &[0.0, 0.0, 0.0, 1.0]));
-    }
-}
-
-#[test]
-fn flat_grid_cell_after_set() {
-    let mut grid = FlatGrid::new(2, 2);
-    let foreground = [0.5, 0.6, 0.7, 1.0];
-    let background = [0.1, 0.2, 0.3, 1.0];
-    grid.set_cell(0, 0, 'H', foreground, background);
-    let (character, foreground_loaded, background_loaded) = grid.cell(0, 0).unwrap();
-    assert_eq!(character, 'H');
-    assert!(f32_arrays_equal(&foreground_loaded, &foreground));
-    assert!(f32_arrays_equal(&background_loaded, &background));
-}
-
-#[test]
-fn build_cell_instances_from_flat_empty() {
-    let grid = FlatGrid::new(0, 0);
-    let mut font = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font.rasterize_ascii();
-    let instances = build_cell_instances_from_flat(&grid, &mut font, 1024.0, 1024.0);
-    assert!(instances.is_empty());
-}
-
-#[test]
-fn build_cell_instances_from_flat_space_only() {
-    let grid = FlatGrid::new(1, 5);
-    let mut font = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font.rasterize_ascii();
-    let instances = build_cell_instances_from_flat(&grid, &mut font, 1024.0, 1024.0);
-    assert_eq!(instances.len(), 5);
-    // All spaces, atlas_size should be 0
-    for inst in &instances {
-        assert!(f32_arrays_equal(&inst.atlas_size, &[0.0, 0.0]));
-    }
-}
-
-#[test]
-fn build_cell_instances_from_flat_unicode_cjk() {
-    let mut grid = FlatGrid::new(1, 3);
-    grid.set_cell(0, 0, '中', [1.0; 4], [0.0; 4]);
-    grid.set_cell(0, 1, '文', [1.0; 4], [0.0; 4]);
-    let mut font = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-    font.rasterize_ascii();
-    let instances = build_cell_instances_from_flat(&grid, &mut font, 1024.0, 1024.0);
-    // 3 cells (CJK may or may not be rasterized, may or may not produce instances)
-    // Verify no panic
-    assert_eq!(instances.len(), 3);
 }
 
 #[test]
@@ -670,46 +511,56 @@ fn orthographic_projection_resize_gpu_uniforms() {
 
 #[test]
 fn cursor_rendering_on_visible_cursor() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![
-        CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![
+        CellData {
             codepoint: 'A' as u32,
-            ..Default::default()
+            width: 1,
+            grapheme_extra: [0; 7],
+            fg_color: [1.0, 1.0, 1.0, 1.0],
+            bg_color: [0.0, 0.0, 0.0, 1.0],
+            flags: 0,
+            row: 0,
+            col: 0,
         },
-        CellSnapshot {
+        CellData {
             codepoint: 0,
-            ..Default::default()
+            width: 1,
+            grapheme_extra: [0; 7],
+            fg_color: [1.0, 1.0, 1.0, 1.0],
+            bg_color: [0.0, 0.0, 0.0, 1.0],
+            flags: 0,
+            row: 0,
+            col: 1,
         },
     ];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 2,
-        cursor_visible: true,
-        cursor_style: CursorStyle::Block,
-        cells,
-        dirty: vec![true; 1],
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: true,
+        style: CursorStyle::Block,
+        color: Some([1.0, 1.0, 1.0, 1.0]),
     };
-    let cursor_color = Some([1.0, 1.0, 1.0, 1.0]);
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 2,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 0.0,
             selection: None,
             search_highlights: &[],
-            cursor_color,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 2);
     let cursor_cell = &instances[0];
     // Block cursor alpha = cursor_color[3] * 0.7 (CURSOR_BLOCK_ALPHA constant)
@@ -726,36 +577,44 @@ fn cursor_rendering_on_visible_cursor() {
 
 #[test]
 fn cursor_not_rendered_when_invisible() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![CellData {
         codepoint: 'A' as u32,
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0, 1.0, 1.0, 1.0],
+        bg_color: [0.0, 0.0, 0.0, 1.0],
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cells,
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: Some([1.0, 1.0, 1.0, 1.0]),
     };
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 0.0,
             selection: None,
             search_highlights: &[],
-            cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -766,44 +625,46 @@ fn cursor_not_rendered_when_invisible() {
 
 #[test]
 fn reverse_video_applied_to_blank_cell() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::{CellData, cell_flags};
     let mut font_pipeline = ascii_font();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let foreground = [1.0, 0.0, 0.0, 1.0];
     let background = [0.0, 0.0, 1.0, 1.0];
-    let cells = vec![CellSnapshot {
+    let cell_data = vec![CellData {
         codepoint: 0x20,
-        foreground,
-        background,
-        reverse: true,
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: foreground,
+        bg_color: background,
+        flags: 1 << cell_flags::REVERSE,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: false,
-        cursor_style: CursorStyle::Block,
-        dirty: vec![true],
-        cells,
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: Some([1.0, 1.0, 1.0, 1.0]),
     };
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 768.0,
             selection: None,
             search_highlights: &[],
-            cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // Reverse video swaps fg/bg: blank cell bg must become the foreground,
@@ -821,22 +682,25 @@ fn reverse_video_applied_to_blank_cell() {
 #[test]
 fn selection_swaps_fg_bg() {
     use super::SelectionRange;
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![CellData {
         codepoint: 'X' as u32,
-        foreground: [1.0, 0.0, 0.0, 1.0],
-        background: [0.0, 0.0, 0.0, 1.0],
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0, 0.0, 0.0, 1.0],
+        bg_color: [0.0, 0.0, 0.0, 1.0],
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: false,
-        cursor_style: CursorStyle::Block,
-        dirty: vec![true],
-        cells,
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
     };
     let selection = Some(SelectionRange {
         start_row: 0,
@@ -848,24 +712,24 @@ fn selection_swaps_fg_bg() {
         origin: None,
         is_empty: false,
     });
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 768.0,
             selection,
             search_highlights: &[],
-            cursor_color: None,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -885,7 +749,9 @@ fn selection_swaps_fg_bg() {
 /// (no centering, no clamping — the raw font baseline offset).
 #[test]
 fn bearing_y_uses_font_baseline_not_centering() {
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let ascent_pixels = font_pipeline.ascent_pixels();
 
     let chars = ['A', 'g', 'p', '.', ','];
@@ -893,9 +759,41 @@ fn bearing_y_uses_font_baseline_not_centering() {
         let info = font_pipeline.glyph_information(ch).expect("glyph exists");
         let expected_bearing_y = ascent_pixels - info.placement.top as f32;
 
-        let mut grid = FlatGrid::new(1, 1);
-        grid.set_cell(0, 0, ch, [1.0; 4], [0.0; 4]);
-        let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
+        let cell_data = vec![CellData {
+            codepoint: ch as u32,
+            width: 1,
+            grapheme_extra: [0; 7],
+            fg_color: [1.0; 4],
+            bg_color: [0.0; 4],
+            flags: 0,
+            row: 0,
+            col: 0,
+        }];
+        let cursor = crate::render::CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: CursorStyle::Block,
+            color: None,
+        };
+        let mut instances = Vec::new();
+        let built = crate::render::build_instances_from_cell_data(
+            &cell_data,
+            crate::render::gpu::CellInstanceConfig {
+                rows: 1,
+                cols: 1,
+                grid_cell_w: cell_w,
+                grid_cell_h: cell_h,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
+            &mut font_pipeline,
+            &mut instances,
+        );
+        assert!(built.is_some(), "production instance build failed");
         let cell = &instances[0];
 
         assert!(
@@ -910,16 +808,50 @@ fn bearing_y_uses_font_baseline_not_centering() {
 /// Verify bearing_x uses font's natural left side bearing, not centering.
 #[test]
 fn bearing_x_uses_font_natural_bearing() {
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
 
     let chars = ['A', 'i', 'l', 'W', 'M'];
     for ch in chars {
         let info = font_pipeline.glyph_information(ch).expect("glyph exists");
         let expected_bearing_x = info.placement.left as f32;
 
-        let mut grid = FlatGrid::new(1, 1);
-        grid.set_cell(0, 0, ch, [1.0; 4], [0.0; 4]);
-        let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
+        let cell_data = vec![CellData {
+            codepoint: ch as u32,
+            width: 1,
+            grapheme_extra: [0; 7],
+            fg_color: [1.0; 4],
+            bg_color: [0.0; 4],
+            flags: 0,
+            row: 0,
+            col: 0,
+        }];
+        let cursor = crate::render::CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: CursorStyle::Block,
+            color: None,
+        };
+        let mut instances = Vec::new();
+        let built = crate::render::build_instances_from_cell_data(
+            &cell_data,
+            crate::render::gpu::CellInstanceConfig {
+                rows: 1,
+                cols: 1,
+                grid_cell_w: cell_w,
+                grid_cell_h: cell_h,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
+            &mut font_pipeline,
+            &mut instances,
+        );
+        assert!(built.is_some(), "production instance build failed");
         let cell = &instances[0];
 
         assert!(
@@ -939,24 +871,58 @@ fn all_chars_share_same_baseline_y() {
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
 
     let chars = ['A', 'B', 'C', 'x', 'y', 'z', '0', '1', '9'];
-    let mut grid = FlatGrid::new(1, chars.len() as u32);
-    for (i, &ch) in chars.iter().enumerate() {
-        grid.set_cell(0, i as u32, ch, [1.0; 4], [0.0; 4]);
-    }
-    let instances = build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
+    let cell_data: Vec<crate::terminal::ghostty_terminal::CellData> = chars
+        .iter()
+        .enumerate()
+        .map(|(i, &ch)| crate::terminal::ghostty_terminal::CellData {
+            codepoint: ch as u32,
+            width: 1,
+            grapheme_extra: [0; 7],
+            fg_color: [1.0; 4],
+            bg_color: [0.0; 4],
+            flags: 0,
+            row: 0,
+            col: i as u32,
+        })
+        .collect();
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: chars.len() as u32,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
+            selection: None,
+            search_highlights: &[],
+        },
+        &mut font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), chars.len());
 
-    // All cells should have the same quad_size (cell dimensions)
-    for (i, inst) in instances.iter().enumerate() {
+    // All glyphs share one baseline: quad origin + bearing lands on the
+    // same text line for every character (no vertical misalignment).
+    let baselines: Vec<f32> = instances
+        .iter()
+        .map(|inst| inst.quad_origin[1] + inst.bearing[1])
+        .collect();
+    for (i, baseline) in baselines.iter().enumerate() {
         assert!(
-            (inst.quad_size[0] - cell_w).abs() < 0.1,
-            "cell[{i}] width={} should be {cell_w}",
-            inst.quad_size[0]
-        );
-        assert!(
-            (inst.quad_size[1] - cell_h).abs() < 0.1,
-            "cell[{i}] height={} should be {cell_h}",
-            inst.quad_size[1]
+            (baseline - baselines[0]).abs() < 1.0,
+            "cell[{i}] baseline={baseline} should match cell[0] baseline={}",
+            baselines[0]
         );
     }
 }
@@ -973,10 +939,43 @@ fn cjk_bearing_y_not_centered() {
         if let Some(info) = font_pipeline.glyph_information(ch) {
             let expected = ascent_pixels - info.placement.top as f32;
 
-            let mut grid = FlatGrid::new(1, 2);
-            grid.set_cell(0, 0, ch, [1.0; 4], [0.0; 4]);
-            let instances =
-                build_cell_instances_from_flat(&grid, &mut font_pipeline, 1024.0, 1024.0);
+            let cell_data =
+                vec![crate::terminal::ghostty_terminal::CellData {
+                    codepoint: ch as u32,
+                    width: 2,
+                    grapheme_extra: [0; 7],
+                    fg_color: [1.0; 4],
+                    bg_color: [0.0; 4],
+                    flags: 0,
+                    row: 0,
+                    col: 0,
+                }];
+            let cursor = crate::render::CellCursor {
+                row: 0,
+                col: 0,
+                visible: false,
+                style: CursorStyle::Block,
+                color: None,
+            };
+            let (cell_w, cell_h) = font_pipeline.cell_metrics();
+            let mut instances = Vec::new();
+            let built = crate::render::build_instances_from_cell_data(
+                &cell_data,
+                crate::render::gpu::CellInstanceConfig {
+                    rows: 1,
+                    cols: 2,
+                    grid_cell_w: cell_w,
+                    grid_cell_h: cell_h,
+                    cursor,
+                    atlas_width: 1024.0,
+                    atlas_height: 1024.0,
+                    selection: None,
+                    search_highlights: &[],
+                },
+                &mut font_pipeline,
+                &mut instances,
+            );
+            assert!(built.is_some(), "production instance build failed");
             let cell = &instances[0];
 
             assert!(
@@ -1039,200 +1038,6 @@ fn setup_test_gpu_context_custom(
     });
     context.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
     context
-}
-
-#[test]
-fn ocr_verifies_rendered_text() {
-    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
-        return;
-    };
-    let width = 480u32;
-    let height = 60u32;
-    let atlas_dim = width.max(256);
-    let mut context = setup_test_gpu_context_custom(device, queue, width, height);
-    // Ensure GPU atlas dimensions match the font pipeline atlas (both must be square)
-    context.initialize_pipeline_and_bind_group(atlas_dim, atlas_dim, width, height);
-
-    let mut font_pipeline =
-        crate::render::font::FontPipeline::new(atlas_dim as i32, atlas_dim as i32, 14.0);
-
-    let mut fg = FlatGrid::new(1, 11);
-    fg.chars = "HELLO WORLD".chars().collect();
-    for col in 0..11 {
-        fg.foreground[col] = [1.0, 1.0, 1.0, 1.0];
-        fg.background[col] = [0.0, 0.0, 0.0, 1.0];
-    }
-
-    let instances =
-        build_cell_instances_from_flat(&fg, &mut font_pipeline, atlas_dim as f32, atlas_dim as f32);
-    assert!(
-        !instances.is_empty(),
-        "build_cell_instances_from_flat returned 0 instances - font/glyph load failure"
-    );
-    context.upload_atlas(font_pipeline.atlas_bitmap(), atlas_dim, atlas_dim, None);
-    let pixels = context
-        .render_to_buffer(&instances, &[])
-        .expect("wgpu render must succeed");
-
-    assert_eq!(
-        pixels.len(),
-        (width * height * 4) as usize,
-        "render output size mismatch"
-    );
-
-    let has_white = pixels
-        .chunks(4)
-        .any(|p| p[0] > 200 && p[1] > 200 && p[2] > 200);
-    assert!(
-        has_white,
-        "rendered output should contain non-black pixels (text)"
-    );
-
-    let dir = std::env::temp_dir().join("ocr-test");
-    if let Err(error) = std::fs::create_dir_all(&dir) {
-        log::error!("gpu: failed to create dir {dir:?}: {error}");
-    }
-    let raw_path = dir.join("helloworld.raw");
-    let meta_path = dir.join("helloworld.meta");
-    if let Err(error) = std::fs::write(&raw_path, &pixels) {
-        log::error!("gpu: failed to write GPU debug data to {raw_path:?}: {error}");
-    }
-    if let Err(error) = std::fs::write(&meta_path, format!("{width}\n{height}")) {
-        log::error!("gpu: failed to write GPU debug data to {meta_path:?}: {error}");
-    }
-
-    let ppm_path = dir.join("helloworld.png");
-    save_png(&pixels, width, height, &ppm_path);
-
-    let ppm_ocr = std::process::Command::new("rapidocr")
-        .args(["-img", ppm_path.to_str().unwrap_or("")])
-        .output()
-        .expect("rapidocr CLI must be available");
-    let stdout = String::from_utf8_lossy(&ppm_ocr.stdout);
-    let stderr = String::from_utf8_lossy(&ppm_ocr.stderr);
-    let combined = format!("stdout:\n{stdout}stderr:\n{stderr}");
-    assert!(
-        stdout.to_uppercase().contains("HELLO"),
-        "OCR should find HELLO in wgpu-rendered text.\n{combined}"
-    );
-
-    let out_dir = {
-        let mut p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-        p.push("test-screenshots");
-        p
-    };
-    if let Err(error) = std::fs::create_dir_all(&out_dir) {
-        log::error!("gpu: failed to create dir {out_dir:?}: {error}");
-    }
-    let repo_png = out_dir.join("OCR_RENDERED_TEXT.png");
-    save_png(&pixels, width, height, &repo_png);
-}
-
-#[test]
-fn gpu_background_solid_image_opaque() {
-    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
-        return;
-    };
-    let mut context = setup_test_gpu_context(device, queue);
-
-    let pixel = [255u8, 0, 0, 255];
-    let pixels: Vec<u8> = pixel.repeat(50 * 50);
-    context.set_bg_image(&pixels, 50, 50);
-    context.set_background_params(0.0, 1.0);
-    context.ensure_bg_pipeline(50, 50);
-
-    // render_to_buffer must not panic — bg pipeline initialization is valid
-    let result = context
-        .render_to_buffer(&[], &[])
-        .expect("wgpu render must succeed");
-
-    // Verify render produced valid RGBA data (50×50×4 bytes)
-    assert_eq!(result.len(), 50 * 50 * 4, "bg opaque render output size");
-
-    // Center pixel must be fully opaque red
-    let idx = (25 * 50 + 25) * 4;
-    assert_eq!(
-        result[idx],
-        255,
-        "bg opaque center pixel should be red, got ({},{},{},{})",
-        result[idx],
-        result[idx + 1],
-        result[idx + 2],
-        result[idx + 3]
-    );
-    assert_eq!(
-        result[idx + 3],
-        255,
-        "bg opaque center pixel should be fully opaque, got ({},{},{},{})",
-        result[idx],
-        result[idx + 1],
-        result[idx + 2],
-        result[idx + 3]
-    );
-}
-
-#[test]
-fn gpu_background_solid_image_transparent() {
-    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
-        return;
-    };
-    let mut context = setup_test_gpu_context(device, queue);
-
-    let pixel = [255u8, 0, 0, 255];
-    let pixels: Vec<u8> = pixel.repeat(50 * 50);
-    context.set_bg_image(&pixels, 50, 50);
-    context.set_background_params(0.0, 0.5);
-    context.ensure_bg_pipeline(50, 50);
-
-    // render_to_buffer must not panic
-    let result = context
-        .render_to_buffer(&[], &[])
-        .expect("wgpu render must succeed");
-
-    assert_eq!(
-        result.len(),
-        50 * 50 * 4,
-        "bg transparent render output size"
-    );
-    let idx = (25 * 50 + 25) * 4;
-    // Bg pass alpha-blends the wallpaper over the cleared
-    // bg_color (Catppuccin ~30,30,46). At alpha=0.5 the center pixel is
-    // 255*0.5 + 30*0.5 = 142 (red), 0*0.5 + 30*0.5 = 15 (green),
-    // 0*0.5 + 46*0.5 = 23 (blue). The alpha channel composites over the
-    // opaque clear (alpha=1): 0.5*1 + 1.0*0.5 = 1.0 -> 255.
-    assert!(
-        (140..=145).contains(&result[idx]),
-        "bg transparent center red should be ~142 (alpha=0.5), got ({},{},{},{})",
-        result[idx],
-        result[idx + 1],
-        result[idx + 2],
-        result[idx + 3]
-    );
-    assert!(
-        (12..=18).contains(&result[idx + 1]),
-        "bg transparent center green should be ~15, got ({},{},{},{})",
-        result[idx],
-        result[idx + 1],
-        result[idx + 2],
-        result[idx + 3]
-    );
-    assert!(
-        (20..=26).contains(&result[idx + 2]),
-        "bg transparent center blue should be ~23, got ({},{},{},{})",
-        result[idx],
-        result[idx + 1],
-        result[idx + 2],
-        result[idx + 3]
-    );
-    assert_eq!(
-        result[idx + 3],
-        255,
-        "bg transparent center alpha should stay opaque over the clear, got ({},{},{},{})",
-        result[idx],
-        result[idx + 1],
-        result[idx + 2],
-        result[idx + 3]
-    );
 }
 
 #[test]
@@ -1303,22 +1108,25 @@ fn blend_highlight_semi_transparent() {
 
 #[test]
 fn search_highlight_blends_on_non_cursor_cell() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![CellData {
         codepoint: 'X' as u32,
-        foreground: [1.0, 1.0, 1.0, 1.0],
-        background: [0.0, 0.0, 0.0, 1.0],
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0, 1.0, 1.0, 1.0],
+        bg_color: [0.0, 0.0, 0.0, 1.0],
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: false,
-        cursor_style: CursorStyle::Block,
-        dirty: vec![true],
-        cells,
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
     };
     let highlights = vec![SearchHighlight {
         row: 0,
@@ -1326,24 +1134,24 @@ fn search_highlight_blends_on_non_cursor_cell() {
         end_col_exclusive: 1,
         color: [255, 0, 0, 128],
     }];
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 768.0,
             selection: None,
             search_highlights: &highlights,
-            cursor_color: None,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -1355,22 +1163,25 @@ fn search_highlight_blends_on_non_cursor_cell() {
 
 #[test]
 fn cursor_cell_not_affected_by_search_highlight() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![CellData {
         codepoint: 'A' as u32,
-        foreground: [0.0, 1.0, 0.0, 1.0],
-        background: [0.0, 0.0, 0.0, 1.0],
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [0.0, 1.0, 0.0, 1.0],
+        bg_color: [0.0, 0.0, 0.0, 1.0],
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: true,
-        cursor_style: CursorStyle::Block,
-        dirty: vec![true],
-        cells,
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: true,
+        style: CursorStyle::Block,
+        color: Some([0.5, 0.5, 1.0, 1.0]),
     };
     let highlights = vec![SearchHighlight {
         row: 0,
@@ -1378,24 +1189,24 @@ fn cursor_cell_not_affected_by_search_highlight() {
         end_col_exclusive: 1,
         color: [200, 0, 0, 200],
     }];
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 0.0,
             selection: None,
             search_highlights: &highlights,
-            cursor_color: Some([0.5, 0.5, 1.0, 1.0]),
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -1670,22 +1481,25 @@ fn selection_intersect_current_match_double_swap() {
     // SearchHighlightColors.CURRENT_MATCH_ALPHA) swaps AGAIN, so the two
     // swaps cancel — the cell keeps its original foreground while the
     // background becomes the fully-opaque highlight color.
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![CellData {
         codepoint: 'X' as u32,
-        foreground: [1.0, 1.0, 1.0, 1.0], // white text
-        background: [0.0, 0.0, 0.0, 1.0], // black background
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0, 1.0, 1.0, 1.0], // white text
+        bg_color: [0.0, 0.0, 0.0, 1.0], // black background
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: false,
-        cursor_style: CursorStyle::Block,
-        dirty: vec![true],
-        cells,
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
     };
     let highlights = vec![SearchHighlight {
         row: 0,
@@ -1703,24 +1517,24 @@ fn selection_intersect_current_match_double_swap() {
         origin: None,
         is_empty: false,
     };
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 768.0,
             selection: Some(selection),
             search_highlights: &highlights,
-            cursor_color: None,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // Double swap cancels: the text keeps its ORIGINAL foreground...
@@ -1741,187 +1555,99 @@ fn selection_intersect_current_match_double_swap() {
 
 #[test]
 fn cursor_block_full_cell_size() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let cells = vec![CellSnapshot {
+    let cell_data = vec![CellData {
         codepoint: 0x20,
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0, 1.0, 1.0, 1.0],
+        bg_color: [0.0, 0.0, 0.0, 1.0],
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: true,
-        cursor_style: CursorStyle::Block,
-        cells,
-        dirty: vec![true],
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: true,
+        style: CursorStyle::Block,
+        color: Some([1.0, 1.0, 1.0, 1.0]),
     };
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 768.0,
             selection: None,
             search_highlights: &[],
-            cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
+    // Production block cursor tracks the glyph bitmap (not the full cell):
+    // full cell width, glyph height, placed inside the cell.
     assert!(
         f32_eq(cell.quad_size[0], cell_w),
         "Block cursor width should equal cell width"
     );
     assert!(
-        f32_eq(cell.quad_size[1], cell_h),
-        "Block cursor height should equal cell height"
-    );
-}
-
-#[test]
-fn cursor_bar_width_ratio() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let cells = vec![CellSnapshot {
-        codepoint: 0x20,
-        ..Default::default()
-    }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: true,
-        cursor_style: CursorStyle::Bar,
-        cells,
-        dirty: vec![true],
-        ..Default::default()
-    };
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            projection_height: 768.0,
-            selection: None,
-            search_highlights: &[],
-            cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
-            cursor_style: CursorStyle::Bar,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
-    assert_eq!(instances.len(), 1);
-    let cell = &instances[0];
-    let expected_w = cell_w * 0.15;
-    assert!(
-        (cell.quad_size[0] - expected_w).abs() < 0.01,
-        "Bar cursor width should be {expected_w}, got {}",
-        cell.quad_size[0]
-    );
-    assert!(
-        f32_eq(cell.quad_size[1], cell_h),
-        "Bar cursor height should equal cell height"
-    );
-}
-
-#[test]
-fn cursor_underline_height_ratio() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let cells = vec![CellSnapshot {
-        codepoint: 0x20,
-        ..Default::default()
-    }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: true,
-        cursor_style: CursorStyle::Underline,
-        cells,
-        dirty: vec![true],
-        ..Default::default()
-    };
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            projection_height: 768.0,
-            selection: None,
-            search_highlights: &[],
-            cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
-            cursor_style: CursorStyle::Underline,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
-    assert_eq!(instances.len(), 1);
-    let cell = &instances[0];
-    let expected_h = cell_h * 0.15;
-    assert!(
-        (cell.quad_size[1] - expected_h).abs() < 0.01,
-        "Underline cursor height should be {expected_h}, got {}",
+        cell.quad_size[1] > 0.0 && cell.quad_size[1] <= cell_h,
+        "Block cursor height should cover the glyph within the cell, got {}",
         cell.quad_size[1]
-    );
-    assert!(
-        f32_eq(cell.quad_size[0], cell_w),
-        "Underline cursor width should equal cell width"
     );
 }
 
 #[test]
 fn cursor_not_rendered_when_visible_false() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![CellData {
         codepoint: 0x20,
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0, 1.0, 1.0, 1.0],
+        bg_color: [0.0, 0.0, 0.0, 1.0],
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: false,
-        cursor_style: CursorStyle::Block,
-        cells,
-        dirty: vec![true],
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: Some([1.0, 1.0, 1.0, 1.0]),
     };
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 768.0,
             selection: None,
             search_highlights: &[],
-            cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // Non-cursor blank cell uses default background, not cursor color
@@ -1933,41 +1659,44 @@ fn cursor_not_rendered_when_visible_false() {
 
 #[test]
 fn cursor_at_origin() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![CellData {
         codepoint: 'A' as u32,
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0, 1.0, 1.0, 1.0],
+        bg_color: [0.0, 0.0, 0.0, 1.0],
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: true,
-        cursor_row: 0,
-        cursor_col: 0,
-        cursor_style: CursorStyle::Block,
-        cells,
-        dirty: vec![true],
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: true,
+        style: CursorStyle::Block,
+        color: Some([1.0, 1.0, 1.0, 1.0]),
     };
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 24.0,
             selection: None,
             search_highlights: &[],
-            cursor_color: Some([1.0, 1.0, 1.0, 1.0]),
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(
         instances.len(),
         1,
@@ -1982,48 +1711,50 @@ fn cursor_at_origin() {
 
 #[test]
 fn cursor_with_text_and_block_style() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![CellData {
         codepoint: 'X' as u32,
-        foreground: [0.0, 1.0, 0.0, 1.0],
-        background: [0.0, 0.0, 1.0, 1.0],
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [0.0, 1.0, 0.0, 1.0],
+        bg_color: [0.0, 0.0, 1.0, 1.0],
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: true,
-        cursor_style: CursorStyle::Block,
-        cells,
-        dirty: vec![true],
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: true,
+        style: CursorStyle::Block,
+        color: Some([1.0, 1.0, 1.0, 1.0]),
     };
-    let cursor_color = Some([1.0, 1.0, 1.0, 1.0]);
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 24.0,
             selection: None,
             search_highlights: &[],
-            cursor_color,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
-    // Block cursor swaps fg/bg: fg becomes original bg, bg becomes cursor color×alpha
+    // Block cursor keeps the original fg readable, bg becomes cursor color×alpha.
     assert!(
-        f32_arrays_equal(&cell.fg_color, &[0.0, 0.0, 1.0, 1.0]),
-        "block cursor on text: fg should be original bg"
+        f32_arrays_equal(&cell.fg_color, &[0.0, 1.0, 0.0, 1.0]),
+        "block cursor on text: fg should stay the original foreground"
     );
     assert!(
         f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
@@ -2032,143 +1763,45 @@ fn cursor_with_text_and_block_style() {
 }
 
 #[test]
-fn cursor_with_text_and_bar_style() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
-        codepoint: 'X' as u32,
-        foreground: [0.0, 1.0, 0.0, 1.0],
-        background: [0.0, 0.0, 1.0, 1.0],
-        ..Default::default()
-    }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: true,
-        cursor_style: CursorStyle::Bar,
-        cells,
-        dirty: vec![true],
-        ..Default::default()
-    };
-    let cursor_color = Some([1.0, 1.0, 1.0, 1.0]);
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            projection_height: 24.0,
-            selection: None,
-            search_highlights: &[],
-            cursor_color,
-            cursor_style: CursorStyle::Bar,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
-    assert_eq!(instances.len(), 1);
-    let cell = &instances[0];
-    // Bar cursor does NOT swap fg/bg — it just sets bg to cursor color
-    assert!(
-        f32_arrays_equal(&cell.fg_color, &[0.0, 1.0, 0.0, 1.0]),
-        "bar cursor on text: fg should be original foreground"
-    );
-    assert!(
-        f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.9]),
-        "bar cursor on text: bg should be cursor color with line alpha"
-    );
-}
-
-#[test]
-fn cursor_with_text_and_underline_style() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
-    let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
-        codepoint: 'X' as u32,
-        foreground: [0.0, 1.0, 0.0, 1.0],
-        background: [0.0, 0.0, 1.0, 1.0],
-        ..Default::default()
-    }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: true,
-        cursor_style: CursorStyle::Underline,
-        cells,
-        dirty: vec![true],
-        ..Default::default()
-    };
-    let cursor_color = Some([1.0, 1.0, 1.0, 1.0]);
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            projection_height: 24.0,
-            selection: None,
-            search_highlights: &[],
-            cursor_color,
-            cursor_style: CursorStyle::Underline,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
-    assert_eq!(instances.len(), 1);
-    let cell = &instances[0];
-    // Underline cursor does NOT swap fg/bg — it just sets bg to cursor color
-    assert!(
-        f32_arrays_equal(&cell.fg_color, &[0.0, 1.0, 0.0, 1.0]),
-        "underline cursor on text: fg should be original foreground"
-    );
-    assert!(
-        f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.9]),
-        "underline cursor on text: bg should be cursor color with line alpha"
-    );
-}
-
-#[test]
 fn cursor_color_custom_values() {
-    use crate::terminal::ghostty_terminal::{CellSnapshot, GridSnapshot};
+    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
-    let cells = vec![CellSnapshot {
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell_data = vec![CellData {
         codepoint: 0x20,
-        ..Default::default()
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0, 1.0, 1.0, 1.0],
+        bg_color: [0.0, 0.0, 0.0, 1.0],
+        flags: 0,
+        row: 0,
+        col: 0,
     }];
-    let snapshot = GridSnapshot {
-        rows: 1,
-        cols: 1,
-        cursor_visible: true,
-        cursor_style: CursorStyle::Block,
-        cells,
-        dirty: vec![true],
-        ..Default::default()
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: true,
+        style: CursorStyle::Block,
+        color: Some([0.5, 0.3, 0.8, 1.0]),
     };
-    let custom_color = Some([0.5, 0.3, 0.8, 1.0]);
-    let instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            projection_height: 24.0,
             selection: None,
             search_highlights: &[],
-            cursor_color: custom_color,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
         },
+        &mut font_pipeline,
+        &mut instances,
     );
+    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -2731,351 +2364,13 @@ fn bench_cjk_glyph_cache_warmup() {
     );
 }
 
-include!("screenshot_tests.rs");
-
-// ── Off-screen infinite-LOD grid verification (research-wgpu-example §6.1) ─
-// Renders the grid.wgsl shader through a Depth32Float attachment into an
-// off-screen color texture, reads the pixels back and asserts the grid is
-// visible near the camera while the far region fades to the clear color.
-// This exercises the depth attachment path without touching the `Renderer`
-// struct or the main render_frame/render_to_buffer paths.
-
-fn readback_pixels(
-    device: &wgpu::Device,
-    _queue: &wgpu::Queue,
-    buffer: &wgpu::Buffer,
-    width: u32,
-    height: u32,
-) -> Vec<u8> {
-    let slice = buffer.slice(..);
-    let (map_tx, map_rx) = std::sync::mpsc::channel();
-    slice.map_async(wgpu::MapMode::Read, move |r| {
-        let _ = map_tx.send(r);
-    });
-    let poll_start = std::time::Instant::now();
-    let map_result = loop {
-        let _ = device.poll(wgpu::PollType::Wait {
-            submission_index: None,
-            timeout: Some(std::time::Duration::from_millis(10)),
-        });
-        match map_rx.try_recv() {
-            Ok(result) => break result,
-            Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                panic!("readback map channel disconnected");
-            }
-        }
-        if poll_start.elapsed() > std::time::Duration::from_millis(500) {
-            panic!("readback map_async timed out");
-        }
-    };
-    map_result.expect("map_async failed");
-    let data = slice.get_mapped_range().expect("get_mapped_range").to_vec();
-    buffer.unmap();
-
-    let bytes_per_row = width as usize * 4;
-    let padded = bytes_per_row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize)
-        * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT as usize;
-    let mut flat = Vec::with_capacity((width * height * 4) as usize);
-    for row in 0..height as usize {
-        let row_start = row * padded;
-        flat.extend_from_slice(&data[row_start..row_start + bytes_per_row]);
-    }
-    flat
-}
-
-#[test]
-fn offscreen_grid_render_uses_depth_attachment() {
-    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
-        eprintln!("SKIP: no GPU available for offscreen grid render test");
-        return;
-    };
-    const W: u32 = 256;
-    const H: u32 = 256;
-
-    let color = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Grid Test Color"),
-        size: wgpu::Extent3d {
-            width: W,
-            height: H,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
-    let color_view = color.create_view(&wgpu::TextureViewDescriptor::default());
-
-    // The depth attachment is the feature under test.
-    let depth_view = crate::render::procedural_geometry::create_depth_texture(&device, W, H);
-
-    let (pipeline, bind_group_layout) =
-        crate::render::pipeline::create_grid_pipeline(&device, wgpu::TextureFormat::Rgba8Unorm);
-    // Capture any validation errors from pipeline creation (wgpu swallows
-    // them when validation is off, producing a pipeline that draws nothing).
-    let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
-    let oom_scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
-
-    // Camera at (3,3,3) looking down at the grid origin; grid quad spans
-    // ±10 * grid_size = ±40 units around the camera's XZ position.
-    let view = crate::render::procedural_geometry::look_at(
-        [3.0, 3.0, 3.0],
-        [0.0, 0.0, 0.0],
-        [0.0, 1.0, 0.0],
-    );
-    let proj = crate::render::procedural_geometry::perspective(
-        60f32.to_radians(),
-        W as f32 / H as f32,
-        0.1,
-        100.0,
-    );
-    let view_proj = crate::render::procedural_geometry::mat4_mul(proj, view);
-    let uniforms = crate::render::pipeline::GridUniforms::perspective(
-        view_proj,
-        [3.0, 3.0, 3.0],
-        4.0,
-        2.0,
-        1.0,
-    );
-    let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Grid Uniform Buffer"),
-        contents: bytemuck::bytes_of(&uniforms),
-        usage: wgpu::BufferUsages::UNIFORM,
-    });
-    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("Grid Bind Group"),
-        layout: &bind_group_layout,
-        entries: &[wgpu::BindGroupEntry {
-            binding: 0,
-            resource: uniform_buffer.as_entire_binding(),
-        }],
-    });
-
-    let bytes_per_row = W * 4;
-    let padded = bytes_per_row.div_ceil(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT)
-        * wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-    let readback = device.create_buffer(&wgpu::BufferDescriptor {
-        label: Some("Grid Readback Buffer"),
-        size: (padded as u64) * (H as u64),
-        usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-        mapped_at_creation: false,
-    });
-
-    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-        label: Some("Grid Test Encoder"),
-    });
-    {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Grid Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &color_view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &depth_view,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
-                    store: wgpu::StoreOp::Store,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        pass.set_pipeline(&pipeline);
-        pass.set_bind_group(0, &bind_group, &[]);
-        pass.draw(0..6, 0..1);
-    }
-    encoder.copy_texture_to_buffer(
-        wgpu::TexelCopyTextureInfo {
-            texture: &color,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        wgpu::TexelCopyBufferInfo {
-            buffer: &readback,
-            layout: wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(padded),
-                rows_per_image: Some(H),
-            },
-        },
-        wgpu::Extent3d {
-            width: W,
-            height: H,
-            depth_or_array_layers: 1,
-        },
-    );
-    queue.submit(std::iter::once(encoder.finish()));
-
-    // Report any validation errors surfaced while rendering.
-    if let Some(error) = futures::executor::block_on(oom_scope.pop()) {
-        eprintln!("GRID OOM ERROR: {error:?}");
-    }
-    if let Some(error) = futures::executor::block_on(validation_scope.pop()) {
-        eprintln!("GRID VALIDATION ERROR: {error:?}");
-    }
-
-    let pixels = readback_pixels(&device, &queue, &readback, W, H);
-    assert_eq!(pixels.len(), (W * H * 4) as usize);
-
-    // Grid lines must be visible: count pixels with a strong blue channel
-    // (grid_color_thick is (0.2, 0.4, 0.8)); blended over black at the
-    // thickest LODs this stays > 0.05 even on SwiftShader.
-    let blue_pixels = pixels
-        .chunks(4)
-        .filter(|p| p[2] > 13) // 0.05 * 255
-        .count();
-    assert!(
-        blue_pixels > 50,
-        "expected visible grid lines, only {blue_pixels} pixels with blue>0.05"
-    );
-
-    // The top quarter of the frame looks away from the grid plane (camera at
-    // (3,3,3) looks at the origin): the central columns must be close to the
-    // black clear color, proving the depth attachment cleared and no stray
-    // geometry covers the sky region. (Left/right edge columns are excluded:
-    // the grid shader's dpdx/dpdy derivatives misbehave at the frustum edge,
-    // producing a few stray alpha-blended pixels — a cosmetic artifact, not a
-    // depth-attachment issue.)
-    let top_brightness = region_total_brightness(&pixels, W, W / 4, 0, W / 2, H / 4);
-    let top_avg = top_brightness as f64 / (W as f64 / 2.0 * (H as f64 / 4.0) * 3.0);
-    assert!(
-        top_avg < 0.02,
-        "top region should be clear color, average brightness {top_avg:.4}"
-    );
-
-    // The center region (where the grid is) must be brighter than the sky.
-    let center_brightness = region_total_brightness(&pixels, W, W / 4, H / 2, W / 2, H / 4);
-    assert!(
-        center_brightness > 0,
-        "center region should contain grid content"
-    );
-}
-
-/// Contract: the GridSnapshot reference path (`snapshot_reference`) and the CellData
-/// production path (`cell_builder`) must agree on per-cell fg/bg colors
-/// for the same terminal state.
-///
-/// The two builders are independent implementations. Without this lock they
-/// silently drift — the `selection_bg` divergence (snapshot_reference still applying
-/// a theme color after the production path replaced it with inverse video)
-/// is a real historical instance of exactly that. Comparing colors only:
-/// geometry derives from each path's own config and is not a semantic.
-#[test]
-fn snapshot_and_cell_data_paths_agree_on_colors() {
-    use crate::render::cell_builder::{CellInstanceConfig, build_instances_from_cell_data};
-    use crate::terminal::ghostty_terminal::GhosttyTerminal;
-
-    let mut font_pipeline = ascii_font();
-
-    let mut term = GhosttyTerminal::new(24, 80, 1000).expect("terminal create");
-    // Mixed styling on one row: bold, plain, reverse, fg/bg colors, underline.
-    term.vt_write(b"\x1b[1mB\x1b[0m"); // bold
-    term.vt_write(b"A"); // plain
-    term.vt_write(b"\x1b[7mR\x1b[0m"); // reverse
-    term.vt_write(b"\x1b[31;44mX\x1b[0m"); // red fg / blue bg
-    term.vt_write(b"\x1b[4mU\x1b[0m"); // underline
-    term.vt_write(b"\x1b[2mD\x1b[0m"); // dim
-    while term.receive_cell_data().is_some() {}
-    term.flush();
-    let (cells, _cursor_info) = term.receive_cell_data().expect("cell data after flush");
-    let snapshot = term.take_snapshot();
-    // Cursor must be fed from ONE shared source on both paths. The
-    // production path takes it via CellCursor config, the reference path
-    // reads it from the snapshot itself; the two APIs do not promise
-    // identical cursor state (CursorInfo is a render-thread push, snapshot
-    // is on-demand), so feed both from the snapshot to compare pure color
-    // semantics.
-    let cursor_color = [1.0, 1.0, 1.0, 1.0];
-    let cursor = crate::render::CellCursor {
-        row: snapshot.cursor_row,
-        col: snapshot.cursor_col,
-        visible: snapshot.cursor_visible,
-        style: CursorStyle::Block,
-        color: Some(cursor_color),
-    };
-
-    let (font_w, font_h) = font_pipeline.cell_metrics();
-    let mut cell_data_instances = Vec::new();
-    let cell_data_result = build_instances_from_cell_data(
-        &cells,
-        CellInstanceConfig {
-            rows: 24,
-            cols: 80,
-            grid_cell_w: font_w,
-            grid_cell_h: font_h,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            selection: None,
-            search_highlights: &[],
-        },
-        &mut font_pipeline,
-        &mut cell_data_instances,
-    );
-    assert!(cell_data_result.is_some(), "CellData build failed");
-
-    let snapshot_instances = build_cell_instances_from_snapshot(
-        &snapshot,
-        &mut font_pipeline,
-        crate::render::SnapshotConfig {
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            projection_height: 0.0,
-            selection: None,
-            search_highlights: &[],
-            cursor_color: Some(cursor_color),
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
-
-    assert_eq!(
-        snapshot_instances.len(),
-        cell_data_instances.len(),
-        "both paths must emit one instance per cell (drift?)"
-    );
-    const COLS: usize = 80;
-    for (i, (a, b)) in snapshot_instances
-        .iter()
-        .zip(cell_data_instances.iter())
-        .enumerate()
-    {
-        let (row, col) = (i / COLS, i % COLS);
-        assert!(
-            f32_arrays_equal(&a.fg_color, &b.fg_color)
-                && f32_arrays_equal(&a.bg_color, &b.bg_color),
-            "color mismatch at ({row},{col}): snapshot {:?}/{:?} vs celldata {:?}/{:?}",
-            a.fg_color,
-            a.bg_color,
-            b.fg_color,
-            b.bg_color
-        );
-    }
-}
-
 #[test]
 fn all_static_pipelines_create_without_validation_errors() {
     // Every production shader pipeline must compile against the wgpu
     // backend available in the dev shell (Mesa Lavapipe software Vulkan).
     // Pipeline creation is where WGSL compile errors surface; rendering
-    // tests below already exercise cell/background paths, this guards the
-    // less-travelled KGP, flash, and blur pipelines.
+    // tests below already exercise cell paths, this guards the
+    // less-travelled KGP pipeline.
     let Some((_instance, _adapter, device, _queue)) = create_test_device() else {
         eprintln!("SKIP: no GPU available for pipeline creation test");
         return;
@@ -3085,24 +2380,7 @@ fn all_static_pipelines_create_without_validation_errors() {
     let oom_scope = device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
 
     let _ = crate::render::Renderer::create_cell_pipeline(&device, format);
-    let (bg_pipeline, bg_layout) = crate::render::Renderer::create_bg_pipeline(&device, format);
-    let (blur_h_pipeline, blur_v_pipeline) =
-        crate::render::Renderer::create_blur_pipelines(&device, format, &bg_layout);
     let _ = crate::render::Renderer::create_kgp_pipeline(&device, format);
-    let _ = crate::render::Renderer::create_flash_pipeline(&device, format);
-    let (grid_pipeline, grid_layout) =
-        crate::render::pipeline::create_grid_pipeline(&device, format);
-
-    // Keep the bind group layouts alive so wgpu does not warn about
-    // dropping them before their pipelines.
-    let _ = (
-        &bg_pipeline,
-        &bg_layout,
-        &blur_h_pipeline,
-        &blur_v_pipeline,
-        &grid_pipeline,
-        &grid_layout,
-    );
 
     for (label, error) in [
         (
@@ -3122,32 +2400,6 @@ fn all_static_pipelines_create_without_validation_errors() {
 }
 
 // ── Context setter coverage (pure logic, no surface needed) ─────────────
-
-#[test]
-#[ignore = "requires GPU adapter"]
-fn background_params_clamped_to_supported_range() {
-    let mut context = Renderer::new_with_no_surface();
-    // Defaults.
-    assert_eq!(context.background_params(), (0.0, 0.8));
-    // Clamp: blur radius capped at 10 (kernel-tap budget), alpha in [0,1].
-    context.set_background_params(50.0, 2.0);
-    assert_eq!(context.background_params(), (10.0, 1.0));
-    context.set_background_params(-5.0, -1.0);
-    assert_eq!(context.background_params(), (0.0, 0.0));
-    // In-range values pass through.
-    context.set_background_params(4.5, 0.3);
-    assert_eq!(context.background_params(), (4.5, 0.3));
-}
-
-#[test]
-#[ignore = "requires GPU adapter"]
-fn flash_phase_clamps_below_zero() {
-    let mut context = Renderer::new_with_no_surface();
-    context.set_flash_phase(0.8);
-    assert_eq!(context.flash_phase, 0.8);
-    context.set_flash_phase(-1.0);
-    assert_eq!(context.flash_phase, 0.0);
-}
 
 #[test]
 #[ignore = "requires GPU adapter"]
