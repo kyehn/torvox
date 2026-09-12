@@ -43,7 +43,6 @@
               taplo
               yamlfmt
               rustfmt
-              typos
             ];
             settings.formatter = {
               toml = {
@@ -69,10 +68,6 @@
                   "2024"
                 ];
                 includes = [ "*.rs" ];
-              };
-              typos = {
-                command = "typos";
-                includes = ["*.md"];
               };
             };
           };
@@ -163,7 +158,7 @@
             shellHook = ''
               set -e
               nu scripts/fetch-aosp-testkey.nu
-              nu scripts/download-rapidocr-models.nu || true
+              nu scripts/download-rapidocr-models.nu
             '';
           };
         };

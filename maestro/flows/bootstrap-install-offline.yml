@@ -1,5 +1,5 @@
 appId: com.termux
-name: Install nix-on-droid bootstrap from file (offline)
+name: Install nix bootstrap from file (offline)
 tags:
   - nix
 ---
