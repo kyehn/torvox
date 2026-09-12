@@ -71,7 +71,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import java.io.File
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -86,6 +85,7 @@ import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.ui.theme.TerminalTheme
+import java.io.File
 
 private const val FONT_SIZE_RANGE_MIN = 8f
 private const val FONT_SIZE_RANGE_MAX = 48f
@@ -102,127 +102,127 @@ fun SettingsScreen(
     viewModel: TerminalViewModel,
     onBack: () -> Unit,
 ) {
-  val isSmallScreen = rememberIsSmallScreen()
-  val horizontalPadding = if (isSmallScreen) 8.dp else 16.dp
-  val backgroundColor = MaterialTheme.colorScheme.surface
-  val textColor = MaterialTheme.colorScheme.onSurface
-  val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
-  val cardBackground = MaterialTheme.colorScheme.surfaceContainerLow
-  val accentColor = MaterialTheme.colorScheme.primary
-  val sectionTitleColor = MaterialTheme.colorScheme.primary
-  val customFontLauncher =
-      rememberLauncherForActivityResult(
-          contract = ActivityResultContracts.OpenDocument(),
-      ) { uri: Uri? ->
-        if (uri != null) viewModel.installFontFile(uri)
-      }
-  BackHandler(enabled = true) { onBack() }
-  Surface(
-      modifier =
-          Modifier.fillMaxSize()
-              .testTag("SettingsScreen")
-              // Consume taps on the settings backdrop so they do not fall
-              // through to the TerminalScreen composable underneath. This must
-              // be pointerInput, not clickable: clickable forces
-              // mergeDescendants semantics, which swallowed every descendant
-              // testTag from the merged tree and made the whole screen
-              // unreadable to Compose UI tests and TalkBack.
-              .pointerInput(Unit) { detectTapGestures(onTap = {}) },
-      color = backgroundColor,
-  ) {
-    Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
-      // Fixed header: SettingsHeader must stay visible while the
-      // LazyColumn scrolls, otherwise the back button scrolls out of
-      // reach: maestro open-settings flow failed to find
-      // SettingsBackButton after scrolling down).
-      SettingsHeader(onBack, textColor, isSmallScreen)
-      LazyColumn(
-          modifier =
-              Modifier.fillMaxSize()
-                  .padding(horizontal = horizontalPadding)
-                  .testTag("SettingsLazyColumn"),
-          verticalArrangement = Arrangement.spacedBy(if (isSmallScreen) 8.dp else 12.dp),
-          contentPadding = PaddingValues(bottom = 32.dp),
-      ) {
-        item {
-          SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
-          SettingsCard(cardBackground) {
-            AppearanceSectionContent(
-                viewModel,
-                customFontLauncher,
-                textColor,
-                secondaryText,
-                accentColor,
-                backgroundColor,
-            )
-          }
+    val isSmallScreen = rememberIsSmallScreen()
+    val horizontalPadding = if (isSmallScreen) 8.dp else 16.dp
+    val backgroundColor = MaterialTheme.colorScheme.surface
+    val textColor = MaterialTheme.colorScheme.onSurface
+    val secondaryText = MaterialTheme.colorScheme.onSurfaceVariant
+    val cardBackground = MaterialTheme.colorScheme.surfaceContainerLow
+    val accentColor = MaterialTheme.colorScheme.primary
+    val sectionTitleColor = MaterialTheme.colorScheme.primary
+    val customFontLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument(),
+        ) { uri: Uri? ->
+            if (uri != null) viewModel.installFontFile(uri)
         }
-        item {
-          AppThemeSection(
-              viewModel,
-              cardBackground,
-              textColor,
-              accentColor,
-              sectionTitleColor,
-              isSmallScreen,
-          )
+    BackHandler(enabled = true) { onBack() }
+    Surface(
+        modifier =
+        Modifier.fillMaxSize()
+            .testTag("SettingsScreen")
+            // Consume taps on the settings backdrop so they do not fall
+            // through to the TerminalScreen composable underneath. This must
+            // be pointerInput, not clickable: clickable forces
+            // mergeDescendants semantics, which swallowed every descendant
+            // testTag from the merged tree and made the whole screen
+            // unreadable to Compose UI tests and TalkBack.
+            .pointerInput(Unit) { detectTapGestures(onTap = {}) },
+        color = backgroundColor,
+    ) {
+        Column(modifier = Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding()) {
+            // Fixed header: SettingsHeader must stay visible while the
+            // LazyColumn scrolls, otherwise the back button scrolls out of
+            // reach: maestro open-settings flow failed to find
+            // SettingsBackButton after scrolling down).
+            SettingsHeader(onBack, textColor, isSmallScreen)
+            LazyColumn(
+                modifier =
+                Modifier.fillMaxSize()
+                    .padding(horizontal = horizontalPadding)
+                    .testTag("SettingsLazyColumn"),
+                verticalArrangement = Arrangement.spacedBy(if (isSmallScreen) 8.dp else 12.dp),
+                contentPadding = PaddingValues(bottom = 32.dp),
+            ) {
+                item {
+                    SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
+                    SettingsCard(cardBackground) {
+                        AppearanceSectionContent(
+                            viewModel,
+                            customFontLauncher,
+                            textColor,
+                            secondaryText,
+                            accentColor,
+                            backgroundColor,
+                        )
+                    }
+                }
+                item {
+                    AppThemeSection(
+                        viewModel,
+                        cardBackground,
+                        textColor,
+                        accentColor,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
+                item {
+                    TerminalThemeSection(
+                        viewModel,
+                        textColor,
+                        secondaryText,
+                        cardBackground,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
+                item {
+                    TerminalConfigSection(
+                        viewModel,
+                        textColor,
+                        secondaryText,
+                        accentColor,
+                        cardBackground,
+                        backgroundColor,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
+                item {
+                    BootstrapSectionFromSettings(
+                        viewModel,
+                        textColor,
+                        secondaryText,
+                        accentColor,
+                        cardBackground,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
+                item {
+                    ClearAppDataSectionItem(
+                        viewModel,
+                        textColor,
+                        cardBackground,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
+                item {
+                    ModifierBarSettingsSection(
+                        viewModel,
+                        textColor,
+                        secondaryText,
+                        cardBackground,
+                        sectionTitleColor,
+                        isSmallScreen,
+                    )
+                }
+                item { Spacer(modifier = Modifier.height(24.dp)) }
+            }
         }
-        item {
-          TerminalThemeSection(
-              viewModel,
-              textColor,
-              secondaryText,
-              cardBackground,
-              sectionTitleColor,
-              isSmallScreen,
-          )
-        }
-        item {
-          TerminalConfigSection(
-              viewModel,
-              textColor,
-              secondaryText,
-              accentColor,
-              cardBackground,
-              backgroundColor,
-              sectionTitleColor,
-              isSmallScreen,
-          )
-        }
-        item {
-          BootstrapSectionFromSettings(
-              viewModel,
-              textColor,
-              secondaryText,
-              accentColor,
-              cardBackground,
-              sectionTitleColor,
-              isSmallScreen,
-          )
-        }
-        item {
-          ClearAppDataSectionItem(
-              viewModel,
-              textColor,
-              cardBackground,
-              sectionTitleColor,
-              isSmallScreen,
-          )
-        }
-        item {
-          ModifierBarSettingsSection(
-              viewModel,
-              textColor,
-              secondaryText,
-              cardBackground,
-              sectionTitleColor,
-              isSmallScreen,
-          )
-        }
-        item { Spacer(modifier = Modifier.height(24.dp)) }
-      }
     }
-  }
 }
 
 @Composable
@@ -231,31 +231,31 @@ private fun SettingsHeader(
     textColor: Color,
     isSmallScreen: Boolean,
 ) {
-  Spacer(modifier = Modifier.height(8.dp))
-  Row(
-      modifier = Modifier.fillMaxWidth(),
-      verticalAlignment = Alignment.CenterVertically,
-  ) {
-    IconButton(onClick = onBack, modifier = Modifier.testTag("SettingsBackButton")) {
-      Icon(
-          Icons.AutoMirrored.Filled.ArrowBack,
-          contentDescription = stringResource(R.string.back),
-          tint = textColor,
-      )
-    }
-    Spacer(modifier = Modifier.width(4.dp))
-    Text(
-        text = stringResource(R.string.settings),
-        style =
+    Spacer(modifier = Modifier.height(8.dp))
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onBack, modifier = Modifier.testTag("SettingsBackButton")) {
+            Icon(
+                Icons.AutoMirrored.Filled.ArrowBack,
+                contentDescription = stringResource(R.string.back),
+                tint = textColor,
+            )
+        }
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = stringResource(R.string.settings),
+            style =
             if (isSmallScreen) {
-              MaterialTheme.typography.titleLarge
+                MaterialTheme.typography.titleLarge
             } else {
-              MaterialTheme.typography.headlineSmall
+                MaterialTheme.typography.headlineSmall
             },
-        color = textColor,
-        fontWeight = FontWeight.Bold,
-    )
-  }
+            color = textColor,
+            fontWeight = FontWeight.Bold,
+        )
+    }
 }
 
 @Composable
@@ -267,54 +267,54 @@ private fun AppearanceSectionContent(
     accentColor: Color,
     backgroundColor: Color,
 ) {
-  val settings by viewModel.settings.collectAsStateWithLifecycle()
-  val fontSize = settings.fontSize
-  val fontFamily = settings.fontFamily
-  val boldFontFamily = settings.boldFontFamily
-  val italicFontFamily = settings.italicFontFamily
-  val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
-  val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
-  val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
-  // Dragging previews through the lightweight path (setFontSizeInPlace +
-  // cell-metric refresh, no DataStore write, no grid reflow); the value is
-  // committed once on release. Committing on every drag step ran full
-  // applyFontSettings chains concurrently (IO dispatcher), interleaving
-  // JNI setFontSizeInPlace calls out of order (96..280 observed) and
-  // reflowing the grid per step — the "slider jumps / layout garbles"
-  // reports. Preview keeps drags cheap and single-threaded.
-  var sliderFontSize by rememberSaveable { mutableFloatStateOf(fontSize) }
-  FontSizeSlider(
-      modifier = Modifier.testTag("FontSizeSlider"),
-      value = sliderFontSize,
-      onValueChange = {
-        sliderFontSize = it
-        viewModel.setFontSizeInPlacePreview(it)
-      },
-      onValueChangeFinished = { viewModel.setFontSize(sliderFontSize) },
-      textColor = textColor,
-      secondaryText = secondaryText,
-      accentColor = accentColor,
-  )
-  Spacer(modifier = Modifier.height(12.dp))
-  FontFamilySelectors(
-      regularFamily = fontFamily,
-      boldFamily = boldFontFamily,
-      italicFamily = italicFontFamily,
-      onFamilySelected = { family, slot -> viewModel.setFontFamilyForStyle(family, slot) },
-      customFontLauncher = customFontLauncher,
-      colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
-      availableFonts = availableFonts.toImmutableList(),
-      defaultFontName = defaultFontName,
-      fontInfo = fontInfo,
-  )
-  FontInfoSectionIfAvailable(
-      fontInfo = fontInfo,
-      defaultFontName = defaultFontName,
-      fontSize = fontSize,
-      textColor = textColor,
-      secondaryText = secondaryText,
-  )
-  Spacer(modifier = Modifier.height(12.dp))
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val fontSize = settings.fontSize
+    val fontFamily = settings.fontFamily
+    val boldFontFamily = settings.boldFontFamily
+    val italicFontFamily = settings.italicFontFamily
+    val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
+    val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
+    val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
+    // Dragging previews through the lightweight path (setFontSizeInPlace +
+    // cell-metric refresh, no DataStore write, no grid reflow); the value is
+    // committed once on release. Committing on every drag step ran full
+    // applyFontSettings chains concurrently (IO dispatcher), interleaving
+    // JNI setFontSizeInPlace calls out of order (96..280 observed) and
+    // reflowing the grid per step — the "slider jumps / layout garbles"
+    // reports. Preview keeps drags cheap and single-threaded.
+    var sliderFontSize by rememberSaveable { mutableFloatStateOf(fontSize) }
+    FontSizeSlider(
+        modifier = Modifier.testTag("FontSizeSlider"),
+        value = sliderFontSize,
+        onValueChange = {
+            sliderFontSize = it
+            viewModel.setFontSizeInPlacePreview(it)
+        },
+        onValueChangeFinished = { viewModel.setFontSize(sliderFontSize) },
+        textColor = textColor,
+        secondaryText = secondaryText,
+        accentColor = accentColor,
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    FontFamilySelectors(
+        regularFamily = fontFamily,
+        boldFamily = boldFontFamily,
+        italicFamily = italicFontFamily,
+        onFamilySelected = { family, slot -> viewModel.setFontFamilyForStyle(family, slot) },
+        customFontLauncher = customFontLauncher,
+        colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
+        availableFonts = availableFonts.toImmutableList(),
+        defaultFontName = defaultFontName,
+        fontInfo = fontInfo,
+    )
+    FontInfoSectionIfAvailable(
+        fontInfo = fontInfo,
+        defaultFontName = defaultFontName,
+        fontSize = fontSize,
+        textColor = textColor,
+        secondaryText = secondaryText,
+    )
+    Spacer(modifier = Modifier.height(12.dp))
 }
 
 @Composable
@@ -326,18 +326,18 @@ private fun AppThemeSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-  val settings by viewModel.settings.collectAsStateWithLifecycle()
-  val appThemeMode = settings.appThemeMode
-  SectionHeader(stringResource(R.string.software_theme), sectionTitleColor)
-  SettingsCard(cardBackground) {
-    AppThemeSelector(
-        selectedMode = appThemeMode,
-        onModeSelected = { viewModel.setAppThemeMode(it) },
-        textColor = textColor,
-        cardBackground = cardBackground,
-        accentColor = accentColor,
-    )
-  }
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val appThemeMode = settings.appThemeMode
+    SectionHeader(stringResource(R.string.software_theme), sectionTitleColor)
+    SettingsCard(cardBackground) {
+        AppThemeSelector(
+            selectedMode = appThemeMode,
+            onModeSelected = { viewModel.setAppThemeMode(it) },
+            textColor = textColor,
+            cardBackground = cardBackground,
+            accentColor = accentColor,
+        )
+    }
 }
 
 @Composable
@@ -349,68 +349,68 @@ private fun TerminalThemeSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-  val settings by viewModel.settings.collectAsStateWithLifecycle()
-  val themeMode = settings.themeMode
-  val dayThemeName = settings.dayThemeName
-  val nightThemeName = settings.nightThemeName
-  val themeName = settings.themeName
-  // 主题来自内置集合；自定义主题为禁止实现。
-  val allThemes = remember {
-    terminal.emulator.ui.theme.BuiltInThemes.all.toImmutableList()
-  }
-
-  SectionHeader(stringResource(R.string.theme), sectionTitleColor)
-  SettingsCard(cardBackground) {
-    TerminalThemeModeSelector(
-        selectedMode = themeMode,
-        onModeSelected = { viewModel.setThemeMode(it) },
-        textColor = textColor,
-        cardBackground = cardBackground,
-        accentColor = MaterialTheme.colorScheme.primary,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-    when (themeMode) {
-      "follow_system",
-      "day",
-      "night",
-      -> {
-        Column(modifier = Modifier.testTag("DayNightThemeSection")) {
-          ThemeSelector(
-              label = stringResource(R.string.day_theme),
-              selectedTheme = dayThemeName,
-              themes = allThemes,
-              onThemeSelected = { viewModel.setDayThemeName(it) },
-              textColor = textColor,
-              secondaryText = secondaryText,
-              cardBackground = cardBackground,
-          )
-          Spacer(modifier = Modifier.height(8.dp))
-          ThemeSelector(
-              label = stringResource(R.string.night_theme),
-              selectedTheme = nightThemeName,
-              themes = allThemes,
-              onThemeSelected = { viewModel.setNightThemeName(it) },
-              textColor = textColor,
-              secondaryText = secondaryText,
-              cardBackground = cardBackground,
-          )
-        }
-      }
-
-      "fixed" -> {
-        ThemeSelector(
-            label = "",
-            selectedTheme = themeName,
-            themes = allThemes,
-            onThemeSelected = { viewModel.setThemeName(it) },
-            textColor = textColor,
-            secondaryText = secondaryText,
-            cardBackground = cardBackground,
-        )
-      }
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val themeMode = settings.themeMode
+    val dayThemeName = settings.dayThemeName
+    val nightThemeName = settings.nightThemeName
+    val themeName = settings.themeName
+    // 主题来自内置集合；自定义主题为禁止实现。
+    val allThemes = remember {
+        terminal.emulator.ui.theme.BuiltInThemes.all.toImmutableList()
     }
-    Spacer(modifier = Modifier.height(12.dp))
-  }
+
+    SectionHeader(stringResource(R.string.theme), sectionTitleColor)
+    SettingsCard(cardBackground) {
+        TerminalThemeModeSelector(
+            selectedMode = themeMode,
+            onModeSelected = { viewModel.setThemeMode(it) },
+            textColor = textColor,
+            cardBackground = cardBackground,
+            accentColor = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        when (themeMode) {
+            "follow_system",
+            "day",
+            "night",
+            -> {
+                Column(modifier = Modifier.testTag("DayNightThemeSection")) {
+                    ThemeSelector(
+                        label = stringResource(R.string.day_theme),
+                        selectedTheme = dayThemeName,
+                        themes = allThemes,
+                        onThemeSelected = { viewModel.setDayThemeName(it) },
+                        textColor = textColor,
+                        secondaryText = secondaryText,
+                        cardBackground = cardBackground,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    ThemeSelector(
+                        label = stringResource(R.string.night_theme),
+                        selectedTheme = nightThemeName,
+                        themes = allThemes,
+                        onThemeSelected = { viewModel.setNightThemeName(it) },
+                        textColor = textColor,
+                        secondaryText = secondaryText,
+                        cardBackground = cardBackground,
+                    )
+                }
+            }
+
+            "fixed" -> {
+                ThemeSelector(
+                    label = "",
+                    selectedTheme = themeName,
+                    themes = allThemes,
+                    onThemeSelected = { viewModel.setThemeName(it) },
+                    textColor = textColor,
+                    secondaryText = secondaryText,
+                    cardBackground = cardBackground,
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(12.dp))
+    }
 }
 
 @Composable
@@ -425,37 +425,37 @@ private fun TerminalConfigSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-  val settings by viewModel.settings.collectAsStateWithLifecycle()
-  val selectedShell = settings.shell
-  val scrollbackLines = settings.scrollbackLines
-  SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
-  SettingsCard(cardBackground) {
-    PrefixShellStatus(secondaryText = secondaryText)
-    Spacer(modifier = Modifier.height(4.dp))
-    ShellInput(
-        shellPath = selectedShell,
-        onShellChanged = { viewModel.setShell(it) },
-        textColor = textColor,
-        accentColor = accentColor,
-    )
-    Spacer(modifier = Modifier.height(12.dp))
-    ScrollbackSlider(
-        value = scrollbackLines.toFloat(),
-        onValueChange = { viewModel.setScrollbackLines(it.toInt()) },
-        textColor = textColor,
-        secondaryText = secondaryText,
-        accentColor = accentColor,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-    ShizukuToggle(
-        enabled = settings.shizukuEnabled,
-        onToggle = { viewModel.setShizukuEnabled(it) },
-        textColor = textColor,
-        accentColor = accentColor,
-        cardBackground = backgroundColor,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-  }
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val selectedShell = settings.shell
+    val scrollbackLines = settings.scrollbackLines
+    SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
+    SettingsCard(cardBackground) {
+        PrefixShellStatus(secondaryText = secondaryText)
+        Spacer(modifier = Modifier.height(4.dp))
+        ShellInput(
+            shellPath = selectedShell,
+            onShellChanged = { viewModel.setShell(it) },
+            textColor = textColor,
+            accentColor = accentColor,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        ScrollbackSlider(
+            value = scrollbackLines.toFloat(),
+            onValueChange = { viewModel.setScrollbackLines(it.toInt()) },
+            textColor = textColor,
+            secondaryText = secondaryText,
+            accentColor = accentColor,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        ShizukuToggle(
+            enabled = settings.shizukuEnabled,
+            onToggle = { viewModel.setShizukuEnabled(it) },
+            textColor = textColor,
+            accentColor = accentColor,
+            cardBackground = backgroundColor,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+    }
 }
 
 @Composable
@@ -468,27 +468,27 @@ private fun BootstrapSectionFromSettings(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-  val settings by viewModel.settings.collectAsStateWithLifecycle()
-  val bootstrapUrl = settings.bootstrapUrl
-  val bootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
-  val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
-  val bootstrapProgress: BootstrapProgress? by
-      viewModel.bootstrapProgress.collectAsStateWithLifecycle()
-  SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
-  SettingsCard(cardBackground, Modifier.testTag("BootstrapSection")) {
-    BootstrapSection(
-        bootstrapUrl = bootstrapUrl,
-        onUrlChanged = { viewModel.setBootstrapUrl(it) },
-        onRunBootstrap = { viewModel.runBootstrap() },
-        onInstallOffline = { uri -> viewModel.installOffline(uri) },
-        bootstrapRunning = bootstrapRunning,
-        bootstrapResult = bootstrapResult,
-        bootstrapProgress = bootstrapProgress,
-        textColor = textColor,
-        accentColor = accentColor,
-        secondaryText = secondaryText,
-    )
-  }
+    val settings by viewModel.settings.collectAsStateWithLifecycle()
+    val bootstrapUrl = settings.bootstrapUrl
+    val bootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
+    val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
+    val bootstrapProgress: BootstrapProgress? by
+        viewModel.bootstrapProgress.collectAsStateWithLifecycle()
+    SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
+    SettingsCard(cardBackground, Modifier.testTag("BootstrapSection")) {
+        BootstrapSection(
+            bootstrapUrl = bootstrapUrl,
+            onUrlChanged = { viewModel.setBootstrapUrl(it) },
+            onRunBootstrap = { viewModel.runBootstrap() },
+            onInstallOffline = { uri -> viewModel.installOffline(uri) },
+            bootstrapRunning = bootstrapRunning,
+            bootstrapResult = bootstrapResult,
+            bootstrapProgress = bootstrapProgress,
+            textColor = textColor,
+            accentColor = accentColor,
+            secondaryText = secondaryText,
+        )
+    }
 }
 
 @Composable
@@ -499,10 +499,10 @@ private fun ClearAppDataSectionItem(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-  SectionHeader(stringResource(R.string.clear_app_data), sectionTitleColor)
-  SettingsCard(cardBackground) {
-    ClearAppDataSection(viewModel = viewModel, textColor = textColor)
-  }
+    SectionHeader(stringResource(R.string.clear_app_data), sectionTitleColor)
+    SettingsCard(cardBackground) {
+        ClearAppDataSection(viewModel = viewModel, textColor = textColor)
+    }
 }
 
 @Composable
@@ -511,17 +511,17 @@ private fun SettingsCard(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit,
 ) {
-  val isSmallScreen = rememberIsSmallScreen()
-  Column(
-      modifier =
-          modifier
-              .fillMaxWidth()
-              .clip(RoundedCornerShape(if (isSmallScreen) 8.dp else 12.dp))
-              .background(cardBackground)
-              .padding(if (isSmallScreen) 12.dp else 16.dp),
-  ) {
-    content()
-  }
+    val isSmallScreen = rememberIsSmallScreen()
+    Column(
+        modifier =
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(if (isSmallScreen) 8.dp else 12.dp))
+            .background(cardBackground)
+            .padding(if (isSmallScreen) 12.dp else 16.dp),
+    ) {
+        content()
+    }
 }
 
 @Composable
@@ -529,19 +529,19 @@ private fun SectionHeader(
     title: String,
     textColor: Color,
 ) {
-  val isSmallScreen = rememberIsSmallScreen()
-  Text(
-      text = title,
-      style =
-          if (isSmallScreen) {
+    val isSmallScreen = rememberIsSmallScreen()
+    Text(
+        text = title,
+        style =
+        if (isSmallScreen) {
             MaterialTheme.typography.titleSmall
-          } else {
+        } else {
             MaterialTheme.typography.titleMedium
-          },
-      fontWeight = FontWeight.Bold,
-      color = textColor,
-      modifier = Modifier.padding(vertical = 4.dp),
-  )
+        },
+        fontWeight = FontWeight.Bold,
+        color = textColor,
+        modifier = Modifier.padding(vertical = 4.dp),
+    )
 }
 
 @Composable
@@ -554,17 +554,17 @@ private fun FontSizeSlider(
     accentColor: Color,
     onValueChangeFinished: () -> Unit = {},
 ) {
-  SettingsSliderRow(
-      title = stringResource(R.string.font_size),
-      value = value,
-      valueRange = FONT_SIZE_RANGE_MIN..FONT_SIZE_RANGE_MAX,
-      steps = FONT_SIZE_RANGE_STEPS,
-      colors =
-          SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
-      onValueChange = onValueChange,
-      onValueChangeFinished = onValueChangeFinished,
-      modifier = modifier,
-  )
+    SettingsSliderRow(
+        title = stringResource(R.string.font_size),
+        value = value,
+        valueRange = FONT_SIZE_RANGE_MIN..FONT_SIZE_RANGE_MAX,
+        steps = FONT_SIZE_RANGE_STEPS,
+        colors =
+        SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
+        onValueChange = onValueChange,
+        onValueChangeFinished = onValueChangeFinished,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -575,40 +575,40 @@ private fun FontInfoSectionIfAvailable(
     textColor: Color,
     secondaryText: Color,
 ) {
-  if (fontInfo.isNotEmpty() || defaultFontName.isNotEmpty()) {
-    Spacer(modifier = Modifier.height(8.dp))
-    val densityDpi = LocalDensity.current.density
-    val dto = FontInfoDto.fromJson(fontInfo)
-    when {
-      dto != null ->
-          FontInfoSection(
-              fontInfo = dto,
-              pixelPerSp = densityDpi,
-              textColor = textColor,
-              secondaryText = secondaryText,
-          )
+    if (fontInfo.isNotEmpty() || defaultFontName.isNotEmpty()) {
+        Spacer(modifier = Modifier.height(8.dp))
+        val densityDpi = LocalDensity.current.density
+        val dto = FontInfoDto.fromJson(fontInfo)
+        when {
+            dto != null ->
+                FontInfoSection(
+                    fontInfo = dto,
+                    pixelPerSp = densityDpi,
+                    textColor = textColor,
+                    secondaryText = secondaryText,
+                )
 
-      fontInfo.isEmpty() ->
-          FontInfoSection(
-              fontInfo =
-                  FontInfoDto(
-                      active = FontActiveDto(name = defaultFontName, monospaced = false),
-                      fontSize = fontSize,
-                  ),
-              pixelPerSp = densityDpi,
-              textColor = textColor,
-              secondaryText = secondaryText,
-          )
+            fontInfo.isEmpty() ->
+                FontInfoSection(
+                    fontInfo =
+                    FontInfoDto(
+                        active = FontActiveDto(name = defaultFontName, monospaced = false),
+                        fontSize = fontSize,
+                    ),
+                    pixelPerSp = densityDpi,
+                    textColor = textColor,
+                    secondaryText = secondaryText,
+                )
 
-      else -> {
-        Text(
-            text = stringResource(R.string.no_font_loaded),
-            style = MaterialTheme.typography.bodySmall,
-            color = secondaryText,
-        )
-      }
+            else -> {
+                Text(
+                    text = stringResource(R.string.no_font_loaded),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = secondaryText,
+                )
+            }
+        }
     }
-  }
 }
 
 @Composable
@@ -623,47 +623,47 @@ private fun FontFamilySelectors(
     defaultFontName: String,
     fontInfo: String,
 ) {
-  val pickFont = { customFontLauncher.launch(arrayOf("font/*", "application/octet-stream")) }
-  SystemFontSelector(
-      selectedFamily = regularFamily,
-      onFamilySelected = { onFamilySelected(it, FONT_SLOT_REGULAR) },
-      textColor = colors.textColor,
-      cardBackground = colors.cardBackground,
-      accentColor = colors.accentColor,
-      fonts = availableFonts,
-      defaultFontName = defaultFontName,
-      fontInfo = fontInfo,
-      onPickFontFile = pickFont,
-  )
-  Spacer(modifier = Modifier.height(12.dp))
-  // Independent bold/italic families — ghostty-android TerminalFontStore
-  // 4-slot design (research-ghostty-android-extra.md:80). Empty selection
-  // clears the slot (falls back to same-family lookup + synthesis).
-  SystemFontSelector(
-      selectedFamily = boldFamily,
-      onFamilySelected = { onFamilySelected(it, FONT_SLOT_BOLD) },
-      textColor = colors.textColor,
-      cardBackground = colors.cardBackground,
-      accentColor = colors.accentColor,
-      fonts = availableFonts,
-      defaultFontName = defaultFontName,
-      fontInfo = fontInfo,
-      titleOverride = stringResource(R.string.bold_font_family),
-      onPickFontFile = pickFont,
-  )
-  Spacer(modifier = Modifier.height(12.dp))
-  SystemFontSelector(
-      selectedFamily = italicFamily,
-      onFamilySelected = { onFamilySelected(it, FONT_SLOT_ITALIC) },
-      textColor = colors.textColor,
-      cardBackground = colors.cardBackground,
-      accentColor = colors.accentColor,
-      fonts = availableFonts,
-      defaultFontName = defaultFontName,
-      fontInfo = fontInfo,
-      titleOverride = stringResource(R.string.italic_font_family),
-      onPickFontFile = pickFont,
-  )
+    val pickFont = { customFontLauncher.launch(arrayOf("font/*", "application/octet-stream")) }
+    SystemFontSelector(
+        selectedFamily = regularFamily,
+        onFamilySelected = { onFamilySelected(it, FONT_SLOT_REGULAR) },
+        textColor = colors.textColor,
+        cardBackground = colors.cardBackground,
+        accentColor = colors.accentColor,
+        fonts = availableFonts,
+        defaultFontName = defaultFontName,
+        fontInfo = fontInfo,
+        onPickFontFile = pickFont,
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    // Independent bold/italic families — ghostty-android TerminalFontStore
+    // 4-slot design (research-ghostty-android-extra.md:80). Empty selection
+    // clears the slot (falls back to same-family lookup + synthesis).
+    SystemFontSelector(
+        selectedFamily = boldFamily,
+        onFamilySelected = { onFamilySelected(it, FONT_SLOT_BOLD) },
+        textColor = colors.textColor,
+        cardBackground = colors.cardBackground,
+        accentColor = colors.accentColor,
+        fonts = availableFonts,
+        defaultFontName = defaultFontName,
+        fontInfo = fontInfo,
+        titleOverride = stringResource(R.string.bold_font_family),
+        onPickFontFile = pickFont,
+    )
+    Spacer(modifier = Modifier.height(12.dp))
+    SystemFontSelector(
+        selectedFamily = italicFamily,
+        onFamilySelected = { onFamilySelected(it, FONT_SLOT_ITALIC) },
+        textColor = colors.textColor,
+        cardBackground = colors.cardBackground,
+        accentColor = colors.accentColor,
+        fonts = availableFonts,
+        defaultFontName = defaultFontName,
+        fontInfo = fontInfo,
+        titleOverride = stringResource(R.string.italic_font_family),
+        onPickFontFile = pickFont,
+    )
 }
 
 @Composable
@@ -679,82 +679,82 @@ private fun SystemFontSelector(
     titleOverride: String? = null,
     onPickFontFile: (() -> Unit)? = null,
 ) {
-  val systemFonts = remember(fonts) { fonts.distinct().sorted() }
-  val isSmallScreen = rememberIsSmallScreen()
-  val labelStyle =
-      if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-  val displayName = if (defaultFontName.isEmpty()) "Noto Sans Mono" else defaultFontName
+    val systemFonts = remember(fonts) { fonts.distinct().sorted() }
+    val isSmallScreen = rememberIsSmallScreen()
+    val labelStyle =
+        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    val displayName = if (defaultFontName.isEmpty()) "Noto Sans Mono" else defaultFontName
 
-  Spacer(modifier = Modifier.height(4.dp))
-  Text(
-      text = titleOverride ?: stringResource(R.string.font_family),
-      style = labelStyle,
-      color = textColor,
-      maxLines = 1,
-  )
-  Spacer(modifier = Modifier.height(4.dp))
-  var showFontPicker by remember { mutableStateOf(false) }
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = titleOverride ?: stringResource(R.string.font_family),
+        style = labelStyle,
+        color = textColor,
+        maxLines = 1,
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    var showFontPicker by remember { mutableStateOf(false) }
 
-  Box {
-    Row(
-        modifier =
+    Box {
+        Row(
+            modifier =
             Modifier.testTag("FontFamilySelector")
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(cardBackground)
                 .clickable {
-                  showFontPicker = true
+                    showFontPicker = true
                 }
                 .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Text(
-          text = if (selectedFamily.isEmpty()) displayName else selectedFamily,
-          color = textColor,
-          modifier = Modifier.weight(1f),
-          maxLines = 1,
-          overflow = TextOverflow.Ellipsis,
-      )
-      Text(
-          text = stringResource(R.string.change),
-          color = accentColor,
-          style = MaterialTheme.typography.bodySmall,
-      )
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = if (selectedFamily.isEmpty()) displayName else selectedFamily,
+                color = textColor,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = stringResource(R.string.change),
+                color = accentColor,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+
+        if (showFontPicker) {
+            FontPickerDialog(
+                fonts = systemFonts.toImmutableList(),
+                selectedFamily = selectedFamily,
+                onFamilySelected = { font ->
+                    onFamilySelected(font)
+                    showFontPicker = false
+                },
+                onDismiss = { showFontPicker = false },
+                textColor = textColor,
+                cardBackground = cardBackground,
+                accentColor = accentColor,
+                onPickFontFile = { onPickFontFile?.invoke() },
+            )
+        }
     }
 
-    if (showFontPicker) {
-      FontPickerDialog(
-          fonts = systemFonts.toImmutableList(),
-          selectedFamily = selectedFamily,
-          onFamilySelected = { font ->
-            onFamilySelected(font)
-            showFontPicker = false
-          },
-          onDismiss = { showFontPicker = false },
-          textColor = textColor,
-          cardBackground = cardBackground,
-          accentColor = accentColor,
-          onPickFontFile = { onPickFontFile?.invoke() },
-      )
+    val fontInfoDto = FontInfoDto.fromJson(fontInfo)
+    if (fontInfoDto?.hasRealCjkFallback == true) {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.cjk_value_label, fontInfoDto.cjkFallbackText() ?: ""),
+            style = MaterialTheme.typography.bodySmall,
+            color = textColor.copy(alpha = 0.6f),
+        )
+    } else if (fontInfoDto?.cjkState == "none") {
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.cjk_fallback_missing_warning),
+            style = MaterialTheme.typography.bodySmall,
+            color = WARNING_ORANGE,
+        )
     }
-  }
-
-  val fontInfoDto = FontInfoDto.fromJson(fontInfo)
-  if (fontInfoDto?.hasRealCjkFallback == true) {
-    Spacer(modifier = Modifier.height(4.dp))
-    Text(
-        text = stringResource(R.string.cjk_value_label, fontInfoDto.cjkFallbackText() ?: ""),
-        style = MaterialTheme.typography.bodySmall,
-        color = textColor.copy(alpha = 0.6f),
-    )
-  } else if (fontInfoDto?.cjkState == "none") {
-    Spacer(modifier = Modifier.height(4.dp))
-    Text(
-        text = stringResource(R.string.cjk_fallback_missing_warning),
-        style = MaterialTheme.typography.bodySmall,
-        color = WARNING_ORANGE,
-    )
-  }
 }
 
 @Composable
@@ -768,60 +768,60 @@ private fun FontPickerDialog(
     accentColor: Color,
     onPickFontFile: (() -> Unit)? = null,
 ) {
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text(stringResource(R.string.select_font_family), color = textColor) },
-      text = {
-        LazyColumn {
-          item {
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable {
-                          onPickFontFile?.invoke()
-                          onDismiss()
-                        }
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-              Text(
-                  text = stringResource(R.string.pick_font_file),
-                  color = accentColor,
-                  fontWeight = FontWeight.Bold,
-              )
-            }
-          }
-          items(fonts) { font ->
-            Row(
-                modifier =
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(6.dp))
-                        .clickable { onFamilySelected(font) }
-                        .background(
-                            if (selectedFamily == font) {
-                              accentColor.copy(alpha = 0.2f)
-                            } else {
-                              Color.Transparent
-                            },
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.select_font_family), color = textColor) },
+        text = {
+            LazyColumn {
+                item {
+                    Row(
+                        modifier =
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable {
+                                onPickFontFile?.invoke()
+                                onDismiss()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.pick_font_file),
+                            color = accentColor,
+                            fontWeight = FontWeight.Bold,
                         )
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-              Text(
-                  text = font,
-                  color = if (selectedFamily == font) accentColor else textColor,
-                  fontWeight = if (selectedFamily == font) FontWeight.Bold else FontWeight.Normal,
-              )
+                    }
+                }
+                items(fonts) { font ->
+                    Row(
+                        modifier =
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .clickable { onFamilySelected(font) }
+                            .background(
+                                if (selectedFamily == font) {
+                                    accentColor.copy(alpha = 0.2f)
+                                } else {
+                                    Color.Transparent
+                                },
+                            )
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = font,
+                            color = if (selectedFamily == font) accentColor else textColor,
+                            fontWeight = if (selectedFamily == font) FontWeight.Bold else FontWeight.Normal,
+                        )
+                    }
+                }
             }
-          }
-        }
-      },
-      confirmButton = {
-        TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel), color = textColor) }
-      },
-      containerColor = cardBackground,
-  )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel), color = textColor) }
+        },
+        containerColor = cardBackground,
+    )
 }
 
 @Composable
@@ -832,64 +832,64 @@ internal fun AppThemeSelector(
     cardBackground: Color,
     accentColor: Color,
 ) {
-  val isSmall = rememberIsSmallScreen()
-  Column(modifier = Modifier.testTag("AppThemeSelector")) {
-    val buttons =
-        listOf(
-            "day" to stringResource(R.string.day),
-            "night" to stringResource(R.string.night),
-            "follow_system" to stringResource(R.string.follow_system),
-        )
-    val spacing = if (isSmall) 4.dp else 6.dp
-    if (isSmall) {
-      Column(verticalArrangement = Arrangement.spacedBy(spacing)) {
-        buttons.forEach { (mode, label) ->
-          val isSelected = selectedMode == mode
-          Box(
-              modifier =
-                  Modifier.testTag("AppTheme_$mode")
-                      .fillMaxWidth()
-                      .clip(RoundedCornerShape(6.dp))
-                      .background(if (isSelected) accentColor else cardBackground)
-                      .clickable { onModeSelected(mode) }
-                      .padding(vertical = 8.dp),
-              contentAlignment = Alignment.Center,
-          ) {
-            Text(
-                text = label,
-                color = if (isSelected) Color.White else textColor,
-                style = MaterialTheme.typography.bodySmall,
+    val isSmall = rememberIsSmallScreen()
+    Column(modifier = Modifier.testTag("AppThemeSelector")) {
+        val buttons =
+            listOf(
+                "day" to stringResource(R.string.day),
+                "night" to stringResource(R.string.night),
+                "follow_system" to stringResource(R.string.follow_system),
             )
-          }
+        val spacing = if (isSmall) 4.dp else 6.dp
+        if (isSmall) {
+            Column(verticalArrangement = Arrangement.spacedBy(spacing)) {
+                buttons.forEach { (mode, label) ->
+                    val isSelected = selectedMode == mode
+                    Box(
+                        modifier =
+                        Modifier.testTag("AppTheme_$mode")
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(if (isSelected) accentColor else cardBackground)
+                            .clickable { onModeSelected(mode) }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) Color.White else textColor,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(spacing),
+            ) {
+                buttons.forEach { (mode, label) ->
+                    val isSelected = selectedMode == mode
+                    Box(
+                        modifier =
+                        Modifier.testTag("AppTheme_$mode")
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isSelected) accentColor else cardBackground)
+                            .clickable { onModeSelected(mode) }
+                            .padding(vertical = 10.dp, horizontal = 4.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = label,
+                            color = if (isSelected) Color.White else textColor,
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                    }
+                }
+            }
         }
-      }
-    } else {
-      Row(
-          modifier = Modifier.fillMaxWidth(),
-          horizontalArrangement = Arrangement.spacedBy(spacing),
-      ) {
-        buttons.forEach { (mode, label) ->
-          val isSelected = selectedMode == mode
-          Box(
-              modifier =
-                  Modifier.testTag("AppTheme_$mode")
-                      .weight(1f)
-                      .clip(RoundedCornerShape(8.dp))
-                      .background(if (isSelected) accentColor else cardBackground)
-                      .clickable { onModeSelected(mode) }
-                      .padding(vertical = 10.dp, horizontal = 4.dp),
-              contentAlignment = Alignment.Center,
-          ) {
-            Text(
-                text = label,
-                color = if (isSelected) Color.White else textColor,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-          }
-        }
-      }
     }
-  }
 }
 
 @Composable
@@ -900,54 +900,54 @@ internal fun TerminalThemeModeSelector(
     cardBackground: Color,
     accentColor: Color,
 ) {
-  val isFollowSystem = selectedMode != "fixed"
-  Row(
-      modifier = Modifier.fillMaxWidth().testTag("TerminalThemeModeSelector"),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Text(
-        text = stringResource(R.string.follow_system),
-        style = MaterialTheme.typography.bodyLarge,
-        color = textColor,
-    )
-    Switch(
-        checked = isFollowSystem,
-        onCheckedChange = { checked ->
-          onModeSelected(if (checked) "follow_system" else "fixed")
-        },
-        modifier = Modifier.testTag("TerminalThemeFollowSystemSwitch"),
-        colors =
+    val isFollowSystem = selectedMode != "fixed"
+    Row(
+        modifier = Modifier.fillMaxWidth().testTag("TerminalThemeModeSelector"),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.follow_system),
+            style = MaterialTheme.typography.bodyLarge,
+            color = textColor,
+        )
+        Switch(
+            checked = isFollowSystem,
+            onCheckedChange = { checked ->
+                onModeSelected(if (checked) "follow_system" else "fixed")
+            },
+            modifier = Modifier.testTag("TerminalThemeFollowSystemSwitch"),
+            colors =
             SwitchDefaults.colors(
                 checkedThumbColor = Color.White,
                 checkedTrackColor = accentColor,
                 uncheckedThumbColor = textColor.copy(alpha = 0.6f),
                 uncheckedTrackColor = cardBackground,
             ),
-    )
-  }
+        )
+    }
 }
 
 @Composable
 private fun PrefixShellStatus(secondaryText: Color) {
-  // Show what the runtime actually resolves as the launch location:
-  // the prefix bootstrap (termux bin/bash) or the system fallback.
-  val context = LocalContext.current
-  val prefixDir = File(context.filesDir, "usr")
-  val (statusResId, prefixArg) =
-      remember(prefixDir) {
-        val hasShell =
-            listOf("bin/bash", "bin/login", "bin/zsh", "bin/fish").any {
-              File(prefixDir, it).exists()
+    // Show what the runtime actually resolves as the launch location:
+    // the prefix bootstrap (termux bin/bash) or the system fallback.
+    val context = LocalContext.current
+    val prefixDir = File(context.filesDir, "usr")
+    val (statusResId, prefixArg) =
+        remember(prefixDir) {
+            val hasShell =
+                listOf("bin/bash", "bin/login", "bin/zsh", "bin/fish").any {
+                    File(prefixDir, it).exists()
+                }
+            if (hasShell) {
+                R.string.launch_location_status_termux to prefixDir.absolutePath
+            } else {
+                R.string.launch_location_status_none to ""
             }
-        if (hasShell) {
-          R.string.launch_location_status_termux to prefixDir.absolutePath
-        } else {
-          R.string.launch_location_status_none to ""
         }
-      }
-  val status = stringResource(statusResId, prefixArg)
-  Text(status, style = MaterialTheme.typography.bodySmall, color = secondaryText)
+    val status = stringResource(statusResId, prefixArg)
+    Text(status, style = MaterialTheme.typography.bodySmall, color = secondaryText)
 }
 
 @Composable
@@ -957,26 +957,26 @@ private fun ShellInput(
     textColor: Color,
     accentColor: Color,
 ) {
-  val isSmallScreen = rememberIsSmallScreen()
-  val labelStyle =
-      if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-  Column {
-    Text(stringResource(R.string.shell), style = labelStyle, color = textColor)
-    Spacer(modifier = Modifier.height(4.dp))
-    var text by remember(shellPath) { mutableStateOf(shellPath) }
-    OutlinedTextField(
-        value = text,
-        onValueChange = {
-          text = it
-          onShellChanged(it)
-        },
-        modifier = Modifier.fillMaxWidth(),
-        singleLine = true,
-        placeholder = {
-          Text(stringResource(R.string.shell_placeholder), color = textColor.copy(alpha = 0.5f))
-        },
-        textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
-        colors =
+    val isSmallScreen = rememberIsSmallScreen()
+    val labelStyle =
+        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    Column {
+        Text(stringResource(R.string.shell), style = labelStyle, color = textColor)
+        Spacer(modifier = Modifier.height(4.dp))
+        var text by remember(shellPath) { mutableStateOf(shellPath) }
+        OutlinedTextField(
+            value = text,
+            onValueChange = {
+                text = it
+                onShellChanged(it)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            singleLine = true,
+            placeholder = {
+                Text(stringResource(R.string.shell_placeholder), color = textColor.copy(alpha = 0.5f))
+            },
+            textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
+            colors =
             OutlinedTextFieldDefaults.colors(
                 focusedTextColor = textColor,
                 unfocusedTextColor = textColor,
@@ -984,8 +984,8 @@ private fun ShellInput(
                 focusedBorderColor = accentColor,
                 unfocusedBorderColor = textColor.copy(alpha = 0.5f),
             ),
-    )
-  }
+        )
+    }
 }
 
 @Composable
@@ -996,20 +996,20 @@ private fun ScrollbackSlider(
     secondaryText: Color,
     accentColor: Color,
 ) {
-  SettingsSliderRow(
-      title = stringResource(R.string.scrollback_lines),
-      value = value,
-      valueRange = SCROLLBACK_RANGE_MIN..SCROLLBACK_RANGE_MAX,
-      steps = SCROLLBACK_RANGE_STEPS,
-      colors =
-          SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
-      onValueChange = onValueChange,
-      valueFormatter = { value ->
-        value.toInt().let {
-          if (it >= 1000) "${it / 1000}K" else "$it"
-        }
-      },
-  )
+    SettingsSliderRow(
+        title = stringResource(R.string.scrollback_lines),
+        value = value,
+        valueRange = SCROLLBACK_RANGE_MIN..SCROLLBACK_RANGE_MAX,
+        steps = SCROLLBACK_RANGE_STEPS,
+        colors =
+        SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
+        onValueChange = onValueChange,
+        valueFormatter = { value ->
+            value.toInt().let {
+                if (it >= 1000) "${it / 1000}K" else "$it"
+            }
+        },
+    )
 }
 
 @Composable
@@ -1022,31 +1022,31 @@ internal fun ThemeSelector(
     secondaryText: Color,
     cardBackground: Color,
 ) {
-  val isSmallScreen = rememberIsSmallScreen()
-  val labelStyle =
-      if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-  Column(modifier = Modifier.testTag("ThemeSelector")) {
-    if (label.isNotEmpty()) {
-      Text(label, style = labelStyle, color = textColor)
-      Spacer(modifier = Modifier.height(4.dp))
+    val isSmallScreen = rememberIsSmallScreen()
+    val labelStyle =
+        if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
+    Column(modifier = Modifier.testTag("ThemeSelector")) {
+        if (label.isNotEmpty()) {
+            Text(label, style = labelStyle, color = textColor)
+            Spacer(modifier = Modifier.height(4.dp))
+        }
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(if (isSmallScreen) 6.dp else 8.dp)) {
+            items(themes) { theme ->
+                ThemePreview(
+                    theme = theme,
+                    // `selectedTheme` is always a theme *name* (built-in or
+                    // user-created); do NOT fall back through byName() here —
+                    // its default returns Catppuccin Mocha, which would
+                    // highlight that card whenever a user theme is selected.
+                    isSelected = theme.name == selectedTheme,
+                    onClick = { onThemeSelected(theme.name) },
+                    isSmallScreen = isSmallScreen,
+                    textColor = textColor,
+                    secondaryText = secondaryText,
+                )
+            }
+        }
     }
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(if (isSmallScreen) 6.dp else 8.dp)) {
-      items(themes) { theme ->
-        ThemePreview(
-            theme = theme,
-            // `selectedTheme` is always a theme *name* (built-in or
-            // user-created); do NOT fall back through byName() here —
-            // its default returns Catppuccin Mocha, which would
-            // highlight that card whenever a user theme is selected.
-            isSelected = theme.name == selectedTheme,
-            onClick = { onThemeSelected(theme.name) },
-            isSmallScreen = isSmallScreen,
-            textColor = textColor,
-            secondaryText = secondaryText,
-        )
-      }
-    }
-  }
 }
 
 @Composable
@@ -1058,40 +1058,40 @@ private fun ThemePreview(
     textColor: Color = MaterialTheme.colorScheme.onSurface,
     secondaryText: Color = MaterialTheme.colorScheme.onSurfaceVariant,
 ) {
-  val previewWidth = if (isSmallScreen) 72.dp else 88.dp
-  val dotSize = if (isSmallScreen) 6.dp else 8.dp
-  val padding = if (isSmallScreen) 4.dp else 6.dp
-  Column(
-      horizontalAlignment = Alignment.CenterHorizontally,
-      modifier =
-          Modifier.testTag("theme_preview_${theme.name}")
-              .width(previewWidth)
-              .clickable(onClick = onClick),
-  ) {
-    Box(
+    val previewWidth = if (isSmallScreen) 72.dp else 88.dp
+    val dotSize = if (isSmallScreen) 6.dp else 8.dp
+    val padding = if (isSmallScreen) 4.dp else 6.dp
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
         modifier =
+        Modifier.testTag("theme_preview_${theme.name}")
+            .width(previewWidth)
+            .clickable(onClick = onClick),
+    ) {
+        Box(
+            modifier =
             Modifier.fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
                 .background(
                     if (isSelected) theme.background else theme.background.copy(alpha = 0.7f),
                 )
                 .padding(padding),
-    ) {
-      Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
-        theme.ansi.take(8).forEach { color ->
-          Box(modifier = Modifier.size(dotSize).clip(RoundedCornerShape(2.dp)).background(color))
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                theme.ansi.take(8).forEach { color ->
+                    Box(modifier = Modifier.size(dotSize).clip(RoundedCornerShape(2.dp)).background(color))
+                }
+            }
         }
-      }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = theme.name,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (isSelected) textColor else textColor.copy(alpha = 0.7f),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
-    Spacer(modifier = Modifier.height(4.dp))
-    Text(
-        text = theme.name,
-        style = MaterialTheme.typography.labelSmall,
-        color = if (isSelected) textColor else textColor.copy(alpha = 0.7f),
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-    )
-  }
 }
 
 @Suppress("LongParameterList")
@@ -1108,116 +1108,114 @@ private fun BootstrapSection(
     accentColor: Color,
     secondaryText: Color,
 ) {
-  var url by remember { mutableStateOf(bootstrapUrl) }
-  LaunchedEffect(bootstrapUrl) { url = bootstrapUrl }
+    var url by remember { mutableStateOf(bootstrapUrl) }
+    LaunchedEffect(bootstrapUrl) { url = bootstrapUrl }
 
-  OutlinedTextField(
-      value = url,
-      onValueChange = {
-        url = it
-        onUrlChanged(it)
-      },
-      label = { Text(stringResource(R.string.bootstrap_url_label)) },
-      placeholder = { Text(stringResource(R.string.bootstrap_url_placeholder)) },
-      singleLine = true,
-      modifier = Modifier.fillMaxWidth().testTag("BootstrapUrlInput"),
-      colors =
-          OutlinedTextFieldDefaults.colors(
-              focusedBorderColor = accentColor,
-              unfocusedBorderColor = textColor.copy(alpha = 0.5f),
-              cursorColor = accentColor,
-              focusedLabelColor = accentColor,
-          ),
-  )
-  Spacer(modifier = Modifier.height(4.dp))
-  Text(
-      text = stringResource(R.string.bootstrap_desc),
-      style = MaterialTheme.typography.bodySmall,
-      color = secondaryText,
-  )
-  Spacer(modifier = Modifier.height(8.dp))
-  Text(
-      text = stringResource(R.string.bootstrap_presets),
-      style = MaterialTheme.typography.bodyMedium,
-      color = textColor,
-  )
-  Spacer(modifier = Modifier.height(4.dp))
+    OutlinedTextField(
+        value = url,
+        onValueChange = {
+            url = it
+            onUrlChanged(it)
+        },
+        label = { Text(stringResource(R.string.bootstrap_url_label)) },
+        placeholder = { Text(stringResource(R.string.bootstrap_url_placeholder)) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth().testTag("BootstrapUrlInput"),
+        colors =
+        OutlinedTextFieldDefaults.colors(
+            focusedBorderColor = accentColor,
+            unfocusedBorderColor = textColor.copy(alpha = 0.5f),
+            cursorColor = accentColor,
+            focusedLabelColor = accentColor,
+        ),
+    )
+    Spacer(modifier = Modifier.height(4.dp))
+    Text(
+        text = stringResource(R.string.bootstrap_desc),
+        style = MaterialTheme.typography.bodySmall,
+        color = secondaryText,
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+    Text(
+        text = stringResource(R.string.bootstrap_presets),
+        style = MaterialTheme.typography.bodyMedium,
+        color = textColor,
+    )
+    Spacer(modifier = Modifier.height(4.dp))
 
-  val arch = terminal.emulator.detectArchFromAbi()
-  val termuxUrl =
-      "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-$arch.zip"
+    val arch = terminal.emulator.detectArchFromAbi()
+    val termuxUrl =
+        "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-$arch.zip"
 
-  val presets =
-      listOf(
-          Triple(
-              stringResource(R.string.bootstrap_preset_termux),
-              termuxUrl,
-              stringResource(R.string.bootstrap_preset_termux_desc),
-          ),
-      )
-  presets.forEachIndexed { index, preset ->
-    BootstrapPresetItem(
-        preset = preset,
-        colors = PresetColors(accentColor, textColor, secondaryText),
-        modifier =
+    val presets =
+        listOf(
+            Triple(
+                stringResource(R.string.bootstrap_preset_termux),
+                termuxUrl,
+                stringResource(R.string.bootstrap_preset_termux_desc),
+            ),
+        )
+    presets.forEachIndexed { index, preset ->
+        BootstrapPresetItem(
+            preset = preset,
+            colors = PresetColors(accentColor, textColor, secondaryText),
+            modifier =
             Modifier.testTag(
                 "BootstrapPreset_TermuxDefault",
             ),
-        onAction = {
-          url = preset.second
-          onUrlChanged(preset.second)
-        },
+            onAction = {
+                url = preset.second
+                onUrlChanged(preset.second)
+            },
+        )
+    }
+
+    Spacer(modifier = Modifier.height(8.dp))
+    BootstrapInstallButton(
+        onRunBootstrap,
+        bootstrapRunning,
+        bootstrapResult,
+        bootstrapProgress,
+        accentColor,
+        textColor,
     )
-  }
 
-  Spacer(modifier = Modifier.height(8.dp))
-  BootstrapInstallButton(
-      onRunBootstrap,
-      bootstrapRunning,
-      bootstrapResult,
-      bootstrapProgress,
-      accentColor,
-      textColor,
-  )
-
-  // Offline install: pick a.zip file via SAF, no network required
-  Spacer(modifier = Modifier.height(8.dp))
-  val offlineLauncher =
-      rememberLauncherForActivityResult(
-          contract = ActivityResultContracts.OpenDocument(),
-      ) { uri ->
-        uri?.let { onInstallOffline(it) }
-      }
-  OutlinedButton(
-      onClick = { offlineLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
-      enabled = !bootstrapRunning,
-      modifier = Modifier.fillMaxWidth().testTag("OfflineInstallButton"),
-      colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
-  ) {
-    Text(stringResource(R.string.bootstrap_install_offline))
-  }
+    // Offline install: pick a.zip file via SAF, no network required
+    Spacer(modifier = Modifier.height(8.dp))
+    val offlineLauncher =
+        rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.OpenDocument(),
+        ) { uri ->
+            uri?.let { onInstallOffline(it) }
+        }
+    OutlinedButton(
+        onClick = { offlineLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+        enabled = !bootstrapRunning,
+        modifier = Modifier.fillMaxWidth().testTag("OfflineInstallButton"),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
+    ) {
+        Text(stringResource(R.string.bootstrap_install_offline))
+    }
 }
 
 private const val BYTES_PER_KB = 1024L
 private const val BYTES_PER_MB = BYTES_PER_KB * 1024
 
 @Composable
-private fun formatBytes(bytes: Long): String =
-    when {
-      bytes >= BYTES_PER_MB -> stringResource(R.string.byte_unit_mb, bytes / BYTES_PER_MB)
-      bytes >= BYTES_PER_KB -> stringResource(R.string.byte_unit_kb, bytes / BYTES_PER_KB)
-      else -> stringResource(R.string.byte_unit_b, bytes)
-    }
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= BYTES_PER_MB -> stringResource(R.string.byte_unit_mb, bytes / BYTES_PER_MB)
+    bytes >= BYTES_PER_KB -> stringResource(R.string.byte_unit_kb, bytes / BYTES_PER_KB)
+    else -> stringResource(R.string.byte_unit_b, bytes)
+}
 
 @Composable
-private fun bootstrapStepText(progress: BootstrapProgress): String =
-    when (progress) {
-      is BootstrapProgress.Downloading -> {
+private fun bootstrapStepText(progress: BootstrapProgress): String = when (progress) {
+    is BootstrapProgress.Downloading -> {
         val pct =
             if (progress.contentLength > 0) {
-              " (${(progress.bytesWritten * 100 / progress.contentLength)}%)"
+                " (${(progress.bytesWritten * 100 / progress.contentLength)}%)"
             } else {
-              ""
+                ""
             }
         stringResource(
             R.string.bootstrap_downloading,
@@ -1225,14 +1223,14 @@ private fun bootstrapStepText(progress: BootstrapProgress): String =
             formatBytes(progress.bytesWritten),
             if (progress.contentLength > 0) formatBytes(progress.contentLength) else "",
         )
-      }
+    }
 
-      is BootstrapProgress.Extracting -> {
+    is BootstrapProgress.Extracting -> {
         val pct =
             if (progress.totalEntries > 0) {
-              " (${(progress.entriesExtracted * 100 / progress.totalEntries)}%)"
+                " (${(progress.entriesExtracted * 100 / progress.totalEntries)}%)"
             } else {
-              ""
+                ""
             }
         stringResource(
             R.string.bootstrap_extracting,
@@ -1240,21 +1238,21 @@ private fun bootstrapStepText(progress: BootstrapProgress): String =
             progress.entriesExtracted,
             progress.totalEntries,
         )
-      }
-
-      is BootstrapProgress.RunningPostInstall ->
-          stringResource(
-              R.string.bootstrap_running_postinstall,
-              progress.scriptsCompleted,
-              progress.totalScripts,
-          )
-
-      BootstrapProgress.CreatingSymlinks -> stringResource(R.string.bootstrap_creating_symlinks)
-
-      BootstrapProgress.Complete -> stringResource(R.string.bootstrap_complete)
-
-      is BootstrapProgress.Error -> progress.message
     }
+
+    is BootstrapProgress.RunningPostInstall ->
+        stringResource(
+            R.string.bootstrap_running_postinstall,
+            progress.scriptsCompleted,
+            progress.totalScripts,
+        )
+
+    BootstrapProgress.CreatingSymlinks -> stringResource(R.string.bootstrap_creating_symlinks)
+
+    BootstrapProgress.Complete -> stringResource(R.string.bootstrap_complete)
+
+    is BootstrapProgress.Error -> progress.message
+}
 
 @Composable
 private fun BootstrapInstallButton(
@@ -1265,44 +1263,44 @@ private fun BootstrapInstallButton(
     accentColor: Color,
     textColor: Color,
 ) {
-  val progress = bootstrapProgress
-  Column {
-    if (bootstrapRunning) {
-      LinearProgressIndicator(
-          progress = { progress?.overallProgress() ?: 0f },
-          modifier = Modifier.fillMaxWidth().height(4.dp).testTag("BootstrapProgressBar"),
-          color = textColor,
-          trackColor = textColor.copy(alpha = 0.2f),
-      )
-      Spacer(modifier = Modifier.height(8.dp))
+    val progress = bootstrapProgress
+    Column {
+        if (bootstrapRunning) {
+            LinearProgressIndicator(
+                progress = { progress?.overallProgress() ?: 0f },
+                modifier = Modifier.fillMaxWidth().height(4.dp).testTag("BootstrapProgressBar"),
+                color = textColor,
+                trackColor = textColor.copy(alpha = 0.2f),
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
+        Button(
+            onClick = onRunBootstrap,
+            enabled = !bootstrapRunning,
+            modifier = Modifier.fillMaxWidth().testTag("BootstrapInstallButton"),
+            colors = ButtonDefaults.buttonColors(containerColor = accentColor),
+        ) {
+            Text(
+                text =
+                if (bootstrapRunning) {
+                    progress?.let { bootstrapStepText(it) }
+                        ?: stringResource(R.string.bootstrap_installing)
+                } else {
+                    stringResource(R.string.bootstrap_install)
+                },
+                color = textColor,
+            )
+        }
+        if (!bootstrapResult.isNullOrEmpty()) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = bootstrapResult,
+                style = MaterialTheme.typography.bodySmall,
+                color = textColor.copy(alpha = 0.7f),
+                modifier = Modifier.testTag("BootstrapResultText"),
+            )
+        }
     }
-    Button(
-        onClick = onRunBootstrap,
-        enabled = !bootstrapRunning,
-        modifier = Modifier.fillMaxWidth().testTag("BootstrapInstallButton"),
-        colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-    ) {
-      Text(
-          text =
-              if (bootstrapRunning) {
-                progress?.let { bootstrapStepText(it) }
-                    ?: stringResource(R.string.bootstrap_installing)
-              } else {
-                stringResource(R.string.bootstrap_install)
-              },
-          color = textColor,
-      )
-    }
-    if (!bootstrapResult.isNullOrEmpty()) {
-      Spacer(modifier = Modifier.height(4.dp))
-      Text(
-          text = bootstrapResult,
-          style = MaterialTheme.typography.bodySmall,
-          color = textColor.copy(alpha = 0.7f),
-          modifier = Modifier.testTag("BootstrapResultText"),
-      )
-    }
-  }
 }
 
 private data class PresetColors(
@@ -1318,35 +1316,35 @@ private fun BootstrapPresetItem(
     modifier: Modifier = Modifier,
     onAction: () -> Unit,
 ) {
-  val (label, _, description) = preset
-  Surface(
-      onClick = onAction,
-      shape = RoundedCornerShape(8.dp),
-      color = colors.accent.copy(alpha = 0.08f),
-      border = BorderStroke(1.dp, colors.accent),
-      modifier = modifier.fillMaxWidth().padding(vertical = 2.dp),
-  ) {
-    Row(
-        modifier = Modifier.padding(12.dp).fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+    val (label, _, description) = preset
+    Surface(
+        onClick = onAction,
+        shape = RoundedCornerShape(8.dp),
+        color = colors.accent.copy(alpha = 0.08f),
+        border = BorderStroke(1.dp, colors.accent),
+        modifier = modifier.fillMaxWidth().padding(vertical = 2.dp),
     ) {
-      Column(modifier = Modifier.weight(1f)) {
-        Text(text = label, style = MaterialTheme.typography.bodyMedium, color = colors.accent)
-        Text(
-            text = description,
-            style = MaterialTheme.typography.bodySmall,
-            color = colors.secondary,
-        )
-      }
-      Text(
-          text = stringResource(R.string.install),
-          style = MaterialTheme.typography.labelMedium,
-          color = colors.accent,
-          modifier = Modifier.padding(start = 8.dp),
-      )
+        Row(
+            modifier = Modifier.padding(12.dp).fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = label, style = MaterialTheme.typography.bodyMedium, color = colors.accent)
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.secondary,
+                )
+            }
+            Text(
+                text = stringResource(R.string.install),
+                style = MaterialTheme.typography.labelMedium,
+                color = colors.accent,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
     }
-  }
 }
 
 @Composable
@@ -1357,14 +1355,14 @@ private fun ShizukuToggle(
     accentColor: Color,
     cardBackground: Color,
 ) {
-  SettingsSwitchRow(
-      title = stringResource(R.string.shizuku_integration),
-      description = stringResource(R.string.shizuku_integration_desc),
-      checked = enabled,
-      onToggle = onToggle,
-      colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
-      modifier = Modifier.testTag("ShizukuToggle").clickable { onToggle(!enabled) },
-  )
+    SettingsSwitchRow(
+        title = stringResource(R.string.shizuku_integration),
+        description = stringResource(R.string.shizuku_integration_desc),
+        checked = enabled,
+        onToggle = onToggle,
+        colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
+        modifier = Modifier.testTag("ShizukuToggle").clickable { onToggle(!enabled) },
+    )
 }
 
 @Composable
@@ -1372,70 +1370,70 @@ private fun ClearAppDataSection(
     viewModel: TerminalViewModel,
     textColor: Color,
 ) {
-  val context = LocalContext.current
-  // Resolve once in composable scope: LocalContext-based resource reads
-  // are not configuration-aware (lint LocalContextGetResourceValueCall),
-  // and stringResource() cannot be called inside the onClick lambda.
-  val clearAppDataDone = stringResource(R.string.clear_app_data_done)
-  var showConfirmDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    // Resolve once in composable scope: LocalContext-based resource reads
+    // are not configuration-aware (lint LocalContextGetResourceValueCall),
+    // and stringResource() cannot be called inside the onClick lambda.
+    val clearAppDataDone = stringResource(R.string.clear_app_data_done)
+    var showConfirmDialog by remember { mutableStateOf(false) }
 
-  if (showConfirmDialog) {
-    AlertDialog(
-        onDismissRequest = { showConfirmDialog = false },
-        title = { Text(stringResource(R.string.clear_app_data)) },
-        text = { Text(stringResource(R.string.clear_app_data_confirm)) },
-        confirmButton = {
-          TextButton(
-              onClick = {
-                showConfirmDialog = false
-                viewModel.clearAppData {
-                  // In-process StateFlows still hold the old
-                  // values; a restart is required for a full reset.
-                  android.widget.Toast.makeText(
-                          context,
-                          clearAppDataDone,
-                          android.widget.Toast.LENGTH_LONG,
-                      )
-                      .show()
+    if (showConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDialog = false },
+            title = { Text(stringResource(R.string.clear_app_data)) },
+            text = { Text(stringResource(R.string.clear_app_data_confirm)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showConfirmDialog = false
+                        viewModel.clearAppData {
+                            // In-process StateFlows still hold the old
+                            // values; a restart is required for a full reset.
+                            android.widget.Toast.makeText(
+                                context,
+                                clearAppDataDone,
+                                android.widget.Toast.LENGTH_LONG,
+                            )
+                                .show()
+                        }
+                    },
+                    colors = ButtonDefaults.textButtonColors(contentColor = Color.Red),
+                ) {
+                    Text(stringResource(R.string.clear_app_data_action))
                 }
-              },
-              colors = ButtonDefaults.textButtonColors(contentColor = Color.Red),
-          ) {
-            Text(stringResource(R.string.clear_app_data_action))
-          }
-        },
-        dismissButton = {
-          TextButton(onClick = { showConfirmDialog = false }) {
-            Text(stringResource(R.string.cancel))
-          }
-        },
-    )
-  }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDialog = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
+    }
 
-  Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically,
-  ) {
-    Column(modifier = Modifier.weight(1f)) {
-      Text(
-          text = stringResource(R.string.clear_app_data),
-          style = MaterialTheme.typography.bodyLarge,
-          color = textColor,
-      )
-      Text(
-          text = stringResource(R.string.clear_app_data_desc),
-          style = MaterialTheme.typography.bodySmall,
-          color = textColor.copy(alpha = 0.6f),
-      )
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = stringResource(R.string.clear_app_data),
+                style = MaterialTheme.typography.bodyLarge,
+                color = textColor,
+            )
+            Text(
+                text = stringResource(R.string.clear_app_data_desc),
+                style = MaterialTheme.typography.bodySmall,
+                color = textColor.copy(alpha = 0.6f),
+            )
+        }
+        TextButton(onClick = { showConfirmDialog = true }) {
+            Text(
+                text = stringResource(R.string.clear_app_data_action),
+                color = Color.Red,
+            )
+        }
     }
-    TextButton(onClick = { showConfirmDialog = true }) {
-      Text(
-          text = stringResource(R.string.clear_app_data_action),
-          color = Color.Red,
-      )
-    }
-  }
 }
 
 @Composable
@@ -1445,59 +1443,59 @@ private fun FontInfoSection(
     textColor: Color,
     secondaryText: Color,
 ) {
-  Column(modifier = Modifier.testTag("FontInfoSection")) {
-    fontInfo.active?.let { active ->
-      Text(
-          text = stringResource(R.string.font_info_active, active.name),
-          style = MaterialTheme.typography.bodyMedium,
-          color = textColor,
-      )
-    }
-    val cjkText = fontInfo.cjkFallbackText()
-    val cjkCoveredByPrimary = fontInfo.cjkState == "skipped"
-    val hasCjk = fontInfo.hasRealCjkFallback
-    val cjkDisplayColor =
-        when {
-          hasCjk -> secondaryText
-          cjkCoveredByPrimary -> secondaryText
-          else -> WARNING_ORANGE
+    Column(modifier = Modifier.testTag("FontInfoSection")) {
+        fontInfo.active?.let { active ->
+            Text(
+                text = stringResource(R.string.font_info_active, active.name),
+                style = MaterialTheme.typography.bodyMedium,
+                color = textColor,
+            )
         }
-    val cjkLine =
-        when {
-          cjkText != null -> stringResource(R.string.font_info_cjk_fallback, cjkText)
-          cjkCoveredByPrimary -> stringResource(R.string.font_info_cjk_skipped)
-          else -> stringResource(R.string.font_info_cjk_none)
+        val cjkText = fontInfo.cjkFallbackText()
+        val cjkCoveredByPrimary = fontInfo.cjkState == "skipped"
+        val hasCjk = fontInfo.hasRealCjkFallback
+        val cjkDisplayColor =
+            when {
+                hasCjk -> secondaryText
+                cjkCoveredByPrimary -> secondaryText
+                else -> WARNING_ORANGE
+            }
+        val cjkLine =
+            when {
+                cjkText != null -> stringResource(R.string.font_info_cjk_fallback, cjkText)
+                cjkCoveredByPrimary -> stringResource(R.string.font_info_cjk_skipped)
+                else -> stringResource(R.string.font_info_cjk_none)
+            }
+        Text(
+            text = cjkLine,
+            style = MaterialTheme.typography.bodySmall,
+            color = cjkDisplayColor,
+        )
+        if (!hasCjk && !cjkCoveredByPrimary) {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.cjk_fallback_missing_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = WARNING_ORANGE,
+            )
         }
-    Text(
-        text = cjkLine,
-        style = MaterialTheme.typography.bodySmall,
-        color = cjkDisplayColor,
-    )
-    if (!hasCjk && !cjkCoveredByPrimary) {
-      Spacer(modifier = Modifier.height(4.dp))
-      Text(
-          text = stringResource(R.string.cjk_fallback_missing_warning),
-          style = MaterialTheme.typography.bodySmall,
-          color = WARNING_ORANGE,
-      )
+        if (fontInfo.cellWidthPx > 0f && fontInfo.cellHeightPx > 0f) {
+            Text(
+                text =
+                stringResource(R.string.font_info_cell, fontInfo.cellWidthPx, fontInfo.cellHeightPx),
+                style = MaterialTheme.typography.bodySmall,
+                color = secondaryText,
+            )
+        }
+        if (fontInfo.fontSize > 0f) {
+            val sizePx = fontSpToPx(fontInfo.fontSize, pixelPerSp)
+            Text(
+                text = stringResource(R.string.font_info_size_sp, fontInfo.fontSize, sizePx),
+                style = MaterialTheme.typography.bodySmall,
+                color = secondaryText,
+            )
+        }
     }
-    if (fontInfo.cellWidthPx > 0f && fontInfo.cellHeightPx > 0f) {
-      Text(
-          text =
-              stringResource(R.string.font_info_cell, fontInfo.cellWidthPx, fontInfo.cellHeightPx),
-          style = MaterialTheme.typography.bodySmall,
-          color = secondaryText,
-      )
-    }
-    if (fontInfo.fontSize > 0f) {
-      val sizePx = fontSpToPx(fontInfo.fontSize, pixelPerSp)
-      Text(
-          text = stringResource(R.string.font_info_size_sp, fontInfo.fontSize, sizePx),
-          style = MaterialTheme.typography.bodySmall,
-          color = secondaryText,
-      )
-    }
-  }
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1513,44 +1511,44 @@ private fun ModifierBarSettingsSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-  val context = LocalContext.current
-  val toolbarPreferences = remember { ToolbarPreferences(context) }
-  var layout by remember { mutableStateOf(toolbarPreferences.getLayout()) }
-  var showEditor by rememberSaveable { mutableStateOf(false) }
+    val context = LocalContext.current
+    val toolbarPreferences = remember { ToolbarPreferences(context) }
+    var layout by remember { mutableStateOf(toolbarPreferences.getLayout()) }
+    var showEditor by rememberSaveable { mutableStateOf(false) }
 
-  SectionHeader(stringResource(R.string.modifier_bar), sectionTitleColor)
-  SettingsCard(cardBackground) {
-    Text(
-        text = stringResource(R.string.modifier_bar_current_layout),
-        color = secondaryText,
-        style = MaterialTheme.typography.bodySmall,
-    )
-    Spacer(modifier = Modifier.height(4.dp))
-    ToolbarLayoutPreview(layout.toImmutableList(), textColor, cardBackground)
-    Spacer(modifier = Modifier.height(12.dp))
-    OutlinedButton(
-        onClick = { showEditor = true },
-        modifier = Modifier.testTag("EditModifierBarButton"),
-    ) {
-      Text(stringResource(R.string.edit), color = MaterialTheme.colorScheme.primary)
+    SectionHeader(stringResource(R.string.modifier_bar), sectionTitleColor)
+    SettingsCard(cardBackground) {
+        Text(
+            text = stringResource(R.string.modifier_bar_current_layout),
+            color = secondaryText,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        ToolbarLayoutPreview(layout.toImmutableList(), textColor, cardBackground)
+        Spacer(modifier = Modifier.height(12.dp))
+        OutlinedButton(
+            onClick = { showEditor = true },
+            modifier = Modifier.testTag("EditModifierBarButton"),
+        ) {
+            Text(stringResource(R.string.edit), color = MaterialTheme.colorScheme.primary)
+        }
     }
-  }
 
-  if (showEditor) {
-    ModifierBarEditorDialog(
-        layout = layout.toImmutableList(),
-        onLayoutChange = { layout = it },
-        onSave = {
-          toolbarPreferences.saveLayout(layout)
-          showEditor = false
-        },
-        onReset = { layout = toolbarPreferences.defaultLayout() },
-        onDismiss = { showEditor = false },
-        textColor = textColor,
-        secondaryText = secondaryText,
-        cardBackground = cardBackground,
-    )
-  }
+    if (showEditor) {
+        ModifierBarEditorDialog(
+            layout = layout.toImmutableList(),
+            onLayoutChange = { layout = it },
+            onSave = {
+                toolbarPreferences.saveLayout(layout)
+                showEditor = false
+            },
+            onReset = { layout = toolbarPreferences.defaultLayout() },
+            onDismiss = { showEditor = false },
+            textColor = textColor,
+            secondaryText = secondaryText,
+            cardBackground = cardBackground,
+        )
+    }
 }
 
 /** Key chips laid out in wrapping rows (mirrors the toolbar's 2-row shape). */
@@ -1564,20 +1562,20 @@ private fun ToolbarLayoutPreview(
     textColor: Color,
     cardBackground: Color,
 ) {
-  FlowRow(
-      horizontalArrangement = Arrangement.spacedBy(6.dp),
-      verticalArrangement = Arrangement.spacedBy(6.dp),
-      modifier = Modifier.testTag("ModifierBarPreview"),
-  ) {
-    layout.forEach { item ->
-      ToolbarKeyChip(
-          label = itemLabel(item),
-          textColor = textColor,
-          cardBackground = cardBackground,
-          onClick = {},
-      )
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.testTag("ModifierBarPreview"),
+    ) {
+        layout.forEach { item ->
+            ToolbarKeyChip(
+                label = itemLabel(item),
+                textColor = textColor,
+                cardBackground = cardBackground,
+                onClick = {},
+            )
+        }
     }
-  }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -1592,68 +1590,68 @@ private fun ModifierBarEditorDialog(
     secondaryText: Color,
     cardBackground: Color,
 ) {
-  val currentKeys = layout.filterIsInstance<ToolbarItem.Default>().map { it.key }.toSet()
-  val availableKeys = ToolbarKey.entries.filter { it !in currentKeys }
+    val currentKeys = layout.filterIsInstance<ToolbarItem.Default>().map { it.key }.toSet()
+    val availableKeys = ToolbarKey.entries.filter { it !in currentKeys }
 
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text(stringResource(R.string.edit_modifier_bar)) },
-      text = {
-        Column(
-            modifier =
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.edit_modifier_bar)) },
+        text = {
+            Column(
+                modifier =
                 Modifier.verticalScroll(rememberScrollState()).testTag("ModifierBarEditorDialog"),
-        ) {
-          Text(
-              text = stringResource(R.string.modifier_bar_edit_hint_remove),
-              color = secondaryText,
-              style = MaterialTheme.typography.bodySmall,
-          )
-          Spacer(modifier = Modifier.height(8.dp))
-          CurrentLayoutEditor(
-              layout = layout,
-              onLayoutChange = onLayoutChange,
-              textColor = textColor,
-              secondaryText = secondaryText,
-              cardBackground = cardBackground,
-          )
-          Spacer(modifier = Modifier.height(12.dp))
-          Text(
-              text = stringResource(R.string.modifier_bar_available_keys),
-              color = secondaryText,
-              style = MaterialTheme.typography.bodySmall,
-          )
-          Spacer(modifier = Modifier.height(8.dp))
-          AvailableKeysPicker(
-              availableKeys = availableKeys.toImmutableList(),
-              onLayoutChange = onLayoutChange,
-              layout = layout,
-              textColor = textColor,
-              cardBackground = cardBackground,
-          )
-          Spacer(modifier = Modifier.height(8.dp))
-          TextButton(
-              onClick = onReset,
-              modifier = Modifier.testTag("ResetModifierBarButton"),
-          ) {
-            Text(
-                stringResource(R.string.reset_to_default),
-                color = MaterialTheme.colorScheme.primary,
-            )
-          }
-        }
-      },
-      confirmButton = {
-        TextButton(
-            onClick = onSave,
-            modifier = Modifier.testTag("SaveModifierBarButton"),
-        ) {
-          Text(stringResource(R.string.save))
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-      },
-  )
+            ) {
+                Text(
+                    text = stringResource(R.string.modifier_bar_edit_hint_remove),
+                    color = secondaryText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                CurrentLayoutEditor(
+                    layout = layout,
+                    onLayoutChange = onLayoutChange,
+                    textColor = textColor,
+                    secondaryText = secondaryText,
+                    cardBackground = cardBackground,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = stringResource(R.string.modifier_bar_available_keys),
+                    color = secondaryText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                AvailableKeysPicker(
+                    availableKeys = availableKeys.toImmutableList(),
+                    onLayoutChange = onLayoutChange,
+                    layout = layout,
+                    textColor = textColor,
+                    cardBackground = cardBackground,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                TextButton(
+                    onClick = onReset,
+                    modifier = Modifier.testTag("ResetModifierBarButton"),
+                ) {
+                    Text(
+                        stringResource(R.string.reset_to_default),
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onSave,
+                modifier = Modifier.testTag("SaveModifierBarButton"),
+            ) {
+                Text(stringResource(R.string.save))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
+        },
+    )
 }
 
 /** The current key list with per-key width steppers and secondary labels. */
@@ -1665,78 +1663,78 @@ private fun CurrentLayoutEditor(
     secondaryText: Color,
     cardBackground: Color,
 ) {
-  Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    layout.forEach { item ->
-      Row(
-          verticalAlignment = Alignment.CenterVertically,
-          horizontalArrangement = Arrangement.spacedBy(4.dp),
-      ) {
-        ToolbarKeyChip(
-            label = itemLabel(item),
-            textColor = textColor,
-            cardBackground = cardBackground,
-            onClick = { onLayoutChange((layout - item).toImmutableList()) },
-        )
-        Text(
-            text = "W",
-            color = secondaryText,
-            style = MaterialTheme.typography.labelSmall,
-        )
-        IconButton(
-            onClick = {
-              onLayoutChange(
-                  layout
-                      .replace(
-                          item,
-                          item.withWidth((item.width - 1).coerceAtLeast(1)),
-                      )
-                      .toImmutableList(),
-              )
-            },
-            modifier = Modifier.size(28.dp).testTag("WidthMinus_${itemLabel(item)}"),
-        ) {
-          Text("−", color = secondaryText)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        layout.forEach { item ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                ToolbarKeyChip(
+                    label = itemLabel(item),
+                    textColor = textColor,
+                    cardBackground = cardBackground,
+                    onClick = { onLayoutChange((layout - item).toImmutableList()) },
+                )
+                Text(
+                    text = "W",
+                    color = secondaryText,
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                IconButton(
+                    onClick = {
+                        onLayoutChange(
+                            layout
+                                .replace(
+                                    item,
+                                    item.withWidth((item.width - 1).coerceAtLeast(1)),
+                                )
+                                .toImmutableList(),
+                        )
+                    },
+                    modifier = Modifier.size(28.dp).testTag("WidthMinus_${itemLabel(item)}"),
+                ) {
+                    Text("−", color = secondaryText)
+                }
+                Text(
+                    text = "${item.width}",
+                    color = textColor,
+                    style = MaterialTheme.typography.labelMedium,
+                    modifier = Modifier.testTag("WidthValue_${itemLabel(item)}"),
+                )
+                IconButton(
+                    onClick = {
+                        onLayoutChange(
+                            layout
+                                .replace(
+                                    item,
+                                    item.withWidth((item.width + 1).coerceAtMost(4)),
+                                )
+                                .toImmutableList(),
+                        )
+                    },
+                    modifier = Modifier.size(28.dp).testTag("WidthPlus_${itemLabel(item)}"),
+                ) {
+                    Text("+", color = secondaryText)
+                }
+                BasicTextField(
+                    value = item.secondaryLabel.orEmpty(),
+                    onValueChange = { value ->
+                        onLayoutChange(layout.replace(item, item.withSecondary(value)).toImmutableList())
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodySmall.copy(color = textColor),
+                    modifier =
+                    Modifier.weight(1f)
+                        .testTag("SecondaryLabel_${itemLabel(item)}")
+                        .background(
+                            cardBackground,
+                            RoundedCornerShape(4.dp),
+                        )
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            }
         }
-        Text(
-            text = "${item.width}",
-            color = textColor,
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.testTag("WidthValue_${itemLabel(item)}"),
-        )
-        IconButton(
-            onClick = {
-              onLayoutChange(
-                  layout
-                      .replace(
-                          item,
-                          item.withWidth((item.width + 1).coerceAtMost(4)),
-                      )
-                      .toImmutableList(),
-              )
-            },
-            modifier = Modifier.size(28.dp).testTag("WidthPlus_${itemLabel(item)}"),
-        ) {
-          Text("+", color = secondaryText)
-        }
-        BasicTextField(
-            value = item.secondaryLabel.orEmpty(),
-            onValueChange = { value ->
-              onLayoutChange(layout.replace(item, item.withSecondary(value)).toImmutableList())
-            },
-            singleLine = true,
-            textStyle = MaterialTheme.typography.bodySmall.copy(color = textColor),
-            modifier =
-                Modifier.weight(1f)
-                    .testTag("SecondaryLabel_${itemLabel(item)}")
-                    .background(
-                        cardBackground,
-                        RoundedCornerShape(4.dp),
-                    )
-                    .padding(horizontal = 6.dp, vertical = 4.dp),
-        )
-      }
     }
-  }
 }
 
 /** The keys not yet in the layout, tappable to append. */
@@ -1749,56 +1747,54 @@ private fun AvailableKeysPicker(
     textColor: Color,
     cardBackground: Color,
 ) {
-  FlowRow(
-      horizontalArrangement = Arrangement.spacedBy(6.dp),
-      verticalArrangement = Arrangement.spacedBy(6.dp),
-  ) {
-    availableKeys.forEach { key ->
-      ToolbarKeyChip(
-          label = key.defaultLabel,
-          textColor = textColor,
-          cardBackground = cardBackground,
-          onClick = { onLayoutChange((layout + ToolbarItem.Default(key)).toImmutableList()) },
-      )
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        availableKeys.forEach { key ->
+            ToolbarKeyChip(
+                label = key.defaultLabel,
+                textColor = textColor,
+                cardBackground = cardBackground,
+                onClick = { onLayoutChange((layout + ToolbarItem.Default(key)).toImmutableList()) },
+            )
+        }
     }
-  }
 }
 
-private fun itemLabel(item: ToolbarItem): String =
-    when (item) {
-      is ToolbarItem.Default -> item.key.defaultLabel
-      is ToolbarItem.Custom -> item.label
-    }
+private fun itemLabel(item: ToolbarItem): String = when (item) {
+    is ToolbarItem.Default -> item.key.defaultLabel
+    is ToolbarItem.Custom -> item.label
+}
 
 /** Returns a copy of this item with a new row weight. */
-private fun ToolbarItem.withWidth(width: Int): ToolbarItem =
-    when (this) {
-      is ToolbarItem.Default -> copy(width = width)
-      is ToolbarItem.Custom -> copy(width = width)
-    }
+private fun ToolbarItem.withWidth(width: Int): ToolbarItem = when (this) {
+    is ToolbarItem.Default -> copy(width = width)
+    is ToolbarItem.Custom -> copy(width = width)
+}
 
 /**
  * Returns a copy with a secondary long-press key; the sequence is the label itself, matching termux
  * extra-keys secondary key semantics.
  */
 private fun ToolbarItem.withSecondary(label: String): ToolbarItem {
-  val trimmed = label.trim()
-  val secondaryLabel = trimmed.ifEmpty { null }
-  val secondarySequence = trimmed.ifEmpty { null }
-  return when (this) {
-    is ToolbarItem.Default ->
-        copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
+    val trimmed = label.trim()
+    val secondaryLabel = trimmed.ifEmpty { null }
+    val secondarySequence = trimmed.ifEmpty { null }
+    return when (this) {
+        is ToolbarItem.Default ->
+            copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
 
-    is ToolbarItem.Custom ->
-        copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
-  }
+        is ToolbarItem.Custom ->
+            copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
+    }
 }
 
 /** Replaces the first item equal to `old` with `new`. */
 private fun List<ToolbarItem>.replace(old: ToolbarItem, new: ToolbarItem): List<ToolbarItem> {
-  val index = indexOf(old)
-  if (index < 0) return this
-  return toMutableList().also { it[index] = new }
+    val index = indexOf(old)
+    if (index < 0) return this
+    return toMutableList().also { it[index] = new }
 }
 
 @Composable
@@ -1808,18 +1804,18 @@ private fun ToolbarKeyChip(
     textColor: Color,
     cardBackground: Color,
 ) {
-  Surface(
-      onClick = onClick,
-      shape = RoundedCornerShape(6.dp),
-      color = cardBackground,
-      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-      modifier = Modifier.testTag("ToolbarKeyChip_$label"),
-  ) {
-    Text(
-        text = label,
-        color = textColor,
-        style = MaterialTheme.typography.labelMedium,
-        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-    )
-  }
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(6.dp),
+        color = cardBackground,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.testTag("ToolbarKeyChip_$label"),
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+    }
 }
