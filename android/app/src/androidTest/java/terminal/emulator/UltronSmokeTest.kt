@@ -11,47 +11,44 @@ import com.atiurin.ultron.extensions.isDisplayed
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
-import terminal.emulator.MainActivity
 
 /**
  * Ultron-style on-device UI smoke test.
  *
- * Ultron (open-tool/ultron) wraps Espresso/Compose/UI Automator with a
- * stable DSL. 本应用通过 `ActivityScenarioRule` 启动 `MainActivity`
- * so the activity runs in the app process (`com.termux`) and its Compose
- * semantics are visible to the test (the `runUltronUiTest { }` compose
- * environment starts a separate test-process activity and cannot see the
- * app's cross-process UI). We therefore verify the Compose nodes with the
- * standard `createAndroidComposeRule` (same pattern as `ModifierBarTest`)
- * and exercise Ultron's Espresso `isDisplayed()` extension on the root
- * content view to prove the Ultron integration compiles and runs on-device.
+ * Ultron (open-tool/ultron) wraps Espresso/Compose/UI Automator with a stable DSL. 本应用通过
+ * `ActivityScenarioRule` 启动 `MainActivity` so the activity runs in the app process (`com.termux`)
+ * and its Compose semantics are visible to the test (the `runUltronUiTest { }` compose environment
+ * starts a separate test-process activity and cannot see the app's cross-process UI). We therefore
+ * verify the Compose nodes with the standard `createAndroidComposeRule` (same pattern as
+ * `ModifierBarTest`) and exercise Ultron's Espresso `isDisplayed()` extension on the root content
+ * view to prove the Ultron integration compiles and runs on-device.
  */
 @RunWith(AndroidJUnit4::class)
 class UltronSmokeTest {
 
-    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
-    // the system dialog would cover the UI and break node lookups.
-    @get:Rule
-    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+  // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+  // the system dialog would cover the UI and break node lookups.
+  @get:Rule
+  val notificationPermission =
+      GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-    @get:Rule
-    val composeTestRule = createAndroidComposeRule<MainActivity>()
+  @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-    @Test
-    fun terminalScreenIsDisplayed() {
-        composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
-    }
+  @Test
+  fun terminalScreenIsDisplayed() {
+    composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
+  }
 
-    @Test
-    fun modifierBarKeysAreDisplayed() {
-        composeTestRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("Key_DRAWER").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("Key_SCROLL").assertIsDisplayed()
-    }
+  @Test
+  fun modifierBarKeysAreDisplayed() {
+    composeTestRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("Key_DRAWER").assertIsDisplayed()
+    composeTestRule.onNodeWithTag("Key_SCROLL").assertIsDisplayed()
+  }
 
-    @Test
-    fun rootContentViewIsDisplayedViaUltron() {
-        // Ultron Espresso extension: built-in retry + timeout.
-        onView(withId(android.R.id.content)).isDisplayed()
-    }
+  @Test
+  fun rootContentViewIsDisplayedViaUltron() {
+    // Ultron Espresso extension: built-in retry + timeout.
+    onView(withId(android.R.id.content)).isDisplayed()
+  }
 }

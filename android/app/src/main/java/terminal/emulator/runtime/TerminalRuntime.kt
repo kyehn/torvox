@@ -336,8 +336,8 @@ constructor(
    * Failsafe session request (termux-compatible app shortcut extra
    * `com.termux.app.failsafe_session`): the next session starts with the system shell and no prefix
    * bootstrap, so a broken bootstrap cannot brick terminal access. Consumed (not reset) by
-   * buildConfig; a second shortcut tap while a session is already up is a no-op 因为只保留单个会话
-   * (see start()'s `sessions.isNotEmpty()` guard).
+   * buildConfig; a second shortcut tap while a session is already up is a no-op 因为只保留单个会话 (see
+   * start()'s `sessions.isNotEmpty()` guard).
    */
   @Volatile
   var failsafeRequested: Boolean = false

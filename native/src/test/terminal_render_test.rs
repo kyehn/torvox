@@ -1,7 +1,7 @@
-use native::terminal::CursorStyle;
-use native::terminal::SelectionMode;
+use crate::terminal::CursorStyle;
+use crate::terminal::SelectionMode;
 // Grid-level terminal tests (always run, no GPU needed)
-use native::terminal::ghostty_terminal::GhosttyTerminal;
+use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
 const ROWS: u32 = 24;
 const COLS: u32 = 80;
@@ -218,10 +218,10 @@ fn vt_cursor_visibility() {
 // ── GPU render tests (require Lavapipe / Vulkan) ──
 
 fn setup_gpu_env() -> (
-    native::render::gpu::Renderer,
-    native::render::font::FontPipeline,
+    crate::render::gpu::Renderer,
+    crate::render::font::FontPipeline,
 ) {
-    let mut context = native::render::gpu::Renderer::new_with_no_surface();
+    let mut context = crate::render::gpu::Renderer::new_with_no_surface();
     context.set_surface_config(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
@@ -237,16 +237,16 @@ fn setup_gpu_env() -> (
     context.initialize_pipeline_and_bind_group(256, 256, 800, 600);
     (
         context,
-        native::render::font::FontPipeline::new(256, 256, 14.0),
+        crate::render::font::FontPipeline::new(256, 256, 14.0),
     )
 }
 
 fn build_production_instances(
-    snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
-    font_pipeline: &mut native::render::font::FontPipeline,
-    selection: Option<native::render::gpu::SelectionRange>,
-) -> Vec<native::render::gpu::CellInstance> {
-    use native::terminal::ghostty_terminal::cell_flags;
+    snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+    selection: Option<crate::render::gpu::SelectionRange>,
+) -> Vec<crate::render::gpu::CellInstance> {
+    use crate::terminal::ghostty_terminal::cell_flags;
     let mut cell_data = Vec::with_capacity((snapshot.rows * snapshot.cols) as usize);
     for (index, cell) in snapshot.cells.iter().enumerate() {
         let row = (index as u32) / snapshot.cols;
@@ -280,7 +280,7 @@ fn build_production_instances(
         if cell.double_underline {
             flags |= 1 << cell_flags::DOUBLE_UNDERLINE;
         }
-        cell_data.push(native::terminal::ghostty_terminal::CellData {
+        cell_data.push(crate::terminal::ghostty_terminal::CellData {
             codepoint: cell.codepoint,
             width: cell.width as u32,
             grapheme_extra,
@@ -292,14 +292,14 @@ fn build_production_instances(
         });
     }
     let (cell_width, cell_height) = font_pipeline.cell_metrics();
-    let cursor = native::render::gpu::CellCursor {
+    let cursor = crate::render::gpu::CellCursor {
         row: snapshot.cursor_row,
         col: snapshot.cursor_col,
         visible: snapshot.cursor_visible,
         style: CursorStyle::Block,
         color: None,
     };
-    let config = native::render::gpu::CellInstanceConfig {
+    let config = crate::render::gpu::CellInstanceConfig {
         rows: snapshot.rows,
         cols: snapshot.cols,
         grid_cell_w: cell_width,
@@ -311,7 +311,7 @@ fn build_production_instances(
         search_highlights: &[],
     };
     let mut instances = Vec::new();
-    native::render::gpu::build_instances_from_cell_data(
+    crate::render::gpu::build_instances_from_cell_data(
         &cell_data,
         config,
         font_pipeline,
@@ -322,9 +322,9 @@ fn build_production_instances(
 }
 
 fn render_or_die(
-    context: &mut native::render::gpu::Renderer,
-    font_pipeline: &mut native::render::font::FontPipeline,
-    snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
+    context: &mut crate::render::gpu::Renderer,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+    snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
 ) -> Vec<u8> {
     let instances = build_production_instances(snapshot, font_pipeline, None);
     context
@@ -333,10 +333,10 @@ fn render_or_die(
 }
 
 fn render_with_selection(
-    context: &mut native::render::gpu::Renderer,
-    font_pipeline: &mut native::render::font::FontPipeline,
-    snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
-    selection: native::render::gpu::SelectionRange,
+    context: &mut crate::render::gpu::Renderer,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+    snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
+    selection: crate::render::gpu::SelectionRange,
 ) -> Vec<u8> {
     let instances = build_production_instances(snapshot, font_pipeline, Some(selection));
     context
@@ -355,9 +355,9 @@ fn region_pixels(buf: &[u8], stride: u32, row_start: u32, row_end: u32) -> &[u8]
 }
 
 fn render_dirty_or_die(
-    context: &mut native::render::gpu::Renderer,
-    font_pipeline: &mut native::render::font::FontPipeline,
-    snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
+    context: &mut crate::render::gpu::Renderer,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+    snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
     _dirty_rows: &[bool],
 ) -> Vec<u8> {
     let instances = build_production_instances(snapshot, font_pipeline, None);
@@ -470,7 +470,7 @@ fn gpu_render_selection_swaps_fg_bg() {
     terminal.flush();
     let snap = terminal.take_snapshot();
     let pixels_no_sel = render_or_die(&mut context, &mut font_pipeline, &snap);
-    let sel = native::render::gpu::SelectionRange {
+    let sel = crate::render::gpu::SelectionRange {
         start_row: 0,
         start_col: 6,
         end_row: 0,
@@ -1121,7 +1121,7 @@ fn bootstrap_vulkan_icd_available() {
 
 #[test]
 fn bootstrap_gpu_context_initializes() {
-    let mut context = native::render::gpu::Renderer::new_with_no_surface();
+    let mut context = crate::render::gpu::Renderer::new_with_no_surface();
     context.set_surface_config(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
