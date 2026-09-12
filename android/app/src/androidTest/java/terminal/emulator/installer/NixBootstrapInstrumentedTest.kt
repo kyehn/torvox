@@ -94,9 +94,12 @@ class NixBootstrapInstrumentedTest {
         // line-by-line instead of relying on a wc pipeline.
         val storeLines = shell("ls -1 /data/user/0/com.termux/files/usr/nix/store").lines().filter { it.isNotBlank() }
         Assert.assertTrue("nix/store must be populated, got ${storeLines.size} entries", storeLines.size > 5)
-        val envLine =
-            shell("grep ^SHELL= /data/user/0/com.termux/files/usr/etc/termux/termux.env").trim()
-        Assert.assertTrue("SHELL must point at bin/login: $envLine", envLine.endsWith("/bin/login"))
+        val termuxEnv = shell("cat /data/user/0/com.termux/files/usr/etc/termux/termux.env").trim()
+        Assert.assertTrue("TERMUX_VERSION must be pinned: $termuxEnv", termuxEnv.contains("TERMUX_VERSION=0.119.0-beta.3"))
+        Assert.assertTrue("PREFIX must be set: $termuxEnv", termuxEnv.contains("PREFIX=/data/user/0/com.termux/files/usr"))
+        for (key in listOf("SHELL=", "PATH=", "LD_PRELOAD=", "PWD=")) {
+            Assert.assertFalse("$key must not be set per spec whitelist: $termuxEnv", termuxEnv.lines().any { it.startsWith(key) })
+        }
 
         Log.i(TAG, "nix bootstrap end-to-end verified: store=${storeLines.size} $envLine")
     }

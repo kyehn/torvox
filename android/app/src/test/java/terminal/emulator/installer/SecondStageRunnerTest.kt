@@ -66,15 +66,16 @@ class SecondStageRunnerTest {
     }
 
     @Test
-    fun prefix_environment_includes_termux_exec_preload() {
+    fun prefix_environment_matches_spec_whitelist() {
         val prefix = tempPrefix()
         val env = runnerWith(prefix).prefixEnvironment()
-        assertEquals(
-            "${prefix.absolutePath}/lib/libtermux-exec.so",
-            env["LD_PRELOAD"],
-        )
         assertEquals(prefix.absolutePath, env["PREFIX"])
-        assertTrue(requireNotNull(env["PATH"]).startsWith("${prefix.absolutePath}/bin"))
+        assertEquals(prefix.absolutePath, env["TERMUX_PREFIX_DIR_PATH"])
+        assertEquals("0.119.0-beta.3", env["TERMUX_VERSION"])
+        assertEquals("en_US.UTF-8", env["LANG"])
+        for (key in listOf("PATH", "SHELL", "LD_PRELOAD", "LD_LIBRARY_PATH", "PWD")) {
+            assertTrue("$key must not be set", !env.containsKey(key))
+        }
     }
 
     @Test
