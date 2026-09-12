@@ -19,7 +19,7 @@
 //! - FR-049 — JNI NDK bridge for session lifecycle (spawn, resize, input, exit)
 
 pub mod ghostty_terminal;
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub mod mock_pty;
 pub mod osc_handler;
 pub mod output_processor;
@@ -29,19 +29,19 @@ pub use session::ThemeConfig;
 pub mod shell_env;
 pub mod url_regex;
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub(crate) mod action_parser;
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub(crate) mod sgr_parser;
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 #[cfg(test)]
 pub(crate) mod snapshot_test;
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub(crate) mod test_helpers;
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub(crate) mod vt_conformance;
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub use mock_pty::{MockPty, MockPtyHandle};
 pub use pty::{Pty, PtyError, PtyPair};
 pub use shell_env::ShellEnv;

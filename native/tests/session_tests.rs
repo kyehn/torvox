@@ -1367,8 +1367,8 @@ mod build_config_validation {
         let path = workspace_root().join("android/build.gradle.kts");
         let content = fs::read_to_string(path).unwrap();
         assert!(
-            content.contains("org.jetbrains.kotlin.plugin.compose") && content.contains("2.4.10"),
-            "Kotlin plugin compose should be 2.4.10 (latest stable)"
+            content.contains("org.jetbrains.kotlin.plugin.compose") && content.contains("2.4.20"),
+            "Kotlin plugin compose should be 2.4.20 (latest stable)"
         );
     }
 

@@ -56,6 +56,13 @@
 - 尽可能内联中间变量。
 - 变量与函数一律使用完整描述性名称：禁止单字母变量（如 `s`、`p`、`w`、`h`、`t`、`e`），禁止缩写（如 `config` 而非 `cfg`、`background` 而非 `bg`、`application` 而非 `app`）。
 - 使用简体中文编写注释和文档，表述需要简明扼要。
+- Torvox/torvox 仅为软件名称，除部分介绍文档外一律不得出现，使用如 terminal 等通用词
+- `nix` 仅在 nix-on-droid bootstrap测试 这一个代码文件中出现，其他 rs/kt 代码不得出现/使用。`nix/store` 不得出现在任何代码/文档中。
+- `fish` `dash` `zsh` 不得出现在任何文件中。
+- 不得定义任何 crate features
+- 不得保留死代码
+- 代码量绝对不得超过 ghostty-android-terminal + termux，必须最小实现
+- 不允许实现任何未在 docs/specification/ 声明的功能/逻辑
 
 ## Git
 
