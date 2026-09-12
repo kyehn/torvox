@@ -62,11 +62,11 @@ android {
 
     val useCucumber = project.findProperty("cucumber")?.toString()?.toBoolean() ?: true
     testInstrumentationRunner =
-        if (useCucumber) {
-          "io.cucumber.android.runner.CucumberAndroidJUnitRunner"
-        } else {
-          "androidx.test.runner.AndroidJUnitRunner"
-        }
+      if (useCucumber) {
+        "io.cucumber.android.runner.CucumberAndroidJUnitRunner"
+      } else {
+        "androidx.test.runner.AndroidJUnitRunner"
+      }
     if (useCucumber) {
       testInstrumentationRunnerArguments["notCucumber"] = "true"
     }
@@ -86,14 +86,14 @@ android {
       isShrinkResources = true
       val hasKeystore = System.getenv("ANDROID_KEYSTORE_FILE") != null
       signingConfig =
-          if (hasKeystore) {
-            signingConfigs.getByName("release")
-          } else {
-            signingConfigs.getByName("testkey")
-          }
+        if (hasKeystore) {
+          signingConfigs.getByName("release")
+        } else {
+          signingConfigs.getByName("testkey")
+        }
       proguardFiles(
-          getDefaultProguardFile("proguard-android-optimize.txt"),
-          "proguard-rules.pro",
+        getDefaultProguardFile("proguard-android-optimize.txt"),
+        "proguard-rules.pro",
       )
     }
   }
@@ -302,23 +302,23 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
 }
 
 val workingDirForCargo =
-    rootProject.projectDir.parentFile ?: error("rootProject.projectDir.parentFile must exist")
+  rootProject.projectDir.parentFile ?: error("rootProject.projectDir.parentFile must exist")
 
 check(File(workingDirForCargo, "Cargo.toml").exists()) {
   "Cargo.toml not found at $workingDirForCargo"
 }
 
 tasks
-    .withType<Test>()
-    .matching { it.name == "testDebugUnitTest" }
-    .configureEach {
-      // src/test hosts 40+ JVM test files (bridge codecs, selection, search,
-      // installer, runtime, UI state, TestBalloon suite) plus robolectric
-      // config; Gradle 9.6 fails the task when no tests are discovered, so
-      // the failure is disabled as a safety net.
-      jvmArgs("-Djava.library.path=")
-      failOnNoDiscoveredTests = false
-    }
+  .withType<Test>()
+  .matching { it.name == "testDebugUnitTest" }
+  .configureEach {
+    // src/test hosts 40+ JVM test files (bridge codecs, selection, search,
+    // installer, runtime, UI state, TestBalloon suite) plus robolectric
+    // config; Gradle 9.6 fails the task when no tests are discovered, so
+    // the failure is disabled as a safety net.
+    jvmArgs("-Djava.library.path=")
+    failOnNoDiscoveredTests = false
+  }
 
 // ── PIT mutation testing (AGP 9.x compatible, no plugin dependency) ──
 
@@ -330,11 +330,11 @@ dependencies {
 }
 
 val excludedUnitTests =
-    // src/test contains no test classes (only an android.util.Log shadow);
-    // these patterns reference classes that have never existed in this tree
-    // and are kept solely to guard a future JNA-era unit test from running
-    // without the native.so.
-    listOf<String>()
+  // src/test contains no test classes (only an android.util.Log shadow);
+  // these patterns reference classes that have never existed in this tree
+  // and are kept solely to guard a future JNA-era unit test from running
+  // without the native.so.
+  listOf<String>()
 
 // Register pitest tasks for debug-only Android build variants
 //
@@ -359,54 +359,54 @@ androidComponents {
 
       val runtime = configurations.named("${variant.name}UnitTestRuntimeClasspath")
       val compileOutput =
-          tasks.named("compile${variant.name.replaceFirstChar { it.uppercase() }}Kotlin")
+        tasks.named("compile${variant.name.replaceFirstChar { it.uppercase() }}Kotlin")
       classpath =
-          pitestClasspath +
-              runtime.get() +
-              files(
-                  compileOutput.map {
-                    (it as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory
-                  },
-              ) +
-              // android.jar stubs: Robolectric unit tests run against the
-              // android-all jar (which shadows these), but PIT's mutation
-              // engine loads classes directly and needs the android.*
-              // framework stubs on the classpath. Resolved lazily so a
-              // missing ANDROID_HOME never breaks other Gradle tasks.
-              files(
-                  providers.environmentVariable("ANDROID_HOME").map { home ->
-                    File(home, "platforms/android-34/android.jar")
-                  },
-              )
+        pitestClasspath +
+        runtime.get() +
+        files(
+          compileOutput.map {
+            (it as org.jetbrains.kotlin.gradle.tasks.KotlinCompile).destinationDirectory
+          },
+        ) +
+        // android.jar stubs: Robolectric unit tests run against the
+        // android-all jar (which shadows these), but PIT's mutation
+        // engine loads classes directly and needs the android.*
+        // framework stubs on the classpath. Resolved lazily so a
+        // missing ANDROID_HOME never breaks other Gradle tasks.
+        files(
+          providers.environmentVariable("ANDROID_HOME").map { home ->
+            File(home, "platforms/android-34/android.jar")
+          },
+        )
 
       mainClass.set("org.pitest.mutationtest.commandline.MutationCoverageReport")
 
       val reportDir =
-          layout.buildDirectory.dir("reports/pitest/${variant.name}").get().asFile.absolutePath
+        layout.buildDirectory.dir("reports/pitest/${variant.name}").get().asFile.absolutePath
       val srcDirs =
-          listOf(
-                  project.projectDir.resolve("src/main/java").absolutePath,
-                  project.projectDir.resolve("src/${variant.name}/java").absolutePath,
-              )
-              .filter { File(it).exists() }
-              .joinToString(",")
+        listOf(
+          project.projectDir.resolve("src/main/java").absolutePath,
+          project.projectDir.resolve("src/${variant.name}/java").absolutePath,
+        )
+          .filter { File(it).exists() }
+          .joinToString(",")
 
       args(
-          "--reportDir",
-          reportDir,
-          "--targetClasses",
-          "terminal.emulator.*",
-          "--sourceDirs",
-          srcDirs,
-          "--threads",
-          "4",
-          "--timeoutConst",
-          "10000",
-          "--outputFormats",
-          "XML,HTML",
-          "--verbose",
-          "--excludedTestClasses",
-          excludedUnitTests.joinToString(","),
+        "--reportDir",
+        reportDir,
+        "--targetClasses",
+        "terminal.emulator.*",
+        "--sourceDirs",
+        srcDirs,
+        "--threads",
+        "4",
+        "--timeoutConst",
+        "10000",
+        "--outputFormats",
+        "XML,HTML",
+        "--verbose",
+        "--excludedTestClasses",
+        excludedUnitTests.joinToString(","),
       )
 
       jvmArgs("-Djava.library.path=")

@@ -26,29 +26,29 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class UltronSmokeTest {
 
-  // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
-  // the system dialog would cover the UI and break node lookups.
-  @get:Rule
-  val notificationPermission =
-      GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-  @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-  @Test
-  fun terminalScreenIsDisplayed() {
-    composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
-  }
+    @Test
+    fun terminalScreenIsDisplayed() {
+        composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
+    }
 
-  @Test
-  fun modifierBarKeysAreDisplayed() {
-    composeTestRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("Key_DRAWER").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("Key_SCROLL").assertIsDisplayed()
-  }
+    @Test
+    fun modifierBarKeysAreDisplayed() {
+        composeTestRule.onNodeWithTag("Key_ESC").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("Key_DRAWER").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("Key_SCROLL").assertIsDisplayed()
+    }
 
-  @Test
-  fun rootContentViewIsDisplayedViaUltron() {
-    // Ultron Espresso extension: built-in retry + timeout.
-    onView(withId(android.R.id.content)).isDisplayed()
-  }
+    @Test
+    fun rootContentViewIsDisplayedViaUltron() {
+        // Ultron Espresso extension: built-in retry + timeout.
+        onView(withId(android.R.id.content)).isDisplayed()
+    }
 }

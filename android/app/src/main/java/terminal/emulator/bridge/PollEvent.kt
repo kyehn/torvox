@@ -40,7 +40,6 @@ sealed class PollEvent {
         @SerialName("request_id") val requestId: Long = 0,
         val selection: String = "",
     ) : PollEvent()
-
 }
 
 /**
