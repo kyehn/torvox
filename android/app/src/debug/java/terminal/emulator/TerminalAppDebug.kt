@@ -20,12 +20,12 @@ class TerminalAppDebug : TerminalApp() {
         // measurably degrades frame pacing on the software-rendered
         // emulator (frame-time spikes 70-106ms correlated with overlay
         // ticks). Opt back in per-session with:
-        //   adb shell setprop debug.torvox.overlay full
+        //   adb shell setprop debug.terminal.overlay full
         val overlayFull = try {
             val propValue = Class
                 .forName("android.os.SystemProperties")
                 .getMethod("get", String::class.java)
-                .invoke(null, "debug.torvox.overlay") as? String
+                .invoke(null, "debug.terminal.overlay") as? String
             propValue == "full"
         } catch (_: Throwable) {
             false
@@ -60,7 +60,7 @@ class TerminalAppDebug : TerminalApp() {
         }
         DebugOverlay.addBugReportContributor(
             object : com.ms.square.debugoverlay.BugReportDataContributor {
-                override val filename: String = "torvox_build_info.txt"
+                override val filename: String = "terminal_build_info.txt"
 
                 override fun writeTo(outputStream: java.io.OutputStream) {
                     outputStream.write("version=${BuildConfig.VERSION_NAME}\n".toByteArray())

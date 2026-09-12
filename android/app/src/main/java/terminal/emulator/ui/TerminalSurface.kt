@@ -1455,7 +1455,7 @@ constructor(
   // Reference: termlib applyHandleDrag (Terminal.kt:1899-1935) uses the same
   // anchor semantics plus a CROSSING FLIP — when the dragged handle crosses
   // the stationary one, ownership swaps and the stationary handle returns to
-  // its pre-cross position. torvox currently only coerceIn-clamps (no flip);
+  // its pre-cross position. 目前仅做 coerceIn 夹取（无翻转）；
   // mirrored as gap, research-termlib.md deep-v4).
   private var dragAnchorRow = 0
   private var dragAnchorCol = 0

@@ -147,33 +147,6 @@ struct SessionEntry {
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
-/// Test-only: register a session entry directly (host tests cannot go
-
-/// Test-only: register a session entry directly (host tests cannot go
-/// through the JNI spawn path). Dead in non-test lib builds by design.
-#[cfg(test)]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn register_session_for_test(
-    session_id: u64,
-    session: std::sync::Arc<parking_lot::Mutex<crate::terminal::session::Session>>,
-) {
-    SESSION_REGISTRY.write().insert(
-        session_id,
-        SessionEntry {
-            session,
-            last_scroll_offset: 0,
-        },
-    );
-}
-
-/// Test-only: drop every registered session so a stale entry cannot leak
-/// into a later test. Dead in non-test lib builds by design.
-#[cfg(test)]
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn clear_registry_for_test() {
-    SESSION_REGISTRY.write().clear();
-}
-
 /// Global render state (ADR-0007): the wgpu renderer + font pipeline used
 /// by the Android render thread. Created lazily on the first
 /// `attachWindow`, owned by the JNI render thread (Kotlin's render loop
