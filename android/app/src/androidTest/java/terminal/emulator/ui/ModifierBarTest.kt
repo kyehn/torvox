@@ -110,6 +110,7 @@ class ModifierBarTest {
                 "Key_PGDN",
             )
         allTags.forEach { tag ->
+            composeTestRule.onNodeWithTag(tag).assertIsDisplayed()
             composeTestRule.onNodeWithTag(tag).performClick()
         }
     }
@@ -122,6 +123,7 @@ class ModifierBarTest {
                 up()
             }
         }
+        composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
     }
 
     @Test
@@ -136,6 +138,7 @@ class ModifierBarTest {
                 up()
             }
         }
+        composeTestRule.onNodeWithTag("TerminalScreen").assertIsDisplayed()
     }
 
     @Test
