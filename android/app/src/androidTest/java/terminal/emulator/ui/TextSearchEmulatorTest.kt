@@ -45,7 +45,7 @@ class TextSearchEmulatorTest {
         composeTestRule.waitForIdle()
 
         assertEquals(
-            "Ctrl+F should not open search bar when shortcut is disabled",
+            "Ctrl+F should not open search bar (no hardware shortcut exists)",
             0,
             composeTestRule.onAllNodesWithTag("TextSearchBar").fetchSemanticsNodes().size,
         )
