@@ -7,5 +7,5 @@ flows:
   - ../flows/launch.yaml
   - ../flows/type.yaml
   - ../flows/paste.yaml
-  - ../flows/resize.yaml
+  - ../flows/resize-survives.yml
   - ../flows/selection-copy-paste.yml

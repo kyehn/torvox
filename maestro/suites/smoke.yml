@@ -3,5 +3,5 @@ suite:
   tags:
     - smoke
 flows:
-  - ../flows/launch-and-verify.yml
+  - ../flows/launch.yaml
   - ../flows/rapid-modifier-taps.yml
