@@ -72,7 +72,7 @@ const val RECENT_SCROLL_WINDOW_NANOS: Long = 100_000_000L
  * @param hasSelectionOrDrag selection active or handle drag in progress (maps to termux's
  *   `isSelectingText()` / skipScrolling parameter).
  * @param newOutput native PTY-ingest flag consumed this frame (NOT the render() count, which also
- *   counts cursor-blink repaints).
+ *   counts idle repaints).
  * @param recentlyScrolled true within [RECENT_SCROLL_WINDOW_NANOS] of a UI scroll gesture; the
  *   caller passes the real window check so a brief in-flight scroll is not yanked by an output
  *   burst landing mid-gesture (100 ms guard — a deliberate improvement over raw termux parity).
@@ -1241,10 +1241,8 @@ constructor(
                                 // picked up on the next vsync attempt (~16.7ms) or
                                 // by this timeout fallback, where receive_cell_data
                                 // consumes the pending data. After waking, render()
-                                // is called UNCONDITIONALLY — dirty/blink phase
-                                // decisions live exclusively inside the native idle
-                                // gate (an outer dirty short-circuit would freeze
-                                // cursor blink: no JNI set-point exists for it).
+                                // is called UNCONDITIONALLY — idle-gate
+                                // decisions live exclusively inside the native gate.
                                 if (
                                     !entry.vsyncRequested &&
                                     !entry.forceRenderRequested &&
@@ -1346,7 +1344,7 @@ constructor(
                                     // P1-1 scroll semantics (termux onScreenUpdated
                                     // parity): consume the native new_output flag
                                     // (PTY ingest → bypass flag, NOT the render()
-                                    // count which also counts cursor-blink repaints)
+                                    // count which also counts idle repaints)
                                     // and reset the viewport to the bottom only when
                                     // no selection/drag is active, the SCROLL lock is
                                     // off, and no scroll gesture happened within
@@ -1410,18 +1408,18 @@ constructor(
                                         // Exit is handled FIRST, in its own branch:
                                         // the event was already consumed from the
                                         // native queue and cannot be replayed, so an
-                                        // exception in bell/notification/clipboard
+                                        // exception in clipboard
                                         // handling below must never skip the cleanup.
                                         if (poll.exit) {
                                             // Reply empty FIRST, before any cleanup:
-                                            // these MCP request events were already
+                                            // these clipboard-read requests were already
                                             // consumed from the native queue and can
                                             // never be dispatched, so leaving them
-                                            // unanswered would hang the MCP tool call
-                                            // for 300s. Answering before
+                                            // unanswered would hang the requester.
+                                            // Answering before
                                             // handleSessionExit (which may close the
-                                            // bridge, ~100ms+) also minimizes the
-                                            // MCP-side latency. Each reply is guarded
+                                            // bridge, ~100ms+) also minimizes latency.
+                                            // Each reply is guarded
                                             // individually: a JNI failure here must
                                             dispatchClipboardRequests(poll.clipboardReads)
                                             if (poll.sessionId != 0L && poll.sessionId != entry.id) {
@@ -1794,7 +1792,7 @@ constructor(
 
     /**
      * DESIGN Shizuku switch: the app domain cannot exec prefix binaries (untrusted_app W^X,
-     * EACCES/126 device-verified), so an authorized switch routes the nix login through the Shizuku
+     * EACCES/126 device-verified), so an authorized switch routes the prefix login through the Shizuku
      * server via rish. Extracted from buildConfig so it stays under the detekt LongMethod limit.
      */
     private fun resolveEffectiveShell(
@@ -1831,7 +1829,7 @@ constructor(
      */
     private fun findPrefixShell(prefixDir: String): String? {
         // 登录优先，ELF 与系统脚本均可选中，顺序即优先级。
-        return listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh").firstOrNull { candidate ->
+        return listOf("bin/login", "bin/bash").firstOrNull { candidate ->
             val file = java.io.File("$prefixDir/$candidate")
             file.isFile && (isElf(file) || isSystemShellScript(file))
         }
@@ -2867,7 +2865,7 @@ constructor(
             // active session while we were rendering the first frame. Its
             // render thread is running; stop it before starting ours so only
             // one render thread ever consumes the shared event queue (two
-            // consumers misroute bell/clipboard/notification events).
+            // consumers misroute clipboard events).
             val concurrentToStop =
                 concurrentRenderThreadToStop(
                     activeSessionIdAfterRender = activeSessionId,

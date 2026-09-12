@@ -115,8 +115,6 @@
 
     <!-- USB Serial -->
 
-    <!-- MCP Server -->
-
     <!-- Shizuku 集成 -->
     <string name="shizuku_integration">Shizuku 集成</string>
     <string name="shizuku_integration_desc">使用 Shizuku 权限运行 prefix shell（nix proot 必需）</string>

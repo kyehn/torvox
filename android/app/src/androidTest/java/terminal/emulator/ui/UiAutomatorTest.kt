@@ -9,7 +9,6 @@ import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeNotNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -20,15 +19,14 @@ import terminal.emulator.MainActivity
  * UIAutomator instrumentation tests.
  *
  * These exercise the real Android framework via [UiDevice]/[androidx.test.uiautomator.UiObject]
- * interactions (NOT injected `adb input` taps, which do not reach Compose `pointerInput`
- * on the phone emulator — see AGENTS.md pitfall #15). Run them on a tablet emulator or a
- * real device, where the system soft keyboard is available for genuine key input.
+ * interactions (NOT injected `adb input` taps, which do not reach Compose `pointerInput` on the
+ * phone emulator — see AGENTS.md pitfall #15). Run them on a tablet emulator or a real device,
+ * where the system soft keyboard is available for genuine key input.
  */
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class UiAutomatorTest {
-    @get:Rule
-    val activityRule = ActivityScenarioRule(MainActivity::class.java)
+    @get:Rule val activityRule = ActivityScenarioRule(MainActivity::class.java)
 
     private lateinit var device: UiDevice
 
@@ -63,8 +61,7 @@ class UiAutomatorTest {
         // TerminalSurface (a SurfaceView) is hosted inside the TerminalContent
         // AndroidView container, which only exists once the terminal has
         // rendered. Resource id is the bare tag (no package prefix).
-        val terminalSurface =
-            device.wait(Until.findObject(By.res("TerminalContent")), 30000)
+        val terminalSurface = device.wait(Until.findObject(By.res("TerminalContent")), 30000)
         assertNotNull("Terminal render surface should be visible", terminalSurface)
     }
 
@@ -74,15 +71,14 @@ class UiAutomatorTest {
         // Compose testTagsAsResourceId exposes the tag as the bare resource id
         // ("TerminalScreen", no package prefix), so By.res must not use the
         // "com.termux:id/..." form.
-        val terminalScreen =
-            device.wait(Until.findObject(By.res("TerminalScreen")), 30000)
+        val terminalScreen = device.wait(Until.findObject(By.res("TerminalScreen")), 30000)
         assertNotNull("TerminalScreen composable should be present", terminalScreen)
     }
 
     /**
-     * Typing via the real system soft keyboard (driven by UiObject key clicks) should make the
-     * app react: focusing the search field and pressing a letter produces a non-empty result
-     * count, proving the input reached the application.
+     * Typing via the real system soft keyboard (driven by UiObject key clicks) should make the app
+     * react: focusing the search field and pressing a letter produces a non-empty result count,
+     * proving the input reached the application.
      */
     @Test
     fun typingViaSystemKeyboardReacts() {
@@ -100,18 +96,17 @@ class UiAutomatorTest {
                 Until.findObject(By.res("SearchTextField")),
                 5000,
             )
-        assumeNotNull("Search text field should appear", searchField)
-
-        requireNotNull(searchField).click()
+        requireNotNull(searchField) { "Search text field should appear" }.click()
         device.waitForIdle(1000)
 
         val keyE = device.findObject(By.text("e")) ?: device.findObject(By.desc("e"))
-        assumeNotNull("System keyboard key 'e' should be visible", keyE)
-        requireNotNull(keyE).click()
+        requireNotNull(keyE) { "System keyboard key 'e' should be visible" }.click()
         device.waitForIdle(1000)
 
-        val resultCount = device.findObject(By.res("SearchResultCount"))
-        assumeNotNull("Search result count should become visible after typing", resultCount)
+        val resultCount =
+            requireNotNull(device.findObject(By.res("SearchResultCount"))) {
+                "Search result count should become visible after typing"
+            }
         assertTrue(
             "Search result count text should be non-empty after typing",
             requireNotNull(resultCount).text.isNotEmpty(),

@@ -4,14 +4,13 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * P1-1 table-driven tests for [shouldResetScroll] — the pure scroll-reset
- * decision extracted from the render loop (termux `onScreenUpdated` parity).
+ * P1-1 table-driven tests for [shouldResetScroll] — the pure scroll-reset decision extracted from
+ * the render loop (termux `onScreenUpdated` parity).
  *
- * Covers all 16 combinations of the four input dimensions
- * (scrollActive × hasSelectionOrDrag × newOutput × recentlyScrolled), plus a
- * dedicated assertion group pinning the dual-flag protocol boundary:
- * `dirty`-only frames (selection/highlight/font-size changes → repaint
- * without PTY output) map to newOutput=false and must NEVER reset.
+ * Covers all 16 combinations of the four input dimensions (scrollActive × hasSelectionOrDrag ×
+ * newOutput × recentlyScrolled), plus a dedicated assertion group pinning the dual-flag protocol
+ * boundary: `dirty`-only frames (selection/highlight/font-size changes → repaint without PTY
+ * output) map to newOutput=false and must NEVER reset.
  */
 class ShouldResetScrollTest {
 
@@ -76,10 +75,18 @@ class ShouldResetScrollTest {
     @Test
     fun noNewOutputNeverResets() {
         // Idle frame (no PTY output): nothing may yank the viewport.
-        assertEquals(false, shouldResetScroll(scrollActive = false, hasSelectionOrDrag = false, newOutput = false))
         assertEquals(
             false,
-            shouldResetScroll(scrollActive = false, hasSelectionOrDrag = false, newOutput = false, recentlyScrolled = true),
+            shouldResetScroll(scrollActive = false, hasSelectionOrDrag = false, newOutput = false),
+        )
+        assertEquals(
+            false,
+            shouldResetScroll(
+                scrollActive = false,
+                hasSelectionOrDrag = false,
+                newOutput = false,
+                recentlyScrolled = true,
+            ),
         )
     }
 
@@ -87,7 +94,10 @@ class ShouldResetScrollTest {
     fun plainNewOutputResetsToBottom_termuxDefault() {
         // Branch A (termux parity): output arrives while browsing with no
         // selection, no SCROLL lock, no recent gesture → viewport resets.
-        assertEquals(true, shouldResetScroll(scrollActive = false, hasSelectionOrDrag = false, newOutput = true))
+        assertEquals(
+            true,
+            shouldResetScroll(scrollActive = false, hasSelectionOrDrag = false, newOutput = true),
+        )
     }
 
     @Test
@@ -97,7 +107,12 @@ class ShouldResetScrollTest {
         // by user scrolling).
         assertEquals(
             false,
-            shouldResetScroll(scrollActive = true, hasSelectionOrDrag = false, newOutput = true, recentlyScrolled = false),
+            shouldResetScroll(
+                scrollActive = true,
+                hasSelectionOrDrag = false,
+                newOutput = true,
+                recentlyScrolled = false,
+            ),
         )
     }
 
@@ -107,7 +122,12 @@ class ShouldResetScrollTest {
         // maps to the same skipScrolling dimension.
         assertEquals(
             false,
-            shouldResetScroll(scrollActive = false, hasSelectionOrDrag = true, newOutput = true, recentlyScrolled = false),
+            shouldResetScroll(
+                scrollActive = false,
+                hasSelectionOrDrag = true,
+                newOutput = true,
+                recentlyScrolled = false,
+            ),
         )
     }
 
@@ -117,7 +137,12 @@ class ShouldResetScrollTest {
         // gesture within RECENT_SCROLL_WINDOW_NANOS suppresses one reset.
         assertEquals(
             false,
-            shouldResetScroll(scrollActive = false, hasSelectionOrDrag = false, newOutput = true, recentlyScrolled = true),
+            shouldResetScroll(
+                scrollActive = false,
+                hasSelectionOrDrag = false,
+                newOutput = true,
+                recentlyScrolled = true,
+            ),
         )
     }
 
@@ -147,12 +172,15 @@ class ShouldResetScrollTest {
     }
 
     @Test
-    fun cursorBlinkRepaintCountIsNotASignal_documentedRegression() {
+    fun renderCountIsNotASignal_documentedRegression() {
         // Historical regression (#4): using render() count>0 as the signal
-        // let cursor-blink repaints undo an upward scroll every half period.
-        // The count is NOT an input to this function; only the consumed
-        // new_output flag is. An idle blink frame (count>0, newOutput=false)
-        // must keep the viewport where the user left it.
-        assertEquals(false, shouldResetScroll(scrollActive = false, hasSelectionOrDrag = false, newOutput = false))
+        // let idle repaints undo an upward scroll. The count is NOT an
+        // input to this function; only the consumed new_output flag is.
+        // An idle frame (count>0, newOutput=false) must keep the viewport
+        // where the user left it.
+        assertEquals(
+            false,
+            shouldResetScroll(scrollActive = false, hasSelectionOrDrag = false, newOutput = false),
+        )
     }
 }

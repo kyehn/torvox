@@ -4,17 +4,15 @@ import android.util.Log
 import terminal.emulator.BuildConfig
 
 /**
- * Logcat-only logger, mirrors termux-kotlin Logger).
+ * Logcat-only logger, mirrors termux-kotlin Logger.
  *
- * Long messages are chunked so no single logcat entry exceeds the
- * platform payload cap (4068 bytes) — logcat silently truncates anything
- * past that, losing the tail of the message. The chunk math matches the
- * native [`log_chunk`] module: `maxEntrySize = 4068 - 32 - tagLen - 4`
- * (32 bytes = logd per-entry header, measured on-device),
- * continuation chunks carry a `(i/n)` prefix.
+ * Long messages are chunked so no single logcat entry exceeds the platform payload cap (4068 bytes)
+ * — logcat silently truncates anything past that, losing the tail of the message. The chunk math
+ * matches the native [`log_chunk`] module: `maxEntrySize = 4068 - 32 - tagLen - 4` (32 bytes = logd
+ * per-entry header, measured on-device), continuation chunks carry a `(i/n)` prefix.
  *
- * The previous file sink (`LogcatFileWriter`) is removed: logs go to
- * logcat only, exactly like termux-kotlin's Logger.
+ * The previous file sink (`LogcatFileWriter`) is removed: logs go to logcat only, exactly like
+ * termux-kotlin's Logger.
  */
 object LogUtil {
     fun d(
@@ -53,9 +51,8 @@ object LogUtil {
     }
 
     /**
-     * Log sensitive data (e.g. MCP payloads, user input) at VERBOSE
-     * priority with a `[PRIVATE]` prefix. Only active in DEBUG builds —
-     * no-op in release builds, so secrets never reach logcat there.
+     * Log sensitive data (e.g. user input) at VERBOSE priority with a `[PRIVATE]` prefix. Only active
+     * in DEBUG builds — no-op in release builds, so secrets never reach logcat there.
      */
     fun logPrivate(
         tag: String,
@@ -87,13 +84,12 @@ object LogUtil {
     }
 
     /**
-     * Split [message] into logcat-sized chunks. Exposed for unit tests.
-     * Mirrors native `log_chunk::chunk_message`.
+     * Split [message] into logcat-sized chunks. Exposed for unit tests. Mirrors native
+     * `log_chunk::chunk_message`.
      *
-     * The budget is measured in UTF-8 bytes (logcat counts bytes, not
-     * UTF-16 code units) and chunks are only ever cut at code point
-     * boundaries, so multi-byte CJK characters and emoji surrogate pairs
-     * are never split audit fix).
+     * The budget is measured in UTF-8 bytes (logcat counts bytes, not UTF-16 code units) and chunks
+     * are only ever cut at code point boundaries, so multi-byte CJK characters and emoji surrogate
+     * pairs are never split audit fix).
      */
     internal fun chunkMessage(tag: String, message: String): List<String> {
         val budget = maxEntrySize(tag.toByteArray(Charsets.UTF_8).size)
@@ -123,8 +119,10 @@ object LogUtil {
         return chunks
     }
 
-    /** Split [message] into chunks whose UTF-8 byte length fits
-     *  `budget - prefixLen`, preferring cuts at newlines. */
+    /**
+     * Split [message] into chunks whose UTF-8 byte length fits `budget - prefixLen`, preferring cuts
+     * at newlines.
+     */
     private fun splitIntoChunks(
         message: String,
         budget: Int,
@@ -187,7 +185,8 @@ object LogUtil {
     }
 
     internal fun maxEntrySize(tagLength: Int): Int {
-        val budget = LOGGER_ENTRY_MAX_PAYLOAD - LOGGER_PREFIX_OVERHEAD - tagLength - LOGGER_SAFETY_MARGIN
+        val budget =
+            LOGGER_ENTRY_MAX_PAYLOAD - LOGGER_PREFIX_OVERHEAD - tagLength - LOGGER_SAFETY_MARGIN
         return budget.coerceAtLeast(64)
     }
 

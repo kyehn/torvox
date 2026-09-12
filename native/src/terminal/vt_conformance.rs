@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::terminal::ghostty_terminal::GhosttyTerminal;
 use crate::terminal::test_helpers::assert_invariants;
 

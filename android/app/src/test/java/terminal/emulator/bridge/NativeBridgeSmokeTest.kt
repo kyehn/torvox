@@ -3,7 +3,6 @@ package terminal.emulator.bridge
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import java.io.File
@@ -56,7 +55,7 @@ class NativeBridgeSmokeTest {
     @Before
     fun loadNativeLibrary() {
         val so = soCandidates.firstOrNull { it.isFile }
-        assumeTrue(
+        assertTrue(
             "host libnative.so not found (looked in " +
                 soCandidates.joinToString(", ") { it.path } +
                 ") — run `cargo build --package native` first",
@@ -84,12 +83,9 @@ class NativeBridgeSmokeTest {
                 cols = 80,
                 shell = HOST_SHELL,
                 home = System.getenv("HOME") ?: "",
-                user = "",
-                path = "",
                 workingDirectory = System.getProperty("user.dir") ?: "",
                 prefix = "",
                 scrollbackLines = 5_000,
-                env = null,
             )
         assertTrue("initSession must return a positive session id, got $sessionId", sessionId > 0)
         try {

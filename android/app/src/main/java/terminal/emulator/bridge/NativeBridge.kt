@@ -10,7 +10,7 @@ import android.util.Log
  * Session lifecycle:
  * 1. Call [initSession] to create a new terminal session (returns session ID)
  * 2. Call [feedPty] / [writeKey] to send input
- * 3. Call [pollEvent] every frame (~16ms) to drain events (title, bell, clipboard, exit)
+ * 3. Call [pollEvent] every frame (~16ms) to drain events (title, clipboard, exit)
  * 4. Call [destroySession] when done
  *
  * Surface rendering:
@@ -161,7 +161,7 @@ object NativeBridge {
      * Take and clear the per-session `new_output` flag (P1-1 scroll-reset signal). Raised by the
      * native PTY ingest path; read-and-cleared by the render thread once per frame as a BYPASS read
      * alongside [pollEvent] — deliberately not a queued event variant so sustained output (tail -f)
-     * cannot starve bell/dialog/exit events. See docs/reference/dual-flag-protocol.md.
+     * cannot starve clipboard/exit events. See docs/reference/dual-flag-protocol.md.
      */
     @JvmStatic external fun consumeNewOutput(sessionId: Long): Boolean
 
@@ -197,8 +197,6 @@ object NativeBridge {
      * ```
      */
     @JvmStatic external fun renderWithNewOutput(sessionId: Long, width: Int, height: Int): Long
-
-    // ── MCP server ──────────────────────────────────────────────────────
 
     // ── User input callbacks ────────────────────────────────────────────
 
@@ -291,8 +289,6 @@ object NativeBridge {
     )
 
     external fun setTheme(sessionId: Long, data: ByteArray)
-
-    external fun setBackgroundParams(sessionId: Long, blurRadius: Int, alphaTenths: Int)
 
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
 

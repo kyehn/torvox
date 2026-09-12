@@ -8,7 +8,7 @@ use parking_lot::Mutex;
 use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
-use crate::render::pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
+use crate::render::pipeline::QUAD_CORNERS;
 use crate::render::{CATPPUCCIN_MOCHA_BG, GpuError};
 
 pub(crate) fn log_gpu_error(error: &wgpu::Error) {
@@ -89,11 +89,8 @@ fn global_gpu() -> &'static GlobalGpu {
 /// 2. Cell pipeline resources (pipeline, buffers, bind group) — created lazily
 ///    on first frame, hence `Option`.
 /// 3. Atlas resources (texture, view, sampler) — created on first font upload.
-/// 4. Background image pipeline (bg_*) — separate from cell pipeline because
-///    the shader is different.
-/// 5. Kitty graphics protocol (kgp_*) — KGP image display, separate pipeline.
-/// 6. Blur pipelines (blur_h/blur_v) — gaussian blur for transparent backgrounds.
-/// 7. Frame state (raster_scale, render_paused, pending_gpu_drain) — per-frame
+/// 4. Kitty graphics protocol (kgp_*) — KGP image display, separate pipeline.
+/// 5. Frame state (raster_scale, render_paused, pending_gpu_drain) — per-frame
 ///    transient state.
 ///
 /// # Thread safety
@@ -123,18 +120,6 @@ pub struct Renderer {
     /// serving "clean" rows from an empty cache would drop them
     /// regression fix).
     pub(crate) cell_full_mask_cache: Vec<bool>,
-    pub(crate) flash_pipeline: Option<wgpu::RenderPipeline>,
-    pub(crate) flash_uniform_buffer: Option<wgpu::Buffer>,
-    pub(crate) flash_bind_group: Option<wgpu::BindGroup>,
-    /// Bell-flash overlay phase in 0..=1 (0 = off). The Kotlin side
-    /// drives the decay animation; the renderer only composites a white
-    /// full-screen quad at `BELL_FLASH_ALPHA_255/255 * phase`.
-    pub(crate) flash_phase: f32,
-    /// Viewport Y pixel offset for per-pixel smooth scrolling (positive =
-    /// content moves down). Driven by the Kotlin gesture remainder via
-    /// `set_viewport_scroll_px`; consumed by `cell_uniforms` as a
-    /// projection translation. Always within one row height in practice
-    /// (the row channel carries whole rows); 0 = aligned.
     pub(crate) viewport_scroll_px: f32,
     pub(crate) atlas_texture: Option<wgpu::Texture>,
     pub(crate) atlas_view: Option<wgpu::TextureView>,
@@ -145,27 +130,6 @@ pub struct Renderer {
     pub(crate) readback_texture: Option<wgpu::Texture>,
     pub(crate) readback_buffer: Option<wgpu::Buffer>,
     pub(crate) bg_color: wgpu::Color,
-    pub(crate) bg_image_texture: Option<wgpu::Texture>,
-    pub(crate) bg_image_view: Option<wgpu::TextureView>,
-    /// Source background image size in pixels (set by `set_bg_image`);
-    /// consumed by the bg uniforms for the cover (center-crop) mapping.
-    pub(crate) bg_image_size: [f32; 2],
-    pub(crate) bg_pipeline: Option<wgpu::RenderPipeline>,
-    pub(crate) bg_bind_group_layout: Option<wgpu::BindGroupLayout>,
-    pub(crate) bg_bind_group: Option<wgpu::BindGroup>,
-    pub(crate) bg_uniform_buffer: Option<wgpu::Buffer>,
-    pub(crate) bg_sampler: Option<wgpu::Sampler>,
-    pub(crate) bg_blur_radius: f32,
-    pub(crate) bg_alpha: f32,
-    /// Intermediate texture for the two-pass blur: the H pass renders into
-    /// it, the V pass samples it: previously both passes wrote
-    /// the surface and the V pass sampled the original image, so the H
-    /// pass was overwritten — blur was effectively vertical-only).
-    pub(crate) bg_blur_texture: Option<wgpu::Texture>,
-    pub(crate) bg_blur_texture_view: Option<wgpu::TextureView>,
-    /// Bind group for the V pass: same uniforms/sampler, but binding 1
-    /// points at the H-pass intermediate texture instead of the source.
-    pub(crate) bg_blur_bind_group: Option<wgpu::BindGroup>,
     pub(crate) kgp_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) kgp_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub(crate) kgp_bind_group: Option<wgpu::BindGroup>,
@@ -177,8 +141,6 @@ pub struct Renderer {
     pub(crate) kgp_atlas_width: u32,
     pub(crate) kgp_atlas_height: u32,
     pub(crate) raster_scale: f32,
-    pub(crate) blur_h_pipeline: Option<wgpu::RenderPipeline>,
-    pub(crate) blur_v_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) render_paused: bool,
     pub(crate) pending_gpu_drain: bool,
     /// Persistent offscreen frame accumulator (render-vulkan-performance):
@@ -253,7 +215,7 @@ impl Renderer {
         let cfg_width = self.surface_config.as_ref().map(|c| c.width)?;
         let cfg_height = self.surface_config.as_ref().map(|c| c.height)?;
 
-        self.ensure_bg_pipeline(cfg_width, cfg_height);
+        self.refresh_cell_uniforms(cfg_width as f32, cfg_height as f32);
         self.ensure_kgp_pipeline(cfg_width, cfg_height);
 
         let surface = self.surface.as_ref()?;
@@ -282,14 +244,8 @@ impl Renderer {
                 (cfg_width, cfg_height)
             };
 
-        // Every frame, sync the cell uniforms' `image_active` flag with the
-        // current bg bind group: `ensure_bg_pipeline` above may have just
-        // (re)built it after setBackgroundImage/clearBackgroundImage, and
-        // the cell shader must know whether default-background cells should
-        // be transparent so the wallpaper shows through. Only the uniform
-        // buffer content is rewritten — the bind group is bound by object
-        // identity and stays valid, emulator-verified: wallpaper
-        // was drawn every frame but opaque cell backgrounds covered it).
+        // Uniform buffer content is rewritten every frame — the bind group
+        // is bound by object identity and stays valid.
         self.refresh_cell_uniforms(cfg_width as f32, cfg_height as f32);
 
         let view = output
@@ -319,21 +275,6 @@ impl Drop for Renderer {
         self.instance_buffer = None;
         self.cell_pipeline = None;
         self.cell_uniform_buffer = None;
-        self.bg_bind_group_layout = None;
-        self.bg_uniform_buffer = None;
-        self.bg_bind_group = None;
-        self.bg_sampler = None;
-        self.bg_blur_texture = None;
-        self.bg_blur_texture_view = None;
-        self.bg_blur_bind_group = None;
-        self.blur_h_pipeline = None;
-        self.blur_v_pipeline = None;
-        self.bg_pipeline = None;
-        self.bg_image_view = None;
-        self.bg_image_texture = None;
-        self.flash_pipeline = None;
-        self.flash_uniform_buffer = None;
-        self.flash_bind_group = None;
         self.atlas_view = None;
         self.atlas_sampler = None;
         self.atlas_texture = None;
@@ -371,10 +312,6 @@ impl Renderer {
             cpu_instances: Vec::new(),
             cell_cache: None,
             cell_full_mask_cache: Vec::new(),
-            flash_pipeline: None,
-            flash_uniform_buffer: None,
-            flash_bind_group: None,
-            flash_phase: 0.0,
             viewport_scroll_px: 0.0,
             atlas_texture: None,
             atlas_view: None,
@@ -385,19 +322,6 @@ impl Renderer {
             readback_texture: None,
             readback_buffer: None,
             bg_color: CATPPUCCIN_MOCHA_BG,
-            bg_image_texture: None,
-            bg_image_view: None,
-            bg_image_size: [0.0; 2],
-            bg_pipeline: None,
-            bg_bind_group_layout: None,
-            bg_bind_group: None,
-            bg_uniform_buffer: None,
-            bg_sampler: None,
-            bg_blur_radius: 0.0,
-            bg_alpha: DEFAULT_BG_ALPHA,
-            bg_blur_texture: None,
-            bg_blur_texture_view: None,
-            bg_blur_bind_group: None,
             kgp_pipeline: None,
             kgp_bind_group_layout: None,
             kgp_bind_group: None,
@@ -409,8 +333,6 @@ impl Renderer {
             kgp_atlas_width: 0,
             kgp_atlas_height: 0,
             raster_scale: 1.0,
-            blur_h_pipeline: None,
-            blur_v_pipeline: None,
             render_paused: false,
             pending_gpu_drain: false,
             frame_texture: None,
@@ -655,80 +577,6 @@ impl Renderer {
         }
     }
 
-    pub fn set_background_params(&mut self, blur_radius: f32, alpha: f32) {
-        // Cap at 10: kernel taps = 2*ceil(r)+1 per pass;
-        // 20 → 82 taps/frame is not interactive on Mali-class GPUs.
-        self.bg_blur_radius = blur_radius.clamp(0.0, 10.0);
-        self.bg_alpha = alpha.clamp(0.0, 1.0);
-    }
-
-    pub fn background_params(&self) -> (f32, f32) {
-        (self.bg_blur_radius, self.bg_alpha)
-    }
-
-    pub fn set_bg_image(&mut self, rgba_data: &[u8], width: u32, height: u32) {
-        let device = &self.device;
-        let queue = &self.queue;
-        let size = wgpu::Extent3d {
-            width,
-            height,
-            depth_or_array_layers: 1,
-        };
-        let tex = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("bg_image"),
-            size,
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            // Textures sampled in shaders are independent of the render-target
-            // (swapchain) format, so a fixed Rgba8Unorm is fine for both the
-            // background image and the glyph atlas. Reference: zelland
-            // WGPU_FIXES.md Fix 1 documents that glyphon's TextAtlas must
-            // match the surface format ONLY because glyphon renders into its
-            // atlas with the pipeline's render-pass format; direct shader
-            // sampling (our path) has no such constraint.
-            format: wgpu::TextureFormat::Rgba8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &tex,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            rgba_data,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(4 * width),
-                rows_per_image: Some(height),
-            },
-            size,
-        );
-        self.bg_image_view = Some(tex.create_view(&wgpu::TextureViewDescriptor::default()));
-        self.bg_image_texture = Some(tex);
-        self.bg_image_size = [width as f32, height as f32];
-        self.bg_bind_group = None;
-    }
-
-    pub fn clear_bg_image(&mut self) {
-        self.bg_image_view = None;
-        self.bg_image_texture = None;
-        self.bg_image_size = [0.0; 2];
-        self.bg_bind_group = None;
-    }
-
-    /// Set the bell-flash overlay phase (0.0 = off, 1.0 = peak flash).
-    /// The Kotlin side drives the decay animation; the renderer only
-    /// composites a white full-screen quad at an alpha proportional to
-    /// `phase` (see `BELL_FLASH_ALPHA_255`). Any-thread entry point; the
-    /// value is stored and consumed on the render thread.
-    pub fn set_flash_phase(&mut self, phase: f32) {
-        self.flash_phase = phase.max(0.0);
-    }
-
-    /// Set the viewport Y pixel offset for per-pixel smooth scrolling.
     /// Non-finite input is ignored; the Kotlin side keeps the value
     /// within one row height (whole rows travel the row channel).
     pub fn set_viewport_scroll_px(&mut self, px: f32) {
@@ -906,9 +754,9 @@ impl Renderer {
     }
 
     /// Build the cell-pipeline uniform block for the given projection and
-    /// atlas dimensions. Single construction site so projection/atlas/
-    /// image-active/background fields stay in lockstep across the write,
-    /// refresh, and swapchain-reconfigure paths.
+    /// atlas dimensions. Single construction site so projection/atlas
+    /// fields stay in lockstep across the write, refresh, and
+    /// swapchain-reconfigure paths.
     pub(crate) fn cell_uniforms(
         &self,
         projection_width: f32,
@@ -925,13 +773,7 @@ impl Renderer {
             projection: proj,
             atlas_size: [atlas_width, atlas_height],
             raster_scale: self.raster_scale,
-            image_active: crate::render::pipeline::image_active_value(self.bg_bind_group.is_some()),
-            default_bg: [
-                self.bg_color.r as f32,
-                self.bg_color.g as f32,
-                self.bg_color.b as f32,
-                1.0,
-            ],
+            _padding: 0.0,
         }
     }
 
@@ -1007,7 +849,7 @@ impl Renderer {
     /// Unlike `write_uniforms`, it never recreates the bind group: the cell
     /// bind group is bound by buffer object identity, and wgpu reads the
     /// buffer contents at draw time, so rewriting the bytes is sufficient
-    /// to flip `image_active` (wallpaper visibility) and the projection.
+    /// to update the projection.
     pub(crate) fn refresh_cell_uniforms(&mut self, projection_width: f32, projection_height: f32) {
         let Some(buf) = self.cell_uniform_buffer.as_ref() else {
             return;
@@ -1047,7 +889,10 @@ pub(crate) static GLOBAL_SURFACE: OnceLock<parking_lot::Mutex<Option<CachedSurfa
     std::sync::OnceLock::new();
 
 impl Renderer {
-    #[cfg_attr(not(test), allow(dead_code))]
+    /// Host builds exclude the Android-only `attach_surface` caller, so the
+    /// function would be dead there: gate it to Android prod + tests instead
+    /// of an `allow(dead_code)`.
+    #[cfg(any(target_os = "android", test))]
     pub(crate) fn select_present_mode(caps: &wgpu::SurfaceCapabilities) -> wgpu::PresentMode {
         // 120fps+ requires decoupling from display vsync: fps and Hz are
         // unrelated. Prefer Immediate (no vsync, no backpressure) when
