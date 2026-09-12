@@ -114,9 +114,22 @@ fn search_in_scrollback_empty_query() {
 #[test]
 fn dump_grid_dimensions_match() {
     let t = term();
-    let dumped = t.dump_grid();
-    assert_eq!(dumped.rows, 24);
-    assert_eq!(dumped.cols, 80);
+    // 查询经工作线程超时回退空值，新终端繁忙时单次查询可能命中回退；
+    // 确定性轮询直到就绪，杜绝 flaky。
+    let start = Instant::now();
+    let dumped = loop {
+        let dumped = t.dump_grid();
+        if dumped.rows == 24 && dumped.cols == 80 {
+            break dumped;
+        }
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "dump_grid 未就绪：rows={} cols={}",
+            dumped.rows,
+            dumped.cols
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
     assert_eq!(dumped.visible.len(), (24 * 80) as usize);
     let _snap = t.take_snapshot();
     assert_invariants(&_snap);
@@ -3418,15 +3431,36 @@ fn row_cache_invalidated_on_resize() {
     let mut t = term();
     t.vt_write(b"top");
     t.flush();
-    std::thread::sleep(std::time::Duration::from_millis(70));
-    let before = t.receive_cell_data().expect("cell data before resize");
-    let (before_cells, _) = before;
+    // 确定性轮询直到工作线程产出对应尺寸数据，杜绝固定时长等待的 flaky。
+    let start = Instant::now();
+    let before_cells = loop {
+        if let Some((cells, _)) = t.receive_cell_data() {
+            if cells.len() == 24 * 80 {
+                break cells;
+            }
+        }
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "调整前单元数据未就绪"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
     assert_eq!(before_cells.len(), 24 * 80);
 
     assert!(t.resize(10, 40), "resize to 10x40");
-    std::thread::sleep(std::time::Duration::from_millis(70));
-    let after = t.receive_cell_data().expect("cell data after resize");
-    let (after_cells, _) = after;
+    let start = Instant::now();
+    let after_cells = loop {
+        if let Some((cells, _)) = t.receive_cell_data() {
+            if cells.len() == 10 * 40 {
+                break cells;
+            }
+        }
+        assert!(
+            start.elapsed() < std::time::Duration::from_secs(5),
+            "调整后单元数据未就绪"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
     assert_eq!(
         after_cells.len(),
         10 * 40,

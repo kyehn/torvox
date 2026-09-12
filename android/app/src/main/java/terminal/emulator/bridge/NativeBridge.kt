@@ -19,312 +19,312 @@ import android.util.Log
  * - [resize] updates terminal dimensions
  */
 object NativeBridge {
-  private const val TAG = "NativeBridge"
-  private var nativeLoaded = false
+    private const val TAG = "NativeBridge"
+    private var nativeLoaded = false
 
-  init {
-    try {
-      System.loadLibrary("native")
-      nativeLoaded = true
-      Log.i(TAG, "Native library loaded: native")
-    } catch (e: UnsatisfiedLinkError) {
-      Log.e(TAG, "Failed to load native library: ${e.message}")
+    init {
+        try {
+            System.loadLibrary("native")
+            nativeLoaded = true
+            Log.i(TAG, "Native library loaded: native")
+        } catch (e: UnsatisfiedLinkError) {
+            Log.e(TAG, "Failed to load native library: ${e.message}")
+        }
     }
-  }
 
-  fun isNativeLoaded(): Boolean = nativeLoaded
+    fun isNativeLoaded(): Boolean = nativeLoaded
 
-  // ── Session lifecycle ─────────────────────────────────────────────
+    // ── Session lifecycle ─────────────────────────────────────────────
 
-  /** Create a new terminal session. Returns session ID (0 on failure). */
-  @JvmStatic
-  @Suppress(
-      "LongParameterList",
-  ) // JNI signature mirrors native init_session - parameters cannot be grouped
-  external fun initSession(
-      rows: Int,
-      cols: Int,
-      shell: String,
-      home: String,
-      workingDirectory: String,
-      prefix: String,
-      scrollbackLines: Int,
-  ): Long
+    /** Create a new terminal session. Returns session ID (0 on failure). */
+    @JvmStatic
+    @Suppress(
+        "LongParameterList",
+    ) // JNI signature mirrors native init_session - parameters cannot be grouped
+    external fun initSession(
+        rows: Int,
+        cols: Int,
+        shell: String,
+        home: String,
+        workingDirectory: String,
+        prefix: String,
+        scrollbackLines: Int,
+    ): Long
 
-  /** Destroy a session by ID. Returns true on success. */
-  @JvmStatic external fun destroySession(sessionId: Long): Boolean
+    /** Destroy a session by ID. Returns true on success. */
+    @JvmStatic external fun destroySession(sessionId: Long): Boolean
 
-  /** Switch the active session. Returns true if the session exists. */
-  @JvmStatic external fun switchSession(sessionId: Long): Boolean
+    /** Switch the active session. Returns true if the session exists. */
+    @JvmStatic external fun switchSession(sessionId: Long): Boolean
 
-  /** Returns the number of active sessions. */
-  @JvmStatic external fun getSessionCount(): Int
+    /** Returns the number of active sessions. */
+    @JvmStatic external fun getSessionCount(): Int
 
-  /**
-   * Returns the current scrollback row count for a session (0 when the session is unknown). Feed
-   * for the memory gauge emitted with the frame-timing window: an unbounded scrollback would show
-   * up as a monotonically growing row count.
-   */
-  @JvmStatic external fun getScrollbackRows(sessionId: Long): Int
+    /**
+     * Returns the current scrollback row count for a session (0 when the session is unknown). Feed
+     * for the memory gauge emitted with the frame-timing window: an unbounded scrollback would show
+     * up as a monotonically growing row count.
+     */
+    @JvmStatic external fun getScrollbackRows(sessionId: Long): Int
 
-  /** Returns a JSON array of active session IDs. Example: "[1, 2, 3]" */
-  @JvmStatic external fun listSessions(): String?
+    /** Returns a JSON array of active session IDs. Example: "[1, 2, 3]" */
+    @JvmStatic external fun listSessions(): String?
 
-  // ── Terminal I/O ──────────────────────────────────────────────────
+    // ── Terminal I/O ──────────────────────────────────────────────────
 
-  /** Resize the specified session. */
-  @JvmStatic external fun resize(sessionId: Long, rows: Int, cols: Int)
+    /** Resize the specified session. */
+    @JvmStatic external fun resize(sessionId: Long, rows: Int, cols: Int)
 
-  /**
-   * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the specified session, preserving
-   * rows/cols. pixel-aware programs `icat`, fullscreen TUIs) read the pixel size from TIOCGWINSZ.
-   */
-  @JvmStatic external fun setPixelSize(sessionId: Long, widthPx: Int, heightPx: Int)
+    /**
+     * Update the PTY winsize pixel fields (ws_xpixel/ws_ypixel) for the specified session, preserving
+     * rows/cols. pixel-aware programs `icat`, fullscreen TUIs) read the pixel size from TIOCGWINSZ.
+     */
+    @JvmStatic external fun setPixelSize(sessionId: Long, widthPx: Int, heightPx: Int)
 
-  /** Write raw bytes to the PTY (binary-safe; no UTF-8 mangling). */
-  @JvmStatic external fun feedPty(sessionId: Long, data: ByteArray)
+    /** Write raw bytes to the PTY (binary-safe; no UTF-8 mangling). */
+    @JvmStatic external fun feedPty(sessionId: Long, data: ByteArray)
 
-  /**
-   * Feed bytes directly to the VT parser (not the PTY). Test-only path to inject escape sequences
-   * (OSC 8 links, DECSET) that must be parsed by the terminal rather than echoed by the shell.
-   */
-  @JvmStatic external fun feedTerminal(sessionId: Long, data: ByteArray)
+    /**
+     * Feed bytes directly to the VT parser (not the PTY). Test-only path to inject escape sequences
+     * (OSC 8 links, DECSET) that must be parsed by the terminal rather than echoed by the shell.
+     */
+    @JvmStatic external fun feedTerminal(sessionId: Long, data: ByteArray)
 
-  /**
-   * Encode and submit a key event.
-   *
-   * @param key Key name (e.g., "a", "Enter", "Escape", "Space")
-   * @param mods Modifier bitmask (1=shift, 2=alt, 4=ctrl, 8=meta, 16=super)
-   * @param text Optional composed text for IME input (null for non-IME keys)
-   */
-  @JvmStatic external fun writeKey(sessionId: Long, key: String, mods: Int, text: String?)
+    /**
+     * Encode and submit a key event.
+     *
+     * @param key Key name (e.g., "a", "Enter", "Escape", "Space")
+     * @param mods Modifier bitmask (1=shift, 2=alt, 4=ctrl, 8=meta, 16=super)
+     * @param text Optional composed text for IME input (null for non-IME keys)
+     */
+    @JvmStatic external fun writeKey(sessionId: Long, key: String, mods: Int, text: String?)
 
-  /**
-   * Encode a mouse event into terminal escape sequences using the Ghostty mouse encoder
-   * (SGR/X10/UTF-8 per the application's DECSET selection). Position is in surface pixels;
-   * cellW/cellH are the live cell dims. Returns an empty array when mouse reporting is off or
-   * encoding fails the event is dropped — zelland renderer/mod.rs pattern).
-   */
-  @JvmStatic
-  external fun encodeMouseEvent(
-      sessionId: Long,
-      xPx: Float,
-      yPx: Float,
-      action: Int,
-      button: Int,
-      cellW: Float,
-      cellH: Float,
-  ): ByteArray
+    /**
+     * Encode a mouse event into terminal escape sequences using the Ghostty mouse encoder
+     * (SGR/X10/UTF-8 per the application's DECSET selection). Position is in surface pixels;
+     * cellW/cellH are the live cell dims. Returns an empty array when mouse reporting is off or
+     * encoding fails the event is dropped — zelland renderer/mod.rs pattern).
+     */
+    @JvmStatic
+    external fun encodeMouseEvent(
+        sessionId: Long,
+        xPx: Float,
+        yPx: Float,
+        action: Int,
+        button: Int,
+        cellW: Float,
+        cellH: Float,
+    ): ByteArray
 
-  /**
-   * Whether the remote is on the alternate screen buffer (vim/less/htop). Lock-free mirror
-   * maintained by the Rust VT thread; safe to call on every touch-scroll event. Backs
-   * [Bridge.isAltScreenActive] so touch-scroll on the alternate screen forwards to the remote as
-   * wheel escapes instead of scrolling local scrollback (Haven research: altScreen wheel
-   * consumption).
-   */
-  @JvmStatic external fun getAltScreenState(sessionId: Long): Boolean
+    /**
+     * Whether the remote is on the alternate screen buffer (vim/less/htop). Lock-free mirror
+     * maintained by the Rust VT thread; safe to call on every touch-scroll event. Backs
+     * [Bridge.isAltScreenActive] so touch-scroll on the alternate screen forwards to the remote as
+     * wheel escapes instead of scrolling local scrollback (Haven research: altScreen wheel
+     * consumption).
+     */
+    @JvmStatic external fun getAltScreenState(sessionId: Long): Boolean
 
-  /**
-   * Query a terminal mode (ghostty `mode_get`); `kind` 0 = DEC private modes, non-zero = ANSI
-   * modes. Backs the DECCKM (application cursor keys, DEC private mode 1) lookup used to switch
-   * arrow keys between SS3 (`ESC OA`) and CSI (`ESC [ A`) — research-haven.md:141,
-   * research-zed-port.md:252.
-   */
-  @JvmStatic external fun getMode(sessionId: Long, modeNum: Int, kind: Int): Boolean
+    /**
+     * Query a terminal mode (ghostty `mode_get`); `kind` 0 = DEC private modes, non-zero = ANSI
+     * modes. Backs the DECCKM (application cursor keys, DEC private mode 1) lookup used to switch
+     * arrow keys between SS3 (`ESC OA`) and CSI (`ESC [ A`) — research-haven.md:141,
+     * research-zed-port.md:252.
+     */
+    @JvmStatic external fun getMode(sessionId: Long, modeNum: Int, kind: Int): Boolean
 
-  /**
-   * Forward an application-window focus change to a session so the child receives DECSET 1004 focus
-   * reporting (`\x1b[I` / `\x1b[O`).
-   */
-  @JvmStatic external fun focusEvent(sessionId: Long, focused: Boolean): Boolean
+    /**
+     * Forward an application-window focus change to a session so the child receives DECSET 1004 focus
+     * reporting (`\x1b[I` / `\x1b[O`).
+     */
+    @JvmStatic external fun focusEvent(sessionId: Long, focused: Boolean): Boolean
 
-  /**
-   * Reply to an OSC 52 clipboard-read request with the system clipboard text. A request must be
-   * answered exactly once: a second reply for the same request id is a native no-op.
-   */
-  @JvmStatic external fun clipboardResult(sessionId: Long, requestId: Long, text: String)
+    /**
+     * Reply to an OSC 52 clipboard-read request with the system clipboard text. A request must be
+     * answered exactly once: a second reply for the same request id is a native no-op.
+     */
+    @JvmStatic external fun clipboardResult(sessionId: Long, requestId: Long, text: String)
 
-  // ── Events ────────────────────────────────────────────────────────
+    // ── Events ────────────────────────────────────────────────────────
 
-  /**
-   * Poll the event queue. Returns a JSON-encoded event or null. Call every frame (~16ms) in a
-   * coroutine.
-   *
-   * Event JSON format (serde internal tag, snake_case):
-   * {"event":"clipboard","session_id":1,"text":"copied text"}
-   * {"event":"exit","session_id":1,"code":0}
-   */
-  @JvmStatic external fun pollEvent(): String?
+    /**
+     * Poll the event queue. Returns a JSON-encoded event or null. Call every frame (~16ms) in a
+     * coroutine.
+     *
+     * Event JSON format (serde internal tag, snake_case):
+     * {"event":"clipboard","session_id":1,"text":"copied text"}
+     * {"event":"exit","session_id":1,"code":0}
+     */
+    @JvmStatic external fun pollEvent(): String?
 
-  /**
-   * Take and clear the per-session `new_output` flag (P1-1 scroll-reset signal). Raised by the
-   * native PTY ingest path; read-and-cleared by the render thread once per frame as a BYPASS read
-   * alongside [pollEvent] — deliberately not a queued event variant so sustained output (tail -f)
-   * cannot starve clipboard/exit events. See docs/reference/dual-flag-protocol.md.
-   */
-  @JvmStatic external fun consumeNewOutput(sessionId: Long): Boolean
+    /**
+     * Take and clear the per-session `new_output` flag (P1-1 scroll-reset signal). Raised by the
+     * native PTY ingest path; read-and-cleared by the render thread once per frame as a BYPASS read
+     * alongside [pollEvent] — deliberately not a queued event variant so sustained output (tail -f)
+     * cannot starve clipboard/exit events. See docs/reference/dual-flag-protocol.md.
+     */
+    @JvmStatic external fun consumeNewOutput(sessionId: Long): Boolean
 
-  // ── Surface ───────────────────────────────────────────────────────
+    // ── Surface ───────────────────────────────────────────────────────
 
-  /**
-   * Attach an Android Surface for GPU rendering. The native side creates a wgpu surface from the
-   * ANativeWindow pointer.
-   */
-  @JvmStatic external fun attachWindow(sessionId: Long, surface: Any, width: Int, height: Int)
+    /**
+     * Attach an Android Surface for GPU rendering. The native side creates a wgpu surface from the
+     * ANativeWindow pointer.
+     */
+    @JvmStatic external fun attachWindow(sessionId: Long, surface: Any, width: Int, height: Int)
 
-  /** Detach the current surface. */
-  @JvmStatic external fun detachWindow(sessionId: Long)
+    /** Detach the current surface. */
+    @JvmStatic external fun detachWindow(sessionId: Long)
 
-  /**
-   * Render one frame for the session from the CellData fast path ADR-0007). Returns 1 if output was
-   * presented, 0 if idle, -1 on error.
-   */
-  @JvmStatic external fun render(sessionId: Long, width: Int, height: Int): Int
+    /**
+     * Render one frame for the session from the CellData fast path ADR-0007). Returns 1 if output was
+     * presented, 0 if idle, -1 on error.
+     */
+    @JvmStatic external fun render(sessionId: Long, width: Int, height: Int): Int
 
-  /**
-   * Combined render + consumeNewOutput in a single JNI crossing.
-   *
-   * Returns a packed `Long`:
-   * - bits 0..31 = render count (same as [render])
-   * - bit 32 = new_output flag (1 = PTY output ingested, 0 = idle)
-   *
-   * Usage:
-   * ```kotlin
-   * val packed = NativeBridge.renderWithNewOutput(sessionId, width, height)
-   * val count = packed.toInt()
-   * val newOutput = (packed shr 32) != 0L
-   * ```
-   */
-  @JvmStatic external fun renderWithNewOutput(sessionId: Long, width: Int, height: Int): Long
+    /**
+     * Combined render + consumeNewOutput in a single JNI crossing.
+     *
+     * Returns a packed `Long`:
+     * - bits 0..31 = render count (same as [render])
+     * - bit 32 = new_output flag (1 = PTY output ingested, 0 = idle)
+     *
+     * Usage:
+     * ```kotlin
+     * val packed = NativeBridge.renderWithNewOutput(sessionId, width, height)
+     * val count = packed.toInt()
+     * val newOutput = (packed shr 32) != 0L
+     * ```
+     */
+    @JvmStatic external fun renderWithNewOutput(sessionId: Long, width: Int, height: Int): Long
 
-  // ── MCP server ──────────────────────────────────────────────────────
+    // ── MCP server ──────────────────────────────────────────────────────
 
-  // ── User input callbacks ────────────────────────────────────────────
+    // ── User input callbacks ────────────────────────────────────────────
 
-  // ── Logging ──────────────────────────────────────────────────────────
+    // ── Logging ──────────────────────────────────────────────────────────
 
-  /** Initialise native-side logging. Should be called once at startup. */
-  @JvmStatic external fun initLogger()
+    /** Initialise native-side logging. Should be called once at startup. */
+    @JvmStatic external fun initLogger()
 
-  // ── TerminalQueryPort (native query exports) ─────────────────────────
+    // ── TerminalQueryPort (native query exports) ─────────────────────────
 
-  /** Terminal title (OSC 0/2) for a session, or null when unknown. */
-  @JvmStatic external fun getTitle(sessionId: Long): String?
+    /** Terminal title (OSC 0/2) for a session, or null when unknown. */
+    @JvmStatic external fun getTitle(sessionId: Long): String?
 
-  /** Number of scrollback rows for a session. */
-  @JvmStatic external fun scrollbackLength(sessionId: Long): Int
+    /** Number of scrollback rows for a session. */
+    @JvmStatic external fun scrollbackLength(sessionId: Long): Int
 
-  /** Trimmed text of one row, or null for an empty row. Absolute row. */
-  @JvmStatic external fun scrollbackLine(sessionId: Long, row: Int): String?
+    /** Trimmed text of one row, or null for an empty row. Absolute row. */
+    @JvmStatic external fun scrollbackLine(sessionId: Long, row: Int): String?
 
-  /** Cursor viewport position packed `(y << 32) | x`, or -1 when hidden. */
-  @JvmStatic external fun getCursorViewportPacked(sessionId: Long): Long
+    /** Cursor viewport position packed `(y << 32) | x`, or -1 when hidden. */
+    @JvmStatic external fun getCursorViewportPacked(sessionId: Long): Long
 
-  /** Visible + scrollback text joined by newlines. */
-  @JvmStatic external fun getTerminalText(sessionId: Long): String?
+    /** Visible + scrollback text joined by newlines. */
+    @JvmStatic external fun getTerminalText(sessionId: Long): String?
 
-  /**
-   * Extract selection text with Ghostty's native formatter: soft-wrapped lines are joined without
-   * '\n' and trailing whitespace is trimmed — the same wrap-aware semantics as termux-app's
-   * TerminalBuffer.getSelectedText (joinBackLines). Coordinates are grid rows/cols (absolute: row 0
-   * = top of scrollback). Returns "" on error.
-   */
-  @JvmStatic
-  external fun selectionText(
-      sessionId: Long,
-      startRow: Int,
-      startCol: Int,
-      endRow: Int,
-      endCol: Int,
-      rectangle: Boolean,
-  ): String?
+    /**
+     * Extract selection text with Ghostty's native formatter: soft-wrapped lines are joined without
+     * '\n' and trailing whitespace is trimmed — the same wrap-aware semantics as termux-app's
+     * TerminalBuffer.getSelectedText (joinBackLines). Coordinates are grid rows/cols (absolute: row 0
+     * = top of scrollback). Returns "" on error.
+     */
+    @JvmStatic
+    external fun selectionText(
+        sessionId: Long,
+        startRow: Int,
+        startCol: Int,
+        endRow: Int,
+        endCol: Int,
+        rectangle: Boolean,
+    ): String?
 
-  /** OSC 8 hyperlink URI at a grid cell (row 0 = top of scrollback), or null. */
-  @JvmStatic external fun hyperlinkAt(sessionId: Long, row: Int, col: Int): String?
+    /** OSC 8 hyperlink URI at a grid cell (row 0 = top of scrollback), or null. */
+    @JvmStatic external fun hyperlinkAt(sessionId: Long, row: Int, col: Int): String?
 
-  /**
-   * Search the whole scrollback. Returns a JSON array of
-   * `{"row":int,"start_col":int,"end_col":int}` (byte-offset columns), or `[]` on timeout. Debounce
-   * from the UI thread.
-   */
-  @JvmStatic
-  external fun searchAllInScrollback(
-      sessionId: Long,
-      query: String,
-      caseSensitive: Boolean,
-      fuzzyMatch: Boolean,
-  ): String?
+    /**
+     * Search the whole scrollback. Returns a JSON array of
+     * `{"row":int,"start_col":int,"end_col":int}` (byte-offset columns), or `[]` on timeout. Debounce
+     * from the UI thread.
+     */
+    @JvmStatic
+    external fun searchAllInScrollback(
+        sessionId: Long,
+        query: String,
+        caseSensitive: Boolean,
+        fuzzyMatch: Boolean,
+    ): String?
 
-  /** True when the cell at (row, col) has no printable codepoint. */
-  @JvmStatic external fun isCellEmpty(sessionId: Long, row: Int, col: Int): Boolean
+    /** True when the cell at (row, col) has no printable codepoint. */
+    @JvmStatic external fun isCellEmpty(sessionId: Long, row: Int, col: Int): Boolean
 
-  /** Monospace font families known to the pipeline. */
-  @JvmStatic external fun listFontFamilies(): Array<String>?
+    /** Monospace font families known to the pipeline. */
+    @JvmStatic external fun listFontFamilies(): Array<String>?
 
-  /** Default font family name. */
-  @JvmStatic external fun getDefaultFontName(): String?
+    /** Default font family name. */
+    @JvmStatic external fun getDefaultFontName(): String?
 
-  /** Structured font info as JSON (see [FontInfoDto]); null before the renderer is initialized. */
-  @JvmStatic external fun getFontInfo(): String?
+    /** Structured font info as JSON (see [FontInfoDto]); null before the renderer is initialized. */
+    @JvmStatic external fun getFontInfo(): String?
 
-  /** Clear renderer search highlights. */
-  @JvmStatic external fun clearSearchHighlights(sessionId: Long)
+    /** Clear renderer search highlights. */
+    @JvmStatic external fun clearSearchHighlights(sessionId: Long)
 
-  /** Set renderer search highlight ranges (byte-packed, see TerminalSurface). */
-  @JvmStatic external fun setSearchHighlights(sessionId: Long, data: ByteArray)
+    /** Set renderer search highlight ranges (byte-packed, see TerminalSurface). */
+    @JvmStatic external fun setSearchHighlights(sessionId: Long, data: ByteArray)
 
-  /**
-   * Set active text selection (visible-grid rows/cols). mode: 0=Char 1=Word 2=Line 3=Semantic
-   * 4=Block (see SelectionMode). selectionBgArgb: theme selection background color, ARGB packed.
-   */
-  @JvmStatic
-  external fun setSelection(
-      sessionId: Long,
-      startRow: Int,
-      startCol: Int,
-      endRow: Int,
-      endCol: Int,
-      hasSelection: Boolean,
-      mode: Byte,
-      selectionBgArgb: Int,
-  )
+    /**
+     * Set active text selection (visible-grid rows/cols). mode: 0=Char 1=Word 2=Line 3=Semantic
+     * 4=Block (see SelectionMode). selectionBgArgb: theme selection background color, ARGB packed.
+     */
+    @JvmStatic
+    external fun setSelection(
+        sessionId: Long,
+        startRow: Int,
+        startCol: Int,
+        endRow: Int,
+        endCol: Int,
+        hasSelection: Boolean,
+        mode: Byte,
+        selectionBgArgb: Int,
+    )
 
-  external fun setTheme(sessionId: Long, data: ByteArray)
+    external fun setTheme(sessionId: Long, data: ByteArray)
 
-  external fun setBackgroundParams(sessionId: Long, blurRadius: Int, alphaTenths: Int)
+    external fun setBackgroundParams(sessionId: Long, blurRadius: Int, alphaTenths: Int)
 
-  external fun setRenderPaused(sessionId: Long, paused: Boolean)
+    external fun setRenderPaused(sessionId: Long, paused: Boolean)
 
-  /**
-   * App-level cursor color override in linear RGB (0..1 per channel); 0xFFFFFFFF sentinel clears
-   * the override (follow the terminal).
-   */
-  external fun setCursorColor(sessionId: Long, r: Float, g: Float, b: Float)
+    /**
+     * App-level cursor color override in linear RGB (0..1 per channel); 0xFFFFFFFF sentinel clears
+     * the override (follow the terminal).
+     */
+    external fun setCursorColor(sessionId: Long, r: Float, g: Float, b: Float)
 
-  external fun setFontFamily(sessionId: Long, family: String): Boolean
+    external fun setFontFamily(sessionId: Long, family: String): Boolean
 
-  /** Slot: 0=bold, 1=italic, 2=bold-italic (ghostty-android 4-slot). */
-  external fun setFontFamilyForStyle(sessionId: Long, family: String, slot: Int): Boolean
+    /** Slot: 0=bold, 1=italic, 2=bold-italic (ghostty-android 4-slot). */
+    external fun setFontFamilyForStyle(sessionId: Long, family: String, slot: Int): Boolean
 
-  external fun setFontSizeInPlace(sessionId: Long, sizeTenths: Int)
+    external fun setFontSizeInPlace(sessionId: Long, sizeTenths: Int)
 
-  /** Set glyph rasterization scale (device pixel density) for crisp text. */
-  external fun setRasterScale(sessionId: Long, scale: Float)
+    /** Set glyph rasterization scale (device pixel density) for crisp text. */
+    external fun setRasterScale(sessionId: Long, scale: Float)
 
-  external fun loadFontFile(sessionId: Long, path: String): String?
+    external fun loadFontFile(sessionId: Long, path: String): String?
 
-  external fun setSystemLocale(sessionId: Long, locale: String)
+    external fun setSystemLocale(sessionId: Long, locale: String)
 
-  external fun setExtraFontPaths(sessionId: Long, paths: Array<String>)
+    external fun setExtraFontPaths(sessionId: Long, paths: Array<String>)
 
-  external fun getCellWidth(sessionId: Long): Float
+    external fun getCellWidth(sessionId: Long): Float
 
-  external fun getCellHeight(sessionId: Long): Float
+    external fun getCellHeight(sessionId: Long): Float
 
-  external fun getGridRowsColsPacked(sessionId: Long): Long
+    external fun getGridRowsColsPacked(sessionId: Long): Long
 
-  external fun setScrollOffset(sessionId: Long, offset: Int)
+    external fun setScrollOffset(sessionId: Long, offset: Int)
 
-  external fun setScrollYPx(sessionId: Long, offsetPx: Float)
+    external fun setScrollYPx(sessionId: Long, offsetPx: Float)
 }
