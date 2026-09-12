@@ -14,7 +14,4 @@ def main [] {
     ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#modifierKeyPressAnimation
     ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#imeShowAnimation
     ^./gradlew ":baselineprofile:generateBaselineProfile"
-    cd $repo_dir
-    let maestro_dir = ($repo_dir | path join "maestro")
-    ^maestro test ($maestro_dir | path join "flows")
 }

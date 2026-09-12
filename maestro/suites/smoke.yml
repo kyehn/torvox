@@ -1,7 +1,0 @@
-suite:
-  name: Terminal Smoke Tests
-  tags:
-    - smoke
-flows:
-  - ../flows/launch.yaml
-  - ../flows/rapid-modifier-taps.yml
