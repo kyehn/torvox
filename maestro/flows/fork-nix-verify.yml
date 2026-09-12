@@ -3,7 +3,7 @@ name: Fork Go-login nix verification (real terminal input)
 tags:
   - nix
 ---
-# Verifies the kyehn/nix-on-droid fork bootstrap through the Shizuku
+# Verifies the fork bootstrap through the Shizuku
 # rish bridge using ONLY real terminal input. Assumes the fork bootstrap
 # is already installed and the Shizuku switch is on. Readback is done
 # outside Maestro via the DUMP_TERMINAL backdoor (text, not screenshots).
