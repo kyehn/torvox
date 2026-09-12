@@ -14,7 +14,7 @@ import java.io.PipedOutputStream
 
 /**
  * Unit tests for the SELinux linker workaround in SecondStageRunner: postinst scripts and prefix
- * ELFs must be exec'd via /system/bin/linker64 with LD_PRELOAD=libtermux-exec.so.
+ * ELFs must be exec'd via /system/bin/linker64; the process environment follows the spec whitelist.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
