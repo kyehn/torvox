@@ -115,8 +115,6 @@
 
     <!-- USB Serial -->
 
-    <!-- MCP Server -->
-
     <!-- Text Search -->
     <string name="text_search">テキスト検索</string>
     <string name="text_search_desc">端末出力を検索</string>

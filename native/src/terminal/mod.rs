@@ -34,7 +34,6 @@ pub(crate) mod action_parser;
 #[cfg(test)]
 pub(crate) mod sgr_parser;
 #[cfg(test)]
-#[cfg(test)]
 pub(crate) mod snapshot_test;
 #[cfg(test)]
 pub(crate) mod test_helpers;

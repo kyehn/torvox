@@ -89,8 +89,6 @@
 
     <!-- USB Serial -->
 
-    <!-- MCP Server -->
-
     <!-- Text Search -->
     <string name="text_search">Recherche de texte</string>
     <string name="text_search_desc">Rechercher dans la sortie du terminal</string>

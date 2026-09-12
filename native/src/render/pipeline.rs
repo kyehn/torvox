@@ -5,13 +5,6 @@
 use crate::render::Renderer;
 
 pub(crate) const QUAD_VERTEX_COUNT: u32 = 6;
-pub(crate) const DEFAULT_BG_ALPHA: f32 = 0.8;
-/// Bell-flash peak opacity in the 0-255 alpha space: a subtle
-/// white flash; 96/255 ≈ 0.38 at the bell's first frame, decaying with the
-/// phase driven by Kotlin). Scaled by phase before the shader uniform.
-pub(crate) const BELL_FLASH_ALPHA_255: f32 = 96.0;
-/// 255 as f32, for converting the 0-255 alpha constant to 0..=1.
-pub(crate) const ALPHA_255_MAX: f32 = 255.0;
 
 pub(crate) const QUAD_CORNERS: &[[f32; 2]; 6] = &[
     [-1.0, -1.0],
@@ -40,38 +33,53 @@ pub struct GpuUniforms {
     pub projection: [[f32; 4]; 4],
     pub atlas_size: [f32; 2],
     pub raster_scale: f32,
-    pub image_active: f32,
-    pub default_bg: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub(crate) struct BgUniforms {
-    pub projection: [[f32; 4]; 4],
-    /// Source image size in pixels — used by vs_main for the cover
-    /// (center-crop) UV mapping. Distinct from `surface_size`.
-    pub image_size: [f32; 2],
-    pub blur_radius: f32,
-    pub alpha: f32,
-    pub texel_size: [f32; 2],
-    /// Surface size in pixels — vs_main needs the surface aspect ratio to
-    /// compute the cover crop, and `texel_size` is derived from it too.
-    pub surface_size: [f32; 2],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
-pub(crate) struct FlashUniforms {
-    /// Pre-scaled overlay alpha in 0..=1 (`BELL_FLASH_ALPHA_255/255 * phase`).
-    pub alpha: f32,
-    pub _padding: [f32; 3],
-}
-
-pub fn image_active_value(bg_bind_group_present: bool) -> f32 {
-    if bg_bind_group_present { 1.0 } else { 0.0 }
+    /// std140 trailing padding: uniform struct size must be a multiple of
+    /// 16 (76 -> 80). Without it the shader reads past the buffer, wgpu
+    /// drops every instance draw, and glyph renders come back all zeros.
+    pub _padding: f32,
 }
 
 impl Renderer {
+    /// Bind-group layout shared by the cell and KGP pipelines: binding 0 =
+    /// uniforms, 1 = sampled RGBA texture, 2 = filtering sampler. One
+    /// construction site so the two text pipelines cannot drift apart.
+    pub(crate) fn text_bind_group_layout(
+        device: &wgpu::Device,
+        label: &str,
+    ) -> wgpu::BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some(label),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        })
+    }
+
     pub(crate) fn create_cell_pipeline(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -82,38 +90,7 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl_source)),
         });
 
-        let cell_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Cell Bind Group Layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
+        let cell_bind_group_layout = Self::text_bind_group_layout(device, "Cell Bind Group Layout");
 
         let cell_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Cell Pipeline Layout"),
@@ -170,214 +147,6 @@ impl Renderer {
         })
     }
 
-    pub(crate) fn create_bg_pipeline(
-        device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-    ) -> (wgpu::RenderPipeline, wgpu::BindGroupLayout) {
-        let wgsl_source = include_str!("../../shaders/background.wgsl");
-        let bg_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Background Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl_source)),
-        });
-
-        let bg_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Background Bind Group Layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
-
-        let bg_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Background Pipeline Layout"),
-            bind_group_layouts: &[Some(&bg_bind_group_layout)],
-            immediate_size: 0,
-        });
-
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Background Pipeline"),
-            layout: Some(&bg_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &bg_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Some(quad_corner_buffer_layout())],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &bg_shader,
-                entry_point: Some("fs_direct"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    // Alpha blend so `uniforms.alpha` (background opacity
-                    // setting) actually composites the wallpaper over the
-                    // cleared bg_color. Was REPLACE: the alpha channel was
-                    // written but the RGB never mixed, so the opacity
-                    // slider had zero visual effect,
-                    // emulator-verified: alpha 0.1 vs 0.8 produced
-                    // byte-identical pixels).
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-
-        (pipeline, bg_bind_group_layout)
-    }
-
-    /// Creates the two-pass background blur pipelines (horizontal then
-    /// vertical). Both reuse the background bind group layout and the
-    /// `background.wgsl` shader: `fs_blur_h` downsamples, `fs_blur_v`
-    /// re-upsamples with the alpha blend that composites the blurred
-    /// wallpaper at `uniforms.alpha` opacity.
-    pub(crate) fn create_blur_pipelines(
-        device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-        bind_group_layout: &wgpu::BindGroupLayout,
-    ) -> (wgpu::RenderPipeline, wgpu::RenderPipeline) {
-        let blur_wgsl_source = include_str!("../../shaders/background.wgsl");
-        let blur_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Background Blur Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(blur_wgsl_source)),
-        });
-        let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Blur Pipeline Layout"),
-            bind_group_layouts: &[Some(bind_group_layout)],
-            immediate_size: 0,
-        });
-        let blur_h = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Background Blur H Pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &blur_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Some(quad_corner_buffer_layout())],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &blur_shader,
-                entry_point: Some("fs_blur_h"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        let blur_v = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Background Blur V Pipeline"),
-            layout: Some(&layout),
-            vertex: wgpu::VertexState {
-                module: &blur_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Some(quad_corner_buffer_layout())],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &blur_shader,
-                entry_point: Some("fs_blur_v"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    // Alpha blend: fs_blur_v outputs
-                    // alpha = uniforms.alpha, so the opacity
-                    // setting composites the blurred wallpaper
-                    // over the cleared bg_color.
-                    blend: Some(wgpu::BlendState {
-                        color: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::SrcAlpha,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                        alpha: wgpu::BlendComponent {
-                            src_factor: wgpu::BlendFactor::One,
-                            dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                            operation: wgpu::BlendOperation::Add,
-                        },
-                    }),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        });
-        (blur_h, blur_v)
-    }
-
     pub(crate) fn create_kgp_pipeline(
         device: &wgpu::Device,
         format: wgpu::TextureFormat,
@@ -388,38 +157,7 @@ impl Renderer {
             source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl_source)),
         });
 
-        let kgp_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("KGP Bind Group Layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: false,
-                            min_binding_size: None,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                ],
-            });
+        let kgp_bind_group_layout = Self::text_bind_group_layout(device, "KGP Bind Group Layout");
 
         let kgp_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("KGP Pipeline Layout"),
@@ -470,255 +208,6 @@ impl Renderer {
         });
 
         (pipeline, kgp_bind_group_layout)
-    }
-
-    /// Full-screen white-overlay pipeline for the bell flash. No textures —
-    /// a single uniform float (pre-scaled alpha) is all the fragment shader
-    /// needs, so the bind group has one entry only.
-    pub(crate) fn create_flash_pipeline(
-        device: &wgpu::Device,
-        format: wgpu::TextureFormat,
-    ) -> wgpu::RenderPipeline {
-        let wgsl_source = include_str!("../../shaders/flash.wgsl");
-        let flash_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Flash Shader"),
-            source: wgpu::ShaderSource::Wgsl(std::borrow::Cow::Borrowed(wgsl_source)),
-        });
-
-        let flash_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Flash Bind Group Layout"),
-                entries: &[wgpu::BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: wgpu::ShaderStages::VERTEX | wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Buffer {
-                        ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: None,
-                    },
-                    count: None,
-                }],
-            });
-
-        let flash_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("Flash Pipeline Layout"),
-                bind_group_layouts: &[Some(&flash_bind_group_layout)],
-                immediate_size: 0,
-            });
-
-        device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Flash Pipeline"),
-            layout: Some(&flash_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &flash_shader,
-                entry_point: Some("vs_main"),
-                buffers: &[Some(quad_corner_buffer_layout())],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &flash_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format,
-                    // SrcAlpha over the already-rendered frame: the flash
-                    // dims toward zero alpha as the Kotlin phase decays.
-                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-                compilation_options: wgpu::PipelineCompilationOptions::default(),
-            }),
-            primitive: wgpu::PrimitiveState {
-                topology: wgpu::PrimitiveTopology::TriangleList,
-                strip_index_format: None,
-                front_face: wgpu::FrontFace::Ccw,
-                cull_mode: None,
-                polygon_mode: wgpu::PolygonMode::Fill,
-                unclipped_depth: false,
-                conservative: false,
-            },
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            multiview_mask: None,
-            cache: None,
-        })
-    }
-
-    pub(crate) fn ensure_bg_pipeline(&mut self, surface_width: u32, surface_height: u32) {
-        if self.bg_image_view.is_none() {
-            return;
-        }
-        let format = self
-            .surface_config
-            .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
-
-        if self.bg_pipeline.is_none() {
-            let (pipeline, layout) = Self::create_bg_pipeline(&self.device, format);
-            self.bg_pipeline = Some(pipeline);
-            self.bg_bind_group_layout = Some(layout);
-        }
-
-        if self.blur_h_pipeline.is_none() {
-            let Some(layout) = self.bg_bind_group_layout.as_ref() else {
-                return;
-            };
-            let (blur_h, blur_v) = Self::create_blur_pipelines(&self.device, format, layout);
-            self.blur_h_pipeline = Some(blur_h);
-            self.blur_v_pipeline = Some(blur_v);
-        }
-
-        let pipeline = match self.bg_pipeline.as_ref() {
-            Some(p) => p,
-            None => return,
-        };
-        let layout = pipeline.get_bind_group_layout(0);
-
-        let view = match self.bg_image_view.as_ref() {
-            Some(v) => v,
-            None => return,
-        };
-
-        if self.bg_sampler.is_none() {
-            self.bg_sampler = Some(self.device.create_sampler(&wgpu::SamplerDescriptor {
-                address_mode_u: wgpu::AddressMode::ClampToEdge,
-                address_mode_v: wgpu::AddressMode::ClampToEdge,
-                mag_filter: wgpu::FilterMode::Linear,
-                min_filter: wgpu::FilterMode::Linear,
-                ..Default::default()
-            }));
-        }
-        let sampler = match self.bg_sampler.as_ref() {
-            Some(s) => s,
-            None => return,
-        };
-
-        if self.bg_uniform_buffer.is_none() {
-            self.bg_uniform_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Background Uniform Buffer"),
-                size: std::mem::size_of::<BgUniforms>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }));
-        }
-        let buf = match self.bg_uniform_buffer.as_ref() {
-            Some(b) => b,
-            None => return,
-        };
-
-        let (blur, alpha) = (self.bg_blur_radius, self.bg_alpha);
-        let texel_x = if surface_width > 0 {
-            1.0 / surface_width as f32
-        } else {
-            0.0
-        };
-        let texel_y = if surface_height > 0 {
-            1.0 / surface_height as f32
-        } else {
-            0.0
-        };
-
-        let proj =
-            crate::render::orthographic_projection(surface_width as f32, surface_height as f32);
-        let uniforms = BgUniforms {
-            projection: proj,
-            // Source image size (not surface size): vs_main computes the
-            // cover crop from the image aspect ratio.
-            image_size: self.bg_image_size,
-            blur_radius: blur,
-            alpha,
-            texel_size: [texel_x, texel_y],
-            surface_size: [surface_width as f32, surface_height as f32],
-        };
-        self.queue
-            .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
-
-        // Bind group is created once: it binds to buffer/texture/sampler
-        // objects, not their contents. The uniform buffer is written above
-        // every frame via write_buffer, which doesn't invalidate the bind
-        // group. Only recreate when bg_image_view, bg_sampler, or
-        // bg_uniform_buffer change (e.g., a new background image is loaded).
-        if self.bg_bind_group.is_none() {
-            self.bg_bind_group = Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Background Bind Group"),
-                layout: &layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buf.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Sampler(sampler),
-                    },
-                ],
-            }));
-        }
-
-        // Two-pass blur intermediate: the H pass renders into this texture
-        // and the V pass samples it (previously both passes wrote the
-        // surface, so the H result was overwritten —). Created
-        // lazily and recreated when the surface size changes.
-        if self.bg_blur_radius >= 0.5 {
-            let needs_texture = match &self.bg_blur_texture {
-                Some(t) => t.width() != surface_width || t.height() != surface_height,
-                None => true,
-            };
-            if needs_texture {
-                self.bg_blur_texture = Some(self.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("Background Blur Intermediate"),
-                    size: wgpu::Extent3d {
-                        width: surface_width.max(1),
-                        height: surface_height.max(1),
-                        depth_or_array_layers: 1,
-                    },
-                    mip_level_count: 1,
-                    sample_count: 1,
-                    dimension: wgpu::TextureDimension::D2,
-                    format,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
-                    view_formats: &[],
-                }));
-                self.bg_blur_texture_view = self
-                    .bg_blur_texture
-                    .as_ref()
-                    .map(|t| t.create_view(&wgpu::TextureViewDescriptor::default()));
-                self.bg_blur_bind_group = None;
-            }
-            if self.bg_blur_bind_group.is_none()
-                && let (Some(blur_view), Some(blur_sampler)) =
-                    (self.bg_blur_texture_view.as_ref(), self.bg_sampler.as_ref())
-            {
-                self.bg_blur_bind_group =
-                    Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("Background Blur V Bind Group"),
-                        layout: &layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: buf.as_entire_binding(),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::TextureView(blur_view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 2,
-                                resource: wgpu::BindingResource::Sampler(blur_sampler),
-                            },
-                        ],
-                    }));
-            }
-        } else {
-            self.bg_blur_texture = None;
-            self.bg_blur_texture_view = None;
-            self.bg_blur_bind_group = None;
-        }
     }
 
     pub(crate) fn ensure_kgp_pipeline(&mut self, surface_width: u32, surface_height: u32) {
@@ -800,56 +289,5 @@ impl Renderer {
                 },
             ],
         }));
-    }
-
-    /// Lazily create the bell-flash pipeline/uniforms/bind group and push
-    /// the current phase-scaled alpha. No-op when the flash phase is zero
-    /// (nothing to draw — keeps the flash off the hot frame path).
-    pub(crate) fn ensure_flash_pipeline(&mut self) {
-        if self.flash_phase <= 0.0 {
-            return;
-        }
-        let format = self
-            .surface_config
-            .as_ref()
-            .map_or(wgpu::TextureFormat::Rgba8Unorm, |c| c.format);
-        if self.flash_pipeline.is_none() {
-            self.flash_pipeline = Some(Self::create_flash_pipeline(&self.device, format));
-        }
-        let pipeline = match self.flash_pipeline.as_ref() {
-            Some(p) => p,
-            None => return,
-        };
-        if self.flash_uniform_buffer.is_none() {
-            self.flash_uniform_buffer = Some(self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("Flash Uniform Buffer"),
-                size: std::mem::size_of::<FlashUniforms>() as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            }));
-        }
-        let buf = match self.flash_uniform_buffer.as_ref() {
-            Some(b) => b,
-            None => return,
-        };
-        // phase ∈ 0..=1 (Kotlin drives the decay); 96 is a 0-255 alpha.
-        let alpha = (BELL_FLASH_ALPHA_255 / ALPHA_255_MAX) * self.flash_phase;
-        let uniforms = FlashUniforms {
-            alpha,
-            _padding: [0.0; 3],
-        };
-        self.queue
-            .write_buffer(buf, 0, bytemuck::cast_slice(&[uniforms]));
-        if self.flash_bind_group.is_none() {
-            self.flash_bind_group =
-                Some(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("Flash Bind Group"),
-                    layout: &pipeline.get_bind_group_layout(0),
-                    entries: &[wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: buf.as_entire_binding(),
-                    }],
-                }));
-        }
     }
 }

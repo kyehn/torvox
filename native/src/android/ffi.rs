@@ -173,21 +173,15 @@ struct RenderState {
     /// Stored as parsed structs so `render_inner` passes them by slice.
     /// Cleared by `clearSearchHighlights`.
     search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
-    /// Background image pending upload, set by `setBackgroundImage` from
-    /// any thread and consumed by the render thread at the start of the
-    /// next `render_inner` (same deferred-consume pattern as
-    /// `search_highlights`; wgpu texture creation happens on the render
-    /// thread). `None` = no pending change.
     /// Active text selection for the next frame. Set by `setSelection`
     /// (row/col bounds in visible-grid coordinates), consumed by
     /// `render_inner`; same deferred-consume pattern as
     /// `search_highlights`.
     selection: Option<crate::render::cell_builder::SelectionRange>,
-    /// Last rendered frame (cells + cursor + dims). Needed for app-level
-    /// cursor blink: `render()` only draws when the terminal produced new
-    /// CellData, so an idle terminal would never repaint the cursor phase.
-    /// When blink is enabled and the phase flips, the cached frame is
-    /// redrawn with the cursor visibility toggled.
+    /// Last rendered frame (cells + cursor + dims). Cached so the idle
+    /// path can repaint without rebuilding instances when nothing changed:
+    /// `render()` only draws on new terminal output, so an idle terminal
+    /// reuses the cached frame instead of recompositing every frame.
     last_frame: Option<(
         Vec<crate::terminal::ghostty_terminal::CellData>,
         crate::terminal::ghostty_terminal::CursorInfo,
@@ -222,16 +216,14 @@ struct RenderState {
     /// docs/reference/dual-flag-protocol.md): raised by the JNI entry
     /// points that mutate deferred render inputs (`setSelection`,
     /// `setSearchHighlights`/`clearSearchHighlights`,
-    /// `setFontSizeInPlace`, `setFlashState`, `setBackgroundImage`/
-    /// `clearBackgroundImage`) and consumed by the render thread with a
+    /// `setFontSizeInPlace`) and consumed by the render thread with a
     /// single `getAndSet(false)` swap in `render_inner`. Independent from
     /// the P1-1 per-session `new_output` flag (PTY ingest):
-    /// selection/highlight/font-size/flash changes must repaint but never
+    /// selection/highlight/font-size changes must repaint but never
     /// reset the viewport. It is BOTH a wake signal for the Kotlin render
     /// loop (UI callers' notifyRender() + the safety-net latch cadence)
     /// and one of the idle-gate pass conditions — NEVER an outer
-    /// short-circuit (the blink phase has no JNI set-point and is decided
-    /// inside the gate; an outer short-circuit would freeze cursor blink).
+    /// short-circuit (the idle repaint decision is made inside the gate).
     dirty: AtomicBool,
 }
 
@@ -1713,7 +1705,7 @@ fn render_inner(session_id: u64) -> jint {
             }
             // Cursor row(s): mark BOTH the current and previous cursor rows
             // regardless of visibility — the cursor is an overlay on the
-            // instances (blink/style/position all change pixels without
+            // instances (visibility/position change pixels without
             // changing cell content), and dirty-band rendering needs every
             // affected row repainted or stale cursor pixels persist.
             if (cursor.row as usize) < rows_usize {
@@ -1789,8 +1781,8 @@ fn render_inner(session_id: u64) -> jint {
             let dirty_mask = &mut render_state.dirty_mask;
             dirty_mask.clear();
             dirty_mask.resize(rows_usize, false);
-            // Cursor row regardless of visibility: blink/style toggles
-            // pixels without touching cell content.
+            // Cursor row regardless of visibility: the cursor is an overlay
+            // whose pixels change without touching cell content.
             if (cursor.row as usize) < rows_usize {
                 dirty_mask[cursor.row as usize] = true;
             }
@@ -2582,7 +2574,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
         if let Some(render_state) = state.as_mut() {
             render_state.search_highlights = highlights;
             // P2-1 dirty: new highlights must paint on the next frame even
-            // with blink off and no PTY traffic (#5 idle-screen regression).
+            // with no PTY traffic (#5 idle-screen regression).
             render_state.dirty.store(true, Ordering::Relaxed);
         }
     });
@@ -2974,7 +2966,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPa
             let mut path_list: Vec<std::path::PathBuf> = Vec::new();
             // SAFETY: `paths` is a JNI method argument, guaranteed valid by
             // the JVM runtime for the duration of this call (same pattern
-            // as feed_pty_inner / setBackgroundImage).
+            // as feed_pty_inner).
             let array = unsafe { jni::objects::JObjectArray::<JString>::from_raw(env, paths) };
             let len = array.len(env).unwrap_or(0);
             for i in 0..len {

@@ -419,7 +419,3 @@ tasks.register("pitest") {
   group = "verification"
   description = "Run PIT mutation testing on all variant unit tests"
 }
-
-// JUnit5 (Jupiter) platform removed with Stove (its only consumer);
-// the suite runs on the default JUnit4 runner (TestBalloon's JUnit4
-// runner included).

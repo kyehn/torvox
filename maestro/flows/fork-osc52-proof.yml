@@ -1,16 +1,17 @@
 appId: com.termux
-name: OSC52 clipboard proof of fork nix session
+name: OSC52 clipboard proof
 tags:
   - nix
 ---
-# Screenshot proof that the fork Go-login session runs nix, without
-# relying on GPU-surface capture (uncapturable on this emulator):
-# 1. Real terminal input runs nix --version / nix build / cat, transcript
-#    goes to /tmp/proof.txt (all inside the proot session).
-# 2. The shell pushes proof.txt to the Android clipboard via OSC 52
-#    (Ghostty ClipboardEvent -> setClipboardText, no dialog).
-# 3. The clipboard is pasted into a Compose dialog field (capturable)
-#    and screenshotted. Dialog is dismissed without saving.
+# Proof that OSC 52 clipboard works end to end, without relying on
+# GPU-surface capture (uncapturable on this emulator):
+# 1. Real terminal input runs nix --version (proves the session is alive).
+# 2. The shell pushes a KNOWN-SAFE single-line marker to the Android
+#    clipboard via OSC 52 (Ghostty ClipboardEvent -> setClipboardText).
+#    Single line with no newline, so pasting it back cannot execute anything.
+# 3. The marker is pasted back into the terminal (Maestro pasteText) and
+#    screenshotted sitting in the input line. Screenshot is the assertion:
+#    terminal text lives on a GPU canvas, invisible to the view hierarchy.
 - launchApp:
     stopApp: true
 - waitForAnimationToEnd:
@@ -25,47 +26,28 @@ tags:
     id: "TerminalContent"
 - waitForAnimationToEnd:
     timeout: 20000
-- inputText: "nix --version > /tmp/proof.txt 2>&1; cat /tmp/proof.txt"
+- inputText: "nix --version"
 - pressKey: Enter
 - waitForAnimationToEnd:
     timeout: 15000
-- inputText: "nix --option build-users-group \"\" build --impure --expr 'builtins.derivation {name=\"t\"; system=\"x86_64-linux\"; builder=\"/bin/sh\"; args=[\"-c\" \"echo ok > $out\"];}' --print-out-paths >> /tmp/proof.txt 2>&1; tail -1 /tmp/proof.txt"
+- inputText: "printf '\\e]52;c;%s\\a' \"$(echo -n OSC52_ALIVE|base64 -w0)\""
 - pressKey: Enter
 - waitForAnimationToEnd:
-    timeout: 60000
-- inputText: "cat $(grep /nix/store/ /tmp/proof.txt | tail -1) >> /tmp/proof.txt 2>&1; printf '\\e]52;c;%s\\a' \"$(base64 -w0 < /tmp/proof.txt)\"; echo CLIPBOARD-SENT"
+    timeout: 5000
+- inputText: "echo CLIPBOARD-SENT"
 - pressKey: Enter
 - waitForAnimationToEnd:
     timeout: 10000
 - pressKey: Back
 - waitForAnimationToEnd:
     timeout: 3000
+# Focus the prompt and paste the marker back; it lands as input text
+# (no newline in the payload, so nothing executes).
 - tapOn:
-    id: "Key_DRAWER"
-- extendedWaitUntil:
-    visible:
-      id: "SessionDrawer"
-    timeout: 30000
-- tapOn:
-    id: "SettingsButton"
-- waitForAnimationToEnd:
-    timeout: 5000
-- assertVisible:
-    id: "SettingsScreen"
-- scrollUntilVisible:
-    element:
-      id: "EnvironmentVariablesEditor"
-    direction: DOWN
-- tapOn:
-    id: "EnvironmentVariablesEditor"
-- waitForAnimationToEnd:
-    timeout: 3000
-- tapOn:
-    id: "EnvVarsDialogField"
+    id: "TerminalContent"
 - waitForAnimationToEnd:
     timeout: 2000
 - pasteText
 - waitForAnimationToEnd:
-    timeout: 3000
+    timeout: 2000
 - takeScreenshot: osc52_proof
-- pressKey: Back

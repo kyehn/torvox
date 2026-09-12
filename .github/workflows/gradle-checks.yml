@@ -31,3 +31,4 @@ jobs:
           restore-keys: |
             ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-
       - run: scripts/test-gradle.nu
+        working-directory: android

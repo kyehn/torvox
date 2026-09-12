@@ -7,7 +7,7 @@
 /// Terminal-specific invalidation levels (ordered by cost).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum InvalidationLevel {
-    /// Only cursor blinked/moved — re-render cursor area only
+    /// Only cursor moved — re-render cursor area only
     CursorOnly = 0,
     /// Cell content changed — rebuild cell instances for dirty rows
     Cells = 1,

@@ -89,8 +89,6 @@
 
     <!-- USB Serial -->
 
-    <!-- MCP Server -->
-
     <!-- Text Search -->
     <string name="text_search">텍스트 검색</string>
     <string name="text_search_desc">터미널 출력 검색</string>
