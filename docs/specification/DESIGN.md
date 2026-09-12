@@ -141,9 +141,9 @@
     - `TERMUX_VERSION` 为 0.119.0-beta.3
   - 不得设置 `LD_LIBRARY_PATH` `PWD` `LD_PRELOAD`
   - 宿主透传变量，仅宿主存在时透传，不硬编：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
-  - 必须兼容 nix-on-droid，nix-on-droid 需要提供和 termux bootstrap 一致的格式，软件不做任何特殊兼容。模拟器测试用例（需要手动测试）：下载 https://github.com/kyehn/nix-on-droid/releases/download/bootstrap-unstable/bootstrap-x86_64.zip 或从源码编译，通过 bootstrap 安装逻辑（不得直接解压/复制），使用终端输入 nix build 命令（不得使用adb shell 替代）进行测试。
+  - 必须兼容 nix-on-droid，nix-on-droid 需要提供和 termux bootstrap 一致的格式，软件不做任何特殊兼容。模拟器测试用例（需要手动测试）：下载 <https://github.com/kyehn/nix-on-droid/releases/download/bootstrap-unstable/bootstrap-x86_64.zip> 或从源码编译，通过 bootstrap 安装逻辑（不得直接解压/复制），使用终端输入 nix build 命令（不得使用adb shell 替代）进行测试。
   
-- **Shizuku 集成开关**。支持从 https://github.com/rikkaapps/shizuku 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出）
+- **Shizuku 集成开关**。支持从 <https://github.com/rikkaapps/shizuku> 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出）
 
 - **清除应用数据按钮**。
 

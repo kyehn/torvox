@@ -8,7 +8,7 @@
 //! lost. Chunking math lives in [`crate::log_chunk`] and is unit-tested
 //! on the host.
 //!
-//! Replaces the previous `android_logger::init_once()` call in `bridge.rs`.
+//! Replaces the previous `android_logger`-based initialization.
 //!
 //! # Requirements
 //! - NFR-025 — Unified logging infrastructure (logcat;:
@@ -84,8 +84,8 @@ impl Log for AndroidLogger {
 static LOGGER: AndroidLogger = AndroidLogger;
 
 /// Must be called exactly once (idempotent via [`std::sync::Once`]).
-/// Replaces the `android_logger::init_once()` call that was previously in
-/// [`NativeBridge::new`](crate::bridge::NativeBridge::new).
+/// Replaces the `android_logger` initialization previously done on the Kotlin side
+/// when the bridge starts up.
 pub(crate) fn init() {
     static INIT: std::sync::Once = std::sync::Once::new();
     INIT.call_once(|| {
@@ -113,5 +113,3 @@ fn install_panic_hook() {
         log::error!("panic: {info}\n{backtrace}");
     }));
 }
-
-// ── JNI exports ─────────────────────────────────────────────────────────
