@@ -743,6 +743,53 @@ fn selection_swaps_fg_bg() {
     );
 }
 
+/// Build production instances for a single cell (shared by the bearing tests
+/// below): one [`CellData`], default cursor, unit grid.
+fn build_single_cell_instance(
+    ch: char,
+    cell_w: f32,
+    cell_h: f32,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+) -> Vec<crate::render::CellInstance> {
+    use crate::terminal::ghostty_terminal::CellData;
+    let cell_data = vec![CellData {
+        codepoint: ch as u32,
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0; 4],
+        bg_color: [0.0; 4],
+        flags: 0,
+        row: 0,
+        col: 0,
+    }];
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
+            selection: None,
+            search_highlights: &[],
+        },
+        font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
+    instances
+}
+
 // ── Bearing correctness: Termux-aligned font metrics ──────────────
 
 /// Verify bearing_y uses font baseline, not centering.
@@ -750,7 +797,6 @@ fn selection_swaps_fg_bg() {
 /// (no centering, no clamping — the raw font baseline offset).
 #[test]
 fn bearing_y_uses_font_baseline_not_centering() {
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let ascent_pixels = font_pipeline.ascent_pixels();
@@ -760,41 +806,7 @@ fn bearing_y_uses_font_baseline_not_centering() {
         let info = font_pipeline.glyph_information(ch).expect("glyph exists");
         let expected_bearing_y = ascent_pixels - info.placement.top as f32;
 
-        let cell_data = vec![CellData {
-            codepoint: ch as u32,
-            width: 1,
-            grapheme_extra: [0; 7],
-            fg_color: [1.0; 4],
-            bg_color: [0.0; 4],
-            flags: 0,
-            row: 0,
-            col: 0,
-        }];
-        let cursor = crate::render::CellCursor {
-            row: 0,
-            col: 0,
-            visible: false,
-            style: CursorStyle::Block,
-            color: None,
-        };
-        let mut instances = Vec::new();
-        let built = crate::render::build_instances_from_cell_data(
-            &cell_data,
-            crate::render::gpu::CellInstanceConfig {
-                rows: 1,
-                cols: 1,
-                grid_cell_w: cell_w,
-                grid_cell_h: cell_h,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                selection: None,
-                search_highlights: &[],
-            },
-            &mut font_pipeline,
-            &mut instances,
-        );
-        assert!(built.is_some(), "production instance build failed");
+        let instances = build_single_cell_instance(ch, cell_w, cell_h, &mut font_pipeline);
         let cell = &instances[0];
 
         assert!(
@@ -809,7 +821,6 @@ fn bearing_y_uses_font_baseline_not_centering() {
 /// Verify bearing_x uses font's natural left side bearing, not centering.
 #[test]
 fn bearing_x_uses_font_natural_bearing() {
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
 
@@ -818,41 +829,7 @@ fn bearing_x_uses_font_natural_bearing() {
         let info = font_pipeline.glyph_information(ch).expect("glyph exists");
         let expected_bearing_x = info.placement.left as f32;
 
-        let cell_data = vec![CellData {
-            codepoint: ch as u32,
-            width: 1,
-            grapheme_extra: [0; 7],
-            fg_color: [1.0; 4],
-            bg_color: [0.0; 4],
-            flags: 0,
-            row: 0,
-            col: 0,
-        }];
-        let cursor = crate::render::CellCursor {
-            row: 0,
-            col: 0,
-            visible: false,
-            style: CursorStyle::Block,
-            color: None,
-        };
-        let mut instances = Vec::new();
-        let built = crate::render::build_instances_from_cell_data(
-            &cell_data,
-            crate::render::gpu::CellInstanceConfig {
-                rows: 1,
-                cols: 1,
-                grid_cell_w: cell_w,
-                grid_cell_h: cell_h,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                selection: None,
-                search_highlights: &[],
-            },
-            &mut font_pipeline,
-            &mut instances,
-        );
-        assert!(built.is_some(), "production instance build failed");
+        let instances = build_single_cell_instance(ch, cell_w, cell_h, &mut font_pipeline);
         let cell = &instances[0];
 
         assert!(
