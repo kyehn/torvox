@@ -7,7 +7,6 @@ import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import io.mockk.every
 import io.mockk.mockk
-import java.io.File
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -26,100 +25,99 @@ import org.robolectric.RobolectricTestRunner
  */
 @RunWith(RobolectricTestRunner::class)
 class SettingsRepositoryTest {
-  private lateinit var prefsDir: File
-  private lateinit var repository: SettingsRepository
+    private lateinit var prefsDir: File
+    private lateinit var repository: SettingsRepository
 
-  @Before
-  fun setUp() {
-    val context = ApplicationProvider.getApplicationContext<Context>()
-    prefsDir = File(context.cacheDir, "settings_test_${System.nanoTime()}")
-    prefsDir.mkdirs()
-    val dataStore: androidx.datastore.core.DataStore<Preferences> =
-        PreferenceDataStoreFactory.create {
-          File(prefsDir, "settings.preferences_pb")
+    @Before
+    fun setUp() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        prefsDir = File(context.cacheDir, "settings_test_${System.nanoTime()}")
+        prefsDir.mkdirs()
+        val dataStore: androidx.datastore.core.DataStore<Preferences> =
+            PreferenceDataStoreFactory.create {
+                File(prefsDir, "settings.preferences_pb")
+            }
+        val provider = mockk<SettingsDataStoreProvider>()
+        every { provider.dataStore } returns dataStore
+        every { provider.screenWidthDp } returns 360f
+        repository = SettingsRepository(provider)
+    }
+
+    @After
+    fun tearDown() {
+        prefsDir.deleteRecursively()
+    }
+
+    @Test
+    fun `font size defaults to device-adaptive value then round-trips`() = runTest {
+        repository.fontSize.test {
+            // Screen stubbed at 360dp: raw formula 11.54sp lifts to the
+            //  14sp floor (user-reported "default too small" fix;
+            // floor raised from the  12sp).
+            assertEquals(14f, awaitItem(), 0.01f)
+            repository.setFontSize(22f)
+            assertEquals(22f, awaitItem())
         }
-    val provider = mockk<SettingsDataStoreProvider>()
-    every { provider.dataStore } returns dataStore
-    every { provider.screenWidthDp } returns 360f
-    repository = SettingsRepository(provider)
-  }
-
-  @After
-  fun tearDown() {
-    prefsDir.deleteRecursively()
-  }
-
-  @Test
-  fun `font size defaults to device-adaptive value then round-trips`() = runTest {
-    repository.fontSize.test {
-      // Screen stubbed at 360dp: raw formula 11.54sp lifts to the
-      //  14sp floor (user-reported "default too small" fix;
-      // floor raised from the  12sp).
-      assertEquals(14f, awaitItem(), 0.01f)
-      repository.setFontSize(22f)
-      assertEquals(22f, awaitItem())
     }
-  }
 
-  @Test
-  fun `string setting round-trips`() = runTest {
-    repository.appThemeMode.test {
-      assertEquals(SettingsRepository.DEFAULT_FOLLOW_SYSTEM, awaitItem())
-      repository.setAppThemeMode("dark")
-      assertEquals("dark", awaitItem())
+    @Test
+    fun `string setting round-trips`() = runTest {
+        repository.appThemeMode.test {
+            assertEquals(SettingsRepository.DEFAULT_FOLLOW_SYSTEM, awaitItem())
+            repository.setAppThemeMode("dark")
+            assertEquals("dark", awaitItem())
+        }
     }
-  }
 
-  @Test
-  fun `bootstrap url round-trips`() = runTest {
-    repository.bootstrapUrl.test {
-      assertEquals("", awaitItem())
-      repository.setBootstrapUrl("https://packages.termux.dev/apt/termux-main/bootstrap.zip")
-      assertEquals("https://packages.termux.dev/apt/termux-main/bootstrap.zip", awaitItem())
+    @Test
+    fun `bootstrap url round-trips`() = runTest {
+        repository.bootstrapUrl.test {
+            assertEquals("", awaitItem())
+            repository.setBootstrapUrl("https://packages.termux.dev/apt/termux-main/bootstrap.zip")
+            assertEquals("https://packages.termux.dev/apt/termux-main/bootstrap.zip", awaitItem())
+        }
     }
-  }
 
-  @Test
-  fun `int setting round-trips`() = runTest {
-    repository.scrollbackLines.test {
-      assertEquals(SettingsRepository.DEFAULT_SCROLLBACK_LINES, awaitItem())
-      repository.setScrollbackLines(10_000)
-      assertEquals(10_000, awaitItem())
+    @Test
+    fun `int setting round-trips`() = runTest {
+        repository.scrollbackLines.test {
+            assertEquals(SettingsRepository.DEFAULT_SCROLLBACK_LINES, awaitItem())
+            repository.setScrollbackLines(10_000)
+            assertEquals(10_000, awaitItem())
+        }
     }
-  }
 
-  @Test
-  fun `distinct keys do not clobber each other`() = runTest {
-    repository.setFontSize(20f)
-    repository.setThemeName("Solarized Dark")
-    repository.fontSize.test {
-      assertEquals(20f, awaitItem())
+    @Test
+    fun `distinct keys do not clobber each other`() = runTest {
+        repository.setFontSize(20f)
+        repository.setThemeName("Solarized Dark")
+        repository.fontSize.test {
+            assertEquals(20f, awaitItem())
+        }
+        repository.themeName.test {
+            assertEquals("Solarized Dark", awaitItem())
+        }
     }
-    repository.themeName.test {
-      assertEquals("Solarized Dark", awaitItem())
+
+    @Test
+    fun `first launch default font size adapts to screen width`() {
+        // spec default-typography: 14sp floor / 24sp cap
+        // (user-reported "default too small"; was 12/18 in ).
+        assertEquals(14f, SettingsRepository.defaultFontSizeFor(0f), 0.01f)
+        assertEquals(14f, SettingsRepository.defaultFontSizeFor(360f), 0.01f)
+        assertEquals(14f, SettingsRepository.defaultFontSizeFor(412f), 0.01f)
+        assertEquals(24f, SettingsRepository.defaultFontSizeFor(800f), 0.01f)
+        assertEquals(19.23f, SettingsRepository.defaultFontSizeFor(600f), 0.01f)
     }
-  }
 
-  @Test
-  fun `first launch default font size adapts to screen width`() {
-    // spec default-typography: 14sp floor / 24sp cap
-    // (user-reported "default too small"; was 12/18 in ).
-    assertEquals(14f, SettingsRepository.defaultFontSizeFor(0f), 0.01f)
-    assertEquals(14f, SettingsRepository.defaultFontSizeFor(360f), 0.01f)
-    assertEquals(14f, SettingsRepository.defaultFontSizeFor(412f), 0.01f)
-    assertEquals(24f, SettingsRepository.defaultFontSizeFor(800f), 0.01f)
-    assertEquals(19.23f, SettingsRepository.defaultFontSizeFor(600f), 0.01f)
-  }
-
-  @Test
-  fun `first launch font size is persisted only while unset`() = runTest {
-    repository.applyFirstLaunchDefaultFontSize(360f)
-    // 360dp lands on the  14sp floor.
-    assertEquals(14f, repository.fontSize.first(), 0.01f)
-    // An explicit user pick wins over re-applying the default.
-    repository.setFontSize(14f)
-    repository.applyFirstLaunchDefaultFontSize(800f)
-    assertEquals(14f, repository.fontSize.first(), 0.01f)
-  }
-
-
+    @Test
+    fun `first launch font size is persisted only while unset`() = runTest {
+        repository.applyFirstLaunchDefaultFontSize(360f)
+        // 360dp lands on the  14sp floor.
+        assertEquals(14f, repository.fontSize.first(), 0.01f)
+        // An explicit user pick wins over re-applying the default.
+        repository.setFontSize(14f)
+        repository.applyFirstLaunchDefaultFontSize(800f)
+        assertEquals(14f, repository.fontSize.first(), 0.01f)
+    }
+}
