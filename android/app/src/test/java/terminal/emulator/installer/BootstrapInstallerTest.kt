@@ -72,7 +72,6 @@ class BootstrapInstallerTest {
             add("bin/gawk", "gawk-binary")
             add("bin/busybox", "busybox-binary")
             add("lib/libfoo.so", "libfoo")
-            add("etc/termux/termux.env", "PREFIX=placeholder\n")
             if (withSymlinks) {
                 val content =
                     """
@@ -141,7 +140,6 @@ class BootstrapInstallerTest {
             add("bin/bash", "#!/bin/sh\n")
             add("usr/bin/env", "env-binary")
             add("lib/libfoo.so", "libfoo")
-            add("etc/termux/termux.env", "PREFIX=placeholder\n")
             add("SYMLINKS.txt", "bin/bash←usr/bin/bash\n")
             add("EXECUTABLES.txt", "usr/bin/env\nbin/bash\n")
         }
@@ -158,10 +156,6 @@ class BootstrapInstallerTest {
         val other = File(prefixDir, "nix/store/abc123-foo-1.0/bin/foo")
         requireNotNull(other.parentFile).mkdirs()
         other.writeText("x")
-        File(prefixDir, "etc/termux/termux.env").apply {
-            requireNotNull(parentFile).mkdirs()
-            writeText("PREFIX=${prefixDir.absolutePath}\n")
-        }
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
         assertFalse("isInstalled must be false without a shell entry", installer.isInstalled())
     }
@@ -172,10 +166,6 @@ class BootstrapInstallerTest {
             requireNotNull(parentFile).mkdirs()
             writeText("#!/system/bin/sh\nset -eu\nexec ./bin/proot-static\n")
         }
-        File(prefixDir, "etc/termux/termux.env").apply {
-            requireNotNull(parentFile).mkdirs()
-            writeText("PREFIX=${prefixDir.absolutePath}\n")
-        }
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
         assertTrue("isInstalled must be true with a system launcher script", installer.isInstalled())
     }
@@ -185,10 +175,6 @@ class BootstrapInstallerTest {
         File(prefixDir, "bin/login").apply {
             requireNotNull(parentFile).mkdirs()
             writeText("#!/data/data/com.termux/files/usr/bin/sh\nexec bash\n")
-        }
-        File(prefixDir, "etc/termux/termux.env").apply {
-            requireNotNull(parentFile).mkdirs()
-            writeText("PREFIX=${prefixDir.absolutePath}\n")
         }
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
         assertFalse("isInstalled must be false with a private-interpreter script alone", installer.isInstalled())

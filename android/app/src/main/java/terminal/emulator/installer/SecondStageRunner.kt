@@ -89,7 +89,6 @@ class SecondStageRunner(
         scriptsCompleted++
       }
     }
-    writeTermuxEnv()
     return Result(true, errors)
   }
 
@@ -338,26 +337,4 @@ class SecondStageRunner(
         Log.w("SecondStageRunner", "readShebang failed for ${script.name}", exception)
         null
       }
-
-  private fun writeTermuxEnv() {
-    val envFile = File(prefixDir, "etc/termux/termux.env")
-    envFile.parentFile?.mkdirs()
-
-    envFile.writeText(
-        buildString {
-              appendLine("HOME=${homeDir.absolutePath}")
-              appendLine("TERMUX_HOME_DIR_PATH=${homeDir.absolutePath}")
-              appendLine("PREFIX=${prefixDir.absolutePath}")
-              appendLine("TERMUX_PREFIX_DIR_PATH=${prefixDir.absolutePath}")
-              appendLine("TMPDIR=${File(prefixDir, "tmp").absolutePath}")
-              appendLine("TERMUX_TMP_PREFIX_DIR_PATH=${File(prefixDir, "tmp").absolutePath}")
-              appendLine("LANG=en_US.UTF-8")
-              appendLine("TERM=xterm-256color")
-              appendLine("COLORTERM=truecolor")
-              appendLine("TERMUX_VERSION=0.119.0-beta.3")
-            }
-            .trimEnd(),
-    )
-    Log.w("SecondStageRunner", "writeTermuxEnv done")
-  }
 }

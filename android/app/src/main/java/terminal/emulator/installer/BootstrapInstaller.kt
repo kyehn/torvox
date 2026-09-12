@@ -45,12 +45,8 @@ class BootstrapInstaller(
               isSystemShellScript(File(prefixDir, "bin/login")))) ||
           File(prefixDir, "bin/bash").exists()
 
-  /** 安装完成的 shell 入口与第二阶段 termux.env 均存在时视为已安装。 */
-  fun isInstalled(): Boolean = // termux.env is written last by the second stage; requiring it here
-      // means a failed/wedged second stage (e.g. writeTermuxEnv hitting a
-      // full disk) is not reported as a healthy install, so the retry path
-      // stays open instead of leaving a permanently broken environment.
-      (hasShellBinary()) && File(prefixDir, "etc/termux/termux.env").exists()
+  /** 安装状态只认启动入口存在性，不写任何标记文件。 */
+  fun isInstalled(): Boolean = hasShellBinary()
 
   suspend fun install(zipFile: File): Result<Unit> =
       withContext(Dispatchers.IO) {
