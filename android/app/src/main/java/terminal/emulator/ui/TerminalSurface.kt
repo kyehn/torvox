@@ -728,9 +728,7 @@ constructor(
         /**
          * System Material selection handle: resolve the platform theme attribute
          * (android.R.attr.textSelectHandleLeft/Right) so the handle shape is the framework's teardrop,
-         * not a custom vector. Falls back to the bundled teardrop drawables when the theme attribute is
-         * absent (fixes the "handles render as squares" regression caused by the old stretched 132x66
-         * vectors).
+         * not a custom vector.
          */
         internal fun resolveSelectionHandleDrawable(
             left: Boolean,
@@ -744,29 +742,11 @@ constructor(
                     },
                 )
             val typedArray = context.theme.obtainStyledAttributes(attr)
-            val themed =
-                try {
-                    typedArray.getDrawable(0)
-                } catch (exception: Exception) {
-                    // Malformed theme / resource shadowing: fall through to the
-                    // bundled teardrop instead of dropping the handle entirely.
-                    LogUtil.w(TAG, "resolveSelectionHandleDrawable: theme attr failed", exception)
-                    null
-                } finally {
-                    typedArray.recycle()
-                }
-            return themed
-                ?: runCatching {
-                    androidx.core.content.ContextCompat.getDrawable(
-                        context,
-                        if (left) {
-                            R.drawable.text_select_handle_left_material
-                        } else {
-                            R.drawable.text_select_handle_right_material
-                        },
-                    )
-                }
-                    .getOrNull()
+            try {
+                return typedArray.getDrawable(0)
+            } finally {
+                typedArray.recycle()
+            }
         }
 
         fun showSelectionHandles(

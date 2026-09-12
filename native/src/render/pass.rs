@@ -237,64 +237,18 @@ impl Renderer {
         }
     }
 
-    /// Begin the background render pass: clear with the configured bg color
-    /// and draw the fullscreen background quad. Shared by the surface frame
-    /// and the readback path.
-    fn draw_background_pass(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        view: &wgpu::TextureView,
-        width: u32,
-        height: u32,
-    ) {
-        let (Some(bg_pipeline), Some(bg_bind_group)) =
-            (self.bg_pipeline.as_ref(), self.bg_bind_group.as_ref())
-        else {
-            return;
-        };
-        let mut bg_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("Background Render Pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(self.bg_color),
-                    store: wgpu::StoreOp::Store,
-                },
-                depth_slice: None,
-            })],
-            depth_stencil_attachment: None,
-            ..Default::default()
-        });
-        bg_pass.set_pipeline(bg_pipeline);
-        bg_pass.set_bind_group(0, bg_bind_group, &[]);
-        bg_pass.set_viewport(0.0, 0.0, width as f32, height as f32, 0.0, 1.0);
-        bg_pass.set_scissor_rect(0, 0, width, height);
-        bg_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-        bg_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
-    }
-
     /// Decision for the partial (dirty-band) render path. Pure function —
     /// table-driven unit tested. Partial is only valid when the frame's
     /// ONLY changes are the flagged bands' cell instances; any full-screen
-    /// overlay (wallpaper, blur, kitty graphics, bell flash) or an
-    /// invalidated accumulator forces a full redraw.
+    /// overlay (kitty graphics) or an invalidated accumulator forces a full
+    /// redraw.
     fn should_render_partial(
         accumulator_ready: bool,
         frame_invalidated: bool,
         band_count: usize,
-        bg_image_active: bool,
-        blur_active: bool,
         kgp_present: bool,
-        flash_active: bool,
     ) -> bool {
-        accumulator_ready
-            && !frame_invalidated
-            && band_count > 0
-            && !bg_image_active
-            && !blur_active
-            && !kgp_present
-            && !flash_active
+        accumulator_ready && !frame_invalidated && band_count > 0 && !kgp_present
     }
 
     pub fn render_frame(
@@ -400,23 +354,12 @@ impl Renderer {
 
         // ── Overlay / partial-path state (must precede the instance
         // upload: band-clear instances are concatenated into it) ─────
-        let bg_image_active = self.bg_image_view.is_some();
-        let blur_active = bg_image_active
-            && self.bg_blur_radius >= 0.5
-            && self.blur_h_pipeline.is_some()
-            && self.blur_v_pipeline.is_some()
-            && self.bg_blur_texture_view.is_some()
-            && self.bg_blur_bind_group.is_some();
-        let flash_active = self.flash_phase > 0.0;
         let kgp_present = !kgp_instances.is_empty();
         let partial = Self::should_render_partial(
             accumulator_view.is_some(),
             self.frame_invalidated,
             dirty_bands.len(),
-            bg_image_active,
-            blur_active,
             kgp_present,
-            flash_active,
         );
         // Band clear instances (partial frames only): empty cells emit no
         // covering quads, so a band redraw over LoadOp::Load left stale
@@ -509,77 +452,11 @@ impl Renderer {
             }
         }
 
-        // Background / blur pass
-        if let (
-            Some(bg_bind_group),
-            Some(blur_h),
-            Some(blur_v),
-            Some(blur_view),
-            Some(blur_v_bind_group),
-        ) = (
-            self.bg_bind_group.as_ref(),
-            self.blur_h_pipeline.as_ref(),
-            self.blur_v_pipeline.as_ref(),
-            self.bg_blur_texture_view.as_ref(),
-            self.bg_blur_bind_group.as_ref(),
-        ) && blur_active
-        {
-            {
-                let mut h_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Blur H Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view: blur_view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(self.bg_color),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    ..Default::default()
-                });
-                h_pass.set_pipeline(blur_h);
-                h_pass.set_bind_group(0, bg_bind_group, &[]);
-                h_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
-                h_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
-                h_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-                h_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
-            }
-            {
-                let mut v_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("Blur V Pass"),
-                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                        view,
-                        resolve_target: None,
-                        ops: wgpu::Operations {
-                            load: wgpu::LoadOp::Clear(self.bg_color),
-                            store: wgpu::StoreOp::Store,
-                        },
-                        depth_slice: None,
-                    })],
-                    depth_stencil_attachment: None,
-                    ..Default::default()
-                });
-                v_pass.set_pipeline(blur_v);
-                v_pass.set_bind_group(0, blur_v_bind_group, &[]);
-                v_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
-                v_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
-                v_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-                v_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
-            }
-        } else if self.bg_pipeline.is_some() && self.bg_bind_group.is_some() {
-            self.draw_background_pass(&mut *encoder, view, cfg_width, cfg_height);
-        }
-
-        // ── Main merged pass: background → cells → KGP → flash ──────
+        // ── Main merged pass: background → cells → KGP ──────
         // Load rules:
         // - partial: always Load (bands composite over previous output)
-        // - blur already filled the target: Load
-        // - wallpaper without blur: Load (the bg quad below covers all)
-        // - plain background: Clear(bg_color) replaces the old dedicated
-        //   background pass entirely
-        let load = if partial || blur_active || bg_image_active {
+        // - plain background: Clear(bg_color)
+        let load = if partial {
             wgpu::LoadOp::Load
         } else {
             wgpu::LoadOp::Clear(self.bg_color)
@@ -600,17 +477,6 @@ impl Renderer {
         });
         render_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
         render_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
-
-        // Background image quad (full frames only).
-        if bg_image_active
-            && let (Some(bg_pipeline), Some(bg_bind_group)) =
-                (self.bg_pipeline.as_ref(), self.bg_bind_group.as_ref())
-        {
-            render_pass.set_pipeline(bg_pipeline);
-            render_pass.set_bind_group(0, bg_bind_group, &[]);
-            render_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-            render_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
-        }
 
         // Cells: either just the dirty bands or everything.
         {
@@ -655,18 +521,6 @@ impl Renderer {
             render_pass.draw(0..QUAD_VERTEX_COUNT, 0..kgp_instances.len() as u32);
         }
 
-        // Bell-flash overlay (full frames only — covers the screen).
-        if flash_active {
-            self.ensure_flash_pipeline();
-            if let (Some(flash_pipeline), Some(flash_bind_group)) =
-                (&self.flash_pipeline, &self.flash_bind_group)
-            {
-                render_pass.set_pipeline(flash_pipeline);
-                render_pass.set_bind_group(0, flash_bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-                render_pass.draw(0..QUAD_VERTEX_COUNT, 0..1);
-            }
-        }
         drop(render_pass);
 
         // ── Present: one copy accumulator → swapchain ─────────────
@@ -868,7 +722,6 @@ impl Renderer {
             return Err(GpuError::Surface("No surface config".to_string()));
         }
 
-        self.ensure_bg_pipeline(w, h);
         self.ensure_kgp_pipeline(w, h);
 
         let tex_size = wgpu::Extent3d {
@@ -877,7 +730,7 @@ impl Renderer {
             depth_or_array_layers: 1,
         };
         // the readback texture must match the pipeline
-        // format (the cell/bg/kgp pipelines are created against the surface
+        // format (the cell/kgp pipelines are created against the surface
         // format, which is usually Bgra8Unorm on Android) — a hardcoded
         // Rgba8Unorm triggered a wgpu validation error when used as the
         // render attachment for those pipelines.
@@ -925,8 +778,6 @@ impl Renderer {
             .as_ref()
             .ok_or_else(|| GpuError::Surface("No render pipeline".to_string()))?;
 
-        let has_bg = self.bg_bind_group.is_some();
-
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -948,37 +799,6 @@ impl Renderer {
             "KGP Instance Buffer (readback)",
         );
 
-        self.draw_background_pass(&mut encoder, &view, w, h);
-
-        if let (Some(kgp_pipeline), Some(kgp_bind_group)) =
-            (self.kgp_pipeline.as_ref(), self.kgp_bind_group.as_ref())
-            && !kgp_instances.is_empty()
-        {
-            let mut kgp_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("KGP Render Pass (readback)"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                ..Default::default()
-            });
-            kgp_pass.set_pipeline(kgp_pipeline);
-            kgp_pass.set_bind_group(0, kgp_bind_group, &[]);
-            kgp_pass.set_viewport(0.0, 0.0, w as f32, h as f32, 0.0, 1.0);
-            kgp_pass.set_scissor_rect(0, 0, w, h);
-            kgp_pass.set_vertex_buffer(0, self.quad_vertex_buffer.slice(..));
-            if let Some(ref ib) = self.kgp_instance_buffer {
-                kgp_pass.set_vertex_buffer(1, ib.slice(..));
-            }
-            kgp_pass.draw(0..QUAD_VERTEX_COUNT, 0..kgp_instances.len() as u32);
-        }
-
         {
             let mut rp = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Readback Render Pass"),
@@ -986,11 +806,7 @@ impl Renderer {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: if has_bg {
-                            wgpu::LoadOp::Load
-                        } else {
-                            wgpu::LoadOp::Clear(self.bg_color)
-                        },
+                        load: wgpu::LoadOp::Clear(self.bg_color),
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
@@ -1120,9 +936,9 @@ mod tests {
 
     // ── should_render_partial decision table (render-vulkan-performance) ──
 
-    /// `(ready, invalidated, bands, bg, blur, kgp, flash) -> partial`
-    fn partial(args: (bool, bool, usize, bool, bool, bool, bool)) -> bool {
-        Renderer::should_render_partial(args.0, args.1, args.2, args.3, args.4, args.5, args.6)
+    /// `(ready, invalidated, bands, kgp) -> partial`
+    fn partial(args: (bool, bool, usize, bool)) -> bool {
+        Renderer::should_render_partial(args.0, args.1, args.2, args.3)
     }
 
     /// Band clear instances: one flat quad per band, covering the band's
@@ -1165,30 +981,27 @@ mod tests {
 
     #[test]
     fn partial_happy_path() {
-        assert!(partial((true, false, 1, false, false, false, false)));
+        assert!(partial((true, false, 1, false)));
     }
 
     #[test]
     fn partial_requires_accumulator() {
-        assert!(!partial((false, false, 1, false, false, false, false)));
+        assert!(!partial((false, false, 1, false)));
     }
 
     #[test]
     fn partial_requires_invalidated_false() {
-        assert!(!partial((true, true, 1, false, false, false, false)));
+        assert!(!partial((true, true, 1, false)));
     }
 
     #[test]
     fn partial_requires_bands() {
-        assert!(!partial((true, false, 0, false, false, false, false)));
+        assert!(!partial((true, false, 0, false)));
     }
 
     #[test]
     fn partial_rejected_by_overlays() {
         // Any full-screen overlay forces a full redraw.
-        assert!(!partial((true, false, 1, true, false, false, false))); // bg image
-        assert!(!partial((true, false, 1, false, true, false, false))); // blur
-        assert!(!partial((true, false, 1, false, false, true, false))); // kgp
-        assert!(!partial((true, false, 1, false, false, false, true))); // flash
+        assert!(!partial((true, false, 1, true))); // kgp
     }
 }

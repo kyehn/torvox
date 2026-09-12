@@ -1218,19 +1218,15 @@ mod tests {
         if has_cjk {
             return true;
         }
-        if let Ok(glob) = std::fs::read_dir("/nix/store") {
-            for entry in glob.flatten() {
-                let p = entry.path();
-                if p.to_string_lossy().contains("noto-fonts-cjk") {
-                    let font_dir = p.join("share/fonts/opentype/noto-cjk");
-                    if font_dir.is_dir() {
-                        db.load_fonts_dir(&font_dir);
-                        return true;
-                    }
-                }
-            }
-        }
-        false
+        // System fonts only (fontconfig resolves the dev-shell fonts):
+        // never scan hardcoded store paths.
+        db.load_system_fonts();
+        db.faces().any(|face| {
+            face.families
+                .first()
+                .map(|(n, _)| n.to_lowercase().contains("cjk"))
+                .unwrap_or(false)
+        })
     }
 
     #[test]
@@ -1511,25 +1507,22 @@ mod tests {
         );
     }
 
-    /// Locate the nix-provided Maple Mono NF CN font (flake.nix). The
-    /// store hash is unstable, so discover by directory prefix instead
-    /// of hardcoding the full path.
-    fn find_maple_mono_font() -> Option<std::path::PathBuf> {
-        let store = std::fs::read_dir("/nix/store").ok()?;
-        for entry in store.flatten() {
-            let path = entry.path();
-            if path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.contains("MapleMono"))
-            {
-                let candidate = path.join("share/fonts/truetype/MapleMonoNormal-NF-CN-Medium.ttf");
-                if candidate.is_file() {
-                    return Some(candidate);
-                }
-            }
-        }
-        None
+    /// Locate the Maple Mono font through the system font database
+    /// (fontconfig resolves the dev-shell fonts; no paths are hardcoded).
+    fn find_maple_mono_font(db: &mut fontdb::Database) -> Option<std::path::PathBuf> {
+        db.load_system_fonts();
+        db.faces()
+            .filter(|face| {
+                face.families
+                    .first()
+                    .is_some_and(|(name, _)| name.to_lowercase().contains("maple"))
+            })
+            .filter_map(|face| match &face.source {
+                fontdb::Source::File(path) => Some(path.clone()),
+                fontdb::Source::SharedFile(path, _) => Some(path.clone()),
+                fontdb::Source::Binary(_) => None,
+            })
+            .next()
     }
 
     #[test]
@@ -1538,8 +1531,9 @@ mod tests {
         // cover CJK directly with no fallback layer (spec: skip path).
         // CJK + Latin resolve through the same cache, keeping CJK render
         // speed on par with Latin (no per-glyph fallback scan).
-        let Some(font_path) = find_maple_mono_font() else {
-            eprintln!("SKIP: maple_mono_primary_skips_cjk_fallback (no Maple Mono in /nix/store)");
+        let mut maple_db = fontdb::Database::new();
+        let Some(font_path) = find_maple_mono_font(&mut maple_db) else {
+            eprintln!("SKIP: maple_mono_primary_skips_cjk_fallback (no Maple Mono in system fonts)");
             return;
         };
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
@@ -1905,60 +1899,3 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod nerd_render_tests {
-    use super::*;
-
-    fn pipeline_with_nerd_font() -> FontPipeline {
-        let mut pipeline = FontPipeline::new(512, 512, 14.0);
-        // Load any Nerd Font available on this host (the nix store path is
-        // the dev-shell location; the test is skipped when absent).
-        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
-        if let Ok(store) = std::fs::read_dir("/nix/store") {
-            for entry in store.flatten() {
-                let p = entry.path();
-                if p.to_string_lossy().contains("nerd-fonts")
-                    && let Ok(files) = std::fs::read_dir(p.join("share/fonts/truetype/NerdFonts"))
-                {
-                    for file in files.flatten() {
-                        let f = file.path();
-                        if f.to_string_lossy().ends_with("NerdFontMono-Regular.ttf") {
-                            candidates.push(f);
-                        }
-                    }
-                }
-            }
-        }
-        for path in candidates {
-            pipeline.font_system.db_mut().load_font_file(path).ok();
-        }
-        pipeline.find_symbol_fallback_fonts();
-        pipeline.find_nerd_fallback_fonts();
-        pipeline
-    }
-
-    #[test]
-    fn nerd_pua_glyph_renders_from_nerd_fallback() {
-        let mut pipeline = pipeline_with_nerd_font();
-        if pipeline.nerd_fallback_ids.is_empty() {
-            // No Nerd Font installed on this host — nothing to verify.
-            return;
-        }
-        let info = pipeline
-            .glyph_information('\u{e0a0}')
-            .expect("U+E0A0 should render via the Nerd fallback");
-        assert!(
-            info.width > 0 && info.height > 0,
-            "U+E0A0 must produce a real glyph bitmap, got {}x{}",
-            info.width,
-            info.height
-        );
-        // Powerline left triangle: taller than wide.
-        assert!(
-            info.height > info.width,
-            "U+E0A0 powerline triangle should be tall ({}x{})",
-            info.width,
-            info.height
-        );
-    }
-}

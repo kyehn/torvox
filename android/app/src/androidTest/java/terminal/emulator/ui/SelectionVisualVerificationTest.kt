@@ -1,4 +1,5 @@
-// TODO(kotlin-2.4.0-false-positive): K2 false positive; TODO(migrate-v2-compose-rule): migrate to v2 API
+// TODO(kotlin-2.4.0-false-positive): K2 false positive; TODO(migrate-v2-compose-rule): migrate to
+// v2 API
 @file:Suppress("UNNECESSARY_SAFE_CALL")
 
 package terminal.emulator.ui
@@ -9,7 +10,6 @@ import android.graphics.Canvas
 import android.os.SystemClock
 import android.util.Log
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.platform.app.InstrumentationRegistry
@@ -39,10 +39,10 @@ import java.io.FileOutputStream
 /**
  * Comprehensive visual verification of text selection functionality.
  *
- * @Ignore: these tests require the native data path — selection
- * cannot be activated while Bridge.isCellEmpty/expandAndSetSelection are
- * implemented (native query path is wired) (long-press always routes to the paste popup), and the OCR
- * tests require the rapidocr binary. Re-enable when rendering lands.
+ * @Ignore: these tests require the native data path — selection cannot be activated while
+ *   Bridge.isCellEmpty/expandAndSetSelection are implemented (native query path is wired)
+ *   (long-press always routes to the paste popup), and the OCR tests require the rapidocr binary.
+ *   Re-enable when rendering lands.
  *
  * Tests:
  * - Long-press on text selects word/smart content
@@ -68,10 +68,10 @@ class SelectionVisualVerificationTest {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
     @get:Rule
-    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+    val notificationPermission =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-    @get:Rule
-    val composeTestRule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     private fun waitForStable() {
         Thread.sleep(1000)
@@ -151,7 +151,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Tap to focus terminal first
         injectTap(surface, cellMetrics.cellWidth * 2, cellMetrics.cellHeight * 2)
@@ -173,7 +176,9 @@ class SelectionVisualVerificationTest {
     // ── Test 2: Long-press on empty area shows paste button ──
 
     @Test
-    @SuppressLint("DeprecatedCall") // setPrimaryClip deprecated without replacement (API 36) — still the only client API
+    @SuppressLint(
+        "DeprecatedCall",
+    ) // setPrimaryClip deprecated without replacement (API 36) — still the only client API
     fun longPressEmptyArea_showsPaste() {
         composeTestRule.waitForSession()
         val bridge = requireNotNull(composeTestRule.getBridge())
@@ -195,7 +200,10 @@ class SelectionVisualVerificationTest {
         }
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Long-press on empty/whitespace area (lowest rows should have whitespace after echo commands)
         val longPressX = cellMetrics.cellWidth * 2
@@ -215,14 +223,17 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Real long-press through the input pipeline (UiAutomator). The
         // compose-side injectLongPress dispatches into the view hierarchy
         // but never reached handleLongPress on the software-rendered
         // emulator (no LONG_PRESS log; only screenshot-only tests passed),
         // whereas UiAutomator-injected gestures do (see
-        // SelectionUiAutomatorTest).
+        // SelectionEspressoTest).
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         device.wait(Until.hasObject(By.pkg("com.termux").depth(0)), 15000)
         device.swipe(260, 320, 260, 320, 500)
@@ -255,7 +266,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Create initial selection via long press
         injectLongPress(
@@ -288,33 +302,39 @@ class SelectionVisualVerificationTest {
         // Move in steps with delays
         for (step in 1..10) {
             val delay = step * 50L
-            handler.postDelayed({
-                val x = startX + (endX - startX) * step / 10
-                val y = startY + (endY - startY) * step / 10
+            handler.postDelayed(
+                {
+                    val x = startX + (endX - startX) * step / 10
+                    val y = startY + (endY - startY) * step / 10
+                    surface.dispatchTouchEvent(
+                        android.view.MotionEvent.obtain(
+                            dt,
+                            dt + delay,
+                            android.view.MotionEvent.ACTION_MOVE,
+                            x,
+                            y,
+                            0,
+                        ),
+                    )
+                },
+                delay,
+            )
+        }
+        handler.postDelayed(
+            {
                 surface.dispatchTouchEvent(
                     android.view.MotionEvent.obtain(
                         dt,
-                        dt + delay,
-                        android.view.MotionEvent.ACTION_MOVE,
-                        x,
-                        y,
+                        dt + 600,
+                        android.view.MotionEvent.ACTION_UP,
+                        endX,
+                        endY,
                         0,
                     ),
                 )
-            }, delay)
-        }
-        handler.postDelayed({
-            surface.dispatchTouchEvent(
-                android.view.MotionEvent.obtain(
-                    dt,
-                    dt + 600,
-                    android.view.MotionEvent.ACTION_UP,
-                    endX,
-                    endY,
-                    0,
-                ),
-            )
-        }, 600)
+            },
+            600,
+        )
         Thread.sleep(700)
         waitForStable()
 
@@ -330,7 +350,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Long press on text to trigger context menu
         injectLongPress(
@@ -352,7 +375,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Open IME first
         composeTestRule.activity.runOnUiThread {
@@ -396,7 +422,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Create initial selection
         injectLongPress(
@@ -429,7 +458,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Create selection with current theme
         injectLongPress(
@@ -452,7 +484,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Create selection first to show context menu
         injectLongPress(
@@ -499,7 +534,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Long press on specific word to select it
         injectLongPress(
@@ -522,12 +560,10 @@ class SelectionVisualVerificationTest {
                     ProcessBuilder(
                         "rapidocr",
                         screenshotFile.absolutePath,
-                    ).redirectErrorStream(true).start()
-                val output =
-                    process.inputStream
-                        .bufferedReader()
-                        .readText()
-                        .trim()
+                    )
+                        .redirectErrorStream(true)
+                        .start()
+                val output = process.inputStream.bufferedReader().readText().trim()
                 process.waitFor()
                 if (process.exitValue() == 0 && output.isNotEmpty()) {
                     Log.d(TAG, "OCR result: $output")
@@ -553,7 +589,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Double-tap to select line
         injectDoubleTap(
@@ -574,7 +613,10 @@ class SelectionVisualVerificationTest {
         generateContent(bridge)
 
         val surface = getTerminalSurfaceView()
-        val cellMetrics = checkNotNull(estimateCellMetrics()) { "cell metrics must be estimable (terminal surface must be present)" }
+        val cellMetrics =
+            checkNotNull(estimateCellMetrics()) {
+                "cell metrics must be estimable (terminal surface must be present)"
+            }
 
         // Triple-tap to attempt select all
         injectTripleTap(

@@ -299,8 +299,8 @@ class MainActivity : ComponentActivity() {
      * Install a bootstrap zip from a local path. Delegates to
      * [terminal.emulator.installer.BootstrapInstallService], which runs in its own `:install`
      * process: when the main process is an instrumentation target it carries the TEST package's
-     * SELinux category and cannot write filesDir, emulator-verified). The service writes
-     * files/install-result.txt on completion.
+     * SELinux category and cannot write filesDir, emulator-verified). Install state is read back from
+     * the installed entry (usr/bin/login), never from a marker file.
      */
     private fun installBootstrapFromPath(zipPath: String) {
         LogUtil.d("MainActivity", "delegating bootstrap install to :install process")

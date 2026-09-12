@@ -1217,7 +1217,7 @@ mod tests {
     fn spawn_seeds_24x80_winsize() {
         //  (warp WarpTerminalService.kt:797-808): a TIOCGWINSZ
         // before any UI-driven resize must return the seeded 24x80, so
-        // shells (zsh ZLE etc.) never see 0x0.
+        // shells (line editors etc.) never see 0x0.
         let pty =
             PtyPair::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn failed");
         let (rows, cols) = pty.get_winsize().expect("TIOCGWINSZ failed");
