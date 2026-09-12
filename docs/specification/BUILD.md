@@ -15,3 +15,7 @@
 - 校验 `libnative.so` 是否包含 `libghostty-vt.so` 的 `NEEDED` 条目：若为动态链接，需将 `libghostty-vt.so` 复制到 `jniLibs/<abi>/`；若为静态链接则跳过。
 - 检查 APK 至少包含一个 `.so`。
 - release/dev/debug `.so` 文件大小必须合理，如果较大必须找出原因解决
+- minSdkVersion 为 33，compileSdkVersion 和 targetSdkVersion 为 37
+- ndkVersion 为 r30
+- Rust 版本最低为 1.98，edition 最低为 2024 
+- 不得保留未使用依赖，所有依赖使用最新稳定（或最新不稳定）版本

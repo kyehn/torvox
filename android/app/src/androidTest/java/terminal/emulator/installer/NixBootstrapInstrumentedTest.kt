@@ -10,7 +10,7 @@ import org.junit.runners.JUnit4
 import java.io.File
 
 /**
- * End-to-end install of the REAL nix-on-droid bootstrap
+ * End-to-end install of the REAL nix bootstrap
  * (bootstrap-aarch64.zip / bootstrap-x86_64.zip) on the emulator.
  *
  * Prerequisite (adb root):
