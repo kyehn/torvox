@@ -111,7 +111,6 @@
               openssl
               zig_0_16
               cargo-ndk
-              maestro
               semgrep
               systemdLibs
               fontconfig
