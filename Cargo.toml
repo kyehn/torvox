@@ -94,6 +94,3 @@ cast_possible_wrap = "allow"
 uninlined_format_args = "allow"
 ptr_arg = "allow"
 ref_option = "allow"
-[workspace.lints.rust]
-# 临时放行：mcp 功能已禁止实现，必须彻底删除，此处仅为打通依赖更新检查，后续专项清理。
-unexpected_cfgs = "allow"

@@ -10,9 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
 import dagger.hilt.android.qualifiers.ApplicationContext
-import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CoroutineScope
@@ -31,13 +29,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.Json
 import terminal.emulator.ShizukuGate
-import terminal.emulator.bell.BellHandler
-import terminal.emulator.bell.BellMode
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.BridgeTheme
 import terminal.emulator.bridge.NativeBridge
@@ -47,7 +39,6 @@ import terminal.emulator.bridge.createBridge
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes
-import terminal.emulator.util.ArgumentTokenizer
 
 data class RuntimeState(
     val isRunning: Boolean = false,
@@ -242,9 +233,6 @@ constructor(
 
   private val eventDispatcher = EventDispatcher()
 
-  /** BellHandler with 4-mode support (SOUND/VIBRATE/SCREEN_FLASH/SILENT) and 150ms debounce. */
-  private val bellHandler = BellHandler(context)
-
   /**
    * invoked from the render loop after every presented frame render thread). Lets the SurfaceView
    * refresh its accessibility contentDescription — the SurfaceView is self-drawn and has no text
@@ -254,21 +242,6 @@ constructor(
   @Volatile var onFrameRendered: (() -> Unit)? = null
 
   private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
-  // In-flight native bell-flash animation; cancelled and restarted on each
-  // new bell so a burst always restarts from phase 1.0.
-  @Volatile private var bellFlashJob: Job? = null
-
-  init {
-    // Keep bell handler mode in sync with persisted setting at runtime.
-    // `collect` immediately emits the current value, so no separate
-    // one-shot read is needed.
-    scope.launch {
-      settingsRepository.bellMode.collect { modeId ->
-        bellHandler.setMode(BellMode.fromId(modeId))
-      }
-    }
-  }
 
   private val _state = MutableStateFlow(RuntimeState())
   val state: StateFlow<RuntimeState> = _state.asStateFlow()
@@ -331,31 +304,6 @@ constructor(
       }
     }
   }
-
-  // MCP dialog / file-pick requests from the embedded MCP server.
-  // Wired by the UI layer (e.g. MainActivity) via setDialogRequestHandler;
-  // responses are sent back through NativeBridge.dialogResult.
-  @Volatile
-  var dialogRequestHandler:
-      ((
-          sessionId: Long,
-          requestId: Long,
-          dialogType: String,
-          title: String,
-          message: String,
-          options: List<String>,
-      ) -> Unit)? =
-      null
-
-  @Volatile
-  var pickFileRequestHandler:
-      ((sessionId: Long, requestId: Long, startingPath: String, filter: String) -> Unit)? =
-      null
-
-  // called when the native MCP tool call times out
-  // (300s) so the still-visible dialog is dismissed. Wired by the UI
-  // layer alongside dialogRequestHandler.
-  @Volatile var dialogCancelHandler: ((sessionId: Long, requestId: Long) -> Unit)? = null
 
   @Volatile var accentColor: Int = 0xFF2196F3.toInt()
 
@@ -836,12 +784,6 @@ constructor(
     }
   }
 
-  private fun withMkshEnvInjection(
-      baseEnv: Map<String, String>,
-      homeDir: String,
-  ): Map<String, String> =
-      if (!baseEnv.containsKey("ENV")) baseEnv + ("ENV" to "$homeDir/.mkshrc") else baseEnv
-
   private suspend fun buildConfig(
       rows: Int = DEFAULT_GRID_ROWS,
       cols: Int = DEFAULT_GRID_COLS,
@@ -851,14 +793,12 @@ constructor(
       val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
       val fontDeferred = async { computeFontSizeTenths() }
       val themeDeferred = async { resolveThemeName() }
-      val envDeferred = async { settingsRepository.environmentVariables.first() }
       val shizukuDeferred = async { settingsRepository.shizukuEnabled.first() }
       ConfigReads(
           shellPath = shellDeferred.await(),
           scrollbackLines = scrollbackDeferred.await(),
           fontSizeTenths = fontDeferred.await(),
           themeName = themeDeferred.await(),
-          environmentVariables = envDeferred.await(),
           shizukuEnabled = shizukuDeferred.await(),
       )
     }
@@ -910,12 +850,6 @@ constructor(
           System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
         }
     ensureMkshPromptRc(effectiveHome)
-    val effectiveEnv =
-        if (!prefixComplete) {
-          withMkshEnvInjection(configReads.environmentVariables, effectiveHome)
-        } else {
-          configReads.environmentVariables
-        }
     return TerminalConfig(
         shell = effectiveShell,
         rows = rows,
@@ -928,7 +862,6 @@ constructor(
         path = effectivePath,
         workingDirectory = effectiveHome,
         prefix = effectivePrefix,
-        env = effectiveEnv,
     )
   }
 
@@ -953,7 +886,6 @@ constructor(
             }
             .absolutePath
     ensureMkshPromptRc(home)
-    val failsafeEnv = withMkshEnvInjection(configReads.environmentVariables, home)
     return TerminalConfig(
         shell = Shell.SystemDefault,
         rows = rows,
@@ -966,7 +898,6 @@ constructor(
         path = System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" },
         workingDirectory = homeDir,
         prefix = "",
-        env = failsafeEnv,
     )
   }
 
@@ -1504,62 +1435,7 @@ constructor(
                               // bridge, ~100ms+) also minimizes the
                               // MCP-side latency. Each reply is guarded
                               // individually: a JNI failure here must
-                              // NEVER skip the session cleanup below
-                              // (the exit event is consumed and cannot
-                              // be replayed — leaking the entry, the
-                              // native session and the zombie child).
-                              try {
-                                poll.dialogs.forEach { request ->
-                                  NativeBridge.dialogResult(
-                                      request.sessionId,
-                                      request.requestId,
-                                      "",
-                                  )
-                                }
-                                poll.dialogCancels.forEach { (sessionId, requestId) ->
-                                  dialogCancelHandler?.invoke(sessionId, requestId)
-                                }
-                                poll.pickFiles.forEach { request ->
-                                  NativeBridge.dialogResult(
-                                      request.sessionId,
-                                      request.requestId,
-                                      "",
-                                  )
-                                }
-                                dispatchClipboardRequests(poll.clipboardReads)
-                                dispatchClipboardRequests(poll.clipboardGets)
-                                poll.screenshots.forEach { request ->
-                                  NativeBridge.screenshotResult(
-                                      request.sessionId,
-                                      request.requestId,
-                                      0,
-                                      0,
-                                      ByteArray(0),
-                                  )
-                                }
-                                poll.runCommands.forEach { request ->
-                                  // The command can never be dispatched
-                                  // now (the shell is gone); reply with
-                                  // an error payload instead of leaving
-                                  // the native oneshot hanging for 300s.
-                                  NativeBridge.runCommandResult(
-                                      request.sessionId,
-                                      request.requestId,
-                                      runCommandPayload(
-                                          exitCode = -1,
-                                          errCode = ERR_CODE_EXCEPTION,
-                                          stdout = "",
-                                          stderr = "session exited before run_command completed",
-                                      ),
-                                  )
-                                }
-                              } catch (replyException: Exception) {
-                                LogUtil.e(
-                                    "Runtime",
-                                    "exit branch: MCP empty-reply failed, continuing cleanup",
-                                    replyException,
-                                )
-                              }
+                              dispatchClipboardRequests(poll.clipboardReads)
                               if (poll.sessionId != 0L && poll.sessionId != entry.id) {
                                 // A background (non-active) session's
                                 // shell exited. Its render thread is
@@ -1840,8 +1716,7 @@ constructor(
   // ══════════════════════════════════════════════════════════════════════
 
   /**
-   * Dispatches non-exit poll events (bell, notification, clipboard, MCP dialogs/pick-file, toast,
-   * open-url, clipboard_get replies).
+   * Dispatches non-exit poll events (clipboard).
    *
    * Extracted from the render loop so the loop body stays a tight poll → handle → wait cycle. Inner
    * class: accesses TerminalRuntime's handlers/context/clipboard without threading them through
@@ -1853,267 +1728,11 @@ constructor(
      * Exceptions here must never skip the loop's per-frame bookkeeping (caller wraps us in the
      * outer try).
      */
-    fun announceAccessibility(content: String) {
-      // termlib AccessibilityOverlay live-region pattern: announce
-      // via the platform accessibility manager so TalkBack reads
-      // events (bell, notifications) even though the terminal is a
-      // self-drawn SurfaceView with no text nodes.
-      try {
-        val am =
-            context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE)
-                as? android.view.accessibility.AccessibilityManager
-        if (am != null && am.isEnabled) {
-          // Announcement events are deprecated without a modern
-          // replacement (system accessibility broadcast); the
-          // constructor form avoids the deprecated obtain() API.
-          @Suppress("DEPRECATION")
-          val event =
-              android.view.accessibility.AccessibilityEvent(
-                  android.view.accessibility.AccessibilityEvent.TYPE_ANNOUNCEMENT,
-              )
-          event.text.add(content)
-          am.sendAccessibilityEvent(event)
-        }
-      } catch (exception: Exception) {
-        LogUtil.w("Runtime", "announceAccessibility failed", exception)
-      }
-    }
-
-    /**
-     * Bell-flash overlay animation, BellMode.SCREEN_FLASH): animate the native flash phase 1.0 →
-     * 0.0 over BELL_FLASH_DURATION_MS. A fresh bell cancels and restarts the animation so a burst
-     * always re-peaks at phase 1.0 (BellHandler.debounce already coalesces sub-150ms bells before
-     * we get here).
-     */
-    private fun triggerBellFlash() {
-      if (bellHandler.currentMode.value != BellMode.SCREEN_FLASH) return
-      bellFlashJob?.cancel()
-      bellFlashJob = scope.launch {
-        val bridge = bridge() ?: return@launch
-        var remainingMs = BELL_FLASH_DURATION_MS
-        while (remainingMs > 0 && isActive) {
-          bridge.setFlashState(remainingMs.toFloat() / BELL_FLASH_DURATION_MS)
-          delay(BELL_FLASH_TICK_MS)
-          remainingMs -= BELL_FLASH_TICK_MS
-        }
-        bridge.setFlashState(0f)
-      }
-    }
-
     fun handle(poll: terminal.emulator.bridge.Bridge.PollResult) {
-      if (poll.bel) {
-        bellHandler.fireBell(onAccessibility = { announceAccessibility(it) })
-        triggerBellFlash()
-      }
-      if (poll.notification != null) {
-        val (title, body) = poll.notification
-        val toastText = if (title.isNotEmpty()) "$title: $body" else body
-        Handler(Looper.getMainLooper()).post {
-          android.widget.Toast.makeText(context, toastText, android.widget.Toast.LENGTH_LONG).show()
-        }
-        terminal.emulator.ui.TerminalNotificationHelper(context).showNotification(title, body)
-        announceAccessibility(if (title.isNotEmpty()) title else body)
-      }
-      // ConEmu progress (OSC 9;4). Log the event;
-      // a progress bar UI can be added later if needed.
-      poll.progress?.let { (state, value) ->
-        LogUtil.d("Runtime", "OSC 9;4 progress: state=$state value=$value")
-      }
       if (poll.clipboard != null) {
         clipboardAccess.setClipboardText(poll.clipboard)
       }
-      poll.dialogs.forEach { request -> dispatchDialogRequest(request) }
-      poll.dialogCancels.forEach { (sessionId, requestId) ->
-        dialogCancelHandler?.invoke(sessionId, requestId)
-      }
-      poll.pickFiles.forEach { request -> dispatchPickFileRequest(request) }
-      poll.toastText?.let { text ->
-        Handler(Looper.getMainLooper()).post {
-          android.widget.Toast.makeText(context, text, android.widget.Toast.LENGTH_SHORT).show()
-        }
-      }
-      poll.openUrl?.let { url ->
-        try {
-          val intent =
-              android.content.Intent(
-                  android.content.Intent.ACTION_VIEW,
-                  url.toUri(),
-              )
-          intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-          context.startActivity(intent)
-        } catch (exception: Exception) {
-          // Never log the URL or the exception
-          // stack: both may carry token/query
-          // parameters and LogUtil writes the
-          // persistent log file unconditionally
-          //
-          LogUtil.e("Runtime", "open_url failed: ${exception.javaClass.simpleName}")
-        }
-      }
       dispatchClipboardRequests(poll.clipboardReads)
-      dispatchClipboardRequests(poll.clipboardGets)
-      poll.runCommands.forEach { request ->
-        // run_command may take up to 30 s; run it on the IO scope
-        // so the poll loop keeps servicing keyboard / clipboard /
-        // signal requests meanwhile).
-        scope.launch { dispatchRunCommandRequest(request) }
-      }
-      poll.screenshots.forEach { request ->
-        dispatchScreenshotRequest(request)
-      }
-    }
-  }
-
-  /**
-   * Dispatch one MCP `screenshot` request. Captures the current terminal frame as RGBA pixels via
-   * GPU readback (render_to_buffer) and returns the result to the native MCP tool via
-   * [NativeBridge.screenshotResult].
-   *
-   * Must run on the render thread (which owns the wgpu context). The render thread's event loop
-   * calls this directly.
-   */
-  private fun dispatchScreenshotRequest(
-      request: terminal.emulator.bridge.Bridge.ScreenshotRequest,
-  ) {
-    try {
-      val data = NativeBridge.captureFrame(request.sessionId)
-      if (data == null || data.size < 8) {
-        LogUtil.w("Runtime", "screenshot: captureFrame returned null or insufficient data")
-        NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
-        return
-      }
-      // First 8 bytes: width (u32 LE) + height (u32 LE)
-      val width =
-          ((data[0].toInt() and 0xFF) or
-              ((data[1].toInt() and 0xFF) shl 8) or
-              ((data[2].toInt() and 0xFF) shl 16) or
-              ((data[3].toInt() and 0xFF) shl 24))
-      val height =
-          ((data[4].toInt() and 0xFF) or
-              ((data[5].toInt() and 0xFF) shl 8) or
-              ((data[6].toInt() and 0xFF) shl 16) or
-              ((data[7].toInt() and 0xFF) shl 24))
-      if (width <= 0 || height <= 0) {
-        LogUtil.w("Runtime", "screenshot: invalid dimensions ${width}x$height")
-        NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
-        return
-      }
-      val pixels = data.copyOfRange(8, data.size)
-      NativeBridge.screenshotResult(request.sessionId, request.requestId, width, height, pixels)
-    } catch (exception: Exception) {
-      LogUtil.e("Runtime", "screenshot dispatch failed: ${exception.message}")
-      NativeBridge.screenshotResult(request.sessionId, request.requestId, 0, 0, ByteArray(0))
-    }
-  }
-
-  /**
-   * Dispatch one MCP `run_command` request (same request/response routing as [dialogResult]). The
-   * raw command string is tokenized to argv with [ArgumentTokenizer] (no shell, no metacharacter
-   * interpretation) and executed in the app's process. The captured stdout/stderr and exit code are
-   * returned to the native MCP tool via `NativeBridge.runCommandResult`.
-   *
-   * Runs on the IO scope: the poll loop launches it without awaiting so a 30 s command cannot
-   * freeze keyboard / clipboard / signal polling.
-   */
-  private fun dispatchRunCommandRequest(
-      request: terminal.emulator.bridge.Bridge.RunCommandRequest,
-  ) {
-    // Reply with an error payload instead of leaving the native
-    // oneshot unresolved when anything below fails.
-    fun fail(detail: String) {
-      LogUtil.e("Runtime", "run_command request dispatch failed: $detail")
-      val payload =
-          runCommandPayload(
-              exitCode = -1,
-              errCode = ERR_CODE_EXCEPTION,
-              stdout = "",
-              stderr = detail,
-          )
-      NativeBridge.runCommandResult(request.sessionId, request.requestId, payload)
-    }
-    try {
-      if (request.command.isBlank()) {
-        fail("empty command")
-        return
-      }
-      val argv = ArgumentTokenizer.tokenize(request.command)
-      if (argv.isEmpty()) {
-        fail("no argv produced")
-        return
-      }
-      LogUtil.i("Runtime", "run_command argv=${argv.joinToString(" ")}")
-      val result =
-          executeRunCommand(
-              argv,
-              prefixDir = java.io.File(context.filesDir, "usr").absolutePath,
-          )
-      val errCode = if (result.timedOut) ERR_CODE_TIMEOUT else ERR_CODE_NONE
-      val payload = runCommandPayload(result.exitCode, errCode, result.stdout, result.stderr)
-      NativeBridge.runCommandResult(request.sessionId, request.requestId, payload)
-    } catch (exception: Exception) {
-      fail("${exception.javaClass.simpleName}: ${exception.message}")
-    }
-  }
-
-  /**
-   * Dispatch one MCP dialog request to the activity handler; replies empty when no handler is
-   * attached (activity destroyed window) so the native tool call never hangs. Extracted from
-   * handle() for the detekt CyclomaticComplexMethod limit.
-   */
-  private fun dispatchDialogRequest(request: terminal.emulator.bridge.Bridge.DialogRequest) {
-    try {
-      LogUtil.i(
-          "Runtime",
-          "MCP dialog request session=${request.sessionId} type=${request.dialogType}",
-      )
-      val handler = dialogRequestHandler
-      if (handler != null) {
-        handler(
-            request.sessionId,
-            request.requestId,
-            request.dialogType,
-            request.title,
-            request.message,
-            request.options,
-        )
-      } else {
-        LogUtil.w(
-            "Runtime",
-            "MCP dialog request dropped (no handler), replying empty",
-        )
-        NativeBridge.dialogResult(request.sessionId, request.requestId, "")
-      }
-    } catch (exception: Exception) {
-      LogUtil.e("Runtime", "dialog request dispatch failed", exception)
-      NativeBridge.dialogResult(request.sessionId, request.requestId, "")
-    }
-  }
-
-  /**
-   * Dispatch one MCP pick_file request to the activity handler (same no-handler fallback as
-   * [dispatchDialogRequest]).
-   */
-  private fun dispatchPickFileRequest(request: terminal.emulator.bridge.Bridge.PickFileRequest) {
-    try {
-      LogUtil.i("Runtime", "MCP pick_file request session=${request.sessionId}")
-      val handler = pickFileRequestHandler
-      if (handler != null) {
-        handler(
-            request.sessionId,
-            request.requestId,
-            request.startingPath,
-            request.filter,
-        )
-      } else {
-        LogUtil.w(
-            "Runtime",
-            "MCP pick_file request dropped (no handler), replying empty",
-        )
-        NativeBridge.dialogResult(request.sessionId, request.requestId, "")
-      }
-    } catch (exception: Exception) {
-      LogUtil.e("Runtime", "pick_file request dispatch failed", exception)
-      NativeBridge.dialogResult(request.sessionId, request.requestId, "")
     }
   }
 
@@ -2140,20 +1759,6 @@ constructor(
     // a foreground session's shell exits (kept visible until Enter).
     private const val PROCESS_COMPLETED_PROMPT_PREFIX = "\r\n[Process completed (code "
     private const val PROCESS_COMPLETED_PROMPT_SUFFIX = ")] - press Enter"
-
-    /** Bell-flash overlay animation (native render quad, BellMode.SCREEN_FLASH). */
-    private const val BELL_FLASH_DURATION_MS = 400L
-    private const val BELL_FLASH_TICK_MS = 16L
-
-    /**
-     * run_command err_code, termux ExecutionCommand dual-track): exitCode is the shell exit code;
-     * errCode is the app-level failure classification. 0 = none (command ran), 1 = timeout, 2 =
-     * internal exception. Destructive commands are refused by the native safety classifier before
-     * they reach the host, so no blocked err_code exists on this side.
-     */
-    private const val ERR_CODE_NONE = 0
-    private const val ERR_CODE_TIMEOUT = 1
-    private const val ERR_CODE_EXCEPTION = 2
 
     private const val RENDER_MAX_CONSECUTIVE_ERRORS = 100
     private const val RENDER_MAX_TRANSIENT_ERRORS =
@@ -2229,7 +1834,6 @@ constructor(
       val scrollbackLines: Int,
       val fontSizeTenths: Int,
       val themeName: String,
-      val environmentVariables: Map<String, String>,
       val shizukuEnabled: Boolean,
   )
 
@@ -2390,33 +1994,6 @@ constructor(
       }
       return
     }
-    // point the MCP socket at our real data dir (the
-    // native default hardcodes /data/data/com.termux, which breaks if
-    // the package is ever renamed).
-    runCatching {
-      NativeBridge.setMcpSocketPath(
-          context.filesDir.resolve("run/mcp.sock").absolutePath,
-      )
-    }
-    // restore the persisted MCP server toggle. The switch in
-    // SettingsScreen only writes the DataStore flag; nothing replayed it
-    // on startup, so the server never came back after an app restart
-    // even though the setting said enabled (emulator-verified: socket
-    // absent after force-stop/relaunch). Read the first value from the
-    // DataStore-backed Flow (first emission requires an async disk read;
-    // a failure here must not abort startup — it degrades to the
-    // pre-fix behavior of a stopped server) and mirror it to the native
-    // side, which is idempotent (start() no-ops when running).
-    runCatching {
-          val enabled = settingsRepository.mcpServerEnabled.first()
-          NativeBridge.setMcpEnabled(enabled)
-          LogUtil.d("Runtime", "start: restored MCP server enabled=$enabled")
-        }
-        .onFailure { error ->
-          // Restore failure means MCP is silently unavailable — exactly the
-          // bug this code fixes — so it must be visible in logcat.
-          LogUtil.e("Runtime", "start: failed to restore MCP server toggle", error)
-        }
     val displayW = context.resources.displayMetrics.widthPixels
     val displayH = context.resources.displayMetrics.heightPixels
     val density = context.resources.displayMetrics.density
@@ -4158,199 +3735,6 @@ internal fun isSystemShellScript(file: java.io.File): Boolean =
     } catch (_: Exception) {
       false
     }
-
-/**
- * Wire payload sent to the native side for MCP run_command results (d1/d4: exit_code clamped to
- * 0..255 with -1 as the timeout sentinel; err_code: 0=ok, 1=timeout, 2=exception). Field names are
- * the cross-FFI contract — see Rust mcp/run_command parsing.
- */
-@Serializable
-internal data class RunCommandPayload(
-    @SerialName("exit_code") val exitCode: Int,
-    @SerialName("err_code") val errCode: Int,
-    val stdout: String,
-    val stderr: String,
-)
-
-internal fun runCommandPayload(
-    exitCode: Int,
-    errCode: Int,
-    stdout: String,
-    stderr: String,
-): String {
-  // Clamp exit_code to 0-255 per spec d4 (defense-in-depth; the caller
-  // should already clamp, but this ensures the wire format is always valid).
-  // POSIX exit codes wrap mod 256; preserve -1 (timeout sentinel).
-  val clampedExit = if (exitCode == -1) -1 else exitCode and 0xFF
-  return Json.encodeToString(
-      RunCommandPayload(
-          exitCode = clampedExit,
-          errCode = errCode,
-          stdout = stdout,
-          stderr = stderr,
-      ),
-  )
-}
-
-// ── MCP run_command execution) ────────────────────────────
-
-/** MCP run_command process timeout (seconds). */
-private const val RUN_COMMAND_TIMEOUT_MS = 30_000L
-
-/**
- * Grace period for draining stdout/stderr after the process exits or is killed. A grandchild that
- * inherited the pipe fds keeps the read open forever; bounding the drain keeps the caller from
- * hanging — previously the two `await()` calls were unbounded).
- */
-private const val RUN_COMMAND_DRAIN_MS = 2_000L
-
-/**
- * Result of [executeRunCommand]: captured streams, exit code and whether the process had to be
- * killed for exceeding the timeout.
- */
-internal data class RunCommandResult(
-    val stdout: String,
-    val stderr: String,
-    val exitCode: Int,
-    val timedOut: Boolean,
-)
-
-/**
- * Execute `argv` as a child process with a bounded lifetime:
- * - `timeoutMs`: the process is force-killed when it does not exit in time (exitCode -1, timedOut
- *   true).
- * - `drainMs`: after the process exits (or is killed) the stdout/stderr readers get at most this
- *   long to reach EOF. A grandchild that inherited the pipe fds cannot hang the caller past this
- *   bound; the readers are cancelled and the streams come back empty.
- *
- * Pure JVM (no Android dependencies): unit-tested on the host.
- */
-internal fun executeRunCommand(
-    argv: List<String>,
-    timeoutMs: Long = RUN_COMMAND_TIMEOUT_MS,
-    drainMs: Long = RUN_COMMAND_DRAIN_MS,
-    prefixDir: String? = null,
-): RunCommandResult {
-  // Android 15+ SELinux denies execve of app_data_file
-  // binaries (execute_no_trans) for untrusted_app. termux-exec's
-  // LD_PRELOAD hook wraps child execs for the shell, but run_command
-  // spawns directly via ProcessBuilder — so a $PREFIX binary (echo,
-  // coreutils applets) must be launched through the
-  // system linker, exactly like PtyPair::spawn does on the native side.
-  val wrapped = wrapTermuxExec(argv, prefixDir)
-  val process =
-      try {
-        ProcessBuilder(wrapped).redirectErrorStream(false).start()
-      } catch (e: java.io.IOException) {
-        // d: process spawn failure (e.g. invalid binary) must
-        // not crash the MCP server — return an error result instead.
-        return RunCommandResult(
-            stdout = "",
-            stderr = "exec failed: ${e.message ?: e.toString()}\n",
-            exitCode = 127, // 127 = "command not found" convention
-            timedOut = false,
-        )
-      }
-  // Readers run on daemon threads with a self-imposed deadline of
-  // timeout+drain: they poll via ready() (never blocking on a read that
-  // cannot be interrupted) so a grandchild inheriting the pipe fds can
-  // at most delay the result until the deadline — it can never hang the
-  // caller).
-  val readBudgetMs = timeoutMs + drainMs
-  val out = BoundedStreamRead(process.inputStream, readBudgetMs)
-  val err = BoundedStreamRead(process.errorStream, readBudgetMs)
-  try {
-    val exited = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
-    if (!exited) {
-      process.destroyForcibly()
-    }
-    // The join is bounded by the drain grace period — NOT by the full
-    // read budget — so a grandchild holding the pipe open can delay
-    // the result by at most drainMs. The reader threads keep polling
-    // in the background and finish by their own deadline.
-    val stdout = out.get(drainMs + 50)
-    val stderr = err.get(50)
-    val code = if (exited) process.exitValue() and 0xFF else -1
-    return RunCommandResult(stdout, stderr, code, !exited)
-  } finally {
-    process.destroy()
-    runCatching { process.inputStream.close() }
-    runCatching { process.errorStream.close() }
-  }
-}
-
-/**
- * Wrap a `$PREFIX` executable in the system linker when needed. Android 15+ SELinux denies
- * untrusted_app from exec'ing app_data_file binaries directly (`execute_no_trans`); the system
- * linker path is allowed because it only maps the file (`execute`). This mirrors the native
- * `PtyPair::spawn` SPAWN_LINKER logic.
- */
-internal fun wrapTermuxExec(
-    argv: List<String>,
-    prefixDir: String?,
-): List<String> {
-  if (prefixDir.isNullOrBlank() || argv.isEmpty()) return argv
-  val prefix = prefixDir.trimEnd('/')
-  val executable = argv[0]
-  if (!executable.startsWith("$prefix/")) return argv
-  val linker =
-      if (java.io.File("/system/bin/linker64").exists()) {
-        "/system/bin/linker64"
-      } else {
-        "/system/bin/linker"
-      }
-  return listOf(linker, executable) + argv.drop(1)
-}
-
-/**
- * Reads [stream] on a daemon thread, appending into a shared buffer. The blocking read() returns as
- * soon as the write end of the pipe closes (process exit without descendants) — EOF is detected
- * naturally, unlike ready()-based polling (ready() returns false on EOF). When a grandchild holds
- * the pipe open, [get] joins with a bounded timeout and returns the partial output; the daemon
- * reader is then abandoned (it dies with the process), so the caller can never hang).
- */
-private class BoundedStreamRead(
-    private val stream: java.io.InputStream,
-    private val budgetMs: Long,
-) {
-  private val sb = StringBuilder()
-
-  private val thread: Thread =
-      Thread(
-              {
-                val reader = java.io.BufferedReader(java.io.InputStreamReader(stream))
-                val buf = CharArray(4096)
-                val deadline = System.nanoTime() + budgetMs * 1_000_000L
-                while (System.nanoTime() < deadline) {
-                  val n = reader.read(buf)
-                  if (n < 0) {
-                    return@Thread
-                  }
-                  synchronized(sb) {
-                    sb.append(buf, 0, n)
-                  }
-                }
-              },
-              "run-command-read",
-          )
-          .apply {
-            isDaemon = true
-            start()
-          }
-
-  /** Join the reader for at most [remainingMs]; returns what was read. */
-  fun get(remainingMs: Long): String {
-    thread.join(remainingMs)
-    if (thread.isAlive) {
-      // Best effort: a blocking read() may ignore close(), but the
-      // daemon thread then exits with the process.
-      runCatching { stream.close() }
-    }
-    return synchronized(sb) {
-      sb.toString()
-    }
-  }
-}
 
 /**
  * Next dead-render-thread restart backoff: double the previous delay up to [maxDelayMs] (the

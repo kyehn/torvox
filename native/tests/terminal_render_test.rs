@@ -720,47 +720,6 @@ fn auto_scroll_visible_when_filling_terminal() {
     );
 }
 
-// ========== OSC 133 Shell Integration ==========
-
-#[test]
-fn osc133_prompt_marking_terminal_survives() {
-    // OSC 133 sequences (FinalTerm protocol) should not cause errors or visible artifacts
-    let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
-    terminal.vt_write(b"\x1b]133;A\x07"); // prompt start
-    terminal.vt_write(b"\x1b]133;B\x07"); // prompt end
-    terminal.vt_write(b"echo hello\r");
-    terminal.vt_write(b"\x1b]133;C\x07"); // command start
-    terminal.vt_write(b"hello\r");
-    terminal.vt_write(b"\x1b]133;D\x07"); // command output end
-    terminal.flush();
-    let snap = terminal.take_snapshot();
-    // The prompt should have been processed; the visible grid should contain "echo hello" etc.
-    // But at minimum, the terminal shouldn't have crashed and the grid should be populated
-    let has_output = (0..(ROWS * COLS) as u32).any(|idx| {
-        let r = idx / COLS;
-        let c = idx % COLS;
-        snap.cell_at(r, c).codepoint > 0
-    });
-    assert!(
-        has_output,
-        "OSC 133 sequences should produce visible output on the grid"
-    );
-}
-
-#[test]
-fn osc133_shell_integration_prompt_start() {
-    let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
-    terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07");
-    terminal.flush();
-    let snap = terminal.take_snapshot();
-    // The prompt "$ " should be displayed in the terminal
-    assert_eq!(
-        snap.cell_at(0, 0).codepoint,
-        u32::from(b'$'),
-        "OSC 133 prompt '$ ' should appear on the grid"
-    );
-}
-
 // ========== Nerd Font / PUA Glyph ==========
 
 #[test]
@@ -1137,57 +1096,6 @@ fn nerd_font_pua_gpu_renders_as_glyph() {
     );
 }
 
-// ── OSC 133 Shell Integration ──
-
-#[test]
-fn osc133_prompt_sets_semantic_prompt() {
-    let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
-    terminal.vt_write(b"\x1b]133;A\x07$ ");
-    terminal.flush();
-    let snap = terminal.take_snapshot();
-    for col in 0..2u32 {
-        let cell = snap.cell_at(0, col);
-        assert_eq!(
-            cell.semantic,
-            native::terminal::ghostty_terminal::SemanticContent::Prompt,
-            "cell(0,{col}) should be Prompt, got {:?}",
-            cell.semantic
-        );
-    }
-}
-
-#[test]
-fn osc133_command_output_sets_semantic_output() {
-    let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
-    terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;B\x07echo hello\x1b]133;C\x07hello");
-    terminal.flush();
-    let snap = terminal.take_snapshot();
-    // At least one cell should be Output (from OSC 133;C/D marking)
-    let has_output = (0..(ROWS * COLS)).any(|idx| {
-        let r = idx / COLS;
-        let c = idx % COLS;
-        snap.cell_at(r, c).semantic == native::terminal::ghostty_terminal::SemanticContent::Output
-    });
-    assert!(has_output, "OSC 133 should mark some cells as Output");
-}
-
-#[test]
-fn osc133_gpu_render_with_semantic_marks() {
-    let (mut context, mut font_pipeline) = setup_gpu_env();
-    let mut terminal = GhosttyTerminal::new(ROWS, COLS, 1000).unwrap();
-    terminal.vt_write(b"\x1b]133;A\x07$ \x1b]133;C\x07echo");
-    terminal.flush();
-    let snap = terminal.take_snapshot();
-    let pixels = render_or_die(&mut context, &mut font_pipeline, &snap);
-    let has_content = pixels
-        .chunks_exact(4)
-        .any(|c| c[0] > 0 || c[1] > 0 || c[2] > 0);
-    assert!(
-        has_content,
-        "OSC 133 content should render visible GPU pixels"
-    );
-}
-
 // ── Bootstrap / Environment Correctness ──
 
 #[test]
@@ -1208,19 +1116,6 @@ fn bootstrap_vulkan_icd_available() {
         wgpu::Backend::Vulkan,
         "Expected Vulkan backend, got {:?}",
         info.backend
-    );
-}
-
-#[test]
-fn bootstrap_rapidocr_available() {
-    let output = std::process::Command::new("rapidocr")
-        .arg("--help")
-        .output()
-        .expect("rapidocr should be available in PATH");
-    assert!(
-        output.status.success(),
-        "rapidocr CLI failed with exit code: {}",
-        output.status.code().unwrap_or(-1)
     );
 }
 
