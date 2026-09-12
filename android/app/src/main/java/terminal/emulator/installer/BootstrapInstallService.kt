@@ -75,7 +75,7 @@ class BootstrapInstallService : Service() {
                 if (stage.success) {
                     "OK prefix=$prefixDir shell=" +
                         (
-                            listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh").firstOrNull {
+                            listOf("bin/login", "bin/bash").firstOrNull {
                                 val entry = File(prefixDir, it)
                                 entry.isFile && (isElf(entry) || isSystemShellScript(entry))
                             } ?: "none"

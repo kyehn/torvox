@@ -13,7 +13,7 @@
 //! - `destroySession()` shuts down the session and removes it
 //! - The active session is set via `switchSession()`
 //!
-//! Events (bell, title, clipboard, exit) are pushed into a global queue
+//! Events (clipboard, exit) are pushed into a global queue
 //! and drained by Kotlin via `pollEvent()`.
 //!
 //! # Threading model (JNI call site assumptions)
@@ -278,7 +278,7 @@ static NEXT_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 /// sweep. Keeps a background session's reader thread from blocking on a
 /// full output channel (which would fill the PTY kernel buffer and freeze
 /// the child process) without starving the active session's frame budget.
-const BACKGROUND_CHUNKS_PER_FRAME: u32 = 2;
+const PTY_POLL_CHUNKS_PER_FRAME: u32 = 2;
 
 static ACTIVE_SESSION_ID: AtomicU64 = AtomicU64::new(0);
 
@@ -1219,7 +1219,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             let mut session = entry.session.lock();
             // 2 chunks per frame per background session: enough to keep
             // the reader thread unblocked under sustained output.
-            session.poll_pty_output(BACKGROUND_CHUNKS_PER_FRAME);
+            session.poll_pty_output(PTY_POLL_CHUNKS_PER_FRAME);
             // Consume stale event flags immediately and push them with the
             // correct session_id. If left set, they would be replayed when
             // the session becomes active again minutes later (stale replay).
@@ -1311,7 +1311,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
 /// by the render thread once per frame, as a BYPASS read alongside the
 /// `pollAll()` loop — deliberately NOT a queued `Event` variant: under
 /// sustained output (tail -f) an event variant would compete for the
-/// `MAX_EVENTS_PER_POLL` budget and starve bell/dialog/exit events.
+/// `MAX_EVENTS_PER_POLL` budget and starve clipboard/exit events.
 /// Independent from the P2-1 `dirty` flag (selection/highlight/font-size
 /// changes must repaint but never reset the viewport).
 #[unsafe(no_mangle)]
@@ -1402,8 +1402,8 @@ fn attach_window_inner(
     }
 
     // Get the raw ANativeWindow pointer from the Surface object.
-    let raw_env = env.get_native_interface();
-    // SAFETY: `raw_env` comes from `get_native_interface()` which returns a valid
+    let raw_env = env.get_raw();
+    // SAFETY: `raw_env` comes from `get_raw()` which returns a valid
     // JNIEnv pointer; `surface` is a JNI method argument guaranteed valid by the
     // JVM runtime. `ANativeWindow_fromSurface` is a documented NDK function from
     // `libandroid.so`.
@@ -1556,7 +1556,7 @@ fn collect_highlight_rows(render_state: &RenderState) -> Vec<i32> {
 
 fn render_inner(session_id: u64) -> jint {
     // ── Phase 1: Pre-render housekeeping (single RENDER_STATE lock) ───────
-    // Consume pending bg image / flash phase, check surface readiness,
+    // Check surface readiness,
     // upload atlas dirty rect, and lazily create the pipeline — all under
     // ONE lock acquisition instead of the previous three. This reduces
     // RENDER_STATE lock round-trips per frame from 3 to 2 (the second

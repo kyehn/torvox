@@ -26,7 +26,7 @@ libghostty-vt = { workspace = true, features = ["png"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json = "1"
 base64 = "0.23"
-wgpu = { workspace = true, features = ["spirv", "gles", "vulkan"] }
+wgpu = { workspace = true, features = ["vulkan"] }
 raw-window-handle = { workspace = true }
 wgpu-types = { workspace = true }
 cosmic-text = { workspace = true }
@@ -34,10 +34,7 @@ fontdb = { workspace = true }
 swash = { workspace = true }
 guillotiere = { workspace = true }
 jni = { workspace = true }
-[target.'cfg(not(target_os = "android"))'.dependencies]
-renderdoc = "0.12.1"
 [dev-dependencies]
-naga = { version = "30", default-features = false, features = ["wgsl-in", "spv-out"] }
 image = { workspace = true }
 proptest = { workspace = true }
 toml = { workspace = true }

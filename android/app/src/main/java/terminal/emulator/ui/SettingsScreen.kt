@@ -937,7 +937,7 @@ private fun PrefixShellStatus(secondaryText: Color) {
     val (statusResId, prefixArg) =
         remember(prefixDir) {
             val hasShell =
-                listOf("bin/bash", "bin/login", "bin/zsh", "bin/fish").any {
+                listOf("bin/bash", "bin/login").any {
                     File(prefixDir, it).exists()
                 }
             if (hasShell) {

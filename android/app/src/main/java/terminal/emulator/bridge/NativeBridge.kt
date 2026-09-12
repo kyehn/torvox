@@ -198,8 +198,6 @@ object NativeBridge {
      */
     @JvmStatic external fun renderWithNewOutput(sessionId: Long, width: Int, height: Int): Long
 
-    // ── MCP server ──────────────────────────────────────────────────────
-
     // ── User input callbacks ────────────────────────────────────────────
 
     // ── Logging ──────────────────────────────────────────────────────────
@@ -291,8 +289,6 @@ object NativeBridge {
     )
 
     external fun setTheme(sessionId: Long, data: ByteArray)
-
-    external fun setBackgroundParams(sessionId: Long, blurRadius: Int, alphaTenths: Int)
 
     external fun setRenderPaused(sessionId: Long, paused: Boolean)
 
