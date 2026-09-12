@@ -70,11 +70,11 @@ class SecondStageRunner(
     }
 
     private suspend fun runPostInstalls(): Result {
-        val dpkgVersion = detectDpkgVersion() ?: "unknown"
-        val arch = detectAbi()
         val postinstDir = File(prefixDir, "var/lib/dpkg/info")
         val errors = mutableListOf<String>()
         if (postinstDir.isDirectory) {
+            val dpkgVersion = detectDpkgVersion() ?: "unknown"
+            val arch = detectAbi()
             val scripts =
                 postinstDir.listFiles()?.filter { it.name.endsWith(".postinst") }?.toList() ?: emptyList()
             val totalScripts = scripts.size
