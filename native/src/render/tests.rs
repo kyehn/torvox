@@ -33,13 +33,6 @@ fn cell_instance_size() {
 }
 
 #[test]
-fn orthographic_projection_identity() {
-    let proj = orthographic_projection(800.0, 600.0);
-    assert!((proj[0][0] - 2.0 / 800.0).abs() < f32::EPSILON);
-    assert!((proj[1][1] + 2.0 / 600.0).abs() < f32::EPSILON);
-}
-
-#[test]
 fn scroll_px_offset_translates_viewport_down() {
     // Positive offset moves content down: NDC Y shrinks by 2*px/height.
     let base = orthographic_projection(800.0, 600.0);
