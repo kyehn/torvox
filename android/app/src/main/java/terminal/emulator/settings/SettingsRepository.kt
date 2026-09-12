@@ -33,18 +33,7 @@ constructor(
     val BOOTSTRAP_URL = stringPreferencesKey("bootstrap_url")
     val USE_NERD_FONT_GLYPHS = booleanPreferencesKey("use_nerd_font_glyphs")
     val KEYBOARD_MODE = stringPreferencesKey("keyboard_mode")
-    val MCP_SERVER_ENABLED = booleanPreferencesKey("mcp_server_enabled")
     val SHIZUKU_ENABLED = booleanPreferencesKey("shizuku_enabled")
-    val ENVIRONMENT_VARIABLES = stringPreferencesKey("environment_variables")
-    val BACKGROUND_IMAGE_PATH = stringPreferencesKey("bg_image_path")
-    val BACKGROUND_BLUR_RADIUS = intPreferencesKey("bg_blur_radius")
-    val BACKGROUND_ALPHA = floatPreferencesKey("bg_alpha")
-    val BELL_MODE = intPreferencesKey("bell_mode")
-    val SHORTCUT_PASTE = stringPreferencesKey("shortcut_paste")
-    val SHORTCUT_NEW_SESSION = stringPreferencesKey("shortcut_new_session")
-    val SHORTCUT_CLOSE_SESSION = stringPreferencesKey("shortcut_close_session")
-    val SHORTCUT_COPY = stringPreferencesKey("shortcut_copy")
-    val SHORTCUT_TOGGLE_SCROLL = stringPreferencesKey("shortcut_toggle_scroll")
   }
 
   companion object {
@@ -56,9 +45,6 @@ constructor(
     const val DEFAULT_THEME_MODE = "fixed"
     const val DEFAULT_KEYBOARD_MODE = "secure"
     const val DEFAULT_SHELL = "/system/bin/sh"
-    const val DEFAULT_BACKGROUND_BLUR_RADIUS = 0
-    const val DEFAULT_BACKGROUND_ALPHA = 0.8f
-    const val DEFAULT_BELL_MODE = 0
 
     /**
      * Device-adaptive first-launch font size (sp): a fresh install gets a size that shows roughly
@@ -113,29 +99,13 @@ constructor(
       provider.dataStore.data.map { it[Keys.USE_NERD_FONT_GLYPHS] ?: false }
   val keyboardMode: Flow<String> =
       provider.dataStore.data.map { it[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE }
-  val mcpServerEnabled: Flow<Boolean> =
-      provider.dataStore.data.map { it[Keys.MCP_SERVER_ENABLED] ?: false }
   val shizukuEnabled: Flow<Boolean> =
       provider.dataStore.data.map { it[Keys.SHIZUKU_ENABLED] ?: false }
 
-  /** User-defined environment overrides (KEY=VALUE), one per line. */
-  val environmentVariables: Flow<Map<String, String>> =
-      provider.dataStore.data.map {
-        parseEnvironmentVariables(it[Keys.ENVIRONMENT_VARIABLES].orEmpty())
-      }
-  val backgroundImagePath: Flow<String> =
-      provider.dataStore.data.map { it[Keys.BACKGROUND_IMAGE_PATH] ?: "" }
-  val backgroundBlurRadius: Flow<Int> =
-      provider.dataStore.data.map {
-        it[Keys.BACKGROUND_BLUR_RADIUS] ?: DEFAULT_BACKGROUND_BLUR_RADIUS
-      }
-  val backgroundAlpha: Flow<Float> =
-      provider.dataStore.data.map { it[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA }
-  val bellMode: Flow<Int> = provider.dataStore.data.map { it[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE }
 
   /**
    * Single merged snapshot of every persisted setting, derived from one DataStore read. UI
-   * subscribes to this one flow instead of 21 parallel per-field pipelines (C7). Field defaults
+   * subscribes to this one flow instead of 16 parallel per-field pipelines (C7). Field defaults
    * mirror the per-field flows above; keep both in sync when adding a setting.
    */
   data class SettingsState(
@@ -153,18 +123,7 @@ constructor(
       val bootstrapUrl: String = "",
       val useNerdFontGlyphs: Boolean = false,
       val keyboardMode: String = DEFAULT_KEYBOARD_MODE,
-      val mcpServerEnabled: Boolean = false,
       val shizukuEnabled: Boolean = false,
-      val environmentVariables: Map<String, String> = emptyMap(),
-      val backgroundImagePath: String = "",
-      val backgroundBlurRadius: Int = DEFAULT_BACKGROUND_BLUR_RADIUS,
-      val backgroundAlpha: Float = DEFAULT_BACKGROUND_ALPHA,
-      val bellMode: Int = DEFAULT_BELL_MODE,
-      val shortcutPaste: String = "",
-      val shortcutNewSession: String = "",
-      val shortcutCloseSession: String = "",
-      val shortcutCopy: String = "",
-      val shortcutToggleScroll: String = "",
   )
 
   val settings: Flow<SettingsState> =
@@ -184,20 +143,7 @@ constructor(
             bootstrapUrl = prefs[Keys.BOOTSTRAP_URL] ?: "",
             useNerdFontGlyphs = prefs[Keys.USE_NERD_FONT_GLYPHS] ?: false,
             keyboardMode = prefs[Keys.KEYBOARD_MODE] ?: DEFAULT_KEYBOARD_MODE,
-            mcpServerEnabled = prefs[Keys.MCP_SERVER_ENABLED] ?: false,
             shizukuEnabled = prefs[Keys.SHIZUKU_ENABLED] ?: false,
-            environmentVariables =
-                parseEnvironmentVariables(prefs[Keys.ENVIRONMENT_VARIABLES].orEmpty()),
-            backgroundImagePath = prefs[Keys.BACKGROUND_IMAGE_PATH] ?: "",
-            backgroundBlurRadius =
-                prefs[Keys.BACKGROUND_BLUR_RADIUS] ?: DEFAULT_BACKGROUND_BLUR_RADIUS,
-            backgroundAlpha = prefs[Keys.BACKGROUND_ALPHA] ?: DEFAULT_BACKGROUND_ALPHA,
-            bellMode = prefs[Keys.BELL_MODE] ?: DEFAULT_BELL_MODE,
-            shortcutPaste = prefs[Keys.SHORTCUT_PASTE] ?: "",
-            shortcutNewSession = prefs[Keys.SHORTCUT_NEW_SESSION] ?: "",
-            shortcutCloseSession = prefs[Keys.SHORTCUT_CLOSE_SESSION] ?: "",
-            shortcutCopy = prefs[Keys.SHORTCUT_COPY] ?: "",
-            shortcutToggleScroll = prefs[Keys.SHORTCUT_TOGGLE_SCROLL] ?: "",
         )
       }
 
@@ -244,48 +190,7 @@ constructor(
 
   suspend fun setKeyboardMode(mode: String) = put(Keys.KEYBOARD_MODE, mode)
 
-  suspend fun setMcpServerEnabled(enabled: Boolean) = put(Keys.MCP_SERVER_ENABLED, enabled)
-
   suspend fun setShizukuEnabled(enabled: Boolean) = put(Keys.SHIZUKU_ENABLED, enabled)
-
-  /** Persist user-defined environment overrides ("KEY=VALUE" lines). */
-  suspend fun setEnvironmentVariables(vars: Map<String, String>) =
-      put(Keys.ENVIRONMENT_VARIABLES, serializeEnvironmentVariables(vars))
-
-  suspend fun setBackgroundImagePath(path: String) = put(Keys.BACKGROUND_IMAGE_PATH, path)
-
-  suspend fun setBackgroundBlurRadius(radius: Int) = put(Keys.BACKGROUND_BLUR_RADIUS, radius)
-
-  suspend fun setBackgroundAlpha(alpha: Float) = put(Keys.BACKGROUND_ALPHA, alpha)
-
-  suspend fun setBellMode(id: Int) = put(Keys.BELL_MODE, id)
-
-  /** Persist a serialized shortcut binding ("CTRL|SHIFT|54") for the given action id. */
-  suspend fun setShortcutBinding(actionId: String, serialized: String) {
-    val key =
-        when (actionId) {
-          terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE ->
-              Keys.SHORTCUT_PASTE
-
-          terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION ->
-              Keys.SHORTCUT_NEW_SESSION
-
-          terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION ->
-              Keys.SHORTCUT_CLOSE_SESSION
-
-          terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY ->
-              Keys.SHORTCUT_COPY
-
-          terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL ->
-              Keys.SHORTCUT_TOGGLE_SCROLL
-
-          else -> return
-        }
-    put(key, serialized)
-  }
-
-  /** Clear a persisted shortcut binding (revert to default). */
-  suspend fun clearShortcutBinding(actionId: String) = setShortcutBinding(actionId, "")
 
   private suspend fun <T> put(
       key: Preferences.Key<T>,
@@ -294,25 +199,3 @@ constructor(
     provider.dataStore.edit { it[key] = value }
   }
 }
-
-/**
- * Parse the persisted "KEY=VALUE" (one per line) environment overrides. Lines without '=' or with a
- * blank key are skipped; the first '=' splits key from value so values may contain '=' and keep
- * surrounding whitespace. Mirrors the native `parse_env_entries` (shell_env.rs) contract exactly
- * (key trimmed, value untouched).
- */
-internal fun parseEnvironmentVariables(raw: String): Map<String, String> {
-  val result = linkedMapOf<String, String>()
-  for (line in raw.lineSequence()) {
-    val equals = line.indexOf('=')
-    if (equals <= 0) continue
-    val key = line.substring(0, equals).trim()
-    if (key.isEmpty()) continue
-    result[key] = line.substring(equals + 1)
-  }
-  return result
-}
-
-/** Serialize environment overrides to "KEY=VALUE" lines (sorted for stability). */
-internal fun serializeEnvironmentVariables(vars: Map<String, String>): String =
-    vars.entries.sortedBy { it.key }.joinToString(separator = "\n") { "${it.key}=${it.value}" }

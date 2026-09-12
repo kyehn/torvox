@@ -9,7 +9,7 @@ import org.junit.Test
  * Bridge.PollResult.merge — the frame-event coalescing contract: the
  * FIRST exit in a frame wins (sessionId/exitCode travel together),
  * request lists accumulate (each carries a distinct request_id), and
- * later scalar events (notification/openUrl/…) overwrite earlier ones.
+ * a later clipboard scalar overwrites the earlier one.
  */
 class PollResultMergeTest {
     private fun exitResult(sessionId: Long, exitCode: Int) = Bridge.PollResult(
@@ -24,7 +24,7 @@ class PollResultMergeTest {
     @Test
     fun `first exit wins over a later non-exit event`() {
         val first = exitResult(sessionId = 7, exitCode = 0)
-        val later = Bridge.PollResult(notification = "title" to "body") // non-exit event
+        val later = Bridge.PollResult(clipboard = "text") // non-exit event
         val merged = first.merge(later)
         assertTrue(merged.exit)
         assertEquals(7, merged.sessionId)
@@ -62,35 +62,27 @@ class PollResultMergeTest {
     // ── scalar later-wins fields ──────────────────────────────────────
 
     @Test
-    fun `notification and toast overwrite earlier values`() {
-        val first = Bridge.PollResult(notification = "a" to "x", toastText = "old")
-        val later = Bridge.PollResult(notification = "b" to "y", toastText = "new")
-        val merged = first.merge(later)
-        assertEquals("b" to "y", merged.notification)
-        assertEquals("new", merged.toastText)
+    fun `later clipboard overwrites earlier value`() {
+        val first = Bridge.PollResult(clipboard = "a")
+        val merged = first.merge(Bridge.PollResult(clipboard = "b"))
+        assertEquals("b", merged.clipboard)
     }
 
     @Test
     fun `null scalar does not clobber an existing value`() {
-        val first = Bridge.PollResult(notification = "a" to "x")
+        val first = Bridge.PollResult(clipboard = "a")
         val merged = first.merge(Bridge.PollResult())
-        assertEquals("a" to "x", merged.notification)
-    }
-
-    @Test
-    fun `bel is a sticky or`() {
-        assertTrue(Bridge.PollResult(bel = true).merge(Bridge.PollResult()).bel)
-        assertTrue(Bridge.PollResult(bel = false).merge(Bridge.PollResult(bel = true)).bel)
+        assertEquals("a", merged.clipboard)
     }
 
     // ── accumulating lists ────────────────────────────────────────────
 
     @Test
-    fun `request lists accumulate across frames`() {
-        val dialog1 = Bridge.DialogRequest(1, 10, "confirm", "t", "m", listOf("ok"))
-        val dialog2 = Bridge.DialogRequest(2, 20, "prompt", "t", "m", listOf("a", "b"))
-        val merged = Bridge.PollResult(dialogs = listOf(dialog1)).merge(Bridge.PollResult(dialogs = listOf(dialog2)))
-        assertEquals(listOf(dialog1, dialog2), merged.dialogs)
+    fun `clipboard request lists accumulate across frames`() {
+        val read1 = Bridge.ClipboardRequest(1, 10, "c")
+        val read2 = Bridge.ClipboardRequest(2, 20, "c")
+        val merged = Bridge.PollResult(clipboardReads = listOf(read1)).merge(Bridge.PollResult(clipboardReads = listOf(read2)))
+        assertEquals(listOf(read1, read2), merged.clipboardReads)
     }
 
     @Test
