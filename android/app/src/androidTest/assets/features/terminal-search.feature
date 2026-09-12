@@ -1,33 +1,24 @@
+# language: zh-CN
 @REQ_SEARCH_001 @REQ_SEARCH_002
-Feature: Text Search
-  The terminal provides a search bar accessible from the session panel
-  that highlights matching text and supports navigation.
-
-  NOTE: search is wired end-to-end (native `searchAllInScrollback` path —
-  the old "getTerminalText stub" note is long obsolete: Bridge methods all
-  delegate to real JNI via NativeQueryPort). The @wip scenarios below will
-  be re-enabled one by one in a cucumber round; their step definitions may
-  need updating for the system-ActionMode menu / current UI nodes.
+功能: 文本搜索
+  终端提供可从会话面板打开的搜索栏，支持高亮匹配文本与导航。
 
   @REQ_SEARCH_001
-  @wip
-  Scenario: Search bar opens from session panel button
-    Given a terminal session is active
-    When the user opens the search bar from the session panel
-    Then the search bar is displayed at the bottom
-    And the modifier bar is hidden
+  场景: 从会话面板打开搜索栏
+    假如 终端会话处于活动状态
+    当 从会话面板打开搜索栏
+    那么 搜索栏显示在底部
+    而且 修饰键栏已隐藏
 
   @REQ_SEARCH_001
-  @wip
-  Scenario: Search closes and clears highlights
-    Given the terminal has search highlights active
-    When the user closes the search bar
-    Then all search highlights disappear
-    And the modifier bar is visible again
+  场景: 关闭搜索栏并清除高亮
+    假如 终端已有搜索高亮
+    当 关闭搜索栏
+    那么 搜索高亮全部消失
+    而且 修饰键栏重新可见
 
   @REQ_SEARCH_002
-  @wip
-  Scenario: IME does not cover search bar
-    Given the search bar is visible
-    When the soft keyboard opens
-    Then the search bar remains visible above the keyboard
+  场景: 输入法不遮挡搜索栏
+    假如 搜索栏可见
+    当 弹出软键盘
+    那么 搜索栏仍在键盘上方

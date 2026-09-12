@@ -1,13 +1,14 @@
+# language: zh-CN
 @REQ_ANDR_004
-Feature: Theme Selection
+功能: 主题选择
 
   @REQ_ANDR_004
-  Scenario: Theme switching works
-    Given the user is on the settings screen
-    When the user selects a different theme
-    Then the terminal theme updates
+  场景: 切换主题生效
+    假如 用户在设置界面
+    当 用户选择另一个主题
+    那么 终端主题变为所选主题
 
   @REQ_ANDR_004
-  Scenario: Default theme is applied on first launch
-    Given the app has launched
-    Then the default theme is applied to the terminal
+  场景: 首次启动应用有效内置主题
+    假如 应用已启动
+    那么 终端应用的是有效内置主题

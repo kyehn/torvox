@@ -1,156 +1,218 @@
 package terminal.emulator.cucumber.steps
 
 import android.annotation.SuppressLint
-import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.view.View
-import android.view.inputmethod.InputMethodManager
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import androidx.test.platform.app.InstrumentationRegistry
-import io.cucumber.java.en.Given
-import io.cucumber.java.en.Then
-import io.cucumber.java.en.When
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
+import io.cucumber.java.zh_cn.假如
+import io.cucumber.java.zh_cn.当
+import io.cucumber.java.zh_cn.那么
+import javax.inject.Inject
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import terminal.emulator.MainActivity
+import terminal.emulator.SelectionAnchor
+import terminal.emulator.UxTestUtils
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.findTerminalSurface
 import terminal.emulator.getBridge
 import terminal.emulator.injectLongPress
-import terminal.emulator.ui.TerminalSurface
 import terminal.emulator.waitForSession
-import javax.inject.Inject
 
 class SelectionSteps
 @Inject
 constructor(
     private val composeRuleHolder: ComposeRuleHolder,
 ) {
-    private fun surface(): View {
-        val scenario = composeRuleHolder.composeRule.activityRule.scenario
-        var surface: View? = null
-        scenario.onActivity { activity ->
-            surface = findTerminalSurface(activity)
+  // 跨场景共享的胶水实例会常驻，字段只在同一场景内传递，每次使用前重写。
+  private var dragBeforeEnd: SelectionAnchor? = null
+  private var copiedText: String? = null
+
+  private fun surface(): View {
+    val scenario = composeRuleHolder.composeRule.activityRule.scenario
+    var surface: View? = null
+    scenario.onActivity { activity ->
+      surface = findTerminalSurface(activity)
+    }
+    return checkNotNull(surface) { "找不到终端 Surface" }
+  }
+
+  private fun selection(): terminal.emulator.SelectionState {
+    var selection: terminal.emulator.SelectionState? = null
+    composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
+      selection = (activity as MainActivity).terminalViewModel.state.value.selection
+    }
+    return checkNotNull(selection) { "读不到选择状态" }
+  }
+
+  // 往屏幕写满数字行并等末尾标记回显，保证长按落点有文本可供单词选中。
+  private fun ensureScreenText() {
+    val rule = composeRuleHolder.composeRule
+    val bridge = rule.getBridge() ?: throw AssertionError("拿不到终端桥")
+    bridge.writeToPty(
+        "echo SELTEXT_START\nseq 1 50\necho SELTEXT_END\n".toByteArray(Charsets.UTF_8)
+    )
+    val seen =
+        UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+          bridge.getTerminalText()?.contains("SELTEXT_END") == true
         }
-        return checkNotNull(surface) { "Terminal surface not found" }
-    }
+    assertNotNull("终端未显示文本", seen)
+  }
 
-    @Given("^the terminal displays text$")
-    fun terminalDisplaysText() {
-        composeRuleHolder.composeRule.waitForSession()
-    }
+  private fun longPressCenter(): View {
+    val view = surface()
+    injectLongPress(view, view.width / 2f, view.height / 2f)
+    return view
+  }
 
-    @Given("^text is selected in the terminal$")
-    fun textIsSelectedInTerminal() {
-        composeRuleHolder.composeRule.waitForSession()
-        val s = surface()
-        injectLongPress(s, s.width / 2f, s.height / 2f)
-    }
+  @假如("^终端显示文本$")
+  fun terminalDisplaysText() {
+    composeRuleHolder.composeRule.waitForSession()
+    ensureScreenText()
+  }
 
-    @When("^the user long-presses on a character$")
-    fun userLongPressesOnCharacter() {
-        val s = surface()
-        injectLongPress(s, s.width / 2f, s.height / 2f)
-    }
-
-    @When("^the user long-presses on an empty area$")
-    fun userLongPressesOnEmptyArea() {
-        val s = surface()
-        // press near the bottom. After "the terminal displays
-        // text" the prompt occupies the top rows, so height*0.1 lands on
-        // text and triggers word-selection instead of the paste popup.
-        injectLongPress(s, s.width / 2f, s.height * 0.9f)
-    }
-
-    @When("^the user double-taps on a word$")
-    fun userDoubleTapsOnWord() {
-        // STUB: GestureDetector cannot detect double-tap with
-        // simulated events (Android removes the TAP handler on the first UP,
-        // making hadTapMessage=false when the second DOWN arrives). Fall
-        // back to long-press which triggers handleLongPress with semantic
-        // word expansion — identical outcome for now; revisit when a real
-        // double-tap injection path exists.
-        val s = surface()
-        injectLongPress(s, s.width / 2f, s.height / 2f)
-    }
-
-    @When("^the user drags the selection handle forward$")
-    fun userDragsSelectionHandleForward() {
-        val s = surface()
-        injectLongPress(s, s.width * 0.7f, s.height / 2f)
-    }
-
-    @When("^the user drags the selection handle backward$")
-    fun userDragsSelectionHandleBackward() {
-        val s = surface()
-        injectLongPress(s, s.width * 0.3f, s.height / 2f)
-    }
-
-    @When("^the user triggers copy$")
-    fun userTriggersCopy() {
-        // Route through the selection menu's Copy item, which calls
-        // viewModel.copySelectionToClipboard() (the TerminalSurface
-        // getSelectedText accessor was removed with the implemented (native query path is wired)).
-        composeRuleHolder.composeRule
-            .onNodeWithText("Copy", useUnmergedTree = true)
-            .performClick()
-    }
-
-    @Then("^a selection handle appears$")
-    fun selectionHandleAppears() {
-        composeRuleHolder.composeRule.waitForIdle()
-        // A live selection shows the selection action bar (dismiss/copy/etc.).
-        composeRuleHolder.composeRule
-            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
-            .assertIsDisplayed()
-    }
-
-    @Then("^the word is selected$")
-    fun wordIsSelected() {
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
-            .assertIsDisplayed()
-    }
-
-    @Then("^the text is available on the clipboard$")
-    @SuppressLint("DeprecatedCall") // primaryClip: no @Deprecated in API 37; slack-lint rule data lag
-    fun textIsAvailableOnClipboard() {
-        val context = InstrumentationRegistry.getInstrumentation().targetContext
-        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-        val clip = clipboard.primaryClip
-        assert(clip != null && clip.itemCount > 0) { "Clipboard should contain text" }
-    }
-
-    @Then("^the paste popup appears$")
-    fun pastePopupAppears() {
-        composeRuleHolder.composeRule.waitForIdle()
-        // the PasteChipOverlay was removed together with paste
-        // confirmation; an empty-area long-press now produces a paste-only
-        // selection (SelectionManager.showPastePopup) with its floating
-        // Paste menu.
-        var pasteOnly = false
-        composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
-            pasteOnly = activity.terminalViewModel.state.value.selection.pasteOnly
+  @假如("^终端中的文本已被选中$")
+  fun textIsSelectedInTerminal() {
+    composeRuleHolder.composeRule.waitForSession()
+    ensureScreenText()
+    longPressCenter()
+    val selected =
+        UxTestUtils.pollUntilTrue(timeoutMs = 10_000, intervalMs = 100) {
+          selection().active
         }
-        assert(pasteOnly) { "Expected a paste-only selection" }
-    }
+    assertNotNull("长按后未进入选择状态", selected)
+  }
 
-    @Then("^the selection extends to the drag target$")
-    fun selectionExtendsToDragTarget() {
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
-            .assertIsDisplayed()
-    }
+  @当("^长按字符$")
+  fun userLongPressesOnCharacter() {
+    longPressCenter()
+  }
 
-    @Then("^the selection shrinks to the drag target$")
-    fun selectionShrinksToDragTarget() {
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
-            .assertIsDisplayed()
+  @当("^长按空白区域$")
+  fun userLongPressesOnEmptyArea() {
+    val view = surface()
+    // 顶部是提示符与数字行，底部 90% 处为空行，长按此处应出粘贴菜单而非单词选中。
+    injectLongPress(view, view.width / 2f, view.height * 0.9f)
+  }
+
+  @当("^向前拖动选择手柄$")
+  fun userDragsSelectionHandleForward() {
+    val view = surface()
+    dragBeforeEnd = selection().end
+    UxTestUtils.injectDrag(
+        view,
+        view.width * 0.5f,
+        view.height / 2f,
+        view.width * 0.75f,
+        view.height / 2f,
+    )
+  }
+
+  @当("^向后拖动选择手柄$")
+  fun userDragsSelectionHandleBackward() {
+    val view = surface()
+    dragBeforeEnd = selection().end
+    UxTestUtils.injectDrag(
+        view,
+        view.width * 0.5f,
+        view.height / 2f,
+        view.width * 0.25f,
+        view.height / 2f,
+    )
+  }
+
+  @当("^触发复制$")
+  fun userTriggersCopy() {
+    // 复制会清除选区，先记下所选文本供断言比对。
+    val selectedText = selection().selectedText
+    assertTrue("复制前应有选中文本", selectedText.isNotEmpty())
+    copiedText = selectedText
+    // 选择菜单是原生 PopupWindow，不在 Compose 语义树中，用 UiAutomator 点击。
+    val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+    assertTrue("选择菜单未出现", device.wait(Until.hasObject(By.text("复制")), 10_000))
+    device.findObject(By.text("复制")).click()
+    composeRuleHolder.composeRule.waitForIdle()
+  }
+
+  @那么("^出现选择手柄$")
+  fun selectionHandleAppears() {
+    composeRuleHolder.composeRule.waitForIdle()
+    // 选中态会展示选择操作栏（关闭/复制等）。
+    composeRuleHolder.composeRule
+        .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
+        .assertIsDisplayed()
+  }
+
+  @那么("^单词被选中$")
+  fun wordIsSelected() {
+    composeRuleHolder.composeRule.waitForIdle()
+    val selectedText = selection().selectedText
+    assertTrue("应选中单词，实际选中文本为空", selectedText.isNotEmpty())
+    composeRuleHolder.composeRule
+        .onNodeWithTag("Action_Dismiss", useUnmergedTree = true)
+        .assertIsDisplayed()
+  }
+
+  @那么("^所选文本已在剪贴板$")
+  @SuppressLint("DeprecatedCall") // primaryClip：API 37 未标记废弃，lint 数据滞后
+  fun textIsAvailableOnClipboard() {
+    val expected = checkNotNull(copiedText) { "复制步骤未记录所选文本" }
+    copiedText = null
+    val context = InstrumentationRegistry.getInstrumentation().targetContext
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+    val actual = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+    assertTrue("剪贴板内容应为所选文本 $expected，实际 $actual", actual == expected)
+  }
+
+  @那么("^粘贴菜单已出现$")
+  fun pastePopupAppears() {
+    composeRuleHolder.composeRule.waitForIdle()
+    // 空白处长按产生纯粘贴选区（SelectionManager.showPastePopup），带悬浮粘贴菜单。
+    var pasteOnly = false
+    composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
+      pasteOnly = (activity as MainActivity).terminalViewModel.state.value.selection.pasteOnly
     }
+    assertTrue("应为纯粘贴选区", pasteOnly)
+  }
+
+  @那么("^选区扩展到拖动目标$")
+  fun selectionExtendsToDragTarget() {
+    val before = checkNotNull(dragBeforeEnd) { "拖动步骤未记录拖前选区" }
+    val settled =
+        UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
+          selection().active && positionOf(selection().end) != positionOf(before)
+        }
+    assertNotNull("向前拖动后选区尾部应移动", settled)
+    val after = selection().end
+    assertTrue(
+        "向前拖动后选区尾部应前移，拖前 $before，拖后 $after",
+        after != null && positionOf(after) > positionOf(before),
+    )
+  }
+
+  @那么("^选区收缩到拖动目标$")
+  fun selectionShrinksToDragTarget() {
+    val before = checkNotNull(dragBeforeEnd) { "拖动步骤未记录拖前选区" }
+    val settled =
+        UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 100) {
+          selection().active && positionOf(selection().end) != positionOf(before)
+        }
+    assertNotNull("向后拖动后选区尾部应移动", settled)
+    val after = selection().end
+    assertTrue(
+        "向后拖动后选区尾部应后移，拖前 $before，拖后 $after",
+        after != null && positionOf(after) < positionOf(before),
+    )
+  }
+
+  private fun positionOf(anchor: SelectionAnchor?): Long {
+    if (anchor == null) return -1
+    return anchor.row * 10_000L + anchor.col
+  }
 }

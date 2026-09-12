@@ -1,15 +1,16 @@
+# language: zh-CN
 @REQ_TERM_001 @REQ_ANDR_004 @REQ_SYS_002
-Feature: Terminal Launch
+功能: 终端启动
 
   @REQ_TERM_001
-  Scenario: Terminal screen renders on launch
-    Given the app has launched
-    Then the terminal screen is displayed
-    And the modifier bar is visible
-    And the terminal content area has positive dimensions
+  场景: 启动后渲染终端界面
+    假如 应用已启动
+    那么 终端界面已显示
+    而且 修饰键栏可见
+    而且 终端内容区宽高为正
 
   @REQ_ANDR_004
-  Scenario: SurfaceView renders above Compose UI
-    Given the app has launched
-    Then the SurfaceView is visible
-    And it renders above the Compose layout
+  场景: SurfaceView 渲染在 Compose 布局上层
+    假如 应用已启动
+    那么 SurfaceView 可见
+    而且 它渲染在 Compose 布局上层
