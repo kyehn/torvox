@@ -4,46 +4,42 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
-import io.cucumber.java.en.Given
-import io.cucumber.java.en.Then
+import io.cucumber.java.zh_cn.那么
+import javax.inject.Inject
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.findTerminalSurface
-import terminal.emulator.waitForSession
-import javax.inject.Inject
 
 class TerminalLaunchSteps
 @Inject
 constructor(
     private val composeRuleHolder: ComposeRuleHolder,
 ) {
-    @Then("^the modifier bar is visible$")
-    fun modifierBarIsVisible() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("ModifierBar")
-            .assertIsDisplayed()
-    }
+  @那么("^修饰键栏可见$")
+  fun modifierBarIsVisible() {
+    composeRuleHolder.composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
+  }
 
-    @Then("^the terminal content area has positive dimensions$")
-    fun terminalContentAreaHasPositiveDimensions() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalContent")
-            .assertIsDisplayed()
-            .assertWidthIsAtLeast(1.dp)
-    }
+  @那么("^终端内容区宽高为正$")
+  fun terminalContentAreaHasPositiveDimensions() {
+    composeRuleHolder.composeRule
+        .onNodeWithTag("TerminalContent")
+        .assertIsDisplayed()
+        .assertWidthIsAtLeast(1.dp)
+  }
 
-    @Then("^the SurfaceView is visible$")
-    fun surfaceViewIsVisible() {
-        composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
-            val surface = findTerminalSurface(activity)
-            assert(surface.width > 0) { "SurfaceView width should be positive" }
-            assert(surface.height > 0) { "SurfaceView height should be positive" }
-        }
+  @那么("^SurfaceView 可见$")
+  fun surfaceViewIsVisible() {
+    composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->
+      val surface = findTerminalSurface(activity)
+      assert(surface.width > 0) { "SurfaceView 宽度应为正" }
+      assert(surface.height > 0) { "SurfaceView 高度应为正" }
     }
+  }
 
-    @Then("^it renders above the Compose layout$")
-    fun itRendersAboveComposeLayout() {
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
-    }
+  @那么("^它渲染在 Compose 布局上层$")
+  fun itRendersAboveComposeLayout() {
+    composeRuleHolder.composeRule
+        .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
+        .assertIsDisplayed()
+  }
 }

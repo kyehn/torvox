@@ -1,15 +1,16 @@
+# language: zh-CN
 @REQ_ANDR_004 @REQ_ANDR_008
-Feature: Settings — General
+功能: 设置-通用
 
   @REQ_ANDR_004
-  Scenario: Settings screen displays all sections
-    Given the app has launched
-    When the user opens the settings screen
-    Then theme selector and font size slider are displayed
+  场景: 设置界面展示各分区
+    假如 应用已启动
+    当 打开设置界面
+    那么 主题选择器与字号滑块已显示
 
   @REQ_ANDR_008
-  Scenario: Font size can be adjusted
-    Given the user is on the settings screen
-    Then the font size slider exists
-    When the slider is adjusted
-    Then the terminal font size changes
+  场景: 字号可以调节
+    假如 用户在设置界面
+    那么 字号滑块存在
+    当 调节滑块
+    那么 终端字号变为预期值

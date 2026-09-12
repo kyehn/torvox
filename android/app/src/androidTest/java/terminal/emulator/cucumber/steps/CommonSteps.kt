@@ -1,40 +1,38 @@
 package terminal.emulator.cucumber.steps
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.hasTestTag
-import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.onNodeWithTag
-import io.cucumber.java.en.Given
-import io.cucumber.java.en.Then
+import io.cucumber.java.zh_cn.假如
+import io.cucumber.java.zh_cn.那么
+import javax.inject.Inject
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.openSettings
 import terminal.emulator.waitForSession
-import javax.inject.Inject
 
 class CommonSteps
 @Inject
 constructor(
     private val composeRuleHolder: ComposeRuleHolder,
 ) {
-    @Given("^the app has launched$")
-    fun appHasLaunched() {
-        composeRuleHolder.composeRule.waitForSession()
-    }
+  @假如("^应用已启动$")
+  fun appHasLaunched() {
+    composeRuleHolder.composeRule.waitForSession()
+  }
 
-    @Given("^the user is on the settings screen$")
-    fun userIsOnSettingsScreen() {
-        composeRuleHolder.composeRule.waitForSession()
-        composeRuleHolder.composeRule.openSettings()
-    }
+  @假如("^用户在设置界面$")
+  fun userIsOnSettingsScreen() {
+    composeRuleHolder.composeRule.waitForSession()
+    composeRuleHolder.composeRule.openSettings()
+  }
 
-    @Then("^the terminal screen is displayed$")
-    fun terminalScreenIsDisplayed() {
-        composeRuleHolder.composeRule.waitForIdle()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertExists()
-        composeRuleHolder.composeRule
-            .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
-            .assertIsDisplayed()
-    }
+  @那么("^终端界面已显示$")
+  fun terminalScreenIsDisplayed() {
+    composeRuleHolder.composeRule.waitForIdle()
+    composeRuleHolder.composeRule
+        .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
+        .assertExists()
+    composeRuleHolder.composeRule
+        .onNodeWithTag("TerminalScreen", useUnmergedTree = true)
+        .assertIsDisplayed()
+  }
 }

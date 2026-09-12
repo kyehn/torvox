@@ -1,19 +1,19 @@
+# language: zh-CN
 @REQ_TERM_007 @REQ_ANDR_010 @REQ_ANDR_006
-Feature: Terminal Lifecycle
+功能: 终端生命周期
 
   @REQ_TERM_007
-  Scenario: Session survives activity recreation
-    Given the app has launched and a session is active
-    When the activity is recreated
-    Then the terminal screen is still displayed
-    And the session is still functional
+  场景: 活动重建后会话存活
+    假如 应用已启动且会话处于活动状态
+    当 活动被重建
+    那么 终端界面仍显示
+    而且 会话仍可用
 
-  # Session-restore scenario removed: session persistence across process
-  # death was deleted with the save/restore feature; TerminalRuntime is a
-  # process-local singleton, so force-stop necessarily ends all sessions.
+  # 进程死亡恢复场景已删除：会话持久化功能已连同存档/恢复一起删除；
+  # TerminalRuntime 是进程内单例，强制停止必然结束全部会话。
 
   @REQ_ANDR_010
-  Scenario: Process survives configuration change
-    Given the app has launched and a session is active
-    When the device configuration changes (orientation)
-    Then the session continues without interruption
+  场景: 屏幕方向改变后会话不中断
+    假如 应用已启动且会话处于活动状态
+    当 设备方向改变
+    那么 会话不间断继续
