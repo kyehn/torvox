@@ -578,44 +578,18 @@ fn cursor_rendering_on_visible_cursor() {
 
 #[test]
 fn cursor_not_rendered_when_invisible() {
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let cell_data = vec![CellData {
-        codepoint: 'A' as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
-        fg_color: [1.0, 1.0, 1.0, 1.0],
-        bg_color: [0.0, 0.0, 0.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
-    }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: Some([1.0, 1.0, 1.0, 1.0]),
-    };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
-        &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            selection: None,
-            search_highlights: &[],
-        },
+    let instances = build_cursor_probe_instance(
+        'A' as u32,
+        [1.0, 1.0, 1.0, 1.0],
+        [0.0, 0.0, 0.0, 1.0],
+        0,
+        false,
+        cell_w,
+        cell_h,
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
@@ -626,46 +600,21 @@ fn cursor_not_rendered_when_invisible() {
 
 #[test]
 fn reverse_video_applied_to_blank_cell() {
-    use crate::terminal::ghostty_terminal::{CellData, cell_flags};
+    use crate::terminal::ghostty_terminal::cell_flags;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let foreground = [1.0, 0.0, 0.0, 1.0];
     let background = [0.0, 0.0, 1.0, 1.0];
-    let cell_data = vec![CellData {
-        codepoint: 0x20,
-        width: 1,
-        grapheme_extra: [0; 7],
-        fg_color: foreground,
-        bg_color: background,
-        flags: 1 << cell_flags::REVERSE,
-        row: 0,
-        col: 0,
-    }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: Some([1.0, 1.0, 1.0, 1.0]),
-    };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
-        &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            selection: None,
-            search_highlights: &[],
-        },
+    let instances = build_cursor_probe_instance(
+        0x20,
+        foreground,
+        background,
+        1 << cell_flags::REVERSE,
+        false,
+        cell_w,
+        cell_h,
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // Reverse video swaps fg/bg: blank cell bg must become the foreground,
@@ -741,6 +690,81 @@ fn selection_swaps_fg_bg() {
         f32_arrays_equal(&cell.bg_color, &[1.0, 0.0, 0.0, 1.0]),
         "selected cell bg should be original fg (swap)"
     );
+}
+
+const TEST_ATLAS_SIZE: f32 = 1024.0;
+
+/// Build production instances for one configured cell (shared by cursor,
+/// reverse-video and selection tests): caller supplies the cell contents,
+/// cursor state and optional selection, unit grid otherwise.
+fn build_configured_cell_instance(
+    cell_data: &[crate::terminal::ghostty_terminal::CellData],
+    cursor: crate::render::CellCursor,
+    selection: Option<super::SelectionRange>,
+    cell_width: f32,
+    cell_height: f32,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+) -> Vec<crate::render::CellInstance> {
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: cell_data.len() as u32,
+            grid_cell_w: cell_width,
+            grid_cell_h: cell_height,
+            cursor,
+            atlas_width: TEST_ATLAS_SIZE,
+            atlas_height: TEST_ATLAS_SIZE,
+            selection,
+            search_highlights: &[],
+        },
+        font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
+    instances
+}
+
+/// Build one cursor-probe cell with white block cursor styling: covers the
+/// repeated single-cell cursor/reverse-video setup with varying codepoint,
+/// colors, flags and cursor visibility.
+fn build_cursor_probe_instance(
+    codepoint: u32,
+    foreground: [f32; 4],
+    background: [f32; 4],
+    flags: u32,
+    cursor_visible: bool,
+    cell_width: f32,
+    cell_height: f32,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+) -> Vec<crate::render::CellInstance> {
+    use crate::terminal::ghostty_terminal::CellData;
+    let cell_data = vec![CellData {
+        codepoint,
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: foreground,
+        bg_color: background,
+        flags,
+        row: 0,
+        col: 0,
+    }];
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: cursor_visible,
+        style: CursorStyle::Block,
+        color: Some([1.0, 1.0, 1.0, 1.0]),
+    };
+    build_configured_cell_instance(
+        &cell_data,
+        cursor,
+        None,
+        cell_width,
+        cell_height,
+        font_pipeline,
+    )
 }
 
 /// Build production instances for a single cell (shared by the bearing tests
@@ -1516,44 +1540,18 @@ fn selection_intersect_current_match_double_swap() {
 
 #[test]
 fn cursor_block_full_cell_size() {
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let cell_data = vec![CellData {
-        codepoint: 0x20,
-        width: 1,
-        grapheme_extra: [0; 7],
-        fg_color: [1.0, 1.0, 1.0, 1.0],
-        bg_color: [0.0, 0.0, 0.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
-    }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: true,
-        style: CursorStyle::Block,
-        color: Some([1.0, 1.0, 1.0, 1.0]),
-    };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
-        &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            selection: None,
-            search_highlights: &[],
-        },
+    let instances = build_cursor_probe_instance(
+        0x20,
+        [1.0, 1.0, 1.0, 1.0],
+        [0.0, 0.0, 0.0, 1.0],
+        0,
+        true,
+        cell_w,
+        cell_h,
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // Production block cursor tracks the glyph bitmap (not the full cell):
@@ -1571,44 +1569,18 @@ fn cursor_block_full_cell_size() {
 
 #[test]
 fn cursor_not_rendered_when_visible_false() {
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let cell_data = vec![CellData {
-        codepoint: 0x20,
-        width: 1,
-        grapheme_extra: [0; 7],
-        fg_color: [1.0, 1.0, 1.0, 1.0],
-        bg_color: [0.0, 0.0, 0.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
-    }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: Some([1.0, 1.0, 1.0, 1.0]),
-    };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
-        &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            selection: None,
-            search_highlights: &[],
-        },
+    let instances = build_cursor_probe_instance(
+        0x20,
+        [1.0, 1.0, 1.0, 1.0],
+        [0.0, 0.0, 0.0, 1.0],
+        0,
+        false,
+        cell_w,
+        cell_h,
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // Non-cursor blank cell uses default background, not cursor color
@@ -1620,44 +1592,18 @@ fn cursor_not_rendered_when_visible_false() {
 
 #[test]
 fn cursor_at_origin() {
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let cell_data = vec![CellData {
-        codepoint: 'A' as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
-        fg_color: [1.0, 1.0, 1.0, 1.0],
-        bg_color: [0.0, 0.0, 0.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
-    }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: true,
-        style: CursorStyle::Block,
-        color: Some([1.0, 1.0, 1.0, 1.0]),
-    };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
-        &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            selection: None,
-            search_highlights: &[],
-        },
+    let instances = build_cursor_probe_instance(
+        'A' as u32,
+        [1.0, 1.0, 1.0, 1.0],
+        [0.0, 0.0, 0.0, 1.0],
+        0,
+        true,
+        cell_w,
+        cell_h,
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(
         instances.len(),
         1,
@@ -1672,44 +1618,18 @@ fn cursor_at_origin() {
 
 #[test]
 fn cursor_with_text_and_block_style() {
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let cell_data = vec![CellData {
-        codepoint: 'X' as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
-        fg_color: [0.0, 1.0, 0.0, 1.0],
-        bg_color: [0.0, 0.0, 1.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
-    }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: true,
-        style: CursorStyle::Block,
-        color: Some([1.0, 1.0, 1.0, 1.0]),
-    };
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
-        &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            selection: None,
-            search_highlights: &[],
-        },
+    let instances = build_cursor_probe_instance(
+        'X' as u32,
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 1.0],
+        0,
+        true,
+        cell_w,
+        cell_h,
         &mut font_pipeline,
-        &mut instances,
     );
-    assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     // Block cursor keeps the original fg readable, bg becomes cursor color×alpha.
