@@ -16,7 +16,7 @@
     <shortcut
         android:shortcutId="new_session"
         android:enabled="true"
-        android:icon="@drawable/ic_shortcut_session"
+        android:icon="@android:drawable/ic_menu_add"
         android:shortcutShortLabel="@string/action_new_session"
         tools:targetApi="n_mr1">
         <intent
@@ -28,7 +28,7 @@
     <shortcut
         android:shortcutId="new_failsafe_session"
         android:enabled="true"
-        android:icon="@drawable/ic_shortcut_failsafe"
+        android:icon="@android:drawable/ic_menu_revert"
         android:shortcutShortLabel="@string/action_new_session_failsafe"
         tools:targetApi="n_mr1">
         <intent
@@ -42,7 +42,7 @@
     <shortcut
         android:shortcutId="settings"
         android:enabled="true"
-        android:icon="@drawable/ic_shortcut_settings"
+        android:icon="@android:drawable/ic_menu_preferences"
         android:shortcutShortLabel="@string/action_open_settings"
         tools:targetApi="n_mr1">
         <intent
