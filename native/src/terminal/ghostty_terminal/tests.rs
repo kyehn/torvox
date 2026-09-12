@@ -2854,8 +2854,6 @@ mod osc_title_regressions {
 
 /// CSI 14t and 16t (pixel/character size reports) must not crash.
 
-
-
 /// dec_erase_rect erases the rectangle to spaces and leaves cells outside it
 /// untouched; a zero-width/height rect is a no-op.
 #[test]

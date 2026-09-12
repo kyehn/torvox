@@ -71,7 +71,6 @@ use std::sync::atomic::Ordering;
 use crate::event::Event;
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::JObject;
-use jni::objects::JObjectArray;
 use jni::objects::{JClass, JString};
 use jni::strings::JNIString;
 use jni::sys::{
@@ -148,47 +147,7 @@ struct SessionEntry {
 static SESSION_REGISTRY: LazyLock<RwLock<HashMap<u64, SessionEntry>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
-/// Read the exit code of a registered session, if the wait thread already
-/// captured one (spec d4: terminal_info exposes the session exit code).
-/// Lock order: SESSION_REGISTRY → Session → exit_code (see module docs).
-/// `None` for unknown sessions and for sessions still running.
-#[cfg(feature = "mcp")]
-pub(crate) fn session_exit_code(session_id: u64) -> Option<i32> {
-    let registry = SESSION_REGISTRY.read();
-    let entry = registry.get(&session_id)?;
-    let session = entry.session.lock();
-    session.exit_code_now()
-}
-
-/// Read the current working directory of a registered session (OSC 7
-/// shell-tracked first, then the terminal's /proc-derived fallback —
-/// session.rs cwd()). Registered as the MCP `terminal_info` cwd handler
-/// so the MCP thread never holds the session lock.
-/// Lock order: SESSION_REGISTRY → Session → cwd (see module docs).
-#[cfg(feature = "mcp")]
-pub(crate) fn session_cwd(session_id: u64) -> Option<String> {
-    let registry = SESSION_REGISTRY.read();
-    let entry = registry.get(&session_id)?;
-    let session = entry.session.lock();
-    Some(session.cwd())
-}
-
-/// Drains the OSC 133 last-command-output buffer of a registered session
-/// (termlib getLastCommandOutput equivalent, research-supplement-4.md
-/// §1.2). The buffer is cleared on read, so each query sees fresh data.
-/// Lock order: SESSION_REGISTRY → Session (see module docs).
-#[cfg(feature = "mcp")]
-pub(crate) fn session_last_command_output(session_id: u64) -> Option<String> {
-    let registry = SESSION_REGISTRY.read();
-    let entry = registry.get(&session_id)?;
-    let mut session = entry.session.lock();
-    let output = session.take_last_command_output();
-    if output.is_empty() {
-        None
-    } else {
-        Some(output)
-    }
-}
+/// Test-only: register a session entry directly (host tests cannot go
 
 /// Test-only: register a session entry directly (host tests cannot go
 /// through the JNI spawn path). Dead in non-test lib builds by design.
@@ -247,22 +206,6 @@ struct RenderState {
     /// next `render_inner` (same deferred-consume pattern as
     /// `search_highlights`; wgpu texture creation happens on the render
     /// thread). `None` = no pending change.
-    pending_bg_image: Option<(Vec<u8>, u32, u32)>,
-    /// Set by `clearBackgroundImage`; consumed by the render thread.
-    pending_bg_image_clear: bool,
-    /// Bell-flash overlay phase pending for the next frame: `Some(phase)`
-    /// set by `setFlashState` (any thread), consumed by `render_inner`
-    /// (same deferred pattern as the background image). `0.0` turns the
-    /// flash off. Kotlin drives the decay animation.
-    pending_flash_phase: Option<f32>,
-    /// App-level cursor blink state. Fixed defaults (no user setting):
-    /// blink disabled, cursor steady and square. The fields stay atomic
-    /// because the render thread reads them while holding the render-state
-    /// lock for the whole frame; Relaxed ordering is fine (render-thread
-    /// reader, staleness bounded by the next frame).
-    cursor_blink_enabled: AtomicBool,
-    cursor_blink_speed_ms: AtomicU64,
-    cursor_blink_phase_reset_ms: AtomicU64,
     /// Active text selection for the next frame. Set by `setSelection`
     /// (row/col bounds in visible-grid coordinates), consumed by
     /// `render_inner`; same deferred-consume pattern as
@@ -279,9 +222,6 @@ struct RenderState {
         u32,
         u32,
     )>,
-    /// Blink phase (0 = visible half, 1 = hidden half) of the last drawn
-    /// frame; used to detect phase flips while idle.
-    last_blink_phase: Option<u64>,
     /// Viewport Y pixel offset at last draw — used by the idle repaint
     /// gate to detect per-pixel scroll remainder changes and force a
     /// redraw (the offset moves pixels without touching cell content).
@@ -293,12 +233,6 @@ struct RenderState {
     /// rendering must mark their rows when they change or are cleared,
     /// otherwise stale highlight pixels would persist in the accumulator.
     last_drawn_search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
-    /// App-level cursor style override, fixed to follow the terminal
-    /// (`None`). No user setting.
-    cursor_style_override: Option<crate::terminal::CursorStyle>,
-    /// Style version counter, fixed (no setter remains).
-    cursor_style_version: u64,
-    last_drawn_style_version: u64,
     /// App-level cursor color override (user theme), applied on top of the
     /// terminal's own cursor color. `None` = follow the terminal (white).
     /// Set by `setCursorColor` (any thread); read by the render thread
@@ -349,20 +283,10 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             font_pipeline,
             search_highlights: Vec::new(),
             selection: None,
-            pending_bg_image: None,
-            pending_bg_image_clear: false,
-            pending_flash_phase: None,
-            cursor_blink_enabled: AtomicBool::new(false),
-            cursor_blink_speed_ms: AtomicU64::new(DEFAULT_CURSOR_BLINK_SPEED_MS),
-            cursor_blink_phase_reset_ms: AtomicU64::new(0),
             last_frame: None,
-            last_blink_phase: None,
             last_scroll_px: 0.0,
             last_drawn_selection: None,
             last_drawn_search_highlights: Vec::new(),
-            cursor_style_override: None,
-            cursor_style_version: 0,
-            last_drawn_style_version: 0,
             cursor_color: None,
             dirty_mask: Vec::new(),
             cached_scrollback: 0,
@@ -404,28 +328,12 @@ fn next_session_id() -> u64 {
 
 static EVENT_QUEUE: crate::event::EventQueue = crate::event::EventQueue::new();
 
-/// Monotonic counter for user-input request IDs.
-#[cfg(feature = "mcp")]
+/// Monotonic counter for clipboard request IDs.
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-#[cfg(feature = "mcp")]
-static REQUEST_REGISTRY: LazyLock<
-    Mutex<HashMap<(u64, u64), tokio::sync::oneshot::Sender<String>>>,
-> = LazyLock::new(|| Mutex::new(HashMap::new()));
+static REQUEST_REGISTRY: LazyLock<Mutex<HashMap<(u64, u64), std::sync::mpsc::Sender<String>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Separate registry for screenshot requests which return
-/// `(width, height, rgba_bytes)` instead of a plain String.
-#[cfg(feature = "mcp")]
-static SCREENSHOT_REQUEST_REGISTRY: LazyLock<
-    Mutex<HashMap<(u64, u64), tokio::sync::oneshot::Sender<(u32, u32, Vec<u8>)>>>,
-> = LazyLock::new(|| Mutex::new(HashMap::new()));
-
-#[cfg(feature = "mcp")]
-pub(crate) fn push_event(event: Event) {
-    EVENT_QUEUE.push(event);
-}
-
-#[cfg(feature = "mcp")]
 /// Wait for a host-app clipboard answer with a bounded timeout.
 ///
 /// Kotlin always answers `clipboardResult` (even with an empty string on
@@ -434,14 +342,17 @@ pub(crate) fn push_event(event: Event) {
 /// clipboard" response.
 const CLIPBOARD_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
-#[cfg(feature = "mcp")]
-fn wait_for_clipboard_answer(mut rx: tokio::sync::oneshot::Receiver<String>) -> String {
+/// Clipboard answer poll cadence: the responder checks the one-shot slot
+/// this often while waiting out the 2s answer deadline above.
+const CLIPBOARD_POLL_INTERVAL_MS: u64 = 25;
+
+fn wait_for_clipboard_answer(rx: std::sync::mpsc::Receiver<String>) -> String {
     let deadline = std::time::Instant::now() + CLIPBOARD_ANSWER_TIMEOUT;
     loop {
         match rx.try_recv() {
             Ok(text) => return text,
-            Err(tokio::sync::oneshot::error::TryRecvError::Closed) => return String::new(),
-            Err(tokio::sync::oneshot::error::TryRecvError::Empty) => {
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => return String::new(),
+            Err(std::sync::mpsc::TryRecvError::Empty) => {
                 if std::time::Instant::now() >= deadline {
                     return String::new();
                 }
@@ -451,67 +362,18 @@ fn wait_for_clipboard_answer(mut rx: tokio::sync::oneshot::Receiver<String>) -> 
     }
 }
 
-#[cfg(feature = "mcp")]
-pub(crate) fn register_request(session_id: u64) -> (u64, tokio::sync::oneshot::Receiver<String>) {
-    let (tx, rx) = tokio::sync::oneshot::channel();
+pub(crate) fn register_request(session_id: u64) -> (u64, std::sync::mpsc::Receiver<String>) {
+    let (tx, rx) = std::sync::mpsc::channel();
     let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
     REQUEST_REGISTRY.lock().insert((session_id, request_id), tx);
     (request_id, rx)
 }
 
-/// Register a screenshot request that returns `(width, height, rgba_bytes)`.
-#[cfg(feature = "mcp")]
-pub(crate) fn register_screenshot_request(
-    session_id: u64,
-) -> (u64, tokio::sync::oneshot::Receiver<(u32, u32, Vec<u8>)>) {
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    let request_id = NEXT_REQUEST_ID.fetch_add(1, Ordering::Relaxed);
-    SCREENSHOT_REQUEST_REGISTRY
-        .lock()
-        .insert((session_id, request_id), tx);
-    (request_id, rx)
-}
-
-/// Answer a screenshot request with RGBA pixel data.
-#[cfg(feature = "mcp")]
-pub(crate) fn answer_screenshot_request(
-    session_id: u64,
-    request_id: u64,
-    width: u32,
-    height: u32,
-    pixels: Vec<u8>,
-) {
-    if let Some(tx) = SCREENSHOT_REQUEST_REGISTRY
-        .lock()
-        .remove(&(session_id, request_id))
-    {
-        let _ = tx.send((width, height, pixels));
-    }
-}
-
-/// Remove a pending dialog/pick_file request without answering it. Called
-/// by the MCP tools when their 300s timeout expires so a never-answered
+/// Remove a pending clipboard request without answering it. Called when the
+/// session vanishes before the responder thread starts so a never-answered
 /// request cannot leak one oneshot Sender in REQUEST_REGISTRY per call.
-#[cfg(feature = "mcp")]
 pub(crate) fn cancel_request(session_id: u64, request_id: u64) {
     REQUEST_REGISTRY.lock().remove(&(session_id, request_id));
-    SCREENSHOT_REQUEST_REGISTRY
-        .lock()
-        .remove(&(session_id, request_id));
-    // tell Kotlin to dismiss the still-visible dialog
-    // (the MCP tool call has given up; without this the dialog hangs on
-    // screen unresponsive until the process dies).
-    push_event(crate::event::Event::DialogCancel {
-        session_id,
-        request_id,
-    });
-}
-
-/// Current active session id (0 = none). Read helper for MCP event
-/// bridging where the callback has no session parameter.
-#[cfg(feature = "mcp")]
-fn active_session_id() -> u64 {
-    ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire)
 }
 
 // ── Session 生命周期 ──────────────────────────────────────────────
@@ -532,7 +394,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     working_directory: JString,
     prefix: JString,
     scrollback_lines: jint,
-    env_array: jobjectArray,
 ) -> jlong {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
@@ -549,7 +410,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
             working_directory,
             prefix,
             scrollback_lines,
-            env_array,
         )
     })
 }
@@ -571,7 +431,6 @@ fn init_session_inner(
     working_directory: JString,
     prefix: JString,
     scrollback_lines: jint,
-    env_array: jobjectArray,
 ) -> jlong {
     let rows = match u32::try_from(rows) {
         Ok(r) => r,
@@ -650,30 +509,6 @@ fn init_session_inner(
         None => return 0,
     };
 
-    // Reference (zed-android-port util/env.rs EnvOp 分层 — "user config"
-    // layer above the system/base layers): parse the optional String[] of
-    // "KEY=VALUE" user environment overrides passed by Kotlin (Settings >
-    // Environment variables). Malformed entries and JNI read failures are
-    // skipped best-effort; `parse_env_entries` keeps the first '=' split
-    // so values may contain '='.
-    let user_env: Vec<(String, String)> = if env_array.is_null() {
-        Vec::new()
-    } else {
-        // SAFETY: `env_array` is a JNI method argument, guaranteed valid
-        // by the JVM runtime for the duration of this call (same pattern
-        // as setExtraFontPaths below).
-        let array = unsafe { JObjectArray::<JString>::from_raw(env, env_array) };
-        let len = array.len(env).unwrap_or(0);
-        let mut entries = Vec::new();
-        for i in 0..len {
-            if let Ok(item) = array.get_element(env, i) {
-                if let Ok(text) = item.try_to_string(env) {
-                    entries.push(text);
-                }
-            }
-        }
-        crate::terminal::shell_env::parse_env_entries(&entries)
-    };
     let default = ShellEnv::default();
     let home = if home.is_empty() {
         default.home.clone()
@@ -723,13 +558,6 @@ fn init_session_inner(
                 // of adding a new JNI parameter.
                 extra.extend(termux_env_vars(&prefix));
             }
-            // User-defined overrides land last: they shadow TERM /
-            // TERMUX_* defaults, and duplicate user keys collapse onto the
-            // last occurrence so build_env emits each key exactly once.
-            for (key, _) in &user_env {
-                extra.retain(|(k, _)| k != key);
-            }
-            extra.extend(user_env);
             extra
         },
     };
@@ -967,16 +795,13 @@ fn resize_inner(env: &mut Env, _class: JClass, session_id: jlong, rows: jint, co
             return;
         }
     };
-    match session.resize(rows, cols) {
-        Err(e) => {
-            if let Err(e) = env.throw_new(
-                jni_str!("java/lang/RuntimeException"),
-                JNIString::from(format!("resize: failed: {e}")),
-            ) {
-                log::error!("resize: throw_new failed: {e}");
-            }
+    if let Err(e) = session.resize(rows, cols) {
+        if let Err(e) = env.throw_new(
+            jni_str!("java/lang/RuntimeException"),
+            JNIString::from(format!("resize: failed: {e}")),
+        ) {
+            log::error!("resize: throw_new failed: {e}");
         }
-        Ok(_) => {}
     }
 }
 
@@ -1737,33 +1562,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>
     jni_export_guard!(&mut unowned_env, -1, |_env| render_inner(session_id as u64))
 }
 
-/// Compute the cursor blink phase and apply it to the cursor visibility.
-/// Returns the blink phase (0 = visible, 1 = hidden).
-fn compute_cursor_blink(render_state: &RenderState, cursor: &mut crate::render::CellCursor) -> u64 {
-    let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
-    if !cursor_blink_enabled {
-        return 0;
-    }
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64);
-    let speed = render_state
-        .cursor_blink_speed_ms
-        .load(Ordering::Relaxed)
-        .max(50);
-    let phase_reset_ms = render_state
-        .cursor_blink_phase_reset_ms
-        .load(Ordering::Relaxed);
-    let phase = now_ms.saturating_sub(phase_reset_ms);
-    let blink_phase = (phase / speed) % 2;
-    if blink_phase == 1 {
-        cursor.visible = false;
-    }
-    blink_phase
-}
-
-/// Build a cursor from a `CursorInfo` snapshot, applying the style override
-/// and cursor color from render state.
+/// Build a cursor from a `CursorInfo` snapshot, applying the cursor color
+/// from render state (user theme). The cursor style is always the default
+/// block: style overrides were removed with the cursor-style setting.
 fn build_cursor(
     render_state: &RenderState,
     cursor_info: &crate::terminal::ghostty_terminal::CursorInfo,
@@ -1772,9 +1573,7 @@ fn build_cursor(
         row: cursor_info.row,
         col: cursor_info.col,
         visible: cursor_info.visible,
-        style: render_state
-            .cursor_style_override
-            .unwrap_or(cursor_info.style),
+        style: cursor_info.style,
         color: render_state.cursor_color,
     }
 }
@@ -1852,22 +1651,6 @@ fn render_inner(session_id: u64) -> jint {
         // Surface must be attached before any rendering work.
         if render_state.renderer.surface.is_none() {
             return 0;
-        }
-        // Consume pending background-image / flash-phase changes.
-        if render_state.pending_bg_image_clear {
-            render_state.renderer.clear_bg_image();
-            render_state.pending_bg_image_clear = false;
-        }
-        if let Some((data, w, h)) = render_state.pending_bg_image.take() {
-            render_state.renderer.set_bg_image(&data, w, h);
-            log::info!(
-                "render_inner: consumed bg image {w}x{h}, view={}",
-                render_state.renderer.bg_image_view.is_some()
-            );
-        }
-        if let Some(phase) = render_state.pending_flash_phase.take() {
-            render_state.renderer.set_flash_phase(phase);
-            log::trace!("render_inner: flash phase={phase}");
         }
         // Lazy one-time pipeline creation.
         if render_state.renderer.cell_pipeline.is_none() {
@@ -1961,8 +1744,7 @@ fn render_inner(session_id: u64) -> jint {
             // every CursorInfo push.
             let scrollback = cursor_info.scrollback_length;
             render_state.cached_scrollback = scrollback;
-            let mut cursor = build_cursor(render_state, &cursor_info);
-            let blink_phase = compute_cursor_blink(render_state, &mut cursor);
+            let cursor = build_cursor(render_state, &cursor_info);
             let render_selection = compute_render_selection(render_state.selection, scrollback);
             // Build dirty mask using pre-allocated buffer.
             let rows_usize = rows as usize;
@@ -2038,10 +1820,8 @@ fn render_inner(session_id: u64) -> jint {
             );
             if result.is_ok() {
                 render_state.last_frame = Some((cells, cursor_info, rows, cols));
-                render_state.last_blink_phase = Some(blink_phase);
                 render_state.last_drawn_selection = render_state.selection;
                 render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
-                render_state.last_drawn_style_version = render_state.cursor_style_version;
                 render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
             }
             match result {
@@ -2059,40 +1839,18 @@ fn render_inner(session_id: u64) -> jint {
             else {
                 return 0;
             };
-            let mut cursor = build_cursor(render_state, &cached_cursor);
-            let blink_phase = compute_cursor_blink(render_state, &mut cursor);
+            let cursor = build_cursor(render_state, &cached_cursor);
             // Idle repaint gate (P2-1): only repaint when something actually
-            // changed — blink phase flip, style change, selection change,
-            // search highlights active, or content-dirty flag raised.
-            let cursor_blink_enabled = render_state.cursor_blink_enabled.load(Ordering::Relaxed);
-            let phase_changed = render_state.last_blink_phase != Some(blink_phase);
-            let style_changed =
-                render_state.last_drawn_style_version != render_state.cursor_style_version;
+            // changed — selection change, search highlights, scroll offset,
+            // or content-dirty flag raised.
             let selection_changed = render_state.selection != render_state.last_drawn_selection;
             let highlights_changed =
                 render_state.search_highlights != render_state.last_drawn_search_highlights;
-            let bg_image_pending = render_state.pending_bg_image.is_some();
-            let flash_phase_pending = render_state.pending_flash_phase.is_some();
             let scroll_px_changed =
                 (render_state.renderer.viewport_scroll_px - render_state.last_scroll_px).abs()
                     > f32::EPSILON;
-            let needs_repaint = (!cursor_blink_enabled
-                && (style_changed
-                    || selection_changed
-                    || highlights_changed
-                    || bg_image_pending
-                    || flash_phase_pending
-                    || scroll_px_changed
-                    || content_dirty))
-                || (cursor_blink_enabled
-                    && (phase_changed
-                        || style_changed
-                        || selection_changed
-                        || highlights_changed
-                        || bg_image_pending
-                        || flash_phase_pending
-                        || scroll_px_changed
-                        || content_dirty));
+            let needs_repaint =
+                selection_changed || highlights_changed || scroll_px_changed || content_dirty;
             if !needs_repaint {
                 return 0;
             }
@@ -2131,10 +1889,8 @@ fn render_inner(session_id: u64) -> jint {
                 None,
             );
             if result.is_ok() {
-                render_state.last_blink_phase = Some(blink_phase);
                 render_state.last_drawn_selection = render_state.selection;
                 render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
-                render_state.last_drawn_style_version = render_state.cursor_style_version;
                 render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
                 // NOTE: last_frame NOT updated on idle — cells unchanged.
             }
@@ -2251,184 +2007,12 @@ fn detach_window_inner(_env: &mut Env, _class: JClass, _session_id: jlong) {
     }
 }
 
-// ── MCP 桥接与异步结果 ──────────────────────────────────────────
-// ══════════════════════════════════════════════════════════════════════════
-// JNI Export: setMcpEnabled
-// ══════════════════════════════════════════════════════════════════════════
-
-/// Override the MCP Unix socket path. Kotlin derives it
-/// from `context.filesDir` so it follows the real `applicationId` instead
-/// of the hardcoded `/data/data/com.termux` default.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setMcpSocketPath(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    _path: JString,
-) {
-    jni_export_guard!(&mut unowned_env, (), |_env| {
-        #[cfg(feature = "mcp")]
-        {
-            if let Ok(s) = env.get_string(&_path) {
-                crate::mcp::set_socket_path(s.into());
-                log::info!("setMcpSocketPath: {}", crate::mcp::socket_path());
-            }
-        }
-    })
-}
-
-/// Enable or disable the MCP server (starts/stops it as needed).
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setMcpEnabled(
-    mut _unowned: EnvUnowned<'_>,
-    _class: JClass,
-    enabled: jboolean,
-) {
-    // A panic escaping this JNI export would abort the whole process.
-    // Convert it into a Java exception instead.
-    jni_export_guard!(&mut _unowned, (), |env| {
-        set_mcp_enabled_inner(env, _class, enabled)
-    })
-}
-
-fn set_mcp_enabled_inner(_env: &mut Env, _class: JClass, enabled: jboolean) {
-    #[cfg(feature = "mcp")]
-    {
-        // Register dialog / pick_file callbacks once (they bridge
-        // from the MCP thread into the JNI event queue).
-        static MCP_HANDLERS: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-        MCP_HANDLERS.get_or_init(|| {
-            let state = crate::mcp::global_state();
-            state.set_dialog_handler(
-                |session_id: u64,
-                 dialog_type: String,
-                 title: String,
-                 message: String,
-                 options: Vec<String>|
-                 -> (u64, tokio::sync::oneshot::Receiver<String>) {
-                    let (request_id, rx) = register_request(session_id);
-                    push_event(Event::ShowDialog {
-                        session_id,
-                        request_id,
-                        dialog_type,
-                        title,
-                        message,
-                        options,
-                    });
-                    (request_id, rx)
-                },
-            );
-            state.set_pick_file_handler(
-                |session_id: u64,
-                 starting_path: String,
-                 filter: String|
-                 -> (u64, tokio::sync::oneshot::Receiver<String>) {
-                    let (request_id, rx) = register_request(session_id);
-                    push_event(Event::PickFile {
-                        session_id,
-                        request_id,
-                        starting_path,
-                        filter,
-                    });
-                    (request_id, rx)
-                },
-            );
-            state.set_send_signal_handler(|session_id: u64, signum: i32| -> String {
-                // Recover-on-poison helper, same policy as every other
-                // registry read in this file.
-                let guard = rlock_session_registry();
-                match guard.get(&session_id) {
-                    Some(entry) => {
-                        let session = entry.session.lock();
-                        match session.send_signal(signum) {
-                            Ok(()) => format!("Signal {signum} sent to session {session_id}"),
-                            Err(e) => format!("send_signal failed: {e}"),
-                        }
-                    }
-                    None => format!("Session {session_id} not found"),
-                }
-            });
-            state.set_session_cwd_handler(|session_id: u64| -> Option<String> {
-                // Spec: terminal_info reports the session cwd. Resolved on
-                // the MCP worker thread WITHOUT holding the session lock:
-                // the JNI bridge reads OSC 7 tracked cwd (fallback /proc)
-                // via the registry, mirroring session_exit_code.
-                session_cwd(session_id)
-            });
-            state.set_session_exit_code_handler(session_exit_code);
-            state.set_session_last_command_output_handler(session_last_command_output);
-            state.set_cancel_request_handler(|session_id: u64, request_id: u64| {
-                cancel_request(session_id, request_id);
-            });
-            state.set_run_command_handler(
-                |session_id: u64,
-                 command: String|
-                 -> (u64, tokio::sync::oneshot::Receiver<String>) {
-                    let (request_id, rx) = register_request(session_id);
-                    push_event(Event::RunCommand {
-                        session_id,
-                        request_id,
-                        command,
-                    });
-                    (request_id, rx)
-                },
-            );
-            // Remaining tools are bridged through the event queue into
-            // Kotlin (which owns the system clipboard, toasts, and the
-            // browser), mirroring the dialog/pick_file seam.
-            state.set_clipboard_get_handler(|| {
-                let session_id = active_session_id();
-                let (request_id, rx) = register_request(session_id);
-                push_event(Event::GetClipboard {
-                    session_id,
-                    request_id,
-                });
-                (request_id, rx)
-            });
-            state.set_clipboard_set_handler(|text: String| {
-                let session_id = active_session_id();
-                push_event(Event::Clipboard { session_id, text });
-            });
-            state.set_notify_handler(|message: String| {
-                let (title, body) = match message.split_once('\n') {
-                    Some((t, b)) => (t.to_string(), b.to_string()),
-                    None => (message, String::new()),
-                };
-                push_event(Event::Notification {
-                    session_id: active_session_id(),
-                    title,
-                    body,
-                });
-            });
-            state.set_toast_handler(|text: String| {
-                push_event(Event::Toast { text });
-            });
-            state.set_open_url_handler(|url: String| {
-                push_event(Event::OpenUrl { url });
-            });
-            state.set_screenshot_handler(
-                |session_id: u64| -> (u64, tokio::sync::oneshot::Receiver<(u32, u32, Vec<u8>)>) {
-                    let (request_id, rx) = register_screenshot_request(session_id);
-                    push_event(Event::Screenshot {
-                        session_id,
-                        request_id,
-                    });
-                    (request_id, rx)
-                },
-            );
-        });
-        crate::mcp::set_enabled(enabled == JNI_TRUE);
-    }
-    #[cfg(not(feature = "mcp"))]
-    let _ = enabled;
-}
-
 // ══════════════════════════════════════════════════════════════════════════
 // ══════════════════════════════════════════════════════════════════════════
-// JNI Export: clipboardResult — Kotlin responds to an MCP clipboard_get
+// JNI Export: clipboardResult — Kotlin answers an OSC 52 read request
 // ══════════════════════════════════════════════════════════════════════════
 
 #[unsafe(no_mangle)]
-#[cfg(feature = "mcp")]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clipboardResult<'local>(
     mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
@@ -2443,7 +2027,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clipboardResul
     })
 }
 
-#[cfg(feature = "mcp")]
 fn clipboard_result_inner<'local>(
     env: &mut Env<'local>,
     _class: JClass<'local>,
@@ -2461,223 +2044,10 @@ fn clipboard_result_inner<'local>(
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// JNI Export: dialogResult — Kotlin responds to a dialog request
-// ══════════════════════════════════════════════════════════════════════════
-
-#[unsafe(no_mangle)]
-#[cfg(feature = "mcp")]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_dialogResult<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-    request_id: jlong,
-    result: JString<'local>,
-) {
-    // A panic escaping this JNI export would abort the whole process.
-    // Convert it into a Java exception instead.
-    jni_export_guard!(&mut unowned_env, (), |env| {
-        dialog_result_inner(env, _class, session_id, request_id, result)
-    })
-}
-
-#[cfg(feature = "mcp")]
-fn dialog_result_inner<'local>(
-    env: &mut Env<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-    request_id: jlong,
-    result: JString<'local>,
-) {
-    let session_id = session_id as u64;
-    let request_id = request_id as u64;
-    let result_str: String = result.try_to_string(env).unwrap_or_default();
-    answer_request(session_id, request_id, result_str);
-}
-
-/// Answer a pending dialog/pick_file/clipboard request, resolving the
-/// MCP tool's oneshot receiver. No-op for unknown (already-answered or
-/// expired) request ids. Shared by the JNI exports and unit tests.
-#[cfg(feature = "mcp")]
-pub(crate) fn answer_request(session_id: u64, request_id: u64, result: String) {
-    if let Some(tx) = REQUEST_REGISTRY.lock().remove(&(session_id, request_id)) {
-        let _ = tx.send(result);
-    }
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// JNI Export: runCommandResult — Kotlin responds to an MCP run_command
-// ══════════════════════════════════════════════════════════════════════════
-
-/// Reply to an MCP `run_command` request. The `result` is the JSON payload
-/// `{"exit_code":N,"err_code":M,"stdout":...,"stderr":...}` produced by the
-/// Kotlin command runner (err_code: 0=ok, 1=timeout, 2=exception). Same
-/// routing as `dialogResult` (shared registry).
-#[unsafe(no_mangle)]
-#[cfg(feature = "mcp")]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_runCommandResult<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-    request_id: jlong,
-    result: JString<'local>,
-) {
-    // A panic escaping this JNI export would abort the whole process.
-    // Convert it into a Java exception instead.
-    jni_export_guard!(&mut unowned_env, (), |env| {
-        run_command_result_inner(env, _class, session_id, request_id, result)
-    })
-}
-
-#[cfg(feature = "mcp")]
-fn run_command_result_inner<'local>(
-    env: &mut Env<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-    request_id: jlong,
-    result: JString<'local>,
-) {
-    let session_id = session_id as u64;
-    let request_id = request_id as u64;
-    let result_str: String = result.try_to_string(env).unwrap_or_default();
-    answer_request(session_id, request_id, result_str);
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// JNI Export: screenshotResult — Kotlin responds to an MCP screenshot
-// ══════════════════════════════════════════════════════════════════════════
-
-/// Reply to an MCP `screenshot` request. Kotlin captures RGBA pixels via
-/// `captureFrame()` and sends them back through this export.
-#[unsafe(no_mangle)]
-#[cfg(feature = "mcp")]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_screenshotResult<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-    request_id: jlong,
-    width: jint,
-    height: jint,
-    pixels: jbyteArray,
-) {
-    jni_export_guard!(&mut unowned_env, (), |env| {
-        screenshot_result_inner(env, _class, session_id, request_id, width, height, pixels)
-    })
-}
-
-#[cfg(feature = "mcp")]
-fn screenshot_result_inner<'local>(
-    env: &mut Env<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-    request_id: jlong,
-    width: jint,
-    height: jint,
-    pixels: jbyteArray,
-) {
-    let session_id = session_id as u64;
-    let request_id = request_id as u64;
-    let w = width as u32;
-    let h = height as u32;
-    let pixel_data: Vec<u8> = {
-        // SAFETY: `pixels` is a JNI method argument, guaranteed valid by the
-        // JVM runtime for the duration of this call. `from_raw` wraps the
-        // pointer without taking ownership; the local ref is released by
-        // the JVM when this native method returns.
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, pixels) };
-        env.convert_byte_array(&byte_array).unwrap_or_default()
-    };
-    answer_screenshot_request(session_id, request_id, w, h, pixel_data);
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-// JNI Export: captureFrame — render thread captures current frame pixels
-// ══════════════════════════════════════════════════════════════════════════
-
-/// Capture the current terminal frame as RGBA pixels via GPU readback.
-/// Called from the render thread (which owns the wgpu context) when an
-/// MCP `screenshot` event is dispatched.
-///
-/// Returns a `byte[]` with the first 8 bytes being width (u32 LE) +
-/// height (u32 LE), followed by `width * height * 4` RGBA bytes.
-/// Returns null if no frame is available.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_captureFrame<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-) -> jbyteArray {
-    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        capture_frame_inner(env, _class, session_id as u64)
-    })
-}
-
-fn capture_frame_inner<'local>(
-    env: &mut Env<'local>,
-    _class: JClass<'local>,
-    _session_id: u64,
-) -> jbyteArray {
-    let mut state = render_state_mut();
-    let Some(render_state) = state.as_mut() else {
-        log::warn!("captureFrame: render state not initialized");
-        return std::ptr::null_mut();
-    };
-
-    // Check that the renderer has a surface config (dimensions).
-    let (w, h) = render_state
-        .renderer
-        .surface_config
-        .as_ref()
-        .map_or((0, 0), |c| (c.width, c.height));
-    if w == 0 || h == 0 {
-        log::warn!("captureFrame: no surface config (w={w}, h={h})");
-        return std::ptr::null_mut();
-    }
-
-    // Clone instances from the last render (render_to_buffer needs &mut self,
-    // so we can't borrow cpu_instances while calling it).
-    let instances = render_state.renderer.cpu_instances.clone();
-    if instances.is_empty() {
-        log::warn!("captureFrame: no instances to render (frame not yet rendered)");
-        return std::ptr::null_mut();
-    }
-
-    // GPU readback: render to offscreen buffer.
-    match render_state.renderer.render_to_buffer(&instances, &[]) {
-        Ok(pixels) => {
-            let pixel_len = pixels.len();
-            let expected = (w * h * 4) as usize;
-            if pixel_len != expected {
-                log::warn!(
-                    "captureFrame: pixel count mismatch (got {pixel_len}, expected {expected})"
-                );
-                return std::ptr::null_mut();
-            }
-            // Build output: [width:u32 LE][height:u32 LE][RGBA pixels]
-            let mut output = Vec::with_capacity(8 + pixel_len);
-            output.extend_from_slice(&w.to_le_bytes());
-            output.extend_from_slice(&h.to_le_bytes());
-            output.extend_from_slice(&pixels);
-            match env.byte_array_from_slice(&output) {
-                Ok(arr) => arr.into_raw(),
-                Err(e) => {
-                    log::warn!("captureFrame: byte_array_from_slice failed: {e}");
-                    std::ptr::null_mut()
-                }
-            }
-        }
-        Err(e) => {
-            log::warn!("captureFrame: render_to_buffer failed: {e}");
-            std::ptr::null_mut()
-        }
-    }
-}
-
-// ══════════════════════════════════════════════════════════════════════════
-
 /// Returns a JSON array of active session IDs.
 ///
-/// NOTE: kept for API completeness; Kotlin currently never calls this
-/// export (session ids are tracked in TerminalRuntime.sessionIds).
+/// NOTE: covered by NativeBridgeSmokeTest (JVM boundary coverage of session
+/// enumeration); production Kotlin tracks ids in TerminalRuntime.sessionIds.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -2706,8 +2076,6 @@ fn list_sessions_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) ->
 ///
 /// 2048² (was 1024²): on a real device at ~3x display density a 14sp glyph
 /// rasterizes to ~40px, so the old atlas held only ~700 glyphs — a single
-/// Default cursor blink speed in milliseconds.
-const DEFAULT_CURSOR_BLINK_SPEED_MS: u64 = 600;
 /// Default font pipeline atlas cell size in pixels.
 const DEFAULT_FONT_CELL_SIZE: f32 = 14.0;
 
@@ -3427,146 +2795,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
     })
 }
 
-/// Set the terminal background image. RGBA bytes, decoded on the Kotlin
-/// side (TerminalViewModel). The upload is deferred to the render thread
-/// via `RenderState::pending_bg_image` — the same pattern as
-/// `setSearchHighlights` — so wgpu texture creation happens where the
-/// renderer is used.
-#[unsafe(no_mangle)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // JNI signatures contain raw pointers by design
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundImage(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    _session_id: jlong,
-    data: jbyteArray,
-    width: jint,
-    height: jint,
-) {
-    jni_export_guard!(&mut unowned_env, (), |env| {
-        let (Some(w), Some(h)) = (u32::try_from(width).ok(), u32::try_from(height).ok()) else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("setBackgroundImage: width/height must be non-negative"),
-            );
-            return Ok(());
-        };
-        if w == 0 || h == 0 {
-            // Zero-sized image: treat as clear. Avoids a degenerate
-            // 0-byte texture below.
-            let mut state = render_state_mut();
-            if let Some(render_state) = state.as_mut() {
-                render_state.pending_bg_image_clear = true;
-                // P2-1 dirty: zero-sized image treated as clear — must still
-                // reach the screen on an idle terminal.
-                render_state.dirty.store(true, Ordering::Relaxed);
-            }
-            return Ok(());
-        }
-        // SAFETY: `data` is a JNI method argument, guaranteed valid by the
-        // JVM runtime for the duration of this call (same pattern as
-        // feed_pty_inner).
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
-        let Some(bytes) = env.convert_byte_array(&byte_array).ok() else {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("setBackgroundImage: cannot read byte array"),
-            );
-            return Ok(());
-        };
-        let expected = w as usize * h as usize * 4;
-        if bytes.len() < expected {
-            let _ = env.throw_new(
-                jni_str!("java/lang/IllegalArgumentException"),
-                JNIString::from(format!(
-                    "setBackgroundImage: expected {expected} bytes (RGBA {w}x{h}), got {}",
-                    bytes.len()
-                )),
-            );
-            return Ok(());
-        }
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            render_state.pending_bg_image = Some((bytes, w, h));
-            // P2-1 dirty: background-image changes must repaint even on an
-            // idle terminal (pending_bg_image is consumed at the top of
-            // render_inner BEFORE the idle gate — without this raise the
-            // upload happens but the gate can skip presenting it).
-            render_state.dirty.store(true, Ordering::Relaxed);
-        }
-        log::info!("setBackgroundImage: {w}x{h} queued for render thread");
-    })
-}
-
-/// Clear the terminal background image. Deferred to the render thread
-/// like `setBackgroundImage`.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearBackgroundImage(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    _session_id: jlong,
-) {
-    jni_export_guard!(&mut unowned_env, (), |_env| {
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            render_state.pending_bg_image = None;
-            render_state.pending_bg_image_clear = true;
-            // P2-1 dirty: see setBackgroundImage.
-            render_state.dirty.store(true, Ordering::Relaxed);
-        }
-        log::info!("clearBackgroundImage: queued for render thread");
-    })
-}
-
-/// Set the bell-flash overlay phase for the next frame. `phase` is the
-/// decaying flash strength in 0..=1 (0 = no flash) — the Kotlin side
-/// animates it down after a bell; the native side just composites a white
-/// full-screen quad whose alpha scales with the phase. Deferred to the
-/// render thread like `setBackgroundImage`, so the value is consumed by
-/// the next `render_inner`.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFlashState(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    _session_id: jlong,
-    phase: jfloat,
-) {
-    jni_export_guard!(&mut unowned_env, (), |_env| {
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            render_state.pending_flash_phase = Some(phase.max(0.0));
-            // P2-1 dirty: bell-flash phase changes must repaint even on an
-            // idle terminal — without this raise SCREEN_FLASH bells go
-            // silently invisible once vsync alignment removed the old
-            // full-rate poll cadence that used to flush deferred fields.
-            render_state.dirty.store(true, Ordering::Relaxed);
-        }
-        log::info!("setFlashState: phase={phase} queued for render thread");
-    })
-}
-
-/// Set the background-image blur radius and opacity. Deferred to the
-/// render thread state (the renderer is owned by RENDER_STATE); the next
-/// `begin_frame` picks up the new values. `alpha` arrives scaled by 10
-/// from Kotlin (`settings.backgroundAlpha * 10`), so it is divided here.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundParams(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    _session_id: jlong,
-    blur_radius: jint,
-    alpha_tenths: jint,
-) {
-    jni_export_guard!(&mut unowned_env, (), |_env| {
-        let mut state = render_state_mut();
-        if let Some(render_state) = state.as_mut() {
-            let blur = blur_radius as f32;
-            let alpha = alpha_tenths as f32 / 10.0;
-            render_state.renderer.set_background_params(blur, alpha);
-            log::info!("setBackgroundParams: blur={blur} alpha={alpha}");
-        }
-    })
-}
-
 /// Pause/resume the renderer (e.g. while the settings screen is open or
 /// the surface is destroyed). The Rust renderer already checks
 /// `render_paused` in render_frame; this JNI export is the missing wire.
@@ -4037,36 +3265,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
             JNI_TRUE
         } else {
             JNI_FALSE
-        }
-    })
-}
-
-/// Drains the OSC 133 `last_command_output` buffer of a session (termlib
-/// getLastCommandOutput equivalent, research-supplement-4.md §1.2) and
-/// returns it as a string; null when the buffer is empty or the session is
-/// gone. Reading clears the buffer, so each call sees fresh data.
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getLastCommandOutput<'local>(
-    mut unowned_env: EnvUnowned<'local>,
-    _class: JClass<'local>,
-    session_id: jlong,
-) -> jstring {
-    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
-        let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
-            return Ok(std::ptr::null_mut());
-        };
-        let mut session = entry.session.lock();
-        let output = session.take_last_command_output();
-        drop(session);
-        drop(registry);
-        if output.is_empty() {
-            return Ok(std::ptr::null_mut());
-        }
-        match env.new_string(&output) {
-            Ok(s) => s.into_raw(),
-            Err(_) => std::ptr::null_mut(),
         }
     })
 }

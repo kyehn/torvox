@@ -34,9 +34,6 @@ fontdb = { workspace = true }
 swash = { workspace = true }
 guillotiere = { workspace = true }
 jni = { workspace = true }
-axum = { version = "0.8", default-features = false, features = ["json", "tokio", "http1"], optional = true }
-tokio = { version = "1", default-features = false, features = ["net", "rt", "sync", "macros", "time"], optional = true }
-schemars = { version = "1", features = ["derive"], optional = true }
 [target.'cfg(not(target_os = "android"))'.dependencies]
 renderdoc = "0.12.1"
 [dev-dependencies]

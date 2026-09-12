@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,8 +45,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -76,24 +73,18 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import java.io.File
 import kotlinx.collections.immutable.ImmutableList
-import kotlinx.collections.immutable.ImmutableMap
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.collections.immutable.toImmutableMap
 import kotlinx.coroutines.launch
 import terminal.emulator.FONT_SLOT_BOLD
 import terminal.emulator.FONT_SLOT_ITALIC
 import terminal.emulator.FONT_SLOT_REGULAR
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
-import terminal.emulator.bell.BellMode
 import terminal.emulator.bridge.FontActiveDto
 import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
-import terminal.emulator.runtime.LogUtil
-import terminal.emulator.settings.parseEnvironmentVariables
-import terminal.emulator.settings.serializeEnvironmentVariables
 import terminal.emulator.ui.theme.TerminalTheme
 
 private const val FONT_SIZE_RANGE_MIN = 8f
@@ -187,17 +178,6 @@ fun SettingsScreen(
           )
         }
         item {
-          BackgroundSection(
-              viewModel,
-              textColor,
-              secondaryText,
-              accentColor,
-              cardBackground,
-              sectionTitleColor,
-              isSmallScreen,
-          )
-        }
-        item {
           TerminalConfigSection(
               viewModel,
               textColor,
@@ -224,16 +204,6 @@ fun SettingsScreen(
           ClearAppDataSectionItem(
               viewModel,
               textColor,
-              cardBackground,
-              sectionTitleColor,
-              isSmallScreen,
-          )
-        }
-        item {
-          KeyboardShortcutsSection(
-              viewModel,
-              textColor,
-              secondaryText,
               cardBackground,
               sectionTitleColor,
               isSmallScreen,
@@ -345,13 +315,6 @@ private fun AppearanceSectionContent(
       secondaryText = secondaryText,
   )
   Spacer(modifier = Modifier.height(12.dp))
-  BellModeSelector(
-      selectedModeId = settings.bellMode,
-      onModeSelected = { viewModel.setBellMode(it) },
-      textColor = textColor,
-      accentColor = accentColor,
-      cardBackground = backgroundColor,
-  )
 }
 
 @Composable
@@ -451,115 +414,6 @@ private fun TerminalThemeSection(
 }
 
 @Composable
-private fun BackgroundSection(
-    viewModel: TerminalViewModel,
-    textColor: Color,
-    secondaryText: Color,
-    accentColor: Color,
-    cardBackground: Color,
-    sectionTitleColor: Color,
-    isSmallScreen: Boolean,
-) {
-  val settings by viewModel.settings.collectAsStateWithLifecycle()
-  val backgroundImagePath = settings.backgroundImagePath
-  val backgroundBlurRadius = settings.backgroundBlurRadius
-  val backgroundAlpha = settings.backgroundAlpha
-  val context = LocalContext.current
-  // ACTION_OPEN_DOCUMENT (not GetContent) so the picked URI can be
-  // persisted: without FLAG_GRANT_PERSISTABLE_URI_PERMISSION +
-  // takePersistableUriPermission the read permission is lost on app
-  // restart and the wallpaper silently disappears (emulator-verified,
-  // `consumed bg image` never logged after a relaunch).
-  val imagePickerLauncher =
-      rememberLauncherForActivityResult(
-          contract = ActivityResultContracts.StartActivityForResult(),
-      ) { result ->
-        val uri = result.data?.data
-        uri?.let {
-          try {
-            context.contentResolver.takePersistableUriPermission(
-                it,
-                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION,
-            )
-          } catch (e: SecurityException) {
-            LogUtil.e("Settings", "takePersistableUriPermission failed", e)
-          }
-          viewModel.setBackgroundImagePath(it.toString())
-        }
-      }
-  SectionHeader(stringResource(R.string.background), sectionTitleColor)
-  SettingsCard(cardBackground) {
-    Text(
-        text =
-            if (backgroundImagePath.isNotEmpty()) {
-              stringResource(R.string.bg_image_set)
-            } else {
-              stringResource(R.string.bg_image_none)
-            },
-        color = textColor,
-        style = MaterialTheme.typography.bodyMedium,
-        modifier = Modifier.testTag("BackgroundImageStatus"),
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-      Button(
-          onClick = {
-            val intent =
-                android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT).apply {
-                  addCategory(android.content.Intent.CATEGORY_OPENABLE)
-                  type = "image/*"
-                  addFlags(
-                      android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                          android.content.Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION,
-                  )
-                }
-            imagePickerLauncher.launch(intent)
-          },
-          colors = ButtonDefaults.buttonColors(containerColor = accentColor),
-          modifier = Modifier.testTag("ChooseImageButton"),
-      ) {
-        Text(stringResource(R.string.bg_image_choose), color = MaterialTheme.colorScheme.onPrimary)
-      }
-      if (backgroundImagePath.isNotEmpty()) {
-        TextButton(onClick = { viewModel.setBackgroundImagePath("") }) {
-          Text(stringResource(R.string.clear), color = accentColor)
-        }
-      }
-    }
-    if (backgroundImagePath.isNotEmpty()) {
-      Spacer(modifier = Modifier.height(12.dp))
-      Text(
-          stringResource(R.string.bg_blur_label, backgroundBlurRadius),
-          color = secondaryText,
-          style = MaterialTheme.typography.bodySmall,
-      )
-      Slider(
-          value = backgroundBlurRadius.toFloat(),
-          onValueChange = { viewModel.setBackgroundBlurRadius(it.toInt()) },
-          // kernel taps scale linearly with radius
-          // (2*ceil(r)+1 per pass); 20 was 82 taps/frame on a
-          // Mali-G57 — capped at 10 (42 taps) for interactive
-          // framerates. Downsampled blur is a future optimization.
-          valueRange = 0f..10f,
-          colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor),
-      )
-      Spacer(modifier = Modifier.height(8.dp))
-      Text(
-          stringResource(R.string.bg_opacity_label, (backgroundAlpha * 100).toInt()),
-          color = secondaryText,
-          style = MaterialTheme.typography.bodySmall,
-      )
-      Slider(
-          value = backgroundAlpha,
-          onValueChange = { viewModel.setBackgroundAlpha(it) },
-          valueRange = 0.1f..1.0f,
-          colors = SliderDefaults.colors(thumbColor = accentColor, activeTrackColor = accentColor),
-      )
-    }
-  }
-}
-
-@Composable
 @Suppress("LongParameterList")
 private fun TerminalConfigSection(
     viewModel: TerminalViewModel,
@@ -593,14 +447,6 @@ private fun TerminalConfigSection(
         accentColor = accentColor,
     )
     Spacer(modifier = Modifier.height(8.dp))
-    McpServerToggle(
-        enabled = settings.mcpServerEnabled,
-        onToggle = { viewModel.setMcpServerEnabled(it) },
-        textColor = textColor,
-        accentColor = accentColor,
-        cardBackground = backgroundColor,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
     ShizukuToggle(
         enabled = settings.shizukuEnabled,
         onToggle = { viewModel.setShizukuEnabled(it) },
@@ -609,14 +455,6 @@ private fun TerminalConfigSection(
         cardBackground = backgroundColor,
     )
     Spacer(modifier = Modifier.height(8.dp))
-    EnvironmentVariablesEditor(
-        vars = settings.environmentVariables.toImmutableMap(),
-        onSave = { viewModel.setEnvironmentVariables(it) },
-        textColor = textColor,
-        accentColor = accentColor,
-        cardBackground = cardBackground,
-        secondaryText = secondaryText,
-    )
   }
 }
 
@@ -1512,23 +1350,6 @@ private fun BootstrapPresetItem(
 }
 
 @Composable
-private fun McpServerToggle(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-    cardBackground: Color,
-) {
-  SettingsSwitchRow(
-      title = stringResource(R.string.mcp_server),
-      description = stringResource(R.string.mcp_server_desc),
-      checked = enabled,
-      onToggle = onToggle,
-      colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
-  )
-}
-
-@Composable
 private fun ShizukuToggle(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,
@@ -1543,122 +1364,6 @@ private fun ShizukuToggle(
       onToggle = onToggle,
       colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
       modifier = Modifier.testTag("ShizukuToggle").clickable { onToggle(!enabled) },
-  )
-}
-
-/**
- * Environment variables editor: clickable row opening a dialog with a "KEY=VALUE" (one per line)
- * text field. Parsing mirrors the native `parse_env_entries` (shell_env.rs) so both sides agree on
- * the shape.
- */
-@Composable
-private fun EnvironmentVariablesEditor(
-    vars: ImmutableMap<String, String>,
-    onSave: (ImmutableMap<String, String>) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-    cardBackground: Color,
-    secondaryText: Color,
-) {
-  var showEditor by rememberSaveable { mutableStateOf(false) }
-
-  Column {
-    Row(
-        modifier =
-            Modifier.testTag("EnvironmentVariablesEditor")
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(cardBackground)
-                .clickable { showEditor = true }
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-      Column(modifier = Modifier.weight(1f)) {
-        Text(
-            text = stringResource(R.string.environment_variables),
-            style = MaterialTheme.typography.bodyLarge,
-            color = textColor,
-        )
-        Text(
-            text = stringResource(R.string.environment_variables_desc),
-            style = MaterialTheme.typography.bodySmall,
-            color = textColor.copy(alpha = 0.6f),
-        )
-      }
-      Text(
-          text = "${vars.size}",
-          color = secondaryText,
-          style = MaterialTheme.typography.bodySmall,
-          modifier = Modifier.padding(end = 8.dp),
-      )
-      Text(
-          text = stringResource(R.string.change),
-          color = accentColor,
-          style = MaterialTheme.typography.bodySmall,
-      )
-    }
-
-    if (showEditor) {
-      EnvironmentVariablesDialog(
-          initialText = serializeEnvironmentVariables(vars),
-          onSave = {
-            onSave(parseEnvironmentVariables(it).toImmutableMap())
-            showEditor = false
-          },
-          onDismiss = { showEditor = false },
-          textColor = textColor,
-          accentColor = accentColor,
-          cardBackground = cardBackground,
-      )
-    }
-  }
-}
-
-@Composable
-private fun EnvironmentVariablesDialog(
-    initialText: String,
-    onSave: (String) -> Unit,
-    onDismiss: () -> Unit,
-    textColor: Color,
-    accentColor: Color,
-    cardBackground: Color,
-) {
-  var text by rememberSaveable { mutableStateOf(initialText) }
-
-  AlertDialog(
-      onDismissRequest = onDismiss,
-      title = { Text(stringResource(R.string.environment_variables)) },
-      text = {
-        Column {
-          OutlinedTextField(
-              value = text,
-              onValueChange = { text = it },
-              placeholder = { Text(stringResource(R.string.environment_variables_hint)) },
-              modifier =
-                  Modifier.fillMaxWidth().heightIn(min = 160.dp).testTag("EnvVarsDialogField"),
-              colors =
-                  OutlinedTextFieldDefaults.colors(
-                      focusedBorderColor = accentColor,
-                      cursorColor = accentColor,
-                      focusedTextColor = textColor,
-                      unfocusedTextColor = textColor,
-                  ),
-          )
-        }
-      },
-      confirmButton = {
-        TextButton(
-            onClick = { onSave(text) },
-            modifier = Modifier.testTag("SaveEnvironmentVariables"),
-        ) {
-          Text(stringResource(R.string.environment_variables_save), color = accentColor)
-        }
-      },
-      dismissButton = {
-        TextButton(onClick = onDismiss) {
-          Text(stringResource(android.R.string.cancel), color = textColor)
-        }
-      },
   )
 }
 
@@ -1795,132 +1500,10 @@ private fun FontInfoSection(
   }
 }
 
-@Composable
-private fun BellModeSelector(
-    selectedModeId: Int,
-    onModeSelected: (Int) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-    cardBackground: Color,
-) {
-  val options =
-      BellMode.entries.map { mode ->
-        mode.id.toString() to mode.displayName
-      }
-  SettingsSelectorRow(
-      title = stringResource(R.string.bell_mode),
-      selectedKey = selectedModeId.toString(),
-      options = options.toImmutableList(),
-      colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
-      onOptionSelected = { key -> onModeSelected(key.toInt()) },
-      testTag = "BellModeSelector",
-      optionTestTagPrefix = "BellMode",
-  )
-}
-
 // ══════════════════════════════════════════════════════════════════════
 // Keyboard Shortcuts Section
 // ══════════════════════════════════════════════════════════════════════
 
-@Composable
-private fun KeyboardShortcutsSection(
-    viewModel: TerminalViewModel,
-    textColor: Color,
-    secondaryText: Color,
-    cardBackground: Color,
-    sectionTitleColor: Color,
-    isSmallScreen: Boolean,
-) {
-  val bindings by viewModel.shortcutBindings.collectAsStateWithLifecycle()
-  var capturingAction by rememberSaveable { mutableStateOf<String?>(null) }
-  val labelStyle =
-      if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
-
-  SectionHeader(stringResource(R.string.keyboard_shortcuts), sectionTitleColor)
-  SettingsCard(cardBackground) {
-    terminal.emulator.shortcut.KeyShortcutHandler.Action.entries.forEach { action ->
-      val actionId =
-          when (action) {
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste ->
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_PASTE
-
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession ->
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_NEW_SESSION
-
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession ->
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_CLOSE_SESSION
-
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy ->
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_COPY
-
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll ->
-                terminal.emulator.shortcut.KeyShortcutHandler.Defaults.ACTION_ID_TOGGLE_SCROLL
-          }
-      val binding = bindings[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY
-      val actionLabel =
-          when (action) {
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.Paste ->
-                stringResource(R.string.paste)
-
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.NewSession ->
-                stringResource(R.string.cd_new_session)
-
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.CloseSession ->
-                stringResource(R.string.close_session)
-
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.Copy ->
-                stringResource(R.string.copy)
-
-            terminal.emulator.shortcut.KeyShortcutHandler.Action.ToggleScroll ->
-                stringResource(R.string.toggle_scroll)
-          }
-
-      Row(
-          verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-          modifier =
-              Modifier.fillMaxWidth()
-                  .clickable { capturingAction = actionId }
-                  .testTag("Shortcut_$actionId")
-                  .padding(horizontal = 16.dp, vertical = 12.dp),
-      ) {
-        Column(modifier = Modifier.weight(1f)) {
-          Text(actionLabel, style = labelStyle, color = textColor)
-          Text(
-              binding.toDisplayString(),
-              style = MaterialTheme.typography.bodySmall,
-              color = secondaryText,
-          )
-        }
-        TextButton(
-            onClick = { viewModel.resetShortcutBinding(actionId) },
-            modifier = Modifier.testTag("ResetShortcut_$actionId"),
-        ) {
-          Text(stringResource(R.string.shortcut_reset), color = secondaryText)
-        }
-      }
-    }
-  }
-
-  // Shortcut capture dialog
-  capturingAction?.let { actionId ->
-    val currentBinding = bindings[actionId] ?: terminal.emulator.shortcut.ShortcutBinding.EMPTY
-    terminal.emulator.shortcut.ShortcutCaptureDialog(
-        current = currentBinding,
-        conflictDetector = { binding -> viewModel.hasShortcutConflict(actionId, binding) },
-        onDismiss = { capturingAction = null },
-        onSave = { binding ->
-          viewModel.updateShortcutBinding(actionId, binding)
-          capturingAction = null
-        },
-    )
-  }
-}
-
-/**
- * "Modifier Bar" settings section: previews the toolbar layout as key chips and opens an editor
- * dialog to add/remove keys or reset to the default layout. Persists through
- * [ToolbarPreferences.saveLayout].
- */
 @Composable
 private fun ModifierBarSettingsSection(
     viewModel: TerminalViewModel,
