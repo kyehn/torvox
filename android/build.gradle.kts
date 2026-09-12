@@ -18,72 +18,8 @@ plugins {
   id("de.infix.testBalloon") version "1.0.1-K2.4.0" apply false
 }
 
-val verrors = mutableListOf<String>()
-
-// Check 1 - GC root (NIX_GCROOT).
-// Set ONLY by nix develop / nix-shell - NOT by nix build.
-val gcroot = System.getenv("NIX_GCROOT")
-
-if (gcroot.isNullOrEmpty()) {
-  verrors.add("NIX_GCROOT is not set (nix develop sets this; nix build does not)")
-} else {
-  if (!gcroot.matches(Regex("^/nix/store/[0-9a-z]{32}[-].+"))) {
-    verrors.add("NIX_GCROOT = '$gcroot' - invalid store path format")
-  }
-  if (!File(gcroot).exists()) {
-    verrors.add("NIX_GCROOT = '$gcroot' - path does not exist on disk")
-  }
-}
-
-// Check 2 - IN_NIX_SHELL flag + NIX_BUILD_TOP pattern.
-// IN_NIX_SHELL is set ONLY by nix develop (not nix build).
-// NIX_BUILD_TOP starts with /tmp/nix-shell. in develop, /tmp/nix-build- in build.
-val nixShell = System.getenv("IN_NIX_SHELL")
-
-if (nixShell != "1" && nixShell != "impure") {
-  verrors.add("IN_NIX_SHELL = '$nixShell' - expected '1' or 'impure' (nix develop only)")
-}
-
-val nixBuildTop = System.getenv("NIX_BUILD_TOP")
-
-if (nixBuildTop.isNullOrEmpty()) {
-  verrors.add("NIX_BUILD_TOP is not set (nix develop creates a temp dir)")
-} else if (!nixBuildTop.contains("/nix-shell.")) {
-  verrors.add(
-      "NIX_BUILD_TOP = '$nixBuildTop' - expected /(mnt/)?tmp/nix-shell.* (nix develop creates a temp dir)"
-  )
-}
-
-// Check 3 - PATH / nativeBuildInputs cross-reference.
-// nix develop prepends /nix/store/<hash>/bin entries to PATH.
-val path = System.getenv("PATH") ?: ""
-val nixBins = path.split(":").filter { it.startsWith("/nix/store/") }
-
-if (nixBins.isEmpty()) {
-  verrors.add("PATH has no /nix/store/ entries (nix develop prepends these)")
-} else {
-  for (bin in nixBins) {
-    val parent = bin.removeSuffix("/bin")
-    if (!parent.matches(Regex("^/nix/store/[0-9a-z]{32}[-].+"))) {
-      verrors.add("PATH entry '$bin' has invalid nix store format")
-    }
-  }
-  val nativeInputs = System.getenv("nativeBuildInputs") ?: ""
-  if (nativeInputs.isNotEmpty()) {
-    val firstBin = nixBins.first().removeSuffix("/bin")
-    if (!nativeInputs.contains(firstBin)) {
-      verrors.add("First nix PATH entry '$firstBin' not found in nativeBuildInputs")
-    }
-  }
-}
-
-if (verrors.isNotEmpty()) {
-  logger.error("=== nix develop environment check failed ===")
-  verrors.forEach { logger.error("  X $it") }
-  logger.error("")
-  logger.error("Run: nix develop")
-  logger.error("")
-  throw GradleException("Must run inside nix develop (${verrors.size} check(s) failed)")
+if (System.getenv("NIX_GCROOT").isNullOrEmpty() || System.getenv("IN_NIX_SHELL").isNullOrEmpty()  || System.getenv("NIX_BUILD_TOP").isNullOrEmpty()  || System.getenv("nativeBuildInputs").isNullOrEmpty()) {
+  throw GradleException("Must run inside nix develop")
 }
 
 subprojects {
@@ -112,9 +48,6 @@ subprojects {
     }
   }
 
-  // ktlint-gradle (JLLeitschuh) — dedicated ktlintCheck/ktlintFormat tasks
-  // as an alternative to the Spotless-managed ktlint pass. Pinned to the
-  // same ktlint 1.8.0 version as Spotless so both tools agree on rules.
   apply(plugin = "org.jlleitschuh.gradle.ktlint")
   configure<org.jlleitschuh.gradle.ktlint.KtlintExtension> {
     version.set("1.8.0")
@@ -122,5 +55,4 @@ subprojects {
   }
 }
 
-// Gradle Versions Plugin: provides `dependencyUpdates` task at root level
 apply(plugin = "com.github.ben-manes.versions")

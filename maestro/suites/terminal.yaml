@@ -8,4 +8,4 @@ flows:
   - ../flows/type.yaml
   - ../flows/paste.yaml
   - ../flows/resize.yaml
-  - ../flows/selection.yaml
+  - ../flows/selection-copy-paste.yml

@@ -32,10 +32,6 @@ def main [--profile: string = "", ...abis: string] {
         if ($jni_dir | path exists) {
             rm -rf $jni_dir
         }
-        let bin_dir = $env.PWD | path join $ASSETS_BIN $abi
-        if ($bin_dir | path exists) {
-            rm -rf $bin_dir
-        }
     }
 
     for profile in $profiles {

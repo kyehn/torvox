@@ -43,10 +43,10 @@ pub use context::Renderer;
 pub use context::apply_scroll_px_offset;
 pub use context::orthographic_projection;
 pub use invalidation::{FrameInvalidation, InvalidationLevel};
+pub use pipeline::GpuUniforms;
 #[cfg(test)]
 #[allow(unused_imports)]
-pub(crate) use pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
-pub use pipeline::{GpuUniforms, image_active_value};
+pub(crate) use pipeline::QUAD_CORNERS;
 
 /// Serialises GPU benchmarks: under software Vulkan (Mesa Lavapipe) each
 /// test creates its own wgpu device, and parallel benchmarks contend for
@@ -175,7 +175,7 @@ pub mod gpu {
     pub use super::cell_builder::{CellCursor, CellInstanceConfig, build_instances_from_cell_data};
     pub use super::cell_builder::{CellRun, SearchHighlight, SelectionRange, build_row_runs};
     pub use super::context::{Renderer, orthographic_projection};
-    pub use super::pipeline::{GpuUniforms, image_active_value};
+    pub use super::pipeline::GpuUniforms;
     pub use super::{
         CATPPUCCIN_MOCHA_BG, CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE,
     };

@@ -2,9 +2,7 @@ struct Uniforms {
     projection: mat4x4<f32>,
     atlas_size: vec2<f32>,
     raster_scale: f32,
-    image_active: f32,
-    default_bg_lo: vec2<f32>,
-    default_bg_hi: vec2<f32>,
+    _padding: f32,
 };
 
 @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -124,20 +122,6 @@ fn fs_main(
 
     if (f & 128u) != 0u {
         color = vec4<f32>(color.rgb * 0.5, color.a);
-    }
-
-    // Fix F: when a background image is active, default-background cells are
-    // made transparent so the wallpaper shows through. Only the glyph (if any)
-    // is drawn over the wallpaper; the cell's background fills nothing.
-    if (uniforms.image_active > 0.5) {
-        let dbg = vec4<f32>(uniforms.default_bg_lo, uniforms.default_bg_hi);
-        let is_default_bg = abs(bg_color.r - dbg.r) < 0.004
-            && abs(bg_color.g - dbg.g) < 0.004
-            && abs(bg_color.b - dbg.b) < 0.004;
-        if (is_default_bg) {
-            // Glyph (if present) over a transparent background -> wallpaper shows.
-            color = vec4<f32>(fg_color.rgb, glyph_coverage);
-        }
     }
 
     return color;

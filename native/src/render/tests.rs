@@ -174,10 +174,9 @@ fn cell_instance_zeroable() {
 
 #[test]
 fn gpu_uniforms_size() {
-    // #[repr(C)] layout: 64 (mat4) + 8 (vec2) + 4 + 4 (raster_scale,
-    // image_active) + 16 (default_bg [f32;4]) = 96. Matches the WGSL
-    // std140 `Uniforms` (default_bg split into two vec2).
-    assert_eq!(std::mem::size_of::<GpuUniforms>(), 96);
+    // #[repr(C)] layout: 64 (mat4) + 8 (vec2) + 4 (raster_scale) + 4
+    // (std140 trailing padding) = 80. Matches the WGSL `Uniforms`.
+    assert_eq!(std::mem::size_of::<GpuUniforms>(), 80);
 }
 
 #[test]
@@ -479,15 +478,13 @@ fn orthographic_projection_resize_gpu_uniforms() {
         projection: orthographic_projection(800.0, 600.0),
         atlas_size: [1024.0, 1024.0],
         raster_scale: 1.0,
-        image_active: 0.0,
-        default_bg: [0.0, 0.0, 0.0, 1.0],
+        _padding: 0.0,
     };
     let uniforms_400 = GpuUniforms {
         projection: orthographic_projection(800.0, 400.0),
         atlas_size: [1024.0, 1024.0],
         raster_scale: 1.0,
-        image_active: 0.0,
-        default_bg: [0.0, 0.0, 0.0, 1.0],
+        _padding: 0.0,
     };
 
     // Same projection/atlas layout, different height
@@ -1022,7 +1019,7 @@ fn setup_test_gpu_context(device: wgpu::Device, queue: wgpu::Queue) -> Renderer 
 }
 
 #[test]
-fn gpu_background_no_image_fallback() {
+fn gpu_background_plain_color_fill() {
     let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         panic!("requires GPU adapter but none available");
     };
@@ -1851,14 +1848,6 @@ fn set_render_paused_idempotent() {
         context.render_frame(&[], &[]).is_ok(),
         "double-pause still ok"
     );
-}
-
-#[test]
-fn image_active_value_flag_matches_bg_bind_group() {
-    // Fix F branch logic: a background image being active is exactly the
-    // uniform flag that makes default-background cells transparent.
-    assert!(f32_eq(image_active_value(true), 1.0));
-    assert!(f32_eq(image_active_value(false), 0.0));
 }
 
 // ══════════════════════════════════════════════════════════════════════════
