@@ -90,8 +90,6 @@
     <!-- USB Serial -->
 
     <!-- MCP Server -->
-    <string name="mcp_server">MCP-Server</string>
-    <string name="mcp_server_desc">Terminal über Model Context Protocol Socket verfügbar machen</string>
 
     <!-- Text Search -->
     <string name="text_search">Textsuche</string>
@@ -125,14 +123,6 @@
     <string name="arrow_left">Pfeil nach links</string>
     <string name="arrow_right">Pfeil nach rechts</string>
     <string name="arrow_up">Pfeil nach oben</string>
-    <string name="background">Hintergrund</string>
-    <string name="bell_mode">Signalton-Modus</string>
-    <string name="bell_mode_desc">Verhalten des Terminal-Signaltons</string>
-    <string name="bg_blur_label">Unschärfe: %1$d</string>
-    <string name="bg_image_choose">Bild auswählen</string>
-    <string name="bg_image_none">Kein Hintergrundbild</string>
-    <string name="bg_image_set">Hintergrundbild festgelegt</string>
-    <string name="bg_opacity_label">Deckkraft: %1$d%%</string>
     <string name="bold_font_family">Fett-Schriftfamilie</string>
     <string name="bootstrap_already_in_progress">Bootstrap-Installation läuft bereits</string>
     <string name="bootstrap_cancelled">Download abgebrochen</string>
@@ -169,10 +159,6 @@
     <string name="edit_modifier_bar">Modifier-Leiste bearbeiten</string>
     <string name="enable_fuzzy_match">Fuzzy-Matching aktivieren</string>
     <string name="end_key">Ende</string>
-    <string name="environment_variables">Umgebungsvariablen</string>
-    <string name="environment_variables_desc">Zusätzliche KEY=VALUE-Variablen (eine pro Zeile) für neue Sitzungen</string>
-    <string name="environment_variables_hint">KEY=VALUE\neine pro Zeile</string>
-    <string name="environment_variables_save">Speichern</string>
     <string name="escape">Escape</string>
     <string name="font_applied">Schriftart angewendet: %1$s</string>
     <string name="font_apply_failed">Schriftart konnte nicht angewendet werden: %1$s</string>
@@ -190,8 +176,6 @@
     <string name="function_key_layer">Funktionstasten-Ebene</string>
     <string name="home_key">Pos1</string>
     <string name="italic_font_family">Kursiv-Schriftfamilie</string>
-    <string name="keyboard_shortcuts">Tastenkürzel</string>
-    <string name="keyboard_shortcuts_desc">Tastenkürzel für die Hardware-Tastatur konfigurieren</string>
     <string name="modifier_bar">Modifier-Leiste</string>
     <string name="modifier_bar_available_keys">Verfügbare Tasten (tippen zum Hinzufügen)</string>
     <string name="modifier_bar_current_layout">Aktuelles Layout</string>
@@ -206,12 +190,6 @@
     <string name="selection">Auswahl</string>
     <string name="selection_accessible">Ausgewählt: %1$s</string>
     <string name="session_number">Sitzung %1$d</string>
-    <string name="shortcut_already_in_use">Bereits in Verwendung</string>
-    <string name="shortcut_capture_prompt">Drücken Sie eine Modifikator-+Tastenkombination</string>
-    <string name="shortcut_capture_title">Kürzel aufzeichnen</string>
-    <string name="shortcut_need_modifier">Drücken Sie eine Modifikator-+Taste</string>
-    <string name="shortcut_reserved_key">Reservierte Taste</string>
-    <string name="shortcut_reset">Zurücksetzen</string>
     <string name="tab_key">Tab</string>
     <string name="toggle_keyboard">Tastatur ein-/ausblenden</string>
     <string name="toggle_scroll">Scrollen umschalten</string>
