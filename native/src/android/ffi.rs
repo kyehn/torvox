@@ -79,7 +79,6 @@ use jni::sys::{
 };
 use jni::{Env, EnvUnowned, jni_str};
 
-use super::text_utils::termux_env_vars;
 use super::text_utils::{encode_modifiers, plain_text_url_at};
 use crate::terminal::ShellEnv;
 use crate::terminal::session::Session;
@@ -362,8 +361,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
     cols: jint,
     shell: JString,
     home: JString,
-    user: JString,
-    path: JString,
     working_directory: JString,
     prefix: JString,
     scrollback_lines: jint,
@@ -378,8 +375,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
             cols,
             shell,
             home,
-            user,
-            path,
             working_directory,
             prefix,
             scrollback_lines,
@@ -399,8 +394,6 @@ fn init_session_inner(
     cols: jint,
     shell: JString,
     home: JString,
-    user: JString,
-    path: JString,
     working_directory: JString,
     prefix: JString,
     scrollback_lines: jint,
@@ -447,7 +440,7 @@ fn init_session_inner(
     };
 
     // Read the environment the Kotlin side resolved from the bootstrap
-    // (home/user/path/working directory/prefix). Empty strings mean
+    // (home/working directory/prefix). Empty strings mean
     // "not known" and fall back to the process environment.
     let read_env_string = |env: &mut Env, value: &JString, name: &str| -> Option<String> {
         match value.try_to_string(env) {
@@ -462,14 +455,6 @@ fn init_session_inner(
         }
     };
     let home = match read_env_string(env, &home, "home") {
-        Some(value) => value,
-        None => return 0,
-    };
-    let user = match read_env_string(env, &user, "user") {
-        Some(value) => value,
-        None => return 0,
-    };
-    let path = match read_env_string(env, &path, "path") {
         Some(value) => value,
         None => return 0,
     };
@@ -488,16 +473,6 @@ fn init_session_inner(
     } else {
         home
     };
-    let user = if user.is_empty() {
-        default.user.clone()
-    } else {
-        user
-    };
-    let path = if path.is_empty() {
-        default.path.clone()
-    } else {
-        path
-    };
     let working_directory = if working_directory.is_empty() {
         home.clone()
     } else {
@@ -505,33 +480,11 @@ fn init_session_inner(
     };
     let shell_env = ShellEnv {
         home,
-        user,
-        path,
         working_directory,
         prefix: if prefix.is_empty() {
             None
         } else {
             Some(prefix.clone())
-        },
-        extra: {
-            // without TERM, bash's readline treats the terminal
-            // as "dumb" and disables input echo entirely — typed characters
-            // reach the shell (commands execute) but are never shown.
-            // xterm-256color is the standard value for terminal emulators
-            // (Termux uses it).
-            let mut extra = vec![("TERM".to_string(), "xterm-256color".to_string())];
-            if !prefix.is_empty() {
-                // termux-exec's execve hook only forwards
-                // app-data executables to the system linker when the path is
-                // under TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR.
-                // Without these variables every execve of a $PREFIX binary
-                // fails with EACCES (SELinux execute_no_trans) —
-                // `cat: Permission denied`. Derive the Termux paths from the
-                // prefix (`.../files/usr` → files dir → app data dir) instead
-                // of adding a new JNI parameter.
-                extra.extend(termux_env_vars(&prefix));
-            }
-            extra
         },
     };
 

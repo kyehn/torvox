@@ -46,8 +46,6 @@ object NativeBridge {
       cols: Int,
       shell: String,
       home: String,
-      user: String,
-      path: String,
       workingDirectory: String,
       prefix: String,
       scrollbackLines: Int,

@@ -81,92 +81,9 @@ pub(crate) fn encode_modifiers(input: &[u8], mods: i32) -> Vec<u8> {
     output
 }
 
-/// Derive the Termux environment variables that termux-exec's execve hook
-/// needs to recognize `$PREFIX` paths.
-///
-/// Without `TERMUX_APP__DATA_DIR` / `TERMUX_APP__LEGACY_DATA_DIR`,
-/// termux-exec falls back to the package name baked into the bootstrap,
-/// so it does not recognize `$PREFIX` binaries and every execve of one
-/// fails with EACCES (SELinux execute_no_trans on app_data_file). The
-/// paths are derived from the prefix (`.../files/usr` → files dir → app
-/// data dir) so no extra JNI parameter is needed.
-pub(crate) fn termux_env_vars(prefix: &str) -> Vec<(String, String)> {
-    let files_dir = prefix
-        .strip_suffix("/usr")
-        .map(str::to_string)
-        .unwrap_or_else(|| prefix.to_string());
-    let data_dir = files_dir
-        .strip_suffix("/files")
-        .map(str::to_string)
-        .unwrap_or_else(|| files_dir.clone());
-    let package_name = data_dir
-        .rsplit('/')
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or("com.termux");
-    vec![
-        (
-            "TERMUX_APP__PACKAGE_NAME".to_string(),
-            package_name.to_string(),
-        ),
-        ("TERMUX_APP__DATA_DIR".to_string(), data_dir.clone()),
-        (
-            "TERMUX_APP__LEGACY_DATA_DIR".to_string(),
-            format!("/data/data/{package_name}"),
-        ),
-        ("TERMUX__ROOTFS".to_string(), files_dir.clone()),
-        ("TERMUX__PREFIX".to_string(), prefix.to_string()),
-        ("TERMUX__HOME".to_string(), format!("{files_dir}/home")),
-    ]
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn env_map(vars: &[(String, String)]) -> std::collections::HashMap<&str, &str> {
-        vars.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect()
-    }
-
-    #[test]
-    fn termux_env_vars_derive_from_modern_data_dir() {
-        let vars_vec = termux_env_vars("/data/user/0/com.termux/files/usr");
-        let vars = env_map(&vars_vec);
-        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
-        assert_eq!(vars["TERMUX_APP__DATA_DIR"], "/data/user/0/com.termux");
-        assert_eq!(vars["TERMUX_APP__LEGACY_DATA_DIR"], "/data/data/com.termux");
-        assert_eq!(vars["TERMUX__ROOTFS"], "/data/user/0/com.termux/files");
-        assert_eq!(vars["TERMUX__PREFIX"], "/data/user/0/com.termux/files/usr");
-        assert_eq!(vars["TERMUX__HOME"], "/data/user/0/com.termux/files/home");
-    }
-
-    #[test]
-    fn termux_env_vars_derive_from_legacy_data_dir() {
-        let vars_vec = termux_env_vars("/data/data/com.termux/files/usr");
-        let vars = env_map(&vars_vec);
-        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
-        assert_eq!(vars["TERMUX_APP__DATA_DIR"], "/data/data/com.termux");
-        assert_eq!(vars["TERMUX_APP__LEGACY_DATA_DIR"], "/data/data/com.termux");
-    }
-
-    #[test]
-    fn termux_env_vars_unusual_prefix_keeps_package_fallback() {
-        // A prefix that is not under.../files/usr must not panic and must
-        // still produce a usable package name.
-        let vars_vec = termux_env_vars("/custom/root/usr");
-        let vars = env_map(&vars_vec);
-        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "root");
-        assert_eq!(vars["TERMUX__PREFIX"], "/custom/root/usr");
-        assert_eq!(vars["TERMUX__ROOTFS"], "/custom/root");
-    }
-
-    #[test]
-    fn termux_env_vars_bare_prefix_falls_back_to_default_package() {
-        let vars_vec = termux_env_vars("/");
-        let vars = env_map(&vars_vec);
-        assert_eq!(vars["TERMUX_APP__PACKAGE_NAME"], "com.termux");
-        assert_eq!(vars["TERMUX__PREFIX"], "/");
-    }
 
     // ── cell_line_text ────────────────────────────────────────────
 
