@@ -15,7 +15,8 @@ use crate::terminal::shell_env::ShellEnv;
 
 const DEFAULT_TERM: &str = "xterm-256color";
 const DEFAULT_COLORTERM: &str = "truecolor";
-const DEFAULT_LANG: &str = "C.UTF-8";
+const DEFAULT_LANG: &str = "en_US.UTF-8";
+const TERMUX_VERSION: &str = "0.119.0-beta.3";
 /// Android does not have a writable /tmp, so we use /data/local/tmp
 /// which is guaranteed to be writable by the app process on all API levels.
 const ANDROID_TMPDIR: &str = "/data/local/tmp";
@@ -158,7 +159,7 @@ impl PtyPair {
             log::error!("{msg}");
             PtyError::Fork(nix::errno::Errno::EINVAL)
         })?;
-        let env_cstrings: Vec<std::ffi::CString> = build_env(env, shell, rows, cols)
+        let env_cstrings: Vec<std::ffi::CString> = build_env(env)
             .into_iter()
             .map(|(k, v)| {
                 std::ffi::CString::new(format!("{k}={v}")).map_err(|e| {
@@ -849,80 +850,24 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
 
 /// Build the environment variables for the child process.
 ///
-/// Combines the base system environment with user-specified overrides from
-/// `ShellEnv`, including HOME, USER, TERM, and terminal size variables.
-pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<(String, String)> {
-    let prefix_str = env.prefix.as_deref();
-    let mut result = base_env(prefix_str);
-    // LD_PRELOAD libtermux-exec for $PREFIX shells — it
-    // wraps execve() so child processes of the shell (ls, apt,...) are
-    // executed via the system linker, which Android 15+ SELinux allows
-    // (direct execute_no_trans of app_data_file is denied).
-    //
-    // The direct-ld-preload variant (`libtermux-exec-ld-preload.so`) is
-    // the one that intercepts execve from an LD_PRELOAD context; the bare
-    // `libtermux-exec.so` is the runtime library the preload variant
-    // dlopens (naming from termux-exec's lib/ld-preload build). Falling
-    // back to the bare name keeps older bootstraps working.
-    if let Some(p) = prefix_str {
-        let ld_preload =
-            if std::path::Path::new(&format!("{p}/lib/libtermux-exec-ld-preload.so")).exists() {
-                Some(format!("{p}/lib/libtermux-exec-ld-preload.so"))
-            } else if std::path::Path::new(&format!("{p}/lib/libtermux-exec.so")).exists() {
-                Some(format!("{p}/lib/libtermux-exec.so"))
-            } else {
-                None
-            };
-        if let Some(path) = ld_preload {
-            result.push(("LD_PRELOAD".to_string(), path));
-        }
-    }
+/// 规范白名单（docs/specification/DESIGN.md Bootstrap 节）：只设置下面这些变量，
+/// 不得设置 LD_LIBRARY_PATH / PWD / LD_PRELOAD 及其他任何未声明变量。
+pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
+    let mut result = base_env(env.prefix.as_deref());
     result.push(("HOME".to_string(), env.home.clone()));
-    result.push(("USER".to_string(), env.user.clone()));
-    result.push(("SHELL".to_string(), shell_path.to_string()));
-    result.push(("PATH".to_string(), env.path.clone()));
-    result.push(("PWD".to_string(), env.working_directory.clone()));
-    result.push(("LINES".to_string(), rows.to_string()));
-    result.push(("COLUMNS".to_string(), cols.to_string()));
-    // Reference (zed-android-port adapters/bootstrap.rs env_for_terminal
-    //:386-434, https://github.com/GeneralKaos666/zed-android-port):
-    // a Termux-bootstrap PTY also needs TERMUX__ROOTFS / TERMUX__PREFIX /
-    // TERMUX__HOME / TERMUX_APP__PACKAGE_NAME / HOME=$termux_home and,
-    // when $PREFIX/etc/tls/cert.pem exists, SSL_CERT_FILE + CURL_CA_BUNDLE
-    // so cargo/npm/curl don't fail with "unable to get local issuer
-    // certificate".
-    //
-    // the TERMUX_APP__DATA_DIR / TERMUX_APP__LEGACY_DATA_DIR
-    // / TERMUX__ROOTFS / TERMUX__PREFIX / TERMUX__HOME /
-    // TERMUX_APP__PACKAGE_NAME variables are injected by the JNI layer
-    // (initSession) when a prefix is configured. Without
-    // TERMUX_APP__DATA_DIR, termux-exec's execve hook falls back to the
-    // package name baked into the bootstrap, so it does not recognize
-    // $PREFIX paths and every execve of a Termux binary fails with
-    // EACCES (SELinux execute_no_trans on app_data_file).
-    //
-    // Reference (std::env overlay): terminal.rs insert_zed_terminal_env
-    //:123-161 copies HOME/PATH/SHELL/TMPDIR/LANG then applies the overlay.
-    for (key, _) in &env.extra {
-        result.retain(|(k, _)| k != key);
+    result.push(("TERMUX_HOME_DIR_PATH".to_string(), env.home.clone()));
+    if let Some(prefix) = env.prefix.as_deref() {
+        result.push(("PREFIX".to_string(), prefix.to_string()));
+        result.push(("TERMUX_PREFIX_DIR_PATH".to_string(), prefix.to_string()));
     }
-    result.extend(env.extra.iter().cloned());
-
-    // SSL cert bundle for cargo/npm/curl
-    if let Some(p) = prefix_str {
-        let cert_path = format!("{p}/etc/tls/cert.pem");
-        if std::path::Path::new(&cert_path).exists() {
-            result.push(("SSL_CERT_FILE".to_string(), cert_path.clone()));
-            result.push(("CURL_CA_BUNDLE".to_string(), cert_path));
-        }
+    if let Some(tmpdir) = result
+        .iter()
+        .find(|(key, _)| *key == "TMPDIR")
+        .map(|(_, value)| value.clone())
+    {
+        result.push(("TERMUX_TMP_PREFIX_DIR_PATH".to_string(), tmpdir));
     }
-
-    // Apply registered env overlay (zed-port pattern)
-    crate::terminal::shell_env::apply_env_overlay(
-        &mut result,
-        crate::terminal::shell_env::terminal_env_overlay(),
-    );
-
+    result.push(("TERMUX_VERSION".to_string(), TERMUX_VERSION.to_string()));
     result
 }
 
@@ -987,11 +932,8 @@ mod tests {
     fn test_env() -> ShellEnv {
         ShellEnv {
             home: "/tmp/test_home".to_string(),
-            user: "testuser".to_string(),
-            path: "/usr/bin:/bin".to_string(),
             working_directory: "/tmp/test_home".to_string(),
             prefix: None,
-            extra: vec![],
         }
     }
 
@@ -1072,7 +1014,7 @@ mod tests {
     #[test]
     fn base_env_includes_lang() {
         let env = base_env(None);
-        assert!(env.iter().any(|(k, v)| k == "LANG" && v == "C.UTF-8"));
+        assert!(env.iter().any(|(k, v)| k == "LANG" && v == "en_US.UTF-8"));
     }
 
     #[test]
@@ -1100,7 +1042,7 @@ mod tests {
     #[test]
     fn build_env_includes_term() {
         let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
+        let result = build_env(&env);
         assert!(
             result
                 .iter()
@@ -1111,7 +1053,7 @@ mod tests {
     #[test]
     fn build_env_includes_colorterm() {
         let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
+        let result = build_env(&env);
         assert!(
             result
                 .iter()
@@ -1122,7 +1064,7 @@ mod tests {
     #[test]
     fn build_env_includes_home_from_env() {
         let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
+        let result = build_env(&env);
         assert!(
             result
                 .iter()
@@ -1131,75 +1073,85 @@ mod tests {
     }
 
     #[test]
-    fn build_env_includes_user_from_env() {
-        let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
-        assert!(result.iter().any(|(k, v)| k == "USER" && v == "testuser"));
-    }
-
-    #[test]
-    fn build_env_includes_shell_from_param() {
-        let env = test_env();
-        let result = build_env(&env, "/bin/bash", 24, 80);
-        assert!(result.iter().any(|(k, v)| k == "SHELL" && v == "/bin/bash"));
-    }
-
-    #[test]
-    fn build_env_includes_path_from_env() {
-        let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
-        assert!(
-            result
-                .iter()
-                .any(|(k, v)| k == "PATH" && v == "/usr/bin:/bin")
-        );
-    }
-
-    #[test]
-    fn build_env_includes_pwd_from_env() {
-        let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
-        assert!(
-            result
-                .iter()
-                .any(|(k, v)| k == "PWD" && v == "/tmp/test_home")
-        );
-    }
-
-    #[test]
-    fn build_env_includes_lines_and_columns() {
-        let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
-        assert!(result.iter().any(|(k, v)| k == "LINES" && v == "24"));
-        assert!(result.iter().any(|(k, v)| k == "COLUMNS" && v == "80"));
-    }
-
-    #[test]
-    fn build_env_deduplicates_explicit_keys() {
+    fn build_env_emits_prefix_pairs() {
         let mut env = test_env();
-        env.extra.push(("TERM".to_string(), "dumb".to_string()));
-        let result = build_env(&env, "/bin/sh", 24, 80);
-        let term_entries: Vec<_> = result.iter().filter(|(k, _)| k == "TERM").collect();
-        assert_eq!(
-            term_entries.len(),
-            1,
-            "duplicate TERM should be deduplicated"
-        );
-        assert_eq!(term_entries[0].1, "dumb", "last value should win");
+        env.prefix = Some("/data/data/com.termux/files/usr".to_string());
+        let result = build_env(&env);
+        for (key, value) in [
+            ("PREFIX", "/data/data/com.termux/files/usr"),
+            (
+                "TERMUX_PREFIX_DIR_PATH",
+                "/data/data/com.termux/files/usr",
+            ),
+            ("TMPDIR", "/data/data/com.termux/files/usr/tmp"),
+            (
+                "TERMUX_TMP_PREFIX_DIR_PATH",
+                "/data/data/com.termux/files/usr/tmp",
+            ),
+            ("TERMUX_VERSION", "0.119.0-beta.3"),
+            ("TERMUX_HOME_DIR_PATH", "/tmp/test_home"),
+        ] {
+            assert!(
+                result.iter().any(|(k, v)| k == key && v == value),
+                "missing {key}={value}"
+            );
+        }
     }
 
     #[test]
-    fn build_env_extra_entries_present() {
+    fn build_env_rejects_unlisted_variables() {
         let mut env = test_env();
-        env.extra
-            .push(("ANDROID_ROOT".to_string(), "/system".to_string()));
-        let result = build_env(&env, "/bin/sh", 24, 80);
+        env.prefix = Some("/data/data/com.termux/files/usr".to_string());
+        let result = build_env(&env);
+        for key in [
+            "LD_PRELOAD",
+            "LD_LIBRARY_PATH",
+            "PWD",
+            "USER",
+            "SHELL",
+            "PATH",
+            "LINES",
+            "COLUMNS",
+            "SSL_CERT_FILE",
+            "CURL_CA_BUNDLE",
+        ] {
+            assert!(
+                !result.iter().any(|(k, _)| k == key),
+                "unlisted variable {key} must not be set"
+            );
+        }
+        for (key, _) in &result {
+            assert!(
+                !key.starts_with("TERMUX__") && !key.starts_with("TERMUX_APP__"),
+                "undeclared variable {key} must not be set"
+            );
+        }
+    }
+
+    #[test]
+    fn build_env_without_prefix_omits_prefix_vars() {
+        let env = test_env();
+        let result = build_env(&env);
+        assert!(!result.iter().any(|(k, _)| k == "PREFIX"));
+        assert!(
+            !result
+                .iter()
+                .any(|(k, _)| k == "TERMUX_PREFIX_DIR_PATH")
+        );
         assert!(
             result
                 .iter()
-                .any(|(k, v)| k == "ANDROID_ROOT" && v == "/system")
+                .any(|(k, _)| k == "TERMUX_TMP_PREFIX_DIR_PATH"),
+            "TMPDIR 对等变量无 prefix 时也必须存在"
         );
     }
+
+
+
+
+
+
+
 
     #[test]
     fn base_env_passthrough_android_vars_from_host() {
@@ -1523,103 +1475,4 @@ mod tests {
     }
 }
 
-#[cfg(test)]
-mod pdeathsig_tests {
-    use super::*;
 
-    #[test]
-    fn build_env_adds_ld_preload_when_file_exists() {
-        // When the libtermux-exec.so file exists in the prefix, LD_PRELOAD
-        // must be set (termux case).
-        let tmp =
-            std::env::temp_dir().join(format!("terminal-pty-test-preload-{}", std::process::id()));
-        let lib = tmp.join("lib");
-        std::fs::create_dir_all(&lib).expect("create tmp lib");
-        std::fs::write(lib.join("libtermux-exec.so"), [0x7fu8, b'E', b'L', b'F'])
-            .expect("touch file");
-        let prefix = tmp.to_str().unwrap().to_string();
-        let env = ShellEnv {
-            home: format!("{}/home", prefix),
-            user: "shell".to_string(),
-            path: format!("{}/bin:/system/bin", prefix),
-            working_directory: format!("{}/home", prefix),
-            prefix: Some(prefix.clone()),
-            extra: vec![],
-        };
-        let result = build_env(&env, &format!("{}/bin/bash", prefix), 24, 80);
-        assert!(
-            result.iter().any(|(k, v)| {
-                k == "LD_PRELOAD" && *v == format!("{}/lib/libtermux-exec.so", prefix)
-            }),
-            "LD_PRELOAD must point at libtermux-exec.so when the file exists"
-        );
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn build_env_adds_ld_preload_variant_when_present() {
-        // The direct-ld-preload variant is preferred over the bare name.
-        let tmp =
-            std::env::temp_dir().join(format!("terminal-pty-test-variant-{}", std::process::id()));
-        let lib = tmp.join("lib");
-        std::fs::create_dir_all(&lib).expect("create tmp lib");
-        std::fs::write(lib.join("libtermux-exec-ld-preload.so"), b"ELF").expect("touch ld");
-        std::fs::write(lib.join("libtermux-exec.so"), b"ELF").expect("touch bare");
-        let prefix = tmp.to_str().unwrap().to_string();
-        let env = ShellEnv {
-            home: format!("{}/home", prefix),
-            user: "testuser".to_string(),
-            path: "/usr/bin:/bin".to_string(),
-            working_directory: format!("{}/home", prefix),
-            prefix: Some(prefix.clone()),
-            extra: vec![],
-        };
-        let result = build_env(&env, &format!("{}/bin/bash", prefix), 24, 80);
-        let preload = result
-            .iter()
-            .find(|(k, _)| k == "LD_PRELOAD")
-            .map(|(_, v)| v.clone());
-        assert_eq!(
-            preload.as_deref(),
-            Some(format!("{}/lib/libtermux-exec-ld-preload.so", prefix).as_str()),
-            "ld-preload variant must be preferred over bare name",
-        );
-        let _ = std::fs::remove_dir_all(&tmp);
-    }
-
-    #[test]
-    fn build_env_skips_ld_preload_when_absent() {
-        // Prefix is set but lib/libtermux-exec.so does not exist —
-        // LD_PRELOAD must be omitted to avoid CANNOT LINK.
-        let env = ShellEnv {
-            home: "/tmp/test_home".to_string(),
-            user: "testuser".to_string(),
-            path: "/usr/bin:/bin".to_string(),
-            working_directory: "/tmp/test_home".to_string(),
-            prefix: Some("/data/data/com.termux/files/usr".to_string()),
-            extra: vec![],
-        };
-        let result = build_env(&env, "/data/data/com.termux/files/usr/bin/bash", 24, 80);
-        assert!(
-            !result.iter().any(|(k, _)| k == "LD_PRELOAD"),
-            "must not set LD_PRELOAD when libtermux-exec.so is absent"
-        );
-    }
-
-    #[test]
-    fn build_env_no_ld_preload_without_prefix() {
-        let env = ShellEnv {
-            home: "/tmp/test_home".to_string(),
-            user: "testuser".to_string(),
-            path: "/usr/bin:/bin".to_string(),
-            working_directory: "/tmp/test_home".to_string(),
-            prefix: None,
-            extra: vec![],
-        };
-        let result = build_env(&env, "/system/bin/sh", 24, 80);
-        assert!(
-            !result.iter().any(|(k, _)| k == "LD_PRELOAD"),
-            "no LD_PRELOAD for system shells"
-        );
-    }
-}
