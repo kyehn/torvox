@@ -36,8 +36,6 @@
 //! - [FR-027](crate) — Session: double-fork child with PID tracking
 //! - [FR-028](crate) — Process: exited callback
 //! - [FR-029](crate) — Scrollback: scroll up
-//! - [FR-039](crate) — MCP: server lifecycle
-//! - [FR-043](crate) — MCP: I/O multiplexing
 //! - [NFR-005](crate) — Session: zombie reaping
 //! - [NFR-024](crate) — Session: crash recovery
 use parking_lot::Mutex;

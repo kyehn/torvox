@@ -831,7 +831,7 @@ mod linux_unicode_handling {
     #[test]
     fn echo_cjk_characters() {
         let mut s = Session::spawn("/bin/sh", 24, 80, &ShellEnv::default(), None).expect("spawn");
-        // dash printf uses octal escapes: 中 = UTF-8 E4 B8 AD = \344\270\255
+        // POSIX shell printf uses octal escapes: 中 = UTF-8 E4 B8 AD = \344\270\255
         // In Rust bytes: backslash is \\, so \344 becomes \x5c\x33\x34\x34
         // Simpler: just send the raw UTF-8 bytes directly to the PTY
         s.write(b"\xe4\xb8\xad\n").expect("write");
@@ -908,7 +908,7 @@ mod linux_ansi_sequences {
     /// (control chars expanded, `\x1b` → `^[`) and once as the child's own
     /// echo.
     ///
-    /// A shell `stty raw; exec cat` cannot work here: interactive bash/dash
+    /// A shell `stty raw; exec cat` cannot work here: interactive shells
     /// restore the saved termios (ECHO on) when launching an external
     /// command (job-control reset), so cat always runs with ECHO on.
     /// Instead we run python3, which calls `tty.setraw(0)` itself *after*

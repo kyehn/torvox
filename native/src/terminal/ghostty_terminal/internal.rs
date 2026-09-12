@@ -1343,7 +1343,7 @@ impl super::GhosttyTerminal {
         // NOTE: a scrolled snapshot returns an EMPTY fallback
         // grid — the CellData path does not expose scrollback content, and
         // `take_snapshot_with_scroll` is only exercised by tests. Any
-        // future query/MCP caller passing a non-zero offset will get an
+        // future query caller passing a non-zero offset will get an
         // empty grid; implement history snapshots there if needed.
         if scroll_offset > 0 {
             return GridSnapshot::fallback(

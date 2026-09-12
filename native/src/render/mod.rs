@@ -16,8 +16,6 @@
 // ── Sub-modules ──────────────────────────────────────────────────────────
 pub mod font;
 pub mod invalidation;
-#[cfg(not(target_os = "android"))]
-pub mod renderdoc_capture;
 
 pub(crate) mod cell_builder;
 pub mod context;

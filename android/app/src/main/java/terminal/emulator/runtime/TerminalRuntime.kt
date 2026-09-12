@@ -1792,7 +1792,7 @@ constructor(
 
     /**
      * DESIGN Shizuku switch: the app domain cannot exec prefix binaries (untrusted_app W^X,
-     * EACCES/126 device-verified), so an authorized switch routes the nix login through the Shizuku
+     * EACCES/126 device-verified), so an authorized switch routes the prefix login through the Shizuku
      * server via rish. Extracted from buildConfig so it stays under the detekt LongMethod limit.
      */
     private fun resolveEffectiveShell(
@@ -1829,7 +1829,7 @@ constructor(
      */
     private fun findPrefixShell(prefixDir: String): String? {
         // 登录优先，ELF 与系统脚本均可选中，顺序即优先级。
-        return listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh").firstOrNull { candidate ->
+        return listOf("bin/login", "bin/bash").firstOrNull { candidate ->
             val file = java.io.File("$prefixDir/$candidate")
             file.isFile && (isElf(file) || isSystemShellScript(file))
         }

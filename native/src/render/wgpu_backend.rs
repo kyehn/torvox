@@ -40,20 +40,14 @@ impl raw_window_handle::HasDisplayHandle for AndroidDisplay {
 
 /// Create a wgpu [`Instance`], [`Adapter`], [`Device`], and [`Queue`].
 ///
-/// On Android this uses the Vulkan backend; on other platforms it uses
-/// the default primary backend (Vulkan/Metal/DX12). Debug builds enable
-/// validation.
+/// Vulkan is the sole backend on every platform: no OpenGL/GLES or CPU
+/// path exists. Debug builds enable validation.
 pub async fn initialize_wgpu()
 -> Result<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue), GpuError> {
-    // FR-010: Vulkan is the SOLE graphics backend — no OpenGL/GLES or CPU
-    // software path is supported. NFR-018: on Android emulators without a
-    // physical GPU, SwiftShader provides the software Vulkan implementation
-    // (the legacy gfxstream GL fallback was removed; emulator deadlocks on
-    // vkAcquireNextImageKHR dequeueBuffer were a gfxstream-only issue).
-    #[cfg(target_os = "android")]
+    // Vulkan is the SOLE graphics backend — no OpenGL/GLES or CPU software
+    // path is supported. On emulators without a physical GPU, SwiftShader
+    // provides the software Vulkan implementation.
     let backends = wgpu::Backends::VULKAN;
-    #[cfg(not(target_os = "android"))]
-    let backends = wgpu::Backends::PRIMARY;
     #[cfg(debug_assertions)]
     let instance_flags = wgpu::InstanceFlags::VALIDATION
         | wgpu::InstanceFlags::DEBUG
@@ -81,9 +75,6 @@ pub async fn initialize_wgpu()
         backend_options: wgpu::BackendOptions::default(),
         display,
     });
-
-    #[cfg(not(target_os = "android"))]
-    crate::render::renderdoc_capture::initialize();
 
     let power_preference = wgpu::PowerPreference::HighPerformance;
     let adapter = instance

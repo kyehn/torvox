@@ -184,7 +184,7 @@ fn orthographic_projection_basic() {
     let proj = orthographic_projection(100.0, 100.0);
     // [0][0] = 2/width
     assert!((proj[0][0] - 0.02).abs() < f32::EPSILON);
-    // [1][1] = -2/height (flipped Y for GLES swapchain)
+    // [1][1] = -2/height (flipped Y for the Vulkan swapchain)
     assert!((proj[1][1] + 0.02).abs() < f32::EPSILON);
     assert!((proj[3][1] - 1.0).abs() < f32::EPSILON, "translation Y");
     // [3][3] = 1 (result.w=1 for all vertices via Rust row-major→WGSL column-major)
@@ -228,7 +228,13 @@ fn orthographic_projection_zero_size() {
 /// Helper: create a wgpu instance + adapter + device for testing.
 /// Returns None when no suitable GPU is available.
 fn create_test_device() -> Option<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        flags: wgpu::InstanceFlags::empty(),
+        memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+        backend_options: wgpu::BackendOptions::default(),
+        display: None,
+    });
     let adapter =
         futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: None,
