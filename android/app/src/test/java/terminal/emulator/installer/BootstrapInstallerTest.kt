@@ -18,14 +18,12 @@ import java.util.zip.ZipOutputStream
 /**
  * JVM (Robolectric) tests for the bootstrap install + second-stage pipeline.
  *
- * These exercise the REAL [BootstrapInstaller] / [SecondStageRunner] code paths
- * (zip extraction, symlink creation via [Os.symlink], executable chmod, atomic
- * rename, post-install script execution) without downloading anything from the
- * network: a synthetic bootstrap zip is built locally and installed into a
- * throwaway prefix under the app's exec-permitted `files/` tree. Symlink
- * direction and executable-bit verification live in the instrumented suite
- * (BootstrapSymlinkInstrumentedTest) — Robolectric's ShadowOs has no
- * symlink/chmod/stat support.
+ * These exercise the REAL [BootstrapInstaller] / [SecondStageRunner] code paths (zip extraction,
+ * symlink creation via [Os.symlink], executable chmod, atomic rename, post-install script
+ * execution) without downloading anything from the network: a synthetic bootstrap zip is built
+ * locally and installed into a throwaway prefix under the app's exec-permitted `files/` tree.
+ * Symlink direction and executable-bit verification live in the instrumented suite
+ * (BootstrapSymlinkInstrumentedTest) — Robolectric's ShadowOs has no symlink/chmod/stat support.
  */
 @RunWith(RobolectricTestRunner::class)
 class BootstrapInstallerTest {
@@ -75,9 +73,10 @@ class BootstrapInstallerTest {
             if (withSymlinks) {
                 val content =
                     """
-                    bin/gawk←bin/awk
-                    bin/busybox←bin/applets/gunzip
-                    """.trimIndent()
+            bin/gawk←bin/awk
+            bin/busybox←bin/applets/gunzip
+            """
+                        .trimIndent()
                 zos.putNextEntry(ZipEntry("SYMLINKS.txt"))
                 zos.write(content.toByteArray())
                 zos.closeEntry()
@@ -147,7 +146,10 @@ class BootstrapInstallerTest {
 
         val result = runBlocking { installer.install(zipFile) }
 
-        assertTrue("install with EXECUTABLES.txt must succeed: ${result.exceptionOrNull()?.message}", result.isSuccess)
+        assertTrue(
+            "install with EXECUTABLES.txt must succeed: ${result.exceptionOrNull()?.message}",
+            result.isSuccess,
+        )
         assertTrue("usr/bin/env must exist", File(prefixDir, "usr/bin/env").exists())
     }
 
@@ -177,7 +179,10 @@ class BootstrapInstallerTest {
             writeText("#!/data/data/com.termux/files/usr/bin/sh\nexec bash\n")
         }
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
-        assertFalse("isInstalled must be false with a private-interpreter script alone", installer.isInstalled())
+        assertFalse(
+            "isInstalled must be false with a private-interpreter script alone",
+            installer.isInstalled(),
+        )
     }
 
     /** parseSymlinks keeps the nix `target←linkPath` direction for absolute store paths. */
@@ -206,7 +211,8 @@ class BootstrapInstallerTest {
             #!/bin/sh
             echo "configure" > "${marker.absolutePath}"
             exit 0
-            """.trimIndent(),
+            """
+                .trimIndent(),
         )
         script.setExecutable(true)
 
@@ -227,7 +233,8 @@ class BootstrapInstallerTest {
             #!/bin/sh
             echo "configure" > "${marker.absolutePath}"
             exit 0
-            """.trimIndent(),
+            """
+                .trimIndent(),
         )
         script.setExecutable(true)
 
@@ -275,21 +282,28 @@ class BootstrapInstallerTest {
         File(prefixDir, "bin/bash").writeText("#!/bin/sh\nfirst\n")
         assertTrue(runBlocking { installer.install(buildFakeBootstrapZip(true)) }.isSuccess)
         assertTrue("previous prefix kept as single backup", backup.isDirectory)
-        assertTrue("backup holds the previous tree", File(backup, "bin/bash").readText().contains("first"))
+        assertTrue(
+            "backup holds the previous tree",
+            File(backup, "bin/bash").readText().contains("first"),
+        )
     }
 }
 
 /** Pure-path tests: no Android/Os dependencies, no context needed. */
 class BootstrapInstallerNormalizePathTest {
-    private val installer = BootstrapInstaller(
-        prefixDir = File("/tmp/t-prefix"),
-        homeDir = File("/tmp/t-home"),
-        stagingDir = File("/tmp/t-staging"),
-    )
+    private val installer =
+        BootstrapInstaller(
+            prefixDir = File("/tmp/t-prefix"),
+            homeDir = File("/tmp/t-home"),
+            stagingDir = File("/tmp/t-staging"),
+        )
 
     @Test
     fun normalizePath_removes_dot_segments() {
-        assertEquals("include/term_entry.h", installer.normalizePath("./include/ncurses/../term_entry.h"))
+        assertEquals(
+            "include/term_entry.h",
+            installer.normalizePath("./include/ncurses/../term_entry.h"),
+        )
         assertEquals("bin/bash", installer.normalizePath("bin/./bash"))
         assertEquals("a/b", installer.normalizePath("a//b"))
     }

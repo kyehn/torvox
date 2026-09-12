@@ -22,78 +22,78 @@ import terminal.emulator.openDrawer
 @RunWith(AndroidJUnit4::class)
 @LargeTest
 class TextSearchEmulatorTest {
-  // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
-  // the system dialog would cover the UI and break node lookups.
-  @get:Rule
-  val notificationPermission =
-      GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+    // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
+    // the system dialog would cover the UI and break node lookups.
+    @get:Rule
+    val notificationPermission =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-  @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-  @Test
-  fun testSearchButtonInDrawer_opensSearchBar() {
-    composeTestRule.waitForIdle()
-    openSearchBar()
-    composeTestRule.onNodeWithTag("SearchTextField").assertIsDisplayed()
-  }
-
-  @Test
-  fun testCtrlF_doesNotOpenSearchBar() {
-    composeTestRule.waitForIdle()
-    sendCtrlF()
-    composeTestRule.waitForIdle()
-
-    assertEquals(
-        "Ctrl+F should not open search bar (no hardware shortcut exists)",
-        0,
-        composeTestRule.onAllNodesWithTag("TextSearchBar").fetchSemanticsNodes().size,
-    )
-  }
-
-  @Test
-  fun testSearchCaseSensitivity() {
-    composeTestRule.waitForIdle()
-    openSearchBar()
-    composeTestRule.onNodeWithTag("SearchCaseSensitive").performClick()
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("TextSearchBar").assertIsDisplayed()
-  }
-
-  @Test
-  fun testSearchNavigation() {
-    composeTestRule.waitForIdle()
-    openSearchBar()
-    composeTestRule.onNodeWithTag("SearchTextField").assertIsDisplayed()
-    composeTestRule.onNodeWithTag("SearchClose").performClick()
-  }
-
-  @Test
-  fun testSearchInput_acceptsTyping() {
-    composeTestRule.waitForIdle()
-    openSearchBar()
-    composeTestRule.onNodeWithTag("SearchTextField").performTextInput("test")
-    composeTestRule.waitForIdle()
-    composeTestRule.onNodeWithTag("SearchTextField").performTextClearance()
-    composeTestRule.onNodeWithTag("SearchTextField").performTextInput("search")
-    composeTestRule.waitForIdle()
-  }
-
-  private fun openSearchBar() {
-    composeTestRule.waitForIdle()
-    composeTestRule.openDrawer()
-    composeTestRule.onNodeWithTag("SearchButton").performClick()
-    composeTestRule.waitForIdle()
-  }
-
-  private fun sendCtrlF() {
-    composeTestRule.runOnUiThread {
-      val t = SystemClock.uptimeMillis()
-      composeTestRule.activity.dispatchKeyEvent(
-          KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F, 0, KeyEvent.META_CTRL_ON),
-      )
-      composeTestRule.activity.dispatchKeyEvent(
-          KeyEvent(t, t + 10, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F, 0, KeyEvent.META_CTRL_ON),
-      )
+    @Test
+    fun testSearchButtonInDrawer_opensSearchBar() {
+        composeTestRule.waitForIdle()
+        openSearchBar()
+        composeTestRule.onNodeWithTag("SearchTextField").assertIsDisplayed()
     }
-  }
+
+    @Test
+    fun testCtrlF_doesNotOpenSearchBar() {
+        composeTestRule.waitForIdle()
+        sendCtrlF()
+        composeTestRule.waitForIdle()
+
+        assertEquals(
+            "Ctrl+F should not open search bar (no hardware shortcut exists)",
+            0,
+            composeTestRule.onAllNodesWithTag("TextSearchBar").fetchSemanticsNodes().size,
+        )
+    }
+
+    @Test
+    fun testSearchCaseSensitivity() {
+        composeTestRule.waitForIdle()
+        openSearchBar()
+        composeTestRule.onNodeWithTag("SearchCaseSensitive").performClick()
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("TextSearchBar").assertIsDisplayed()
+    }
+
+    @Test
+    fun testSearchNavigation() {
+        composeTestRule.waitForIdle()
+        openSearchBar()
+        composeTestRule.onNodeWithTag("SearchTextField").assertIsDisplayed()
+        composeTestRule.onNodeWithTag("SearchClose").performClick()
+    }
+
+    @Test
+    fun testSearchInput_acceptsTyping() {
+        composeTestRule.waitForIdle()
+        openSearchBar()
+        composeTestRule.onNodeWithTag("SearchTextField").performTextInput("test")
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithTag("SearchTextField").performTextClearance()
+        composeTestRule.onNodeWithTag("SearchTextField").performTextInput("search")
+        composeTestRule.waitForIdle()
+    }
+
+    private fun openSearchBar() {
+        composeTestRule.waitForIdle()
+        composeTestRule.openDrawer()
+        composeTestRule.onNodeWithTag("SearchButton").performClick()
+        composeTestRule.waitForIdle()
+    }
+
+    private fun sendCtrlF() {
+        composeTestRule.runOnUiThread {
+            val t = SystemClock.uptimeMillis()
+            composeTestRule.activity.dispatchKeyEvent(
+                KeyEvent(t, t, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_F, 0, KeyEvent.META_CTRL_ON),
+            )
+            composeTestRule.activity.dispatchKeyEvent(
+                KeyEvent(t, t + 10, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_F, 0, KeyEvent.META_CTRL_ON),
+            )
+        }
+    }
 }
