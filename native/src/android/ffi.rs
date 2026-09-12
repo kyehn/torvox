@@ -69,14 +69,16 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
 use crate::event::Event;
-use jni::JNIEnv;
+use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::JObject;
 use jni::objects::JObjectArray;
 use jni::objects::{JClass, JString};
+use jni::strings::JNIString;
 use jni::sys::{
     JNI_FALSE, JNI_TRUE, jboolean, jbyte, jbyteArray, jfloat, jint, jlong, jobjectArray, jsize,
     jstring,
 };
+use jni::{Env, EnvUnowned, jni_str};
 
 use super::text_utils::termux_env_vars;
 use super::text_utils::{encode_modifiers, plain_text_url_at};
@@ -87,25 +89,13 @@ use std::sync::Arc;
 /// Catches panics escaping a JNI export body. A panic crossing the
 /// `extern "system"` boundary is undefined behaviour (process abort) — every
 /// session dies instantly and no crash handler runs. The guard converts the
-/// panic into a Java RuntimeException and returns `$default` to Kotlin.
+/// panic into a Java RuntimeException and returns default to Kotlin.
+/// Uses jni 0.22 EnvUnowned with_env upgrade and ThrowRuntimeExAndDefault policy.
 macro_rules! jni_export_guard {
-    ($env:expr, $default:expr, $call:expr) => {{
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $call)) {
-            Ok(value) => value,
-            Err(payload) => {
-                let message = payload
-                    .downcast_ref::<&str>()
-                    .map(|s| (*s).to_string())
-                    .or_else(|| payload.downcast_ref::<String>().cloned())
-                    .unwrap_or_else(|| "unknown panic".to_string());
-                log::error!("JNI export panicked: {message}");
-                let _ = $env.throw_new(
-                    "java/lang/RuntimeException",
-                    format!("native panic: {message}"),
-                );
-                $default
-            }
-        }
+    ($unowned:expr, $default:expr, |$env_param:ident| $call:expr) => {{
+        $unowned
+            .with_env(|$env_param| -> jni::errors::Result<_> { Ok($call) })
+            .resolve::<ThrowRuntimeExAndDefault>()
     }};
 }
 
@@ -202,7 +192,7 @@ pub(crate) fn session_last_command_output(session_id: u64) -> Option<String> {
 
 /// Test-only: register a session entry directly (host tests cannot go
 /// through the JNI spawn path). Dead in non-test lib builds by design.
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn register_session_for_test(
     session_id: u64,
@@ -219,7 +209,7 @@ pub(crate) fn register_session_for_test(
 
 /// Test-only: drop every registered session so a stale entry cannot leak
 /// into a later test. Dead in non-test lib builds by design.
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 #[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn clear_registry_for_test() {
     SESSION_REGISTRY.write().clear();
@@ -443,8 +433,6 @@ pub(crate) fn push_event(event: Event) {
 /// a misbehaving client; an empty answer is the xterm-compatible "empty
 /// clipboard" response.
 const CLIPBOARD_ANSWER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
-/// Retry interval while waiting for Kotlin clipboard reply.
-const CLIPBOARD_POLL_INTERVAL_MS: u64 = 50;
 
 #[cfg(feature = "mcp")]
 fn wait_for_clipboard_answer(mut rx: tokio::sync::oneshot::Receiver<String>) -> String {
@@ -533,7 +521,7 @@ fn active_session_id() -> u64 {
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     rows: jint,
     cols: jint,
@@ -548,9 +536,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
 ) -> jlong {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, 0, {
+    jni_export_guard!(&mut unowned_env, 0, |env| {
         init_session_inner(
-            &mut env,
+            env,
             _class,
             rows,
             cols,
@@ -572,7 +560,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initSession(
 // without a coordinated Kotlin change.
 #[allow(clippy::too_many_arguments)]
 fn init_session_inner(
-    env: &mut JNIEnv,
+    env: &mut Env,
     _class: JClass,
     rows: jint,
     cols: jint,
@@ -589,8 +577,8 @@ fn init_session_inner(
         Ok(r) => r,
         Err(_) => {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "initSession: rows must be non-negative",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("initSession: rows must be non-negative"),
             );
             return 0;
         }
@@ -599,19 +587,19 @@ fn init_session_inner(
         Ok(c) => c,
         Err(_) => {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "initSession: cols must be non-negative",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("initSession: cols must be non-negative"),
             );
             return 0;
         }
     };
 
-    let shell_path: String = match env.get_string(&shell) {
-        Ok(s) => s.into(),
+    let shell_path: String = match shell.try_to_string(env) {
+        Ok(s) => s,
         Err(_) => {
             let _ = env.throw_new(
-                "java/lang/RuntimeException",
-                "initSession: failed to read shell path",
+                jni_str!("java/lang/RuntimeException"),
+                jni_str!("initSession: failed to read shell path"),
             );
             return 0;
         }
@@ -629,16 +617,13 @@ fn init_session_inner(
     // Read the environment the Kotlin side resolved from the bootstrap
     // (home/user/path/working directory/prefix). Empty strings mean
     // "not known" and fall back to the process environment.
-    let read_env_string = |env: &mut JNIEnv, value: &JString, name: &str| -> Option<String> {
-        match env.get_string(value) {
-            Ok(s) => {
-                let text: String = s.into();
-                Some(text)
-            }
+    let read_env_string = |env: &mut Env, value: &JString, name: &str| -> Option<String> {
+        match value.try_to_string(env) {
+            Ok(text) => Some(text),
             Err(_) => {
                 let _ = env.throw_new(
-                    "java/lang/RuntimeException",
-                    format!("initSession: failed to read {name}"),
+                    jni_str!("java/lang/RuntimeException"),
+                    JNIString::from(format!("initSession: failed to read {name}")),
                 );
                 None
             }
@@ -677,13 +662,13 @@ fn init_session_inner(
         // SAFETY: `env_array` is a JNI method argument, guaranteed valid
         // by the JVM runtime for the duration of this call (same pattern
         // as setExtraFontPaths below).
-        let array = unsafe { JObjectArray::from_raw(env_array) };
-        let len = env.get_array_length(&array).unwrap_or(0);
+        let array = unsafe { JObjectArray::<JString>::from_raw(env, env_array) };
+        let len = array.len(env).unwrap_or(0);
         let mut entries = Vec::new();
         for i in 0..len {
-            if let Ok(item) = env.get_object_array_element(&array, i) {
-                if let Ok(s) = env.get_string(&JString::from(item)) {
-                    entries.push(s.into());
+            if let Ok(item) = array.get_element(env, i) {
+                if let Ok(text) = item.try_to_string(env) {
+                    entries.push(text);
                 }
             }
         }
@@ -795,8 +780,8 @@ fn init_session_inner(
         }
         Err(e) => {
             let _ = env.throw_new(
-                "java/lang/RuntimeException",
-                format!("initSession failed: {e}"),
+                jni_str!("java/lang/RuntimeException"),
+                JNIString::from(format!("initSession failed: {e}")),
             );
             0
         }
@@ -810,18 +795,18 @@ fn init_session_inner(
 /// Destroy a session by ID. Returns true on success.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_destroySession(
-    mut _env: JNIEnv,
+    mut _unowned: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
 ) -> jboolean {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut _env, JNI_FALSE, {
-        destroy_session_inner(&mut _env, _class, session_id)
+    jni_export_guard!(&mut _unowned, JNI_FALSE, |env| {
+        destroy_session_inner(env, _class, session_id)
     })
 }
 
-fn destroy_session_inner(_env: &mut JNIEnv, _class: JClass, session_id: jlong) -> jboolean {
+fn destroy_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> jboolean {
     let id = session_id as u64;
     // Take the entry out of the registry and release the write lock BEFORE
     // the entry is dropped: Session::drop kills the child and joins its
@@ -866,7 +851,7 @@ fn destroy_session_inner(_env: &mut JNIEnv, _class: JClass, session_id: jlong) -
         JNI_TRUE
     } else {
         log::warn!("FFI: destroySession id={} not found", id);
-        0
+        JNI_FALSE
     }
 }
 
@@ -877,18 +862,18 @@ fn destroy_session_inner(_env: &mut JNIEnv, _class: JClass, session_id: jlong) -
 /// Switch the active session. Returns true if the session exists.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_switchSession(
-    mut _env: JNIEnv,
+    mut _unowned: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
 ) -> jboolean {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut _env, JNI_FALSE, {
-        switch_session_inner(&mut _env, _class, session_id)
+    jni_export_guard!(&mut _unowned, JNI_FALSE, |env| {
+        switch_session_inner(env, _class, session_id)
     })
 }
 
-fn switch_session_inner(_env: &mut JNIEnv, _class: JClass, session_id: jlong) -> jboolean {
+fn switch_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> jboolean {
     let id = session_id as u64;
     // Check-and-store atomically under the WRITE lock: a plain read-lock
     // check followed by an unlocked store leaves a TOCTOU window where a
@@ -902,7 +887,7 @@ fn switch_session_inner(_env: &mut JNIEnv, _class: JClass, session_id: jlong) ->
         let mut guard = wlock_session_registry();
         if !guard.contains_key(&id) {
             log::warn!("FFI: switchSession id={} not found", id);
-            return 0;
+            return JNI_FALSE;
         }
         ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Release);
         #[cfg(feature = "mcp")]
@@ -934,15 +919,15 @@ fn switch_session_inner(_env: &mut JNIEnv, _class: JClass, session_id: jlong) ->
 /// Returns the number of active sessions.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getSessionCount(
-    mut _env: JNIEnv,
+    mut _unowned: EnvUnowned<'_>,
     _class: JClass,
 ) -> jint {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut _env, 0, { get_session_count_inner(&mut _env, _class) })
+    jni_export_guard!(&mut _unowned, 0, |env| get_session_count_inner(env, _class))
 }
 
-fn get_session_count_inner(_env: &mut JNIEnv, _class: JClass) -> jint {
+fn get_session_count_inner(_env: &mut Env, _class: JClass) -> jint {
     rlock_session_registry().len() as i32
 }
 
@@ -957,15 +942,15 @@ fn get_session_count_inner(_env: &mut JNIEnv, _class: JClass) -> jint {
 /// windows would indicate an unbounded scrollback.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getScrollbackRows(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
 ) -> jint {
-    jni_export_guard!(&mut env, 0, {
+    jni_export_guard!(&mut unowned_env, 0, |_env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
-            return 0;
+            return Ok(0);
         };
         let session = entry.session.lock();
         session.terminal().scrollback_length() as jint
@@ -980,7 +965,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getScrollbackR
 /// Resize the specified session. Throws RuntimeException if session not found.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resize(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     rows: jint,
@@ -988,16 +973,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resize(
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        resize_inner(&mut env, _class, session_id, rows, cols)
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        resize_inner(env, _class, session_id, rows, cols)
     })
 }
 
-fn resize_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, rows: jint, cols: jint) {
+fn resize_inner(env: &mut Env, _class: JClass, session_id: jlong, rows: jint, cols: jint) {
     let id = session_id as u64;
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
-        let _ = env.throw_new("java/lang/RuntimeException", "resize: session not found");
+        let _ = env.throw_new(
+            jni_str!("java/lang/RuntimeException"),
+            jni_str!("resize: session not found"),
+        );
         return;
     };
     let mut session = entry.session.lock();
@@ -1005,8 +993,8 @@ fn resize_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, rows: jint,
         Ok(r) => r,
         Err(_) => {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "resize: rows must be non-negative",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("resize: rows must be non-negative"),
             );
             return;
         }
@@ -1015,17 +1003,18 @@ fn resize_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, rows: jint,
         Ok(c) => c,
         Err(_) => {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "resize: cols must be non-negative",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("resize: cols must be non-negative"),
             );
             return;
         }
     };
     match session.resize(rows, cols) {
         Err(e) => {
-            if let Err(e) =
-                env.throw_new("java/lang/RuntimeException", format!("resize: failed: {e}"))
-            {
+            if let Err(e) = env.throw_new(
+                jni_str!("java/lang/RuntimeException"),
+                JNIString::from(format!("resize: failed: {e}")),
+            ) {
                 log::error!("resize: throw_new failed: {e}");
             }
         }
@@ -1062,7 +1051,7 @@ fn resize_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, rows: jint,
 /// this alongside every grid resize with the surface's pixel dimensions.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPixelSize(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     width_px: jint,
@@ -1070,13 +1059,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setPixelSize(
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        set_pixel_size_inner(&mut env, _class, session_id, width_px, height_px)
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        set_pixel_size_inner(env, _class, session_id, width_px, height_px)
     })
 }
 
 fn set_pixel_size_inner(
-    env: &mut JNIEnv,
+    env: &mut Env,
     _class: JClass,
     session_id: jlong,
     width_px: jint,
@@ -1086,23 +1075,23 @@ fn set_pixel_size_inner(
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
         let _ = env.throw_new(
-            "java/lang/RuntimeException",
-            "setPixelSize: session not found",
+            jni_str!("java/lang/RuntimeException"),
+            jni_str!("setPixelSize: session not found"),
         );
         return;
     };
     let (Ok(width), Ok(height)) = (u16::try_from(width_px), u16::try_from(height_px)) else {
         let _ = env.throw_new(
-            "java/lang/IllegalArgumentException",
-            "setPixelSize: pixel dimensions must be in 0..=65535",
+            jni_str!("java/lang/IllegalArgumentException"),
+            jni_str!("setPixelSize: pixel dimensions must be in 0..=65535"),
         );
         return;
     };
     let session = entry.session.lock();
     if let Err(error) = session.set_pixel_size(width, height) {
         if let Err(e) = env.throw_new(
-            "java/lang/RuntimeException",
-            format!("setPixelSize failed: {error}"),
+            jni_str!("java/lang/RuntimeException"),
+            JNIString::from(format!("setPixelSize failed: {error}")),
         ) {
             log::error!("setPixelSize: throw_new failed: {e}");
         }
@@ -1115,18 +1104,18 @@ fn set_pixel_size_inner(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_focusEvent(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     class: JClass,
     session_id: jlong,
     focused: jboolean,
 ) -> jboolean {
-    jni_export_guard!(&mut env, JNI_FALSE, {
-        focus_event_inner(&mut env, class, session_id, focused)
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
+        focus_event_inner(env, class, session_id, focused)
     })
 }
 
 fn focus_event_inner(
-    _env: &mut JNIEnv,
+    _env: &mut Env,
     _class: JClass,
     session_id: jlong,
     focused: jboolean,
@@ -1150,20 +1139,20 @@ fn focus_event_inner(
 // each unsafe block below carries its own SAFETY comment.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedPty(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     data: jbyteArray,
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        feed_pty_inner(&mut env, _class, session_id, data)
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        feed_pty_inner(env, _class, session_id, data)
     })
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-fn feed_pty_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, data: jbyteArray) {
+fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
 
     // Raw bytes, not a String: PTY input may be arbitrary binary (pasted
@@ -1178,13 +1167,13 @@ fn feed_pty_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, data: jby
         // `not_unsafe_ptr_arg_deref` is handled at the function level (JNI
         // handle validity is the VM's contract, not a Rust lifetime
         // guarantee); the SAFETY comment above documents the contract.
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
         match env.convert_byte_array(&byte_array) {
             Ok(bytes) => bytes,
             Err(_) => {
                 let _ = env.throw_new(
-                    "java/lang/RuntimeException",
-                    "feedPty: failed to read input bytes",
+                    jni_str!("java/lang/RuntimeException"),
+                    jni_str!("feedPty: failed to read input bytes"),
                 );
                 return;
             }
@@ -1193,7 +1182,10 @@ fn feed_pty_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, data: jby
 
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
-        let _ = env.throw_new("java/lang/RuntimeException", "feedPty: session not found");
+        let _ = env.throw_new(
+            jni_str!("java/lang/RuntimeException"),
+            jni_str!("feedPty: session not found"),
+        );
         return;
     };
     let mut session = entry.session.lock();
@@ -1206,8 +1198,8 @@ fn feed_pty_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, data: jby
             return;
         }
         let _ = env.throw_new(
-            "java/lang/RuntimeException",
-            format!("feedPty: write failed: {e}"),
+            jni_str!("java/lang/RuntimeException"),
+            JNIString::from(format!("feedPty: write failed: {e}")),
         );
     }
 }
@@ -1220,28 +1212,28 @@ fn feed_pty_inner(env: &mut JNIEnv, _class: JClass, session_id: jlong, data: jby
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     data: jbyteArray,
 ) {
-    jni_export_guard!(&mut env, (), {
-        feed_terminal_inner(&mut env, session_id, data)
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        feed_terminal_inner(env, session_id, data)
     })
 }
 
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
-fn feed_terminal_inner(env: &mut JNIEnv, session_id: jlong, data: jbyteArray) {
+fn feed_terminal_inner(env: &mut Env, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
     // SAFETY: `data` is a JNI method argument, guaranteed valid by the JVM
     // runtime for the duration of this call.
-    let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+    let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
     let input: Vec<u8> = match env.convert_byte_array(&byte_array) {
         Ok(bytes) => bytes,
         Err(_) => {
             let _ = env.throw_new(
-                "java/lang/RuntimeException",
-                "feedTerminal: failed to read input bytes",
+                jni_str!("java/lang/RuntimeException"),
+                jni_str!("feedTerminal: failed to read input bytes"),
             );
             return;
         }
@@ -1249,8 +1241,8 @@ fn feed_terminal_inner(env: &mut JNIEnv, session_id: jlong, data: jbyteArray) {
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
         let _ = env.throw_new(
-            "java/lang/RuntimeException",
-            "feedTerminal: session not found",
+            jni_str!("java/lang/RuntimeException"),
+            jni_str!("feedTerminal: session not found"),
         );
         return;
     };
@@ -1263,7 +1255,7 @@ fn feed_terminal_inner(env: &mut JNIEnv, session_id: jlong, data: jbyteArray) {
 // ══════════════════════════════════════════════════════════════════════════
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_writeKey(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     key: JString,
@@ -1272,13 +1264,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_writeKey(
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        write_key_inner(&mut env, _class, session_id, key, mods, text)
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        write_key_inner(env, _class, session_id, key, mods, text)
     })
 }
 
 fn write_key_inner(
-    env: &mut JNIEnv,
+    env: &mut Env,
     _class: JClass,
     session_id: jlong,
     key: JString,
@@ -1287,12 +1279,12 @@ fn write_key_inner(
 ) {
     let id = session_id as u64;
 
-    let key_str: String = match env.get_string(&key) {
-        Ok(s) => s.into(),
+    let key_str: String = match key.try_to_string(env) {
+        Ok(s) => s,
         Err(_) => {
             let _ = env.throw_new(
-                "java/lang/RuntimeException",
-                "writeKey: failed to read key string",
+                jni_str!("java/lang/RuntimeException"),
+                jni_str!("writeKey: failed to read key string"),
             );
             return;
         }
@@ -1303,12 +1295,12 @@ fn write_key_inner(
     if let Some(entry) = registry.get(&id) {
         let mut session = entry.session.lock();
         let result = if has_text {
-            match env.get_string(&text) {
-                Ok(t) => session.write(t.to_bytes()),
+            match text.try_to_string(env) {
+                Ok(t) => session.write(t.as_bytes()),
                 Err(_) => {
                     let _ = env.throw_new(
-                        "java/lang/RuntimeException",
-                        "writeKey: failed to read text string",
+                        jni_str!("java/lang/RuntimeException"),
+                        jni_str!("writeKey: failed to read text string"),
                     );
                     return;
                 }
@@ -1328,15 +1320,18 @@ fn write_key_inner(
                 return;
             }
             if let Err(e) = env.throw_new(
-                "java/lang/RuntimeException",
-                format!("writeKey: write failed: {e}"),
+                jni_str!("java/lang/RuntimeException"),
+                JNIString::from(format!("writeKey: write failed: {e}")),
             ) {
                 log::error!("writeKey: throw_new failed: {e}");
             }
         }
         return;
     }
-    let _ = env.throw_new("java/lang/RuntimeException", "writeKey: session not found");
+    let _ = env.throw_new(
+        jni_str!("java/lang/RuntimeException"),
+        jni_str!("writeKey: session not found"),
+    );
 }
 
 // JNI Export: encodeMouseEvent
@@ -1349,7 +1344,7 @@ fn write_key_inner(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEvent(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     x_px: jfloat,
@@ -1359,10 +1354,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
     cell_w: jfloat,
     cell_h: jfloat,
 ) -> jbyteArray {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
-        encode_mouse_event_inner(
-            &mut env, session_id, x_px, y_px, action, button, cell_w, cell_h,
-        )
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        encode_mouse_event_inner(env, session_id, x_px, y_px, action, button, cell_w, cell_h)
     })
 }
 
@@ -1372,7 +1365,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_encodeMouseEve
 // without a coordinated Kotlin change.
 #[allow(clippy::too_many_arguments)]
 fn encode_mouse_event_inner(
-    env: &mut JNIEnv,
+    env: &mut Env,
     session_id: jlong,
     x_px: jfloat,
     y_px: jfloat,
@@ -1382,15 +1375,12 @@ fn encode_mouse_event_inner(
     cell_h: jfloat,
 ) -> jbyteArray {
     let id = session_id as u64;
-    let empty = || {
-        env.byte_array_from_slice(&[])
-            .map(|arr| arr.into_raw())
-            .unwrap_or(std::ptr::null_mut())
-    };
-
     let registry = rlock_session_registry();
     let Some(entry) = registry.get(&id) else {
-        return empty();
+        return env
+            .byte_array_from_slice(&[])
+            .map(|arr| arr.into_raw())
+            .unwrap_or(std::ptr::null_mut());
     };
     let session = entry.session.lock();
     let Some(bytes) = session.terminal().encode_mouse_event(
@@ -1400,14 +1390,20 @@ fn encode_mouse_event_inner(
         cell_w,
         cell_h,
     ) else {
-        return empty();
+        return env
+            .byte_array_from_slice(&[])
+            .map(|arr| arr.into_raw())
+            .unwrap_or(std::ptr::null_mut());
     };
     if bytes.is_empty() {
-        return empty();
+        return env
+            .byte_array_from_slice(&[])
+            .map(|arr| arr.into_raw())
+            .unwrap_or(std::ptr::null_mut());
     }
     env.byte_array_from_slice(&bytes)
         .map(|arr| arr.into_raw())
-        .unwrap_or_else(|_| empty())
+        .unwrap_or(std::ptr::null_mut())
 }
 
 // ── 事件轮询 ────────────────────────────────────────────────────
@@ -1417,13 +1413,13 @@ fn encode_mouse_event_inner(
 
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_pollEvent<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     class: JClass<'local>,
 ) -> jstring {
     // A panic here (e.g. inside ghostty's VT processing) would abort the
     // whole process. Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
-        poll_event_inner(&mut env, class)
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        poll_event_inner(env, class)
     })
 }
 
@@ -1461,7 +1457,7 @@ fn wait_exit_alive_ms(session: &Arc<Mutex<Session>>) -> u64 {
     (*alive).unwrap_or(0)
 }
 
-fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) -> jstring {
+fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> jstring {
     // Step 1: Poll the active session for new events.
     // Collect events first, then push them after dropping the session lock
     // to maintain the lock order: SESSION_REGISTRY → Session, then EVENT_QUEUE.
@@ -1656,7 +1652,7 @@ fn poll_event_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) ->
 /// changes must repaint but never reset the viewport).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_consumeNewOutput(
-    _env: JNIEnv,
+    _unowned: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
 ) -> jboolean {
@@ -1682,15 +1678,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_consumeNewOutp
 /// Called once from Kotlin on app startup.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_initLogger(
-    mut _env: JNIEnv,
+    mut _unowned: EnvUnowned<'_>,
     _class: JClass,
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut _env, (), { init_logger_inner(&mut _env, _class) })
+    jni_export_guard!(&mut _unowned, (), |env| init_logger_inner(env, _class))
 }
 
-fn init_logger_inner(_env: &mut JNIEnv, _class: JClass) {
+fn init_logger_inner(_env: &mut Env, _class: JClass) {
     // There is no JNI_OnLoad hook in this crate, so this JNI export is the
     // only place logging can be initialised. Without it every log::* call
     // in production (including GPU errors, lock poisoning, VT thread
@@ -1713,7 +1709,7 @@ fn init_logger_inner(_env: &mut JNIEnv, _class: JClass) {
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_attachWindow(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     surface: jobject,
@@ -1722,14 +1718,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_attachWindow(
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        attach_window_inner(&mut env, _class, _session_id, surface, width, height)
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        attach_window_inner(env, _class, _session_id, surface, width, height)
     })
 }
 
 #[cfg(target_os = "android")]
 fn attach_window_inner(
-    env: &mut JNIEnv,
+    env: &mut Env,
     _class: JClass,
     _session_id: jlong,
     surface: jobject,
@@ -1809,7 +1805,7 @@ fn attach_window_inner(
 /// kept so a future resize path can reconfigure the swapchain here.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     _width: jint,
@@ -1817,7 +1813,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_render<'local>
 ) -> jint {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, -1, { render_inner(session_id as u64) })
+    jni_export_guard!(&mut unowned_env, -1, |_env| render_inner(session_id as u64))
 }
 
 /// Compute the cursor blink phase and apply it to the cursor visibility.
@@ -2248,13 +2244,15 @@ fn render_inner(session_id: u64) -> jint {
 /// On error the render count is negative and new_output is 0.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewOutput<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     _width: jint,
     _height: jint,
 ) -> jlong {
-    let count = jni_export_guard!(&mut env, -1i32, { render_inner(session_id as u64) });
+    let count = jni_export_guard!(&mut unowned_env, -1i32, |_env| render_inner(
+        session_id as u64
+    ));
     let mut new_output: i32 = 0;
     if count > 0 {
         // Consume the new_output flag inline (same logic as
@@ -2282,19 +2280,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
 #[cfg(target_os = "android")]
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_detachWindow(
-    mut _env: JNIEnv,
+    mut _unowned: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut _env, (), {
-        detach_window_inner(&mut _env, _class, _session_id)
+    jni_export_guard!(&mut _unowned, (), |env| {
+        detach_window_inner(env, _class, _session_id)
     })
 }
 
 #[cfg(target_os = "android")]
-fn detach_window_inner(_env: &mut JNIEnv, _class: JClass, _session_id: jlong) {
+fn detach_window_inner(_env: &mut Env, _class: JClass, _session_id: jlong) {
     let session_id = _session_id as u64;
     // Only the session that owns the attached surface may drop it:
     // switchSession attaches the new session's surface BEFORE detaching
@@ -2342,11 +2340,11 @@ fn detach_window_inner(_env: &mut JNIEnv, _class: JClass, _session_id: jlong) {
 /// of the hardcoded `/data/data/com.termux` default.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setMcpSocketPath(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _path: JString,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         #[cfg(feature = "mcp")]
         {
             if let Ok(s) = env.get_string(&_path) {
@@ -2360,18 +2358,18 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setMcpSocketPa
 /// Enable or disable the MCP server (starts/stops it as needed).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setMcpEnabled(
-    mut _env: JNIEnv,
+    mut _unowned: EnvUnowned<'_>,
     _class: JClass,
     enabled: jboolean,
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut _env, (), {
-        set_mcp_enabled_inner(&mut _env, _class, enabled)
+    jni_export_guard!(&mut _unowned, (), |env| {
+        set_mcp_enabled_inner(env, _class, enabled)
     })
 }
 
-fn set_mcp_enabled_inner(_env: &mut JNIEnv, _class: JClass, enabled: jboolean) {
+fn set_mcp_enabled_inner(_env: &mut Env, _class: JClass, enabled: jboolean) {
     #[cfg(feature = "mcp")]
     {
         // Register dialog / pick_file callbacks once (they bridge
@@ -2511,7 +2509,7 @@ fn set_mcp_enabled_inner(_env: &mut JNIEnv, _class: JClass, enabled: jboolean) {
 #[unsafe(no_mangle)]
 #[cfg(feature = "mcp")]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clipboardResult<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     request_id: jlong,
@@ -2519,14 +2517,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clipboardResul
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        clipboard_result_inner(&mut env, _class, session_id, request_id, text)
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        clipboard_result_inner(env, _class, session_id, request_id, text)
     })
 }
 
 #[cfg(feature = "mcp")]
 fn clipboard_result_inner<'local>(
-    env: &mut JNIEnv<'local>,
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     request_id: jlong,
@@ -2536,7 +2534,7 @@ fn clipboard_result_inner<'local>(
     let request_id = request_id as u64;
 
     if let Some(tx) = REQUEST_REGISTRY.lock().remove(&(session_id, request_id)) {
-        let text_str: String = env.get_string(&text).map(|s| s.into()).unwrap_or_default();
+        let text_str: String = text.try_to_string(env).unwrap_or_default();
         let _ = tx.send(text_str);
     }
 }
@@ -2548,7 +2546,7 @@ fn clipboard_result_inner<'local>(
 #[unsafe(no_mangle)]
 #[cfg(feature = "mcp")]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_dialogResult<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     request_id: jlong,
@@ -2556,14 +2554,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_dialogResult<'
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        dialog_result_inner(&mut env, _class, session_id, request_id, result)
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        dialog_result_inner(env, _class, session_id, request_id, result)
     })
 }
 
 #[cfg(feature = "mcp")]
 fn dialog_result_inner<'local>(
-    env: &mut JNIEnv<'local>,
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     request_id: jlong,
@@ -2571,10 +2569,7 @@ fn dialog_result_inner<'local>(
 ) {
     let session_id = session_id as u64;
     let request_id = request_id as u64;
-    let result_str: String = env
-        .get_string(&result)
-        .map(|s| s.into())
-        .unwrap_or_default();
+    let result_str: String = result.try_to_string(env).unwrap_or_default();
     answer_request(session_id, request_id, result_str);
 }
 
@@ -2599,7 +2594,7 @@ pub(crate) fn answer_request(session_id: u64, request_id: u64, result: String) {
 #[unsafe(no_mangle)]
 #[cfg(feature = "mcp")]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_runCommandResult<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     request_id: jlong,
@@ -2607,14 +2602,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_runCommandResu
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, (), {
-        run_command_result_inner(&mut env, _class, session_id, request_id, result)
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        run_command_result_inner(env, _class, session_id, request_id, result)
     })
 }
 
 #[cfg(feature = "mcp")]
 fn run_command_result_inner<'local>(
-    env: &mut JNIEnv<'local>,
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     request_id: jlong,
@@ -2622,10 +2617,7 @@ fn run_command_result_inner<'local>(
 ) {
     let session_id = session_id as u64;
     let request_id = request_id as u64;
-    let result_str: String = env
-        .get_string(&result)
-        .map(|s| s.into())
-        .unwrap_or_default();
+    let result_str: String = result.try_to_string(env).unwrap_or_default();
     answer_request(session_id, request_id, result_str);
 }
 
@@ -2638,7 +2630,7 @@ fn run_command_result_inner<'local>(
 #[unsafe(no_mangle)]
 #[cfg(feature = "mcp")]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_screenshotResult<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     request_id: jlong,
@@ -2646,16 +2638,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_screenshotResu
     height: jint,
     pixels: jbyteArray,
 ) {
-    jni_export_guard!(&mut env, (), {
-        screenshot_result_inner(
-            &mut env, _class, session_id, request_id, width, height, pixels,
-        )
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        screenshot_result_inner(env, _class, session_id, request_id, width, height, pixels)
     })
 }
 
 #[cfg(feature = "mcp")]
 fn screenshot_result_inner<'local>(
-    env: &mut JNIEnv<'local>,
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     request_id: jlong,
@@ -2672,7 +2662,7 @@ fn screenshot_result_inner<'local>(
         // JVM runtime for the duration of this call. `from_raw` wraps the
         // pointer without taking ownership; the local ref is released by
         // the JVM when this native method returns.
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(pixels) };
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, pixels) };
         env.convert_byte_array(&byte_array).unwrap_or_default()
     };
     answer_screenshot_request(session_id, request_id, w, h, pixel_data);
@@ -2691,17 +2681,17 @@ fn screenshot_result_inner<'local>(
 /// Returns null if no frame is available.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_captureFrame<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
 ) -> jbyteArray {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
-        capture_frame_inner(&mut env, _class, session_id as u64)
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        capture_frame_inner(env, _class, session_id as u64)
     })
 }
 
 fn capture_frame_inner<'local>(
-    env: &mut JNIEnv<'local>,
+    env: &mut Env<'local>,
     _class: JClass<'local>,
     _session_id: u64,
 ) -> jbyteArray {
@@ -2769,17 +2759,17 @@ fn capture_frame_inner<'local>(
 /// export (session ids are tracked in TerminalRuntime.sessionIds).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listSessions<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jstring {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
-        list_sessions_inner(&mut env, _class)
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        list_sessions_inner(env, _class)
     })
 }
 
-fn list_sessions_inner<'local>(env: &mut JNIEnv<'local>, _class: JClass<'local>) -> jstring {
+fn list_sessions_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> jstring {
     let ids: Vec<u64> = rlock_session_registry().keys().copied().collect();
 
     let json = serde_json::to_string(&ids).unwrap_or_else(|_| "[]".into());
@@ -2818,19 +2808,19 @@ const ATLAS_SIZE: u32 = 2048;
 /// Returns the terminal title (OSC 0/2) for a session, or null.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "getTitle: session not found",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("getTitle: session not found"),
             );
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let session = entry.session.lock();
         let title = session.terminal().title();
@@ -2847,19 +2837,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'loca
 /// Returns the number of scrollback rows for a session.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLength(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
 ) -> jint {
-    jni_export_guard!(&mut env, 0, {
+    jni_export_guard!(&mut unowned_env, 0, |env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "scrollbackLength: session not found",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("scrollbackLength: session not found"),
             );
-            return 0;
+            return Ok(0);
         };
         let session = entry.session.lock();
         session.terminal().scrollback_length() as jint
@@ -2875,24 +2865,24 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLeng
 /// 0-based viewport rows/cols.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewportPacked(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
 ) -> jlong {
-    jni_export_guard!(&mut env, -1, {
+    jni_export_guard!(&mut unowned_env, -1, |env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "getCursorViewportPacked: session not found",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("getCursorViewportPacked: session not found"),
             );
-            return -1;
+            return Ok(-1);
         };
         let session = entry.session.lock();
         let terminal = session.terminal();
         let Some((row, col)) = terminal.render_cursor() else {
-            return -1;
+            return Ok(-1);
         };
         ((row as jlong) << 32) | (col as jlong)
     })
@@ -2905,27 +2895,27 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCursorViewp
 /// iteration — use `dump_grid` (via `getTerminalText`) instead.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     row: jint,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "scrollbackLine: session not found",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("scrollbackLine: session not found"),
             );
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let Ok(row) = u32::try_from(row) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "scrollbackLine: row must be non-negative",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("scrollbackLine: row must be non-negative"),
             );
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let session = entry.session.lock();
         // Kotlin passes an absolute row (scrollback + viewport offset via
@@ -2947,19 +2937,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_scrollbackLine
 /// Returns visible + scrollback text joined by newlines (dump_grid path).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalText<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "getTerminalText: session not found",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("getTerminalText: session not found"),
             );
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let session = entry.session.lock();
         let grid = session.terminal().dump_grid();
@@ -3005,7 +2995,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
 /// the top of scrollback, matching scrollbackLine). Returns "" on error.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     start_row: jint,
@@ -3014,11 +3004,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<
     end_col: jint,
     rectangle: jboolean,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let session = entry.session.lock();
         let text = session.terminal().selection_text(
@@ -3039,17 +3029,17 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_selectionText<
 /// scrollback, matching scrollbackLine). Returns null when no link.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     row: jint,
     col: jint,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let session = entry.session.lock();
         let url = session
@@ -3066,10 +3056,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
             {
                 drop(session);
                 drop(registry);
-                return match env.new_string(&fallback) {
+                return Ok(match env.new_string(&fallback) {
                     Ok(s) => s.into_raw(),
                     Err(_) => std::ptr::null_mut(),
-                };
+                });
             }
         }
         drop(session);
@@ -3089,36 +3079,34 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_hyperlinkAt<'l
 /// `[]` on timeout/disconnect. Column indices are character columns.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScrollback<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
     query: JString<'local>,
     case_sensitive: jboolean,
     fuzzy: jboolean,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
-        let Ok(query) = env.get_string(&query) else {
+        let Ok(query) = query.try_to_string(env) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "searchAllInScrollback: bad query string",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("searchAllInScrollback: bad query string"),
             );
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
-        let query: String = query.into();
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "searchAllInScrollback: session not found",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("searchAllInScrollback: session not found"),
             );
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let session = entry.session.lock();
-        let matches =
-            session
-                .terminal()
-                .search_all_in_scrollback(&query, case_sensitive != 0, fuzzy != 0);
+        let matches = session
+            .terminal()
+            .search_all_in_scrollback(&query, case_sensitive, fuzzy);
         log::info!(
             "searchAllInScrollback: query={query:?} matches={}",
             matches.len(),
@@ -3149,24 +3137,24 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
 /// Returns true when the cell has no printable codepoint.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     row: jint,
     col: jint,
 ) -> jboolean {
-    jni_export_guard!(&mut env, JNI_TRUE, {
+    jni_export_guard!(&mut unowned_env, JNI_TRUE, |env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "isCellEmpty: session not found",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("isCellEmpty: session not found"),
             );
-            return JNI_TRUE;
+            return Ok(JNI_TRUE);
         };
         let Ok(row) = u32::try_from(row) else {
-            return JNI_TRUE;
+            return Ok(JNI_TRUE);
         };
         let session = entry.session.lock();
         // gridRow from Kotlin is already an absolute row number
@@ -3207,28 +3195,28 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_isCellEmpty(
 /// Returns the list of monospace font families the pipeline knows.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamilies<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jobjectArray {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let state = render_state_mut();
         let Some(render_state) = state.as_ref() else {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let families = render_state.font_pipeline.list_monospace_fonts();
         drop(state);
 
-        let string_class = env.find_class("java/lang/String");
+        let string_class = env.find_class(jni_str!("java/lang/String"));
         let Ok(string_class) = string_class else {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let array = env.new_object_array(families.len() as jsize, string_class, JObject::null());
         let Ok(array) = array else {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         for (i, family) in families.iter().enumerate() {
             if let Ok(s) = env.new_string(family) {
-                let _ = env.set_object_array_element(&array, i as jsize, s);
+                let _ = array.set_element(env, i as usize, &s);
             }
         }
         array.into_raw()
@@ -3238,13 +3226,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamili
 /// Returns the default font family name.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFontName<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let state = render_state_mut();
         let Some(render_state) = state.as_ref() else {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let name = render_state.font_pipeline.default_font_name();
         match env.new_string(&name) {
@@ -3257,13 +3245,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getDefaultFont
 /// Returns font information string (active + CJK fallback).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let state = render_state_mut();
         let Some(render_state) = state.as_ref() else {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let info = render_state.font_pipeline.font_info();
         drop(state);
@@ -3280,11 +3268,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getFontInfo<'l
 /// Clears the renderer's search highlight ranges for the next frame.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHighlights(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.search_highlights.clear();
@@ -3311,19 +3299,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearSearchHig
 // the SAFETY comment inside documents the contract (feedPty pattern).
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighlights(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     data: jbyteArray,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |env| {
         // SAFETY: `data` is a JNI method argument, guaranteed valid by the
         // JVM runtime for the duration of this call. `from_raw` wraps the
         // pointer without taking ownership; the local ref is released when
         // this native method returns (same pattern as feed_pty_inner).
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
         let Some(bytes) = env.convert_byte_array(&byte_array).ok() else {
-            return;
+            return Ok(());
         };
         // Wire format (see Kotlin TerminalScreen.search results packing):
         //   [0..4]   match count (i32 LE)  -- the count prefix IS the
@@ -3331,7 +3319,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
         //            16-byte record) are ignored defensively.
         //   [4..]    16-byte records: row(i32) start(i32) end(i32) RGBA(u8x4)
         let Some(prefix) = bytes.get(0..4) else {
-            return;
+            return Ok(());
         };
         let count =
             i32::from_le_bytes([prefix[0], prefix[1], prefix[2], prefix[3]]).max(0) as usize;
@@ -3400,7 +3388,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
 // whose validity is the JVM's contract, not a Rust lifetime guarantee.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     start_row: jint,
@@ -3411,7 +3399,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     mode: jbyte,
     _selection_bg_argb: jint,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         // Kotlin SelectionMode ordinal → Rust SelectionMode.
         let mode = match mode {
             0 => crate::terminal::SelectionMode::Char,
@@ -3453,34 +3441,34 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // JNI signatures contain raw pointers by design
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     data: jbyteArray,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |env| {
         let id = session_id as u64;
         // SAFETY: `data` is the JNI `jbyteArray` argument validated by the
         // JVM before this export is called; the jni crate's `from_raw` only
         // wraps the pointer, and `convert_byte_array` performs the bounds
         // checks against the actual array length.
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
         let bytes = match env.convert_byte_array(&byte_array) {
             Ok(bytes) => bytes,
             Err(_) => {
                 let _ = env.throw_new(
-                    "java/lang/IllegalArgumentException",
-                    "setTheme: cannot read byte array",
+                    jni_str!("java/lang/IllegalArgumentException"),
+                    jni_str!("setTheme: cannot read byte array"),
                 );
-                return;
+                return Ok(());
             }
         };
         if bytes.len() != 54 {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "setTheme: expected exactly 54 bytes (bg3 fg3 ansi48)",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("setTheme: expected exactly 54 bytes (bg3 fg3 ansi48)"),
             );
-            return;
+            return Ok(());
         }
         let background = [bytes[0], bytes[1], bytes[2]];
         let foreground = [bytes[3], bytes[4], bytes[5]];
@@ -3492,10 +3480,10 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "setTheme: session not found",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("setTheme: session not found"),
             );
-            return;
+            return Ok(());
         };
         let session = entry.session.lock();
         session.terminal().set_theme(background, foreground, ansi);
@@ -3526,20 +3514,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // JNI signatures contain raw pointers by design
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundImage(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     data: jbyteArray,
     width: jint,
     height: jint,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |env| {
         let (Some(w), Some(h)) = (u32::try_from(width).ok(), u32::try_from(height).ok()) else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "setBackgroundImage: width/height must be non-negative",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("setBackgroundImage: width/height must be non-negative"),
             );
-            return;
+            return Ok(());
         };
         if w == 0 || h == 0 {
             // Zero-sized image: treat as clear. Avoids a degenerate
@@ -3551,29 +3539,29 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundI
                 // reach the screen on an idle terminal.
                 render_state.dirty.store(true, Ordering::Relaxed);
             }
-            return;
+            return Ok(());
         }
         // SAFETY: `data` is a JNI method argument, guaranteed valid by the
         // JVM runtime for the duration of this call (same pattern as
         // feed_pty_inner).
-        let byte_array = unsafe { jni::objects::JByteArray::from_raw(data) };
+        let byte_array = unsafe { jni::objects::JByteArray::from_raw(env, data) };
         let Some(bytes) = env.convert_byte_array(&byte_array).ok() else {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                "setBackgroundImage: cannot read byte array",
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("setBackgroundImage: cannot read byte array"),
             );
-            return;
+            return Ok(());
         };
         let expected = w as usize * h as usize * 4;
         if bytes.len() < expected {
             let _ = env.throw_new(
-                "java/lang/IllegalArgumentException",
-                format!(
+                jni_str!("java/lang/IllegalArgumentException"),
+                JNIString::from(format!(
                     "setBackgroundImage: expected {expected} bytes (RGBA {w}x{h}), got {}",
                     bytes.len()
-                ),
+                )),
             );
-            return;
+            return Ok(());
         }
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
@@ -3592,11 +3580,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundI
 /// like `setBackgroundImage`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearBackgroundImage(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.pending_bg_image = None;
@@ -3616,12 +3604,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_clearBackgroun
 /// the next `render_inner`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFlashState(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     phase: jfloat,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.pending_flash_phase = Some(phase.max(0.0));
@@ -3641,13 +3629,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFlashState(
 /// from Kotlin (`settings.backgroundAlpha * 10`), so it is divided here.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundParams(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     blur_radius: jint,
     alpha_tenths: jint,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             let blur = blur_radius as f32;
@@ -3663,16 +3651,16 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setBackgroundP
 /// `render_paused` in render_frame; this JNI export is the missing wire.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPaused(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     paused: jboolean,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            render_state.renderer.set_render_paused(paused != 0);
-            log::info!("setRenderPaused: paused={}", paused != 0);
+            render_state.renderer.set_render_paused(paused);
+            log::info!("setRenderPaused: paused={}", paused);
         }
     })
 }
@@ -3684,14 +3672,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRenderPause
 #[unsafe(no_mangle)]
 #[allow(clippy::not_unsafe_ptr_arg_deref)] // JNI signatures contain raw pointers by design
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorColor(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     r: f32,
     g: f32,
     b: f32,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.cursor_color =
@@ -3705,19 +3693,19 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setCursorColor
 /// the family was found.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     family: JString,
 ) -> jboolean {
-    jni_export_guard!(&mut env, JNI_FALSE, {
-        let family_str = match env.get_string(&family) {
-            Ok(s) => s.to_string_lossy().into_owned(),
-            Err(_) => return JNI_FALSE,
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
+        let family_str = match family.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(JNI_FALSE),
         };
         let mut state = render_state_mut();
         let Some(render_state) = state.as_mut() else {
-            return JNI_FALSE;
+            return Ok(JNI_FALSE);
         };
         let found = render_state.font_pipeline.set_font_family(&family_str);
         log::info!("setFontFamily: {family_str} found={found}");
@@ -3731,20 +3719,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
 /// (falls back to same-family lookup + synthesis).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamilyForStyle(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     family: JString,
     slot: jint,
 ) -> jboolean {
-    jni_export_guard!(&mut env, JNI_FALSE, {
-        let family_str = match env.get_string(&family) {
-            Ok(s) => s.to_string_lossy().into_owned(),
-            Err(_) => return JNI_FALSE,
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
+        let family_str = match family.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(JNI_FALSE),
         };
         let mut state = render_state_mut();
         let Some(render_state) = state.as_mut() else {
-            return JNI_FALSE;
+            return Ok(JNI_FALSE);
         };
         let found = render_state
             .font_pipeline
@@ -3757,15 +3745,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamilyF
 /// Set the font size (in tenths of a pixel, matching the Kotlin slider).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInPlace(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     size_tenths: jint,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         let size = (size_tenths as f32) / 10.0;
         if !(4.0..=100.0).contains(&size) {
-            return;
+            return Ok(());
         }
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
@@ -3786,14 +3774,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
 /// high-density screens.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     scale: jfloat,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         if !(0.5..=8.0).contains(&scale) {
-            return;
+            return Ok(());
         }
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
@@ -3813,15 +3801,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale
 /// first family name from the file, or null on failure.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     _session_id: jlong,
     path: JString<'local>,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
-        let path_str = match env.get_string(&path) {
-            Ok(s) => s.to_string_lossy().into_owned(),
-            Err(_) => return std::ptr::null_mut(),
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let path_str = match path.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(std::ptr::null_mut()),
         };
         // Custom font loading is an Android feature (the font database
         // with extra paths is android-only; the desktop build uses system
@@ -3839,7 +3827,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
                 .next()
             else {
                 log::warn!("loadFontFile: no family name in {path_str}");
-                return std::ptr::null_mut();
+                return Ok(std::ptr::null_mut());
             };
             // Register the file with the renderer and rebuild its pipeline
             // so the new family is selectable.
@@ -3863,7 +3851,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
             String::new()
         };
         if family.is_empty() {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         }
         log::info!("loadFontFile: {} -> family {family}", path_str);
         match env.new_string(&family) {
@@ -3876,15 +3864,15 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
 /// Set the renderer's system locale (used for font fallback ordering).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocale(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     locale: JString,
 ) {
-    jni_export_guard!(&mut env, (), {
-        let locale_str = match env.get_string(&locale) {
-            Ok(s) => s.to_string_lossy().into_owned(),
-            Err(_) => return,
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        let locale_str = match locale.try_to_string(env) {
+            Ok(s) => s,
+            Err(_) => return Ok(()),
         };
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
@@ -3899,12 +3887,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocal
 /// exists it is rebuilt so the new fonts become selectable.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPaths(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     paths: jobjectArray,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |env| {
         #[cfg(target_os = "android")]
         {
             // Parse a String[] from Java.
@@ -3912,14 +3900,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPa
             // SAFETY: `paths` is a JNI method argument, guaranteed valid by
             // the JVM runtime for the duration of this call (same pattern
             // as feed_pty_inner / setBackgroundImage).
-            let array = unsafe { jni::objects::JObjectArray::from_raw(paths) };
-            let len = env.get_array_length(&array).unwrap_or(0);
+            let array = unsafe { jni::objects::JObjectArray::<JString>::from_raw(env, paths) };
+            let len = array.len(env).unwrap_or(0);
             for i in 0..len {
-                let item = env.get_object_array_element(&array, i).ok();
-                if let Some(item) = item {
-                    let s = JString::from(item);
-                    if let Ok(s) = env.get_string(&s) {
-                        path_list.push(std::path::PathBuf::from(s.to_string_lossy().into_owned()));
+                if let Ok(item) = array.get_element(env, i) {
+                    if let Ok(text) = item.try_to_string(env) {
+                        path_list.push(std::path::PathBuf::from(text));
                     }
                 }
             }
@@ -3938,7 +3924,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPa
         }
         #[cfg(not(target_os = "android"))]
         {
-            let _ = (&mut env, paths);
+            let _ = (env, paths);
             log::warn!("setExtraFontPaths: unsupported on this target");
         }
     })
@@ -3948,14 +3934,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setExtraFontPa
 /// Current cell width in pixels (from the renderer's font pipeline).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
 ) -> jfloat {
-    jni_export_guard!(&mut env, 0.0, {
+    jni_export_guard!(&mut unowned_env, 0.0, |_env| {
         let state = render_state_mut();
         let Some(render_state) = state.as_ref() else {
-            return 0.0;
+            return Ok(0.0);
         };
         render_state.font_pipeline.cell_metrics().0
     })
@@ -3964,14 +3950,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellWidth(
 /// Current cell height in pixels (from the renderer's font pipeline).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellHeight(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
 ) -> jfloat {
-    jni_export_guard!(&mut env, 0.0, {
+    jni_export_guard!(&mut unowned_env, 0.0, |_env| {
         let state = render_state_mut();
         let Some(render_state) = state.as_ref() else {
-            return 0.0;
+            return Ok(0.0);
         };
         render_state.font_pipeline.cell_metrics().1
     })
@@ -3983,14 +3969,14 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCellHeight(
 /// converge on the native grid after a dropped resize).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsColsPacked(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
 ) -> jlong {
-    jni_export_guard!(&mut env, 0, {
+    jni_export_guard!(&mut unowned_env, 0, |_env| {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&(_session_id as u64)) else {
-            return 0;
+            return Ok(0);
         };
         let session = entry.session.lock();
         let (rows, cols) = session.grid_size();
@@ -4005,23 +3991,23 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getGridRowsCol
 /// the scrolled view: previously a Kotlin-side no-op).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffset(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     offset: jint,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         let target = offset.max(0) as i64;
         let mut registry = wlock_session_registry();
         let Some(entry) = registry.get_mut(&(_session_id as u64)) else {
-            return;
+            return Ok(());
         };
         // Per-session delta: the previous code computed the
         // delta against a single global `render_state.scroll_offset`, so
         // switching sessions polluted the resumed session's viewport.
         let delta = target - entry.last_scroll_offset;
         if delta == 0 {
-            return;
+            return Ok(());
         }
         let session = entry.session.lock();
         // scroll_viewport delta semantics (verified on host + emulator):
@@ -4053,18 +4039,18 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollOffse
 /// idle gate also observes the change via `last_scroll_px`.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     _session_id: jlong,
     offset_px: jfloat,
 ) {
-    jni_export_guard!(&mut env, (), {
+    jni_export_guard!(&mut unowned_env, (), |_env| {
         if !offset_px.is_finite() {
-            return;
+            return Ok(());
         }
         let mut state = render_state_mut();
         let Some(render_state) = state.as_mut() else {
-            return;
+            return Ok(());
         };
         render_state.renderer.set_viewport_scroll_px(offset_px);
         let (width, height) = (
@@ -4086,20 +4072,20 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setScrollYPx(
 /// scrolling local scrollback (Haven research: altScreen wheel consumption).
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenState(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
 ) -> jboolean {
-    jni_export_guard!(&mut env, 0, {
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&(session_id as u64)) else {
-            return 0;
+            return Ok(JNI_FALSE);
         };
         let session = entry.session.lock();
         if session.terminal().alt_screen_active_atomic() {
-            1
+            JNI_TRUE
         } else {
-            0
+            JNI_FALSE
         }
     })
 }
@@ -4111,25 +4097,25 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getAltScreenSt
 /// (`ESC [ A`) — research-haven.md:141, research-zed-port.md:252.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
-    mut env: JNIEnv,
+    mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
     session_id: jlong,
     mode_num: jint,
     kind: jint,
 ) -> jboolean {
-    jni_export_guard!(&mut env, 0, {
+    jni_export_guard!(&mut unowned_env, JNI_FALSE, |_env| {
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&(session_id as u64)) else {
-            return 0;
+            return Ok(JNI_FALSE);
         };
         let session = entry.session.lock();
         if session
             .terminal()
             .mode_get(mode_num.max(0) as u16, kind.max(0) as u8)
         {
-            1
+            JNI_TRUE
         } else {
-            0
+            JNI_FALSE
         }
     })
 }
@@ -4140,22 +4126,22 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getMode(
 /// gone. Reading clears the buffer, so each call sees fresh data.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getLastCommandOutput<'local>(
-    mut env: JNIEnv<'local>,
+    mut unowned_env: EnvUnowned<'local>,
     _class: JClass<'local>,
     session_id: jlong,
 ) -> jstring {
-    jni_export_guard!(&mut env, std::ptr::null_mut(), {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
         let registry = rlock_session_registry();
         let Some(entry) = registry.get(&id) else {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         };
         let mut session = entry.session.lock();
         let output = session.take_last_command_output();
         drop(session);
         drop(registry);
         if output.is_empty() {
-            return std::ptr::null_mut();
+            return Ok(std::ptr::null_mut());
         }
         match env.new_string(&output) {
             Ok(s) => s.into_raw(),
