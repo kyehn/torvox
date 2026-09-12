@@ -5,7 +5,7 @@ package terminal.emulator.ui
  * TerminalSurface's InputConnection into a pure, unit-testable function.
  *
  * Mirrors warp WarpInputView.kt:587-615 (forwardComposingDiff) with the
- * three-way grow/contract/diverged handling torvox already had: the IME
+ * three-way grow/contract/diverged handling 已有实现：the IME
  * reports an in-progress composing region (e.g. pinyin or swipe input);
  * each `setComposingText` delta must be translated into PTY edits
  * (backspaces by CODE POINT count + text to append) so the terminal's

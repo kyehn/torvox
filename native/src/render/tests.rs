@@ -1009,38 +1009,10 @@ fn setup_test_gpu_context(device: wgpu::Device, queue: wgpu::Queue) -> Renderer 
     context
 }
 
-fn setup_test_gpu_context_custom(
-    device: wgpu::Device,
-    queue: wgpu::Queue,
-    width: u32,
-    height: u32,
-) -> Renderer {
-    let _gpu = crate::render::context::global_gpu_for_tests();
-    let quad_vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-        label: Some("Quad Vertex Buffer"),
-        contents: bytemuck::cast_slice(QUAD_CORNERS),
-        usage: wgpu::BufferUsages::VERTEX,
-    });
-    let mut context = Renderer::new_inner(device.clone(), queue, quad_vertex_buffer);
-    context.surface_config = Some(wgpu::SurfaceConfiguration {
-        width,
-        height,
-        format: wgpu::TextureFormat::Rgba8Unorm,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-        present_mode: wgpu::PresentMode::Fifo,
-        alpha_mode: wgpu::CompositeAlphaMode::Auto,
-        view_formats: vec![],
-        desired_maximum_frame_latency: 2,
-        color_space: wgpu::SurfaceColorSpace::Auto,
-    });
-    context.initialize_pipeline_and_bind_group(width.max(256), height.max(256), width, height);
-    context
-}
-
 #[test]
 fn gpu_background_no_image_fallback() {
     let Some((_instance, _adapter, device, queue)) = create_test_device() else {
-        return;
+        panic!("requires GPU adapter but none available");
     };
     let mut context = setup_test_gpu_context(device, queue);
 
@@ -2358,8 +2330,7 @@ fn all_static_pipelines_create_without_validation_errors() {
     // tests below already exercise cell paths, this guards the
     // less-travelled KGP pipeline.
     let Some((_instance, _adapter, device, _queue)) = create_test_device() else {
-        eprintln!("SKIP: no GPU available for pipeline creation test");
-        return;
+        panic!("requires GPU adapter but none available");
     };
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let validation_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);

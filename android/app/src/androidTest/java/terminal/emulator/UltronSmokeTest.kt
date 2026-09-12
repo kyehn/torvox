@@ -17,7 +17,7 @@ import terminal.emulator.MainActivity
  * Ultron-style on-device UI smoke test.
  *
  * Ultron (open-tool/ultron) wraps Espresso/Compose/UI Automator with a
- * stable DSL. torvox launches `MainActivity` via `ActivityScenarioRule`
+ * stable DSL. 本应用通过 `ActivityScenarioRule` 启动 `MainActivity`
  * so the activity runs in the app process (`com.termux`) and its Compose
  * semantics are visible to the test (the `runUltronUiTest { }` compose
  * environment starts a separate test-process activity and cannot see the

@@ -8,7 +8,7 @@
         - New session (Failsafe): ACTION_RUN + com.termux.app.failsafe_session
           (termux action_new_session_failsafe — same extra name so existing
           termux shortcuts/tasker tasks keep working)
-        - Settings: torvox EXTRA_OPEN_SETTINGS
+        - Settings: 本应用 EXTRA_OPEN_SETTINGS
         targetPackage must stay "com.termux" (applicationId) — see
         termux-app res/xml/shortcuts.xml for the same caveat.
     -->

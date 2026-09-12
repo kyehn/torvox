@@ -35,13 +35,13 @@ import kotlin.system.measureTimeMillis
  *
  * Locating the library: unit tests run with cwd = `android/app/`, so
  * repo-root candidates are `../../target/...`. Override via the
- * TORVOX_NATIVE_LIB env var. Missing host .so → SKIPPED (never fails):
+ * TERMINAL_NATIVE_LIB env var. Missing host .so → SKIPPED (never fails):
  * build one with `cargo build --package native`.
  */
 class NativeBridgeSmokeTest {
     private companion object {
         private val soCandidates: List<File> = listOfNotNull(
-            System.getenv("TORVOX_NATIVE_LIB"),
+            System.getenv("TERMINAL_NATIVE_LIB"),
             "../../target/release/libnative.so",
             "../../target/debug/libnative.so",
         ).map(::File)
