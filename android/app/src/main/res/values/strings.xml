@@ -122,8 +122,6 @@
     <!-- USB Serial -->
 
     <!-- MCP Server -->
-    <string name="mcp_server">MCP Server</string>
-    <string name="mcp_server_desc">Expose terminal via Model Context Protocol socket</string>
 
     <!-- Shizuku integration (DESIGN: privileged prefix shells, e.g. nix proot) -->
     <string name="shizuku_integration">Shizuku integration</string>
@@ -134,10 +132,6 @@
     <string name="shizuku_exit">Exit app</string>
 
     <!-- Environment Variables -->
-    <string name="environment_variables">Environment Variables</string>
-    <string name="environment_variables_desc">Extra KEY=VALUE vars (one per line) for new sessions</string>
-    <string name="environment_variables_hint">KEY=VALUE\none per line</string>
-    <string name="environment_variables_save">Save</string>
 
     <!-- Text Search -->
     <string name="text_search">Text Search</string>
@@ -164,17 +158,10 @@
     <string name="cjk_fallback_missing_warning">No CJK fallback font detected. East Asian characters may not render correctly.</string>
 
     <!-- Background Image -->
-    <string name="bg_image_set" translatable="false">Background image set</string>
-    <string name="bg_image_none" translatable="false">No background image</string>
-    <string name="bg_image_choose" translatable="false">Choose Image</string>
-    <string name="bg_blur_label" translatable="false">Blur: %1$d</string>
-    <string name="bg_opacity_label" translatable="false">Opacity: %1$d%%</string>
 
     <!-- Cursor Settings -->
 
     <!-- Bell Mode -->
-    <string name="bell_mode">Bell Mode</string>
-    <string name="bell_mode_desc">How the terminal bell behaves</string>
 
     <string name="save">Save</string>
     <string name="delete">Delete</string>
@@ -187,13 +174,6 @@
     <!-- Paste confirmation -->
 
     <!-- Keyboard Shortcuts -->
-    <string name="keyboard_shortcuts">Keyboard Shortcuts</string>
-    <string name="keyboard_shortcuts_desc">Configure hardware keyboard shortcuts</string>
-    <string name="shortcut_capture_title">Record Shortcut</string>
-    <string name="shortcut_capture_prompt">Press a modifier + key combination</string>
-    <string name="shortcut_reserved_key">Reserved key</string>
-    <string name="shortcut_need_modifier">Press a modifier + key</string>
-    <string name="shortcut_already_in_use">Already in use</string>
     <string name="bootstrap_error">Bootstrap failed: %1$s</string>
     <string name="bootstrap_installed_success">Bootstrap installed successfully</string>
     <string name="bootstrap_installed_from_file">Bootstrap installed from file</string>
@@ -210,7 +190,6 @@
     <string name="byte_unit_kb">%1$d KB</string>
     <string name="byte_unit_mb">%1$d MB</string>
     <string name="byte_unit_b">%1$d B</string>
-    <string name="shortcut_reset">Reset</string>
 
     <!-- Theme Editor -->
 
@@ -223,7 +202,6 @@
     <string name="edit_modifier_bar">Edit Modifier Bar</string>
     <string name="reset_to_default">Reset to Default</string>
     <string name="session_number">Session %1$d</string>
-    <string name="background">Background</string>
     <string name="bold_font_family">Bold font family</string>
     <string name="italic_font_family">Italic font family</string>
     <string name="close_session">Close Session</string>

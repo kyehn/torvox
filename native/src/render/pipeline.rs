@@ -884,33 +884,6 @@ pub(crate) struct GridUniforms {
     pub _padding: [f32; 3],
 }
 
-#[cfg(test)]
-impl GridUniforms {
-    pub fn perspective(
-        view_proj: [[f32; 4]; 4],
-        camera_world_pos: [f32; 3],
-        grid_size: f32,
-        grid_min_pixels: f32,
-        grid_cell_size: f32,
-    ) -> Self {
-        Self {
-            view_proj,
-            camera_world_pos: [
-                camera_world_pos[0],
-                camera_world_pos[1],
-                camera_world_pos[2],
-                1.0,
-            ],
-            grid_size,
-            grid_min_pixels,
-            grid_cell_size,
-            orthographic_scale: 1.0,
-            is_orthographic: 0.0,
-            _padding: [0.0; 3],
-        }
-    }
-}
-
 /// Create the grid render pipeline for a given color target format. Uses a
 /// `Depth32Float` depth attachment with `Less` compare and depth write
 /// enabled — the pipeline must be paired with a depth view from

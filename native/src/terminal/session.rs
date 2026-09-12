@@ -158,11 +158,6 @@ pub struct Session {
     output_processor: OutputProcessor,
     output_tx: flume::Sender<Vec<u8>>,
     output_rx: Receiver<Vec<u8>>,
-    /// Tee channel: secondary consumer for raw PTY output (logging, tracing, MCP screenshot).
-    /// Bounded(256) — drops silently when full (backpressure without blocking PTY reader).
-    tee_tx: Option<flume::Sender<Vec<u8>>>,
-    tee_rx: Option<Receiver<Vec<u8>>>,
-
     // ── Event state (polled from Kotlin via push_event) ──────────────
     exited: Arc<AtomicBool>,
     /// Set once the Exit event for a background (non-active) session has
@@ -175,7 +170,6 @@ pub struct Session {
     /// to the host app and writes the answer back via
     /// [`Session::answer_clipboard_read`].
     clipboard_read: Arc<Mutex<Option<String>>>,
-    cwd: Arc<Mutex<Option<String>>>,
 
     // ── Thread lifecycle ─────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
@@ -304,7 +298,6 @@ impl Session {
 
         let exited = session.exited.clone();
         let output_tx = session.output_tx.clone();
-        let tee_tx = session.tee_tx.clone();
 
         log::info!("Session::spawn: spawning reader thread");
         let exited_read = exited.clone();
@@ -345,12 +338,6 @@ impl Session {
                         break;
                     }
                     Ok(bytes_read) => {
-                        // Tee: send raw bytes to secondary consumer (non-blocking).
-                        // Only clone if tee channel exists.
-                        if let Some(ref tee) = tee_tx {
-                            let tee_data = read_buf[..bytes_read].to_vec();
-                            let _ = tee.try_send(tee_data);
-                        }
                         // NUL stripping: remove 0x00 bytes before VT parsing.
                         // Reference: ghostty-android strips NUL to avoid APC-NUL rendering artifacts.
                         let mut data = read_buf[..bytes_read].to_vec();
@@ -437,7 +424,6 @@ impl Session {
         let clipboard_read = Arc::new(Mutex::new(None));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(128);
         // Tee channel: secondary consumer for raw PTY output (logging, tracing).
-        let (tee_tx, tee_rx) = bounded::<Vec<u8>>(256);
 
         let terminal = GhosttyTerminal::new_with_theme(
             rows,
@@ -449,21 +435,16 @@ impl Session {
         )
         .map_err(SessionError::Terminal)?;
 
-        let cwd = Arc::new(Mutex::new(None));
-
         Ok(Self {
             pty,
             terminal,
             output_processor: OutputProcessor::new(),
             output_tx,
             output_rx,
-            tee_tx: Some(tee_tx),
-            tee_rx: Some(tee_rx),
             exited,
             exit_reported,
             clipboard_text,
             clipboard_read,
-            cwd,
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(None)),
@@ -600,9 +581,6 @@ impl Session {
             if let Some(selection) = snap.clipboard_read {
                 *self.clipboard_read.lock() = Some(selection);
             }
-            if let Some(path) = snap.cwd.as_ref() {
-                *self.cwd.lock() = Some(path.clone());
-            }
             self.terminal.pty_write(&snap.filtered);
             count += 1;
             // Cap per-frame processing to avoid one render call blocking
@@ -668,12 +646,6 @@ impl Session {
     pub fn poll_clipboard(&self) -> Option<String> {
         let mut guard = self.clipboard_text.lock();
         guard.take()
-    }
-
-    /// Take the tee receiver for raw PTY output consumption.
-    /// Returns `None` if already taken. The caller owns the raw byte stream.
-    pub fn take_tee_receiver(&mut self) -> Option<Receiver<Vec<u8>>> {
-        self.tee_rx.take()
     }
 
     /// Take the pending OSC 52 clipboard read request (the selection name),
@@ -747,36 +719,6 @@ impl Session {
     /// Get the current window title set by the shell.
     pub fn title(&self) -> String {
         self.terminal.title()
-    }
-
-    /// Get the current working directory of the child process.
-    pub fn cwd(&self) -> String {
-        // Live /proc/<pid>/cwd first: reflects in-shell `cd` even without
-        // OSC 7 emission, and self-heals when the shell chdirs after spawn
-        // (deferred D5: getCwd /proc refresh). Falls back to the OSC 7
-        // cached value, then the ghostty terminal query, when the process
-        // is dead, unreadable (SELinux), or on non-Linux hosts.
-        if let Some(cwd) = Session::read_proc_cwd(self.pty.child_pid()) {
-            return cwd;
-        }
-        let guard = self.cwd.lock();
-        if let Some(tracked) = guard.as_ref() {
-            return tracked.clone();
-        }
-        self.terminal.cwd()
-    }
-
-    /// Read `/proc/<pid>/cwd` for a live child process. Returns `None` for
-    /// pid ≤ 0, dead processes, SELinux-restricted readers, and non-Linux
-    /// hosts — callers fall back to the OSC 7 tracked cwd.
-    fn read_proc_cwd(pid: nix::unistd::Pid) -> Option<String> {
-        let raw = pid.as_raw();
-        if raw <= 0 {
-            return None;
-        }
-        std::fs::read_link(format!("/proc/{raw}/cwd"))
-            .ok()
-            .map(|path| path.to_string_lossy().into_owned())
     }
 
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
@@ -1148,35 +1090,6 @@ mod tests {
     }
 
     #[test]
-    fn session_cwd_default_is_empty() {
-        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
-            .expect("with_pty must succeed");
-        assert_eq!(session.cwd(), "");
-    }
-
-    #[test]
-    fn read_proc_cwd_live_pid_returns_cwd() {
-        // /proc/<pid>/cwd is Linux-only; other hosts fall back to OSC 7.
-        if std::path::Path::new("/proc/self/cwd").exists() {
-            let cwd = Session::read_proc_cwd(nix::unistd::Pid::from_raw(
-                std::process::id() as libc::pid_t
-            ))
-            .expect("live /proc/<pid>/cwd must resolve");
-            assert!(cwd.starts_with('/'), "cwd must be absolute: {cwd}");
-        }
-    }
-
-    #[test]
-    fn read_proc_cwd_invalid_pid_returns_none() {
-        // Above PID_MAX_LIMIT — same sentinel MockPty uses — always ESRCH.
-        assert_eq!(
-            Session::read_proc_cwd(nix::unistd::Pid::from_raw(4_194_305)),
-            None
-        );
-    }
-
-    #[test]
     fn session_mode_get_default_false() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
@@ -1220,59 +1133,6 @@ mod tests {
             result.is_err(),
             "write after exit must return error, got Ok"
         );
-    }
-
-    #[test]
-    fn tee_channel_receives_data() {
-        let mut session = spawn_test_session();
-        // Take the tee receiver
-        let tee_rx = session.take_tee_receiver().expect("tee_rx should exist");
-        assert!(
-            tee_rx.try_recv().is_err(),
-            "tee channel should be empty initially"
-        );
-
-        // Write something — reader thread should send to both output_tx and tee_tx
-        session.write(b"echo tee_test_abc\n").expect("write failed");
-        let deadline = std::time::Instant::now() + Duration::from_secs(3);
-        loop {
-            session.process_output();
-            if std::time::Instant::now() >= deadline {
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-
-        // Tee channel should have received at least one chunk
-        let mut tee_data = Vec::new();
-        while let Ok(chunk) = tee_rx.try_recv() {
-            tee_data.extend_from_slice(&chunk);
-        }
-        let tee_text = String::from_utf8_lossy(&tee_data);
-        assert!(
-            tee_text.contains("tee_test_abc"),
-            "tee channel should contain test data, got: {tee_text}"
-        );
-
-        // Clean up: let session exit
-        session.write(b"exit\n").expect("write failed");
-        std::thread::sleep(Duration::from_millis(200));
-    }
-
-    #[test]
-    fn tee_channel_single_take() {
-        let mut session = spawn_test_session();
-        let rx1 = session
-            .take_tee_receiver()
-            .expect("first take should succeed");
-        assert!(
-            session.take_tee_receiver().is_none(),
-            "second take should return None"
-        );
-        // Drop rx1 to clean up
-        drop(rx1);
-        session.write(b"exit\n").expect("write failed");
-        std::thread::sleep(Duration::from_millis(200));
     }
 
     #[test]
