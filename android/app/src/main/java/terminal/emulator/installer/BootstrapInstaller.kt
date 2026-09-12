@@ -17,12 +17,8 @@ class BootstrapInstaller(
     private val stagingDir: File,
     private val onProgress: BootstrapProgressCallback? = null,
 ) {
-    // Atomic-install reference: warp-mobile-android crates/android-host/src/bootstrap.rs:1-48
-    // — extract to usr.tmp/ then write a.bootstrap-version.json marker whose
-    // value is the bootstrap zip's sha256, so a kill-mid-extract can never look
-    // "installed" and a corrupted zip is detected on next launch. torvox stages
-    // into stagingDir then renames (see installBootstrap); the marker makes
-    // the corrupted-zip detection deterministic.
+    // 原子安装：解压到 stagingDir，完成后原子重命名切换（见 installBootstrap）。
+    // 不写任何标记文件、不做校验文件，安装状态只认启动入口存在性。
     companion object {
         private const val TAG = "BootstrapInstaller"
         const val COPY_BUFFER_SIZE = 8096

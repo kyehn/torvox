@@ -123,7 +123,7 @@ object SelectionExpander {
 
     /**
      * Strip trailing whitespace AND NUL padding that the renderer uses for
-     * empty cells (torvox CellData fast path).
+     * empty cells (CellData 空单元格快路径）。
      */
     private fun String.trimTerminalPadding(): String = trimEnd { it.isWhitespace() || it == '\u0000' }
 

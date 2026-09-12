@@ -53,13 +53,12 @@ class MainActivity : ComponentActivity() {
 
     /**
      * termux-compatible failsafe extra: app shortcut "New session (Failsafe)" and third-party
-     * launchers/taskers send `com.termux.app.failsafe_session=true` with ACTION_RUN. torvox keeps
-     * the exact termux name (applicationId is com.termux) so existing termux shortcuts/tasker tasks
-     * keep working.
+     * launchers/taskers send `com.termux.app.failsafe_session=true` with ACTION_RUN. 保留 termux
+     * 原名（applicationId 即 com.termux），以便现有快捷方式与 tasker 任务继续工作。
      */
     const val EXTRA_FAILSAFE_SESSION = "com.termux.app.failsafe_session"
 
-    /** torvox-only extra: open the settings sheet on launch. */
+    /** 本应用专有 extra：在启动时打开设置页。 */
     const val EXTRA_OPEN_SETTINGS = "terminal.emulator.open_settings"
 
     /**
