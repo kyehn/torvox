@@ -1122,6 +1122,8 @@ fn bootstrap_vulkan_icd_available() {
 #[test]
 fn bootstrap_gpu_context_initializes() {
     let mut context = crate::render::gpu::Renderer::new_with_no_surface();
+    assert!(!context.has_surface(), "fresh headless context must have no surface");
+    assert!(!context.has_pipeline(), "fresh headless context must have no pipeline");
     context.set_surface_config(wgpu::SurfaceConfiguration {
         width: 800,
         height: 600,
@@ -1134,4 +1136,8 @@ fn bootstrap_gpu_context_initializes() {
         color_space: wgpu::SurfaceColorSpace::Auto,
     });
     context.initialize_pipeline_and_bind_group(256, 256, 800, 600);
+    assert!(
+        context.has_pipeline(),
+        "cell pipeline must exist after initialize_pipeline_and_bind_group"
+    );
 }
