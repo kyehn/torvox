@@ -381,7 +381,6 @@ fn run_compute_and_capture(
 }
 
 #[test]
-#[ignore = "requires GPU adapter"]
 fn gpu_compute_write_color() {
     let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         panic!("requires GPU adapter but none available");
@@ -398,7 +397,6 @@ fn gpu_compute_write_color() {
 }
 
 #[test]
-#[ignore = "requires GPU adapter"]
 fn gpu_compute_blend() {
     let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         panic!("requires GPU adapter but none available");
@@ -1810,7 +1808,6 @@ fn cursor_color_custom_values() {
 }
 
 #[test]
-#[ignore = "requires GPU adapter"]
 fn render_paused_skips_frame() {
     let mut context = Renderer::new_with_no_surface();
     assert!(!context.render_paused, "should start unpaused");
@@ -1828,7 +1825,6 @@ fn render_paused_skips_frame() {
 }
 
 #[test]
-#[ignore = "requires GPU adapter"]
 fn render_paused_toggle_resumes_rendering() {
     let mut context = Renderer::new_with_no_surface();
     // Pause then unpause
@@ -1845,7 +1841,6 @@ fn render_paused_toggle_resumes_rendering() {
 }
 
 #[test]
-#[ignore = "requires GPU adapter"]
 fn render_paused_remains_paused_after_multiple_frames() {
     let mut context = Renderer::new_with_no_surface();
     context.set_render_paused(true);
@@ -1858,14 +1853,12 @@ fn render_paused_remains_paused_after_multiple_frames() {
 }
 
 #[test]
-#[ignore = "requires GPU adapter"]
 fn new_with_no_surface_starts_unpaused() {
     let context = Renderer::new_with_no_surface();
     assert!(!context.render_paused, "new context must start unpaused");
 }
 
 #[test]
-#[ignore = "requires GPU adapter"]
 fn set_render_paused_idempotent() {
     let mut context = Renderer::new_with_no_surface();
     context.set_render_paused(true);
@@ -1902,7 +1895,6 @@ fn render_benchmarks_strict() -> bool {
 }
 
 #[test]
-#[ignore]
 fn bench_build_instances_from_cell_data() {
     use std::hint::black_box;
     use std::time::Instant;
@@ -1999,7 +1991,6 @@ fn bench_build_instances_from_cell_data() {
 /// Every frame writes CellInstance data to a GPU buffer via queue.write_buffer().
 /// This benchmark measures raw write speed for 24×80 instance data (1920 cells).
 #[test]
-#[ignore]
 fn bench_gpu_buffer_upload_throughput() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2061,7 +2052,6 @@ fn bench_gpu_buffer_upload_throughput() {
 /// draw instances, end pass, submit. This tests the CPU-side graphics command
 /// path that happens every frame.
 #[test]
-#[ignore]
 fn bench_gpu_command_encoding_overhead() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2131,7 +2121,6 @@ fn bench_gpu_command_encoding_overhead() {
 /// buffer upload + command encoding + submit + poll. This mirrors the actual
 /// render_frame() path without requiring a swapchain surface.
 #[test]
-#[ignore]
 fn bench_gpu_full_submit_throughput() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2234,7 +2223,6 @@ fn bench_gpu_full_submit_throughput() {
 /// Measures the cost of creating + uploading a new atlas texture after glyph
 /// cache warmup — this happens when new glyphs are encountered.
 #[test]
-#[ignore]
 fn bench_gpu_atlas_texture_upload() {
     let _serial = GPU_BENCH_LOCK.lock();
     use std::hint::black_box;
@@ -2303,7 +2291,6 @@ fn bench_gpu_atlas_texture_upload() {
 /// FontPipeline, measuring first-encounter time vs cache-hit time. This tests
 /// the CJK cache and atlas allocation for the cold-start scenario.
 #[test]
-#[ignore]
 fn bench_cjk_glyph_cache_warmup() {
     use std::hint::black_box;
     use std::time::Instant;
@@ -2401,7 +2388,6 @@ fn all_static_pipelines_create_without_validation_errors() {
 // ── Context setter coverage (pure logic, no surface needed) ─────────────
 
 #[test]
-#[ignore = "requires GPU adapter"]
 fn kgp_atlas_zero_size_clears_texture() {
     let mut context = Renderer::new_with_no_surface();
     // Zero-size upload must clear any prior atlas instead of panicking.

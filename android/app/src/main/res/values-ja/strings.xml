@@ -116,8 +116,6 @@
     <!-- USB Serial -->
 
     <!-- MCP Server -->
-    <string name="mcp_server">MCP サーバー</string>
-    <string name="mcp_server_desc">Model Context Protocol ソケットで端末を公開</string>
 
     <!-- Text Search -->
     <string name="text_search">テキスト検索</string>
@@ -151,14 +149,6 @@
     <string name="arrow_left">左矢印</string>
     <string name="arrow_right">右矢印</string>
     <string name="arrow_up">上矢印</string>
-    <string name="background">背景</string>
-    <string name="bell_mode">ベルモード</string>
-    <string name="bell_mode_desc">ターミナルのベル動作</string>
-    <string name="bg_blur_label">ぼかし: %1$d</string>
-    <string name="bg_image_choose">画像を選択</string>
-    <string name="bg_image_none">背景画像なし</string>
-    <string name="bg_image_set">背景画像を設定しました</string>
-    <string name="bg_opacity_label">不透明度: %1$d%%</string>
     <string name="bold_font_family">太字フォントファミリー</string>
     <string name="bootstrap_already_in_progress">ブートストラップのインストールが既に進行中です</string>
     <string name="bootstrap_cancelled">ダウンロードをキャンセルしました</string>
@@ -195,10 +185,6 @@
     <string name="edit_modifier_bar">Modifier バーを編集</string>
     <string name="enable_fuzzy_match">あいまい一致を有効にする</string>
     <string name="end_key">End</string>
-    <string name="environment_variables">環境変数</string>
-    <string name="environment_variables_desc">新しいセッション用の追加 KEY=VALUE 変数（1 行に 1 つ）</string>
-    <string name="environment_variables_hint">KEY=VALUE\n1 行に 1 つ</string>
-    <string name="environment_variables_save">保存</string>
     <string name="escape">Esc</string>
     <string name="font_applied">フォントを適用しました: %1$s</string>
     <string name="font_apply_failed">フォントを適用できませんでした: %1$s</string>
@@ -216,8 +202,6 @@
     <string name="function_key_layer">ファンクションキーレイヤー</string>
     <string name="home_key">Home</string>
     <string name="italic_font_family">斜体フォントファミリー</string>
-    <string name="keyboard_shortcuts">キーボードショートカット</string>
-    <string name="keyboard_shortcuts_desc">ハードウェアキーボードのショートカットを設定</string>
     <string name="modifier_bar">Modifier バー</string>
     <string name="modifier_bar_available_keys">利用可能なキー（タップで追加）</string>
     <string name="modifier_bar_current_layout">現在のレイアウト</string>
@@ -232,12 +216,6 @@
     <string name="selection">選択</string>
     <string name="selection_accessible">選択: %1$s</string>
     <string name="session_number">セッション %1$d</string>
-    <string name="shortcut_already_in_use">既に使用中</string>
-    <string name="shortcut_capture_prompt">修飾キー + キーの組み合わせを押してください</string>
-    <string name="shortcut_capture_title">ショートカットを記録</string>
-    <string name="shortcut_need_modifier">修飾キー + キーを押してください</string>
-    <string name="shortcut_reserved_key">予約済みキー</string>
-    <string name="shortcut_reset">リセット</string>
     <string name="tab_key">Tab</string>
     <string name="toggle_keyboard">キーボードを表示/非表示</string>
     <string name="toggle_scroll">スクロール切替</string>
