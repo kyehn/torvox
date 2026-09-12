@@ -1079,10 +1079,7 @@ mod tests {
         let result = build_env(&env);
         for (key, value) in [
             ("PREFIX", "/data/data/com.termux/files/usr"),
-            (
-                "TERMUX_PREFIX_DIR_PATH",
-                "/data/data/com.termux/files/usr",
-            ),
+            ("TERMUX_PREFIX_DIR_PATH", "/data/data/com.termux/files/usr"),
             ("TMPDIR", "/data/data/com.termux/files/usr/tmp"),
             (
                 "TERMUX_TMP_PREFIX_DIR_PATH",
@@ -1133,11 +1130,7 @@ mod tests {
         let env = test_env();
         let result = build_env(&env);
         assert!(!result.iter().any(|(k, _)| k == "PREFIX"));
-        assert!(
-            !result
-                .iter()
-                .any(|(k, _)| k == "TERMUX_PREFIX_DIR_PATH")
-        );
+        assert!(!result.iter().any(|(k, _)| k == "TERMUX_PREFIX_DIR_PATH"));
         assert!(
             result
                 .iter()
@@ -1145,13 +1138,6 @@ mod tests {
             "TMPDIR 对等变量无 prefix 时也必须存在"
         );
     }
-
-
-
-
-
-
-
 
     #[test]
     fn base_env_passthrough_android_vars_from_host() {
@@ -1474,5 +1460,3 @@ mod tests {
         );
     }
 }
-
-
