@@ -182,7 +182,7 @@ class BootstrapInstaller(
             entryBytes += read
             if (entryBytes > MAX_EXTRACTED_BYTES) {
               throw java.io.IOException(
-                  "Bootstrap entry $name exceeds $MAX_EXTRACTED_BYTES bytes uncompressed"
+                  "Bootstrap entry $name exceeds $MAX_EXTRACTED_BYTES bytes uncompressed",
               )
             }
             totalExtractedBytes += read
@@ -192,7 +192,7 @@ class BootstrapInstaller(
             // here on the cumulative total, not just per entry.
             if (totalExtractedBytes > MAX_EXTRACTED_BYTES) {
               throw java.io.IOException(
-                  "Bootstrap archive exceeds $MAX_EXTRACTED_BYTES bytes total uncompressed"
+                  "Bootstrap archive exceeds $MAX_EXTRACTED_BYTES bytes total uncompressed",
               )
             }
             out.write(buffer, 0, read)
@@ -220,7 +220,8 @@ class BootstrapInstaller(
     for (part in path.split('/')) {
       when (part) {
         "",
-        "." -> {}
+        ".",
+        -> {}
 
         ".." -> {
           if (stack.isNotEmpty() && stack.last() != "..") {
