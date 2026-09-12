@@ -55,4 +55,5 @@ subprojects {
   }
 }
 
+// Gradle Versions Plugin: provides `dependencyUpdates` task at root level
 apply(plugin = "com.github.ben-manes.versions")
