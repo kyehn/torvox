@@ -81,10 +81,10 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  * # ADR-0007 surface integration (implemented)
  *
  * The rendering path is live: `render`/`attachSurface`/`releaseGpuSurface` map to the wgpu renderer
- * via JNI, and the render-pause setting is wired end-to-end.
- * The remaining log-only helpers (`recomputeGrid`, `getCellWidth/Height`, `loadFontFile`,
- * `setSystemLocale`,...) are either superseded by other channels (attachSurface carries the size;
- * events carry grid dims) or are query-path stubs backed by [NativeQueryPort].
+ * via JNI, and the render-pause setting is wired end-to-end. The remaining log-only helpers
+ * (`recomputeGrid`, `getCellWidth/Height`, `loadFontFile`, `setSystemLocale`,...) are either
+ * superseded by other channels (attachSurface carries the size; events carry grid dims) or are
+ * query-path stubs backed by [NativeQueryPort].
  */
 // when-dispatch over the PollEvent sealed class — one branch per variant.
 @Suppress("TooManyFunctions", "LongMethod") // parseEvent is a straight

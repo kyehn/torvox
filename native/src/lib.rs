@@ -13,6 +13,7 @@
 //! ├── terminal/       — Ghostty VT parsing, PTY management, Session
 //! ├── render/         — wgpu pipeline, cosmic-text shaping, swash glyphs
 //! ├── android/        — JNI FFI exports, NDK bridge, logging
+//! ├── test/           — cross-module integration tests (cfg(test) only)
 //! └── (unit tests live beside the code under `#[cfg(test)]`)
 //! ```
 
@@ -33,3 +34,7 @@ pub mod log_chunk;
 
 #[cfg(test)]
 mod prop_tests;
+
+/// Cross-module integration tests (moved in from `native/tests/`).
+#[cfg(test)]
+mod test;

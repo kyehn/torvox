@@ -126,4 +126,3 @@ pub async fn initialize_wgpu()
     log::info!("GPU device created, queue ok");
     Ok((instance, adapter, device, queue))
 }
-

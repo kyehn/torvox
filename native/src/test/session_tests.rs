@@ -198,7 +198,7 @@ mod config_file_validation {
 }
 
 mod vt_to_snapshot_pipeline {
-    use native::terminal::ghostty_terminal::GhosttyTerminal;
+    use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
     #[test]
     fn vt_write_then_snapshot_dims() {
@@ -287,7 +287,7 @@ mod vt_to_snapshot_pipeline {
 }
 
 mod config_driven_session {
-    use native::terminal::ghostty_terminal::GhosttyTerminal;
+    use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
     #[test]
     fn ghostty_dimensions_match_config() {
@@ -324,10 +324,10 @@ mod config_driven_session {
 }
 
 mod session_e2e {
-    use native::terminal::ShellEnv;
+    use crate::terminal::ShellEnv;
     use std::time::{Duration, Instant};
 
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
 
     #[test]
     fn spawn_echo_capture() {
@@ -405,7 +405,7 @@ mod session_e2e {
 }
 
 mod common {
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
     use std::time::{Duration, Instant};
 
     pub fn drain_until(
@@ -452,11 +452,11 @@ mod common {
 }
 
 mod linux_pty_shell_interaction {
-    use native::terminal::ShellEnv;
+    use crate::terminal::ShellEnv;
     use std::time::{Duration, Instant};
 
     use super::common::*;
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
 
     #[test]
     fn spawn_shell_and_echo() {
@@ -601,11 +601,11 @@ mod linux_pty_shell_interaction {
 }
 
 mod linux_signal_handling {
-    use native::terminal::ShellEnv;
+    use crate::terminal::ShellEnv;
     use std::time::{Duration, Instant};
 
     use super::common::*;
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
 
     #[test]
     fn resize_sends_sigwinch() {
@@ -682,11 +682,11 @@ mod linux_signal_handling {
 }
 
 mod linux_exit_behavior {
-    use native::terminal::ShellEnv;
+    use crate::terminal::ShellEnv;
     use std::time::{Duration, Instant};
 
     use super::common::*;
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
 
     #[test]
     fn shell_exits_on_exit_command() {
@@ -769,11 +769,11 @@ mod linux_exit_behavior {
 }
 
 mod linux_scrollback {
-    use native::terminal::ShellEnv;
+    use crate::terminal::ShellEnv;
     use std::time::Duration;
 
     use super::common::*;
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
 
     #[test]
     fn long_output_triggers_scrollback() {
@@ -822,11 +822,11 @@ mod linux_scrollback {
 }
 
 mod linux_unicode_handling {
-    use native::terminal::ShellEnv;
+    use crate::terminal::ShellEnv;
     use std::time::Duration;
 
     use super::common::*;
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
 
     #[test]
     fn echo_cjk_characters() {
@@ -879,11 +879,11 @@ mod linux_unicode_handling {
 }
 
 mod linux_ansi_sequences {
-    use native::terminal::ShellEnv;
+    use crate::terminal::ShellEnv;
     use std::time::{Duration, Instant};
 
     use super::common::*;
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
 
     /// Render the current grid as a plain text string (control codepoints
     /// become `?`). Used by tests that assert on visible content.
@@ -1115,11 +1115,11 @@ while True:\n    b = os.read(0, 4096)\n    if not b: break\n    os.write(1, b)\n
 }
 
 mod linux_binary_safety {
-    use native::terminal::ShellEnv;
+    use crate::terminal::ShellEnv;
     use std::time::Duration;
 
     use super::common::*;
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
 
     #[test]
     fn null_bytes_do_not_panic() {
@@ -1174,11 +1174,11 @@ mod linux_binary_safety {
 }
 
 mod linux_session_lifecycle {
-    use native::terminal::ShellEnv;
+    use crate::terminal::ShellEnv;
     use std::time::{Duration, Instant};
 
     use super::common::*;
-    use native::terminal::session::Session;
+    use crate::terminal::session::Session;
 
     #[test]
     fn spawn_is_not_exited() {
