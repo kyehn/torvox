@@ -38,46 +38,46 @@ tags:
     timeout: 5000
 - assertVisible:
     id: "SettingsScreen"
-# Verify English UI strings
+# 中文单语言：验证中文 UI 字符串
 - assertVisible:
-    text: "Appearance"
+    text: "外观"
 - assertVisible:
-    text: "Font Size"
+    text: "字体大小"
 - scrollUntilVisible:
     element:
-      text: "Software Theme"
+      text: "软件主题"
     direction: DOWN
 - assertVisible:
-    text: "Software Theme"
+    text: "软件主题"
 - scrollUntilVisible:
     element:
-      text: "Terminal Theme"
+      text: "终端主题"
     direction: DOWN
 - assertVisible:
-    text: "Terminal Theme"
+    text: "终端主题"
 - scrollUntilVisible:
     element:
-      text: "Follow System"
+      text: "跟随系统"
     direction: DOWN
 - assertVisible:
-    text: "Follow System"
+    text: "跟随系统"
 - assertVisible:
     id: "TerminalThemeFollowSystemSwitch"
 - scrollUntilVisible:
     element:
-      text: "Terminal"
+      text: "终端"
     direction: DOWN
 - assertVisible:
-    text: "Terminal"
+    text: "终端"
 # Shell 行位于 Terminal 分区标题下方，标题滚入视口时内容可能仍在屏外，
 # 直接断言会 flaky，必须显式滚到 Shell。
 - scrollUntilVisible:
     element:
-      text: "Shell"
+      text: "壳"
     direction: DOWN
 - assertVisible:
-    text: "Shell"
-- takeScreenshot: i18n_english
+    text: "壳"
+- takeScreenshot: i18n_chinese
 # Back to terminal
 - tapOn:
     id: "SettingsBackButton"

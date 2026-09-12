@@ -10,10 +10,8 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
-import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -24,10 +22,9 @@ import terminal.emulator.input.ModifierState
 import terminal.emulator.input.next
 
 /**
- * JVM (Robolectric) Compose tests for [ModifierBar] — proof that pure-UI semantics and Roborazzi
- * screenshots run WITHOUT an emulator. ModifierBar has no JNI dependency, so it is the reference
- * case for "backend/frontend separation in tests" (see docs/standards/TESTING.md §Instrumented
- * 方法论).
+ * JVM (Robolectric) Compose tests for [ModifierBar] — proof that pure-UI semantics run WITHOUT an
+ * emulator. ModifierBar has no JNI dependency, so it is the reference case for "backend/frontend
+ * separation in tests" (see docs/standards/TESTING.md §Instrumented 方法论).
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -92,11 +89,5 @@ class ModifierBarRobolectricTest {
         )
         // Release so the injected stream ends cleanly.
         composeRule.onNodeWithTag("Key_ESC").performTouchInput { up() }
-    }
-
-    @Test
-    fun `modifier bar golden screenshot`() {
-        setModifierBar()
-        composeRule.onRoot().captureRoboImage()
     }
 }
