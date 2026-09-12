@@ -11,7 +11,7 @@
 //!    scrollback_fallback_*）、视口映射（scroll_viewport_delta_*）、search /
 //!    dump_grid / read_line_text / uri_at / hyperlink_at / selection_text API、
 //!    vt_write sanitize+ST 追加与 pty_write LF→CRLF 管道（osc_*_split_buffer、
-//!    newline_lf_*）、OSC 133 semantic 标记、DEC 矩形 Rust API、鼠标编码 API、
+//!    newline_lf_*）、DEC 矩形 Rust API、鼠标编码 API、
 //!    is_alive/session/lifecycle（tc_sm_/tc_al_/tc_lifecycle_）、bench_* 基准；
 //! 3. 文末回归安全网 mod 整体豁免。
 //!
@@ -550,7 +550,6 @@ fn cell_snapshot_clone() {
         blink: false,
         hidden: false,
         uri: Some(String::from("https://test")),
-        semantic: SemanticContent::Output,
         overline: false,
         double_underline: false,
         width: 1,
@@ -2855,35 +2854,7 @@ mod osc_title_regressions {
 
 /// CSI 14t and 16t (pixel/character size reports) must not crash.
 
-/// A.8 — OSC 133 marker propagation test
-#[test]
-fn osc_133_marker_propagation() {
-    let mut t = term();
-    t.flush();
-    // OSC 133;A ST = prompt start, then "prompt> "
-    t.vt_write(b"\x1b]133;A\x1b\\prompt> ");
-    t.flush();
-    // OSC 133;B ST = input start, then "ls\n"
-    t.vt_write(b"\x1b]133;B\x1b\\ls\x1b]133;C\x1b\\");
-    t.flush();
-    let snap = t.take_snapshot();
-    // The first 8 cells ("prompt> ") should be Prompt
-    let mut found_prompt = false;
-    let mut found_input = false;
-    for cell in &snap.cells {
-        match cell.codepoint as u8 as char {
-            'p' | 'r' | 'o' | 'm' | 't' | '>' | ' ' if cell.semantic == SemanticContent::Prompt => {
-                found_prompt = true;
-            }
-            'l' | 's' if cell.semantic == SemanticContent::Input => {
-                found_input = true;
-            }
-            _ => {}
-        }
-    }
-    assert!(found_prompt, "OSC 133;A should mark prompt cells");
-    assert!(found_input, "OSC 133;B should mark input cells");
-}
+
 
 /// dec_erase_rect erases the rectangle to spaces and leaves cells outside it
 /// untouched; a zero-width/height rect is a no-op.

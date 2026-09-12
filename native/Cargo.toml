@@ -46,5 +46,13 @@ proptest = { workspace = true }
 toml = { workspace = true }
 shuttle = "0.9"
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+[[bench]]
+name = "cell_builder"
+path = "src/benches/cell_builder.rs"
+harness = false
+[[bench]]
+name = "vt_typing"
+path = "src/benches/vt_typing.rs"
+harness = false
 [lints]
 workspace = true

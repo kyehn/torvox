@@ -169,20 +169,12 @@ pub struct Session {
     /// been pushed to the event queue, so the per-frame sweep in pollEvent
     /// reports it exactly once.
     exit_reported: Arc<AtomicBool>,
-    bel_triggered: Arc<AtomicBool>,
-    /// Timestamp of the last delivered BEL, for the 500 ms
-    /// `poll_bel` debounce (prevents a burst of BELs from ringing the
-    /// bell more than once per half second).
-    last_bel_at: std::sync::Mutex<Option<std::time::Instant>>,
     clipboard_text: Arc<Mutex<Option<String>>>,
     /// Pending OSC 52 clipboard read request: the requested selection name.
     /// Consumed by the JNI layer (`poll_clipboard_read`), which forwards it
     /// to the host app and writes the answer back via
     /// [`Session::answer_clipboard_read`].
     clipboard_read: Arc<Mutex<Option<String>>>,
-    notification: Arc<Mutex<Option<(String, String)>>>,
-    /// ConEmu progress from OSC 9;4 (state, value).
-    progress: Arc<Mutex<Option<(u8, u8)>>>,
     cwd: Arc<Mutex<Option<String>>>,
 
     // ── Thread lifecycle ─────────────────────────────────────────────
@@ -441,11 +433,10 @@ impl Session {
         log::info!("Session::spawn_with_theme_inner: creating Arc/Channel");
         let exited = Arc::new(AtomicBool::new(false));
         let exit_reported = Arc::new(AtomicBool::new(false));
-        let bel_triggered = Arc::new(AtomicBool::new(false));
         let clipboard_text = Arc::new(Mutex::new(None));
         let clipboard_read = Arc::new(Mutex::new(None));
         let (output_tx, output_rx) = bounded::<Vec<u8>>(128);
-        // Tee channel: secondary consumer for raw PTY output (logging, tracing, MCP screenshot).
+        // Tee channel: secondary consumer for raw PTY output (logging, tracing).
         let (tee_tx, tee_rx) = bounded::<Vec<u8>>(256);
 
         let terminal = GhosttyTerminal::new_with_theme(
@@ -458,8 +449,6 @@ impl Session {
         )
         .map_err(SessionError::Terminal)?;
 
-        let notification = Arc::new(Mutex::new(None));
-        let progress = Arc::new(Mutex::new(None));
         let cwd = Arc::new(Mutex::new(None));
 
         Ok(Self {
@@ -472,12 +461,8 @@ impl Session {
             tee_rx: Some(tee_rx),
             exited,
             exit_reported,
-            bel_triggered,
-            last_bel_at: std::sync::Mutex::new(None),
             clipboard_text,
             clipboard_read,
-            notification,
-            progress,
             cwd,
             reader_handle: None,
             wait_handle: None,
@@ -618,18 +603,6 @@ impl Session {
             if let Some(path) = snap.cwd.as_ref() {
                 *self.cwd.lock() = Some(path.clone());
             }
-            if let Some((ref title, ref body)) = snap.notification {
-                let mut guard = self.notification.lock();
-                *guard = Some((title.clone(), body.clone()));
-            }
-            if let Some((state, value)) = snap.progress {
-                let mut guard = self.progress.lock();
-                *guard = Some((state, value));
-            }
-
-            if snap.bel {
-                self.bel_triggered.store(true, Ordering::Release);
-            }
             self.terminal.pty_write(&snap.filtered);
             count += 1;
             // Cap per-frame processing to avoid one render call blocking
@@ -691,24 +664,6 @@ impl Session {
         self.output_processor.take_new_output()
     }
 
-    /// Poll for a BEL (bell character) event. Returns true if a BEL was
-    /// received since the last poll, debounced to at most one per 500 ms.
-    pub fn poll_bel(&self) -> bool {
-        const BELL_DEBOUNCE_MS: u64 = 500;
-        if self.bel_triggered.swap(false, Ordering::AcqRel) {
-            let now = std::time::Instant::now();
-            let mut last = self
-                .last_bel_at
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            if last.is_none_or(|t| now.duration_since(t).as_millis() as u64 >= BELL_DEBOUNCE_MS) {
-                *last = Some(now);
-                return true;
-            }
-        }
-        false
-    }
-
     /// Poll for clipboard text set by an OSC 52 escape sequence.
     pub fn poll_clipboard(&self) -> Option<String> {
         let mut guard = self.clipboard_text.lock();
@@ -752,19 +707,6 @@ impl Session {
         }
         self.pty.write_all(&response).map_err(SessionError::Io)?;
         Ok(())
-    }
-
-    /// Poll for a desktop notification set by an OSC 9 escape sequence.
-    pub fn poll_notification(&self) -> Option<(String, String)> {
-        let mut guard = self.notification.lock();
-        guard.take()
-    }
-
-    /// Poll for a ConEmu progress update set by OSC 9;4.
-    /// Returns (state, value) where state is 0–4 and value is 0–100.
-    pub fn poll_progress(&self) -> Option<(u8, u8)> {
-        let mut guard = self.progress.lock();
-        guard.take()
     }
 
     /// Returns true if the child process has exited.
@@ -839,14 +781,6 @@ impl Session {
 
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {
         self.terminal.mode_get(mode_num, kind)
-    }
-
-    /// Drains the OSC 133 `last_command_output` buffer (text between
-    /// prompt-end and command-finished markers). termlib
-    /// `getLastCommandOutput` equivalent (research-supplement-4.md §1.2);
-    /// the buffer is cleared on take so repeated queries see fresh data.
-    pub(crate) fn take_last_command_output(&mut self) -> String {
-        self.output_processor.take_last_command_output()
     }
 
     pub fn focus_event(&mut self, focused: bool) {
@@ -1178,17 +1112,6 @@ mod tests {
     }
 
     #[test]
-    fn session_poll_bel_on_exit_write_back() {
-        // Verifies that pty_write responses from ghostty (e.g. DECRPM) do not
-        // accidentally set the BEL flag. BEL is only set when output data
-        // processed by process_output() contains 0x07.
-        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
-        let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
-            .expect("with_pty must succeed");
-        assert!(!session.poll_bel(), "fresh session must not have bel set");
-    }
-
-    #[test]
     fn mark_exit_reported_is_idempotent_under_concurrency() {
         let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(24, 80);
         let session = Session::with_pty(Box::new(pty) as Box<dyn Pty>, 24, 80)
@@ -1297,21 +1220,6 @@ mod tests {
             result.is_err(),
             "write after exit must return error, got Ok"
         );
-    }
-
-    #[test]
-    fn shell_integration_from_u8() {
-        use crate::terminal::output_processor::ShellIntegration;
-        assert_eq!(ShellIntegration::from(0u8), ShellIntegration::None);
-        assert_eq!(ShellIntegration::from(1u8), ShellIntegration::PromptStart);
-        assert_eq!(ShellIntegration::from(2u8), ShellIntegration::PromptEnd);
-        assert_eq!(ShellIntegration::from(3u8), ShellIntegration::CommandStart);
-        assert_eq!(
-            ShellIntegration::from(4u8),
-            ShellIntegration::CommandExecuted
-        );
-        assert_eq!(ShellIntegration::from(5u8), ShellIntegration::None);
-        assert_eq!(ShellIntegration::from(255u8), ShellIntegration::None);
     }
 
     #[test]

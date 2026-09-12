@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use libghostty_vt::Terminal;
 use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
-use libghostty_vt::render::{CellIterator, CursorVisualStyle, RenderState, RowIterator};
+use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
 use libghostty_vt::style::{PaletteIndex, StyleColor};
 use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate};
 
@@ -918,21 +918,13 @@ impl super::GhosttyTerminal {
         });
     }
 
-    /// Map a ghostty cursor visual style to the app-level cursor style,
-    /// defaulting to the block cursor when unset.
+    /// Map a ghostty cursor visual style to the app-level cursor style.
+    /// The spec pins the cursor to the default block, so every upstream
+    /// style maps to [`CursorStyle::Block`].
     fn cursor_style_from_snapshot(
-        snapshot: &libghostty_vt::render::Snapshot<'_, '_>,
+        _snapshot: &libghostty_vt::render::Snapshot<'_, '_>,
     ) -> CursorStyle {
-        snapshot
-            .cursor_visual_style()
-            .ok()
-            .map(|cvs| match cvs {
-                CursorVisualStyle::Bar => CursorStyle::Bar,
-                CursorVisualStyle::Block | CursorVisualStyle::BlockHollow => CursorStyle::Block,
-                CursorVisualStyle::Underline => CursorStyle::Underline,
-                _ => CursorStyle::default(),
-            })
-            .unwrap_or_default()
+        CursorStyle::Block
     }
 
     /// Resolve a cell color to `[r, g, b, 1.0]` floats, falling back to the
@@ -1443,14 +1435,6 @@ impl super::GhosttyTerminal {
                 let foreground = Self::cell_color(cell.fg_color(), default_fg);
                 let background = Self::cell_color(cell.bg_color(), default_bg);
 
-                let semantic = match raw.semantic_content() {
-                    Ok(libghostty_vt::screen::CellSemanticContent::Input) => SemanticContent::Input,
-                    Ok(libghostty_vt::screen::CellSemanticContent::Prompt) => {
-                        SemanticContent::Prompt
-                    }
-                    _ => SemanticContent::Output,
-                };
-
                 cells.push(CellSnapshot {
                     codepoint,
                     graphemes,
@@ -1472,7 +1456,6 @@ impl super::GhosttyTerminal {
                     blink: style.blink,
                     hidden: style.invisible,
                     uri: None,
-                    semantic,
                     overline: style.overline,
                     double_underline: style.underline == libghostty_vt::style::Underline::Double,
                     width,
