@@ -861,7 +861,9 @@ fn bearing_x_uses_font_natural_bearing() {
     }
 }
 
-/// Verify all characters in a row share the same bearing_y baseline.
+/// Verify all non-descending characters in a row share the same baseline
+/// (bitmap bottom edge). Bitmap tops legitimately differ per glyph
+/// (cap height vs x-height) — equal tops would misalign the text.
 /// This ensures no vertical misalignment between characters.
 #[test]
 fn all_chars_share_same_baseline_y() {
@@ -910,18 +912,28 @@ fn all_chars_share_same_baseline_y() {
     assert!(built.is_some(), "production instance build failed");
     assert_eq!(instances.len(), chars.len());
 
-    // All glyphs share one baseline: quad origin + bearing lands on the
-    // same text line for every character (no vertical misalignment).
-    let baselines: Vec<f32> = instances
+    // Baseline alignment: bitmap bottom (origin + bearing + bitmap height)
+    // is identical for glyphs without descenders. atlas_size is
+    // UV-normalized, so bitmap pixels are recovered with the atlas height.
+    let bottoms: Vec<f32> = instances
         .iter()
-        .map(|inst| inst.quad_origin[1] + inst.bearing[1])
+        .map(|inst| inst.quad_origin[1] + inst.bearing[1] + inst.atlas_size[1] * 1024.0)
         .collect();
-    for (i, baseline) in baselines.iter().enumerate() {
-        assert!(
-            (baseline - baselines[0]).abs() < 1.0,
-            "cell[{i}] baseline={baseline} should match cell[0] baseline={}",
-            baselines[0]
-        );
+    for (i, bottom) in bottoms.iter().enumerate() {
+        if chars[i] == 'y' {
+            // Descender must reach below the baseline, never float above it.
+            assert!(
+                *bottom >= bottoms[0] - 1.0,
+                "cell[{i}] ('y') bottom={bottom} must not float above baseline {}",
+                bottoms[0]
+            );
+        } else {
+            assert!(
+                (bottom - bottoms[0]).abs() < 1.0,
+                "cell[{i}] bottom={bottom} should match baseline bottom={}",
+                bottoms[0]
+            );
+        }
     }
 }
 
