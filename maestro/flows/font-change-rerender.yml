@@ -37,18 +37,18 @@ tags:
 # Scroll to Font Family section
 - scrollUntilVisible:
     element:
-      text: "Font Family"
+      text: "字体"
     direction: DOWN
 - assertVisible:
-    text: "Font Family"
+    text: "字体"
 # Tap Change to open font picker dialog
 - tapOn:
-    text: "Change"
+    text: "更改"
 - waitForAnimationToEnd:
     timeout: 3000
 # Assert the font picker dialog appeared
 - assertVisible:
-    text: "Select Font Family"
+    text: "选择字体"
 - takeScreenshot: font_picker_dialog
 # Select a different font (the picker lists system font files; there is
 # no "System Default" entry. DroidSansMono exists on AOSP emulator images;

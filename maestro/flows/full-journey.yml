@@ -33,19 +33,19 @@ tags:
 - assertVisible:
     id: "SettingsScreen"
 - assertVisible:
-    text: "Appearance"
+    text: "外观"
 - scrollUntilVisible:
     element:
-      text: "Terminal Theme"
+      text: "终端主题"
     direction: DOWN
 - assertVisible:
-    text: "Terminal Theme"
+    text: "终端主题"
 - scrollUntilVisible:
     element:
-      text: "Terminal"
+      text: "终端"
     direction: DOWN
 - assertVisible:
-    text: "Terminal"
+    text: "终端"
 # Scroll up to make back button visible
 - scrollUntilVisible:
     element:

@@ -32,24 +32,24 @@ tags:
 # Scroll to Software Theme section
 - scrollUntilVisible:
     element:
-      text: "Software Theme"
+      text: "软件主题"
     direction: DOWN
 - takeScreenshot: app_theme_section
 # Tap Night mode
 - tapOn:
-    text: "Night"
+    text: "夜间"
 - waitForAnimationToEnd:
     timeout: 3000
 - takeScreenshot: app_theme_set_to_night
 # Tap Day mode
 - tapOn:
-    text: "Day"
+    text: "日间"
 - waitForAnimationToEnd:
     timeout: 3000
 - takeScreenshot: app_theme_set_to_day
 # Tap Follow System
 - tapOn:
-    text: "Follow System"
+    text: "跟随系统"
 - waitForAnimationToEnd:
     timeout: 3000
 - takeScreenshot: app_theme_set_to_follow_system
