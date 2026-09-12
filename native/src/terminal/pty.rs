@@ -128,7 +128,7 @@ impl PtyPair {
     /// called with 24x80 by tests and default sessions  §3.5.1,
     /// verified by `spawn_seeds_24x80_winsize`), mirroring warp's
     /// non-zero seed so shells never observe 0x0 before the first resize.
-    /// torvox encodes the execve errno in the exit code (100 + errno)
+    /// 本实现将 execve errno 编码进退出码（100 + errno）
     /// decoded by the wait thread; warp writes it directly to stderr.
     /// Both are correct; the write(2) variant is more immediately visible
     /// in logcat.
@@ -1020,7 +1020,7 @@ mod tests {
 
     #[test]
     fn shebang_plain_interpreter_parses() {
-        let path = std::env::temp_dir().join("torvox-shebang-plain.sh");
+        let path = std::env::temp_dir().join("terminal-shebang-plain.sh");
         std::fs::write(&path, "#!/system/bin/sh\nset -eu\n").unwrap();
         let (interpreter, argument) = read_shebang_interpreter(path.to_str().unwrap()).unwrap();
         assert_eq!(interpreter.to_str().unwrap(), "/system/bin/sh");
@@ -1030,7 +1030,7 @@ mod tests {
 
     #[test]
     fn shebang_single_argument_parses() {
-        let path = std::env::temp_dir().join("torvox-shebang-arg.sh");
+        let path = std::env::temp_dir().join("terminal-shebang-arg.sh");
         std::fs::write(&path, "#!/system/bin/sh -eu\n").unwrap();
         let (interpreter, argument) = read_shebang_interpreter(path.to_str().unwrap()).unwrap();
         assert_eq!(interpreter.to_str().unwrap(), "/system/bin/sh");
@@ -1040,7 +1040,7 @@ mod tests {
 
     #[test]
     fn shebang_missing_returns_none() {
-        let path = std::env::temp_dir().join("torvox-shebang-plain-bin");
+        let path = std::env::temp_dir().join("terminal-shebang-plain-bin");
         std::fs::write(&path, [0x7fu8, b'E', b'L', b'F', 2]).unwrap();
         assert!(read_shebang_interpreter(path.to_str().unwrap()).is_none());
         std::fs::remove_file(&path).unwrap();
@@ -1532,7 +1532,7 @@ mod pdeathsig_tests {
         // When the libtermux-exec.so file exists in the prefix, LD_PRELOAD
         // must be set (termux case).
         let tmp =
-            std::env::temp_dir().join(format!("torvox-pty-test-preload-{}", std::process::id()));
+            std::env::temp_dir().join(format!("terminal-pty-test-preload-{}", std::process::id()));
         let lib = tmp.join("lib");
         std::fs::create_dir_all(&lib).expect("create tmp lib");
         std::fs::write(lib.join("libtermux-exec.so"), [0x7fu8, b'E', b'L', b'F'])
@@ -1560,7 +1560,7 @@ mod pdeathsig_tests {
     fn build_env_adds_ld_preload_variant_when_present() {
         // The direct-ld-preload variant is preferred over the bare name.
         let tmp =
-            std::env::temp_dir().join(format!("torvox-pty-test-variant-{}", std::process::id()));
+            std::env::temp_dir().join(format!("terminal-pty-test-variant-{}", std::process::id()));
         let lib = tmp.join("lib");
         std::fs::create_dir_all(&lib).expect("create tmp lib");
         std::fs::write(lib.join("libtermux-exec-ld-preload.so"), b"ELF").expect("touch ld");

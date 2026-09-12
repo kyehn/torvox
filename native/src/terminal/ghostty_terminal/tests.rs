@@ -1,13 +1,13 @@
-//! VT 引擎行为测试（torvox 语义增量 + 回归安全网；批次4 6.1 审删后约 3400 行）。
+//! VT 引擎行为测试（本仓语义增量 + 回归安全网）。
 //!
 //! 审删原则（openspec fix-terminal-ux-parity 任务 6.1）：与上游 libghostty-vt
-//! 行为完全重复且无 torvox 语义增量的纯透传测试（vt_write → snapshot/cursor/
+//! 行为完全重复且无本仓语义增量的纯透传测试（vt_write → snapshot/cursor/
 //! title 断言）已删除——该行为域由 ghostty 核心 Zig 测试（rev `de9fd9b` 锁定）
 //! 与文末 regression mod 覆盖。保留集合：
 //!
 //! 1. openspec 豁免：`selection_text_unwraps_soft_wrapped_lines`、
 //!    `selection_text_wide_char_columns`（P2-2 依赖）；
-//! 2. torvox 包装层自有机制：snapshot 缓存/回退（row_cache_*、
+//! 2. 本仓包装层自有机制：snapshot 缓存/回退（row_cache_*、
 //!    scrollback_fallback_*）、视口映射（scroll_viewport_delta_*）、search /
 //!    dump_grid / read_line_text / uri_at / hyperlink_at / selection_text API、
 //!    vt_write sanitize+ST 追加与 pty_write LF→CRLF 管道（osc_*_split_buffer、

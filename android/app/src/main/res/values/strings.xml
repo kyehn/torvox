@@ -119,10 +119,6 @@
     </plurals>
     <string name="title_changed">Terminal title changed to %s</string>
 
-    <!-- USB Serial -->
-
-    <!-- MCP Server -->
-
     <!-- Shizuku integration (DESIGN: privileged prefix shells, e.g. nix proot) -->
     <string name="shizuku_integration">Shizuku integration</string>
     <string name="shizuku_integration_desc">Run prefix shells with Shizuku privileges (required for nix proot)</string>
@@ -130,8 +126,6 @@
     <string name="shizuku_required_message">Shizuku integration is on but not authorized. Turn it off or exit the app.</string>
     <string name="shizuku_turn_off">Turn off</string>
     <string name="shizuku_exit">Exit app</string>
-
-    <!-- Environment Variables -->
 
     <!-- Text Search -->
     <string name="text_search">Text Search</string>
@@ -156,12 +150,6 @@
 
     <!-- Font CJK Warning -->
     <string name="cjk_fallback_missing_warning">No CJK fallback font detected. East Asian characters may not render correctly.</string>
-
-    <!-- Background Image -->
-
-    <!-- Cursor Settings -->
-
-    <!-- Bell Mode -->
 
     <string name="save">Save</string>
     <string name="delete">Delete</string>
@@ -188,9 +176,6 @@
     <string name="byte_unit_mb">%1$d MB</string>
     <string name="byte_unit_b">%1$d B</string>
 
-    <!-- Theme Editor -->
-
-    
     <!-- i18n: user-facing strings that were previously hardcoded -->
     <string name="clear">Clear</string>
     <string name="modifier_bar">Modifier Bar</string>
