@@ -841,14 +841,6 @@ constructor(
               }
               .absolutePath
         }
-    val effectivePath: String =
-        if (prefixComplete) {
-          val base = "$prefixDir/bin"
-          val systemPath = System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
-          "$base:$systemPath"
-        } else {
-          System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" }
-        }
     ensureMkshPromptRc(effectiveHome)
     return TerminalConfig(
         shell = effectiveShell,
@@ -858,8 +850,6 @@ constructor(
         font_size_tenths = configReads.fontSizeTenths,
         theme = bridgeTheme,
         home = effectiveHome,
-        user = System.getProperty("user.name") ?: "shell",
-        path = effectivePath,
         workingDirectory = effectiveHome,
         prefix = effectivePrefix,
     )
@@ -894,8 +884,6 @@ constructor(
         font_size_tenths = configReads.fontSizeTenths,
         theme = bridgeTheme,
         home = home,
-        user = System.getProperty("user.name") ?: "shell",
-        path = System.getenv("PATH").orEmpty().ifEmpty { "/system/bin:/system/xbin" },
         workingDirectory = homeDir,
         prefix = "",
     )
