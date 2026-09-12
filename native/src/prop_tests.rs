@@ -131,16 +131,16 @@ fn event_queue_exit_survives_overflow() {
             }
 
             let mut exits = 0;
-            let mut bells = 0;
+            let mut clipboards = 0;
             while let Some(event) = queue.pop() {
                 match event {
                     Event::Exit { .. } => exits += 1,
-                    Event::Clipboard { .. } => bells += 1,
+                    Event::Clipboard { .. } => clipboards += 1,
                     other => panic!("unexpected event {other:?}"),
                 }
             }
             assert_eq!(exits, THREADS, "an Exit event was evicted");
-            assert!(bells > 0);
+            assert!(clipboards > 0);
         },
         64,
     );

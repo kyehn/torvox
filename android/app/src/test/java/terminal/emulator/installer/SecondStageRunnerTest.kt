@@ -57,8 +57,7 @@ class SecondStageRunnerTest {
         requireNotNull(script.parentFile).mkdirs()
         script.writeText("#!/bin/sh\n")
         val cmd = runnerWith(prefix).postinstCommand(script)
-        // On Linux, /bin/sh resolves to /usr/bin/dash (canonical path).
-        // The command[0] must be the canonical path of /bin/sh.
+        // On Linux, /bin/sh is a symlink: command[0] must be its canonical path.
         val expectedInterpreter = File("/bin/sh").canonicalPath
         assertEquals(expectedInterpreter, cmd[0])
         assertEquals(script.absolutePath, cmd[1])

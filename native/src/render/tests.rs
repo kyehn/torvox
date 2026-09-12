@@ -174,10 +174,9 @@ fn cell_instance_zeroable() {
 
 #[test]
 fn gpu_uniforms_size() {
-    // #[repr(C)] layout: 64 (mat4) + 8 (vec2) + 4 + 4 (raster_scale,
-    // image_active) + 16 (default_bg [f32;4]) = 96. Matches the WGSL
-    // std140 `Uniforms` (default_bg split into two vec2).
-    assert_eq!(std::mem::size_of::<GpuUniforms>(), 96);
+    // #[repr(C)] layout: 64 (mat4) + 8 (vec2) + 4 (raster_scale) + 4
+    // (std140 trailing padding) = 80. Matches the WGSL `Uniforms`.
+    assert_eq!(std::mem::size_of::<GpuUniforms>(), 80);
 }
 
 #[test]
@@ -185,7 +184,7 @@ fn orthographic_projection_basic() {
     let proj = orthographic_projection(100.0, 100.0);
     // [0][0] = 2/width
     assert!((proj[0][0] - 0.02).abs() < f32::EPSILON);
-    // [1][1] = -2/height (flipped Y for GLES swapchain)
+    // [1][1] = -2/height (flipped Y for the Vulkan swapchain)
     assert!((proj[1][1] + 0.02).abs() < f32::EPSILON);
     assert!((proj[3][1] - 1.0).abs() < f32::EPSILON, "translation Y");
     // [3][3] = 1 (result.w=1 for all vertices via Rust row-major→WGSL column-major)
@@ -229,7 +228,13 @@ fn orthographic_projection_zero_size() {
 /// Helper: create a wgpu instance + adapter + device for testing.
 /// Returns None when no suitable GPU is available.
 fn create_test_device() -> Option<(wgpu::Instance, wgpu::Adapter, wgpu::Device, wgpu::Queue)> {
-    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+    let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+        backends: wgpu::Backends::VULKAN,
+        flags: wgpu::InstanceFlags::empty(),
+        memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+        backend_options: wgpu::BackendOptions::default(),
+        display: None,
+    });
     let adapter =
         futures::executor::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             compatible_surface: None,
@@ -479,15 +484,13 @@ fn orthographic_projection_resize_gpu_uniforms() {
         projection: orthographic_projection(800.0, 600.0),
         atlas_size: [1024.0, 1024.0],
         raster_scale: 1.0,
-        image_active: 0.0,
-        default_bg: [0.0, 0.0, 0.0, 1.0],
+        _padding: 0.0,
     };
     let uniforms_400 = GpuUniforms {
         projection: orthographic_projection(800.0, 400.0),
         atlas_size: [1024.0, 1024.0],
         raster_scale: 1.0,
-        image_active: 0.0,
-        default_bg: [0.0, 0.0, 0.0, 1.0],
+        _padding: 0.0,
     };
 
     // Same projection/atlas layout, different height
@@ -740,6 +743,53 @@ fn selection_swaps_fg_bg() {
     );
 }
 
+/// Build production instances for a single cell (shared by the bearing tests
+/// below): one [`CellData`], default cursor, unit grid.
+fn build_single_cell_instance(
+    ch: char,
+    cell_w: f32,
+    cell_h: f32,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+) -> Vec<crate::render::CellInstance> {
+    use crate::terminal::ghostty_terminal::CellData;
+    let cell_data = vec![CellData {
+        codepoint: ch as u32,
+        width: 1,
+        grapheme_extra: [0; 7],
+        fg_color: [1.0; 4],
+        bg_color: [0.0; 4],
+        flags: 0,
+        row: 0,
+        col: 0,
+    }];
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 1,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
+            atlas_width: 1024.0,
+            atlas_height: 1024.0,
+            selection: None,
+            search_highlights: &[],
+        },
+        font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
+    instances
+}
+
 // ── Bearing correctness: Termux-aligned font metrics ──────────────
 
 /// Verify bearing_y uses font baseline, not centering.
@@ -747,7 +797,6 @@ fn selection_swaps_fg_bg() {
 /// (no centering, no clamping — the raw font baseline offset).
 #[test]
 fn bearing_y_uses_font_baseline_not_centering() {
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     let ascent_pixels = font_pipeline.ascent_pixels();
@@ -757,41 +806,7 @@ fn bearing_y_uses_font_baseline_not_centering() {
         let info = font_pipeline.glyph_information(ch).expect("glyph exists");
         let expected_bearing_y = ascent_pixels - info.placement.top as f32;
 
-        let cell_data = vec![CellData {
-            codepoint: ch as u32,
-            width: 1,
-            grapheme_extra: [0; 7],
-            fg_color: [1.0; 4],
-            bg_color: [0.0; 4],
-            flags: 0,
-            row: 0,
-            col: 0,
-        }];
-        let cursor = crate::render::CellCursor {
-            row: 0,
-            col: 0,
-            visible: false,
-            style: CursorStyle::Block,
-            color: None,
-        };
-        let mut instances = Vec::new();
-        let built = crate::render::build_instances_from_cell_data(
-            &cell_data,
-            crate::render::gpu::CellInstanceConfig {
-                rows: 1,
-                cols: 1,
-                grid_cell_w: cell_w,
-                grid_cell_h: cell_h,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                selection: None,
-                search_highlights: &[],
-            },
-            &mut font_pipeline,
-            &mut instances,
-        );
-        assert!(built.is_some(), "production instance build failed");
+        let instances = build_single_cell_instance(ch, cell_w, cell_h, &mut font_pipeline);
         let cell = &instances[0];
 
         assert!(
@@ -806,7 +821,6 @@ fn bearing_y_uses_font_baseline_not_centering() {
 /// Verify bearing_x uses font's natural left side bearing, not centering.
 #[test]
 fn bearing_x_uses_font_natural_bearing() {
-    use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
 
@@ -815,41 +829,7 @@ fn bearing_x_uses_font_natural_bearing() {
         let info = font_pipeline.glyph_information(ch).expect("glyph exists");
         let expected_bearing_x = info.placement.left as f32;
 
-        let cell_data = vec![CellData {
-            codepoint: ch as u32,
-            width: 1,
-            grapheme_extra: [0; 7],
-            fg_color: [1.0; 4],
-            bg_color: [0.0; 4],
-            flags: 0,
-            row: 0,
-            col: 0,
-        }];
-        let cursor = crate::render::CellCursor {
-            row: 0,
-            col: 0,
-            visible: false,
-            style: CursorStyle::Block,
-            color: None,
-        };
-        let mut instances = Vec::new();
-        let built = crate::render::build_instances_from_cell_data(
-            &cell_data,
-            crate::render::gpu::CellInstanceConfig {
-                rows: 1,
-                cols: 1,
-                grid_cell_w: cell_w,
-                grid_cell_h: cell_h,
-                cursor,
-                atlas_width: 1024.0,
-                atlas_height: 1024.0,
-                selection: None,
-                search_highlights: &[],
-            },
-            &mut font_pipeline,
-            &mut instances,
-        );
-        assert!(built.is_some(), "production instance build failed");
+        let instances = build_single_cell_instance(ch, cell_w, cell_h, &mut font_pipeline);
         let cell = &instances[0];
 
         assert!(
@@ -1022,7 +1002,7 @@ fn setup_test_gpu_context(device: wgpu::Device, queue: wgpu::Queue) -> Renderer 
 }
 
 #[test]
-fn gpu_background_no_image_fallback() {
+fn gpu_background_plain_color_fill() {
     let Some((_instance, _adapter, device, queue)) = create_test_device() else {
         panic!("requires GPU adapter but none available");
     };
@@ -1851,14 +1831,6 @@ fn set_render_paused_idempotent() {
         context.render_frame(&[], &[]).is_ok(),
         "double-pause still ok"
     );
-}
-
-#[test]
-fn image_active_value_flag_matches_bg_bind_group() {
-    // Fix F branch logic: a background image being active is exactly the
-    // uniform flag that makes default-background cells transparent.
-    assert!(f32_eq(image_active_value(true), 1.0));
-    assert!(f32_eq(image_active_value(false), 0.0));
 }
 
 // ══════════════════════════════════════════════════════════════════════════
