@@ -923,17 +923,6 @@ pub fn build_env(env: &ShellEnv, shell_path: &str, rows: u16, cols: u16) -> Vec<
         crate::terminal::shell_env::terminal_env_overlay(),
     );
 
-    // Reference (termux-kotlin TermuxAppShellEnvironment.kt:156): export the
-    // MCP capability switch into the child environment so shells / scripts /
-    // MCP clients can detect whether the embedded MCP server is live without
-    // probing the Unix socket. Value is "1" only while the server is enabled;
-    // when disabled the variable is omitted entirely.
-    #[cfg(feature = "mcp")]
-    if crate::mcp::is_enabled() {
-        result.retain(|(k, _)| k != "TORVOX__MCP_SERVER_ENABLED");
-        result.push(("TORVOX__MCP_SERVER_ENABLED".to_string(), "1".to_string()));
-    }
-
     result
 }
 
@@ -1209,51 +1198,6 @@ mod tests {
             result
                 .iter()
                 .any(|(k, v)| k == "ANDROID_ROOT" && v == "/system")
-        );
-    }
-
-    // Reference (termux-kotlin TermuxAppShellEnvironment.kt:156): the MCP
-    // capability switch must be exported when the server is enabled.
-    #[cfg(feature = "mcp")]
-    #[test]
-    fn build_env_exports_mcp_capability_when_enabled() {
-        // Global MCP state is process-wide; serialize against the mcp
-        // tests so set_enabled/build_env never interleave.
-        let _guard = crate::mcp::MCP_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        // Point the server at a per-process temp socket so the started
-        // listener never collides with a production path. set_enabled(false)
-        // below signals graceful shutdown and joins the server thread.
-        let dir = std::env::temp_dir().join(format!("torvox-pty-test-mcp-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).expect("create temp dir");
-        crate::mcp::set_socket_path(dir.join("mcp.sock").to_string_lossy().into_owned());
-        crate::mcp::set_enabled(true);
-        let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
-        crate::mcp::set_enabled(false);
-        assert!(
-            result
-                .iter()
-                .any(|(k, v)| k == "TORVOX__MCP_SERVER_ENABLED" && v == "1"),
-            "enabled MCP must export TORVOX__MCP_SERVER_ENABLED=1"
-        );
-    }
-
-    #[cfg(feature = "mcp")]
-    #[test]
-    fn build_env_omits_mcp_capability_when_disabled() {
-        let _guard = crate::mcp::MCP_TEST_LOCK
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        crate::mcp::set_enabled(false);
-        let env = test_env();
-        let result = build_env(&env, "/bin/sh", 24, 80);
-        assert!(
-            !result
-                .iter()
-                .any(|(k, _)| k == "TORVOX__MCP_SERVER_ENABLED"),
-            "disabled MCP must omit TORVOX__MCP_SERVER_ENABLED"
         );
     }
 

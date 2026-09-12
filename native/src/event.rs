@@ -1,7 +1,7 @@
 //! Neutral event types and thread-safe event queue.
 //!
-//! Events are shared between JNI bridge and MCP server. The `EventQueue`
-//! is the central rendezvous point: terminal/MCP push events into it,
+//! Events flow from the terminal engine to the JNI bridge. The `EventQueue`
+//! is the central rendezvous point: terminal sessions push events into it,
 //! Kotlin `pollEvent()` drains them in FIFO order.
 
 use parking_lot::Mutex;
@@ -9,7 +9,7 @@ use std::collections::VecDeque;
 use std::time::Instant;
 
 /// Maximum number of events buffered before the oldest are dropped.
-/// Bounds memory when a burst of MCP/terminal events outpaces the
+/// Bounds memory when a burst of terminal events outpaces the
 /// UI drain rate (Kotlin drains up to 32 events per frame per session).
 const MAX_QUEUED_EVENTS: usize = 1024;
 
@@ -22,30 +22,19 @@ const OVERFLOW_WARN_INTERVAL: std::time::Duration = std::time::Duration::from_se
 ///
 /// | Variant | Triggered by | From module |
 /// |---------|-------------|-------------|
-/// | `Bell`  | `process_output()` detects BEL character | `session` |
-/// | `Clipboard` | OSC 52 **set** (terminal→clipboard) or MCP `clipboard_set` | `session` / `mcp` |
+/// | `Clipboard` | OSC 52 **set** (terminal→clipboard) | `session` |
+/// | `ClipboardRead` | OSC 52 **read** (terminal asks the host) | `session` |
 /// | `Exit`  | `session.is_exited()` becomes true | `session` / `pollEvent` |
-/// | `ShowDialog` | MCP `dialog` tool call | `mcp` (via ffi callback) |
-/// | `PickFile` | MCP `pick_file` tool call | `mcp` (via ffi callback) |
 ///
 /// All events are serialised as JSON before crossing the JNI boundary.
 /// Uses internal tagging (`#[serde(tag = "event")]`) so Kotlin can match on `event` field.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "event", rename_all = "snake_case")]
 pub enum Event {
-    /// Terminal bell character (^G) received.
-    Bell { session_id: u64 },
-    /// Clipboard write content: text the terminal (OSC 52 set) or MCP
-    /// `clipboard_set` wants placed in the SYSTEM clipboard. Kotlin applies
-    /// it via `setPrimaryClip`. (OSC 52 read is not implemented —
-    /// osc_handler logs and ignores read requests.)
+    /// Clipboard write content: text the terminal (OSC 52 set) wants placed
+    /// in the SYSTEM clipboard. Kotlin applies it via `setPrimaryClip`.
+    /// (OSC 52 read arrives via [`Event::ClipboardRead`] + `clipboardResult()`.)
     Clipboard { session_id: u64, text: String },
-    /// Desktop notification requested by the terminal (OSC 9).
-    Notification {
-        session_id: u64,
-        title: String,
-        body: String,
-    },
     /// Child process exited.
     Exit {
         session_id: u64,
@@ -55,74 +44,15 @@ pub enum Event {
         /// handling latency; diagnostics payload.
         alive_ms: u64,
     },
-    /// Request Kotlin to show a dialog (input/confirm/select).
-    /// Kotlin responds by calling `dialogResult()` JNI.
-    #[cfg(feature = "mcp")]
-    ShowDialog {
-        session_id: u64,
-        request_id: u64,
-        dialog_type: String,
-        title: String,
-        message: String,
-        options: Vec<String>,
-    },
-    /// Request Kotlin to show a file picker (Android SAF / desktop).
-    /// Kotlin answers via the shared `dialogResult()` JNI, keyed by
-    /// (session_id, request_id) — same routing as ShowDialog.
-    #[cfg(feature = "mcp")]
-    PickFile {
-        session_id: u64,
-        request_id: u64,
-        starting_path: String,
-        filter: String,
-    },
-    /// MCP `clipboard_get`: request Kotlin to read the system clipboard and
-    /// answer via `clipboardResult()` JNI.
-    #[cfg(feature = "mcp")]
-    GetClipboard { session_id: u64, request_id: u64 },
-    /// MCP dialog/pick_file timed out: the native tool
-    /// call gives up after 300s and cancels the registry entry; Kotlin
-    /// receives this event so the still-visible dialog is dismissed
-    /// instead of hanging on screen unresponsive.
-    #[cfg(feature = "mcp")]
-    DialogCancel { session_id: u64, request_id: u64 },
     /// OSC 52 clipboard read request (`ESC ] 52 ; c ; ?`): the host app
     /// reads the system clipboard and answers via `clipboardResult()` JNI;
-    /// Rust writes the reply back to the PTY (FR-036). Mirrors
-    /// `GetClipboard` but carries the requested selection name.
-    #[cfg(feature = "mcp")]
+    /// Rust writes the reply back to the PTY. Carries the requested
+    /// selection name.
     ClipboardRead {
         session_id: u64,
         request_id: u64,
         selection: String,
     },
-    /// ConEmu progress update (OSC 9;4): state 0–4, value 0–100.
-    Progress {
-        session_id: u64,
-        state: u8,
-        value: u8,
-    },
-    /// MCP `toast`: request Kotlin to show a brief toast message.
-    #[cfg(feature = "mcp")]
-    Toast { text: String },
-    /// MCP `open_url`: request Kotlin to open a URL in the default browser.
-    #[cfg(feature = "mcp")]
-    OpenUrl { url: String },
-    /// MCP `run_command`: request Kotlin to execute a raw command string
-    /// safely (ArgumentTokenizer argv split, no shell). Kotlin replies
-    /// via `runCommandResult()` JNI, keyed by (session_id, request_id) —
-    /// same request/response routing as ShowDialog/clipboard_get.
-    #[cfg(feature = "mcp")]
-    RunCommand {
-        session_id: u64,
-        request_id: u64,
-        command: String,
-    },
-    /// MCP `screenshot`: request Kotlin to capture the current terminal
-    /// rendering as RGBA pixels. Kotlin captures via the render thread's
-    /// GPU readback path and replies via `screenshotResult()` JNI.
-    #[cfg(feature = "mcp")]
-    Screenshot { session_id: u64, request_id: u64 },
 }
 
 /// A thread-safe event queue shared between Rust and Kotlin.
@@ -214,12 +144,12 @@ mod tests {
     #[test]
     fn push_pop_fifo_order() {
         let q = EventQueue::new();
-        q.push(Event::Bell { session_id: 1 });
-        q.push(Event::Bell { session_id: 2 });
-        q.push(Event::Bell { session_id: 3 });
-        assert_eq!(q.pop(), Some(Event::Bell { session_id: 1 }));
-        assert_eq!(q.pop(), Some(Event::Bell { session_id: 2 }));
-        assert_eq!(q.pop(), Some(Event::Bell { session_id: 3 }));
+        q.push(Event::Clipboard { session_id: 1, text: String::new() });
+        q.push(Event::Clipboard { session_id: 2, text: String::new() });
+        q.push(Event::Clipboard { session_id: 3, text: String::new() });
+        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 1, text: String::new() }));
+        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 2, text: String::new() }));
+        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 3, text: String::new() }));
         assert_eq!(q.pop(), None);
     }
 
@@ -232,14 +162,14 @@ mod tests {
     #[test]
     fn multiple_events_interleaved() {
         let q = EventQueue::new();
-        q.push(Event::Bell { session_id: 1 });
+        q.push(Event::Clipboard { session_id: 1, text: String::new() });
         q.push(Event::Exit {
             session_id: 2,
             code: 0,
             alive_ms: 10,
         });
-        q.push(Event::Bell { session_id: 3 });
-        assert_eq!(q.pop(), Some(Event::Bell { session_id: 1 }));
+        q.push(Event::Clipboard { session_id: 3, text: String::new() });
+        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 1, text: String::new() }));
         q.push(Event::Clipboard {
             session_id: 4,
             text: "hello".into(),
@@ -252,7 +182,7 @@ mod tests {
                 alive_ms: 10
             })
         );
-        assert_eq!(q.pop(), Some(Event::Bell { session_id: 3 }));
+        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 3, text: String::new() }));
         assert_eq!(
             q.pop(),
             Some(Event::Clipboard {
@@ -267,13 +197,14 @@ mod tests {
     fn push_drops_oldest_when_full() {
         let q = EventQueue::new();
         for i in 0..(MAX_QUEUED_EVENTS + 8) {
-            q.push(Event::Bell {
+            q.push(Event::Clipboard {
                 session_id: i as u64,
+                text: String::new(),
             });
         }
         // Oldest events must have been dropped, newest retained.
-        assert_eq!(q.pop(), Some(Event::Bell { session_id: 8 }));
-        assert_eq!(q.pop(), Some(Event::Bell { session_id: 9 }));
+        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 8, text: String::new() }));
+        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 9, text: String::new() }));
     }
 
     #[test]
@@ -290,9 +221,9 @@ mod tests {
                 alive_ms: 10,
             });
         }
-        q.push(Event::Bell { session_id: 999 });
-        q.push(Event::Bell { session_id: 1000 });
-        // Every Exit survives; the Bells were dropped.
+        q.push(Event::Clipboard { session_id: 999, text: String::new() });
+        q.push(Event::Clipboard { session_id: 1000, text: String::new() });
+        // Every Exit survives; the other events were dropped.
         let mut exits = 0;
         while let Some(event) = q.pop() {
             assert!(
@@ -307,10 +238,11 @@ mod tests {
     #[test]
     fn push_evicts_oldest_non_exit_when_mixed() {
         let q = EventQueue::new();
-        // Fill with Bell events, then cap with one Exit at the back.
+        // Fill with events, then cap with one Exit at the back.
         for i in 0..(MAX_QUEUED_EVENTS - 1) {
-            q.push(Event::Bell {
+            q.push(Event::Clipboard {
                 session_id: i as u64,
+                text: String::new(),
             });
         }
         q.push(Event::Exit {
@@ -318,13 +250,13 @@ mod tests {
             code: 7,
             alive_ms: 10,
         });
-        // Queue is now full; pushing a new Bell must evict the OLDEST
-        // Bell (session 0), never the Exit.
-        q.push(Event::Bell { session_id: 1000 });
+        // Queue is now full; pushing a new event must evict the OLDEST
+        // event (session 0), never the Exit.
+        q.push(Event::Clipboard { session_id: 1000, text: String::new() });
         let popped = (0..MAX_QUEUED_EVENTS)
             .filter_map(|_| q.pop())
             .collect::<Vec<_>>();
-        assert_eq!(popped[0], Event::Bell { session_id: 1 });
+        assert_eq!(popped[0], Event::Clipboard { session_id: 1, text: String::new() });
         assert!(popped.contains(&Event::Exit {
             session_id: 42,
             code: 7,
@@ -332,7 +264,7 @@ mod tests {
         }));
         assert_eq!(
             popped[MAX_QUEUED_EVENTS - 1],
-            Event::Bell { session_id: 1000 }
+            Event::Clipboard { session_id: 1000, text: String::new() }
         );
     }
 

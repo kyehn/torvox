@@ -185,7 +185,6 @@ mod tests {
             blink: false,
             hidden: false,
             uri: None,
-            semantic: crate::terminal::ghostty_terminal::SemanticContent::Output,
             overline: false,
             double_underline: false,
             width,

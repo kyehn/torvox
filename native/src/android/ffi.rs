@@ -757,23 +757,13 @@ fn init_session_inner(
             registry.insert(id, entry);
             // Atomic check-and-set: concurrent initSession calls (start()
             // and createSession spawn outside the Kotlin lock) must not
-            // double-write the active id. The dims are only mirrored for
-            // the session that WON the active slot, symmetric with resize's
-            // active-only update.
-            if ACTIVE_SESSION_ID
-                .compare_exchange(
-                    0,
-                    id,
-                    std::sync::atomic::Ordering::Acquire,
-                    std::sync::atomic::Ordering::Relaxed,
-                )
-                .is_ok()
-            {
-                #[cfg(feature = "mcp")]
-                crate::mcp::global_state().set_active_session_id(id);
-                #[cfg(feature = "mcp")]
-                crate::mcp::global_state().set_terminal_dims(rows, cols);
-            }
+            // double-write the active id.
+            let _ = ACTIVE_SESSION_ID.compare_exchange(
+                0,
+                id,
+                std::sync::atomic::Ordering::Acquire,
+                std::sync::atomic::Ordering::Relaxed,
+            );
 
             log::info!("FFI: initSession -> id={}", id);
             id as jlong
@@ -812,10 +802,9 @@ fn destroy_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> j
     // the entry is dropped: Session::drop kills the child and joins its
     // reader/wait threads (tens to hundreds of ms), and holding the global
     // registry lock during that would block every pollEvent/feedPty/writeKey
-    // on all sessions. The active-id fix-up and the MCP mirror update run
-    // INSIDE the write-lock critical section so a concurrent switchSession
-    // can never interleave a stale mirror value (mirror = lock-free
-    // AtomicU64, no deadlock risk).
+    // on all sessions. The active-id fix-up runs INSIDE the write-lock
+    // critical section so a concurrent switchSession can never interleave
+    // a stale value.
     let removed_entry = {
         let mut guard = wlock_session_registry();
         let removed = guard.remove(&id);
@@ -829,16 +818,6 @@ fn destroy_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> j
                     std::sync::atomic::Ordering::Relaxed,
                 )
                 .ok();
-            // Mirror the ACTUAL current value into the MCP layer — NOT
-            // unconditionally 0: when a non-active session was destroyed
-            // the compare_exchange above failed and the active id is
-            // unchanged. Setting 0 unconditionally would desync the mirror
-            // and break send_signal/dialog/pick_file/clipboard_get until
-            // the next switchSession/initSession.
-            #[cfg(feature = "mcp")]
-            crate::mcp::global_state().set_active_session_id(
-                ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire),
-            );
         }
         removed
     };
@@ -879,10 +858,7 @@ fn switch_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> jb
     // check followed by an unlocked store leaves a TOCTOU window where a
     // concurrent destroySession removes the id between the two, storing a
     // stale active id. destroy/switch are both low-frequency, so write-lock
-    // contention is a non-issue. The MCP mirror is updated INSIDE the same
-    // critical section so a concurrent destroySession can never interleave
-    // a stale mirror value after the switch (mirror = lock-free AtomicU64,
-    // no deadlock risk).
+    // contention is a non-issue.
     {
         let mut guard = wlock_session_registry();
         if !guard.contains_key(&id) {
@@ -890,24 +866,6 @@ fn switch_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> jb
             return JNI_FALSE;
         }
         ACTIVE_SESSION_ID.store(id, std::sync::atomic::Ordering::Release);
-        #[cfg(feature = "mcp")]
-        {
-            let mcp = crate::mcp::global_state();
-            mcp.set_active_session_id(id);
-            // Refresh terminal_info dims from the newly active session's
-            // CACHED grid size: init mirrors dims only for the CAS winner
-            // and resize only for the active session, so a switch between
-            // sessions with different grids must re-sync here. The cache
-            // itself is lock-free — a query RPC on the VT thread inside
-            // the registry write lock would freeze every session operation
-            // for up to 2×QUERY_TIMEOUT_MS. The short session.lock() below
-            // may still wait up to a pollEvent frame or a 50ms focus-event
-            // query while the UI thread holds it, which is acceptable
-            // (dims refresh is best-effort).
-            let session_guard = guard[&id].session.lock();
-            let (rows, cols) = session_guard.grid_size();
-            mcp.set_terminal_dims(rows, cols);
-        }
     }
     JNI_TRUE
 }
@@ -1018,23 +976,7 @@ fn resize_inner(env: &mut Env, _class: JClass, session_id: jlong, rows: jint, co
                 log::error!("resize: throw_new failed: {e}");
             }
         }
-        Ok(outcome) => {
-            // Only the ACTIVE session's size is reflected in the
-            // global MCP dims: background sessions may
-            // legitimately have a different grid (e.g. deferred
-            // resize), and terminal_info must report the visible
-            // one. When the grid command was dropped the PTY and
-            // grid disagree, so the dims stay at the cached (old)
-            // values — publishing the new ones would make MCP
-            // dims flip-flop between resize and switch paths
-            //
-            if matches!(outcome, crate::terminal::session::ResizeOutcome::Applied)
-                && id == ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire)
-            {
-                #[cfg(feature = "mcp")]
-                crate::mcp::global_state().set_terminal_dims(rows, cols);
-            }
-        }
+        Ok(_) => {}
     }
 }
 
@@ -1469,7 +1411,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
     // holding the registry read lock that long would block destroySession/
     // initSession write locks (RwLock writer starvation).
     let mut pending_exits: Vec<(u64, Arc<Mutex<Session>>)> = Vec::new();
-    // Bell/clipboard/notification/exit polling is identical for the active
+    // Clipboard/exit polling is identical for the active
     // session and every background session; single shared implementation.
     let mut collect_session_events =
         |session_id: u64,
@@ -1477,18 +1419,8 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
          handle: &Arc<Mutex<Session>>,
          events: &mut Vec<Event>,
          exits: &mut Vec<(u64, Arc<Mutex<Session>>)>| {
-            if session.poll_bel() {
-                events.push(Event::Bell { session_id });
-            }
             if let Some(text) = session.poll_clipboard() {
                 events.push(Event::Clipboard { session_id, text });
-            }
-            if let Some((title, body)) = session.poll_notification() {
-                events.push(Event::Notification {
-                    session_id,
-                    title,
-                    body,
-                });
             }
             // Only the first poll after the process exits reports it
             // (mark_exit_reported); the sweep branch uses the same dedup so a
@@ -1499,7 +1431,6 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
                 exits.push((session_id, handle.clone()));
             }
         };
-    #[cfg(feature = "mcp")]
     let mut pending_clipboard_reads: Vec<(u64, String)> = Vec::new();
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
     {
@@ -1510,7 +1441,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
                 // Process VT output from the PTY reader thread. This is the
                 // critical path that drives all terminal state updates: it
                 // reads from the output_rx channel, feeds data into Ghostty's
-                // VT parser, and populates event flags (bell, clipboard, etc.)
+                // VT parser, and populates event flags (clipboard, etc.)
                 // that are polled below. Without this call the terminal will
                 // never process output and the output channel deadlocks.
                 session.process_output();
@@ -1519,17 +1450,8 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
                 // one-shot slot + responder thread are set up after the
                 // registry/session locks are released (see below) so the
                 // lock order stays single-directional.
-                #[cfg(feature = "mcp")]
                 if let Some(selection) = session.poll_clipboard_read() {
                     pending_clipboard_reads.push((active_id, selection));
-                }
-                // Check progress (OSC 9;4 ConEmu)
-                if let Some((state, value)) = session.poll_progress() {
-                    pending_events.push(Event::Progress {
-                        session_id: active_id,
-                        state,
-                        value,
-                    });
                 }
                 collect_session_events(
                     active_id,
@@ -1573,7 +1495,6 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
     // event, and spawn a short-lived responder thread that writes the
     // host-app answer back to the PTY. The VT thread must never block on
     // the host app, and clipboardResult may arrive on any thread.
-    #[cfg(feature = "mcp")]
     for (session_id, selection) in pending_clipboard_reads {
         let (request_id, rx) = register_request(session_id);
         pending_events.push(Event::ClipboardRead {

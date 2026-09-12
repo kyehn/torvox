@@ -640,7 +640,6 @@ fn append_row_instances(
         let is_cursor = cursor.visible && cd.row == cursor.row && cd.col == cursor.col;
         let effective_fg = fg_color;
         let mut effective_bg = bg_color;
-        let mut cursor_marker: Option<([f32; 2], [f32; 2], [f32; 4])> = None;
         // Default quad size (used for Block cursor and empty cells)
         let quad_size = [cell_w * cell_span, cell_h];
         // Block cursor height tracks the glyph (ascent+descent in
@@ -649,51 +648,16 @@ fn append_row_instances(
         // a 79px cell.
 
         if is_cursor {
+            // Block cursor (the only style): keep text readable by using the
+            // original foreground; only the background is replaced by cursor
+            // color (semi-transparent overlay).
             let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-            match cursor.style {
-                CursorStyle::Block | CursorStyle::Default => {
-                    // Block cursor: keep text readable by using the original
-                    // foreground; only the background is replaced by cursor color
-                    // (semi-transparent overlay).
-                    effective_bg = [
-                        cursor_color[0],
-                        cursor_color[1],
-                        cursor_color[2],
-                        cursor_color[3] * 0.7,
-                    ];
-                }
-                CursorStyle::Bar => {
-                    // Bar cursor: emit a thin vertical bar as a background quad,
-                    // then render glyph full-size with original colors on top.
-                    // Width scales with the wide-char span so a CJK glyph gets
-                    // a full-character bar, not a half-character sliver
-                    // ( spec cursor-rendering).
-                    cursor_marker = Some((
-                        quad_origin,
-                        [cell_w * 0.15 * cell_span, cell_h],
-                        [
-                            cursor_color[0],
-                            cursor_color[1],
-                            cursor_color[2],
-                            cursor_color[3] * 0.9,
-                        ],
-                    ));
-                }
-                CursorStyle::Underline => {
-                    // Underline cursor: emit a thin horizontal bar at bottom,
-                    // then render glyph full-size with original colors on top.
-                    cursor_marker = Some((
-                        [quad_origin[0], quad_origin[1] + cell_h * 0.85],
-                        [cell_w * cell_span, cell_h * 0.15],
-                        [
-                            cursor_color[0],
-                            cursor_color[1],
-                            cursor_color[2],
-                            cursor_color[3] * 0.9,
-                        ],
-                    ));
-                }
-            }
+            effective_bg = [
+                cursor_color[0],
+                cursor_color[1],
+                cursor_color[2],
+                cursor_color[3] * 0.7,
+            ];
         }
 
         // Full-size glyph quad dimensions (so combining marks etc. aren't clipped
@@ -701,21 +665,8 @@ fn append_row_instances(
         let glyph_quad_size = [cell_w * cell_span, cell_h];
         let glyph_quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
         if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
-            // Empty cell: emit cursor marker (if any) but NOT the background
-            // quad — cursor marker itself serves as the background.
-            if let Some((qo, qs, bg)) = cursor_marker.take() {
-                instances.push(CellInstance {
-                    quad_origin: qo,
-                    atlas_offset: [0.0; 2],
-                    atlas_size: [0.0; 2],
-                    fg_color: effective_fg,
-                    bg_color: bg,
-                    quad_size: qs,
-                    flags: cd.flags as f32,
-                    bearing: [0.0; 2],
-                    glyph_advance_width: 0.0,
-                });
-            } else {
+            // Empty cell: no background quad, only the cursor block below.
+            {
                 let mut origin = quad_origin;
                 let mut size = quad_size;
                 // Block cursor on an empty cell: align the block with the
@@ -727,7 +678,7 @@ fn append_row_instances(
                 // ascent here pushed the block one row down — the "cursor
                 // block one row below the text" report (, verified
                 // on the emulator: VT cursor (0,38), block pixels at row 1).
-                if is_cursor && matches!(cursor.style, CursorStyle::Block | CursorStyle::Default) {
+                if is_cursor {
                     let reference = font_pipeline
                         .glyph_information('M')
                         .or_else(|| font_pipeline.glyph_information('0'));
@@ -794,7 +745,7 @@ fn append_row_instances(
             // pointer not vertically aligned with the text"). The glyph's
             // top edge inside the cell is exactly raw_bearing_y, so the
             // cursor quad starts there and keeps the glyph's bearing.
-            if is_cursor && matches!(cursor.style, CursorStyle::Block | CursorStyle::Default) {
+            if is_cursor {
                 let cursor_h = glyph_h_px.max(1.0);
                 origin[1] += raw_bearing_y;
                 size[1] = cursor_h;
@@ -849,22 +800,6 @@ fn append_row_instances(
             });
         }
 
-        // Cursor marker (for Bar/Underline styles), drawn on top of glyph.
-        // Use flags=0 so cell style flags (dim, underline, strikethrough)
-        // from the cell aren't applied to the cursor marker.
-        if let Some((qo, qs, bg)) = cursor_marker.take() {
-            instances.push(CellInstance {
-                quad_origin: qo,
-                atlas_offset: [0.0; 2],
-                atlas_size: [0.0; 2],
-                fg_color: effective_fg,
-                bg_color: bg,
-                quad_size: qs,
-                flags: 0.0,
-                bearing: [0.0; 2],
-                glyph_advance_width: 0.0,
-            });
-        }
     }
 }
 
@@ -1108,49 +1043,7 @@ mod tests {
         );
     }
 
-    /// Bar cursor emits the glyph instance plus a thin vertical marker with
-    /// flags=0 (cell style flags must not leak into the marker).
-    #[test]
-    fn bar_cursor_emits_marker_with_zero_flags() {
-        let cells = vec![cell_data(
-            3,
-            3,
-            'G',
-            [1.0, 1.0, 1.0, 1.0],
-            [0.0, 0.0, 0.0, 1.0],
-            0,
-        )];
-        let cursor = CellCursor {
-            row: 3,
-            col: 3,
-            visible: true,
-            style: CursorStyle::Bar,
-            color: Some([1.0, 0.0, 0.0, 1.0]),
-        };
-        let instances = build(&cells, cursor, None, &[]);
-        assert!(
-            instances.len() >= 2,
-            "glyph + bar marker expected, got {}",
-            instances.len()
-        );
-        // The marker instance has flags 0 and a thin quad width.
-        let marker = instances.last().unwrap();
-        assert_eq!(
-            marker.flags, 0.0,
-            "marker must not inherit cell style flags"
-        );
-        let glyph = &instances[0];
-        assert!(
-            marker.quad_size[0] < glyph.quad_size[0],
-            "bar marker ({}) must be thinner than the glyph quad ({})",
-            marker.quad_size[0],
-            glyph.quad_size[0],
-        );
-        assert_eq!(marker.fg_color, [1.0, 1.0, 1.0, 1.0]);
-    }
-
-    /// Empty cells (space) emit a background quad (or cursor marker), never
-    /// a glyph instance.
+    /// Empty cells (space) emit a background quad, never a glyph instance.
     #[test]
     fn empty_cell_emits_background_quad() {
         let cells = vec![cell_data(
