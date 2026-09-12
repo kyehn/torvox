@@ -27,75 +27,75 @@ import org.junit.runners.JUnit4
  */
 @RunWith(JUnit4::class)
 class NixBootstrapInstrumentedTest {
-  companion object {
-    private const val TAG = "NixBootstrapTest"
-    private const val ZIP_NAME = "nix-bootstrap.zip"
-    private const val MAIN_ACTIVITY = "terminal.emulator.MainActivity"
-    private const val INSTALL_EXTRA = "terminal.emulator.install_bootstrap"
-  }
-
-  private fun shell(cmd: String): String {
-    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
-    val pfd = automation.executeShellCommand(cmd)
-    return pfd.fileDescriptor.let { fd ->
-      java.io.FileInputStream(fd).bufferedReader().use { it.readText() }
+    companion object {
+        private const val TAG = "NixBootstrapTest"
+        private const val ZIP_NAME = "nix-bootstrap.zip"
+        private const val MAIN_ACTIVITY = "terminal.emulator.MainActivity"
+        private const val INSTALL_EXTRA = "terminal.emulator.install_bootstrap"
     }
-  }
 
-  @Test
-  fun nixBootstrapInstallsAndReportsComplete() {
-    val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-    val filesDir = "/data/user/0/${ctx.packageName}/files"
-    val zipPath = "$filesDir/$ZIP_NAME"
-    val loginPath = "$filesDir/usr/bin/login"
-    // Environment prerequisite: the real bootstrap zip must be pushed
-    // first (adb root): adb push /tmp/nix-bootstrap.zip $zipPath.
-    // Hard fail (never skip) when absent — an untested install path
-    // must stay red, not silently green.
-    Assert.assertTrue(
-        "bootstrap zip must be pushed first: adb root && adb push /tmp/nix-bootstrap.zip $zipPath",
-        shell("ls $zipPath").isNotBlank(),
-    )
+    private fun shell(cmd: String): String {
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val pfd = automation.executeShellCommand(cmd)
+        return pfd.fileDescriptor.let { fd ->
+            java.io.FileInputStream(fd).bufferedReader().use { it.readText() }
+        }
+    }
 
-    // Trigger the install in the real app process (shell-uid am start).
-    // Clear any previous login first so the poll below cannot see a
-    // stale entry from an earlier install.
-    shell("rm -f $loginPath")
-    val startOut =
-        shell(
-            "am start -n ${ctx.packageName}/$MAIN_ACTIVITY" + " --es $INSTALL_EXTRA $zipPath",
+    @Test
+    fun nixBootstrapInstallsAndReportsComplete() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val filesDir = "/data/user/0/${ctx.packageName}/files"
+        val zipPath = "$filesDir/$ZIP_NAME"
+        val loginPath = "$filesDir/usr/bin/login"
+        // Environment prerequisite: the real bootstrap zip must be pushed
+        // first (adb root): adb push /tmp/nix-bootstrap.zip $zipPath.
+        // Hard fail (never skip) when absent — an untested install path
+        // must stay red, not silently green.
+        Assert.assertTrue(
+            "bootstrap zip must be pushed first: adb root && adb push /tmp/nix-bootstrap.zip $zipPath",
+            shell("ls $zipPath").isNotBlank(),
         )
-    Log.i(TAG, "am start output: $startOut")
 
-    // Bounded poll for the installed entry (1.5 GB extraction).
-    // bin/login is written last by the second stage, so its presence
-    // means the install completed.
-    val deadline = System.currentTimeMillis() + 10 * 60_000L
-    var present = false
-    while (System.currentTimeMillis() < deadline) {
-      present = shell("[ -f $loginPath ] && echo yes").contains("yes")
-      if (present) break
-      Thread.sleep(3_000L)
+        // Trigger the install in the real app process (shell-uid am start).
+        // Clear any previous login first so the poll below cannot see a
+        // stale entry from an earlier install.
+        shell("rm -f $loginPath")
+        val startOut =
+            shell(
+                "am start -n ${ctx.packageName}/$MAIN_ACTIVITY" + " --es $INSTALL_EXTRA $zipPath",
+            )
+        Log.i(TAG, "am start output: $startOut")
+
+        // Bounded poll for the installed entry (1.5 GB extraction).
+        // bin/login is written last by the second stage, so its presence
+        // means the install completed.
+        val deadline = System.currentTimeMillis() + 10 * 60_000L
+        var present = false
+        while (System.currentTimeMillis() < deadline) {
+            present = shell("[ -f $loginPath ] && echo yes").contains("yes")
+            if (present) break
+            Thread.sleep(3_000L)
+        }
+        Log.i(TAG, "app-side install entry present: $present")
+        Assert.assertTrue(
+            "bin/login missing within timeout (logcat BootstrapInstallService)",
+            present,
+        )
+
+        // Verify the installed tree and launcher script from the shell side.
+        // Layout-agnostic file count (never name the closure layout: the same
+        // install path serves every bootstrap flavor).
+        val loginHead = shell("head -c 14 $loginPath")
+        Assert.assertTrue(
+            "bin/login must be a /system/bin/sh launcher, got: $loginHead",
+            loginHead.startsWith("#!/system/bin/sh"),
+        )
+        val installedFiles = shell("find $filesDir/usr -type f | wc -l").trim().toIntOrNull() ?: 0
+        Assert.assertTrue(
+            "prefix tree must be populated, got $installedFiles files",
+            installedFiles > 500,
+        )
+        Log.i(TAG, "bootstrap end-to-end verified: files=$installedFiles")
     }
-    Log.i(TAG, "app-side install entry present: $present")
-    Assert.assertTrue(
-        "bin/login missing within timeout (logcat BootstrapInstallService)",
-        present,
-    )
-
-    // Verify the installed tree and launcher script from the shell side.
-    // Layout-agnostic file count (never name the closure layout: the same
-    // install path serves every bootstrap flavor).
-    val loginHead = shell("head -c 14 $loginPath")
-    Assert.assertTrue(
-        "bin/login must be a /system/bin/sh launcher, got: $loginHead",
-        loginHead.startsWith("#!/system/bin/sh"),
-    )
-    val installedFiles = shell("find $filesDir/usr -type f | wc -l").trim().toIntOrNull() ?: 0
-    Assert.assertTrue(
-        "prefix tree must be populated, got $installedFiles files",
-        installedFiles > 500,
-    )
-    Log.i(TAG, "bootstrap end-to-end verified: files=$installedFiles")
-  }
 }

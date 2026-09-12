@@ -13,14 +13,9 @@ pub const COLOR_TOLERANCE: f32 = 5.0 / 255.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EffectFlag {
     Bold,
-    Dim,
     Italic,
     Underline,
     Reverse,
-    Strikethrough,
-    Blink,
-    Hidden,
-    Overline,
 }
 
 /// Compare two `[f32; 4]` colors channel-by-channel with tolerance.
@@ -233,23 +228,11 @@ impl<'a> TermTestCase<'a> {
         for effect in effects {
             match effect {
                 EffectFlag::Bold => assert!(cell.bold, "expected Bold at ({row},{col})"),
-                EffectFlag::Dim => {} // not exposed by Ghostty C API
                 EffectFlag::Italic => assert!(cell.italic, "expected Italic at ({row},{col})"),
                 EffectFlag::Underline => {
                     assert!(cell.underline, "expected Underline at ({row},{col})")
                 }
                 EffectFlag::Reverse => assert!(cell.reverse, "expected Reverse at ({row},{col})"),
-                EffectFlag::Strikethrough => {
-                    assert!(
-                        cell.strikethrough,
-                        "expected Strikethrough at ({row},{col})"
-                    )
-                }
-                EffectFlag::Blink => assert!(cell.blink, "expected Blink at ({row},{col})"),
-                EffectFlag::Hidden => assert!(cell.hidden, "expected Hidden at ({row},{col})"),
-                EffectFlag::Overline => {
-                    assert!(cell.overline, "expected Overline at ({row},{col})")
-                }
             }
         }
         self
@@ -309,7 +292,6 @@ impl<'a> TermTestCase<'a> {
         for effect in effects {
             match effect {
                 EffectFlag::Bold => assert!(!cell.bold, "unexpected Bold at ({row},{col})"),
-                EffectFlag::Dim => {} // not exposed by Ghostty C API
                 EffectFlag::Italic => assert!(!cell.italic, "unexpected Italic at ({row},{col})"),
                 EffectFlag::Underline => {
                     assert!(!cell.underline, "unexpected Underline at ({row},{col})")
@@ -317,40 +299,8 @@ impl<'a> TermTestCase<'a> {
                 EffectFlag::Reverse => {
                     assert!(!cell.reverse, "unexpected Reverse at ({row},{col})")
                 }
-                EffectFlag::Strikethrough => {
-                    assert!(
-                        !cell.strikethrough,
-                        "unexpected Strikethrough at ({row},{col})"
-                    )
-                }
-                EffectFlag::Blink => {
-                    assert!(!cell.blink, "unexpected Blink at ({row},{col})")
-                }
-                EffectFlag::Hidden => {
-                    assert!(!cell.hidden, "unexpected Hidden at ({row},{col})")
-                }
-                EffectFlag::Overline => {
-                    assert!(!cell.overline, "unexpected Overline at ({row},{col})")
-                }
             }
         }
-        self
-    }
-
-    /// Assert the terminal has produced a specific output response (DSR, CPR, DA, etc.).
-    /// Drains all pending responses and checks the last one matches `expected`.
-    pub fn assert_output_response(self, expected: &[u8]) -> Self {
-        let responses = self.term.drain_pty_write_responses();
-        assert!(
-            !responses.is_empty(),
-            "expected terminal output response, but none were captured"
-        );
-        let last = responses.last().expect("non-empty responses");
-        assert_eq!(
-            last.as_slice(),
-            expected,
-            "terminal output response mismatch"
-        );
         self
     }
 
