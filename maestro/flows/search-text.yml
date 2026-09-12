@@ -79,11 +79,12 @@ tags:
 - waitForAnimationToEnd:
     timeout: 1000
 - takeScreenshot: search_long_query
-# Close search
+# Close search (idle-wait: IME inset animation + recompose must settle,
+# otherwise ModifierBar is composed but still off-screen)
 - tapOn:
     id: "SearchClose"
 - waitForAnimationToEnd:
-    timeout: 2000
+    timeout: 10000
 - assertNotVisible:
     id: "TextSearchBar"
 - assertVisible:

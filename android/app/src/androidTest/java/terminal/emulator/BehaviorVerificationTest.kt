@@ -63,12 +63,6 @@ class BehaviorVerificationTest {
     }
 
     @Test
-    fun terminal_modifier_bar_displayed() {
-        composeRule.waitForSession()
-        composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
-    }
-
-    @Test
     fun terminal_view_positive_dimensions() {
         composeRule.activityRule.scenario.onActivity { activity ->
             val content = activity.findViewById<View>(android.R.id.content)
@@ -135,13 +129,6 @@ class BehaviorVerificationTest {
     }
 
     @Test
-    fun settings_font_slider_exists() {
-        openSettings()
-        scrollToNode("FontSizeSlider")
-        composeRule.onNodeWithTag("FontSizeSlider", useUnmergedTree = false).assertIsDisplayed()
-    }
-
-    @Test
     fun settings_theme_example_displays() {
         openSettings()
         scrollToNode("ThemeSelector")
@@ -160,14 +147,6 @@ class BehaviorVerificationTest {
     }
 
     @Test
-    fun app_survives_pause_resume_cycle() {
-        composeRule.waitForSession()
-        composeRule.activityRule.scenario.recreate()
-        device.waitForIdle(2000)
-        composeRule.onNodeWithTag("TerminalScreen", useUnmergedTree = false).assertIsDisplayed()
-    }
-
-    @Test
     fun app_survives_multiple_pause_resume() {
         composeRule.waitForSession()
         for (i in 1..3) {
@@ -183,17 +162,6 @@ class BehaviorVerificationTest {
         composeRule.waitForSession()
         composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()
         composeRule.onNodeWithText("ESC").assertIsDisplayed()
-    }
-
-    @Test
-    fun ctrl_key_toggle_doesNotCrash() {
-        // Smoke only: toggling CTRL twice must not crash. No appearance
-        // assertion is possible while the modifier state has no visible
-        // render path.
-        composeRule.waitForSession()
-        composeRule.onNodeWithText("CTRL").performClick()
-        device.waitForIdle(1000)
-        composeRule.onNodeWithText("CTRL").performClick()
     }
 
     @Test

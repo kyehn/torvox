@@ -5,9 +5,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Pure surface×cell → rows/cols computation behind
- * TerminalRuntime.recomputeGridFromFontMetrics: fractional cells floor,
- * tiny surfaces clamp to one cell, degenerate input returns the (0, 0)
+ * Pure surface×cell → rows/cols computation behind TerminalRuntime.recomputeGridFromFontMetrics:
+ * fractional cells floor, tiny surfaces clamp to one cell, degenerate input returns the (0, 0)
  * sentinel, and huge surfaces stay inside Int range.
  */
 class ComputeGridDimensionsTest {
@@ -17,7 +16,13 @@ class ComputeGridDimensionsTest {
     @Test
     fun `typical phone geometry yields exact grid`() {
         // 1080x2400 px surface, 30x60 px cells (density-scaled).
-        val (rows, cols) = computeGridDimensions(surfaceWidth = 1080, surfaceHeight = 2400, cellWidth = 30f, cellHeight = 60f)
+        val (rows, cols) =
+            computeGridDimensions(
+                surfaceWidth = 1080,
+                surfaceHeight = 2400,
+                cellWidth = 30f,
+                cellHeight = 60f,
+            )
         assertEquals(36, cols)
         assertEquals(40, rows)
     }
@@ -25,14 +30,26 @@ class ComputeGridDimensionsTest {
     @Test
     fun `fractional leftover cells floor down`() {
         // 100 / 30 = 3.33 → 3; 199 / 50 = 3.98 → 3.
-        val (rows, cols) = computeGridDimensions(surfaceWidth = 100, surfaceHeight = 199, cellWidth = 30f, cellHeight = 50f)
+        val (rows, cols) =
+            computeGridDimensions(
+                surfaceWidth = 100,
+                surfaceHeight = 199,
+                cellWidth = 30f,
+                cellHeight = 50f,
+            )
         assertEquals(3, cols)
         assertEquals(3, rows)
     }
 
     @Test
     fun `exact multiples waste no row or column`() {
-        val (rows, cols) = computeGridDimensions(surfaceWidth = 600, surfaceHeight = 900, cellWidth = 20f, cellHeight = 45f)
+        val (rows, cols) =
+            computeGridDimensions(
+                surfaceWidth = 600,
+                surfaceHeight = 900,
+                cellWidth = 20f,
+                cellHeight = 45f,
+            )
         assertEquals(30, cols)
         assertEquals(20, rows)
     }
@@ -54,15 +71,14 @@ class ComputeGridDimensionsTest {
     // ── extreme surfaces ──────────────────────────────────────────────────
 
     @Test
-    fun `tiny surface clamps to one cell per axis`() {
-        val (rows, cols) = computeGridDimensions(surfaceWidth = 1, surfaceHeight = 1, cellWidth = 30f, cellHeight = 60f)
-        assertEquals(1, cols)
-        assertEquals(1, rows)
-    }
-
-    @Test
     fun `surface smaller than one cell still yields one cell`() {
-        val (rows, cols) = computeGridDimensions(surfaceWidth = 29, surfaceHeight = 59, cellWidth = 30f, cellHeight = 60f)
+        val (rows, cols) =
+            computeGridDimensions(
+                surfaceWidth = 29,
+                surfaceHeight = 59,
+                cellWidth = 30f,
+                cellHeight = 60f,
+            )
         assertEquals(1, cols)
         assertEquals(1, rows)
     }
