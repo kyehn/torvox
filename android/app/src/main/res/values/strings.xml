@@ -1,230 +1,233 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources xmlns:tools="http://schemas.android.com/tools">
+<resources>
     <string name="app_name">Terminal</string>
 
     <!-- Settings screen -->
-    <string name="settings">Settings</string>
-    <string name="back">Back</string>
+    <string name="settings">设置</string>
+    <string name="back">返回</string>
 
     <!-- Appearance -->
-    <string name="appearance">Appearance</string>
-    <string name="font_size">Font Size</string>
-    <string name="font_family">Font Family</string>
-    <string name="system_default">System Default</string>
-    <string name="change">Change</string>
-    <string name="select_font_family">Select Font Family</string>
-    <string name="pick_font_file">Pick from file…</string>
-    <string name="copy">Copy</string>
-    <string name="paste">Paste</string>
-    <string name="select_all">Select All</string>
-    <string name="share">Share</string>
-    <string name="cancel">Cancel</string>
+    <string name="appearance">外观</string>
+    <string name="font_size">字体大小</string>
+    <string name="font_family">字体</string>
+    <string name="system_default">系统默认</string>
+    <string name="change">更改</string>
+    <string name="select_font_family">选择字体</string>
+    <string name="pick_font_file">从文件选择…</string>
+    <string name="copy">复制</string>
+    <string name="paste">粘贴</string>
+    <string name="select_all">全选</string>
+    <string name="select_all_action">全选</string>
+    <string name="share">分享</string>
+    <string name="cancel">取消</string>
 
     <!-- Advanced -->
-    <string name="advanced">Advanced</string>
-    <string name="use_nerd_font_glyphs">Use Nerd Font glyphs</string>
-    <string name="nerd_font_desc">Use fallback font for Nerd Font icon glyphs</string>
-    <string name="semantic_selection">Semantic selection (OSC 133)</string>
-    <string name="semantic_selection_desc">Use shell prompt markers for smart text selection</string>
+    <string name="advanced">高级</string>
+    <string name="use_nerd_font_glyphs">使用 Nerd Font 图标</string>
+    <string name="nerd_font_desc">使用备用字体显示 Nerd Font 图标字形</string>
+    <string name="semantic_selection">语义选择 (OSC 133)</string>
+    <string name="semantic_selection_desc">使用 Shell 提示符标记进行智能文本选择</string>
     <string name="bootstrap_url_label">Bootstrap URL</string>
     <string name="bootstrap_url_placeholder">https://github.com/termux/termux-packages/releases/...</string>
-    <string name="bootstrap_desc">Bootstrap packages for package management</string>
-    <string name="bootstrap_presets">Presets</string>
-    <string name="bootstrap_preset_termux">Termux Default</string>
-    <string name="bootstrap_preset_termux_desc">Standard Termux bootstrap with bash, coreutils, and package manager</string>
-    <string name="install">Install</string>
-    <string name="bootstrap">Bootstrap</string>
-    <string name="bootstrap_install">Install Bootstrap</string>
-    <string name="bootstrap_installing">Installing\u2026</string>
-    <string name="bootstrap_install_offline">Install from File</string>
-    <string name="on">On</string>
-    <string name="off">Off</string>
-    <string name="select_all_action">Select All</string>
-    <string name="keyboard_mode">Keyboard Mode</string>
-    <string name="keyboard_secure">Secure</string>
-    <string name="keyboard_secure_desc">No suggestions, no autocorrect, no personalization</string>
-    <string name="keyboard_standard">Standard</string>
-    <string name="keyboard_standard_desc">Full IME with autocorrect and suggestions</string>
-    <string name="keyboard_raw">Raw</string>
-    <string name="keyboard_raw_desc">No IME — physical keyboard and raw key events only</string>
+    <string name="bootstrap_desc">包管理的引导程序包</string>
+    <string name="bootstrap_presets">预设</string>
+    <string name="bootstrap_preset_termux">Termux 默认</string>
+    <string name="bootstrap_preset_termux_desc">标准 Termux 引导程序，包含 bash、coreutils 和包管理器</string>
+    <string name="bootstrap">引导程序</string>
+    <string name="keyboard_mode">键盘模式</string>
+    <string name="keyboard_secure">安全模式</string>
+    <string name="keyboard_secure_desc">无建议、无自动纠正、无个性化学习</string>
+    <string name="keyboard_standard">标准模式</string>
+    <string name="keyboard_standard_desc">完整输入法，支持自动纠正和建议</string>
+    <string name="keyboard_raw">原始模式</string>
+    <string name="keyboard_raw_desc">无输入法 — 仅物理键盘和原始按键事件</string>
 
-    <!-- Software Theme -->
-    <string name="software_theme">Software Theme</string>
+    <!-- Software theme -->
+    <string name="software_theme">软件主题</string>
 
     <!-- Terminal Theme -->
-    <string name="theme">Terminal Theme</string>
-    <string name="day">Day</string>
-    <string name="night">Night</string>
-    <string name="follow_system">Follow System</string>
-    <string name="day_theme">Day Theme</string>
-    <string name="night_theme">Night Theme</string>
+    <string name="theme">终端主题</string>
+    <string name="day">日间</string>
+    <string name="night">夜间</string>
+    <string name="follow_system">跟随系统</string>
+    <string name="day_theme">日间主题</string>
+    <string name="night_theme">夜间主题</string>
     <string name="md_you">Material You</string>
-    <string name="fixed">Fixed</string>
+    <string name="fixed">固定</string>
 
     <!-- Terminal -->
-    <string name="terminal">Terminal</string>
-    <string name="accessibility_next_line">Next line</string>
-    <string name="accessibility_previous_line">Previous line</string>
-    <string name="accessibility_read_screen">Read screen</string>
-    <string name="action_new_session">New session</string>
-    <string name="action_new_session_failsafe">New session (Failsafe)</string>
-    <string name="action_open_settings">Settings</string>
-    <string name="shell">Shell</string>
+    <string name="terminal">终端</string>
+    <string name="shell">壳</string>
+    <string name="action_new_session">新建会话</string>
+    <string name="action_new_session_failsafe">新建会话（Failsafe）</string>
+    <string name="action_open_settings">设置</string>
     <string name="shell_placeholder">/system/bin/sh</string>
     <string name="launch_location_status_termux">启动位置：Termux（%1$s/bin/bash）</string>
     <string name="launch_location_status_none">未检测到 bootstrap，将使用系统 shell（/system/bin/sh）</string>
     <string name="launch_location_reset">重置为检测到的默认</string>
-    <string name="scrollback_lines">Scrollback Lines</string>
+    <string name="scrollback_lines">回滚行数</string>
 
     <!-- Session -->
-    <string name="sessions">Sessions</string>
+    <string name="sessions">会话</string>
 
     <!-- ModifierBar -->
-    <string name="settings_button">Settings</string>
+    <string name="settings_button">设置</string>
 
     <!-- Terminal screen -->
     <string name="terminal_title">Terminal</string>
-    <string name="close">Close</string>
+    <string name="close">关闭</string>
 
     <!-- Content descriptions -->
-    <string name="cd_new_session">New Session</string>
-    <string name="cd_settings">Settings</string>
-    <string name="cd_close_session">Close session</string>
+    <string name="cd_new_session">新建会话</string>
+    <string name="cd_settings">设置</string>
+    <string name="cd_close_session">关闭会话</string>
 
     <!-- Notifications -->
-    <string name="notification_channel_name">Terminal Session</string>
-    <string name="notification_channel_desc">Persistent notification for active terminal sessions</string>
-    <string name="notification_active_single">Terminal session active</string>
+    <string name="notification_channel_name">终端会话</string>
+    <string name="notification_channel_desc">用于活跃终端会话的持久通知</string>
+    <string name="notification_active_single">终端会话活跃中</string>
     <plurals name="notification_active_plural">
-        <item quantity="one">%d terminal session active</item>
-        <item quantity="other">%d terminal sessions active</item>
+        <item quantity="one">%d 个终端会话活跃中</item>
+        <item quantity="other">%d 个终端会话活跃中</item>
     </plurals>
 
     <!-- Feedback -->
     <plurals name="copied_chars">
-        <item quantity="one">Copied %d char</item>
-        <item quantity="other">Copied %d chars</item>
+        <item quantity="one">已复制 %d 个字符</item>
+        <item quantity="other">已复制 %d 个字符</item>
     </plurals>
     <plurals name="pasted_chars">
-        <item quantity="one">Pasted %d char</item>
-        <item quantity="other">Pasted %d chars</item>
+        <item quantity="one">已粘贴 %d 个字符</item>
+        <item quantity="other">已粘贴 %d 个字符</item>
     </plurals>
 
     <!-- Error -->
-    <string name="unsupported_abi">Unsupported ABI: %s</string>
+    <string name="unsupported_abi">不支持的 ABI: %s</string>
     <!-- Accessibility -->
     <plurals name="sessions_accessible">
-        <item quantity="one">%d session</item>
-        <item quantity="other">%d sessions</item>
+        <item quantity="one">%d 个会话</item>
+        <item quantity="other">%d 个会话</item>
     </plurals>
-    <string name="title_changed">Terminal title changed to %s</string>
+    <string name="title_changed">终端标题已更改为 %s</string>
 
-    <!-- Shizuku integration (DESIGN: privileged prefix shells, e.g. nix proot) -->
-    <string name="shizuku_integration">Shizuku integration</string>
-    <string name="shizuku_integration_desc">Run prefix shells with Shizuku privileges (required for nix proot)</string>
-    <string name="shizuku_required_title">Shizuku authorization required</string>
-    <string name="shizuku_required_message">Shizuku integration is on but not authorized. Turn it off or exit the app.</string>
-    <string name="shizuku_turn_off">Turn off</string>
-    <string name="shizuku_exit">Exit app</string>
+    <!-- Bootstrap -->
+    <string name="bootstrap_install">安装引导程序</string>
+    <string name="bootstrap_installing">安装中…</string>
+
+    <!-- Session restore -->
+
+    <!-- Toggle -->
+    <string name="on">开启</string>
+    <string name="off">关闭</string>
+
+    <!-- USB Serial -->
+
+    <!-- Shizuku 集成 -->
+    <string name="shizuku_integration">Shizuku 集成</string>
+    <string name="shizuku_integration_desc">使用 Shizuku 权限运行 prefix shell（nix proot 必需）</string>
+    <string name="shizuku_required_title">需要 Shizuku 授权</string>
+    <string name="shizuku_required_message">已开启 Shizuku 集成但未获得授权，请关闭开关或退出应用。</string>
+    <string name="shizuku_turn_off">关闭</string>
+    <string name="shizuku_exit">退出应用</string>
 
     <!-- Text Search -->
-    <string name="text_search">Text Search</string>
-    <string name="text_search_desc">Search terminal output</string>
-    <string name="search_placeholder">Search terminal…</string>
-    <string name="search_next">Next</string>
-    <string name="search_previous">Previous</string>
-    <string name="search_close">Close search</string>
-    <string name="search_no_results">No results</string>
-    <string name="search_result_of">%d of %d</string>
+    <string name="text_search">文本搜索</string>
+    <string name="text_search_desc">搜索终端输出</string>
+    <string name="search_placeholder">搜索终端…</string>
+    <string name="search_next">下一个</string>
+    <string name="search_previous">上一个</string>
+    <string name="search_close">关闭搜索</string>
+    <string name="search_no_results">无结果</string>
+    <string name="search_result_of">第 %d 个，共 %d 个</string>
 
     <!-- File Manager -->
-    <string name="file_manager">File Manager</string>
-    <string name="cd_file_manager">Open file manager</string>
+    <string name="file_manager">文件管理器</string>
+    <string name="cd_file_manager">打开文件管理器</string>
 
-    <!-- Clear App Data -->
-    <string name="clear_app_data" translatable="false">Clear App Data</string>
-    <string name="clear_app_data_desc" translatable="false">Reset all settings, sessions, and logs. This will not delete bootstrap files or home directory.</string>
-    <string name="clear_app_data_confirm" translatable="false">Are you sure you want to clear all app data? This action cannot be undone. Settings, session history, and logs will be permanently deleted. Bootstrap files and home directory will not be affected.</string>
-    <string name="clear_app_data_action" translatable="false">Clear</string>
-    <string name="clear_app_data_done" translatable="false">App data cleared. Restart the app for a full reset.</string>
+    <!-- Cursor -->
 
-    <!-- Font CJK Warning -->
-    <string name="cjk_fallback_missing_warning">No CJK fallback font detected. East Asian characters may not render correctly.</string>
+    <!-- CJK Warning -->
+    <string name="cjk_fallback_missing_warning">未检测到中日韩备用字体。东亚字符可能无法正确渲染。</string>
+    <string name="save">保存</string>
+    <string name="delete">删除</string>
+    <string name="install">安装</string>
 
-    <string name="save">Save</string>
-    <string name="delete">Delete</string>
-
-    <!-- Accessibility -->
-    <string name="selection_accessible">Selected: %1$s</string>
-    <string name="search_result_accessible">Match %1$d of %2$d</string>
-    <string name="search_no_results_accessible">No results found</string>
-
-    <string name="bootstrap_error">Bootstrap failed: %1$s</string>
-    <string name="bootstrap_installed_success">Bootstrap installed successfully</string>
-    <string name="bootstrap_installed_from_file">Bootstrap installed from file</string>
-    <string name="bootstrap_postinst_errors">Post-install scripts had errors:</string>
-    <string name="bootstrap_primary_user_required">Bootstrap can only be installed by the primary user (owner profile)</string>
-    <string name="bootstrap_already_in_progress">Bootstrap installation already in progress</string>
-    <string name="bootstrap_no_url">No bootstrap URL available for this architecture</string>
-    <string name="bootstrap_cancelled">Download cancelled</string>
-    <string name="bootstrap_downloading">Downloading %1$s (%2$s / %3$s)</string>
-    <string name="bootstrap_extracting">Extracting %1$s (%2$d / %3$d)</string>
-    <string name="bootstrap_running_postinstall">Running post-install scripts... (%1$d / %2$d)</string>
-    <string name="bootstrap_creating_symlinks">Creating symlinks...</string>
-    <string name="bootstrap_complete">Bootstrap complete!</string>
+    <string name="accessibility_next_line">下一行</string>
+    <string name="accessibility_previous_line">上一行</string>
+    <string name="accessibility_read_screen">朗读屏幕</string>
+    <string name="alt_toggle">Alt 切换</string>
+    <string name="arrow_down">向下箭头</string>
+    <string name="arrow_left">向左箭头</string>
+    <string name="arrow_right">向右箭头</string>
+    <string name="arrow_up">向上箭头</string>
+    <string name="bold_font_family">粗体字体</string>
+    <string name="bootstrap_already_in_progress">引导程序安装已在进行中</string>
+    <string name="bootstrap_cancelled">下载已取消</string>
+    <string name="bootstrap_complete">引导程序安装完成！</string>
+    <string name="bootstrap_creating_symlinks">正在创建符号链接...</string>
+    <string name="bootstrap_downloading">正在下载 %1$s（%2$s / %3$s）</string>
+    <string name="bootstrap_error">引导程序安装失败：%1$s</string>
+    <string name="bootstrap_extracting">正在解压 %1$s（%2$d / %3$d）</string>
+    <string name="bootstrap_install_offline">从文件安装</string>
+    <string name="bootstrap_installed_from_file">已从文件安装引导程序</string>
+    <string name="bootstrap_installed_success">引导程序安装成功</string>
+    <string name="bootstrap_no_url">此架构没有可用的引导程序 URL</string>
+    <string name="bootstrap_postinst_errors">安装后脚本出现错误：</string>
+    <string name="bootstrap_primary_user_required">引导程序只能由主用户（所有者资料）安装</string>
+    <string name="bootstrap_running_postinstall">正在运行安装后脚本...（%1$d / %2$d）</string>
+    <string name="byte_unit_b">%1$d B</string>
     <string name="byte_unit_kb">%1$d KB</string>
     <string name="byte_unit_mb">%1$d MB</string>
-    <string name="byte_unit_b">%1$d B</string>
-
-    <!-- i18n: user-facing strings that were previously hardcoded -->
-    <string name="clear">Clear</string>
-    <string name="modifier_bar">Modifier Bar</string>
-    <string name="modifier_bar_current_layout">Current layout</string>
-    <string name="edit">Edit</string>
-    <string name="edit_modifier_bar">Edit Modifier Bar</string>
-    <string name="reset_to_default">Reset to Default</string>
-    <string name="session_number">Session %1$d</string>
-    <string name="bold_font_family">Bold font family</string>
-    <string name="italic_font_family">Italic font family</string>
-    <string name="close_session">Close Session</string>
-    <string name="toggle_scroll">Toggle Scroll</string>
-    <string name="toggle_keyboard">Show or hide the keyboard</string>
-    <string name="no_font_loaded">No font loaded</string>
-    <string name="font_applied">Font applied: %1$s</string>
-    <string name="font_apply_failed">Font apply failed: %1$s</string>
-    <string name="font_read_failed">Failed to read font file</string>
-    <string name="font_installed">Font installed: %1$s</string>
-    <string name="font_not_supported">Font not supported or corrupted</string>
-    <string name="font_install_failed">Font installation failed: %1$s</string>
-    <string name="cjk_value_label">CJK: %1$s</string>
-    <string name="escape">Escape</string>
-    <string name="home_key">Home</string>
-    <string name="arrow_up">Arrow up</string>
+    <string name="cjk_value_label">CJK：%1$s</string>
+    <string name="clear">清除</string>
+    <string name="clear_app_data">清除应用数据</string>
+    <string name="clear_app_data_action">清除</string>
+    <string name="clear_app_data_confirm">确定要清除所有应用数据吗？此操作无法撤销。设置、会话历史记录和日志将被永久删除。引导程序文件和主目录不受影响。</string>
+    <string name="clear_app_data_desc">重置所有设置、会话和日志。不会删除引导程序文件或主目录。</string>
+    <string name="clear_app_data_done">应用数据已清除。请重新启动应用以完成完全重置。</string>
+    <string name="close_session">关闭会话</string>
+    <string name="compose_key">Compose 键</string>
+    <string name="control_toggle">Ctrl 切换</string>
+    <string name="create">创建</string>
+    <string name="cursor_label">光标</string>
+    <string name="disable_fuzzy_match">禁用模糊匹配</string>
+    <string name="dismiss_selection">取消选择</string>
+    <string name="edit">编辑</string>
+    <string name="edit_modifier_bar">编辑修饰键栏</string>
+    <string name="enable_fuzzy_match">启用模糊匹配</string>
     <string name="end_key">End</string>
-    <string name="page_up">Page up</string>
+    <string name="escape">Esc</string>
+    <string name="font_applied">字体已应用：%1$s</string>
+    <string name="font_apply_failed">字体应用失败：%1$s</string>
+    <string name="font_info_active">当前：%1$s</string>
+    <string name="font_info_cell">单元格：%1$s x %2$s px</string>
+    <string name="font_info_cjk_fallback">CJK 后备：%1$s</string>
+    <string name="font_info_cjk_none">CJK 后备：无</string>
+    <string name="font_info_cjk_skipped">CJK 后备已跳过（主字体支持 CJK）</string>
+    <string name="font_info_size_sp">字体大小：%1$s SP（约 %2$s px）</string>
+    <string name="font_install_failed">字体安装失败：%1$s</string>
+    <string name="font_installed">字体已安装：%1$s</string>
+    <string name="font_not_supported">字体不受支持或已损坏</string>
+    <string name="font_read_failed">无法读取字体文件</string>
+    <string name="foreground">前景</string>
+    <string name="function_key_layer">功能键层</string>
+    <string name="home_key">Home</string>
+    <string name="italic_font_family">斜体字体</string>
+    <string name="modifier_bar">修饰键栏</string>
+    <string name="modifier_bar_available_keys">可用键（点按添加）</string>
+    <string name="modifier_bar_current_layout">当前布局</string>
+    <string name="modifier_bar_edit_hint_remove">当前布局（点按某个键以移除）</string>
+    <string name="no_font_loaded">未加载字体</string>
+    <string name="open_session_drawer">打开会话抽屉</string>
+    <string name="page_down">Page Down</string>
+    <string name="page_up">Page Up</string>
+    <string name="reset_to_default">重置为默认</string>
+    <string name="search_no_results_accessible">未找到结果</string>
+    <string name="search_result_accessible">第 %1$d 个，共 %2$d 个</string>
+    <string name="selection">选择</string>
+    <string name="selection_accessible">已选择：%1$s</string>
+    <string name="session_number">会话 %1$d</string>
     <string name="tab_key">Tab</string>
-    <string name="control_toggle">Control toggle</string>
-    <string name="alt_toggle">Alt toggle</string>
-    <string name="arrow_left">Arrow left</string>
-    <string name="arrow_down">Arrow down</string>
-    <string name="arrow_right">Arrow right</string>
-    <string name="page_down">Page down</string>
-    <string name="function_key_layer">Function key layer</string>
-    <string name="compose_key">Compose key</string>
-    <string name="open_session_drawer">Open session drawer</string>
-    <string name="dismiss_selection">Dismiss selection</string>
-    <string name="enable_fuzzy_match">Enable fuzzy match</string>
-    <string name="disable_fuzzy_match">Disable fuzzy match</string>
-    <string name="font_info_active">Active: %1$s</string>
-    <string name="font_info_cjk_fallback">CJK fallback: %1$s</string>
-    <string name="font_info_cjk_skipped">CJK fallback: skipped (primary font supports CJK)</string>
-    <string name="font_info_cjk_none">CJK fallback: none</string>
-    <string name="font_info_cell">Cell: %1$s x %2$s px</string>
-    <string name="font_info_size_sp">Font size: %1$s SP (~%2$s px)</string>
-    <string name="foreground">Foreground</string>
-    <string name="cursor_label">Cursor</string>
-    <string name="selection">Selection</string>
-    <string name="create">Create</string>
-    <string name="modifier_bar_edit_hint_remove">Current layout (tap a key to remove)</string>
-    <string name="modifier_bar_available_keys">Available keys (tap to add)</string>
+    <string name="toggle_keyboard">显示或隐藏键盘</string>
+    <string name="toggle_scroll">切换滚动</string>
 </resources>
