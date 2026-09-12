@@ -44,3 +44,4 @@ generated-patches/
 *.profraw
 .pi/
 .pi-glla/
+android/app/aosp-testkey.p12

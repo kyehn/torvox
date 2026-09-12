@@ -39,7 +39,7 @@ mod tests;
 
 // ── Re-exports ───────────────────────────────────────────────────────────
 pub use cell_builder::{CellCursor, CellRun, build_instances_from_cell_data, build_row_runs};
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use cell_builder::{SearchHighlight, SelectionRange, blend_highlight, cell_highlight};
 pub use context::FrameContext;
@@ -48,11 +48,11 @@ pub use context::apply_scroll_px_offset;
 pub use context::orthographic_projection;
 pub use cpu_frame::{CpuCell, CpuCursor, CpuFrame, TextHit, TextItem};
 pub use invalidation::{FrameInvalidation, InvalidationLevel};
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use pipeline::{DEFAULT_BG_ALPHA, QUAD_CORNERS};
 pub use pipeline::{GpuUniforms, image_active_value};
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use snapshot_reference::{
     FlatGrid, SnapshotConfig, build_cell_instances_from_flat, build_cell_instances_from_snapshot,
@@ -64,7 +64,7 @@ pub(crate) use snapshot_reference::{
 /// for CPU so hard throughput thresholds become flaky. The lock is held
 /// for the whole benchmark body, guaranteeing one benchmark at a time
 /// scroll bench joined the lock for the same reason).
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 #[cfg_attr(not(test), allow(dead_code))]
 // Only referenced from #[cfg(test)] benches; the lib build with
 // `--features test-util` (clippy) has no callers.
@@ -192,7 +192,7 @@ pub mod gpu {
     pub use super::cell_builder::{CellRun, SearchHighlight, SelectionRange, build_row_runs};
     pub use super::context::{Renderer, orthographic_projection};
     pub use super::pipeline::{GpuUniforms, image_active_value};
-    #[cfg(any(test, feature = "test-util"))]
+    #[cfg(test)]
     pub use super::snapshot_reference::{
         FlatGrid, SnapshotConfig, build_cell_instances_from_flat,
         build_cell_instances_from_snapshot, build_cell_instances_into,

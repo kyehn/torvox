@@ -5,20 +5,20 @@
 //!
 //! These functions convert a [`GridSnapshot`] into GPU [`CellInstance`] data.
 //! They are only used by unit tests (e.g. `render/tests.rs`) and are gated
-//! behind `#[cfg(any(test, feature = "test-util"))]`.
+//! behind `#[cfg(test)]`.
 //!
 //! Production code uses `build_instances_from_cell_data` in `cell_builder.rs`.
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 use foldhash::fast::RandomState;
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 use std::collections::HashMap;
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 use crate::render::CellInstance;
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 use crate::render::cell_builder::{apply_search_highlight, cell_highlight};
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 use crate::terminal::CursorStyle;
 
 /// Configuration passed to `build_cell_instances_from_snapshot()`.
@@ -27,7 +27,7 @@ use crate::terminal::CursorStyle;
 /// the GridSnapshot reference path, whose fields (projection_height,
 /// render_scale, surface_bg, dirty_rows, cached_*) are unrelated to the
 /// nine-field production `cell_builder::CellInstanceConfig`.
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub struct SnapshotConfig<'a> {
     pub atlas_width: f32,
     pub atlas_height: f32,
@@ -43,7 +43,7 @@ pub struct SnapshotConfig<'a> {
     pub cached_row_ends: &'a [usize],
 }
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub(crate) fn color_f32x4_eq(a: [f32; 4], b: [f32; 4]) -> bool {
     a[0].to_bits() == b[0].to_bits()
         && a[1].to_bits() == b[1].to_bits()
@@ -51,7 +51,7 @@ pub(crate) fn color_f32x4_eq(a: [f32; 4], b: [f32; 4]) -> bool {
         && a[3].to_bits() == b[3].to_bits()
 }
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub fn build_cell_instances_from_snapshot(
     snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
     font_pipeline: &mut crate::render::font::FontPipeline,
@@ -69,7 +69,7 @@ pub fn build_cell_instances_from_snapshot(
     instances
 }
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub fn build_cell_instances_into(
     snapshot: &crate::terminal::ghostty_terminal::GridSnapshot,
     font_pipeline: &mut crate::render::font::FontPipeline,
@@ -534,7 +534,7 @@ pub fn build_cell_instances_into(
     }
 }
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub struct FlatGrid {
     pub rows: u32,
     pub cols: u32,
@@ -544,7 +544,7 @@ pub struct FlatGrid {
     pub selected: Vec<bool>,
 }
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 impl FlatGrid {
     pub fn new(rows: u32, cols: u32) -> Self {
         let len = (rows * cols) as usize;
@@ -587,7 +587,7 @@ impl FlatGrid {
     }
 }
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 pub fn build_cell_instances_from_flat(
     flat: &FlatGrid,
     font_pipeline: &mut crate::render::font::FontPipeline,

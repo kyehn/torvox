@@ -241,29 +241,92 @@ fn setup_gpu_env() -> (
     )
 }
 
+fn build_production_instances(
+    snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
+    font_pipeline: &mut native::render::font::FontPipeline,
+    selection: Option<native::render::gpu::SelectionRange>,
+) -> Vec<native::render::gpu::CellInstance> {
+    use native::terminal::ghostty_terminal::cell_flags;
+    let mut cell_data = Vec::with_capacity((snapshot.rows * snapshot.cols) as usize);
+    for (index, cell) in snapshot.cells.iter().enumerate() {
+        let row = (index as u32) / snapshot.cols;
+        let col = (index as u32) % snapshot.cols;
+        let mut grapheme_extra = [0u32; 7];
+        for (position, grapheme) in cell.graphemes.iter().take(7).enumerate() {
+            grapheme_extra[position] = *grapheme;
+        }
+        let mut flags = 0u32;
+        if cell.bold {
+            flags |= 1 << cell_flags::BOLD;
+        }
+        if cell.italic {
+            flags |= 1 << cell_flags::ITALIC;
+        }
+        if cell.reverse {
+            flags |= 1 << cell_flags::REVERSE;
+        }
+        if cell.underline || cell.double_underline {
+            flags |= 1 << cell_flags::UNDERLINE;
+        }
+        if cell.strikethrough {
+            flags |= 1 << cell_flags::STRIKETHROUGH;
+        }
+        if cell.overline {
+            flags |= 1 << cell_flags::OVERLINE;
+        }
+        if cell.dim {
+            flags |= 1 << cell_flags::FAINT;
+        }
+        if cell.double_underline {
+            flags |= 1 << cell_flags::DOUBLE_UNDERLINE;
+        }
+        cell_data.push(native::terminal::ghostty_terminal::CellData {
+            codepoint: cell.codepoint,
+            width: cell.width as u32,
+            grapheme_extra,
+            fg_color: cell.foreground,
+            bg_color: cell.background,
+            flags,
+            row,
+            col,
+        });
+    }
+    let (cell_width, cell_height) = font_pipeline.cell_metrics();
+    let cursor = native::render::gpu::CellCursor {
+        row: snapshot.cursor_row,
+        col: snapshot.cursor_col,
+        visible: snapshot.cursor_visible,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let config = native::render::gpu::CellInstanceConfig {
+        rows: snapshot.rows,
+        cols: snapshot.cols,
+        grid_cell_w: cell_width,
+        grid_cell_h: cell_height,
+        cursor,
+        atlas_width: 256.0,
+        atlas_height: 256.0,
+        selection,
+        search_highlights: &[],
+    };
+    let mut instances = Vec::new();
+    native::render::gpu::build_instances_from_cell_data(
+        &cell_data,
+        config,
+        font_pipeline,
+        &mut instances,
+    )
+    .expect("build_instances_from_cell_data should succeed");
+    instances
+}
+
 fn render_or_die(
     context: &mut native::render::gpu::Renderer,
     font_pipeline: &mut native::render::font::FontPipeline,
     snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
 ) -> Vec<u8> {
-    let instances = native::render::gpu::build_cell_instances_from_snapshot(
-        snapshot,
-        font_pipeline,
-        native::render::gpu::SnapshotConfig {
-            atlas_width: 256.0,
-            atlas_height: 256.0,
-            projection_height: 768.0,
-            selection: None,
-            search_highlights: &[],
-            cursor_color: None,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
+    let instances = build_production_instances(snapshot, font_pipeline, None);
     context
         .render_to_buffer(&instances, &[])
         .expect("render_to_buffer should succeed")
@@ -275,24 +338,7 @@ fn render_with_selection(
     snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
     selection: native::render::gpu::SelectionRange,
 ) -> Vec<u8> {
-    let instances = native::render::gpu::build_cell_instances_from_snapshot(
-        snapshot,
-        font_pipeline,
-        native::render::gpu::SnapshotConfig {
-            atlas_width: 256.0,
-            atlas_height: 256.0,
-            projection_height: 768.0,
-            selection: Some(selection),
-            search_highlights: &[],
-            cursor_color: None,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
+    let instances = build_production_instances(snapshot, font_pipeline, Some(selection));
     context
         .render_to_buffer(&instances, &[])
         .expect("render_to_buffer should succeed")
@@ -314,24 +360,7 @@ fn render_dirty_or_die(
     snapshot: &native::terminal::ghostty_terminal::GridSnapshot,
     _dirty_rows: &[bool],
 ) -> Vec<u8> {
-    let instances = native::render::gpu::build_cell_instances_from_snapshot(
-        snapshot,
-        font_pipeline,
-        native::render::gpu::SnapshotConfig {
-            atlas_width: 256.0,
-            atlas_height: 256.0,
-            projection_height: 768.0,
-            selection: None,
-            search_highlights: &[],
-            cursor_color: None,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
+    let instances = build_production_instances(snapshot, font_pipeline, None);
     context
         .render_to_buffer(&instances, &[])
         .expect("render_to_buffer should succeed")
@@ -399,24 +428,7 @@ fn gpu_render_cursor_visible() {
     assert_eq!(snap.cursor_row, 4);
     assert_eq!(snap.cursor_col, 10);
     assert!(snap.cursor_visible);
-    let instances = native::render::gpu::build_cell_instances_from_snapshot(
-        &snap,
-        &mut font_pipeline,
-        native::render::gpu::SnapshotConfig {
-            atlas_width: 256.0,
-            atlas_height: 256.0,
-            projection_height: 768.0,
-            selection: None,
-            search_highlights: &[],
-            cursor_color: None,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
+    let instances = build_production_instances(&snap, &mut font_pipeline, None);
     let pixels = context.render_to_buffer(&instances, &[]).unwrap();
     // With SrcAlpha blend, cursor at alpha 0.7 on black ≈ 178 (not 255).
     let bright = pixels
@@ -436,24 +448,7 @@ fn gpu_render_transparent_block_above_threshold() {
     terminal.vt_write(b"\x1b[2J\x1b[5;10HX");
     terminal.flush();
     let snap = terminal.take_snapshot();
-    let instances = native::render::gpu::build_cell_instances_from_snapshot(
-        &snap,
-        &mut font_pipeline,
-        native::render::gpu::SnapshotConfig {
-            atlas_width: 256.0,
-            atlas_height: 256.0,
-            projection_height: 768.0,
-            selection: None,
-            search_highlights: &[],
-            cursor_color: None,
-            cursor_style: CursorStyle::Block,
-            dirty_rows: &[],
-            cached_instances: &[],
-            cached_row_ends: &[],
-            surface_bg: [0.0, 0.0, 0.0, 1.0],
-            render_scale: 1.0,
-        },
-    );
+    let instances = build_production_instances(&snap, &mut font_pipeline, None);
     let pixels = context.render_to_buffer(&instances, &[]).unwrap();
     // With SrcAlpha blend, cursor at alpha 0.7 on black ≈ 178. Change threshold
     // from 255 to 128 so alpha-blended white still counts.

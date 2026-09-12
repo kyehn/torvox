@@ -666,7 +666,7 @@ impl Drop for PtyPair {
     }
 }
 
-#[cfg(any(test, feature = "test-util"))]
+#[cfg(test)]
 #[allow(dead_code)]
 fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();

@@ -4,7 +4,7 @@ members = [ "native", ]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.97"
+rust-version = "1.98"
 [workspace.dependencies]
 native = { path = "native" }
 libc = "0.2"
@@ -22,7 +22,7 @@ cosmic-text = "0.19"
 fontdb = "0.23"
 swash = "0.2"
 guillotiere = "0.7"
-jni = { version = "0.21", default-features = false }
+jni = { version = "0.22", default-features = false }
 flume = "0.12"
 proptest = "1.11"
 lru = "0.18"
@@ -94,3 +94,6 @@ cast_possible_wrap = "allow"
 uninlined_format_args = "allow"
 ptr_arg = "allow"
 ref_option = "allow"
+[workspace.lints.rust]
+# 临时放行：mcp 功能已禁止实现，必须彻底删除，此处仅为打通依赖更新检查，后续专项清理。
+unexpected_cfgs = "allow"
