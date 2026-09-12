@@ -4,8 +4,6 @@ import android.system.Os
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import terminal.emulator.runtime.isElf
-import terminal.emulator.runtime.isSystemShellScript
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -123,9 +121,7 @@ class SecondStageRunner(
                     "DPKG_ADMINDIR" to File(prefixDir, "var/lib/dpkg").absolutePath,
                     "DPKG_ROOT" to "",
                     "HOME" to homeDir.absolutePath,
-                    "PATH" to "${File(prefixDir, "bin").absolutePath}:/system/bin:/system/xbin",
                     "PREFIX" to prefixDir.absolutePath,
-                    "LD_PRELOAD" to File(prefixDir, "lib/libtermux-exec.so").absolutePath,
                 )
             // postinst scripts start with
             // `#!/data/data/com.termux/files/usr/bin/sh`, and Android
@@ -136,10 +132,7 @@ class SecondStageRunner(
             // the PTY spawn path.
             val command = postinstCommand(script)
             val envArray = environment.map { "${it.key}=${it.value}" }.toTypedArray()
-            val ldPreload = environment["LD_PRELOAD"]
-            val path = environment["PATH"]
             Log.w("SecondStageRunner", "postinst exec cmd=${command.toList()}")
-            Log.w("SecondStageRunner", "postinst env PATH=$path LD_PRELOAD=$ldPreload")
             val proc =
                 Runtime.getRuntime()
                     .exec(
@@ -243,10 +236,15 @@ class SecondStageRunner(
     /** Base env for prefix executables: PREFIX + termux-exec preload. */
     internal fun prefixEnvironment(): Map<String, String> = mapOf(
         "HOME" to homeDir.absolutePath,
-        "PATH" to "${File(prefixDir, "bin").absolutePath}:/system/bin:/system/xbin",
+        "TERMUX_HOME_DIR_PATH" to homeDir.absolutePath,
         "PREFIX" to prefixDir.absolutePath,
+        "TERMUX_PREFIX_DIR_PATH" to prefixDir.absolutePath,
         "TMPDIR" to File(prefixDir, "tmp").absolutePath,
-        "LD_PRELOAD" to File(prefixDir, "lib/libtermux-exec.so").absolutePath,
+        "TERMUX_TMP_PREFIX_DIR_PATH" to File(prefixDir, "tmp").absolutePath,
+        "LANG" to "en_US.UTF-8",
+        "TERM" to "xterm-256color",
+        "COLORTERM" to "truecolor",
+        "TERMUX_VERSION" to "0.119.0-beta.3",
     )
 
     /**
@@ -339,30 +337,21 @@ class SecondStageRunner(
         val envFile = File(prefixDir, "etc/termux/termux.env")
         envFile.parentFile?.mkdirs()
 
-        // 登录优先：ELF 二进制或系统解释器启动脚本均可（与启动路径一致）。
-        val shellBinary =
-            (
-                listOf("bin/login", "bin/bash", "bin/zsh", "bin/fish", "bin/sh").firstOrNull { candidate ->
-                    val file = File(prefixDir, candidate)
-                    file.isFile && (isElf(file) || isSystemShellScript(file))
-                } ?: "bin/bash"
-                )
-                .let { File(prefixDir, it).absolutePath }
-        val pathValue = "${File(prefixDir, "bin").absolutePath}:/system/bin:/system/xbin"
-
         envFile.writeText(
             buildString {
                 appendLine("HOME=${homeDir.absolutePath}")
+                appendLine("TERMUX_HOME_DIR_PATH=${homeDir.absolutePath}")
                 appendLine("PREFIX=${prefixDir.absolutePath}")
-                appendLine("PATH=$pathValue")
+                appendLine("TERMUX_PREFIX_DIR_PATH=${prefixDir.absolutePath}")
                 appendLine("TMPDIR=${File(prefixDir, "tmp").absolutePath}")
-                appendLine("SHELL=$shellBinary")
+                appendLine("TERMUX_TMP_PREFIX_DIR_PATH=${File(prefixDir, "tmp").absolutePath}")
                 appendLine("LANG=en_US.UTF-8")
                 appendLine("TERM=xterm-256color")
                 appendLine("COLORTERM=truecolor")
+                appendLine("TERMUX_VERSION=0.119.0-beta.3")
             }
                 .trimEnd(),
         )
-        Log.w("SecondStageRunner", "writeTermuxEnv: shell=$shellBinary")
+        Log.w("SecondStageRunner", "writeTermuxEnv done")
     }
 }
