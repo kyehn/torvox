@@ -41,11 +41,9 @@ tags:
 - waitForAnimationToEnd:
     timeout: 2000
 - takeScreenshot: selection_copy_visible
-# 选择菜单是 PopupWindow，Maestro 跨窗口看不到其中的文本按钮，
-# 该步骤总是跳过；复制真实路径由 cucumber 选择场景覆盖。
-- tapOn:
-    text: "Copy"
-    optional: true
+# 选择菜单是 PopupWindow（独立系统窗口，见 TerminalSurface.selectionMenuPopup）：
+# Maestro 看不到其中的文本按钮，不做断言、不做点击；菜单内容由 cucumber
+# 选择场景覆盖。用产品支持的 Back 路径退出选择。
 - waitForAnimationToEnd:
     timeout: 1000
 # 用返回键退出选择（产品支持的 dismiss 路径，TerminalScreen BackHandler）：

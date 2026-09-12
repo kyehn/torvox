@@ -77,4 +77,5 @@ object ShizukuGate {
         exec /system/bin/app_process -Djava.class.path="$dexPath" /system/bin --nice-name=rish rikka.shizuku.shell.ShizukuShellLoader -c '$launchCommand'
         """
             .trimIndent() + "\n"
+    }
 }

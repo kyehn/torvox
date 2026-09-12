@@ -27,9 +27,9 @@ tags:
     timeout: 3000
 - assertVisible:
     id: "SessionDrawer"
-# Assert "Sessions" label is visible in drawer
+# Assert "会话" label is visible in drawer
 - assertVisible:
-    text: "Sessions"
+    text: "会话"
 # Tap Settings button in drawer
 - tapOn:
     id: "SettingsButton"
@@ -40,10 +40,10 @@ tags:
 # Verify Font Family is visible in settings
 - scrollUntilVisible:
     element:
-      text: "Font Family"
+      text: "字体"
     direction: DOWN
 - assertVisible:
-    text: "Font Family"
+    text: "字体"
 # Go back to terminal
 - tapOn:
     id: "SettingsBackButton"
