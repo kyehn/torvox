@@ -18,32 +18,10 @@ import kotlinx.serialization.json.Json
 @Serializable
 sealed class PollEvent {
     @Serializable
-    @SerialName("bell")
-    data class Bell(
-        @SerialName("session_id") val sessionId: Long = 0,
-    ) : PollEvent()
-
-    @Serializable
     @SerialName("clipboard")
     data class Clipboard(
         @SerialName("session_id") val sessionId: Long = 0,
         val text: String = "",
-    ) : PollEvent()
-
-    @Serializable
-    @SerialName("notification")
-    data class Notification(
-        @SerialName("session_id") val sessionId: Long = 0,
-        val title: String = "",
-        val body: String = "",
-    ) : PollEvent()
-
-    @Serializable
-    @SerialName("progress")
-    data class Progress(
-        @SerialName("session_id") val sessionId: Long = 0,
-        val state: Int = 0,
-        val value: Int = 0,
     ) : PollEvent()
 
     @Serializable
@@ -56,33 +34,6 @@ sealed class PollEvent {
     ) : PollEvent()
 
     @Serializable
-    @SerialName("show_dialog")
-    data class ShowDialog(
-        @SerialName("session_id") val sessionId: Long = 0,
-        @SerialName("request_id") val requestId: Long = 0,
-        @SerialName("dialog_type") val dialogType: String = "",
-        val title: String = "",
-        val message: String = "",
-        val options: List<String> = emptyList(),
-    ) : PollEvent()
-
-    @Serializable
-    @SerialName("pick_file")
-    data class PickFile(
-        @SerialName("session_id") val sessionId: Long = 0,
-        @SerialName("request_id") val requestId: Long = 0,
-        @SerialName("starting_path") val startingPath: String = "",
-        val filter: String = "",
-    ) : PollEvent()
-
-    @Serializable
-    @SerialName("get_clipboard")
-    data class GetClipboard(
-        @SerialName("session_id") val sessionId: Long = 0,
-        @SerialName("request_id") val requestId: Long = 0,
-    ) : PollEvent()
-
-    @Serializable
     @SerialName("clipboard_read")
     data class ClipboardRead(
         @SerialName("session_id") val sessionId: Long = 0,
@@ -90,35 +41,6 @@ sealed class PollEvent {
         val selection: String = "",
     ) : PollEvent()
 
-    @Serializable
-    @SerialName("dialog_cancel")
-    data class DialogCancel(
-        @SerialName("session_id") val sessionId: Long = 0,
-        @SerialName("request_id") val requestId: Long = 0,
-    ) : PollEvent()
-
-    @Serializable
-    @SerialName("toast")
-    data class Toast(val text: String = "") : PollEvent()
-
-    @Serializable
-    @SerialName("open_url")
-    data class OpenUrl(val url: String = "") : PollEvent()
-
-    @Serializable
-    @SerialName("run_command")
-    data class RunCommand(
-        @SerialName("session_id") val sessionId: Long = 0,
-        @SerialName("request_id") val requestId: Long = 0,
-        val command: String = "",
-    ) : PollEvent()
-
-    @Serializable
-    @SerialName("screenshot")
-    data class Screenshot(
-        @SerialName("session_id") val sessionId: Long = 0,
-        @SerialName("request_id") val requestId: Long = 0,
-    ) : PollEvent()
 }
 
 /**
@@ -136,7 +58,7 @@ val pollEventJson: Json =
         // Rust serialises Event with `#[serde(tag = "event")]` (internal
         // tagging); kotlinx default discriminator is "type", which would
         // reject every event with "Class discriminator was missing" and
-        // silently drop bell/clipboard/exit/notification — the exit event
+        // silently drop clipboard/exit — the exit event
         // never reached Kotlin, so a dead shell left the terminal frozen
         // with the render thread running forever, emulator-
         // verified via `kill -9 <shell>`).

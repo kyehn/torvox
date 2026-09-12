@@ -939,17 +939,16 @@ fn cjk_bearing_y_not_centered() {
         if let Some(info) = font_pipeline.glyph_information(ch) {
             let expected = ascent_pixels - info.placement.top as f32;
 
-            let cell_data =
-                vec![crate::terminal::ghostty_terminal::CellData {
-                    codepoint: ch as u32,
-                    width: 2,
-                    grapheme_extra: [0; 7],
-                    fg_color: [1.0; 4],
-                    bg_color: [0.0; 4],
-                    flags: 0,
-                    row: 0,
-                    col: 0,
-                }];
+            let cell_data = vec![crate::terminal::ghostty_terminal::CellData {
+                codepoint: ch as u32,
+                width: 2,
+                grapheme_extra: [0; 7],
+                fg_color: [1.0; 4],
+                bg_color: [0.0; 4],
+                flags: 0,
+                row: 0,
+                col: 0,
+            }];
             let cursor = crate::render::CellCursor {
                 row: 0,
                 col: 0,

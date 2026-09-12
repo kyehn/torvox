@@ -799,7 +799,6 @@ fn append_row_instances(
                 glyph_advance_width: 0.0,
             });
         }
-
     }
 }
 

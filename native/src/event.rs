@@ -144,12 +144,39 @@ mod tests {
     #[test]
     fn push_pop_fifo_order() {
         let q = EventQueue::new();
-        q.push(Event::Clipboard { session_id: 1, text: String::new() });
-        q.push(Event::Clipboard { session_id: 2, text: String::new() });
-        q.push(Event::Clipboard { session_id: 3, text: String::new() });
-        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 1, text: String::new() }));
-        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 2, text: String::new() }));
-        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 3, text: String::new() }));
+        q.push(Event::Clipboard {
+            session_id: 1,
+            text: String::new(),
+        });
+        q.push(Event::Clipboard {
+            session_id: 2,
+            text: String::new(),
+        });
+        q.push(Event::Clipboard {
+            session_id: 3,
+            text: String::new(),
+        });
+        assert_eq!(
+            q.pop(),
+            Some(Event::Clipboard {
+                session_id: 1,
+                text: String::new()
+            })
+        );
+        assert_eq!(
+            q.pop(),
+            Some(Event::Clipboard {
+                session_id: 2,
+                text: String::new()
+            })
+        );
+        assert_eq!(
+            q.pop(),
+            Some(Event::Clipboard {
+                session_id: 3,
+                text: String::new()
+            })
+        );
         assert_eq!(q.pop(), None);
     }
 
@@ -162,14 +189,26 @@ mod tests {
     #[test]
     fn multiple_events_interleaved() {
         let q = EventQueue::new();
-        q.push(Event::Clipboard { session_id: 1, text: String::new() });
+        q.push(Event::Clipboard {
+            session_id: 1,
+            text: String::new(),
+        });
         q.push(Event::Exit {
             session_id: 2,
             code: 0,
             alive_ms: 10,
         });
-        q.push(Event::Clipboard { session_id: 3, text: String::new() });
-        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 1, text: String::new() }));
+        q.push(Event::Clipboard {
+            session_id: 3,
+            text: String::new(),
+        });
+        assert_eq!(
+            q.pop(),
+            Some(Event::Clipboard {
+                session_id: 1,
+                text: String::new()
+            })
+        );
         q.push(Event::Clipboard {
             session_id: 4,
             text: "hello".into(),
@@ -182,7 +221,13 @@ mod tests {
                 alive_ms: 10
             })
         );
-        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 3, text: String::new() }));
+        assert_eq!(
+            q.pop(),
+            Some(Event::Clipboard {
+                session_id: 3,
+                text: String::new()
+            })
+        );
         assert_eq!(
             q.pop(),
             Some(Event::Clipboard {
@@ -203,8 +248,20 @@ mod tests {
             });
         }
         // Oldest events must have been dropped, newest retained.
-        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 8, text: String::new() }));
-        assert_eq!(q.pop(), Some(Event::Clipboard { session_id: 9, text: String::new() }));
+        assert_eq!(
+            q.pop(),
+            Some(Event::Clipboard {
+                session_id: 8,
+                text: String::new()
+            })
+        );
+        assert_eq!(
+            q.pop(),
+            Some(Event::Clipboard {
+                session_id: 9,
+                text: String::new()
+            })
+        );
     }
 
     #[test]
@@ -221,8 +278,14 @@ mod tests {
                 alive_ms: 10,
             });
         }
-        q.push(Event::Clipboard { session_id: 999, text: String::new() });
-        q.push(Event::Clipboard { session_id: 1000, text: String::new() });
+        q.push(Event::Clipboard {
+            session_id: 999,
+            text: String::new(),
+        });
+        q.push(Event::Clipboard {
+            session_id: 1000,
+            text: String::new(),
+        });
         // Every Exit survives; the other events were dropped.
         let mut exits = 0;
         while let Some(event) = q.pop() {
@@ -252,11 +315,20 @@ mod tests {
         });
         // Queue is now full; pushing a new event must evict the OLDEST
         // event (session 0), never the Exit.
-        q.push(Event::Clipboard { session_id: 1000, text: String::new() });
+        q.push(Event::Clipboard {
+            session_id: 1000,
+            text: String::new(),
+        });
         let popped = (0..MAX_QUEUED_EVENTS)
             .filter_map(|_| q.pop())
             .collect::<Vec<_>>();
-        assert_eq!(popped[0], Event::Clipboard { session_id: 1, text: String::new() });
+        assert_eq!(
+            popped[0],
+            Event::Clipboard {
+                session_id: 1,
+                text: String::new()
+            }
+        );
         assert!(popped.contains(&Event::Exit {
             session_id: 42,
             code: 7,
@@ -264,7 +336,10 @@ mod tests {
         }));
         assert_eq!(
             popped[MAX_QUEUED_EVENTS - 1],
-            Event::Clipboard { session_id: 1000, text: String::new() }
+            Event::Clipboard {
+                session_id: 1000,
+                text: String::new()
+            }
         );
     }
 

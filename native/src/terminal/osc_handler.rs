@@ -8,19 +8,15 @@
 //! - [FR-036](crate) — Clipboard: OSC 52 get
 //! - [FR-037](crate) — Filesystem: cwd reporting
 //! - [FR-038](crate) — Filesystem: readable working directory
-//! - [FR-040](crate) — Notification: iTerm2 OSC 9
-//! - [FR-041](crate) — Notification: OSC 777
 //! - [NFR-023](crate) — Clipboard: UTF-8 safe, protocol-agnostic
 //!
 //! Handled OSC types (stripped from output and emitted as [`OscEvent`]s):
 ///    7 — current working directory (`OscEvent::Cwd`)
 ///    8 — hyperlinks (open/close) (`OscEvent::Hyperlink`)
-///    9 — notifications (iTerm2-style) (`OscEvent::Notification`)
 ///   52 — clipboard set (base64 decode) (`OscEvent::Clipboard`) and clipboard
 ///        read (`?` payload) (`OscEvent::ClipboardRead`)
-///  777 — notifications (rxvt-unicode-style) (`OscEvent::Notification`)
 ///
-/// Unrecognised OSC numbers (0, 1, 4, 10, etc.) pass through unchanged so
+/// Unrecognised OSC numbers (0, 1, 4, 9, 10, 133, 777, etc.) pass through unchanged so
 /// the terminal emulator can handle them (e.g. OSC 0 sets the title).
 ///
 /// Handles partial sequences across buffer boundaries. Invalid sequences
@@ -30,22 +26,11 @@ const MAX_PAYLOAD_BYTES: usize = 1_048_576;
 const MAX_SEQUENCE_OVERHEAD: usize = 64;
 
 /// OSC numbers we handle (strip from output).
-const HANDLED_OSC: &[u32] = &[
-    OSC_CWD,
-    OSC_HYPERLINK,
-    OSC_NOTIFICATION_ITERM2,
-    OSC_CLIPBOARD,
-    OSC_NOTIFICATION_RXVT,
-    OSC_SHELL_INTEGRATION,
-];
+const HANDLED_OSC: &[u32] = &[OSC_CWD, OSC_HYPERLINK, OSC_CLIPBOARD];
 
 const OSC_CLIPBOARD: u32 = 52;
 const OSC_CWD: u32 = 7;
 const OSC_HYPERLINK: u32 = 8;
-const OSC_NOTIFICATION_ITERM2: u32 = 9;
-const OSC_NOTIFICATION_RXVT: u32 = 777;
-/// Shell integration (OSC 133;A/B/C/D) — termlib OscParser handleOsc133.
-const OSC_SHELL_INTEGRATION: u32 = 133;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum OscState {
@@ -90,47 +75,12 @@ pub struct HyperlinkEvent {
     pub url: Option<String>,
 }
 
-/// Decoded OSC 9/777 notification event.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NotificationEvent {
-    pub title: String,
-    pub body: String,
-}
-
-/// ConEmu progress event (OSC 9;4). Format: `ESC ] 9 ; 4 ; state [ ; value ] ESC \\`.
-///
-/// - `state`: 0=remove, 1=indeterminate, 2=normal, 3=error, 4=indeterminate(error)
-/// - `value`: 0–100 (clamped), only meaningful for state 2 and 3.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProgressEvent {
-    pub state: u8,
-    pub value: u8,
-}
-
-/// Events decoded by the OSC handler.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OscEvent {
     Clipboard(ClipboardEvent),
     ClipboardRead(ClipboardReadEvent),
     Cwd(CwdEvent),
     Hyperlink(HyperlinkEvent),
-    Notification(NotificationEvent),
-    /// ConEmu progress (OSC 9;4). `state` 0–4, `value` 0–100 clamped.
-    Progress(ProgressEvent),
-    /// Shell integration marker (OSC 133;A/B/C/D). The payload is the
-    /// letter; for D (command finished) the payload may carry the exit
-    /// code (`D;0`). termlib OscParser handleOsc133 equivalent.
-    ShellIntegration(ShellIntegrationEvent),
-}
-
-/// Shell integration event (OSC 133).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ShellIntegrationEvent {
-    /// Marker letter: A=prompt start, B=prompt end, C=command output
-    /// start, D=command finished.
-    pub marker: u8,
-    /// Optional exit code for D (`D;0`), None otherwise.
-    pub exit_code: Option<i32>,
 }
 
 /// OSC sequence interceptor that processes terminal output bytes and strips
@@ -350,34 +300,8 @@ impl OscHandler {
             OSC_CLIPBOARD => self.dispatch_osc52(&payload),
             OSC_CWD => self.dispatch_osc7(&payload),
             OSC_HYPERLINK => self.dispatch_osc8(&payload),
-            OSC_NOTIFICATION_ITERM2 => self.dispatch_osc9(&payload),
-            OSC_NOTIFICATION_RXVT => self.dispatch_osc777(&payload),
-            OSC_SHELL_INTEGRATION => Self::dispatch_osc133(&payload),
             _ => None,
         }
-    }
-
-    /// OSC 133 shell integration (termlib OscParser.handleOsc133).
-    /// Payload: `A` prompt start, `B` prompt end, `C` command output
-    /// start, `D[;exit_code]` command finished.
-    fn dispatch_osc133(payload: &str) -> Option<OscEvent> {
-        let mut chars = payload.chars();
-        let marker = chars.next()?;
-        if !matches!(marker, 'A' | 'B' | 'C' | 'D') {
-            return None;
-        }
-        let exit_code = if marker == 'D' {
-            chars
-                .next()
-                .filter(|&c| c == ';')
-                .and_then(|_| chars.as_str().trim().parse::<i32>().ok())
-        } else {
-            None
-        };
-        Some(OscEvent::ShellIntegration(ShellIntegrationEvent {
-            marker: marker as u8,
-            exit_code,
-        }))
     }
 
     /// Test-only entry point for proptest: dispatches an OSC 52 payload
@@ -431,55 +355,6 @@ impl OscHandler {
             Some(url.to_string())
         };
         Some(OscEvent::Hyperlink(HyperlinkEvent { url: url_opt }))
-    }
-
-    fn dispatch_osc9(&self, payload: &str) -> Option<OscEvent> {
-        if payload.is_empty() {
-            return None;
-        }
-        // OSC 9;4 ConEmu progress: `4;state[;value]`
-        // Must be checked before the generic notification parse since
-        // both share the OSC 9 number namespace.
-        if let Some(rest) = payload.strip_prefix("4;") {
-            return Self::dispatch_osc9_4(rest);
-        }
-        // Generic OSC 9 notification format: `title;body` or just `body`
-        let (title, body) = if let Some(semi) = payload.find(';') {
-            let t = &payload[..semi];
-            let b = &payload[semi + 1..];
-            (t.to_string(), b.to_string())
-        } else {
-            (String::new(), payload.to_string())
-        };
-        Some(OscEvent::Notification(NotificationEvent { title, body }))
-    }
-
-    /// ConEmu progress (OSC 9;4): `state[;value]`.
-    /// state: 0=remove, 1=indeterminate, 2=normal, 3=error, 4=indeterminate(error)
-    /// value: 0–100 clamped.
-    fn dispatch_osc9_4(rest: &str) -> Option<OscEvent> {
-        let mut parts = rest.split(';');
-        let state: u8 = parts.next()?.parse().ok()?;
-        if state > 4 {
-            return None;
-        }
-        let value: u8 = parts
-            .next()
-            .and_then(|v| v.parse::<u8>().ok())
-            .map(|v| v.min(100))
-            .unwrap_or(0);
-        Some(OscEvent::Progress(ProgressEvent { state, value }))
-    }
-
-    fn dispatch_osc777(&self, payload: &str) -> Option<OscEvent> {
-        let parts: Vec<&str> = payload.splitn(3, ';').collect();
-        if parts.len() < 3 || parts[0] != "notify" {
-            return None;
-        }
-        Some(OscEvent::Notification(NotificationEvent {
-            title: parts[1].to_string(),
-            body: parts[2].to_string(),
-        }))
     }
 }
 
@@ -572,33 +447,6 @@ mod tests {
         let mut handler = OscHandler::new();
         handler.process(b"\x1b]0;My Terminal\x07");
         assert_eq!(handler.output(), b"\x1b]0;My Terminal\x07");
-    }
-
-    #[test]
-    fn strip_osc9_notification() {
-        let mut handler = OscHandler::new();
-        handler.process(b"\x1b]9;Test notification\x07");
-        assert!(handler.output().is_empty());
-        assert_eq!(handler.events().len(), 1);
-        match &handler.events()[0] {
-            OscEvent::Notification(n) => assert_eq!(n.body, "Test notification"),
-            _ => panic!("expected notification event"),
-        }
-    }
-
-    #[test]
-    fn strip_osc777_notification() {
-        let mut handler = OscHandler::new();
-        handler.process(b"\x1b]777;notify;Title;Body text\x07");
-        assert!(handler.output().is_empty());
-        assert_eq!(handler.events().len(), 1);
-        match &handler.events()[0] {
-            OscEvent::Notification(n) => {
-                assert_eq!(n.title, "Title");
-                assert_eq!(n.body, "Body text");
-            }
-            _ => panic!("expected notification event"),
-        }
     }
 
     #[test]
@@ -721,86 +569,6 @@ mod tests {
                 assert_eq!(cwd.path, "file:///home/user/project");
             }
             other => panic!("expected OscEvent::Cwd, got {other:?}"),
-        }
-    }
-
-    // ── OSC 9;4 ConEmu progress tests ─────────────────────────────
-
-    #[test]
-    fn osc9_4_progress_normal_with_value() {
-        let mut handler = OscHandler::new();
-        handler.process(b"\x1b]9;4;2;75\x07");
-        assert!(handler.output().is_empty());
-        assert_eq!(handler.events().len(), 1);
-        match &handler.events()[0] {
-            OscEvent::Progress(p) => {
-                assert_eq!(p.state, 2, "state=normal");
-                assert_eq!(p.value, 75, "value=75");
-            }
-            other => panic!("expected Progress, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn osc9_4_progress_remove() {
-        let mut handler = OscHandler::new();
-        handler.process(b"\x1b]9;4;0\x07");
-        assert!(handler.output().is_empty());
-        match &handler.events()[0] {
-            OscEvent::Progress(p) => {
-                assert_eq!(p.state, 0, "state=remove");
-                assert_eq!(p.value, 0, "value defaults to 0");
-            }
-            other => panic!("expected Progress, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn osc9_4_progress_indeterminate() {
-        let mut handler = OscHandler::new();
-        handler.process(b"\x1b]9;4;1\x07");
-        match &handler.events()[0] {
-            OscEvent::Progress(p) => {
-                assert_eq!(p.state, 1, "state=indeterminate");
-            }
-            other => panic!("expected Progress, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn osc9_4_progress_value_clamped() {
-        let mut handler = OscHandler::new();
-        handler.process(b"\x1b]9;4;2;150\x07");
-        match &handler.events()[0] {
-            OscEvent::Progress(p) => {
-                assert_eq!(p.value, 100, "value must be clamped to 100");
-            }
-            other => panic!("expected Progress, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn osc9_4_progress_invalid_state_rejected() {
-        let mut handler = OscHandler::new();
-        handler.process(b"\x1b]9;4;9\x07");
-        assert!(
-            handler.events().is_empty(),
-            "state > 4 must be rejected (no event)"
-        );
-        // Payload still stripped from output
-        assert!(handler.output().is_empty());
-    }
-
-    #[test]
-    fn osc9_4_does_not_conflict_with_notification() {
-        let mut handler = OscHandler::new();
-        // Plain notification (no 4; prefix) must still produce Notification
-        handler.process(b"\x1b]9;Test notification body\x07");
-        match &handler.events()[0] {
-            OscEvent::Notification(n) => {
-                assert_eq!(n.body, "Test notification body");
-            }
-            other => panic!("expected Notification, got {other:?}"),
         }
     }
 }
