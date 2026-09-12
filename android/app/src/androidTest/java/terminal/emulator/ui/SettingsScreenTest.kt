@@ -51,7 +51,7 @@ class SettingsScreenTest {
 
     @Test
     fun settings_screen_shows_appearance_section() {
-        composeTestRule.onNodeWithText("Appearance").assertIsDisplayed()
+        composeTestRule.onNodeWithText("外观").assertIsDisplayed()
     }
 
     @Test
@@ -61,14 +61,35 @@ class SettingsScreenTest {
 
     @Test
     fun settings_screen_switches_day_theme() {
-        composeTestRule.onNodeWithText("Appearance").performTouchInput { swipeUp() }
+        composeTestRule.onNodeWithText("外观").performTouchInput { swipeUp() }
         composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithText("Day").assertExists()
+        composeTestRule.onNodeWithText("日间主题").assertExists()
     }
 
     @Test
     fun settings_screen_displays_font_list() {
         composeTestRule.onNodeWithTag("FontSizeSlider").assertExists()
+    }
+
+    @Test
+    fun settings_screen_shows_chinese_terminal_section_titles() {
+        composeTestRule
+            .onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasText("终端主题"))
+        composeTestRule.onNodeWithText("终端主题").assertIsDisplayed()
+        composeTestRule
+            .onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasText("软件主题"))
+        composeTestRule.onNodeWithText("软件主题").assertIsDisplayed()
+        composeTestRule.onNodeWithText("跟随系统").assertExists()
+    }
+
+    @Test
+    fun shizuku_toggle_visible_in_settings() {
+        composeTestRule
+            .onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasTestTag("ShizukuToggle"))
+        composeTestRule.onNodeWithTag("ShizukuToggle").assertIsDisplayed()
     }
 
     @Test
