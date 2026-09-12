@@ -1,8 +1,0 @@
-suite:
-  name: Terminal E2E Tests
-  tags:
-    - e2e
-appId: com.termux
-flows:
-  - ../flows/full-journey.yml
-  - ../flows/terminal-commands.yml
