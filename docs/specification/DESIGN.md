@@ -229,4 +229,5 @@
 - Model Context Protocol
 - termux-api
 - 设置-环境变量编辑功能
+- 背景图片，透明背景，背景模糊
 - termux.env 相关逻辑
