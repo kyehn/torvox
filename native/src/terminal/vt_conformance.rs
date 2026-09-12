@@ -11,14 +11,6 @@ pub fn sized_term(rows: u32, cols: u32, scrollback: u32) -> GhosttyTerminal {
     GhosttyTerminal::new(rows, cols, scrollback).expect("terminal create")
 }
 
-/// Write bytes, flush, and return cursor position.
-pub fn process_and_get_cursor(t: &mut GhosttyTerminal, data: &[u8]) -> (u32, u32) {
-    t.vt_write(data);
-    t.flush();
-    let snap = t.take_snapshot();
-    (snap.cursor_row, snap.cursor_col)
-}
-
 /// Write bytes, flush, return snapshot with invariants.
 pub fn process_and_snapshot(
     t: &mut GhosttyTerminal,
@@ -29,22 +21,6 @@ pub fn process_and_snapshot(
     let snap = t.take_snapshot();
     assert_invariants(&snap);
     snap
-}
-
-/// Assert every cell equals val.
-pub fn assert_all_cells_equal(snap: &crate::terminal::ghostty_terminal::GridSnapshot, val: u32) {
-    for (i, cell) in snap.cells.iter().enumerate() {
-        assert_eq!(
-            cell.codepoint,
-            val,
-            "cell {} (r={},c={}) expected {} got {}",
-            i,
-            i / snap.cols as usize,
-            i % snap.cols as usize,
-            val,
-            cell.codepoint
-        );
-    }
 }
 
 /// Check grid invariants.
