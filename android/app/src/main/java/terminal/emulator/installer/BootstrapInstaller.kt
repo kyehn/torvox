@@ -2,14 +2,14 @@ package terminal.emulator.installer
 
 import android.system.Os
 import android.util.Log
-import java.io.File
-import java.io.FileInputStream
-import java.util.zip.ZipFile
-import java.util.zip.ZipInputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.isElf
 import terminal.emulator.runtime.isSystemShellScript
+import java.io.File
+import java.io.FileInputStream
+import java.util.zip.ZipFile
+import java.util.zip.ZipInputStream
 
 class BootstrapInstaller(
     private val prefixDir: File,
@@ -17,334 +17,334 @@ class BootstrapInstaller(
     private val stagingDir: File,
     private val onProgress: BootstrapProgressCallback? = null,
 ) {
-  // 原子安装：解压到 stagingDir，完成后原子重命名切换（见 installBootstrap）。
-  // 不写任何标记文件、不做校验文件，安装状态只认启动入口存在性。
-  companion object {
-    private const val TAG = "BootstrapInstaller"
-    const val COPY_BUFFER_SIZE = 8096
-    const val MAX_SYMLINKS_BYTES = 1024 * 1024
-    const val EXECUTABLE_FILE_MODE = 0x1ED
-    val EXEC_PREFIXES = listOf("bin/", "libexec/", "lib/apt/apt-helper", "lib/apt/methods/")
-    private const val EXTRACT_PROGRESS_INTERVAL = 10
+    // 原子安装：解压到 stagingDir，完成后原子重命名切换（见 installBootstrap）。
+    // 不写任何标记文件、不做校验文件，安装状态只认启动入口存在性。
+    companion object {
+        private const val TAG = "BootstrapInstaller"
+        const val COPY_BUFFER_SIZE = 8096
+        const val MAX_SYMLINKS_BYTES = 1024 * 1024
+        const val EXECUTABLE_FILE_MODE = 0x1ED
+        val EXEC_PREFIXES = listOf("bin/", "libexec/", "lib/apt/apt-helper", "lib/apt/methods/")
+        private const val EXTRACT_PROGRESS_INTERVAL = 10
 
-    // Zip-bomb guard: cap total uncompressed payload. A real bootstrap
-    // is ~150 MB; the limit gives headroom while preventing a hostile
-    // archive from filling the data partition.
-    private const val MAX_EXTRACTED_BYTES = 1L * 1024 * 1024 * 1024
-  }
+        // Zip-bomb guard: cap total uncompressed payload. A real bootstrap
+        // is ~150 MB; the limit gives headroom while preventing a hostile
+        // archive from filling the data partition.
+        private const val MAX_EXTRACTED_BYTES = 1L * 1024 * 1024 * 1024
+    }
 
-  /**
-   * True when the prefix must be (re-)installed: no shell entry present. 安装状态不做任何标记文件，只认启动入口存在性。
-   */
-  fun needsInstall(): Boolean = !hasShellBinary()
+    /**
+     * True when the prefix must be (re-)installed: no shell entry present. 安装状态不做任何标记文件，只认启动入口存在性。
+     */
+    fun needsInstall(): Boolean = !hasShellBinary()
 
-  /** 启动入口存在性：ELF 二进制或系统解释器启动脚本均可（后者经内核 shebang 直接执行）； 私有目录 shebang 脚本不计入，其解释器本身尚不可用。 */
-  private fun hasShellBinary(): Boolean =
-      (File(prefixDir, "bin/login").isFile &&
-          (isElf(File(prefixDir, "bin/login")) ||
-              isSystemShellScript(File(prefixDir, "bin/login")))) ||
-          File(prefixDir, "bin/bash").exists()
+    /** 启动入口存在性：ELF 二进制或系统解释器启动脚本均可（后者经内核 shebang 直接执行）； 私有目录 shebang 脚本不计入，其解释器本身尚不可用。 */
+    private fun hasShellBinary(): Boolean = (
+        File(prefixDir, "bin/login").isFile &&
+            (
+                isElf(File(prefixDir, "bin/login")) ||
+                    isSystemShellScript(File(prefixDir, "bin/login"))
+                )
+        ) ||
+        File(prefixDir, "bin/bash").exists()
 
-  /** 安装状态只认启动入口存在性，不写任何标记文件。 */
-  fun isInstalled(): Boolean = hasShellBinary()
+    /** 安装状态只认启动入口存在性，不写任何标记文件。 */
+    fun isInstalled(): Boolean = hasShellBinary()
 
-  suspend fun install(zipFile: File): Result<Unit> =
-      withContext(Dispatchers.IO) {
+    suspend fun install(zipFile: File): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-          // Only clear the staging area. The existing prefix must survive until the
-          // new bootstrap is fully extracted and atomically swapped in (see atomicRename),
-          // otherwise a failed install would leave the user with no working bootstrap.
-          // This staging + atomic-swap design matches termux TermuxInstaller.java:137-257
-          // (staging dir + SYMLINKS.txt + renameTo atomic switch + rollback).
-          delete(stagingDir)
-          delete(File(prefixDir.parentFile, "${prefixDir.name}.prev"))
-          createDirectories()
-          onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
-          val symlinks = extractZip(zipFile)
-          if (symlinks.isEmpty()) {
-            return@withContext Result.failure(Exception("No SYMLINKS.txt found in bootstrap ZIP"))
-          }
-          onProgress?.onProgress(BootstrapProgress.CreatingSymlinks)
-          createSymlinks(symlinks)
-          atomicRename()
-          ensureHomeAndTmp()
-          Result.success(Unit)
-        } catch (exception: Exception) {
-          // Log the class only, consistent with BootstrapDownloader: the
-          // exception message can embed user-supplied paths.
-          // Truncate to 300 chars for diagnostics without leaking full paths.
-          Log.e(
-              "BootstrapInstaller",
-              "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.take(300)}",
-          )
-          // Discard the partially extracted staging dir: it can be
-          // hundreds of MB and the system never clears filesDir, so a
-          // failed install would leak disk until the next retry.
-          try {
+            // Only clear the staging area. The existing prefix must survive until the
+            // new bootstrap is fully extracted and atomically swapped in (see atomicRename),
+            // otherwise a failed install would leave the user with no working bootstrap.
+            // This staging + atomic-swap design matches termux TermuxInstaller.java:137-257
+            // (staging dir + SYMLINKS.txt + renameTo atomic switch + rollback).
             delete(stagingDir)
-          } catch (cleanupException: Exception) {
-            Log.w("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
-          }
-          Result.failure(exception)
-        }
-      }
-
-  private fun createDirectories() {
-    stagingDir.mkdirs()
-  }
-
-  private fun extractZip(zipFile: File): List<Pair<String, String>> {
-    val symlinks = mutableListOf<Pair<String, String>>()
-    val executables = mutableListOf<String>()
-    val totalEntries = ZipFile(zipFile).use { it.size() }
-    var lastReportedEntry = 0
-    FileInputStream(zipFile).use { fis ->
-      ZipInputStream(fis).use { zis ->
-        processZipEntries(zis, symlinks, executables) { entryIndex ->
-          if (
-              entryIndex - lastReportedEntry >= EXTRACT_PROGRESS_INTERVAL ||
-                  entryIndex == totalEntries
-          ) {
-            lastReportedEntry = entryIndex
-            onProgress?.onProgress(BootstrapProgress.Extracting(entryIndex, totalEntries))
-          }
-        }
-      }
-    }
-    // Executables from EXECUTABLES.txt need +x permission — the archive's
-    // EXECUTABLES.txt is the authoritative list (matches termux-app
-    // TermuxInstaller.java:233-240).
-    for (executable in executables) {
-      try {
-        Os.chmod(File(stagingDir, executable).absolutePath, EXECUTABLE_FILE_MODE)
-      } catch (exception: Exception) {
-        Log.w(TAG, "EXECUTABLES.txt chmod failed for $executable", exception)
-      }
-    }
-    return symlinks
-  }
-
-  private fun processZipEntries(
-      zis: ZipInputStream,
-      symlinks: MutableList<Pair<String, String>>,
-      executables: MutableList<String>,
-      onEntryProcessed: (Int) -> Unit,
-  ) {
-    var entry = zis.nextEntry
-    var entryIndex = 0
-    var totalExtractedBytes = 0L
-    while (entry != null) {
-      val name = entry.name
-      // Zip-slip guard: reject absolute paths and any ".." segment
-      // so a malicious/tampered bootstrap archive cannot write
-      // outside the staging directory (e.g. overwrite prefs/logs).
-      val normalized = File(name).path
-      if (
-          name.startsWith("/") ||
-              normalized == ".." ||
-              normalized.startsWith("../") ||
-              normalized.contains("/../")
-      ) {
-        throw java.io.IOException("Unsafe zip entry name: $name")
-      }
-      if (name == "SYMLINKS.txt") {
-        // Bounded read: the entry is metadata and must be small;
-        // an unbounded readBytes() on a hostile archive OOMs the
-        // process.
-        val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
-        if (bytes.size >= MAX_SYMLINKS_BYTES) {
-          throw java.io.IOException("SYMLINKS.txt exceeds $MAX_SYMLINKS_BYTES bytes")
-        }
-        symlinks.addAll(parseSymlinks(bytes.decodeToString()))
-      } else if (name == "EXECUTABLES.txt") {
-        val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
-        if (bytes.size >= MAX_SYMLINKS_BYTES) {
-          throw java.io.IOException("EXECUTABLES.txt exceeds $MAX_SYMLINKS_BYTES bytes")
-        }
-        executables.addAll(
-            bytes.decodeToString().lines().map { it.trim() }.filter { it.isNotEmpty() },
-        )
-      } else if (entry.isDirectory) {
-        File(stagingDir, name).mkdirs()
-      } else {
-        val targetFile = File(stagingDir, name)
-        targetFile.parentFile?.mkdirs()
-        targetFile.outputStream().use { out ->
-          var entryBytes = 0L
-          val buffer = ByteArray(COPY_BUFFER_SIZE)
-          while (true) {
-            val read = zis.read(buffer)
-            if (read < 0) break
-            entryBytes += read
-            if (entryBytes > MAX_EXTRACTED_BYTES) {
-              throw java.io.IOException(
-                  "Bootstrap entry $name exceeds $MAX_EXTRACTED_BYTES bytes uncompressed",
-              )
+            delete(File(prefixDir.parentFile, "${prefixDir.name}.prev"))
+            createDirectories()
+            onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
+            val symlinks = extractZip(zipFile)
+            if (symlinks.isEmpty()) {
+                return@withContext Result.failure(Exception("No SYMLINKS.txt found in bootstrap ZIP"))
             }
-            totalExtractedBytes += read
-            // Zip-bomb guard across the whole archive: a 1 GiB
-            // download with a high compression ratio can expand
-            // to TBs across many entries. The cap is enforced
-            // here on the cumulative total, not just per entry.
-            if (totalExtractedBytes > MAX_EXTRACTED_BYTES) {
-              throw java.io.IOException(
-                  "Bootstrap archive exceeds $MAX_EXTRACTED_BYTES bytes total uncompressed",
-              )
+            onProgress?.onProgress(BootstrapProgress.CreatingSymlinks)
+            createSymlinks(symlinks)
+            atomicRename()
+            ensureHomeAndTmp()
+            Result.success(Unit)
+        } catch (exception: Exception) {
+            // Log the class only, consistent with BootstrapDownloader: the
+            // exception message can embed user-supplied paths.
+            // Truncate to 300 chars for diagnostics without leaking full paths.
+            Log.e(
+                "BootstrapInstaller",
+                "Install failed: ${exception.javaClass.simpleName}: ${exception.message?.take(300)}",
+            )
+            // Discard the partially extracted staging dir: it can be
+            // hundreds of MB and the system never clears filesDir, so a
+            // failed install would leak disk until the next retry.
+            try {
+                delete(stagingDir)
+            } catch (cleanupException: Exception) {
+                Log.w("BootstrapInstaller", "Failed to clean staging dir", cleanupException)
             }
-            out.write(buffer, 0, read)
-          }
+            Result.failure(exception)
         }
-        if (isExecutable(name)) {
-          Os.chmod(targetFile.absolutePath, EXECUTABLE_FILE_MODE)
-        }
-      }
-      entryIndex++
-      onEntryProcessed(entryIndex)
-      entry = zis.nextEntry
     }
-  }
 
-  private fun isExecutable(name: String): Boolean =
-      EXEC_PREFIXES.any { name.startsWith(it) } || name.startsWith("lib/apt/methods/")
-
-  internal val symlinkSeparator = Regex("""\s*(?:->|←|→|↔)\s*""")
-
-  /** Resolve `.`/`..` segments without touching the filesystem. */
-  internal fun normalizePath(path: String): String {
-    val absolute = path.startsWith("/")
-    val stack = ArrayDeque<String>()
-    for (part in path.split('/')) {
-      when (part) {
-        "",
-        ".",
-        -> {}
-
-        ".." -> {
-          if (stack.isNotEmpty() && stack.last() != "..") {
-            stack.removeLast()
-          } else {
-            stack.addLast("..")
-          }
-        }
-
-        else -> stack.addLast(part)
-      }
+    private fun createDirectories() {
+        stagingDir.mkdirs()
     }
-    val joined = stack.joinToString("/")
-    return if (absolute) "/$joined" else joined
-  }
 
-  internal fun parseSymlinks(content: String): List<Pair<String, String>> =
-      content
-          .lines()
-          .filter { it.isNotBlank() }
-          .mapNotNull { line ->
+    private fun extractZip(zipFile: File): List<Pair<String, String>> {
+        val symlinks = mutableListOf<Pair<String, String>>()
+        val executables = mutableListOf<String>()
+        val totalEntries = ZipFile(zipFile).use { it.size() }
+        var lastReportedEntry = 0
+        FileInputStream(zipFile).use { fis ->
+            ZipInputStream(fis).use { zis ->
+                processZipEntries(zis, symlinks, executables) { entryIndex ->
+                    if (
+                        entryIndex - lastReportedEntry >= EXTRACT_PROGRESS_INTERVAL ||
+                        entryIndex == totalEntries
+                    ) {
+                        lastReportedEntry = entryIndex
+                        onProgress?.onProgress(BootstrapProgress.Extracting(entryIndex, totalEntries))
+                    }
+                }
+            }
+        }
+        // Executables from EXECUTABLES.txt need +x permission — the archive's
+        // EXECUTABLES.txt is the authoritative list (matches termux-app
+        // TermuxInstaller.java:233-240).
+        for (executable in executables) {
+            try {
+                Os.chmod(File(stagingDir, executable).absolutePath, EXECUTABLE_FILE_MODE)
+            } catch (exception: Exception) {
+                Log.w(TAG, "EXECUTABLES.txt chmod failed for $executable", exception)
+            }
+        }
+        return symlinks
+    }
+
+    private fun processZipEntries(
+        zis: ZipInputStream,
+        symlinks: MutableList<Pair<String, String>>,
+        executables: MutableList<String>,
+        onEntryProcessed: (Int) -> Unit,
+    ) {
+        var entry = zis.nextEntry
+        var entryIndex = 0
+        var totalExtractedBytes = 0L
+        while (entry != null) {
+            val name = entry.name
+            // Zip-slip guard: reject absolute paths and any ".." segment
+            // so a malicious/tampered bootstrap archive cannot write
+            // outside the staging directory (e.g. overwrite prefs/logs).
+            val normalized = File(name).path
+            if (
+                name.startsWith("/") ||
+                normalized == ".." ||
+                normalized.startsWith("../") ||
+                normalized.contains("/../")
+            ) {
+                throw java.io.IOException("Unsafe zip entry name: $name")
+            }
+            if (name == "SYMLINKS.txt") {
+                // Bounded read: the entry is metadata and must be small;
+                // an unbounded readBytes() on a hostile archive OOMs the
+                // process.
+                val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
+                if (bytes.size >= MAX_SYMLINKS_BYTES) {
+                    throw java.io.IOException("SYMLINKS.txt exceeds $MAX_SYMLINKS_BYTES bytes")
+                }
+                symlinks.addAll(parseSymlinks(bytes.decodeToString()))
+            } else if (name == "EXECUTABLES.txt") {
+                val bytes = zis.readNBytes(MAX_SYMLINKS_BYTES)
+                if (bytes.size >= MAX_SYMLINKS_BYTES) {
+                    throw java.io.IOException("EXECUTABLES.txt exceeds $MAX_SYMLINKS_BYTES bytes")
+                }
+                executables.addAll(
+                    bytes.decodeToString().lines().map { it.trim() }.filter { it.isNotEmpty() },
+                )
+            } else if (entry.isDirectory) {
+                File(stagingDir, name).mkdirs()
+            } else {
+                val targetFile = File(stagingDir, name)
+                targetFile.parentFile?.mkdirs()
+                targetFile.outputStream().use { out ->
+                    var entryBytes = 0L
+                    val buffer = ByteArray(COPY_BUFFER_SIZE)
+                    while (true) {
+                        val read = zis.read(buffer)
+                        if (read < 0) break
+                        entryBytes += read
+                        if (entryBytes > MAX_EXTRACTED_BYTES) {
+                            throw java.io.IOException(
+                                "Bootstrap entry $name exceeds $MAX_EXTRACTED_BYTES bytes uncompressed",
+                            )
+                        }
+                        totalExtractedBytes += read
+                        // Zip-bomb guard across the whole archive: a 1 GiB
+                        // download with a high compression ratio can expand
+                        // to TBs across many entries. The cap is enforced
+                        // here on the cumulative total, not just per entry.
+                        if (totalExtractedBytes > MAX_EXTRACTED_BYTES) {
+                            throw java.io.IOException(
+                                "Bootstrap archive exceeds $MAX_EXTRACTED_BYTES bytes total uncompressed",
+                            )
+                        }
+                        out.write(buffer, 0, read)
+                    }
+                }
+                if (isExecutable(name)) {
+                    Os.chmod(targetFile.absolutePath, EXECUTABLE_FILE_MODE)
+                }
+            }
+            entryIndex++
+            onEntryProcessed(entryIndex)
+            entry = zis.nextEntry
+        }
+    }
+
+    private fun isExecutable(name: String): Boolean = EXEC_PREFIXES.any { name.startsWith(it) } || name.startsWith("lib/apt/methods/")
+
+    internal val symlinkSeparator = Regex("""\s*(?:->|←|→|↔)\s*""")
+
+    /** Resolve `.`/`..` segments without touching the filesystem. */
+    internal fun normalizePath(path: String): String {
+        val absolute = path.startsWith("/")
+        val stack = ArrayDeque<String>()
+        for (part in path.split('/')) {
+            when (part) {
+                "",
+                ".",
+                -> {}
+
+                ".." -> {
+                    if (stack.isNotEmpty() && stack.last() != "..") {
+                        stack.removeLast()
+                    } else {
+                        stack.addLast("..")
+                    }
+                }
+
+                else -> stack.addLast(part)
+            }
+        }
+        val joined = stack.joinToString("/")
+        return if (absolute) "/$joined" else joined
+    }
+
+    internal fun parseSymlinks(content: String): List<Pair<String, String>> = content
+        .lines()
+        .filter { it.isNotBlank() }
+        .mapNotNull { line ->
             val parts = line.split(symlinkSeparator)
             if (parts.size == 2) parts[0].trim() to parts[1].trim() else null
-          }
+        }
 
-  private fun createSymlinks(symlinks: List<Pair<String, String>>) {
-    for ((target, linkPath) in symlinks) {
-      // Symlink path escape guard (same rule as zip entry names):
-      // a hostile SYMLINKS.txt must not be able to create links
-      // outside the staging directory.
-      val normalized = File(linkPath).path
-      if (
-          linkPath.startsWith("/") ||
-              normalized == ".." ||
-              normalized.startsWith("../") ||
-              normalized.contains("/../")
-      ) {
-        throw java.io.IOException("Unsafe symlink path: $linkPath")
-      }
-      // The target is also attacker-controlled. Reject absolute
-      // paths and traversal so a link cannot point outside the
-      // staging tree — otherwise the recursive delete() below
-      // (staging cleanup / backup removal) would follow the link
-      // and wipe arbitrary directories.
-      // Two legitimate Termux SYMLINKS.txt shapes exist:
-      //  1. relative targets resolved against the LINK's parent dir
-      //     (`../term_entry.h` from `include/ncurses/` resolves to
-      //     `include/term_entry.h`, inside staging) — the naive
-      //     startsWith("../") check wrongly rejected those
-      //     ;
-      //  2. ABSOLUTE targets into the final prefix
-      //     (`/data/data/com.termux/files/usr/share/...`), which are
-      //     broken during staging but become valid once the staging
-      //     dir is atomically renamed to `files/usr`. Only allow
-      //     absolute targets that resolve inside the canonical
-      //     prefix path.
-      if (target.startsWith("/")) {
-        // Absolute symlinks: only allow targets that resolve inside
-        // the canonical prefix path.
-        val canonicalPrefix = prefixDir.canonicalPath
-        val resolvedAbsolute =
-            try {
-              File(target).canonicalPath
-            } catch (exception: Exception) {
-              throw java.io.IOException(
-                  "Unsafe symlink target: $target (${exception.message})",
-                  exception,
-              )
+    private fun createSymlinks(symlinks: List<Pair<String, String>>) {
+        for ((target, linkPath) in symlinks) {
+            // Symlink path escape guard (same rule as zip entry names):
+            // a hostile SYMLINKS.txt must not be able to create links
+            // outside the staging directory.
+            val normalized = File(linkPath).path
+            if (
+                linkPath.startsWith("/") ||
+                normalized == ".." ||
+                normalized.startsWith("../") ||
+                normalized.contains("/../")
+            ) {
+                throw java.io.IOException("Unsafe symlink path: $linkPath")
             }
-        if (
-            resolvedAbsolute != canonicalPrefix && !resolvedAbsolute.startsWith("$canonicalPrefix/")
-        ) {
-          throw java.io.IOException("Unsafe symlink target: $target")
+            // The target is also attacker-controlled. Reject absolute
+            // paths and traversal so a link cannot point outside the
+            // staging tree — otherwise the recursive delete() below
+            // (staging cleanup / backup removal) would follow the link
+            // and wipe arbitrary directories.
+            // Two legitimate Termux SYMLINKS.txt shapes exist:
+            //  1. relative targets resolved against the LINK's parent dir
+            //     (`../term_entry.h` from `include/ncurses/` resolves to
+            //     `include/term_entry.h`, inside staging) — the naive
+            //     startsWith("../") check wrongly rejected those
+            //     ;
+            //  2. ABSOLUTE targets into the final prefix
+            //     (`/data/data/com.termux/files/usr/share/...`), which are
+            //     broken during staging but become valid once the staging
+            //     dir is atomically renamed to `files/usr`. Only allow
+            //     absolute targets that resolve inside the canonical
+            //     prefix path.
+            if (target.startsWith("/")) {
+                // Absolute symlinks: only allow targets that resolve inside
+                // the canonical prefix path.
+                val canonicalPrefix = prefixDir.canonicalPath
+                val resolvedAbsolute =
+                    try {
+                        File(target).canonicalPath
+                    } catch (exception: Exception) {
+                        throw java.io.IOException(
+                            "Unsafe symlink target: $target (${exception.message})",
+                            exception,
+                        )
+                    }
+                if (
+                    resolvedAbsolute != canonicalPrefix && !resolvedAbsolute.startsWith("$canonicalPrefix/")
+                ) {
+                    throw java.io.IOException("Unsafe symlink target: $target")
+                }
+            } else {
+                val linkParent = File(linkPath).parent
+                val resolvedTarget = if (linkParent != null) File(linkParent, target).path else target
+                // Java File.path does NOT normalize ".." segments
+                // (File("a/../b").path == "a/../b"), so resolve them manually
+                // before the escape check.
+                val normalizedResolved = normalizePath(resolvedTarget)
+                if (normalizedResolved.startsWith("../") || normalizedResolved == "..") {
+                    throw java.io.IOException("Unsafe symlink target: $target")
+                }
+            }
+            val linkFile = File(stagingDir, linkPath)
+            linkFile.parentFile?.mkdirs()
+            Os.symlink(target, linkFile.absolutePath)
         }
-      } else {
-        val linkParent = File(linkPath).parent
-        val resolvedTarget = if (linkParent != null) File(linkParent, target).path else target
-        // Java File.path does NOT normalize ".." segments
-        // (File("a/../b").path == "a/../b"), so resolve them manually
-        // before the escape check.
-        val normalizedResolved = normalizePath(resolvedTarget)
-        if (normalizedResolved.startsWith("../") || normalizedResolved == "..") {
-          throw java.io.IOException("Unsafe symlink target: $target")
+    }
+
+    /** 上一次安装的旧目录：固定单备份，安装成功后保留，由用户手动删除。 */
+    private fun atomicRename() {
+        val staging = stagingDir
+        val prefix = prefixDir
+        if (prefix.exists()) {
+            // 旧目录先整体移入固定备份（同文件系统 rename 为原子操作），再换入新目录；
+            // 失败则恢复备份，旧环境保持可用；成功后备份保留，由用户手动删除。
+            val backup = File(prefix.parentFile, "${prefix.name}.prev")
+            if (!prefix.renameTo(backup)) {
+                throw Exception("Failed to move old prefix aside: ${prefix.path}")
+            }
+            val renamed = staging.renameTo(prefix)
+            if (!renamed) {
+                // Restore the old prefix so the previous bootstrap stays usable.
+                backup.renameTo(prefix)
+                throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
+            }
+        } else if (!staging.renameTo(prefix)) {
+            throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
         }
-      }
-      val linkFile = File(stagingDir, linkPath)
-      linkFile.parentFile?.mkdirs()
-      Os.symlink(target, linkFile.absolutePath)
     }
-  }
 
-  /** 上一次安装的旧目录：固定单备份，安装成功后保留，由用户手动删除。 */
-  private fun atomicRename() {
-    val staging = stagingDir
-    val prefix = prefixDir
-    if (prefix.exists()) {
-      // 旧目录先整体移入固定备份（同文件系统 rename 为原子操作），再换入新目录；
-      // 失败则恢复备份，旧环境保持可用；成功后备份保留，由用户手动删除。
-      val backup = File(prefix.parentFile, "${prefix.name}.prev")
-      if (!prefix.renameTo(backup)) {
-        throw Exception("Failed to move old prefix aside: ${prefix.path}")
-      }
-      val renamed = staging.renameTo(prefix)
-      if (!renamed) {
-        // Restore the old prefix so the previous bootstrap stays usable.
-        backup.renameTo(prefix)
-        throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
-      }
-    } else if (!staging.renameTo(prefix)) {
-      throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
+    private fun ensureHomeAndTmp() {
+        homeDir.mkdirs()
+        File(prefixDir, "tmp").mkdirs()
     }
-  }
 
-  private fun ensureHomeAndTmp() {
-    homeDir.mkdirs()
-    File(prefixDir, "tmp").mkdirs()
-  }
-
-  private fun delete(file: File) {
-    // Never follow symlinks while deleting: a symlink pointing at a
-    // directory resolves as isDirectory=true, so listing and recursing
-    // would delete the *target's* contents (data loss) and a self-
-    // referential link would recurse forever (StackOverflowError).
-    // A symlink is just an inode — delete it, not its destination.
-    if (!java.nio.file.Files.isSymbolicLink(file.toPath()) && file.isDirectory) {
-      file.listFiles()?.forEach { delete(it) }
+    private fun delete(file: File) {
+        // Never follow symlinks while deleting: a symlink pointing at a
+        // directory resolves as isDirectory=true, so listing and recursing
+        // would delete the *target's* contents (data loss) and a self-
+        // referential link would recurse forever (StackOverflowError).
+        // A symlink is just an inode — delete it, not its destination.
+        if (!java.nio.file.Files.isSymbolicLink(file.toPath()) && file.isDirectory) {
+            file.listFiles()?.forEach { delete(it) }
+        }
+        file.delete()
     }
-    file.delete()
-  }
 }
