@@ -1458,6 +1458,13 @@ constructor(
                 LogUtil.w(TAG, "openLinkAt: bad URI", e)
                 return false
             }
+        // Scheme allowlist: terminal output is untrusted, so only http(s)
+        // may be opened (blocks intent:/file:/javascript: from OSC 8).
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") {
+            LogUtil.w(TAG, "openLinkAt: rejected non-http(s) scheme: $scheme")
+            return false
+        }
         return try {
             val intent =
                 android.content
