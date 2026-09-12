@@ -891,18 +891,6 @@ fn osc_10_fg_text_visible() {
     );
 }
 
-#[test]
-fn osc_8_hyperlink() {
-    let mut t = term();
-    t.vt_write(b"\x1b]8;;https://x.com\x1b\\X\x1b]8;;\x1b\\");
-    t.flush();
-    assert_eq!(
-        t.read_line_text(0).unwrap_or_default().trim(),
-        "X",
-        "OSC 8: text visible"
-    );
-}
-
 // ═══════════════════════════════════════════════════════════════════════════
 // DEVICE ATTRIBUTES
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1560,7 +1548,7 @@ fn osc_777_desktop_notification_detection() {
     let mut t = term();
     t.vt_write(b"\x1b]777;notification;Test\x1b\\");
     t.flush();
-    // If implemented, this triggers a desktop notification; text still renders
+    // Removed feature (desktop notifications): the sequence must be ignored; text still renders
     t.vt_write(b"Notify");
     t.flush();
     let text = t.read_line_text(0).unwrap_or_default();

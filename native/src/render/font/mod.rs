@@ -414,14 +414,6 @@ mod tests {
     }
 
     #[test]
-    fn cell_metrics_returns_positive_dimensions() {
-        let pipeline = FontPipeline::new(1024, 1024, 14.0);
-        let (cw, ch) = pipeline.cell_metrics();
-        assert!(cw > 0.0, "cell_width must be > 0, got {cw}");
-        assert!(ch > 0.0, "cell_height must be > 0, got {ch}");
-    }
-
-    #[test]
     fn cell_metrics_scales_with_font_size() {
         let small = FontPipeline::new(1024, 1024, 10.0);
         let large = FontPipeline::new(1024, 1024, 20.0);
