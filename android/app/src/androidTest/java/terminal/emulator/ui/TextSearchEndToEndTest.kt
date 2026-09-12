@@ -237,6 +237,11 @@ class TextSearchEndToEndTest {
         saveScreenshot("04_after_previous")
 
         // Verify terminal text still contains the marker (search didn't break terminal)
+        val terminalText = bridge.getTerminalText().orEmpty()
+        assertTrue(
+            "terminal must still contain $uniqueMarker after search navigation",
+            terminalText.contains(uniqueMarker),
+        )
     }
 
     // ── Test 4: Smart case toggle ──
