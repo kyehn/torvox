@@ -1533,7 +1533,9 @@ mod tests {
         // speed on par with Latin (no per-glyph fallback scan).
         let mut maple_db = fontdb::Database::new();
         let Some(font_path) = find_maple_mono_font(&mut maple_db) else {
-            eprintln!("SKIP: maple_mono_primary_skips_cjk_fallback (no Maple Mono in system fonts)");
+            eprintln!(
+                "SKIP: maple_mono_primary_skips_cjk_fallback (no Maple Mono in system fonts)"
+            );
             return;
         };
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
@@ -1898,4 +1900,3 @@ mod tests {
         );
     }
 }
-
