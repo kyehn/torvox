@@ -6,7 +6,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -25,10 +24,10 @@ class SettingsScreenTest {
     // MainActivity requests POST_NOTIFICATIONS on Android 13+ at startup;
     // the system dialog would cover the UI and break node lookups.
     @get:Rule
-    val notificationPermission = GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+    val notificationPermission =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-    @get:Rule
-    val composeTestRule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Before
     fun setUp() {
@@ -73,23 +72,11 @@ class SettingsScreenTest {
 
     @Test
     fun settings_screen_shows_chinese_terminal_section_titles() {
-        composeTestRule
-            .onNodeWithTag("SettingsLazyColumn")
-            .performScrollToNode(hasText("终端主题"))
+        composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(hasText("终端主题"))
         composeTestRule.onNodeWithText("终端主题").assertIsDisplayed()
-        composeTestRule
-            .onNodeWithTag("SettingsLazyColumn")
-            .performScrollToNode(hasText("软件主题"))
+        composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(hasText("软件主题"))
         composeTestRule.onNodeWithText("软件主题").assertIsDisplayed()
         composeTestRule.onNodeWithText("跟随系统").assertExists()
-    }
-
-    @Test
-    fun shizuku_toggle_visible_in_settings() {
-        composeTestRule
-            .onNodeWithTag("SettingsLazyColumn")
-            .performScrollToNode(hasTestTag("ShizukuToggle"))
-        composeTestRule.onNodeWithTag("ShizukuToggle").assertIsDisplayed()
     }
 
     @Test
@@ -104,7 +91,8 @@ class SettingsScreenTest {
         val switch = composeTestRule.onNodeWithTag("TerminalThemeFollowSystemSwitch")
         val isOn =
             switch.fetchSemanticsNode().config.contains(SemanticsProperties.ToggleableState) &&
-                switch.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] == ToggleableState.On
+                switch.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] ==
+                ToggleableState.On
         if (isOn) {
             switch.performClick()
             composeTestRule.waitForIdle()
@@ -113,9 +101,7 @@ class SettingsScreenTest {
             .onNodeWithTag("SettingsLazyColumn")
             .performScrollToNode(hasTestTag("ThemeSelector"))
         composeTestRule.onNodeWithTag("ThemeSelector").assertIsDisplayed()
-        composeTestRule
-            .onNodeWithTag("SettingsLazyColumn")
-            .performScrollToNode(hasText("Dracula Plus"))
+        composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(hasText("Dracula Plus"))
         composeTestRule.onNodeWithText("Dracula Plus").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("SettingsBackButton").performClick()

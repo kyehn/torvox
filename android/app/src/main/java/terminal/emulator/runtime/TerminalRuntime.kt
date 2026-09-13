@@ -26,7 +26,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import terminal.emulator.ShizukuGate
 import terminal.emulator.bridge.Bridge
 import terminal.emulator.bridge.BridgeTheme
 import terminal.emulator.bridge.NativeBridge
@@ -793,13 +792,11 @@ constructor(
             val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
             val fontDeferred = async { computeFontSizeTenths() }
             val themeDeferred = async { resolveThemeName() }
-            val shizukuDeferred = async { settingsRepository.shizukuEnabled.first() }
             ConfigReads(
                 shellPath = shellDeferred.await(),
                 scrollbackLines = scrollbackDeferred.await(),
                 fontSizeTenths = fontDeferred.await(),
                 themeName = themeDeferred.await(),
-                shizukuEnabled = shizukuDeferred.await(),
             )
         }
         val resolvedTheme = BuiltInThemes.byName(configReads.themeName)
@@ -826,8 +823,7 @@ constructor(
             "prefixShell=$prefixShell prefixComplete=$prefixComplete prefixDir=$prefixDir",
         )
         val effectivePrefix = if (prefixComplete) prefixDir else ""
-        val effectiveShell =
-            resolveEffectiveShell(prefixDir, prefixShell, prefixComplete, configReads, shell)
+        val effectiveShell = resolveEffectiveShell(prefixDir, prefixShell, prefixComplete, shell)
         val effectiveHome =
             if (prefixComplete) {
                 homeDir
@@ -1790,27 +1786,12 @@ constructor(
         private const val GRACE_PERIOD_AFTER_RESTART_MS = 300L
     }
 
-    /**
-     * DESIGN Shizuku switch: the app domain cannot exec prefix binaries (untrusted_app W^X,
-     * EACCES/126 device-verified), so an authorized switch routes the prefix login through the Shizuku
-     * server via rish. Extracted from buildConfig so it stays under the detekt LongMethod limit.
-     */
     private fun resolveEffectiveShell(
         prefixDir: String,
         prefixShell: String?,
         prefixComplete: Boolean,
-        configReads: ConfigReads,
         shell: Shell,
     ): Shell {
-        val shizukuLogin =
-            prefixComplete &&
-                prefixShell == "bin/login" &&
-                configReads.shizukuEnabled &&
-                ShizukuGate.isAuthorized()
-        if (shizukuLogin) {
-            LogUtil.d("Runtime", "Shizuku login bridge active")
-            return Shell.Custom(ShizukuGate.ensureWrapper(context, prefixDir).absolutePath)
-        }
         if (prefixComplete) return Shell.Custom("$prefixDir/$prefixShell")
         return shell
     }
@@ -1820,7 +1801,6 @@ constructor(
         val scrollbackLines: Int,
         val fontSizeTenths: Int,
         val themeName: String,
-        val shizukuEnabled: Boolean,
     )
 
     /**
@@ -3148,16 +3128,6 @@ constructor(
             try {
                 val familyResult = entry.bridge?.setFontFamily(effectiveFontFamily)
                 LogUtil.d("Runtime", "setFontFamily result: $familyResult")
-                // Independent bold/italic families (ghostty-android 4-slot
-                // design): empty = clear the slot (same-family fallback).
-                val boldFamily =
-                    terminal.emulator.resolveEffectiveFontFamily(settingsRepository.boldFontFamily.first())
-                val italicFamily =
-                    terminal.emulator.resolveEffectiveFontFamily(
-                        settingsRepository.italicFontFamily.first(),
-                    )
-                entry.bridge?.setFontFamilyForStyle(boldFamily, terminal.emulator.FONT_SLOT_BOLD)
-                entry.bridge?.setFontFamilyForStyle(italicFamily, terminal.emulator.FONT_SLOT_ITALIC)
                 entry.bridge?.setFontSizeInPlace(fontSizeTenths)
                 entry.bridge?.let { syncGridDimensions(it) }
                 // the grid must follow the font. syncGridDimensions

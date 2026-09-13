@@ -11,7 +11,7 @@ plugins {
   id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
   id("androidx.benchmark") version "1.5.0" apply false
   id("androidx.baselineprofile") version "1.5.0" apply false
-  id("com.github.ben-manes.versions") version "0.61.0" apply false
+  id("com.github.ben-manes.versions") version "0.62.0" apply false
   id("com.ncorti.ktfmt.gradle") version "0.27.0" apply false
   id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
   id("de.infix.testBalloon") version "1.0.1-K2.4.0" apply false
@@ -59,5 +59,4 @@ subprojects {
   }
 }
 
-// Gradle Versions Plugin: provides `dependencyUpdates` task at root level
 apply(plugin = "com.github.ben-manes.versions")

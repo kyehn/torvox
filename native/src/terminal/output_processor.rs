@@ -145,4 +145,15 @@ mod tests {
             "read request must not reach the VT parser"
         );
     }
+
+    #[test]
+    fn osc7_working_directory_forwarded() {
+        let mut proc = OutputProcessor::new();
+        let snap = proc.process(b"\x1b]7;file:///home/user\x07");
+        assert_eq!(snap.cwd.as_deref(), Some("file:///home/user"));
+        assert!(
+            snap.filtered.is_empty(),
+            "directory report must not reach the VT parser"
+        );
+    }
 }

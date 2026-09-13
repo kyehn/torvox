@@ -1,7 +1,9 @@
 package terminal.emulator
 
+import android.content.res.AssetFileDescriptor
 import android.database.Cursor
 import android.database.MatrixCursor
+import android.graphics.Point
 import android.os.CancellationSignal
 import android.os.ParcelFileDescriptor
 import android.provider.DocumentsContract.Document
@@ -16,6 +18,12 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         const val AUTHORITY = "terminal.emulator.documents"
         private const val ROOT_ID = "terminal_home"
 
+        // 搜索结果上限，与 Termux 的 MAX_SEARCH_RESULTS 对齐。
+        private const val MAX_SEARCH_RESULTS = 50
+
+        // 冲突重命名起始序号，与 Termux 的 "name (2)" 策略对齐。
+        private const val CONFLICT_SUFFIX_START = 2
+
         private val ROOT_PROJECTION =
             arrayOf(
                 Root.COLUMN_ROOT_ID,
@@ -25,6 +33,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                 Root.COLUMN_FLAGS,
                 Root.COLUMN_ICON,
                 Root.COLUMN_MIME_TYPES,
+                Root.COLUMN_AVAILABLE_BYTES,
             )
 
         private val DOC_PROJECTION =
@@ -79,6 +88,20 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             return resolved
         }
 
+        fun isHomeLink(rawFile: File, rootDir: File): Boolean {
+            // Containment is checked on the link's OWN path, never its
+            // canonical target: rawFile may contain ".." segments (a
+            // hostile docId), and File does not normalize them. Resolve
+            // the parent canonically and re-append the name so the check
+            // covers the actual entry being touched. A null parent (a bare
+            // name with no directory part) cannot escape the root.
+            if (!java.nio.file.Files.isSymbolicLink(rawFile.toPath())) return false
+            val parentCanonical = rawFile.parentFile?.canonicalFile ?: return true
+            val linkPath = File(parentCanonical, rawFile.name).canonicalPath
+            val rootPath = rootDir.canonicalPath
+            return linkPath.startsWith(rootPath + File.separator) || linkPath == rootPath
+        }
+
         private fun requireInsideRoot(
             file: File,
             rootDir: File,
@@ -95,11 +118,18 @@ class TerminalDocumentsProvider : DocumentsProvider() {
 
     override fun onCreate(): Boolean = true
 
-    private fun getRootDir(): File = java.io.File(requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }.filesDir, "home").also { dir ->
-        if (!dir.mkdirs()) {
-            Log.w("DocumentsProvider", "Failed to create home directory: $dir")
+    private fun getRootDir(): File = java.io
+        .File(
+            requireNotNull(context) { "TerminalDocumentsProvider requires a Context" }.filesDir,
+            "home",
+        )
+        .also { dir ->
+            // mkdirs 在目录已存在时返回 false，只有目录仍不存在才告警。
+            dir.mkdirs()
+            if (!dir.isDirectory) {
+                Log.w("DocumentsProvider", "Failed to create home directory: $dir")
+            }
         }
-    }
 
     override fun queryRoots(projection: Array<out String>?): Cursor {
         val cols = projection ?: ROOT_PROJECTION
@@ -110,9 +140,13 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             add(Root.COLUMN_DOCUMENT_ID, encodeDocId(rootDir, rootDir))
             add(Root.COLUMN_TITLE, "Terminal Home")
             add(Root.COLUMN_SUMMARY, rootDir.absolutePath)
-            add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_CREATE or Root.FLAG_SUPPORTS_IS_CHILD)
+            add(
+                Root.COLUMN_FLAGS,
+                Root.FLAG_SUPPORTS_CREATE or Root.FLAG_SUPPORTS_SEARCH or Root.FLAG_SUPPORTS_IS_CHILD,
+            )
             add(Root.COLUMN_ICON, R.mipmap.ic_launcher)
             add(Root.COLUMN_MIME_TYPES, "*/*")
+            add(Root.COLUMN_AVAILABLE_BYTES, rootDir.freeSpace)
         }
         return cursor
     }
@@ -124,10 +158,30 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val cols = projection ?: DOC_PROJECTION
         val cursor = MatrixCursor(cols)
         val rootDir = getRootDir()
-        val file = decodeDocId(documentId, rootDir)
-        requireInsideRoot(file, rootDir)
-        addDocRow(cursor, file, rootDir)
+        addDocRow(cursor, resolveLinkEntry(documentId, rootDir), rootDir)
         return cursor
+    }
+
+    // 链接条目返回链接自身而非目标：与 queryChildDocuments 给出的行
+    // 保持同一 docId，否则客户端按浏览结果回查会拿到另一个 id。
+    // Termux 无此区分（绝对路径即 id）；此处在 Termux 行为之上补齐
+    // 链接身份一致性。normalize 只做词法处理不跟随链接，配合根内
+    // 校验挡住 ".." 逃逸。
+    private fun resolveLinkEntry(documentId: String, rootDir: File): File {
+        val linkCandidate = File(rootDir, documentId)
+        if (!java.nio.file.Files.isSymbolicLink(linkCandidate.toPath())) {
+            val decoded = decodeDocId(documentId, rootDir)
+            requireInsideRoot(decoded, rootDir)
+            return decoded
+        }
+        val rootPath = rootDir.canonicalPath
+        val linkPath = linkCandidate.toPath().normalize().toString()
+        if (!(linkPath.startsWith(rootPath + File.separator) || linkPath == rootPath)) {
+            throw java.io.FileNotFoundException(
+                "Access denied: $linkPath is outside the terminal home directory",
+            )
+        }
+        return linkCandidate
     }
 
     override fun queryChildDocuments(
@@ -141,7 +195,10 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val parent = decodeDocId(parentDocumentId, rootDir)
         requireInsideRoot(parent, rootDir)
         val children = parent.listFiles() ?: emptyArray()
-        val sorted = children.sortedWith(compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() })
+        val sorted =
+            children.sortedWith(
+                compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() },
+            )
         for (child in sorted) {
             addDocRow(cursor, child, rootDir)
         }
@@ -156,17 +213,16 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val rootDir = getRootDir()
         val file = decodeDocId(documentId, rootDir)
         requireInsideRoot(file, rootDir)
-        // Exact match of ParcelFileDescriptor.parseMode semantics: only
-        // "w"/"wt"/"rwt" truncate, "wa" appends, "rw" is a plain
-        // read-modify-write. Any "contains" heuristic misclassifies at
-        // least one of these  truncated "rw"/"wa";
-        // stopped truncating plain "w", corrupting save-with-shorter-
-        // content).
+        // 显式映射而非委托 parseMode：实测本平台 parseMode("w") 不含
+        // TRUNCATE，会破坏 SAF 的“w 截断”语义（单测已锁定）。
+        // "rws"/"rwd" 按读写打开，不截断不追加。
         val fileMode =
             when (mode) {
                 "r" -> ParcelFileDescriptor.MODE_READ_ONLY
 
-                "w", "wt" ->
+                "w",
+                "wt",
+                ->
                     ParcelFileDescriptor.MODE_WRITE_ONLY or
                         ParcelFileDescriptor.MODE_CREATE or
                         ParcelFileDescriptor.MODE_TRUNCATE
@@ -183,15 +239,28 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                         ParcelFileDescriptor.MODE_CREATE or
                         ParcelFileDescriptor.MODE_TRUNCATE
 
+                "rws",
+                "rwd",
+                -> ParcelFileDescriptor.MODE_READ_WRITE or ParcelFileDescriptor.MODE_CREATE
+
                 else -> {
-                    // An unknown mode string is a client contract violation
-                    // (ParcelFileDescriptor.parseMode semantics): fail loudly
-                    // instead of silently handing out a read-only fd to a
-                    // client that asked for write access.
+                    // 非法模式是客户端契约违反，大声失败，不静默降级。
                     throw IllegalArgumentException("Unsupported mode '$mode'")
                 }
             }
         return ParcelFileDescriptor.open(file, fileMode)
+    }
+
+    override fun openDocumentThumbnail(
+        documentId: String,
+        sizeHint: Point?,
+        signal: CancellationSignal?,
+    ): AssetFileDescriptor {
+        // 仅图片行声明 FLAG_SUPPORTS_THUMBNAIL，缩略图即原文件只读句柄。
+        val rootDir = getRootDir()
+        val file = resolveLinkEntry(documentId, rootDir)
+        val parcelFileDescriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
+        return AssetFileDescriptor(parcelFileDescriptor, 0, file.length())
     }
 
     override fun createDocument(
@@ -202,11 +271,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         val rootDir = getRootDir()
         val parent = decodeDocId(parentDocumentId, rootDir)
         requireInsideRoot(parent, rootDir)
-        val safeName =
-            displayName
-                .replace(Regex("[/\\\\]"), "_")
-                .replace("..", "_")
-                .trim()
+        val safeName = displayName.replace(Regex("[/\\\\]"), "_").replace("..", "_").trim()
         // Refuse degenerate names: an empty name or "." resolves File(parent,
         // name) back to the parent directory itself — "creating" it would
         // return the parent's docId as a new document, and a client calling
@@ -215,14 +280,20 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             throw IllegalArgumentException("Invalid document name: '$displayName'")
         }
         val isDir = mimeType == Document.MIME_TYPE_DIR
-        val child = File(parent, safeName)
+        // 与 Termux 一致的冲突策略：已存在则追加 " (2)" 后缀，而非报错。
+        var child = File(parent, safeName)
+        var conflictId = CONFLICT_SUFFIX_START
+        while (child.exists()) {
+            child = File(parent, "$safeName ($conflictId)")
+            conflictId++
+        }
         if (isDir) {
             if (!child.mkdirs() && !child.isDirectory) {
-                throw java.io.IOException("Failed to create directory '$safeName'")
+                throw java.io.IOException("Failed to create directory '${child.name}'")
             }
         } else {
             if (!child.createNewFile()) {
-                throw java.io.IOException("Failed to create file '$safeName'")
+                throw java.io.IOException("Failed to create file '${child.name}'")
             }
         }
         // A failure to encode (canonical path IO error) must not silently
@@ -230,7 +301,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         // root and deleteDocument would later reject it. Fail loudly so
         // the client can surface the error.
         return encodeDocId(child, rootDir)
-            ?: throw java.io.IOException("Failed to encode docId for '$safeName'")
+            ?: throw java.io.IOException("Failed to encode docId for '${child.name}'")
     }
 
     override fun renameDocument(
@@ -241,22 +312,31 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         if (documentId == ROOT_ID) {
             throw java.io.FileNotFoundException("Refusing to rename the root document")
         }
-        val file = decodeDocId(documentId, rootDir)
-        requireInsideRoot(file, rootDir)
-        val safeName =
-            displayName
-                .replace(Regex("[/\\\\]"), "_")
-                .replace("..", "_")
-                .trim()
+        val safeName = displayName.replace(Regex("[/\\\\]"), "_").replace("..", "_").trim()
         if (safeName.isEmpty() || safeName == ".") {
             throw IllegalArgumentException("Invalid document name: '$displayName'")
         }
-        val parent = file.parentFile ?: throw java.io.FileNotFoundException("Invalid document id: $documentId")
+        // 链接条目重命名链接自身而非目标：decode 会跟随链接到目标，
+        // 直接重命名会误改目标文件名，目标内容不受影响但名称被改。
+        // 与 deleteDocument 同策略：只动链接 inode，归属校验走链接自身路径。
+        // 站外链接不在链接分支处理：decode 会跟随到站外目标并由
+        // requireInsideRoot 拒绝，不会误改站外文件。
+        val rawFile = File(rootDir, documentId)
+        val source =
+            if (isHomeLink(rawFile, rootDir)) {
+                rawFile
+            } else {
+                val file = decodeDocId(documentId, rootDir)
+                requireInsideRoot(file, rootDir)
+                file
+            }
+        val parent =
+            source.parentFile ?: throw java.io.FileNotFoundException("Invalid document id: $documentId")
         val target = File(parent, safeName)
         if (target.exists()) {
             throw java.io.IOException("Target '$safeName' already exists")
         }
-        if (!file.renameTo(target)) {
+        if (!source.renameTo(target)) {
             throw java.io.IOException("Failed to rename '$displayName'")
         }
         return encodeDocId(target, rootDir)
@@ -271,28 +351,12 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             throw java.io.FileNotFoundException("Refusing to delete the root document")
         }
         val rawFile = File(rootDir, documentId)
-        if (java.nio.file.Files.isSymbolicLink(rawFile.toPath())) {
+        if (isHomeLink(rawFile, rootDir)) {
             // The docId addresses a symlink entry itself (encodeDocId
             // encodes the link path, not its canonical target). Delete
             // only the link inode — deleting the canonical target would
             // wipe the linked directory tree the user did not ask to
             // remove.
-            // Containment is checked on the link's OWN path, never its
-            // canonical target: rawFile may contain ".." segments (a
-            // hostile docId), and File does not normalize them. Resolve
-            // the parent canonically and re-append the name so the check
-            // covers the actual entry being deleted.
-            val parentCanonical = rawFile.parentFile?.canonicalFile
-            if (parentCanonical == null) {
-                throw java.io.FileNotFoundException("Invalid document id: $documentId")
-            }
-            val linkPath = File(parentCanonical, rawFile.name).canonicalPath
-            val rootPath = rootDir.canonicalPath
-            if (!(linkPath.startsWith(rootPath + File.separator) || linkPath == rootPath)) {
-                throw java.io.FileNotFoundException(
-                    "Access denied: $linkPath is outside the terminal home directory",
-                )
-            }
             if (rawFile.delete()) {
                 return
             }
@@ -312,16 +376,13 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     }
 
     /**
-     * Iterative delete that never follows symlinks and never recurses into
-     * the JVM stack.
+     * Iterative delete that never follows symlinks and never recurses into the JVM stack.
      *
-     * A user's `ln -s . loop` in the terminal home makes deleteRecursively()
-     * recurse into the link's target (the directory itself) forever →
-     * StackOverflowError, which bypasses catch(Exception) and crashes the
-     * whole process (all sessions). A symlink is just an inode: delete it,
-     * not its destination. A deeply nested directory tree (2000+ levels built
-     * with repeated `cd` + mkdir) would likewise overflow the stack with
-     * recursion — walk it iteratively instead.
+     * A user's `ln -s . loop` in the terminal home makes deleteRecursively() recurse into the link's
+     * target (the directory itself) forever → StackOverflowError, which bypasses catch(Exception) and
+     * crashes the whole process (all sessions). A symlink is just an inode: delete it, not its
+     * destination. A deeply nested directory tree (2000+ levels built with repeated `cd` + mkdir)
+     * would likewise overflow the stack with recursion — walk it iteratively instead.
      */
     private fun deleteWithoutFollowingSymlinks(file: File) {
         // Two phases: walk the tree once collecting directories, deleting
@@ -371,7 +432,44 @@ class TerminalDocumentsProvider : DocumentsProvider() {
     override fun getDocumentType(documentId: String): String {
         val rootDir = getRootDir()
         val file = decodeDocId(documentId, rootDir)
+        requireInsideRoot(file, rootDir)
         return if (file.isDirectory) Document.MIME_TYPE_DIR else getMimeType(file.name)
+    }
+
+    override fun querySearchDocuments(
+        rootId: String,
+        query: String,
+        projection: Array<out String>?,
+    ): Cursor {
+        // 与 Termux 一致的按文件名搜索：迭代遍历、上限截断、符号链接
+        // 不得跳出 home。查询词双向小写，修正 Termux 仅小写文件名的遗漏。
+        val cols = projection ?: DOC_PROJECTION
+        val cursor = MatrixCursor(cols)
+        val rootDir = getRootDir()
+        val rootPath = rootDir.canonicalPath
+        val needle = query.lowercase()
+        val pending = ArrayDeque<File>()
+        pending.addLast(decodeDocId(rootId, rootDir))
+        while (pending.isNotEmpty() && cursor.count < MAX_SEARCH_RESULTS) {
+            val current = pending.removeFirst()
+            val canonical = canonicalOrNull(current) ?: continue
+            if (!(canonical.startsWith(rootPath + File.separator) || canonical == rootPath)) {
+                continue
+            }
+            if (!java.nio.file.Files.isSymbolicLink(current.toPath()) && current.isDirectory) {
+                current.listFiles()?.forEach { pending.addLast(it) }
+            } else if (current.name.lowercase().contains(needle)) {
+                addDocRow(cursor, current, rootDir)
+            }
+        }
+        return cursor
+    }
+
+    private fun canonicalOrNull(file: File): String? = try {
+        file.canonicalPath
+    } catch (error: java.io.IOException) {
+        Log.w("TerminalDocumentsProvider", "query skipping unreadable entry", error)
+        null
     }
 
     private fun addDocRow(
@@ -384,6 +482,8 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         var flags = 0
         if (file.isDirectory) flags = flags or Document.FLAG_DIR_SUPPORTS_CREATE
         flags = flags or Document.FLAG_SUPPORTS_DELETE or Document.FLAG_SUPPORTS_WRITE
+        // 与 Termux 一致：图片声明缩略图支持，对应 openDocumentThumbnail。
+        if (mime.startsWith("image/")) flags = flags or Document.FLAG_SUPPORTS_THUMBNAIL
         cursor.newRow().apply {
             add(Document.COLUMN_DOCUMENT_ID, docId)
             add(Document.COLUMN_DISPLAY_NAME, file.name)

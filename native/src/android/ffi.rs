@@ -2040,6 +2040,37 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTitle<'loca
     })
 }
 
+/// 返回会话工作目录（OSC 7 上报），未上报过返回 null。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getCurrentDirectory<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    session_id: jlong,
+) -> jstring {
+    jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/IllegalArgumentException"),
+                jni_str!("getCurrentDirectory: session not found"),
+            );
+            return Ok(std::ptr::null_mut());
+        };
+        let session = entry.session.lock();
+        let directory = session.current_directory();
+        drop(session);
+        drop(registry);
+        match directory {
+            Some(path) => match env.new_string(&path) {
+                Ok(s) => s.into_raw(),
+                Err(_) => std::ptr::null_mut(),
+            },
+            None => std::ptr::null_mut(),
+        }
+    })
+}
+
 // ── 文本与滚动查询 ──────────────────────────────────────────────
 /// Returns the number of scrollback rows for a session.
 #[unsafe(no_mangle)]
@@ -2776,35 +2807,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
         };
         let found = render_state.font_pipeline.set_font_family(&family_str);
         log::info!("setFontFamily: {family_str} found={found}");
-        if found { JNI_TRUE } else { JNI_FALSE }
-    })
-}
-
-/// Set the independent family for one style slot — 0=bold, 1=italic,
-/// 2=bold-italic (ghostty-android TerminalFontStore 4-slot design,
-/// research-ghostty-android-extra.md:80). Empty family clears the slot
-/// (falls back to same-family lookup + synthesis).
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamilyForStyle(
-    mut unowned_env: EnvUnowned<'_>,
-    _class: JClass,
-    _session_id: jlong,
-    family: JString,
-    slot: jint,
-) -> jboolean {
-    jni_export_guard!(&mut unowned_env, JNI_FALSE, |env| {
-        let family_str = match family.try_to_string(env) {
-            Ok(s) => s,
-            Err(_) => return Ok(JNI_FALSE),
-        };
-        let mut state = render_state_mut();
-        let Some(render_state) = state.as_mut() else {
-            return Ok(JNI_FALSE);
-        };
-        let found = render_state
-            .font_pipeline
-            .set_font_family_for_style(&family_str, slot.max(0) as u8);
-        log::info!("setFontFamilyForStyle(slot={slot}): {family_str} found={found}");
         if found { JNI_TRUE } else { JNI_FALSE }
     })
 }

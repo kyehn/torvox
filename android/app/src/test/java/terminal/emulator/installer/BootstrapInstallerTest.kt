@@ -155,7 +155,7 @@ class BootstrapInstallerTest {
 
     @Test
     fun installed_rejectsStoreWithoutBashInteractive() {
-        val other = File(prefixDir, "nix/store/abc123-foo-1.0/bin/foo")
+        val other = File(prefixDir, "pkg/store/abc123-foo-1.0/bin/foo")
         requireNotNull(other.parentFile).mkdirs()
         other.writeText("x")
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
@@ -185,17 +185,17 @@ class BootstrapInstallerTest {
         )
     }
 
-    /** parseSymlinks keeps the nix `target←linkPath` direction for absolute store paths. */
+    /** parseSymlinks keeps the `target←linkPath` direction for absolute store paths. */
     @Test
-    fun parseSymlinks_keepsNixStoreDirection() {
+    fun parseSymlinks_keepsAbsoluteTargetDirection() {
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
         val parsed =
             installer.parseSymlinks(
-                "/nix/store/abc-system-path/bin/login←bin/login\n" +
-                    "/nix/store/def-bash/bin/sh←bin/bash\n",
+                "/pkg/store/abc-system-path/bin/login←bin/login\n" +
+                    "/pkg/store/def-bash/bin/sh←bin/bash\n",
             )
         assertEquals(2, parsed.size)
-        assertEquals("/nix/store/abc-system-path/bin/login", parsed[0].first)
+        assertEquals("/pkg/store/abc-system-path/bin/login", parsed[0].first)
         assertEquals("bin/login", parsed[0].second)
     }
 

@@ -97,11 +97,14 @@ class DocumentsProviderTest {
         }
     }
 
-    private fun rootDir(): java.io.File = java.io.File(org.robolectric.RuntimeEnvironment.getApplication().filesDir, "home").apply { mkdirs() }
+    private fun rootDir(): java.io.File = java.io.File(org.robolectric.RuntimeEnvironment.getApplication().filesDir, "home").apply {
+        mkdirs()
+    }
 
     private fun ensureProvider(): TerminalDocumentsProvider {
         if (!::provider.isInitialized) {
-            provider = org.robolectric.Robolectric.setupContentProvider(TerminalDocumentsProvider::class.java)
+            provider =
+                org.robolectric.Robolectric.setupContentProvider(TerminalDocumentsProvider::class.java)
         }
         return provider
     }
@@ -118,7 +121,11 @@ class DocumentsProviderTest {
         val renamed = java.io.File(rootDir, "renamed.txt")
         assertTrue("renamed must exist", renamed.exists())
         assertEquals("content", renamed.readText())
-        assertEquals("docId must encode the new path", TerminalDocumentsProvider.encodeDocId(renamed, rootDir), newDocId)
+        assertEquals(
+            "docId must encode the new path",
+            TerminalDocumentsProvider.encodeDocId(renamed, rootDir),
+            newDocId,
+        )
     }
 
     @Test
@@ -221,5 +228,214 @@ class DocumentsProviderTest {
             // Mode strings outside the ParcelFileDescriptor.parseMode set
             // are a client contract violation — reject loudly.
         }
+    }
+
+    @Test
+    fun root_advertises_search_and_available_bytes() {
+        val rootUri = DocumentsContract.buildRootsUri(authority)
+        val cursor = provider.query(rootUri, null, android.os.Bundle(), null)
+        requireNotNull(cursor).use {
+            it.moveToFirst()
+            val flags = it.getInt(it.getColumnIndex(DocumentsContract.Root.COLUMN_FLAGS))
+            assertTrue(
+                "Root should support search",
+                flags and DocumentsContract.Root.FLAG_SUPPORTS_SEARCH != 0,
+            )
+            val bytesIndex = it.getColumnIndex(DocumentsContract.Root.COLUMN_AVAILABLE_BYTES)
+            assertTrue("AVAILABLE_BYTES column must exist", bytesIndex >= 0)
+            assertTrue("Available bytes must be non-negative", it.getLong(bytesIndex) >= 0)
+        }
+    }
+
+    @Test
+    fun createDocument_conflict_appends_suffix_like_termux() {
+        val provider = ensureProvider()
+        val first = provider.createDocument("terminal_home", "text/plain", "dup.txt")
+        val second = provider.createDocument("terminal_home", "text/plain", "dup.txt")
+        assertTrue("conflicting create must not reuse the id", first != second)
+        assertTrue("second file must exist", java.io.File(rootDir(), second).exists())
+        assertTrue("first file must be untouched", java.io.File(rootDir(), first).exists())
+    }
+
+    @Test
+    fun querySearchDocuments_finds_by_name_case_insensitive() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "MeetingNotes.txt").writeText("x")
+        java.io.File(rootDir(), "unrelated.log").writeText("y")
+        val cursor = provider.querySearchDocuments("terminal_home", "MEETING", null)
+        cursor.use {
+            assertEquals("search must match exactly one file", 1, it.count)
+            it.moveToFirst()
+            val name = it.getString(it.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
+            assertEquals("MeetingNotes.txt", name)
+        }
+    }
+
+    @Test
+    fun querySearchDocuments_skips_symlink_outside_home() {
+        val provider = ensureProvider()
+        val outside =
+            java.io.File(provider.context!!.filesDir, "outside-secret.txt").apply { writeText("x") }
+        assertTrue(outside.exists())
+        try {
+            java.lang.Runtime.getRuntime()
+                .exec(
+                    arrayOf(
+                        "ln",
+                        "-sf",
+                        outside.absolutePath,
+                        java.io.File(rootDir(), "leak-link").absolutePath,
+                    ),
+                )
+                .waitFor()
+        } catch (expected: Exception) {
+            // symlink creation unavailable — nothing to verify.
+            return
+        }
+        val cursor = provider.querySearchDocuments("terminal_home", "outside-secret", null)
+        cursor.use {
+            assertEquals("outside-home symlink target must never surface", 0, it.count)
+        }
+    }
+
+    @Test
+    fun image_row_advertises_thumbnail_and_opens() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "photo.png").writeBytes(byteArrayOf(1, 2, 3, 4))
+        val cursor = provider.queryDocument("photo.png", null)
+        cursor.use {
+            assertTrue(it.moveToFirst())
+            val flags = it.getInt(it.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS))
+            assertTrue(
+                "image must advertise thumbnail",
+                flags and DocumentsContract.Document.FLAG_SUPPORTS_THUMBNAIL != 0,
+            )
+        }
+        provider.openDocumentThumbnail("photo.png", null, null).use { asset ->
+            assertEquals(4, asset.length)
+        }
+    }
+
+    private fun createSymlink(
+        linkName: String,
+        target: java.io.File,
+    ) {
+        java.nio.file.Files.createSymbolicLink(
+            java.io.File(rootDir(), linkName).toPath(),
+            target.toPath(),
+        )
+    }
+
+    @Test
+    fun queryDocument_symlink_returns_link_itself() {
+        val provider = ensureProvider()
+        val target = java.io.File(rootDir(), "target.txt").apply { writeText("data") }
+        createSymlink("link.txt", target)
+        // 浏览与回查必须给出同一 docId：链接自身，而非其目标。
+        val childCursor = provider.queryChildDocuments("terminal_home", null, null as String?)
+        val childIds = mutableListOf<String>()
+        childCursor.use {
+            val idIndex = it.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            while (it.moveToNext()) childIds.add(it.getString(idIndex))
+        }
+        assertTrue("listing must address the link entry", childIds.contains("link.txt"))
+        val docCursor = provider.queryDocument("link.txt", null)
+        docCursor.use {
+            assertEquals("link must resolve to exactly one row", 1, it.count)
+            assertTrue(it.moveToFirst())
+            assertEquals(
+                "link.txt",
+                it.getString(it.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)),
+            )
+            assertEquals(
+                "link.txt",
+                it.getString(it.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)),
+            )
+        }
+    }
+
+    @Test
+    fun queryDocument_symlink_to_dir_lists_as_directory() {
+        val provider = ensureProvider()
+        val subdir = java.io.File(rootDir(), "subdir").apply { mkdirs() }
+        createSymlink("linkdir", subdir)
+        val cursor = provider.queryDocument("linkdir", null)
+        cursor.use {
+            assertTrue(it.moveToFirst())
+            assertEquals(
+                DocumentsContract.Document.MIME_TYPE_DIR,
+                it.getString(it.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)),
+            )
+        }
+    }
+
+    @Test
+    fun queryDocument_dotdot_escape_rejected() {
+        try {
+            ensureProvider().queryDocument("../outside.txt", null)
+            fail("path escape must be rejected")
+        } catch (expected: java.io.FileNotFoundException) {
+            // ".." escapes the root — refuse.
+        }
+    }
+
+    @Test
+    fun openDocument_symlink_opens_target_content() {
+        // 文件管理器点开 symlink，应读到目标文件内容（open 跟随链接）。
+        val provider = ensureProvider()
+        val target = java.io.File(rootDir(), "real.txt").apply { writeText("target-content") }
+        createSymlink("alias.txt", target)
+        provider.openDocument("alias.txt", "r", null).use { parcelFileDescriptor ->
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(parcelFileDescriptor).use { input ->
+                assertEquals("target-content", input.readBytes().decodeToString())
+            }
+        }
+    }
+
+    @Test
+    fun openDocument_write_modes_preserve_rwx_attributes() {
+        // rwx 文件经 w 截断 / wa 追加 / rw 打开后，权限位不得丢失。
+        val provider = ensureProvider()
+        val file = java.io.File(rootDir(), "run.sh").apply { writeText("echo old") }
+        val fullAccess =
+            setOf(
+                java.nio.file.attribute.PosixFilePermission.OWNER_READ,
+                java.nio.file.attribute.PosixFilePermission.OWNER_WRITE,
+                java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE,
+                java.nio.file.attribute.PosixFilePermission.GROUP_READ,
+                java.nio.file.attribute.PosixFilePermission.GROUP_EXECUTE,
+                java.nio.file.attribute.PosixFilePermission.OTHERS_READ,
+                java.nio.file.attribute.PosixFilePermission.OTHERS_EXECUTE,
+            )
+        java.nio.file.Files.setPosixFilePermissions(file.toPath(), fullAccess)
+        provider.openDocument("run.sh", "w", null).use { parcelFileDescriptor ->
+            java.io.FileOutputStream(parcelFileDescriptor.fileDescriptor).write("echo new".toByteArray())
+        }
+        provider.openDocument("run.sh", "wa", null).use { parcelFileDescriptor ->
+            java.io.FileOutputStream(parcelFileDescriptor.fileDescriptor).write("+more".toByteArray())
+        }
+        provider.openDocument("run.sh", "rw", null).use { parcelFileDescriptor ->
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(parcelFileDescriptor).close()
+        }
+        assertEquals("echo new+more", file.readText())
+        assertEquals(
+            "write cycles must not strip permission bits",
+            fullAccess,
+            java.nio.file.Files.getPosixFilePermissions(file.toPath()),
+        )
+    }
+
+    @Test
+    fun renameDocument_symlink_renames_link_only() {
+        // 重命名链接只改链接名，目标文件名与内容保持不动。
+        val provider = ensureProvider()
+        val target = java.io.File(rootDir(), "real.txt").apply { writeText("target-content") }
+        createSymlink("alias.txt", target)
+        assertEquals("alias-renamed.txt", provider.renameDocument("alias.txt", "alias-renamed.txt"))
+        assertTrue(
+            java.nio.file.Files.isSymbolicLink(java.io.File(rootDir(), "alias-renamed.txt").toPath()),
+        )
+        assertEquals("target-content", target.readText())
+        assertEquals("real.txt", target.name)
     }
 }

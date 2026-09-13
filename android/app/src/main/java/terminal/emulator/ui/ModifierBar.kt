@@ -18,8 +18,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -40,6 +44,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -79,13 +84,16 @@ internal fun paginateToolbarKeys(
     return columns.chunked(maxColumnsPerPage)
 }
 
-private const val LONG_PRESS_MS = 500L
+// Termux ExtraKeysView parity: long-press threshold 400ms
+// (FALLBACK_LONG_PRESS_DURATION), repeat starts after the same delay
+// and repeats at 80ms cadence (DEFAULT_LONG_PRESS_REPEAT_DELAY).
+private const val LONG_PRESS_MS = 400L
 
 // (spec modifier-bar-interaction "press-down fires immediately"):
 // termux ExtraKeysView semantics — the key fires on ACTION_DOWN, auto-repeat
 // starts after an initial delay and repeats at a fixed cadence until UP.
-private const val AUTO_REPEAT_INITIAL_DELAY_MS = 250L
-private const val AUTO_REPEAT_INTERVAL_MS = 35L
+private const val AUTO_REPEAT_INITIAL_DELAY_MS = 400L
+private const val AUTO_REPEAT_INTERVAL_MS = 80L
 
 // spec modifier-bar-interaction press-feedback thresholds.
 private const val PRESS_BG_TWEEN_MS = 30
@@ -210,6 +218,9 @@ fun ModifierBar(
     onToggleFn: () -> Unit = {},
     /** termux `KEYBOARD` special key — toggle soft keyboard visibility. */
     onToggleKeyboard: () -> Unit = {},
+    /** Termux-parity long-press lock for CTRL/ALT (tap only toggles one-shot). */
+    onLockCtrl: () -> Unit = {},
+    onLockAlt: () -> Unit = {},
     textColor: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.85f),
     backgroundColor: Color = MaterialTheme.colorScheme.surface,
     useNerdFontGlyphs: Boolean = false,
@@ -315,6 +326,8 @@ fun ModifierBar(
             onToggleAlt = onToggleAlt,
             onToggleFn = onToggleFn,
             onToggleKeyboard = onToggleKeyboard,
+            onLockCtrl = onLockCtrl,
+            onLockAlt = onLockAlt,
             composeActive = composeActive,
             onToggleCompose = ::toggleCompose,
             onPaste = onPaste,
@@ -632,6 +645,49 @@ private fun SelectionActionsBar(
     }
 }
 
+@Composable
+private fun ModifierBarTextInputPage(
+    buttonHeight: Dp,
+    textColor: Color,
+    backgroundColor: Color,
+    onSubmit: (String) -> Unit,
+) {
+    var textInput by remember { mutableStateOf("") }
+    TextField(
+        value = textInput,
+        onValueChange = { textInput = it },
+        modifier =
+        Modifier.fillMaxWidth()
+            .height(buttonHeight * 2)
+            .testTag("TextInputPage"),
+        label = { Text(stringResource(R.string.text_input_box)) },
+        singleLine = true,
+        textStyle =
+        androidx.compose.ui.text.TextStyle(
+            color = textColor,
+            fontSize = BUTTON_FONT_SIZE_SP.sp,
+        ),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+        keyboardActions =
+        KeyboardActions(
+            onDone = {
+                onSubmit(if (textInput.isEmpty()) "\r" else textInput)
+                textInput = ""
+            },
+        ),
+        colors =
+        TextFieldDefaults.colors(
+            focusedTextColor = textColor,
+            unfocusedTextColor = textColor,
+            cursorColor = textColor,
+            focusedContainerColor = backgroundColor,
+            unfocusedContainerColor = backgroundColor,
+            focusedIndicatorColor = Color.Transparent,
+            unfocusedIndicatorColor = Color.Transparent,
+        ),
+    )
+}
+
 @Suppress("LongParameterList", "CyclomaticComplexMethod")
 @Composable
 private fun ConfigurableModifierBar(
@@ -647,6 +703,8 @@ private fun ConfigurableModifierBar(
     onToggleAlt: () -> Unit,
     onToggleFn: () -> Unit,
     onToggleKeyboard: () -> Unit,
+    onLockCtrl: () -> Unit = {},
+    onLockAlt: () -> Unit = {},
     composeActive: Boolean,
     onToggleCompose: () -> Unit,
     onPaste: (() -> Unit)?,
@@ -660,7 +718,7 @@ private fun ConfigurableModifierBar(
     // Page the layout horizontally so more keys can be added than fit one
     // screen width (termux ViewPager behaviour): see paginateToolbarKeys.
     val pages = paginateToolbarKeys(allKeys.toImmutableList())
-    val pagerState = rememberPagerState(pageCount = { pages.size })
+    val pagerState = rememberPagerState(pageCount = { pages.size + 1 })
     val actions =
         ModifierBarActions(
             onKeyClick = onKeyClick,
@@ -671,6 +729,8 @@ private fun ConfigurableModifierBar(
             onToggleFn = onToggleFn,
             onToggleCompose = onToggleCompose,
             onToggleKeyboard = onToggleKeyboard,
+            onLockCtrl = onLockCtrl,
+            onLockAlt = onLockAlt,
             onPaste = onPaste,
         )
     val modifierStates =
@@ -701,7 +761,22 @@ private fun ConfigurableModifierBar(
         modifier = modifier.fillMaxWidth().background(backgroundColor),
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
-        HorizontalPager(state = pagerState, modifier = Modifier.fillMaxWidth()) { page ->
+        // Trailing text-input page (termux TerminalToolbarViewPager
+        // behaviour): swipe past the key pages to type into a box; Done
+        // sends the text verbatim (empty sends carriage return), then clears.
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxWidth().testTag("ModifierBarPager"),
+        ) { page ->
+            if (page >= pages.size) {
+                ModifierBarTextInputPage(
+                    buttonHeight = buttonHeight,
+                    textColor = textColor,
+                    backgroundColor = backgroundColor,
+                    onSubmit = onKeyClick,
+                )
+                return@HorizontalPager
+            }
             val pageColumns = pages[page]
             val pageRow1 = pageColumns.mapNotNull { it.first }
             val pageRow2 = pageColumns.mapNotNull { it.second }
@@ -747,6 +822,9 @@ private data class ModifierBarActions(
     val onToggleCompose: () -> Unit,
     /** termux `KEYBOARD` special key — toggle soft keyboard visibility. */
     val onToggleKeyboard: () -> Unit,
+    /** Termux-parity long-press lock for CTRL/ALT (tap only toggles one-shot). */
+    val onLockCtrl: () -> Unit = {},
+    val onLockAlt: () -> Unit = {},
     /** Long-press paste on DRAWER (termux default `popup: 'PASTE'`). */
     val onPaste: (() -> Unit)?,
 )
@@ -761,15 +839,20 @@ private data class ModifierBarStates(
 )
 
 /**
- * Long-press action for a key: an explicit secondary sequence, or the DRAWER paste popup (termux
- * default) as fallback.
+ * Long-press action for a key: an explicit secondary sequence, CTRL/ALT lock
+ * (termux long-press), or the DRAWER paste popup (termux default) as fallback.
  */
 private fun secondaryLongPressAction(
     item: ToolbarItem,
     actions: ModifierBarActions,
     isDrawer: Boolean,
 ): (() -> Unit)? = item.secondarySequence?.takeIf { it.isNotEmpty() }?.let { { actions.onKeyClick(it) } }
-    ?: if (isDrawer) actions.onPaste else null
+    ?: when {
+        item is ToolbarItem.Default && item.key == ToolbarKey.CTRL -> actions.onLockCtrl
+        item is ToolbarItem.Default && item.key == ToolbarKey.ALT -> actions.onLockAlt
+        isDrawer -> actions.onPaste
+        else -> null
+    }
 
 /** The live toggle state for one [ToolbarKey], or null for non-toggle keys. */
 private fun modifierStateFor(
@@ -1001,14 +1084,7 @@ private fun RowScope.ExtraKeyButton(
                         // onClick/onLongClick split.
                         var longPressTriggered = false
                         val downTime = System.currentTimeMillis()
-                        while (true) {
-                            val ev = awaitPointerEvent()
-                            val ch = ev.changes.first()
-                            if (!ch.pressed) break
-                            if ((ch.position - downPos).getDistance() > slop) {
-                                gestureValid = false
-                                break
-                            }
+                        fun maybeFireLongPress() {
                             if (
                                 !longPressTriggered &&
                                 currentEnabled &&
@@ -1021,6 +1097,23 @@ private fun RowScope.ExtraKeyButton(
                                 currentSecondaryAction?.invoke()
                             }
                         }
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val ch = ev.changes.first()
+                            // A perfectly still hold produces no MOVE events,
+                            // so the release itself must also count when the
+                            // threshold already passed — otherwise the
+                            // long-press is silently lost.
+                            if (!ch.pressed) {
+                                maybeFireLongPress()
+                                break
+                            }
+                            if ((ch.position - downPos).getDistance() > slop) {
+                                gestureValid = false
+                                break
+                            }
+                            maybeFireLongPress()
+                        }
                         if (!longPressTriggered && gestureValid && currentEnabled) {
                             view.performHapticFeedback(
                                 android.view.HapticFeedbackConstants.KEYBOARD_TAP,
@@ -1031,7 +1124,7 @@ private fun RowScope.ExtraKeyButton(
                         // (spec modifier-bar-interaction): termux
                         // ExtraKeysView semantics — fire on ACTION_DOWN so a
                         // tap reaches the PTY within one frame, then
-                        // auto-repeat at 400ms initial / 50ms cadence until
+                        // auto-repeat at 400ms initial / 80ms cadence until
                         // UP or the finger slides out (slop cancel stops the
                         // repeats; the already-sent key is not recalled,
                         // matching termux).
@@ -1041,23 +1134,37 @@ private fun RowScope.ExtraKeyButton(
                             )
                             currentOnClick()
                         }
-                        var nextRepeatAt = System.currentTimeMillis() + AUTO_REPEAT_INITIAL_DELAY_MS
-                        while (currentOnRepeat != null) {
-                            val remaining = nextRepeatAt - System.currentTimeMillis()
-                            val ev =
-                                withTimeoutOrNull(remaining.coerceAtLeast(0L)) {
-                                    awaitPointerEvent()
-                                }
-                            if (ev == null) {
-                                if (gestureValid && currentEnabled) currentOnRepeat?.invoke()
-                                nextRepeatAt += AUTO_REPEAT_INTERVAL_MS
-                                continue
+                        if (currentOnRepeat == null) {
+                            // Momentary keys (PGUP/HOME/TAB/ESC…): hold the
+                            // pressed visual until finger lift. Without this
+                            // the gesture block returns right after the DOWN
+                            // fire and `finally` clears isPressed within
+                            // milliseconds — no visible press flash.
+                            var stillDown = true
+                            while (stillDown) {
+                                val ev = awaitPointerEvent()
+                                if (ev.changes.all { !it.pressed }) stillDown = false
                             }
-                            val ch = ev.changes.first()
-                            if (!ch.pressed) break
-                            if ((ch.position - downPos).getDistance() > slop) {
-                                gestureValid = false
-                                break
+                        } else {
+                            var nextRepeatAt =
+                                System.currentTimeMillis() + AUTO_REPEAT_INITIAL_DELAY_MS
+                            while (currentOnRepeat != null) {
+                                val remaining = nextRepeatAt - System.currentTimeMillis()
+                                val ev =
+                                    withTimeoutOrNull(remaining.coerceAtLeast(0L)) {
+                                        awaitPointerEvent()
+                                    }
+                                if (ev == null) {
+                                    if (gestureValid && currentEnabled) currentOnRepeat?.invoke()
+                                    nextRepeatAt += AUTO_REPEAT_INTERVAL_MS
+                                    continue
+                                }
+                                val ch = ev.changes.first()
+                                if (!ch.pressed) break
+                                if ((ch.position - downPos).getDistance() > slop) {
+                                    gestureValid = false
+                                    break
+                                }
                             }
                         }
                     }
