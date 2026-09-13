@@ -36,6 +36,13 @@ class KeyModifiersTest {
     }
 
     @Test
+    fun `tap toggle never locks (termux parity)`() {
+        assertEquals(ModifierState.Once, ModifierState.Off.toggled())
+        assertEquals(ModifierState.Off, ModifierState.Once.toggled())
+        assertEquals(ModifierState.Off, ModifierState.Locked.toggled())
+    }
+
+    @Test
     fun `mask constants are distinct powers of two`() {
         assertNotEquals(KeyModifiers.SHIFT, KeyModifiers.ALT)
         assertNotEquals(KeyModifiers.ALT, KeyModifiers.CTRL)

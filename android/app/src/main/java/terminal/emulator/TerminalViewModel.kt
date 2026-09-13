@@ -30,13 +30,14 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import terminal.emulator.bridge.FontInfoDto
+import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.bridge.SelectionExpander
 import terminal.emulator.input.KeyModifiers
 import terminal.emulator.input.KeyboardMode
 import terminal.emulator.input.ModifierState
-import terminal.emulator.input.next
 import terminal.emulator.input.toKeyboardMode
 import terminal.emulator.input.toSettingsString
+import terminal.emulator.input.toggled
 import terminal.emulator.runtime.ClipboardAccess
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.PasteChunker
@@ -165,7 +166,29 @@ data class HandleDragResult(
 data class SessionInfo(
     val id: Long,
     val title: String,
+    val directory: String = "",
 )
+
+/** 会话目录显示的最大长度，超出时从中间省略。 */
+internal const val MAX_SESSION_DIRECTORY_LENGTH = 40
+
+/** 会话元数据刷新节流窗口，抽屉打开时的重复刷新在此窗口内合并。 */
+internal const val SESSION_META_REFRESH_THROTTLE_MS = 2000L
+
+/** 缩写会话目录用于抽屉显示：去 `file://` 前缀，家目录前缀折叠为 `~`， 超长从中间省略（Termux 同款 `~` 习惯）。 */
+internal fun abbreviateDirectory(path: String, homeDirectory: String): String {
+    var abbreviated = path.removePrefix("file://")
+    if (
+        homeDirectory.isNotEmpty() &&
+        (abbreviated == homeDirectory || abbreviated.startsWith("$homeDirectory/"))
+    ) {
+        abbreviated = "~" + abbreviated.removePrefix(homeDirectory)
+    }
+    if (abbreviated.length <= MAX_SESSION_DIRECTORY_LENGTH) return abbreviated
+    val keep = MAX_SESSION_DIRECTORY_LENGTH - 1
+    val head = (keep + 1) / 2
+    return abbreviated.take(head) + "…" + abbreviated.takeLast(keep - head)
+}
 
 data class TerminalState(
     val sessionId: Long = 0L,
@@ -245,9 +268,6 @@ constructor(
     fun setFontSizeInPlacePreview(size: Float) = fontManager.setFontSizeInPlacePreview(size)
 
     fun setFontFamily(family: String) = fontManager.setFontFamily(family)
-
-    /** Slot: [FONT_SLOT_BOLD] or [FONT_SLOT_ITALIC] (ghostty-android 4-slot). */
-    fun setFontFamilyForStyle(family: String, slot: Int) = fontManager.setFontFamilyForStyle(family, slot)
 
     fun installFontFile(uri: Uri) = fontManager.installFontFile(uri)
 
@@ -400,11 +420,19 @@ constructor(
     }
 
     fun cycleCtrlState() {
-        _state.update { it.copy(ctrlState = it.ctrlState.next()) }
+        _state.update { it.copy(ctrlState = it.ctrlState.toggled()) }
     }
 
     fun cycleAltState() {
-        _state.update { it.copy(altState = it.altState.next()) }
+        _state.update { it.copy(altState = it.altState.toggled()) }
+    }
+
+    fun lockCtrlState() {
+        _state.update { it.copy(ctrlState = ModifierState.Locked) }
+    }
+
+    fun lockAltState() {
+        _state.update { it.copy(altState = ModifierState.Locked) }
     }
 
     fun consumeOneShotModifiers() {
@@ -1134,32 +1162,6 @@ constructor(
             }
         }
 
-        /**
-         * Set the independent family for a style slot (0=bold, 1=italic, 2=bold-italic) —
-         * ghostty-android TerminalFontStore 4-slot design research-ghostty-android-extra.md:80). Empty
-         * clears the slot.
-         */
-        fun setFontFamilyForStyle(family: String, slot: Int) {
-            viewModelScope.launch(Dispatchers.IO) {
-                try {
-                    android.util.Log.d("Font", "Setting style slot $slot font family: $family")
-                    when (slot) {
-                        FONT_SLOT_REGULAR -> settingsRepository.setFontFamily(family)
-                        FONT_SLOT_BOLD -> settingsRepository.setBoldFontFamily(family)
-                        FONT_SLOT_ITALIC -> settingsRepository.setItalicFontFamily(family)
-                        else -> Unit
-                    }
-                    runtime.applyFontSettings()
-                    val bridge = runtime.bridge()
-                    val fontName = bridge?.getDefaultFontName() ?: "monospace"
-                    _defaultFontName.value = fontName
-                    android.util.Log.d("Font", "Style slot $slot font applied")
-                } catch (exception: Exception) {
-                    android.util.Log.e("Font", "setFontFamilyForStyle failed for slot $slot", exception)
-                }
-            }
-        }
-
         fun installFontFile(uri: Uri) {
             viewModelScope.launch(Dispatchers.IO) {
                 try {
@@ -1348,8 +1350,10 @@ constructor(
                     }
                 }
                 val sortedIds = runtimeState.sessionIds.sorted()
+                val previousById = _state.value.sessions.associateBy { it.id }
                 val sessions = sortedIds.mapIndexed { index, id ->
-                    SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
+                    previousById[id]
+                        ?: SessionInfo(id = id, title = context.getString(R.string.session_number, index + 1))
                 }
                 val active = runtimeState.activeSessionId
                 if (active != 0L) {
@@ -1389,6 +1393,7 @@ constructor(
                         current.copy(sessions = sessions, activeSessionId = active)
                     }
                 }
+                refreshSessionMetas()
             }
         }
         viewModelScope.launch {
@@ -1429,6 +1434,46 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
     // SECTION 2: Session orchestration & settings setters
     // ══════════════════════════════════════════════════════════════════════
+
+    /** 会话元数据刷新节流窗口，抽屉打开时的重复刷新在此窗口内合并。 */
+    private var lastMetaSessionIds: List<Long> = emptyList()
+    private var lastMetaRefreshMs: Long = 0L
+
+    /**
+     * 回填抽屉列表的会话元数据：每个会话的 OSC 标题与工作目录（Termux 抽屉同款： 序号按位置从 1 递增，无标题回退 `会话 N`，目录缩写显示）。 JNI 查询在 IO
+     * 线程执行；写入时校验集合未变，避免覆盖更新的列表。
+     */
+    fun refreshSessionMetas(force: Boolean = false) {
+        val ids = _state.value.sessions.map { it.id }.sorted()
+        val now = SystemClock.uptimeMillis()
+        val sameSet = ids == lastMetaSessionIds
+        if (sameSet && !force) return
+        if (sameSet && now - lastMetaRefreshMs < SESSION_META_REFRESH_THROTTLE_MS) return
+        lastMetaSessionIds = ids
+        lastMetaRefreshMs = now
+        if (ids.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val homeDirectory = context.filesDir.parentFile?.resolve("files/home")?.absolutePath.orEmpty()
+            val fresh = ids.mapIndexed { index, id ->
+                val title = runCatching { NativeBridge.getTitle(id) }.getOrNull().orEmpty()
+                val directory = runCatching { NativeBridge.getCurrentDirectory(id) }.getOrNull()
+                SessionInfo(
+                    id = id,
+                    title = title.ifEmpty { context.getString(R.string.session_number, index + 1) },
+                    directory = directory?.let { abbreviateDirectory(it, homeDirectory) }.orEmpty(),
+                )
+            }
+            withContext(Dispatchers.Main) {
+                _state.update { current ->
+                    if (current.sessions.map { it.id }.sorted() != ids) {
+                        current
+                    } else {
+                        current.copy(sessions = fresh)
+                    }
+                }
+            }
+        }
+    }
 
     fun ensureDefaultSession() {
         if (
@@ -1636,17 +1681,6 @@ constructor(
         }
     }
 
-    fun setShizukuEnabled(enabled: Boolean) {
-        // No native call: the grant lives in the Shizuku manager and is
-        // checked at session start (DESIGN startup gate); persisting only.
-        // Enabling also fires the manager authorization prompt so the app
-        // appears in the manager list without a restart.
-        viewModelScope.launch(Dispatchers.IO) {
-            settingsRepository.setShizukuEnabled(enabled)
-            if (enabled) ShizukuGate.requestPermission()
-        }
-    }
-
     fun setThemeName(name: String) = applyThemeSettings { settingsRepository.setThemeName(name) }
 
     fun setDayThemeName(name: String) = applyThemeSettings {
@@ -1702,12 +1736,6 @@ constructor(
 
     fun setShell(shell: String) {
         shellTextDebounce.value = shell
-    }
-
-    fun setScrollbackLines(lines: Int) {
-        viewModelScope.launch {
-            settingsRepository.setScrollbackLines(lines)
-        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -1930,12 +1958,7 @@ constructor(
                             selection = SelectionState(),
                         )
                     } else {
-                        val renumbered =
-                            remaining
-                                .sortedBy { it.id }
-                                .mapIndexed { index, session ->
-                                    session.copy(title = context.getString(R.string.session_number, index + 1))
-                                }
+                        val renumbered = remaining.sortedBy { it.id }
                         val newActive =
                             if (current.activeSessionId == id) {
                                 remaining.last().id
@@ -1955,6 +1978,7 @@ constructor(
                         )
                     }
                 }
+                refreshSessionMetas(force = true)
             }
         }
     }

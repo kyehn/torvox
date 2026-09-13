@@ -80,12 +80,10 @@ class SettingsRepositoryTest {
     }
 
     @Test
-    fun `int setting round-trips`() = runTest {
-        repository.scrollbackLines.test {
-            assertEquals(SettingsRepository.DEFAULT_SCROLLBACK_LINES, awaitItem())
-            repository.setScrollbackLines(10_000)
-            assertEquals(10_000, awaitItem())
-        }
+    fun `scrollback lines are fixed and not modifiable`() = runTest {
+        // 回滚行数固定，不提供修改入口：任何来源都只能读到固定值。
+        assertEquals(SettingsRepository.FIXED_SCROLLBACK_LINES, repository.scrollbackLines.first())
+        assertEquals(2_000, repository.scrollbackLines.first())
     }
 
     @Test

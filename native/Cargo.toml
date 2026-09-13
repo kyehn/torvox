@@ -48,11 +48,11 @@ path = "tests/bdd/main.rs"
 harness = false
 [[bench]]
 name = "cell_builder"
-path = "src/benches/cell_builder.rs"
+path = "benches/cell_builder.rs"
 harness = false
 [[bench]]
 name = "vt_typing"
-path = "src/benches/vt_typing.rs"
+path = "benches/vt_typing.rs"
 harness = false
 [lints]
 workspace = true

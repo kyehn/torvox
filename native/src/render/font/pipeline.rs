@@ -477,43 +477,6 @@ impl FontPipeline {
         }
     }
 
-    /// Sets (or clears, when `family_name` is empty) the independent family
-    /// for one style slot (0=bold, 1=italic, 2=bold-italic) — the
-    /// ghostty-android TerminalFontStore 4-slot design
-    /// (research-ghostty-android-extra.md:80). When a slot has a family,
-    /// `glyph_information_styled` renders that style from the real face
-    /// instead of same-family lookup + synthesis. Returns true when the
-    /// family was found and set.
-    pub fn set_font_family_for_style(&mut self, family_name: &str, slot: u8) -> bool {
-        let slot = slot.min(2) as usize;
-        self.clear_identity_caches();
-        if family_name.is_empty() {
-            self.styled_font_ids[slot] = None;
-            return true;
-        }
-        let found = {
-            let db = self.font_system.db_mut();
-            Self::find_font_by_name(db, family_name)
-        };
-        match found {
-            Some(id) => {
-                self.styled_font_ids[slot] = Some(id);
-                log::debug!(
-                    "FONT_DIAG: set_font_family_for_style(slot={slot}, '{}') found id={id:?}",
-                    family_name
-                );
-                true
-            }
-            None => {
-                log::warn!(
-                    "FONT_DIAG: set_font_family_for_style(slot={slot}, '{}') NOT FOUND in fontdb",
-                    family_name
-                );
-                false
-            }
-        }
-    }
-
     pub fn set_system_locale(&mut self, locale: &str) {
         self.clear_identity_caches();
         self.system_locale = locale.to_string();

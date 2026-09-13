@@ -1,6 +1,5 @@
 package terminal.emulator.ui
 
-import android.annotation.SuppressLint
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -12,8 +11,6 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -28,10 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -75,9 +69,6 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
-import terminal.emulator.FONT_SLOT_BOLD
-import terminal.emulator.FONT_SLOT_ITALIC
-import terminal.emulator.FONT_SLOT_REGULAR
 import terminal.emulator.R
 import terminal.emulator.TerminalViewModel
 import terminal.emulator.bridge.FontActiveDto
@@ -85,14 +76,10 @@ import terminal.emulator.bridge.FontInfoDto
 import terminal.emulator.bridge.fontSpToPx
 import terminal.emulator.installer.BootstrapProgress
 import terminal.emulator.ui.theme.TerminalTheme
-import java.io.File
 
 private const val FONT_SIZE_RANGE_MIN = 8f
 private const val FONT_SIZE_RANGE_MAX = 48f
 private const val FONT_SIZE_RANGE_STEPS = 23
-private const val SCROLLBACK_RANGE_MIN = 1000f
-private const val SCROLLBACK_RANGE_MAX = 100_000f
-private const val SCROLLBACK_RANGE_STEPS = 98
 private val WARNING_ORANGE = Color(0xFFFF9800)
 
 @OptIn(ExperimentalMaterial3Api::class) // Material3 experimental API used intentionally
@@ -209,16 +196,6 @@ fun SettingsScreen(
                         isSmallScreen,
                     )
                 }
-                item {
-                    ModifierBarSettingsSection(
-                        viewModel,
-                        textColor,
-                        secondaryText,
-                        cardBackground,
-                        sectionTitleColor,
-                        isSmallScreen,
-                    )
-                }
                 item { Spacer(modifier = Modifier.height(24.dp)) }
             }
         }
@@ -270,8 +247,6 @@ private fun AppearanceSectionContent(
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val fontSize = settings.fontSize
     val fontFamily = settings.fontFamily
-    val boldFontFamily = settings.boldFontFamily
-    val italicFontFamily = settings.italicFontFamily
     val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
     val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
     val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
@@ -298,9 +273,7 @@ private fun AppearanceSectionContent(
     Spacer(modifier = Modifier.height(12.dp))
     FontFamilySelectors(
         regularFamily = fontFamily,
-        boldFamily = boldFontFamily,
-        italicFamily = italicFontFamily,
-        onFamilySelected = { family, slot -> viewModel.setFontFamilyForStyle(family, slot) },
+        onFamilySelected = { family -> viewModel.setFontFamily(family) },
         customFontLauncher = customFontLauncher,
         colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
         availableFonts = availableFonts.toImmutableList(),
@@ -427,32 +400,13 @@ private fun TerminalConfigSection(
 ) {
     val settings by viewModel.settings.collectAsStateWithLifecycle()
     val selectedShell = settings.shell
-    val scrollbackLines = settings.scrollbackLines
     SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
     SettingsCard(cardBackground) {
-        PrefixShellStatus(secondaryText = secondaryText)
-        Spacer(modifier = Modifier.height(4.dp))
         ShellInput(
             shellPath = selectedShell,
             onShellChanged = { viewModel.setShell(it) },
             textColor = textColor,
             accentColor = accentColor,
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-        ScrollbackSlider(
-            value = scrollbackLines.toFloat(),
-            onValueChange = { viewModel.setScrollbackLines(it.toInt()) },
-            textColor = textColor,
-            secondaryText = secondaryText,
-            accentColor = accentColor,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        ShizukuToggle(
-            enabled = settings.shizukuEnabled,
-            onToggle = { viewModel.setShizukuEnabled(it) },
-            textColor = textColor,
-            accentColor = accentColor,
-            cardBackground = backgroundColor,
         )
         Spacer(modifier = Modifier.height(8.dp))
     }
@@ -614,9 +568,7 @@ private fun FontInfoSectionIfAvailable(
 @Composable
 private fun FontFamilySelectors(
     regularFamily: String,
-    boldFamily: String,
-    italicFamily: String,
-    onFamilySelected: (String, Int) -> Unit,
+    onFamilySelected: (String) -> Unit,
     customFontLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
     colors: SettingsColors,
     availableFonts: ImmutableList<String>,
@@ -626,42 +578,13 @@ private fun FontFamilySelectors(
     val pickFont = { customFontLauncher.launch(arrayOf("font/*", "application/octet-stream")) }
     SystemFontSelector(
         selectedFamily = regularFamily,
-        onFamilySelected = { onFamilySelected(it, FONT_SLOT_REGULAR) },
+        onFamilySelected = { onFamilySelected(it) },
         textColor = colors.textColor,
         cardBackground = colors.cardBackground,
         accentColor = colors.accentColor,
         fonts = availableFonts,
         defaultFontName = defaultFontName,
         fontInfo = fontInfo,
-        onPickFontFile = pickFont,
-    )
-    Spacer(modifier = Modifier.height(12.dp))
-    // Independent bold/italic families — ghostty-android TerminalFontStore
-    // 4-slot design (research-ghostty-android-extra.md:80). Empty selection
-    // clears the slot (falls back to same-family lookup + synthesis).
-    SystemFontSelector(
-        selectedFamily = boldFamily,
-        onFamilySelected = { onFamilySelected(it, FONT_SLOT_BOLD) },
-        textColor = colors.textColor,
-        cardBackground = colors.cardBackground,
-        accentColor = colors.accentColor,
-        fonts = availableFonts,
-        defaultFontName = defaultFontName,
-        fontInfo = fontInfo,
-        titleOverride = stringResource(R.string.bold_font_family),
-        onPickFontFile = pickFont,
-    )
-    Spacer(modifier = Modifier.height(12.dp))
-    SystemFontSelector(
-        selectedFamily = italicFamily,
-        onFamilySelected = { onFamilySelected(it, FONT_SLOT_ITALIC) },
-        textColor = colors.textColor,
-        cardBackground = colors.cardBackground,
-        accentColor = colors.accentColor,
-        fonts = availableFonts,
-        defaultFontName = defaultFontName,
-        fontInfo = fontInfo,
-        titleOverride = stringResource(R.string.italic_font_family),
         onPickFontFile = pickFont,
     )
 }
@@ -740,14 +663,7 @@ private fun SystemFontSelector(
     }
 
     val fontInfoDto = FontInfoDto.fromJson(fontInfo)
-    if (fontInfoDto?.hasRealCjkFallback == true) {
-        Spacer(modifier = Modifier.height(4.dp))
-        Text(
-            text = stringResource(R.string.cjk_value_label, fontInfoDto.cjkFallbackText() ?: ""),
-            style = MaterialTheme.typography.bodySmall,
-            color = textColor.copy(alpha = 0.6f),
-        )
-    } else if (fontInfoDto?.cjkState == "none") {
+    if (fontInfoDto?.cjkState == "none") {
         Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = stringResource(R.string.cjk_fallback_missing_warning),
@@ -929,28 +845,6 @@ internal fun TerminalThemeModeSelector(
 }
 
 @Composable
-private fun PrefixShellStatus(secondaryText: Color) {
-    // Show what the runtime actually resolves as the launch location:
-    // the prefix bootstrap (termux bin/bash) or the system fallback.
-    val context = LocalContext.current
-    val prefixDir = File(context.filesDir, "usr")
-    val (statusResId, prefixArg) =
-        remember(prefixDir) {
-            val hasShell =
-                listOf("bin/bash", "bin/login").any {
-                    File(prefixDir, it).exists()
-                }
-            if (hasShell) {
-                R.string.launch_location_status_termux to prefixDir.absolutePath
-            } else {
-                R.string.launch_location_status_none to ""
-            }
-        }
-    val status = stringResource(statusResId, prefixArg)
-    Text(status, style = MaterialTheme.typography.bodySmall, color = secondaryText)
-}
-
-@Composable
 private fun ShellInput(
     shellPath: String,
     onShellChanged: (String) -> Unit,
@@ -986,30 +880,6 @@ private fun ShellInput(
             ),
         )
     }
-}
-
-@Composable
-private fun ScrollbackSlider(
-    value: Float,
-    onValueChange: (Float) -> Unit,
-    textColor: Color,
-    secondaryText: Color,
-    accentColor: Color,
-) {
-    SettingsSliderRow(
-        title = stringResource(R.string.scrollback_lines),
-        value = value,
-        valueRange = SCROLLBACK_RANGE_MIN..SCROLLBACK_RANGE_MAX,
-        steps = SCROLLBACK_RANGE_STEPS,
-        colors =
-        SettingsColors(textColor, secondaryText, accentColor, cardBackground = Color.Transparent),
-        onValueChange = onValueChange,
-        valueFormatter = { value ->
-            value.toInt().let {
-                if (it >= 1000) "${it / 1000}K" else "$it"
-            }
-        },
-    )
 }
 
 @Composable
@@ -1348,24 +1218,6 @@ private fun BootstrapPresetItem(
 }
 
 @Composable
-private fun ShizukuToggle(
-    enabled: Boolean,
-    onToggle: (Boolean) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-    cardBackground: Color,
-) {
-    SettingsSwitchRow(
-        title = stringResource(R.string.shizuku_integration),
-        description = stringResource(R.string.shizuku_integration_desc),
-        checked = enabled,
-        onToggle = onToggle,
-        colors = SettingsColors(textColor, textColor, accentColor, cardBackground),
-        modifier = Modifier.testTag("ShizukuToggle").clickable { onToggle(!enabled) },
-    )
-}
-
-@Composable
 private fun ClearAppDataSection(
     viewModel: TerminalViewModel,
     textColor: Color,
@@ -1495,327 +1347,5 @@ private fun FontInfoSection(
                 color = secondaryText,
             )
         }
-    }
-}
-
-// ══════════════════════════════════════════════════════════════════════
-// 修饰键栏设置
-// ══════════════════════════════════════════════════════════════════════
-
-@Composable
-private fun ModifierBarSettingsSection(
-    viewModel: TerminalViewModel,
-    textColor: Color,
-    secondaryText: Color,
-    cardBackground: Color,
-    sectionTitleColor: Color,
-    isSmallScreen: Boolean,
-) {
-    val context = LocalContext.current
-    val toolbarPreferences = remember { ToolbarPreferences(context) }
-    var layout by remember { mutableStateOf(toolbarPreferences.getLayout()) }
-    var showEditor by rememberSaveable { mutableStateOf(false) }
-
-    SectionHeader(stringResource(R.string.modifier_bar), sectionTitleColor)
-    SettingsCard(cardBackground) {
-        Text(
-            text = stringResource(R.string.modifier_bar_current_layout),
-            color = secondaryText,
-            style = MaterialTheme.typography.bodySmall,
-        )
-        Spacer(modifier = Modifier.height(4.dp))
-        ToolbarLayoutPreview(layout.toImmutableList(), textColor, cardBackground)
-        Spacer(modifier = Modifier.height(12.dp))
-        OutlinedButton(
-            onClick = { showEditor = true },
-            modifier = Modifier.testTag("EditModifierBarButton"),
-        ) {
-            Text(stringResource(R.string.edit), color = MaterialTheme.colorScheme.primary)
-        }
-    }
-
-    if (showEditor) {
-        ModifierBarEditorDialog(
-            layout = layout.toImmutableList(),
-            onLayoutChange = { layout = it },
-            onSave = {
-                toolbarPreferences.saveLayout(layout)
-                showEditor = false
-            },
-            onReset = { layout = toolbarPreferences.defaultLayout() },
-            onDismiss = { showEditor = false },
-            textColor = textColor,
-            secondaryText = secondaryText,
-            cardBackground = cardBackground,
-        )
-    }
-}
-
-/** Key chips laid out in wrapping rows (mirrors the toolbar's 2-row shape). */
-@OptIn(ExperimentalLayoutApi::class)
-@SuppressLint("DeprecatedCall") // FlowRow has a deprecated overload with
-// `overflow`; our calls use the non-deprecated signature. The rule matches
-// the containing file class and misreports.
-@Composable
-private fun ToolbarLayoutPreview(
-    layout: ImmutableList<ToolbarItem>,
-    textColor: Color,
-    cardBackground: Color,
-) {
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.testTag("ModifierBarPreview"),
-    ) {
-        layout.forEach { item ->
-            ToolbarKeyChip(
-                label = itemLabel(item),
-                textColor = textColor,
-                cardBackground = cardBackground,
-                onClick = {},
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun ModifierBarEditorDialog(
-    layout: ImmutableList<ToolbarItem>,
-    onLayoutChange: (ImmutableList<ToolbarItem>) -> Unit,
-    onSave: () -> Unit,
-    onReset: () -> Unit,
-    onDismiss: () -> Unit,
-    textColor: Color,
-    secondaryText: Color,
-    cardBackground: Color,
-) {
-    val currentKeys = layout.filterIsInstance<ToolbarItem.Default>().map { it.key }.toSet()
-    val availableKeys = ToolbarKey.entries.filter { it !in currentKeys }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.edit_modifier_bar)) },
-        text = {
-            Column(
-                modifier =
-                Modifier.verticalScroll(rememberScrollState()).testTag("ModifierBarEditorDialog"),
-            ) {
-                Text(
-                    text = stringResource(R.string.modifier_bar_edit_hint_remove),
-                    color = secondaryText,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                CurrentLayoutEditor(
-                    layout = layout,
-                    onLayoutChange = onLayoutChange,
-                    textColor = textColor,
-                    secondaryText = secondaryText,
-                    cardBackground = cardBackground,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = stringResource(R.string.modifier_bar_available_keys),
-                    color = secondaryText,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                AvailableKeysPicker(
-                    availableKeys = availableKeys.toImmutableList(),
-                    onLayoutChange = onLayoutChange,
-                    layout = layout,
-                    textColor = textColor,
-                    cardBackground = cardBackground,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                TextButton(
-                    onClick = onReset,
-                    modifier = Modifier.testTag("ResetModifierBarButton"),
-                ) {
-                    Text(
-                        stringResource(R.string.reset_to_default),
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                onClick = onSave,
-                modifier = Modifier.testTag("SaveModifierBarButton"),
-            ) {
-                Text(stringResource(R.string.save))
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) }
-        },
-    )
-}
-
-/** The current key list with per-key width steppers and secondary labels. */
-@Composable
-private fun CurrentLayoutEditor(
-    layout: ImmutableList<ToolbarItem>,
-    onLayoutChange: (ImmutableList<ToolbarItem>) -> Unit,
-    textColor: Color,
-    secondaryText: Color,
-    cardBackground: Color,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        layout.forEach { item ->
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                ToolbarKeyChip(
-                    label = itemLabel(item),
-                    textColor = textColor,
-                    cardBackground = cardBackground,
-                    onClick = { onLayoutChange((layout - item).toImmutableList()) },
-                )
-                Text(
-                    text = "W",
-                    color = secondaryText,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-                IconButton(
-                    onClick = {
-                        onLayoutChange(
-                            layout
-                                .replace(
-                                    item,
-                                    item.withWidth((item.width - 1).coerceAtLeast(1)),
-                                )
-                                .toImmutableList(),
-                        )
-                    },
-                    modifier = Modifier.size(28.dp).testTag("WidthMinus_${itemLabel(item)}"),
-                ) {
-                    Text("−", color = secondaryText)
-                }
-                Text(
-                    text = "${item.width}",
-                    color = textColor,
-                    style = MaterialTheme.typography.labelMedium,
-                    modifier = Modifier.testTag("WidthValue_${itemLabel(item)}"),
-                )
-                IconButton(
-                    onClick = {
-                        onLayoutChange(
-                            layout
-                                .replace(
-                                    item,
-                                    item.withWidth((item.width + 1).coerceAtMost(4)),
-                                )
-                                .toImmutableList(),
-                        )
-                    },
-                    modifier = Modifier.size(28.dp).testTag("WidthPlus_${itemLabel(item)}"),
-                ) {
-                    Text("+", color = secondaryText)
-                }
-                BasicTextField(
-                    value = item.secondaryLabel.orEmpty(),
-                    onValueChange = { value ->
-                        onLayoutChange(layout.replace(item, item.withSecondary(value)).toImmutableList())
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodySmall.copy(color = textColor),
-                    modifier =
-                    Modifier.weight(1f)
-                        .testTag("SecondaryLabel_${itemLabel(item)}")
-                        .background(
-                            cardBackground,
-                            RoundedCornerShape(4.dp),
-                        )
-                        .padding(horizontal = 6.dp, vertical = 4.dp),
-                )
-            }
-        }
-    }
-}
-
-/** The keys not yet in the layout, tappable to append. */
-@SuppressLint("DeprecatedCall") // see ToolbarLayoutPreview
-@Composable
-private fun AvailableKeysPicker(
-    availableKeys: ImmutableList<ToolbarKey>,
-    layout: ImmutableList<ToolbarItem>,
-    onLayoutChange: (ImmutableList<ToolbarItem>) -> Unit,
-    textColor: Color,
-    cardBackground: Color,
-) {
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        availableKeys.forEach { key ->
-            ToolbarKeyChip(
-                label = key.defaultLabel,
-                textColor = textColor,
-                cardBackground = cardBackground,
-                onClick = { onLayoutChange((layout + ToolbarItem.Default(key)).toImmutableList()) },
-            )
-        }
-    }
-}
-
-private fun itemLabel(item: ToolbarItem): String = when (item) {
-    is ToolbarItem.Default -> item.key.defaultLabel
-    is ToolbarItem.Custom -> item.label
-}
-
-/** Returns a copy of this item with a new row weight. */
-private fun ToolbarItem.withWidth(width: Int): ToolbarItem = when (this) {
-    is ToolbarItem.Default -> copy(width = width)
-    is ToolbarItem.Custom -> copy(width = width)
-}
-
-/**
- * Returns a copy with a secondary long-press key; the sequence is the label itself, matching termux
- * extra-keys secondary key semantics.
- */
-private fun ToolbarItem.withSecondary(label: String): ToolbarItem {
-    val trimmed = label.trim()
-    val secondaryLabel = trimmed.ifEmpty { null }
-    val secondarySequence = trimmed.ifEmpty { null }
-    return when (this) {
-        is ToolbarItem.Default ->
-            copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
-
-        is ToolbarItem.Custom ->
-            copy(secondaryLabel = secondaryLabel, secondarySequence = secondarySequence)
-    }
-}
-
-/** Replaces the first item equal to `old` with `new`. */
-private fun List<ToolbarItem>.replace(old: ToolbarItem, new: ToolbarItem): List<ToolbarItem> {
-    val index = indexOf(old)
-    if (index < 0) return this
-    return toMutableList().also { it[index] = new }
-}
-
-@Composable
-private fun ToolbarKeyChip(
-    label: String,
-    onClick: () -> Unit,
-    textColor: Color,
-    cardBackground: Color,
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(6.dp),
-        color = cardBackground,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.testTag("ToolbarKeyChip_$label"),
-    ) {
-        Text(
-            text = label,
-            color = textColor,
-            style = MaterialTheme.typography.labelMedium,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-        )
     }
 }

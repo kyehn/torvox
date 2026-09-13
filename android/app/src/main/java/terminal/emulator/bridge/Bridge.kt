@@ -514,20 +514,6 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
-    /**
-     * Set the independent family for a style slot — 0=bold, 1=italic, 2=bold-italic (ghostty-android
-     * TerminalFontStore 4-slot design). Empty family clears the slot.
-     */
-    fun setFontFamilyForStyle(family: String, slot: Int) {
-        Log.d(TAG, "setFontFamilyForStyle(slot=$slot, $family)")
-        if (sessionId == 0L) return
-        try {
-            NativeBridge.setFontFamilyForStyle(sessionId, family, slot)
-        } catch (exception: RuntimeException) {
-            LogUtil.e("Bridge", "setFontFamilyForStyle failed: ${exception.javaClass.simpleName}")
-        }
-    }
-
     fun setFontSize(sizeTenths: Int) {
         Log.d(TAG, "setFontSize($sizeTenths)")
         setFontSizeInPlace(sizeTenths)

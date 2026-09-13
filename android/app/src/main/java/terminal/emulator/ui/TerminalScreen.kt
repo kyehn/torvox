@@ -24,7 +24,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DrawerValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
@@ -50,14 +49,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.zIndex
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -190,16 +185,19 @@ fun TerminalScreen(
     // Toggle the soft keyboard (termux KEYBOARD key): used by the session
     // drawer's keyboard button and by a KEYBOARD extra key in a custom
     // toolbar layout. No-op in Raw keyboard mode (no IME to show or hide).
-    // Visibility is read from the terminal surface's last window-insets
-    // frame (imeVisible), not InputMethodManager.isAcceptingText, which is
-    // stable across show/hide and would make the toggle a no-op after the
-    // keyboard was dismissed.
+    // Visibility is read synchronously from the attached window insets at
+    // tap time — never from TerminalSurface.lastImeBottom, whose
+    // SurfaceView.onApplyWindowInsets feed does not fire reliably for a
+    // SurfaceView hosted in a Compose AndroidView, leaving imeVisible stale
+    // (false) forever and reducing the toggle to show-only.
     val toggleKeyboard: () -> Unit = {
         if (state.keyboardMode != terminal.emulator.input.KeyboardMode.Raw) {
             val inputMethodManager =
                 context.getSystemService(android.content.Context.INPUT_METHOD_SERVICE)
                     as android.view.inputmethod.InputMethodManager
-            if (surfaceRef.value?.imeVisible == true) {
+            val imeCurrentlyVisible =
+                view.rootWindowInsets?.isVisible(android.view.WindowInsets.Type.ime()) == true
+            if (imeCurrentlyVisible) {
                 inputMethodManager.hideSoftInputFromWindow(view.windowToken, 0)
             } else {
                 view.requestFocus()
@@ -812,42 +810,6 @@ fun TerminalScreen(
                 // END OF COLUMN — terminal and bar both above IME
             } // close Column
 
-            // Debug overlay: Compose-rendered terminal text (capturable by screencap)
-            // since the wgpu Vulkan surface is invisible to adb screencap.
-            var debugText by remember { mutableStateOf("") }
-            LaunchedEffect(state.isRunning) {
-                if (!state.isRunning) return@LaunchedEffect
-                while (true) {
-                    delay(300)
-                    val bridge = viewModel.runtime.bridge()
-                    val len = bridge?.scrollbackLength() ?: 0
-                    debugText = "sb=$len run=${state.isRunning}"
-                    if (len > 0) {
-                        val lines = (maxOf(0, len - 5) until len).mapNotNull { bridge?.scrollbackLine(it) }
-                        debugText = lines.joinToString("\n")
-                    }
-                }
-            }
-            Box(
-                modifier =
-                Modifier.fillMaxWidth()
-                    .align(Alignment.TopCenter)
-                    .zIndex(10f)
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .background(Color.Black.copy(alpha = 0.85f), RoundedCornerShape(6.dp))
-                    .padding(horizontal = 8.dp, vertical = 4.dp)
-                    .testTag("DebugOverlay"),
-            ) {
-                Text(
-                    text = debugText.ifEmpty { "loading..." },
-                    color = Color(0xFF00FF00),
-                    fontSize = 12.sp,
-                    fontFamily = FontFamily.Monospace,
-                    maxLines = 10,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-
             // Floating overlay for bottom bar — hybrid: offset during IME animation (zero remeasure,
             // padding when settled (single reflow). Mirrors Column's hybrid so both move in sync.
             // v5: offset via placement phase (no remeasure). Uses rawImeBottomPx (already tracked)
@@ -985,6 +947,12 @@ fun TerminalScreen(
                         },
                         onToggleAlt = {
                             viewModel.cycleAltState()
+                        },
+                        onLockCtrl = {
+                            viewModel.lockCtrlState()
+                        },
+                        onLockAlt = {
+                            viewModel.lockAltState()
                         },
                         onToggleKeyboard = toggleKeyboard,
                         textColor = resolvedTerminalTheme.foreground,

@@ -4,31 +4,17 @@
 
     <!--
         App shortcuts (long-press launcher icon), termux-compatible:
-        - New session: plain ACTION_RUN (termux action_new_session)
-        - New session (Failsafe): ACTION_RUN + com.termux.app.failsafe_session
-          (termux action_new_session_failsafe — same extra name so existing
-          termux shortcuts/tasker tasks keep working)
-        - Settings: 本应用 EXTRA_OPEN_SETTINGS
+        有且仅有 Failsafe 新会话：ACTION_RUN + com.termux.app.failsafe_session
+        （与 termux action_new_session_failsafe 同名 extra，现有快捷方式与
+        tasker 任务继续工作）。图标与 termux 的 @drawable/ic_new_session 一致。
         targetPackage must stay "com.termux" (applicationId) — see
         termux-app res/xml/shortcuts.xml for the same caveat.
     -->
 
     <shortcut
-        android:shortcutId="new_session"
-        android:enabled="true"
-        android:icon="@android:drawable/ic_menu_add"
-        android:shortcutShortLabel="@string/action_new_session"
-        tools:targetApi="n_mr1">
-        <intent
-            android:action="android.intent.action.RUN"
-            android:targetPackage="com.termux"
-            android:targetClass="terminal.emulator.MainActivity" />
-    </shortcut>
-
-    <shortcut
         android:shortcutId="new_failsafe_session"
         android:enabled="true"
-        android:icon="@android:drawable/ic_menu_revert"
+        android:icon="@drawable/ic_new_session"
         android:shortcutShortLabel="@string/action_new_session_failsafe"
         tools:targetApi="n_mr1">
         <intent
@@ -36,20 +22,6 @@
             android:targetPackage="com.termux"
             android:targetClass="terminal.emulator.MainActivity">
             <extra android:name="com.termux.app.failsafe_session" android:value="true" />
-        </intent>
-    </shortcut>
-
-    <shortcut
-        android:shortcutId="settings"
-        android:enabled="true"
-        android:icon="@android:drawable/ic_menu_preferences"
-        android:shortcutShortLabel="@string/action_open_settings"
-        tools:targetApi="n_mr1">
-        <intent
-            android:action="android.intent.action.VIEW"
-            android:targetPackage="com.termux"
-            android:targetClass="terminal.emulator.MainActivity">
-            <extra android:name="terminal.emulator.open_settings" android:value="true" />
         </intent>
     </shortcut>
 

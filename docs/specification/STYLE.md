@@ -64,6 +64,10 @@
 - 代码量绝对不得超过 ghostty-android-terminal + termux，必须最小实现
 - 不允许实现任何未在 docs/specification/ 声明的功能/逻辑
 
+## Android
+
+- 多语言支持只包括简体中文，无其他语言支持（如不支持日文），Shell 及其他技术词汇不得翻译。
+
 ## Git
 
 - 提交消息保持简洁，仅一行。

@@ -198,7 +198,7 @@ class TextSearchEndToEndTest {
         // NOTE: OCR verification runs on the HOST (maestro flows /
         // scripts/test-emulator.nu invoke `rapidocr` against pulled
         // screenshots). A device-side ProcessBuilder("rapidocr") can
-        // never work — the binary lives in the nix devShell, not on the
+        // never work — the binary lives in the host development shell, not on the
         // device — so this test asserts the UI behavior (result count +
         // screenshot artifact) and the host pipeline does the pixel
         // verification. Screenshot must exist so the host step has input.
@@ -424,8 +424,8 @@ class TextSearchEndToEndTest {
             "Screenshot must exist for host-side OCR verification",
             screenshotFile.exists(),
         )
-        // OCR pixel verification runs on the host (rapidocr in the nix
-        // devShell against pulled screenshots); the device test asserts
+        // OCR pixel verification runs on the host (rapidocr in the host
+        // development shell against pulled screenshots); the device test asserts
         // the artifact exists so the host step has input.
     }
 }

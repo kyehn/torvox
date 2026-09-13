@@ -210,6 +210,9 @@ object NativeBridge {
     /** Terminal title (OSC 0/2) for a session, or null when unknown. */
     @JvmStatic external fun getTitle(sessionId: Long): String?
 
+    /** Working directory reported by the shell (OSC 7), or null when unreported. */
+    @JvmStatic external fun getCurrentDirectory(sessionId: Long): String?
+
     /** Number of scrollback rows for a session. */
     @JvmStatic external fun scrollbackLength(sessionId: Long): Int
 
@@ -299,9 +302,6 @@ object NativeBridge {
     external fun setCursorColor(sessionId: Long, r: Float, g: Float, b: Float)
 
     external fun setFontFamily(sessionId: Long, family: String): Boolean
-
-    /** Slot: 0=bold, 1=italic, 2=bold-italic (ghostty-android 4-slot). */
-    external fun setFontFamilyForStyle(sessionId: Long, family: String, slot: Int): Boolean
 
     external fun setFontSizeInPlace(sessionId: Long, sizeTenths: Int)
 
