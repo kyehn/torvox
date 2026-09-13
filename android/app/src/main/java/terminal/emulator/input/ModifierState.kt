@@ -9,3 +9,10 @@ fun ModifierState.next(): ModifierState = when (this) {
     ModifierState.Once -> ModifierState.Locked
     ModifierState.Locked -> ModifierState.Off
 }
+
+/**
+ * Termux-parity tap toggle for CTRL/ALT (termux ExtraKeysView
+ * onAnyExtraKeyButtonClick): tap arms one-shot, tap again disarms —
+ * never locks. Locking is long-press only.
+ */
+fun ModifierState.toggled(): ModifierState = if (this == ModifierState.Off) ModifierState.Once else ModifierState.Off

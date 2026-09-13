@@ -72,6 +72,7 @@
     <ID>TooGenericExceptionCaught:UserThemeStore.kt$UserThemeStore$e: Exception</ID>
     <ID>TooManyFunctions:NativeBridge.kt$NativeBridge</ID>
     <ID>TooManyFunctions:SettingsRepository.kt$SettingsRepository</ID>
+    <ID>TooManyFunctions:TerminalDocumentsProvider.kt$TerminalDocumentsProvider</ID>
     <ID>TooManyFunctions:TerminalRuntime.kt$TerminalRuntime</ID>
     <ID>TooManyFunctions:TerminalViewModel.kt$TerminalViewModel : ViewModel</ID>
     <ID>TooManyFunctions:TerminalViewModel.kt$TerminalViewModel$SelectionManager</ID>

@@ -36,14 +36,18 @@ libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0
 libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
 [profile.dev]
 incremental = true
-opt-level = 1
+opt-level = "z"
 debug = "line-tables-only"
-strip = "none"
-[profile.dev-android]
-inherits = "dev"
 strip = "debuginfo"
+lto = "thin"
+codegen-units = 16
+panic = "abort"
 [profile.release]
-strip = "debuginfo"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
 [workspace.lints.clippy]
 missing_panics_doc = "allow"
 module_name_repetitions = "allow"

@@ -80,7 +80,8 @@ fn read_error_action(raw_os_error: Option<i32>) -> ReaderErrorAction {
 /// while the thread no longer spins the CPU when the PTY is idle.
 const READ_POLL_TIMEOUT_MS: i32 = 100;
 
-pub const DEFAULT_SCROLLBACK_LINES: u32 = 10000;
+/// 回滚行数固定值（与 Termux 默认 transcript-rows=2000 一致），不提供修改入口。
+pub const DEFAULT_SCROLLBACK_LINES: u32 = 2000;
 
 /// Errors that can occur during session operations.
 #[derive(Debug, Error)]
@@ -168,6 +169,8 @@ pub struct Session {
     /// to the host app and writes the answer back via
     /// [`Session::answer_clipboard_read`].
     clipboard_read: Arc<Mutex<Option<String>>>,
+    /// Shell 上报的工作目录（OSC 7），未上报过为 `None`。
+    current_directory: Mutex<Option<String>>,
 
     // ── Thread lifecycle ─────────────────────────────────────────────
     reader_handle: Option<std::thread::JoinHandle<()>>,
@@ -443,6 +446,7 @@ impl Session {
             exit_reported,
             clipboard_text,
             clipboard_read,
+            current_directory: Mutex::new(None),
             reader_handle: None,
             wait_handle: None,
             exit_code: Arc::new(Mutex::new(None)),
@@ -578,6 +582,9 @@ impl Session {
             }
             if let Some(selection) = snap.clipboard_read {
                 *self.clipboard_read.lock() = Some(selection);
+            }
+            if let Some(path) = snap.cwd {
+                *self.current_directory.lock() = Some(path);
             }
             self.terminal.pty_write(&snap.filtered);
             count += 1;
@@ -717,6 +724,11 @@ impl Session {
     /// Get the current window title set by the shell.
     pub fn title(&self) -> String {
         self.terminal.title()
+    }
+
+    /// Shell 上报的工作目录（OSC 7），未上报过为 `None`。
+    pub fn current_directory(&self) -> Option<String> {
+        self.current_directory.lock().clone()
     }
 
     pub fn mode_get(&self, mode_num: u16, kind: u8) -> bool {

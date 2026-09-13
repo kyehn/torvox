@@ -10,11 +10,10 @@
 //!
 //! ```text
 //! native/
-//! ├── terminal/       — Ghostty VT parsing, PTY management, Session
-//! ├── render/         — wgpu pipeline, cosmic-text shaping, swash glyphs
-//! ├── android/        — JNI FFI exports, NDK bridge, logging
-//! ├── test/           — cross-module integration tests (cfg(test) only)
-//! └── (unit tests live beside the code under `#[cfg(test)]`)
+//! ├── terminal/       — Ghostty VT 解析、PTY 管理、Session
+//! ├── render/         — wgpu 管线、cosmic-text 整形、swash 字形
+//! ├── android/        — JNI FFI 导出、NDK 桥接、日志
+//! └── (单元测试就近存放于 `#[cfg(test)]`，集成行为由 `tests/features/*.feature` 统一管理)
 //! ```
 
 pub mod event;
@@ -34,7 +33,3 @@ pub mod log_chunk;
 
 #[cfg(test)]
 mod prop_tests;
-
-/// Cross-module integration tests (moved in from `native/tests/`).
-#[cfg(test)]
-mod test;

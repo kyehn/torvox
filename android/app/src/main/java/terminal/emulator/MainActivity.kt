@@ -27,7 +27,6 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.TerminalRuntime
@@ -62,9 +61,9 @@ class MainActivity : ComponentActivity() {
         const val EXTRA_OPEN_SETTINGS = "terminal.emulator.open_settings"
 
         /**
-         * Test-only extra: install a bootstrap zip from a local path used by
-         * NixBootstrapInstrumentedTest — the instrumentation process cannot write the app filesDir,
-         * SELinux app_data category). Mirrors the INSTALL_BOOTSTRAP broadcast backdoor.
+         * Test-only extra: install a bootstrap zip from a local path used by NixExecRealTerminalTest —
+         * the instrumentation process cannot write the app filesDir, SELinux app_data category).
+         * Mirrors the INSTALL_BOOTSTRAP broadcast backdoor.
          */
         const val EXTRA_INSTALL_BOOTSTRAP = "terminal.emulator.install_bootstrap"
     }
@@ -215,41 +214,9 @@ class MainActivity : ComponentActivity() {
         ) {
             requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 1)
         }
-        checkShizukuAuthorization()
         handleLaunchIntent(intent)
         setContent {
             TerminalNavHost(openSettingsOnLaunch = launchOpenSettings)
-        }
-    }
-
-    /**
-     * DESIGN Shizuku startup gate: with the switch on but no actual grant, show a dialog offering to
-     * turn the switch off or exit the app. Runs before the first session starts (terminal start
-     * observes settings).
-     */
-    private fun checkShizukuAuthorization() {
-        lifecycleScope.launch {
-            val enabled =
-                try {
-                    terminalViewModel.settings.first().shizukuEnabled
-                } catch (exception: Exception) {
-                    LogUtil.w("MainActivity", "Shizuku gate settings read failed", exception)
-                    return@launch
-                }
-            if (!enabled || ShizukuGate.isAuthorized()) return@launch
-            android.app.AlertDialog.Builder(this@MainActivity)
-                .setTitle(R.string.shizuku_required_title)
-                .setMessage(R.string.shizuku_required_message)
-                .setCancelable(false)
-                .setPositiveButton(R.string.shizuku_turn_off) { dialog, _ ->
-                    terminalViewModel.setShizukuEnabled(false)
-                    dialog.dismiss()
-                }
-                .setNegativeButton(R.string.shizuku_exit) { dialog, _ ->
-                    dialog.dismiss()
-                    finishAndRemoveTask()
-                }
-                .show()
         }
     }
 
@@ -279,7 +246,7 @@ class MainActivity : ComponentActivity() {
         if (intent.getBooleanExtra(EXTRA_OPEN_SETTINGS, false)) {
             launchOpenSettings = true
         }
-        // Test-only bootstrap installer entry (NixBootstrapInstrumentedTest).
+        // Test-only bootstrap installer entry (NixExecRealTerminalTest).
         // Debug builds only: release APKs must not carry the install-backdoor
         // extra (any app could otherwise point us at an arbitrary zip).
         if (BuildConfig.DEBUG) {
