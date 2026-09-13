@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -29,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +59,9 @@ fun SessionDrawer(
     val textColor = MaterialTheme.colorScheme.onSurfaceVariant
     val accent = MaterialTheme.colorScheme.primary
     val surface = MaterialTheme.colorScheme.surface
+    LaunchedEffect(Unit) {
+        viewModel.refreshSessionMetas()
+    }
 
     Column(
         modifier =
@@ -112,9 +117,14 @@ fun SessionDrawer(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            items(state.sessions, key = { it.id }) { session ->
+            itemsIndexed(state.sessions, key = { _, session -> session.id }) { index, session ->
+                val sessionNumber = stringResource(R.string.session_number, index + 1)
                 SessionItem(
-                    title = session.title,
+                    title = sessionNumber,
+                    subtitle =
+                    session.directory.ifEmpty {
+                        session.title.takeIf { it != sessionNumber }.orEmpty()
+                    },
                     isActive = session.id == state.activeSessionId,
                     onClick = {
                         viewModel.switchSession(session.id)
@@ -176,6 +186,7 @@ fun SessionDrawer(
 @Composable
 private fun SessionItem(
     title: String,
+    subtitle: String,
     isActive: Boolean,
     onClick: () -> Unit,
     onClose: () -> Unit,
@@ -206,27 +217,37 @@ private fun SessionItem(
                 .background(if (isActive) accent else textColor.copy(alpha = 0.4f)),
         )
         Spacer(modifier = Modifier.width(12.dp))
-        Text(
-            text = title,
-            color = titleColor,
-            fontSize = 14.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        if (!isActive) {
-            Icon(
-                imageVector = Icons.Default.Close,
-                contentDescription = stringResource(R.string.cd_close_session),
-                tint = textColor.copy(alpha = 0.6f),
-                modifier =
-                Modifier
-                    .size(18.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onClose)
-                    .padding(2.dp),
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                color = titleColor,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (subtitle.isNotEmpty()) {
+                Text(
+                    text = subtitle,
+                    color = titleColor.copy(alpha = 0.7f),
+                    fontSize = 12.sp,
+                    fontStyle = FontStyle.Italic,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
+        Icon(
+            imageVector = Icons.Default.Close,
+            contentDescription = stringResource(R.string.cd_close_session),
+            tint = textColor.copy(alpha = 0.6f),
+            modifier =
+            Modifier
+                .size(18.dp)
+                .clip(CircleShape)
+                .clickable(onClick = onClose)
+                .padding(2.dp),
+        )
     }
 }
 

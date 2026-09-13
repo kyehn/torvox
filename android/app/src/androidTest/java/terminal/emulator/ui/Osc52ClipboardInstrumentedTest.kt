@@ -25,46 +25,46 @@ import terminal.emulator.waitForSession
  */
 @RunWith(JUnit4::class)
 class Osc52ClipboardInstrumentedTest {
-  companion object {
-    private const val OUTPUT_TIMEOUT_MS = 15_000L
-  }
+    companion object {
+        private const val OUTPUT_TIMEOUT_MS = 15_000L
+    }
 
-  @get:Rule
-  val notificationPermission =
-      GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+    @get:Rule
+    val notificationPermission =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
 
-  @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-  @Test
-  fun osc52_sequence_sets_system_clipboard() {
-    composeTestRule.waitForSession()
-    val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-    val activity = composeTestRule.activity
-    val clipboard =
-        activity.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-    // Clear first so the assertion cannot pass on stale content.
-    activity.runOnUiThread { clipboard.setPrimaryClip(ClipData.newPlainText("test", "")) }
+    @Test
+    fun osc52_sequence_sets_system_clipboard() {
+        composeTestRule.waitForSession()
+        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+        val activity = composeTestRule.activity
+        val clipboard =
+            activity.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        // Clear first so the assertion cannot pass on stale content.
+        activity.runOnUiThread { clipboard.setPrimaryClip(ClipData.newPlainText("test", "")) }
 
-    val marker = "OSC52_ALIVE_${System.currentTimeMillis() % 100000}"
-    val encoded =
-        android.util.Base64.encodeToString(
-            marker.toByteArray(Charsets.UTF_8),
-            android.util.Base64.NO_WRAP,
+        val marker = "OSC52_ALIVE_${System.currentTimeMillis() % 100000}"
+        val encoded =
+            android.util.Base64.encodeToString(
+                marker.toByteArray(Charsets.UTF_8),
+                android.util.Base64.NO_WRAP,
+            )
+        val sequence = "\u001b]52;c;$encoded\u0007"
+        assertTrue(
+            "PTY write rejected",
+            bridge.writeToPty(sequence.toByteArray(Charsets.UTF_8)),
         )
-    val sequence = "\u001b]52;c;$encoded\u0007"
-    assertTrue(
-        "PTY write rejected",
-        bridge.writeToPty(sequence.toByteArray(Charsets.UTF_8)),
-    )
-    val seen =
-        UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
-          clipboard.primaryClip?.getItemAt(0)?.text?.toString() == marker
-        }
-    val actual = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
-    assertNotNull("clipboard never received OSC52 marker $marker (got: $actual)", seen)
-    assertTrue(
-        "clipboard must equal marker, got: $actual",
-        actual == marker,
-    )
-  }
+        val seen =
+            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                clipboard.primaryClip?.getItemAt(0)?.text?.toString() == marker
+            }
+        val actual = clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+        assertNotNull("clipboard never received OSC52 marker $marker (got: $actual)", seen)
+        assertTrue(
+            "clipboard must equal marker, got: $actual",
+            actual == marker,
+        )
+    }
 }

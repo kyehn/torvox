@@ -2,6 +2,7 @@ package terminal.emulator.ui
 
 import android.view.WindowInsets
 import android.view.WindowInsets.Type
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -53,12 +54,27 @@ class ModifierBarTest {
 
     @Test
     fun modifier_bar_ctrl_toggle_cycles() {
-        // CTRL cycles Off → Once → Locked → Off; the armed state is exposed
-        // via the `selected` semantics on the key button.
+        // Termux parity: tap toggles one-shot on/off, never locks; lock is
+        // long-press only. Armed state is exposed via `selected` semantics.
         composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
         composeTestRule.onNodeWithTag("Key_CTRL").performClick()
         composeTestRule.onNodeWithTag("Key_CTRL").assertIsSelected()
         composeTestRule.onNodeWithTag("Key_CTRL").performClick()
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
+    }
+
+    @Test
+    fun modifier_bar_ctrl_long_press_locks() {
+        // Hold past LONG_PRESS_MS (400): the release itself counts even
+        // with zero MOVE events, so a plain down/sleep/up is deterministic.
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
+        composeTestRule.onNodeWithTag("Key_CTRL").performTouchInput {
+            down(center)
+            Thread.sleep(650L)
+            up()
+        }
+        composeTestRule.onNodeWithTag("Key_CTRL").assertIsSelected()
+        // Tap clears the lock (termux tap-while-locked disarms).
         composeTestRule.onNodeWithTag("Key_CTRL").performClick()
         composeTestRule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
     }
@@ -68,7 +84,6 @@ class ModifierBarTest {
         composeTestRule.onNodeWithTag("Key_ALT").assertIsNotSelected()
         composeTestRule.onNodeWithTag("Key_ALT").performClick()
         composeTestRule.onNodeWithTag("Key_ALT").assertIsSelected()
-        composeTestRule.onNodeWithTag("Key_ALT").performClick()
         composeTestRule.onNodeWithTag("Key_ALT").performClick()
         composeTestRule.onNodeWithTag("Key_ALT").assertIsNotSelected()
     }
@@ -130,11 +145,11 @@ class ModifierBarTest {
     fun rapid_press_arrow_keys_does_not_crash() {
         repeat(3) {
             composeTestRule.onNodeWithTag("Key_\u2191").performTouchInput {
-                down(center)
+                down(Offset(width / 2f, height / 2f))
                 up()
             }
             composeTestRule.onNodeWithTag("Key_\u2193").performTouchInput {
-                down(center)
+                down(Offset(width / 2f, height / 2f))
                 up()
             }
         }
