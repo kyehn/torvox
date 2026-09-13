@@ -962,6 +962,14 @@ impl Renderer {
         config.height = scaled_height;
         surface.configure(&self.device, config);
 
+        // Accumulator content belongs to the old size; force a full redraw
+        // after reconfigure (same as the attach slow path). Without this an
+        // idle shell keeps its empty recreated accumulator forever: the idle
+        // gate only repaints on frame_invalidated, so IME resize / app-switch
+        // with a retained surface ended black or flashing.
+        self.frame_texture = None;
+        self.frame_invalidated = true;
+
         self.projection_width = scaled_width;
         self.projection_height = scaled_height;
 

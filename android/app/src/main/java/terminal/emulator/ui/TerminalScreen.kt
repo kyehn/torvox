@@ -255,6 +255,7 @@ fun TerminalScreen(
                 ) {
                     viewModel.runtime.setRenderPaused(false)
                     viewModel.runtime.resumeRendering()
+                    viewModel.runtime.forceRender()
                 } else {
                     surface?.postDelayedUnpause(200L)
                 }
@@ -488,15 +489,8 @@ fun TerminalScreen(
                 }
             }
 
-            // IME follow: hybrid pan-then-reflow (spec ime-translation v5 — zero recomposition).
-            // Animating phase: placement-phase offset reads WindowInsets.ime directly inside the
-            // offset lambda — zero measure, zero recomposition per frame. The system
-            // WindowInsetsAnimation already interpolates the inset smoothly, so no Compose
-            // spring (animateDpAsState) is needed; that spring forced TerminalScreen
-            // recomposition every frame (animatedImeBottom read in composition) and contributed
-            // jank on SwiftShader. Settled phase: single padding + grid resize via onImeSettled.
-            // rawImeBottomPx is still tracked for the settled判定 (LaunchedEffect) but does NOT
-            // drive the animation. navigationBarsPadding only at the outer Box.
+            // IME 跟随：纯平移不重排（修复闪烁与底部行遮挡）。动画与定居均用 placement 阶段 offset，
+            // Surface 尺寸永不变化，不触发交换链重建与网格重排；定居态用 settled 值避免每帧重组。
             val density = LocalDensity.current
             val rawImeBottomPx = WindowInsets.ime.getBottom(density)
             var settledImePx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
@@ -512,19 +506,16 @@ fun TerminalScreen(
                 isImeSettled = true
                 surfaceRef.value?.onImeSettled(rawImeBottomPx)
             }
-            val imeSettledPadding = with(density) { settledImePx.toDp() }
 
-            // v5: animation uses the composition-tracked raw inset but via placement-phase
-            // offset (no remeasure). The raw value already follows the system WindowInsetsAnimation
-            // interpolation, so no Compose spring is needed — the spring forced recomposition every
-            // frame on SwiftShader.
+            // v5: 全程 placement 阶段 offset（无重测）。原始值跟随系统 WindowInsetsAnimation 插值，
+            // 无需 Compose 弹簧；定居态用 settled 值，尺寸恒定，网格不收缩。
             Column(
                 modifier =
                 Modifier.fillMaxSize()
                     .testTag("TerminalContent")
                     .then(
                         if (isImeSettled) {
-                            Modifier.padding(bottom = imeSettledPadding.coerceAtLeast(0.dp))
+                            Modifier.offset { IntOffset(0, -settledImePx.coerceAtLeast(0)) }
                         } else {
                             Modifier.offset { IntOffset(0, -rawImeBottomPx.coerceAtLeast(0)) }
                         },
@@ -810,10 +801,7 @@ fun TerminalScreen(
                 // END OF COLUMN — terminal and bar both above IME
             } // close Column
 
-            // Floating overlay for bottom bar — hybrid: offset during IME animation (zero remeasure,
-            // padding when settled (single reflow). Mirrors Column's hybrid so both move in sync.
-            // v5: offset via placement phase (no remeasure). Uses rawImeBottomPx (already tracked)
-            // — no WindowInsets read inside the lambda (that requires composable context).
+            // 底部栏随动：与内容同策略的纯偏移，避免重测与交换链重建。
             Box(
                 modifier =
                 Modifier.fillMaxWidth()
@@ -821,7 +809,7 @@ fun TerminalScreen(
                     .background(resolvedTerminalTheme.background)
                     .then(
                         if (isImeSettled) {
-                            Modifier.padding(bottom = imeSettledPadding.coerceAtLeast(0.dp))
+                            Modifier.offset { IntOffset(0, -settledImePx.coerceAtLeast(0)) }
                         } else {
                             Modifier.offset { IntOffset(0, -rawImeBottomPx.coerceAtLeast(0)) }
                         },

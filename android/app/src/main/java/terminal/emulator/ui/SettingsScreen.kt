@@ -89,6 +89,7 @@ private val WARNING_ORANGE = Color(0xFFFF9800)
 fun SettingsScreen(
     viewModel: TerminalViewModel,
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val isSmallScreen = rememberIsSmallScreen()
     val horizontalPadding = if (isSmallScreen) 8.dp else 16.dp
@@ -107,7 +108,7 @@ fun SettingsScreen(
     BackHandler(enabled = true) { onBack() }
     Surface(
         modifier =
-        Modifier.fillMaxSize()
+        modifier.fillMaxSize()
             .testTag("SettingsScreen")
             // Consume taps on the settings backdrop so they do not fall
             // through to the TerminalScreen composable underneath. This must
@@ -501,12 +502,12 @@ private fun SectionHeader(
 
 @Composable
 private fun FontSizeSlider(
-    modifier: Modifier = Modifier,
     value: Float,
     onValueChange: (Float) -> Unit,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
+    modifier: Modifier = Modifier,
     onValueChangeFinished: () -> Unit = {},
 ) {
     SettingsSliderRow(

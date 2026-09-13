@@ -539,7 +539,7 @@ private fun FnKeyRows(
     onToggleFn: () -> Unit,
     textColor: Color,
     backgroundColor: Color,
-    modifier: Modifier,
+    modifier: Modifier = Modifier,
     label: (String) -> String,
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
@@ -599,7 +599,7 @@ private fun SelectionActionsBar(
     textColor: Color,
     backgroundColor: Color,
     buttonHeight: androidx.compose.ui.unit.Dp,
-    modifier: Modifier,
+    modifier: Modifier = Modifier,
 ) {
     val actionList = mutableListOf<Triple<String, () -> Unit, Boolean>>()
     // the self-invented ◀/▶ anchor-move actions are removed —
@@ -703,14 +703,14 @@ private fun ConfigurableModifierBar(
     onToggleAlt: () -> Unit,
     onToggleFn: () -> Unit,
     onToggleKeyboard: () -> Unit,
-    onLockCtrl: () -> Unit = {},
-    onLockAlt: () -> Unit = {},
     composeActive: Boolean,
     onToggleCompose: () -> Unit,
     onPaste: (() -> Unit)?,
     textColor: Color,
     backgroundColor: Color,
-    modifier: Modifier,
+    modifier: Modifier = Modifier,
+    onLockCtrl: () -> Unit = {},
+    onLockAlt: () -> Unit = {},
     label: (String) -> String,
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
@@ -1121,33 +1121,35 @@ private fun RowScope.ExtraKeyButton(
                             currentOnClick()
                         }
                     } else {
-                        // (spec modifier-bar-interaction): termux
-                        // ExtraKeysView semantics — fire on ACTION_DOWN so a
-                        // tap reaches the PTY within one frame, then
-                        // auto-repeat at 400ms initial / 80ms cadence until
-                        // UP or the finger slides out (slop cancel stops the
-                        // repeats; the already-sent key is not recalled,
-                        // matching termux).
-                        if (currentEnabled) {
-                            view.performHapticFeedback(
-                                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
-                            )
-                            currentOnClick()
-                        }
+                        // 底部上滑绝不能触发按键：松手确认，滑出即取消。单击在抬手时触发一次；
+                        // 可重复键按住超阈值后以 80ms 节奏重复，任一阶段滑出均吞掉剩余手势。
                         if (currentOnRepeat == null) {
-                            // Momentary keys (PGUP/HOME/TAB/ESC…): hold the
-                            // pressed visual until finger lift. Without this
-                            // the gesture block returns right after the DOWN
-                            // fire and `finally` clears isPressed within
-                            // milliseconds — no visible press flash.
-                            var stillDown = true
-                            while (stillDown) {
+                            var tapValid = true
+                            while (true) {
                                 val ev = awaitPointerEvent()
-                                if (ev.changes.all { !it.pressed }) stillDown = false
+                                val ch = ev.changes.first()
+                                if (!ch.pressed) break
+                                if ((ch.position - downPos).getDistance() > slop) {
+                                    tapValid = false
+                                    break
+                                }
+                            }
+                            if (tapValid && currentEnabled) {
+                                view.performHapticFeedback(
+                                    android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                                )
+                                currentOnClick()
+                            } else if (!tapValid) {
+                                while (true) {
+                                    val ev = awaitPointerEvent()
+                                    if (ev.changes.all { !it.pressed }) break
+                                }
                             }
                         } else {
                             var nextRepeatAt =
                                 System.currentTimeMillis() + AUTO_REPEAT_INITIAL_DELAY_MS
+                            var repeatFired = false
+                            var repeatValid = true
                             while (currentOnRepeat != null) {
                                 val remaining = nextRepeatAt - System.currentTimeMillis()
                                 val ev =
@@ -1155,15 +1157,37 @@ private fun RowScope.ExtraKeyButton(
                                         awaitPointerEvent()
                                     }
                                 if (ev == null) {
-                                    if (gestureValid && currentEnabled) currentOnRepeat?.invoke()
+                                    if (repeatValid && currentEnabled) {
+                                        if (!repeatFired) {
+                                            view.performHapticFeedback(
+                                                android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                                            )
+                                            currentOnClick()
+                                            repeatFired = true
+                                        } else {
+                                            currentOnRepeat?.invoke()
+                                        }
+                                    }
                                     nextRepeatAt += AUTO_REPEAT_INTERVAL_MS
                                     continue
                                 }
                                 val ch = ev.changes.first()
                                 if (!ch.pressed) break
                                 if ((ch.position - downPos).getDistance() > slop) {
-                                    gestureValid = false
+                                    repeatValid = false
                                     break
+                                }
+                            }
+                            if (!repeatFired && repeatValid && currentEnabled) {
+                                view.performHapticFeedback(
+                                    android.view.HapticFeedbackConstants.KEYBOARD_TAP,
+                                )
+                                currentOnClick()
+                            }
+                            if (!repeatValid) {
+                                while (true) {
+                                    val ev = awaitPointerEvent()
+                                    if (ev.changes.all { !it.pressed }) break
                                 }
                             }
                         }

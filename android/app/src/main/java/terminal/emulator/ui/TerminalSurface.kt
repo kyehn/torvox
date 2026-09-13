@@ -510,6 +510,10 @@ constructor(
             }
             lastConfiguredWidth = width
             lastConfiguredHeight = height
+            // 切后台返回经 surfaceChanged 重建交换链后强制一帧：闲时无新输出也呈现，避免黑屏。
+            terminalViewModel.runtime.setRenderPaused(false)
+            terminalViewModel.runtime.resumeRendering()
+            terminalViewModel.runtime.forceRender()
             // Rotation / window-size changes (without an IME event) never reach
             // runtime.resize: the only other trigger is onApplyWindowInsets.
             // Use the shared formula so both paths agree on the grid.
@@ -1815,7 +1819,6 @@ constructor(
                     if (newOffset != scrollOffset) {
                         scrollOffset = newOffset
                         onScrollChanged?.invoke(scrollOffset)
-                        viewModel?.runtime?.forceRender()
                     }
                 }
                 // Per-pixel remainder: mirror the sub-row accumulator to the
@@ -1858,19 +1861,19 @@ constructor(
                     return true
                 }
 
-                // velocityY is positive when the finger moves DOWN
-                // (standard gesture coordinates): finger DOWN → newest (offset decreases). Feeding
-                // -velocityY
-                // into the scroller makes currY move toward larger offsets
-                // for downward flings, matching the corrected drag direction.
+                // velocityY 系像素/秒，滚动偏移系行：除以行高换算为行/秒，否则 20 倍过速直接撞边，
+                // 视口跳变撕裂为“折叠”。fling 前清亚行余量，避免旧余量叠加首帧。
                 stopFlingAnimation()
+                scrollAccumulatorPx = 0f
+                viewModel?.runtime?.setScrollRemainderPx(0f)
                 isScrolling = true
                 onScrollingStateChanged?.invoke(true)
+                val rowVelocity = (-velocityY / cellHeight.coerceAtLeast(1f)).toInt()
                 flingScroller.fling(
                     0,
                     scrollOffset,
                     0,
-                    (-velocityY).toInt(),
+                    rowVelocity,
                     0,
                     0,
                     0,
@@ -2262,21 +2265,8 @@ constructor(
      */
     fun onImeSettled(settledBottom: Int) {
         lastImeBottom = settledBottom
-        if (width <= 0 || height <= 0) return
-        // Empty grid (no scrollback yet — fresh prompt, cursor pinned to
-        // row 0): panning by the full-grid overflow would push the only
-        // content above the viewport (black screen with IME open). Pan only
-        // once content has scrolled. Length query is throttled internally.
-        if (settledBottom > 0 && currentScrollbackLength() <= 0) {
-            translationY = 0f
-            return
-        }
-        val cellHeight = viewModel?.runtime?.cellHeight ?: return
-        if (cellHeight <= 0f || rows <= 0) return
-        // overflow = grid bottom below the visible bottom (view height minus IME inset);
-        // clamp to [0, inset] so a fitting grid never moves and a full grid tracks the keyboard.
-        val panPx = (rows * cellHeight - (height - settledBottom)).coerceIn(0f, settledBottom.toFloat())
-        translationY = -panPx
+        // 纯 Compose 偏移已承担键盘跟随，Surface 自身不再平移：双重位移会遮挡底部行并触发重绘闪烁。
+        if (translationY != 0f) translationY = 0f
     }
 
     /**
@@ -2983,6 +2973,7 @@ constructor(
                 // before the thread restarts.
                 terminalViewModel.runtime.setRenderPaused(false)
                 terminalViewModel.runtime.resumeRendering()
+                terminalViewModel.runtime.forceRender()
                 val runtimeState = terminalViewModel.runtime.state.value
                 if (runtimeState.rows > 0 && runtimeState.cols > 0) {
                     rows = runtimeState.rows
