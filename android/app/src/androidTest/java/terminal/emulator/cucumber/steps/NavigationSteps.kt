@@ -13,6 +13,7 @@ import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.openDrawer
+import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSettingsScreen
 import javax.inject.Inject
 
@@ -50,20 +51,20 @@ constructor(
         // 先直点再兜底，与 TestUtils.openSettings 一致，应对 CI 慢设备。
         // 抽屉内容在关闭时仍被组合，直点常常一步到位。
         val directClickSucceeded =
-            runCatching {
+            runCatchingCancellable {
                 rule.onNodeWithTag("SettingsButton", useUnmergedTree = true).performClick()
                 rule.waitForIdle()
                 val probeDeadline = System.currentTimeMillis() + 8000
                 while (System.currentTimeMillis() < probeDeadline) {
                     val visible =
-                        runCatching {
+                        runCatchingCancellable {
                             rule
                                 .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
                                 .assertIsDisplayed()
                             true
                         }
                             .getOrDefault(false)
-                    if (visible) return@runCatching true
+                    if (visible) return@runCatchingCancellable true
                     Thread.sleep(200)
                 }
                 false
@@ -75,12 +76,12 @@ constructor(
         }
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         val uiDirect =
-            runCatching {
+            runCatchingCancellable {
                 if (device.wait(Until.hasObject(By.text("设置")), 5000)) {
                     device.findObject(By.text("设置"))?.click()
                     rule.waitForIdle()
                     Thread.sleep(500)
-                    runCatching {
+                    runCatchingCancellable {
                         rule
                             .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
                             .assertIsDisplayed()
@@ -108,7 +109,7 @@ constructor(
             rule.waitForIdle()
             Thread.sleep(500)
             settingsReached =
-                runCatching {
+                runCatchingCancellable {
                     rule.waitForSettingsScreen(timeoutMs = 15_000)
                     true
                 }

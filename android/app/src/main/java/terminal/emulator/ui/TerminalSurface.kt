@@ -42,6 +42,7 @@ import terminal.emulator.runtime.ClipboardPaster
 import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.isWideCodePoint
+import terminal.emulator.util.runCatchingCancellable
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -453,7 +454,8 @@ constructor(
                     pendingSurfaceResize = null
                     // Latest size wins: onSizeChanged already stored it.
                     applySurfaceResizeNow(surfaceWidthPixels, surfaceHeightPixels)
-                }.also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
+                }
+                    .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
         }
 
         internal fun applySurfaceResizeNow(
@@ -1690,7 +1692,7 @@ constructor(
         // (spec text-selection "drag fluency" constraint b):
         // snapshot per-drag state so MOVE frames issue ZERO JNI calls.
         dragAltScreenSnapshot =
-            runCatching { viewModel?.runtime?.bridge()?.isAltScreenActive() ?: false }
+            runCatchingCancellable { viewModel?.runtime?.bridge()?.isAltScreenActive() ?: false }
                 .getOrDefault(false)
         dragWideCharCacheSession = true
         // call setSelectionDragging(true) ONCE at drag start so the

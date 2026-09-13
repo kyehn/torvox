@@ -46,6 +46,7 @@ import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.SmartCopy
 import terminal.emulator.ui.clampSelection
 import terminal.emulator.util.charCellWidth
+import terminal.emulator.util.runCatchingCancellable
 import javax.inject.Inject
 
 private const val CLIPBOARD_TEXT_MAX_LENGTH = 100_000
@@ -1455,8 +1456,8 @@ constructor(
         viewModelScope.launch(Dispatchers.IO) {
             val homeDirectory = context.filesDir.parentFile?.resolve("files/home")?.absolutePath.orEmpty()
             val fresh = ids.mapIndexed { index, id ->
-                val title = runCatching { NativeBridge.getTitle(id) }.getOrNull().orEmpty()
-                val directory = runCatching { NativeBridge.getCurrentDirectory(id) }.getOrNull()
+                val title = runCatchingCancellable { NativeBridge.getTitle(id) }.getOrNull().orEmpty()
+                val directory = runCatchingCancellable { NativeBridge.getCurrentDirectory(id) }.getOrNull()
                 SessionInfo(
                     id = id,
                     title = title.ifEmpty { context.getString(R.string.session_number, index + 1) },

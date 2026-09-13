@@ -91,8 +91,9 @@ class ScrollBehaviorQuantifiedTest {
         bridge.writeToPty("\n".toByteArray(Charsets.UTF_8))
         val elapsed = UxTestUtils.pollUntilTrue(timeoutMs = 2_000) { view.getScrollOffset() == 0 }
         assertNotNull("viewport never snapped to bottom after Enter", elapsed)
-        UxTestUtils.metric("enter_snap_ms", elapsed!!)
-        assertTrue("enter snap took ${elapsed}ms (>2000ms budget)", elapsed <= 2_000)
+        val elapsedMs = requireNotNull(elapsed)
+        UxTestUtils.metric("enter_snap_ms", elapsedMs)
+        assertTrue("enter snap took ${elapsedMs}ms (>2000ms budget)", elapsedMs <= 2_000)
     }
 
     @Test
