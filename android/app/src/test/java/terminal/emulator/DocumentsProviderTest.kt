@@ -438,4 +438,115 @@ class DocumentsProviderTest {
         assertEquals("target-content", target.readText())
         assertEquals("real.txt", target.name)
     }
+
+    @Test
+    fun file_row_advertises_rename_copy_move() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "doc.txt").apply { writeText("x") }
+        val cursor = provider.queryDocument("doc.txt", null)
+        cursor.use {
+            assertTrue(it.moveToFirst())
+            val flags = it.getInt(it.getColumnIndex(DocumentsContract.Document.COLUMN_FLAGS))
+            assertTrue(flags and DocumentsContract.Document.FLAG_SUPPORTS_RENAME != 0)
+            assertTrue(flags and DocumentsContract.Document.FLAG_SUPPORTS_COPY != 0)
+            assertTrue(flags and DocumentsContract.Document.FLAG_SUPPORTS_MOVE != 0)
+        }
+    }
+
+    @Test
+    fun copyDocument_duplicates_file_content() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "src.txt").apply { writeText("payload") }
+        java.io.File(rootDir(), "dest").apply { mkdirs() }
+        val newId = provider.copyDocument("src.txt", "dest")
+        val copy = java.io.File(rootDir(), "dest/src.txt")
+        assertEquals("dest/src.txt", newId)
+        assertEquals("payload", copy.readText())
+        assertTrue("source must survive a copy", java.io.File(rootDir(), "src.txt").exists())
+    }
+
+    @Test
+    fun moveDocument_relocates_and_clears_source() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "moving.txt").apply { writeText("m") }
+        java.io.File(rootDir(), "box").apply { mkdirs() }
+        val newId = provider.moveDocument("moving.txt", "terminal_home", "box")
+        assertEquals("box/moving.txt", newId)
+        assertTrue(java.io.File(rootDir(), "box/moving.txt").exists())
+        assertTrue(java.io.File(rootDir(), "moving.txt").exists().not())
+    }
+
+    @Test
+    fun moveDocument_into_own_descendant_is_refused() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "tree/sub").apply { mkdirs() }
+        try {
+            provider.moveDocument("tree", "terminal_home", "tree/sub")
+            throw AssertionError("move into own descendant must fail")
+        } catch (expected: java.io.IOException) {
+            assertTrue(java.io.File(rootDir(), "tree/sub").isDirectory)
+        }
+    }
+
+    @Test
+    fun querySearchDocuments_finds_matching_directories() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "MyProjects").apply { mkdirs() }
+        java.io.File(rootDir(), "unrelated.txt").apply { writeText("y") }
+        val cursor = provider.querySearchDocuments("terminal_home", "project", null)
+        cursor.use {
+            assertEquals("search must match the directory", 1, it.count)
+            it.moveToFirst()
+            val name = it.getString(it.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME))
+            assertEquals("MyProjects", name)
+            val mime = it.getString(it.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE))
+            assertEquals(DocumentsContract.Document.MIME_TYPE_DIR, mime)
+        }
+    }
+
+    @Test
+    fun isChildDocument_returns_false_for_escape_instead_of_throwing() {
+        val provider = ensureProvider()
+        assertEquals(false, provider.isChildDocument("terminal_home", "../outside.txt"))
+        assertEquals(false, provider.isChildDocument("../outside", "sub.txt"))
+    }
+
+    @Test
+    fun renameDocument_rejects_empty_id_as_root() {
+        try {
+            ensureProvider().renameDocument("", "x")
+            fail("empty id decodes to root and must be rejected")
+        } catch (expected: java.io.FileNotFoundException) {
+        }
+    }
+
+    @Test
+    fun copyDocument_rejects_root_aliases() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "box").apply { mkdirs() }
+        try {
+            provider.copyDocument("", "box")
+            fail("empty id must be rejected as root")
+        } catch (expected: java.io.FileNotFoundException) {
+        }
+    }
+
+    @Test
+    fun openDocument_fallback_mode_rwa_writes() {
+        val provider = ensureProvider()
+        java.io.File(rootDir(), "fallback.txt").apply { writeText("a") }
+        provider.openDocument("fallback.txt", "rwa", null).use { parcelFileDescriptor ->
+            java.io.FileOutputStream(parcelFileDescriptor.fileDescriptor).write("b".toByteArray())
+        }
+        assertTrue(java.io.File(rootDir(), "fallback.txt").readText().contains("b"))
+    }
+
+    @Test
+    fun openDocument_rw_creates_missing_file() {
+        val provider = ensureProvider()
+        val target = java.io.File(rootDir(), "fresh.txt")
+        assertTrue(!target.exists())
+        provider.openDocument("fresh.txt", "rw", null).close()
+        assertTrue(target.exists())
+    }
 }
