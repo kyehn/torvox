@@ -1951,6 +1951,15 @@ constructor(
             pendingSurfaceHeight = height
         }
         if (!NativeBridge.isNativeLoaded()) {
+            // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
+            // 等待至多 3 秒而非直接放弃，避免浪费一轮布局重建的启动延迟。
+            var waited = 0
+            while (!NativeBridge.isNativeLoaded() && waited < 60) {
+                kotlinx.coroutines.delay(50)
+                waited++
+            }
+        }
+        if (!NativeBridge.isNativeLoaded()) {
             // Mirror createSession's guard. Without it, bridge.ping() throws
             // RuntimeException, the rollback's destroySession throws
             // UnsatisfiedLinkError (an Error — not caught by catch(Exception))

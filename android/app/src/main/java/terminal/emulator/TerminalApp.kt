@@ -34,27 +34,30 @@ open class TerminalApp : Application() {
         val logDir = getDir("logs", MODE_PRIVATE)
         BootGuard(logDir).rotateLogs()
         BootGuard(logDir).check()
-        StrictMode.setThreadPolicy(
-            StrictMode.ThreadPolicy
-                .Builder()
-                .detectDiskReads()
-                .detectDiskWrites()
-                .detectNetwork()
-                .detectUnbufferedIo()
-                .penaltyLog()
-                .build(),
-        )
-        StrictMode.setVmPolicy(
-            StrictMode.VmPolicy
-                .Builder()
-                .detectActivityLeaks()
-                .detectLeakedClosableObjects()
-                .detectLeakedRegistrationObjects()
-                .detectFileUriExposure()
-                .detectCleartextNetwork()
-                .penaltyLog()
-                .build(),
-        )
+        // StrictMode 仅 debug：release 下每次 I/O 的 penaltyLog 拖慢冷启动。
+        if (BuildConfig.DEBUG) {
+            StrictMode.setThreadPolicy(
+                StrictMode.ThreadPolicy
+                    .Builder()
+                    .detectDiskReads()
+                    .detectDiskWrites()
+                    .detectNetwork()
+                    .detectUnbufferedIo()
+                    .penaltyLog()
+                    .build(),
+            )
+            StrictMode.setVmPolicy(
+                StrictMode.VmPolicy
+                    .Builder()
+                    .detectActivityLeaks()
+                    .detectLeakedClosableObjects()
+                    .detectLeakedRegistrationObjects()
+                    .detectFileUriExposure()
+                    .detectCleartextNetwork()
+                    .penaltyLog()
+                    .build(),
+            )
+        }
         Thread({
             try {
                 getSharedPreferences("toolbar_prefs", MODE_PRIVATE)
