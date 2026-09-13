@@ -6,6 +6,7 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 
@@ -570,6 +571,7 @@ fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = whe
  * Dynamic colors apply only on Android 12+ when following the system.
  */
 @Composable
+@ReadOnlyComposable
 fun resolveMaterialColorScheme(
     appThemeMode: String,
     forceDark: Boolean,
@@ -596,6 +598,7 @@ enum class ThemeMode(
 }
 
 @Composable
+@ReadOnlyComposable
 fun dynamicTerminalTheme(isDark: Boolean): TerminalTheme? {
     val context = LocalContext.current
     val scheme = if (isDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)

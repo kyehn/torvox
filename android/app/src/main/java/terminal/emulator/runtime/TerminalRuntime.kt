@@ -35,6 +35,7 @@ import terminal.emulator.bridge.createBridge
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes
+import terminal.emulator.util.runCatchingCancellable
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -1950,6 +1951,15 @@ constructor(
             pendingSurfaceHeight = height
         }
         if (!NativeBridge.isNativeLoaded()) {
+            // NativeInit 线程后台加载 libnative：首帧 surface 就绪时可能尚未完成。
+            // 等待至多 3 秒而非直接放弃，避免浪费一轮布局重建的启动延迟。
+            var waited = 0
+            while (!NativeBridge.isNativeLoaded() && waited < 60) {
+                kotlinx.coroutines.delay(50)
+                waited++
+            }
+        }
+        if (!NativeBridge.isNativeLoaded()) {
             // Mirror createSession's guard. Without it, bridge.ping() throws
             // RuntimeException, the rollback's destroySession throws
             // UnsatisfiedLinkError (an Error — not caught by catch(Exception))
@@ -2023,11 +2033,11 @@ constructor(
                 // and LogUtil writes the persistent log file unconditionally
                 //
                 val origin =
-                    runCatching {
+                    runCatchingCancellable {
                         val uri = bootstrapUrl.toUri()
-                        val scheme = uri.scheme ?: return@runCatching "<no-scheme>"
+                        val scheme = uri.scheme ?: return@runCatchingCancellable "<no-scheme>"
                         val host = uri.host
-                        if (host.isNullOrBlank()) return@runCatching "<no-host>"
+                        if (host.isNullOrBlank()) return@runCatchingCancellable "<no-host>"
                         "$scheme://$host"
                     }
                         .getOrNull() ?: "<unparsable>"
