@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -1072,6 +1073,7 @@ private const val BYTES_PER_KB = 1024L
 private const val BYTES_PER_MB = BYTES_PER_KB * 1024
 
 @Composable
+@ReadOnlyComposable
 private fun formatBytes(bytes: Long): String = when {
     bytes >= BYTES_PER_MB -> stringResource(R.string.byte_unit_mb, bytes / BYTES_PER_MB)
     bytes >= BYTES_PER_KB -> stringResource(R.string.byte_unit_kb, bytes / BYTES_PER_KB)
@@ -1079,6 +1081,7 @@ private fun formatBytes(bytes: Long): String = when {
 }
 
 @Composable
+@ReadOnlyComposable
 private fun bootstrapStepText(progress: BootstrapProgress): String = when (progress) {
     is BootstrapProgress.Downloading -> {
         val pct =

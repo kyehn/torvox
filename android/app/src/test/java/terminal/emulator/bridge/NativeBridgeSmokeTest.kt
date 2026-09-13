@@ -61,7 +61,7 @@ class NativeBridgeSmokeTest {
                 ") — run `cargo build --package native` first",
             so != null,
         )
-        System.load(so!!.absolutePath)
+        System.load(requireNotNull(so).absolutePath)
     }
 
     /** Poll `probe` until it returns true or [POLL_TIMEOUT_MS] elapses. */
@@ -102,7 +102,7 @@ class NativeBridgeSmokeTest {
         withSession { sessionId ->
             assertTrue(
                 "registry must now contain the session",
-                NativeBridge.listSessions()!!.contains(sessionId.toString()),
+                requireNotNull(NativeBridge.listSessions()).contains(sessionId.toString()),
             )
         }
         assertEquals("session must be removed again", before, NativeBridge.getSessionCount())

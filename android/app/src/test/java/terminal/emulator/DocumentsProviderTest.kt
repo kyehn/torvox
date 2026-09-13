@@ -195,7 +195,7 @@ class DocumentsProviderTest {
 
     @Test
     fun openDocument_mode_w_truncates_existing_content() {
-        val home = java.io.File(provider.context!!.filesDir, "home").apply { mkdirs() }
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
         val target = java.io.File(home, "notes.txt").apply { writeText("long original content") }
         // Document id is the path relative to the root (decodeDocId resolves
         // against rootDir), same id the SAF clients receive.
@@ -209,7 +209,7 @@ class DocumentsProviderTest {
 
     @Test
     fun openDocument_mode_wa_appends_instead_of_truncating() {
-        val home = java.io.File(provider.context!!.filesDir, "home").apply { mkdirs() }
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
         val target = java.io.File(home, "log.txt").apply { writeText("start|") }
         provider.openDocument("log.txt", "wa", null).use { fd ->
             java.io.FileOutputStream(fd.fileDescriptor).write("more".toByteArray())
@@ -219,7 +219,7 @@ class DocumentsProviderTest {
 
     @Test
     fun openDocument_unknown_mode_throws() {
-        val home = java.io.File(provider.context!!.filesDir, "home").apply { mkdirs() }
+        val home = java.io.File(requireNotNull(provider.context).filesDir, "home").apply { mkdirs() }
         java.io.File(home, "f.txt").writeText("x")
         try {
             provider.openDocument("f.txt", "rwx", null)
@@ -275,7 +275,7 @@ class DocumentsProviderTest {
     fun querySearchDocuments_skips_symlink_outside_home() {
         val provider = ensureProvider()
         val outside =
-            java.io.File(provider.context!!.filesDir, "outside-secret.txt").apply { writeText("x") }
+            java.io.File(requireNotNull(provider.context).filesDir, "outside-secret.txt").apply { writeText("x") }
         assertTrue(outside.exists())
         try {
             java.lang.Runtime.getRuntime()

@@ -35,6 +35,7 @@ import terminal.emulator.bridge.createBridge
 import terminal.emulator.monitor.RenderWatchDog
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.theme.BuiltInThemes
+import terminal.emulator.util.runCatchingCancellable
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -2023,11 +2024,11 @@ constructor(
                 // and LogUtil writes the persistent log file unconditionally
                 //
                 val origin =
-                    runCatching {
+                    runCatchingCancellable {
                         val uri = bootstrapUrl.toUri()
-                        val scheme = uri.scheme ?: return@runCatching "<no-scheme>"
+                        val scheme = uri.scheme ?: return@runCatchingCancellable "<no-scheme>"
                         val host = uri.host
-                        if (host.isNullOrBlank()) return@runCatching "<no-host>"
+                        if (host.isNullOrBlank()) return@runCatchingCancellable "<no-host>"
                         "$scheme://$host"
                     }
                         .getOrNull() ?: "<unparsable>"

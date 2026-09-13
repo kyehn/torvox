@@ -1,5 +1,6 @@
 package terminal.emulator
 
+import android.annotation.SuppressLint
 import com.ms.square.debugoverlay.DebugOverlay
 import com.ms.square.debugoverlay.DebugTab
 import com.ms.square.debugoverlay.OverlayMode
@@ -23,6 +24,8 @@ class TerminalAppDebug : TerminalApp() {
         //   adb shell setprop debug.terminal.overlay full
         val overlayFull =
             try {
+                // debug 覆盖开关经系统属性读取（仅 debug 构建）：无公开 API，必须反射；失败即隐藏。
+                @SuppressLint("PrivateApi")
                 val propValue =
                     Class.forName("android.os.SystemProperties")
                         .getMethod("get", String::class.java)

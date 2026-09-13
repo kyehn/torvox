@@ -4,6 +4,7 @@ import android.system.Os
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -13,7 +14,7 @@ import java.util.concurrent.TimeUnit
  * detectDpkgVersion on a dpkg-less prefix when the child exits first). Returns null when the read
  * raced the close. Drain results that nobody consumes stay discarded.
  */
-internal fun drainQuietly(stream: java.io.InputStream): String? = runCatching { stream.bufferedReader().readText() }.getOrNull()
+internal fun drainQuietly(stream: java.io.InputStream): String? = runCatchingCancellable { stream.bufferedReader().readText() }.getOrNull()
 
 class SecondStageRunner(
     private val prefixDir: File,

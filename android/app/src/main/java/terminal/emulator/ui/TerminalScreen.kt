@@ -499,7 +499,7 @@ fun TerminalScreen(
             // drive the animation. navigationBarsPadding only at the outer Box.
             val density = LocalDensity.current
             val rawImeBottomPx = WindowInsets.ime.getBottom(density)
-            var settledImePx by remember { mutableStateOf(0) }
+            var settledImePx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
             var isImeSettled by remember { mutableStateOf(true) }
             LaunchedEffect(rawImeBottomPx) {
                 if (rawImeBottomPx == settledImePx) {

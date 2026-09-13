@@ -1,11 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Adaptive icon background -->
-    <color name="ic_launcher_background">#1E1B4B</color>
-    <color name="background">#060D18</color>
-    <color name="titlebar">#1A3355</color>
-    <color name="window">#0D1B2A</color>
-    <color name="accent">#22D3EE</color>
     <!-- ActionMode (selection context menu) toolbar background —
          terminal panel color so the menu reads as a neutral system toolbar
          instead of the system dynamic accent banner. -->
