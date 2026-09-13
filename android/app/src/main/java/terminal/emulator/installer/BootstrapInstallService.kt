@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.runtime.isElf
 import terminal.emulator.runtime.isSystemShellScript
+import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 
 /**
@@ -39,10 +40,10 @@ class BootstrapInstallService : Service() {
             return START_NOT_STICKY
         }
         Thread {
-            // runCatching instead of try/catch(Exception): detekt
+            // runCatchingCancellable instead of try/catch(Exception): detekt
             // TooGenericExceptionCaught; the install path returns Results.
             val result =
-                runCatching { install(zipPath) }
+                runCatchingCancellable { install(zipPath) }
                     .getOrElse { "FAILED: ${it.message ?: it.javaClass.simpleName}" }
             LogUtil.i(TAG, "install result: $result")
             stopSelf(startId)

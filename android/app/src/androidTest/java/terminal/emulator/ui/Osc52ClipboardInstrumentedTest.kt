@@ -2,6 +2,7 @@ package terminal.emulator.ui
 
 import android.content.ClipData
 import android.content.Context
+import android.annotation.SuppressLint
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertNotNull
@@ -36,6 +37,7 @@ class Osc52ClipboardInstrumentedTest {
     @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Test
+    @SuppressLint("DeprecatedCall")
     fun osc52_sequence_sets_system_clipboard() {
         composeTestRule.waitForSession()
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")

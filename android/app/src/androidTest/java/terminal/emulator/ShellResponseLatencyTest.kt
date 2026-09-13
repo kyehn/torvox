@@ -66,8 +66,9 @@ class ShellResponseLatencyTest {
                 "marker $marker never appeared on screen within ${POLL_TIMEOUT_MS}ms",
                 elapsed,
             )
-            latencies.add(elapsed!!)
-            UxTestUtils.metric("shell_echo_ms", elapsed)
+            val elapsedMs = requireNotNull(elapsed)
+            latencies.add(elapsedMs)
+            UxTestUtils.metric("shell_echo_ms", elapsedMs)
         }
 
         val sorted = latencies.sorted()
