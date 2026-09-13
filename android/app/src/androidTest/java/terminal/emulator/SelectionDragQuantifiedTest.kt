@@ -187,7 +187,7 @@ class SelectionDragQuantifiedTest {
 
         val copy = waitForMenuText("COPY", 3_000)
         assertNotNull("selection menu vanished after handle drag", copy)
-        assertTrue("COPY disabled after drag — range did not grow to real text", copy!!.isEnabled)
+        assertTrue("COPY disabled after drag — range did not grow to real text", requireNotNull(copy).isEnabled)
         resetSelection()
     }
 
@@ -234,7 +234,7 @@ class SelectionDragQuantifiedTest {
             "D7.5 failed: dragging a blank-selection handle did not grow a text range",
             copy,
         )
-        assertTrue("grown range has no selectable text", copy!!.isEnabled)
+        assertTrue("grown range has no selectable text", requireNotNull(copy).isEnabled)
         assertTrue("full menu still shows PASTE after growth to text", !menuVisible("PASTE"))
         UxTestUtils.metric("d75_blank_drag_upgrade", 1)
         resetSelection()

@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -88,6 +89,7 @@ private val WARNING_ORANGE = Color(0xFFFF9800)
 fun SettingsScreen(
     viewModel: TerminalViewModel,
     onBack: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val isSmallScreen = rememberIsSmallScreen()
     val horizontalPadding = if (isSmallScreen) 8.dp else 16.dp
@@ -106,7 +108,7 @@ fun SettingsScreen(
     BackHandler(enabled = true) { onBack() }
     Surface(
         modifier =
-        Modifier.fillMaxSize()
+        modifier.fillMaxSize()
             .testTag("SettingsScreen")
             // Consume taps on the settings backdrop so they do not fall
             // through to the TerminalScreen composable underneath. This must
@@ -500,12 +502,12 @@ private fun SectionHeader(
 
 @Composable
 private fun FontSizeSlider(
-    modifier: Modifier = Modifier,
     value: Float,
     onValueChange: (Float) -> Unit,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
+    modifier: Modifier = Modifier,
     onValueChangeFinished: () -> Unit = {},
 ) {
     SettingsSliderRow(
@@ -1072,6 +1074,7 @@ private const val BYTES_PER_KB = 1024L
 private const val BYTES_PER_MB = BYTES_PER_KB * 1024
 
 @Composable
+@ReadOnlyComposable
 private fun formatBytes(bytes: Long): String = when {
     bytes >= BYTES_PER_MB -> stringResource(R.string.byte_unit_mb, bytes / BYTES_PER_MB)
     bytes >= BYTES_PER_KB -> stringResource(R.string.byte_unit_kb, bytes / BYTES_PER_KB)
@@ -1079,6 +1082,7 @@ private fun formatBytes(bytes: Long): String = when {
 }
 
 @Composable
+@ReadOnlyComposable
 private fun bootstrapStepText(progress: BootstrapProgress): String = when (progress) {
     is BootstrapProgress.Downloading -> {
         val pct =

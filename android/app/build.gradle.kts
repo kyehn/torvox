@@ -148,7 +148,7 @@ dependencies {
 
   debugImplementation("com.ms-square:debugoverlay:2.7.0")
 
-  testImplementation("de.infix.testBalloon:testBalloon-framework-core:1.0.1-K2.4.0")
+  testImplementation("de.infix.testBalloon:testBalloon-framework-core:1.1.0")
 
   lintChecks("com.slack.lint.compose:compose-lint-checks:1.6.0")
   lintChecks("com.slack.lint:slack-lint-checks:0.11.1")
@@ -169,7 +169,7 @@ dependencies {
   kspAndroidTest("com.google.dagger:hilt-android-compiler:2.60.1")
   androidTestImplementation("com.google.mlkit:text-recognition:16.0.1")
 
-  androidTestImplementation("de.infix.testBalloon:testBalloon-framework-core:1.0.1-K2.4.0")
+  androidTestImplementation("de.infix.testBalloon:testBalloon-framework-core:1.1.0")
 
   androidTestImplementation("io.cucumber:cucumber-android:7.18.1")
 }

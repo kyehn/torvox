@@ -323,9 +323,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun TerminalNavHost(
     openSettingsOnLaunch: Boolean = false,
+    viewModel: TerminalViewModel = hiltViewModel(),
     viewModelReady: (TerminalViewModel) -> Unit = {},
 ) {
-    val viewModel: TerminalViewModel = hiltViewModel()
     LaunchedEffect(viewModel) { viewModelReady(viewModel) }
     var showSettings by remember { mutableStateOf(openSettingsOnLaunch) }
     LaunchedEffect(showSettings) {

@@ -1760,15 +1760,20 @@ fn render_inner(session_id: u64) -> jint {
             let cursor = build_cursor(render_state, &cached_cursor);
             // Idle repaint gate (P2-1): only repaint when something actually
             // changed — selection change, search highlights, scroll offset,
-            // or content-dirty flag raised.
+            // content-dirty flag raised, or accumulator invalidated (surface
+            // re-attach/resize: the new swapchain never received a frame and
+            // would stay black forever on an idle shell).
             let selection_changed = render_state.selection != render_state.last_drawn_selection;
             let highlights_changed =
                 render_state.search_highlights != render_state.last_drawn_search_highlights;
             let scroll_px_changed =
                 (render_state.renderer.viewport_scroll_px - render_state.last_scroll_px).abs()
                     > f32::EPSILON;
-            let needs_repaint =
-                selection_changed || highlights_changed || scroll_px_changed || content_dirty;
+            let needs_repaint = selection_changed
+                || highlights_changed
+                || scroll_px_changed
+                || content_dirty
+                || render_state.renderer.frame_invalidated;
             if !needs_repaint {
                 return 0;
             }
@@ -2738,6 +2743,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
             let mut state = render_state_mut();
             if let Some(render_state) = state.as_mut() {
                 render_state.renderer.set_bg_color(background);
+                // 主题色存于实例缓存，闲时无新 CellData 则颜色过期，同刷。
+                render_state.renderer.cell_cache = None;
+                render_state.dirty.store(true, Ordering::Relaxed);
             }
         }
         log::info!("setTheme: session {id} bg={background:02X?} fg={foreground:02X?}");
@@ -2806,6 +2814,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontFamily(
             return Ok(JNI_FALSE);
         };
         let found = render_state.font_pipeline.set_font_family(&family_str);
+        // 字体源变化：实例缓存的图集 UV 与行高全部过期，同尺寸下仍判兼容，必须整库丢弃并重绘。
+        render_state.renderer.cell_cache = None;
+        render_state.dirty.store(true, Ordering::Relaxed);
         log::info!("setFontFamily: {family_str} found={found}");
         if found { JNI_TRUE } else { JNI_FALSE }
     })
@@ -2829,6 +2840,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
             let (cw, ch) = render_state.font_pipeline.set_font_size_in_place(size);
             // P2-1 dirty: font-size changes must repaint even on an idle
             // terminal (glyph metrics changed → cached frame is stale).
+            // 同时丢弃实例缓存：干净行存的是旧图集 UV 与旧行高，同网格尺寸仍判兼容，
+            // 不丢则丢字/错位/行高混杂（压扁·撕裂）。
+            render_state.renderer.cell_cache = None;
             render_state.dirty.store(true, Ordering::Relaxed);
             log::info!(
                 "setFontSizeInPlace: {} -> cell {cw:.1}x{ch:.1}",
@@ -2862,6 +2876,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setRasterScale
             // as distorted corner triangles.
             render_state.font_pipeline.set_raster_scale(scale);
             render_state.renderer.set_raster_scale(scale);
+            // 位图全部重光栅：旧 UV 指向错误图块，丢缓存并重绘。
+            render_state.renderer.cell_cache = None;
+            render_state.dirty.store(true, Ordering::Relaxed);
         }
     })
 }
@@ -2911,6 +2928,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_loadFontFile<'
                 render_state.font_pipeline =
                     crate::render::font::FontPipeline::new(aw, ah, font_size);
                 let _ = render_state.font_pipeline.set_font_family(&family);
+                // 管线整体替换：旧实例 UV 全部失效。
+                render_state.renderer.cell_cache = None;
+                render_state.dirty.store(true, Ordering::Relaxed);
             }
             family
         };
@@ -2946,6 +2966,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSystemLocal
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
             render_state.font_pipeline.set_system_locale(&locale_str);
+            // CJK 回退排序变化会改变字形来源，同 UV 缓存过期。
+            render_state.renderer.cell_cache = None;
+            render_state.dirty.store(true, Ordering::Relaxed);
             log::info!("setSystemLocale: {locale_str}");
         }
     })

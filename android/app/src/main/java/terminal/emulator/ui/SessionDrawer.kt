@@ -53,6 +53,7 @@ fun SessionDrawer(
     onSearch: () -> Unit,
     onKeyboardToggle: () -> Unit,
     onClose: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val backgroundColor = MaterialTheme.colorScheme.surfaceVariant
@@ -65,7 +66,7 @@ fun SessionDrawer(
 
     Column(
         modifier =
-        Modifier
+        modifier
             .fillMaxHeight()
             .width(280.dp)
             .background(backgroundColor)

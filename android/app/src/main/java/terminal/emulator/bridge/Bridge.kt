@@ -2,6 +2,7 @@ package terminal.emulator.bridge
 
 import android.util.Log
 import terminal.emulator.runtime.LogUtil
+import terminal.emulator.util.runCatchingCancellable
 
 /** Shell configuration for a terminal session. */
 sealed interface Shell {
@@ -768,25 +769,26 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
 
-    override fun scrollbackLine(row: Int): String? = runCatching { queryPort.scrollbackLine(row) }.getOrNull()
+    override fun scrollbackLine(row: Int): String? = runCatchingCancellable { queryPort.scrollbackLine(row) }.getOrNull()
 
-    override fun scrollbackLength(): Int = runCatching { queryPort.scrollbackLength() }.getOrDefault(0)
+    override fun scrollbackLength(): Int = runCatchingCancellable { queryPort.scrollbackLength() }.getOrDefault(0)
 
-    override fun cursorViewportPacked(): Long = runCatching { queryPort.cursorViewportPacked() }.getOrDefault(-1L)
+    override fun cursorViewportPacked(): Long = runCatchingCancellable { queryPort.cursorViewportPacked() }.getOrDefault(-1L)
 
-    override fun isCellEmpty(row: Int, col: Int): Boolean = runCatching { queryPort.isCellEmpty(row, col) }.getOrDefault(true)
+    override fun isCellEmpty(row: Int, col: Int): Boolean = runCatchingCancellable { queryPort.isCellEmpty(row, col) }.getOrDefault(true)
 
     override fun searchAllInScrollback(
         query: String,
         caseSensitive: Boolean,
         fuzzyMatch: Boolean,
-    ): List<Triple<Int, Int, Int>>? = runCatching { queryPort.searchAllInScrollback(query, caseSensitive, fuzzyMatch) }.getOrNull()
+    ): List<Triple<Int, Int, Int>>? = runCatchingCancellable { queryPort.searchAllInScrollback(query, caseSensitive, fuzzyMatch) }
+        .getOrNull()
 
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
     override fun setScrollYPx(offsetPx: Float) = queryPort.setScrollYPx(offsetPx)
 
-    override fun getTerminalText(): String? = runCatching { queryPort.getTerminalText() }.getOrNull()
+    override fun getTerminalText(): String? = runCatchingCancellable { queryPort.getTerminalText() }.getOrNull()
 
     override fun selectionText(
         startRow: Int,
@@ -794,16 +796,18 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         endRow: Int,
         endCol: Int,
         rectangle: Boolean,
-    ): String? = runCatching { queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle) }
+    ): String? = runCatchingCancellable {
+        queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle)
+    }
         .getOrNull()
 
-    override fun hyperlinkAt(row: Int, col: Int): String? = runCatching { queryPort.hyperlinkAt(row, col) }.getOrNull()
+    override fun hyperlinkAt(row: Int, col: Int): String? = runCatchingCancellable { queryPort.hyperlinkAt(row, col) }.getOrNull()
 
-    override fun listFontFamilies(): List<String>? = runCatching { queryPort.listFontFamilies() }.getOrNull()
+    override fun listFontFamilies(): List<String>? = runCatchingCancellable { queryPort.listFontFamilies() }.getOrNull()
 
-    override fun getDefaultFontName(): String = runCatching { queryPort.getDefaultFontName() }.getOrDefault("monospace")
+    override fun getDefaultFontName(): String = runCatchingCancellable { queryPort.getDefaultFontName() }.getOrDefault("monospace")
 
-    override fun getFontInfo(): String? = runCatching { queryPort.getFontInfo() }.getOrNull()
+    override fun getFontInfo(): String? = runCatchingCancellable { queryPort.getFontInfo() }.getOrNull()
 
     companion object {
         private const val TAG = "Bridge"
