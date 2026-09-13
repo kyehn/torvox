@@ -45,7 +45,7 @@ class NativeBridgeSmokeTest {
             )
                 .map(::File)
 
-        /** Real shell on the dev host (CI/nix runner). Android uses /system/bin/sh. */
+        /** Real shell on the dev host (CI runner). Android uses /system/bin/sh. */
         private const val HOST_SHELL = "/bin/sh"
 
         private const val POLL_TIMEOUT_MS = 5_000L

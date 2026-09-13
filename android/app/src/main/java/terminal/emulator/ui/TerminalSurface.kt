@@ -437,6 +437,37 @@ constructor(
             ) {
                 return
             }
+            // First layout: apply immediately (startup black-flash avoidance).
+            // Later changes (IME animation frames, Gboard strip flicker):
+            // debounce to the settled size via IME_RESIZE_DEBOUNCE_MS —
+            // every intermediate size otherwise forces a full swapchain
+            // reconfigure + PTY grid reflow (frame drops, CellData race
+            // errors, battery drain).
+            if (lastConfiguredWidth == 0) {
+                applySurfaceResizeNow(width, height)
+                return
+            }
+            pendingSurfaceResize?.let { removeCallbacks(it) }
+            pendingSurfaceResize =
+                Runnable {
+                    pendingSurfaceResize = null
+                    // Latest size wins: onSizeChanged already stored it.
+                    applySurfaceResizeNow(surfaceWidthPixels, surfaceHeightPixels)
+                }.also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
+        }
+
+        internal fun applySurfaceResizeNow(
+            width: Int,
+            height: Int,
+        ) {
+            if (width <= 0 || height <= 0) return
+            // A deferred fire after a size oscillation may land back on the
+            // configured size — skip the redundant reconfigure.
+            if (
+                width == lastConfiguredWidth && height == lastConfiguredHeight && lastConfiguredWidth != 0
+            ) {
+                return
+            }
             val terminalViewModel = viewModel ?: return
             terminalViewModel.surfaceWidth = width
             terminalViewModel.surfaceHeight = height
@@ -1203,14 +1234,6 @@ constructor(
     @Volatile private var scrollOffset: Int = 0
     private var lastImeBottom: Int = 0
 
-    /**
-     * Whether the IME is currently visible, per the last window-insets frame. Used by the keyboard
-     * toggle instead of InputMethodManager.isAcceptingText, which reports IME capability, not
-     * visibility.
-     */
-    val imeVisible: Boolean
-        get() = lastImeBottom > 0
-
     // IME show/hide animations fire onApplyWindowInsets with a changing
     // imeBottom every frame; each distinct value used to trigger a ghostty
     // resize (full grid reflow) immediately — visibly janky on software-GPU
@@ -1263,6 +1286,7 @@ constructor(
     private var magnifier: Magnifier? = null
     private var lastConfiguredWidth = 0
     private var lastConfiguredHeight = 0
+    private var pendingSurfaceResize: Runnable? = null
 
     var onScrollChanged: ((offset: Int) -> Unit)? = null
     var onScrollingStateChanged: ((isScrolling: Boolean) -> Unit)? = null
@@ -2237,10 +2261,18 @@ constructor(
     fun onImeSettled(settledBottom: Int) {
         lastImeBottom = settledBottom
         if (width <= 0 || height <= 0) return
+        // Empty grid (no scrollback yet — fresh prompt, cursor pinned to
+        // row 0): panning by the full-grid overflow would push the only
+        // content above the viewport (black screen with IME open). Pan only
+        // once content has scrolled. Length query is throttled internally.
+        if (settledBottom > 0 && currentScrollbackLength() <= 0) {
+            translationY = 0f
+            return
+        }
         val cellHeight = viewModel?.runtime?.cellHeight ?: return
         if (cellHeight <= 0f || rows <= 0) return
         // overflow = grid bottom below the visible bottom (view height minus IME inset);
-        // clamp to [0, inset] so an empty grid never moves and a full grid tracks the keyboard.
+        // clamp to [0, inset] so a fitting grid never moves and a full grid tracks the keyboard.
         val panPx = (rows * cellHeight - (height - settledBottom)).coerceIn(0f, settledBottom.toFloat())
         translationY = -panPx
     }

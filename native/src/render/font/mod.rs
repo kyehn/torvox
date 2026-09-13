@@ -1440,7 +1440,7 @@ mod tests {
     /// Locate a TTF font file for tests. FR-057 bans committed font files
     /// (`.gitignore:53 *.ttf`), so prefer the gitignored local
     /// `test_data/TerminusTTF-Regular.ttf` copy when present, then fall back
-    /// to a system font via fontconfig (the Nix devShell provides fonts).
+    /// to a system font via fontconfig (the development shell provides fonts).
     fn find_test_font() -> std::path::PathBuf {
         let local = std::path::Path::new(TEST_DATA_DIR).join("TerminusTTF-Regular.ttf");
         if local.exists() {
@@ -1449,7 +1449,7 @@ mod tests {
         let output = std::process::Command::new("fc-list")
             .arg(":outline")
             .output()
-            .expect("fc-list must be available (nix develop provides fontconfig)");
+            .expect("fc-list must be available (development shell provides fontconfig)");
         let stdout = String::from_utf8_lossy(&output.stdout);
         for line in stdout.lines() {
             if let Some(path) = line.split(':').next()
@@ -1459,7 +1459,7 @@ mod tests {
             }
         }
         panic!(
-            "no system TTF font found; run inside `nix develop` or place \
+            "no system TTF font found; run inside the development shell or place \
              native/test_data/TerminusTTF-Regular.ttf (gitignored)"
         );
     }
