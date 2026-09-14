@@ -112,7 +112,7 @@
   - 修饰键栏支持向左滑动进入 文本输入框，位置：修饰键栏 文本输入框
   - 固定2行7列（高度 宽度 等均参考 termux）。
 
-- **实际终端启动入口路径及参数设置框**。默认 /data/data/com.termux/files/usr/bin/bash 或 /data/data/com.termux/files/usr/bin/login，无其他任何回退。
+- **实际终端启动入口路径及参数设置框**。提供保存按钮，必须正确保存和显示设置的文本。不检查文件是否存在，不检查参数是否合法，未设置时为空。
 
 - **终端回滚行数**：提供调节条，范围与精度须受限。
 
@@ -133,8 +133,6 @@
   - 宿主透传变量，仅宿主存在时透传，不硬编：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
   - 必须兼容 nix-on-droid，nix-on-droid 需要提供和 termux bootstrap 一致的格式，软件不做任何特殊兼容。模拟器测试用例（需要手动测试）：下载 <https://github.com/kyehn/nix-on-droid/releases/download/bootstrap-unstable/bootstrap-x86_64.zip> 或从源码编译，通过 bootstrap 安装逻辑（不得直接解压/复制），使用终端输入 nix build 命令（不得使用adb shell 替代）进行测试。
   - 禁止对 nix-on-droid 特殊处理，termux/nix-on-droid bootstrap 共用安装逻辑代码，postinstall 只在存在时运行，不做无意义检查/校验，出现问题正常报错就是。
-  
-- **Shizuku 集成开关**。支持从 <https://github.com/rikkaapps/shizuku> 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出），Shizuku 需要 `adb shell /data/app/~~Sa3_liMwmjUIoWwNMF_x7w==/moe.shizuku.privileged.api-No2vLGXjkKhlYU6TcXtuHg==/lib/arm64/libshizuku.so` 类似命令激活
 
 - **清除应用数据按钮**。
 
@@ -152,7 +150,11 @@
 
 - 退格应该流畅，渲染不应卡顿
 
-- **文本选择**：应该和 termux 设计一致，终端支持长按文本选择，被长按文本高亮，文本左右侧出现可拖动指针（可灵活拖动，流畅不卡顿，拖动时菜单隐藏），文本附近显示选项菜单（菜单始终不遮挡被选择文本，如果长按的是无内容区域：粘贴。如果是有内容区域：复制 选择所有 分享 打开链接（根据内容选择是否显示））
+- **文本选择**：应该和 termux 设计一致，终端支持长按文本选择，被长按文本高亮，文本左右侧出现可拖动指针（可灵活拖动，流畅不卡顿，拖动时菜单隐藏），文本附近显示选项菜单（菜单始终不遮挡被选择文本，如果长按的是无内容区域：粘贴。如果是有内容区域：复制 分享 全选 打开链接/打开文件（根据内容选择是否显示））
+  - 全选后复制功能必须能够正常工作，全选只涉及有内容区域。
+  - 弹出菜单始终不遮挡被选择文本，必须保持合适距离，包括变更选择范围后（参考 termux 实现），按钮必须可直接点击而不是两次。
+  - 打开链接/打开文件 只在选择长度合理时，只检查 链接/文件位置 是否格式匹配，不检查 链接/文件 的实际可用性，点击后通过系统 api 进行跳转
+  - 打开文件 点击后检查文件是否实际存在，其他应用可以编辑和回写。
 
 - 支持全功能输入法（不限制输入法特性），支持 cjk 输入法
 
@@ -161,6 +163,8 @@
 - 支持鼠标操作（参考 https://github.com/sylirre/ghostty-android-terminal 实现）
 
 - 支持按像素流畅滚动（参考 https://github.com/sylirre/ghostty-android-terminal 实现）
+
+- 终端启动入口为空时依次尝试 /data/data/com.termux/files/usr/bin/bash 和 /data/data/com.termux/files/usr/bin/login，无其他任何回退。支持 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l`。不支持 `/data/data/com.termux/files/usr/bin/login.sh`，即启动入口必须是二进制文件且必须是可绝对路径，不检查是否实际合法，只是不对这些进行特殊处理。
 
 ### Shell
 
@@ -174,7 +178,7 @@
 
 - 修饰键栏默认布局跟随 Termux（基本一致），支持左滑与右滑：左滑展示第二排修饰键栏，右滑展示文本输入框（参考 Termux）。
 
-- 修饰键不应该和全面屏手势冲突
+- 修饰键不应该和全面屏手势冲突，不应该被上滑手势触发
 
 - 修饰键动画应该较快，反应轻快
 
@@ -241,4 +245,5 @@
   - 提供“重置为默认”按钮。
 
 - **自定义终端主题**：支持用户自定义主题：自定义主题可以修改（支持预览）和删除（未使用状态下，包括名称也可修改）。
-  
+
+- **Shizuku 集成开关**。支持从 <https://github.com/rikkaapps/shizuku> 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出），Shizuku 需要 `adb shell /data/app/~~Sa3_liMwmjUIoWwNMF_x7w==/moe.shizuku.privileged.api-No2vLGXjkKhlYU6TcXtuHg==/lib/arm64/libshizuku.so` 类似命令激活
