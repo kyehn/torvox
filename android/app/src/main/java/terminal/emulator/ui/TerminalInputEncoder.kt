@@ -222,9 +222,10 @@ object TerminalInputEncoder {
      * research-zed-port.md:252): in application cursor mode the arrows must
      * use SS3 (`ESC O A`) instead of CSI (`ESC [ A`), or vim/less/mutt in
      * app mode misread them. Modifier-carrying arrows never reach this
-     * helper — they are handled by [csiSequenceWithModifier].
+     * helper — they are handled by [csiSequenceWithModifier]. Shared with
+     * [ModifierBar], whose arrow buttons must follow the same mode.
      */
-    private fun arrowSequence(keyCode: Int, appCursorMode: Boolean): String = when {
+    internal fun arrowSequence(keyCode: Int, appCursorMode: Boolean): String = when {
         appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_UP -> "\u001bOA"
         appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_DOWN -> "\u001bOB"
         appCursorMode && keyCode == KeyEvent.KEYCODE_DPAD_RIGHT -> "\u001bOC"

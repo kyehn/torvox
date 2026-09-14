@@ -6,7 +6,7 @@
 - 禁止不稳定的测试 — 使用确定性同步机制。
 - 每个测试必须断言具体行为 — “不崩溃”不是有效断言。
 - 禁止无声跳过测试如 `#[ignore = "requires GPU adapter"]`，正确进行测试，不得隐藏错误
-- 新测试进入 `cargo test` `testDebugUnitTest` `connectedDebugAndroidTest`，未经允许不得添加新体系，禁止跳过测试
+- 新测试进入 `cargo test` `testDebugUnitTest` `connectedDebugAndroidTest` 或其他现有体系，未经允许不得随意添加新体系，禁止跳过测试
 - 测试失败无法解决时停止，不得跳过，不得删除，不得忽略
 - 不得设置测试条件触发，缺少 Mesa lavapipe 时 Vulkan 测试失败而不是跳过或忽略，依赖 rust 的 kotlin 测试在缺少 rust 产物时应该失败而不是跳过或忽略。测试代码中不得检查环境，如不得检查 rust 产物是否存在，不存在则自然失败。
 

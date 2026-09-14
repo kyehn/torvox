@@ -156,4 +156,38 @@ mod tests {
             "directory report must not reach the VT parser"
         );
     }
+
+    #[test]
+    fn default_matches_new_idle_behavior() {
+        let mut proc = OutputProcessor::default();
+        assert!(!proc.take_new_output());
+        let snapshot = proc.process(b"");
+        assert!(snapshot.filtered.is_empty());
+        assert!(!proc.take_new_output());
+    }
+
+    #[test]
+    fn osc52_clipboard_set_forwarded() {
+        let mut proc = OutputProcessor::new();
+        let snapshot = proc.process(b"\x1b]52;c;SGVsbG8=\x07");
+        assert_eq!(snapshot.clipboard.as_deref(), Some("Hello"));
+        assert!(
+            snapshot.filtered.is_empty(),
+            "clipboard payload must not reach the VT parser"
+        );
+    }
+
+    #[test]
+    fn osc8_hyperlink_open_forwarded() {
+        let mut proc = OutputProcessor::new();
+        let snapshot = proc.process(b"\x1b]8;id=link1;https://example.com\x07");
+        assert_eq!(snapshot.hyperlink.as_deref(), Some("https://example.com"));
+    }
+
+    #[test]
+    fn output_returns_last_filtered_bytes() {
+        let mut proc = OutputProcessor::new();
+        let _ = proc.process(b"hello");
+        assert_eq!(proc.output(), b"hello");
+    }
 }

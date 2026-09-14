@@ -1,5 +1,6 @@
 package terminal.emulator.ui
 
+import android.view.KeyEvent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -54,7 +55,6 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.R
 import terminal.emulator.input.ModifierState
-
 private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 
@@ -231,6 +231,8 @@ fun ModifierBar(
     onPaste: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
+    /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
+    isAppCursorMode: () -> Boolean = { false },
 ) {
     fun label(key: String): String = if (useNerdFontGlyphs) NerdKeyLabels.label(key) else key
     val buttonHeight = BUTTON_HEIGHT_DP.dp
@@ -277,6 +279,11 @@ fun ModifierBar(
                 onKeyClick(ch.toString())
             }
         }
+    }
+
+    /** Arrow buttons follow DECCKM like the hardware-key path ([TerminalInputEncoder]). */
+    fun dispatchArrow(keyCode: Int) {
+        dispatchKey(TerminalInputEncoder.arrowSequence(keyCode, isAppCursorMode()))
     }
 
     // ── FN second layer (F1-F12) ──────────────────────────────────────
@@ -387,12 +394,12 @@ fun ModifierBar(
             ExtraKeyButton(
                 text = "\u2191",
                 onClick = {
-                    dispatchKey("\u001b[A")
+                    dispatchArrow(KeyEvent.KEYCODE_DPAD_UP)
                 },
                 textColor = textColor,
                 testTag = "Key_↑",
                 contentDescription = stringResource(R.string.arrow_up),
-                onRepeat = { dispatchKey("\u001b[A") },
+                onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_UP) },
             )
             ExtraKeyButton(
                 text = label("END"),
@@ -461,32 +468,32 @@ fun ModifierBar(
             ExtraKeyButton(
                 text = "\u2190",
                 onClick = {
-                    dispatchKey("\u001b[D")
+                    dispatchArrow(KeyEvent.KEYCODE_DPAD_LEFT)
                 },
                 textColor = textColor,
                 testTag = "Key_←",
                 contentDescription = stringResource(R.string.arrow_left),
-                onRepeat = { dispatchKey("\u001b[D") },
+                onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_LEFT) },
             )
             ExtraKeyButton(
                 text = "\u2193",
                 onClick = {
-                    dispatchKey("\u001b[B")
+                    dispatchArrow(KeyEvent.KEYCODE_DPAD_DOWN)
                 },
                 textColor = textColor,
                 testTag = "Key_↓",
                 contentDescription = stringResource(R.string.arrow_down),
-                onRepeat = { dispatchKey("\u001b[B") },
+                onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_DOWN) },
             )
             ExtraKeyButton(
                 text = "\u2192",
                 onClick = {
-                    dispatchKey("\u001b[C")
+                    dispatchArrow(KeyEvent.KEYCODE_DPAD_RIGHT)
                 },
                 textColor = textColor,
                 testTag = "Key_→",
                 contentDescription = stringResource(R.string.arrow_right),
-                onRepeat = { dispatchKey("\u001b[C") },
+                onRepeat = { dispatchArrow(KeyEvent.KEYCODE_DPAD_RIGHT) },
             )
             ExtraKeyButton(
                 text = label("PGDN"),
