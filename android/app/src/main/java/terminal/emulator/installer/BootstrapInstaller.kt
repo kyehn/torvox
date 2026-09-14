@@ -2,10 +2,10 @@ package terminal.emulator.installer
 
 import android.system.Os
 import android.util.Log
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import terminal.emulator.runtime.isElf
 import terminal.emulator.runtime.isSystemShellScript
+import terminal.emulator.util.TerminalDispatchers
 import java.io.File
 import java.io.FileInputStream
 import java.util.zip.ZipFile
@@ -51,7 +51,7 @@ class BootstrapInstaller(
     /** 安装状态只认启动入口存在性，不写任何标记文件。 */
     fun isInstalled(): Boolean = hasShellBinary()
 
-    suspend fun install(zipFile: File): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun install(zipFile: File): Result<Unit> = withContext(TerminalDispatchers.inputOutput) {
         try {
             // Only clear the staging area. The existing prefix must survive until the
             // new bootstrap is fully extracted and atomically swapped in (see atomicRename),
