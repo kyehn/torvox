@@ -358,13 +358,11 @@ private fun TerminalNavHost(
     Box(Modifier.semantics { testTagsAsResourceId = true }) {
         MaterialTheme(colorScheme = colorScheme) {
             TerminalScreen(
-                viewModel = viewModel,
                 onSettings = { showSettings = true },
                 isOverlayVisible = showSettings,
             )
             if (showSettings) {
                 SettingsScreen(
-                    viewModel = viewModel,
                     onBack = { showSettings = false },
                 )
             }

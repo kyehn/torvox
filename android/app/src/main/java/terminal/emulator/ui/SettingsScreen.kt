@@ -65,6 +65,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -87,9 +88,9 @@ private val WARNING_ORANGE = Color(0xFFFF9800)
 @Composable
 @Suppress("LongMethod")
 fun SettingsScreen(
-    viewModel: TerminalViewModel,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
+    viewModel: TerminalViewModel = hiltViewModel(),
 ) {
     val isSmallScreen = rememberIsSmallScreen()
     val horizontalPadding = if (isSmallScreen) 8.dp else 16.dp
