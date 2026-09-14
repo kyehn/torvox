@@ -1192,6 +1192,8 @@ constructor(
         @Suppress("UnusedPrivateProperty")
         private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms settle, spec ime-translation
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
+        private const val SURFACE_RECREATE_RETRY_DELAY_MS = 500L
+        private const val SURFACE_RECREATE_ATTEMPTS = 10
 
         private const val FALLBACK_CELL_WIDTH = 8f
         private const val FALLBACK_CELL_HEIGHT = 16f
@@ -2438,6 +2440,34 @@ constructor(
                 }
             }
                 .also { postDelayed(it, delayMillis) }
+    }
+
+    /**
+     * App-switch resume: the holder Surface is often still invalid in ON_RESUME
+     * (system reclaims the BufferQueue while backgrounded, no surfaceDestroyed
+     * is delivered). Retry the detach+attach swapchain rebuild until the holder
+     * is valid again, then unpause + resume + force one frame.
+     */
+    fun postDelayedSurfaceRecreate(
+        viewModel: TerminalViewModel,
+        attemptsLeft: Int = SURFACE_RECREATE_ATTEMPTS,
+    ) {
+        postDelayed({
+            val holderSurface = holder?.surface
+            if (holderSurface != null && holderSurface.isValid && width > 0 && height > 0) {
+                val bridge = viewModel.runtime.bridge()
+                if (bridge != null) {
+                    viewModel.currentSurface = holderSurface
+                    bridge.releaseGpuSurface()
+                    bridge.attachSurface(holderSurface, width, height)
+                }
+                viewModel.runtime.setRenderPaused(false)
+                viewModel.runtime.resumeRendering()
+                viewModel.runtime.forceRender()
+            } else if (attemptsLeft > 1) {
+                postDelayedSurfaceRecreate(viewModel, attemptsLeft - 1)
+            }
+        }, SURFACE_RECREATE_RETRY_DELAY_MS)
     }
 
     private fun currentScrollbackLength(): Int {
