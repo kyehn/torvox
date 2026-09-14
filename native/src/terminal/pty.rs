@@ -475,7 +475,7 @@ impl PtyPair {
                     // Encode errno in the exit code (>= 100) so the parent's
                     // wait thread can log the exact failure cause even when
                     // the PTY output is lost to a destroy race.
-                    let code = 100 + (errno as i32).min(155);
+                    let code = 100 + errno.min(155);
                     libc::_exit(code);
                 }
             }

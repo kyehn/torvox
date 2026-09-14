@@ -42,6 +42,7 @@
             runtimeInputs = with pkgs; [
               taplo
               yamlfmt
+              rustfmt
             ];
             settings.formatter = {
               toml = {
@@ -55,6 +56,18 @@
                   "*.yaml"
                   "*.yml"
                 ];
+              };
+              rustfmt = {
+                command = "rustfmt";
+                options = [
+                  "--config"
+                  "skip_children=true"
+                  "--edition"
+                  "2024"
+                  "--style-edition"
+                  "2024"
+                ];
+                includes = [ "*.rs" ];
               };
             };
           };
@@ -74,16 +87,21 @@
               ])
               cargo-fuzz
               cargo-geiger
+              cargo-audit
               cargo-machete
               cargo-llvm-cov
               kotlin
               gradle
               jdk
+              ktfmt
+              ktlint
               android-tools
               git
               nushell
               taplo
               yamlfmt
+              typos
+              vale
               markdownlint-cli2
               mesa
               vulkan-loader
