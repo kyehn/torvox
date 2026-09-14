@@ -1,6 +1,16 @@
 package terminal.emulator.monitor
 
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 class RenderWatchDog(
     private val getStart: () -> Long,
@@ -15,32 +25,28 @@ class RenderWatchDog(
         private const val TAG = "RenderWatchDog"
     }
 
-    private val checker = Thread({ watchLoop() }, "RenderWatchDog").apply { isDaemon = true }
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var watchJob: Job? = null
 
     fun start() {
-        checker.start()
+        if (watchJob?.isActive == true) return
+        watchJob = scope.launch { watchLoop() }
     }
 
     fun stop() {
-        checker.interrupt()
+        val job = watchJob ?: return
+        watchJob = null
         // Join so a stale watchdog cannot fire onHangDetected after a
         // restart: the closure reads the *new* thread's running flag and
         // would falsely mark the fresh render thread as dead.
-        try {
-            checker.join(2000L)
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
+        runBlocking {
+            withTimeoutOrNull(2000L) { job.cancelAndJoin() }
         }
     }
 
-    private fun watchLoop() {
-        while (!Thread.currentThread().isInterrupted) {
-            try {
-                Thread.sleep(checkIntervalMs)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-                break
-            }
+    private suspend fun watchLoop() {
+        while (scope.coroutineContext.isActive) {
+            delay(checkIntervalMs)
             val start = getStart()
             val done = getDone()
             val elapsed = System.nanoTime() - start
