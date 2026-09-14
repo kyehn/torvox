@@ -104,3 +104,15 @@ rules:
       coroutines (`suspend` functions) instead."
     severity: ERROR
     languages: [kotlin]
+
+  - id: no-unmanaged-build-exec
+    patterns:
+      - pattern-either:
+          - pattern: Runtime.getRuntime().exec($CMD)
+          - pattern: ProcessBuilder($CMD, ...)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '(?i)cargo|gradle|assembleDebug'
+    message: "Unmanaged builds are forbidden; use nix develop tooling."
+    severity: ERROR
+    languages: [kotlin]
