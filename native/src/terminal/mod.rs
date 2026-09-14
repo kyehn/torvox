@@ -10,7 +10,7 @@
 //!   **once per terminal worker** and reused across keystrokes; encoder modes
 //!   are re-synced every key via `set_options_from_terminal`.
 //! * OSC 7 (cwd) is intercepted by [`osc_handler`] and surfaced as
-//!   `OscEvent::Cwd`; the session stores it in [`session::Session::cwd`].
+//!   `OscEvent::Cwd`; the session stores it in [`session::Session::current_directory`].
 //! * PTY hygiene (setsid + controlling tty, IUTF8, IXON/IXOFF cleared,
 //!   `ws_xpixel`/`ws_ypixel`, stray-fd close) is configured in [`pty`].
 

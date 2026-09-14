@@ -29,7 +29,7 @@ pub struct CellCursor {
 /// Configuration for a cell-instance build pass.
 ///
 /// Shared by the full ([`build_instances_from_cell_data`]) and incremental
-/// ([`build_instances_cached`]) builders. Bulk data stays as separate
+/// (`build_instances_cached`) builders. Bulk data stays as separate
 /// arguments: the cell buffer, the mutable font pipeline, and the output
 /// instance buffer.
 #[derive(Debug, Clone, Copy)]
