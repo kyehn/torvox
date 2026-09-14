@@ -136,66 +136,99 @@ fun SettingsScreen(
                 item {
                     SectionHeader(stringResource(R.string.appearance), sectionTitleColor)
                     SettingsCard(cardBackground) {
+                        val appearanceSettings by viewModel.settings.collectAsStateWithLifecycle()
+                        val appearanceFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
+                        val appearanceDefaultFont by viewModel.defaultFontName.collectAsStateWithLifecycle()
+                        val appearanceFontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
                         AppearanceSectionContent(
-                            viewModel,
-                            customFontLauncher,
-                            textColor,
-                            secondaryText,
-                            accentColor,
-                            backgroundColor,
+                            fontSize = appearanceSettings.fontSize,
+                            fontFamily = appearanceSettings.fontFamily,
+                            availableFonts = appearanceFonts,
+                            defaultFontName = appearanceDefaultFont,
+                            fontInfo = appearanceFontInfo,
+                            onFontSizePreview = { viewModel.setFontSizeInPlacePreview(it) },
+                            onFontSizeCommitted = { viewModel.setFontSize(it) },
+                            onFontFamilySelected = { viewModel.setFontFamily(it) },
+                            customFontLauncher = customFontLauncher,
+                            textColor = textColor,
+                            secondaryText = secondaryText,
+                            accentColor = accentColor,
+                            backgroundColor = backgroundColor,
                         )
                     }
                 }
                 item {
+                    val themeSettings by viewModel.settings.collectAsStateWithLifecycle()
                     AppThemeSection(
-                        viewModel,
-                        cardBackground,
-                        textColor,
-                        accentColor,
-                        sectionTitleColor,
-                        isSmallScreen,
+                        appThemeMode = themeSettings.appThemeMode,
+                        onAppThemeModeSelected = { viewModel.setAppThemeMode(it) },
+                        cardBackground = cardBackground,
+                        textColor = textColor,
+                        accentColor = accentColor,
+                        sectionTitleColor = sectionTitleColor,
                     )
                 }
                 item {
+                    val terminalThemeSettings by viewModel.settings.collectAsStateWithLifecycle()
                     TerminalThemeSection(
-                        viewModel,
-                        textColor,
-                        secondaryText,
-                        cardBackground,
-                        sectionTitleColor,
-                        isSmallScreen,
+                        themeMode = terminalThemeSettings.themeMode,
+                        dayThemeName = terminalThemeSettings.dayThemeName,
+                        nightThemeName = terminalThemeSettings.nightThemeName,
+                        themeName = terminalThemeSettings.themeName,
+                        onThemeModeSelected = { viewModel.setThemeMode(it) },
+                        onDayThemeSelected = { viewModel.setDayThemeName(it) },
+                        onNightThemeSelected = { viewModel.setNightThemeName(it) },
+                        onFixedThemeSelected = { viewModel.setThemeName(it) },
+                        textColor = textColor,
+                        secondaryText = secondaryText,
+                        cardBackground = cardBackground,
+                        sectionTitleColor = sectionTitleColor,
+                        isSmallScreen = isSmallScreen,
                     )
                 }
                 item {
+                    val terminalConfigSettings by viewModel.settings.collectAsStateWithLifecycle()
                     TerminalConfigSection(
-                        viewModel,
-                        textColor,
-                        secondaryText,
-                        accentColor,
-                        cardBackground,
-                        backgroundColor,
-                        sectionTitleColor,
-                        isSmallScreen,
+                        selectedShell = terminalConfigSettings.shell,
+                        onShellChanged = { viewModel.setShell(it) },
+                        textColor = textColor,
+                        secondaryText = secondaryText,
+                        accentColor = accentColor,
+                        cardBackground = cardBackground,
+                        backgroundColor = backgroundColor,
+                        sectionTitleColor = sectionTitleColor,
+                        isSmallScreen = isSmallScreen,
                     )
                 }
                 item {
+                    val bootstrapSettings by viewModel.settings.collectAsStateWithLifecycle()
+                    val settingsBootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
+                    val settingsBootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
+                    val settingsBootstrapProgress: BootstrapProgress? by
+                        viewModel.bootstrapProgress.collectAsStateWithLifecycle()
                     BootstrapSectionFromSettings(
-                        viewModel,
-                        textColor,
-                        secondaryText,
-                        accentColor,
-                        cardBackground,
-                        sectionTitleColor,
-                        isSmallScreen,
+                        bootstrapUrl = bootstrapSettings.bootstrapUrl,
+                        bootstrapRunning = settingsBootstrapRunning,
+                        bootstrapResult = settingsBootstrapResult,
+                        bootstrapProgress = settingsBootstrapProgress,
+                        onUrlChanged = { viewModel.setBootstrapUrl(it) },
+                        onRunBootstrap = { viewModel.runBootstrap() },
+                        onInstallOffline = { viewModel.installOffline(it) },
+                        textColor = textColor,
+                        secondaryText = secondaryText,
+                        accentColor = accentColor,
+                        cardBackground = cardBackground,
+                        sectionTitleColor = sectionTitleColor,
+                        isSmallScreen = isSmallScreen,
                     )
                 }
                 item {
                     ClearAppDataSectionItem(
-                        viewModel,
-                        textColor,
-                        cardBackground,
-                        sectionTitleColor,
-                        isSmallScreen,
+                        onClearAppData = { viewModel.clearAppData(it) },
+                        textColor = textColor,
+                        cardBackground = cardBackground,
+                        sectionTitleColor = sectionTitleColor,
+                        isSmallScreen = isSmallScreen,
                     )
                 }
                 item { Spacer(modifier = Modifier.height(24.dp)) }
@@ -239,19 +272,20 @@ private fun SettingsHeader(
 
 @Composable
 private fun AppearanceSectionContent(
-    viewModel: TerminalViewModel,
+    fontSize: Float,
+    fontFamily: String,
+    availableFonts: List<String>,
+    defaultFontName: String,
+    fontInfo: String,
+    onFontSizePreview: (Float) -> Unit,
+    onFontSizeCommitted: (Float) -> Unit,
+    onFontFamilySelected: (String) -> Unit,
     customFontLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
     backgroundColor: Color,
 ) {
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val fontSize = settings.fontSize
-    val fontFamily = settings.fontFamily
-    val availableFonts by viewModel.availableFonts.collectAsStateWithLifecycle()
-    val defaultFontName by viewModel.defaultFontName.collectAsStateWithLifecycle()
-    val fontInfo by viewModel.fontInfo.collectAsStateWithLifecycle()
     // Dragging previews through the lightweight path (setFontSizeInPlace +
     // cell-metric refresh, no DataStore write, no grid reflow); the value is
     // committed once on release. Committing on every drag step ran full
@@ -265,9 +299,9 @@ private fun AppearanceSectionContent(
         value = sliderFontSize,
         onValueChange = {
             sliderFontSize = it
-            viewModel.setFontSizeInPlacePreview(it)
+            onFontSizePreview(it)
         },
-        onValueChangeFinished = { viewModel.setFontSize(sliderFontSize) },
+        onValueChangeFinished = { onFontSizeCommitted(sliderFontSize) },
         textColor = textColor,
         secondaryText = secondaryText,
         accentColor = accentColor,
@@ -275,7 +309,7 @@ private fun AppearanceSectionContent(
     Spacer(modifier = Modifier.height(12.dp))
     FontFamilySelectors(
         regularFamily = fontFamily,
-        onFamilySelected = { family -> viewModel.setFontFamily(family) },
+        onFamilySelected = { family -> onFontFamilySelected(family) },
         customFontLauncher = customFontLauncher,
         colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
         availableFonts = availableFonts.toImmutableList(),
@@ -294,20 +328,18 @@ private fun AppearanceSectionContent(
 
 @Composable
 private fun AppThemeSection(
-    viewModel: TerminalViewModel,
+    appThemeMode: String,
+    onAppThemeModeSelected: (String) -> Unit,
     cardBackground: Color,
     textColor: Color,
     accentColor: Color,
     sectionTitleColor: Color,
-    isSmallScreen: Boolean,
 ) {
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val appThemeMode = settings.appThemeMode
     SectionHeader(stringResource(R.string.software_theme), sectionTitleColor)
     SettingsCard(cardBackground) {
         AppThemeSelector(
             selectedMode = appThemeMode,
-            onModeSelected = { viewModel.setAppThemeMode(it) },
+            onModeSelected = { onAppThemeModeSelected(it) },
             textColor = textColor,
             cardBackground = cardBackground,
             accentColor = accentColor,
@@ -317,18 +349,20 @@ private fun AppThemeSection(
 
 @Composable
 private fun TerminalThemeSection(
-    viewModel: TerminalViewModel,
+    themeMode: String,
+    dayThemeName: String,
+    nightThemeName: String,
+    themeName: String,
+    onThemeModeSelected: (String) -> Unit,
+    onDayThemeSelected: (String) -> Unit,
+    onNightThemeSelected: (String) -> Unit,
+    onFixedThemeSelected: (String) -> Unit,
     textColor: Color,
     secondaryText: Color,
     cardBackground: Color,
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val themeMode = settings.themeMode
-    val dayThemeName = settings.dayThemeName
-    val nightThemeName = settings.nightThemeName
-    val themeName = settings.themeName
     // 主题来自内置集合；自定义主题为禁止实现。
     val allThemes = remember {
         terminal.emulator.ui.theme.BuiltInThemes.all.toImmutableList()
@@ -338,7 +372,7 @@ private fun TerminalThemeSection(
     SettingsCard(cardBackground) {
         TerminalThemeModeSelector(
             selectedMode = themeMode,
-            onModeSelected = { viewModel.setThemeMode(it) },
+            onModeSelected = { onThemeModeSelected(it) },
             textColor = textColor,
             cardBackground = cardBackground,
             accentColor = MaterialTheme.colorScheme.primary,
@@ -354,7 +388,7 @@ private fun TerminalThemeSection(
                         label = stringResource(R.string.day_theme),
                         selectedTheme = dayThemeName,
                         themes = allThemes,
-                        onThemeSelected = { viewModel.setDayThemeName(it) },
+                        onThemeSelected = { onDayThemeSelected(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
                         cardBackground = cardBackground,
@@ -364,7 +398,7 @@ private fun TerminalThemeSection(
                         label = stringResource(R.string.night_theme),
                         selectedTheme = nightThemeName,
                         themes = allThemes,
-                        onThemeSelected = { viewModel.setNightThemeName(it) },
+                        onThemeSelected = { onNightThemeSelected(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
                         cardBackground = cardBackground,
@@ -377,7 +411,7 @@ private fun TerminalThemeSection(
                     label = "",
                     selectedTheme = themeName,
                     themes = allThemes,
-                    onThemeSelected = { viewModel.setThemeName(it) },
+                    onThemeSelected = { onFixedThemeSelected(it) },
                     textColor = textColor,
                     secondaryText = secondaryText,
                     cardBackground = cardBackground,
@@ -391,7 +425,8 @@ private fun TerminalThemeSection(
 @Composable
 @Suppress("LongParameterList")
 private fun TerminalConfigSection(
-    viewModel: TerminalViewModel,
+    selectedShell: String,
+    onShellChanged: (String) -> Unit,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
@@ -400,13 +435,11 @@ private fun TerminalConfigSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val selectedShell = settings.shell
     SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
     SettingsCard(cardBackground) {
         ShellInput(
             shellPath = selectedShell,
-            onShellChanged = { viewModel.setShell(it) },
+            onShellChanged = { onShellChanged(it) },
             textColor = textColor,
             accentColor = accentColor,
         )
@@ -416,7 +449,13 @@ private fun TerminalConfigSection(
 
 @Composable
 private fun BootstrapSectionFromSettings(
-    viewModel: TerminalViewModel,
+    bootstrapUrl: String,
+    bootstrapRunning: Boolean,
+    bootstrapResult: String?,
+    bootstrapProgress: BootstrapProgress?,
+    onUrlChanged: (String) -> Unit,
+    onRunBootstrap: () -> Unit,
+    onInstallOffline: (android.net.Uri) -> Unit,
     textColor: Color,
     secondaryText: Color,
     accentColor: Color,
@@ -424,19 +463,13 @@ private fun BootstrapSectionFromSettings(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    val settings by viewModel.settings.collectAsStateWithLifecycle()
-    val bootstrapUrl = settings.bootstrapUrl
-    val bootstrapRunning by viewModel.bootstrapRunning.collectAsStateWithLifecycle()
-    val bootstrapResult by viewModel.bootstrapResult.collectAsStateWithLifecycle()
-    val bootstrapProgress: BootstrapProgress? by
-        viewModel.bootstrapProgress.collectAsStateWithLifecycle()
     SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
     SettingsCard(cardBackground, Modifier.testTag("BootstrapSection")) {
         BootstrapSection(
             bootstrapUrl = bootstrapUrl,
-            onUrlChanged = { viewModel.setBootstrapUrl(it) },
-            onRunBootstrap = { viewModel.runBootstrap() },
-            onInstallOffline = { uri -> viewModel.installOffline(uri) },
+            onUrlChanged = { onUrlChanged(it) },
+            onRunBootstrap = { onRunBootstrap() },
+            onInstallOffline = { uri -> onInstallOffline(uri) },
             bootstrapRunning = bootstrapRunning,
             bootstrapResult = bootstrapResult,
             bootstrapProgress = bootstrapProgress,
@@ -449,7 +482,7 @@ private fun BootstrapSectionFromSettings(
 
 @Composable
 private fun ClearAppDataSectionItem(
-    viewModel: TerminalViewModel,
+    onClearAppData: ((() -> Unit) -> Unit),
     textColor: Color,
     cardBackground: Color,
     sectionTitleColor: Color,
@@ -457,7 +490,7 @@ private fun ClearAppDataSectionItem(
 ) {
     SectionHeader(stringResource(R.string.clear_app_data), sectionTitleColor)
     SettingsCard(cardBackground) {
-        ClearAppDataSection(viewModel = viewModel, textColor = textColor)
+        ClearAppDataSection(onClearAppData = onClearAppData, textColor = textColor)
     }
 }
 
@@ -1223,7 +1256,7 @@ private fun BootstrapPresetItem(
 
 @Composable
 private fun ClearAppDataSection(
-    viewModel: TerminalViewModel,
+    onClearAppData: ((() -> Unit) -> Unit),
     textColor: Color,
 ) {
     val context = LocalContext.current
@@ -1242,7 +1275,7 @@ private fun ClearAppDataSection(
                 TextButton(
                     onClick = {
                         showConfirmDialog = false
-                        viewModel.clearAppData {
+                        onClearAppData {
                             // In-process StateFlows still hold the old
                             // values; a restart is required for a full reset.
                             android.widget.Toast.makeText(
