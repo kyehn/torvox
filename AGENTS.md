@@ -6,6 +6,7 @@
 
 - 修改任何文件前阅读 `docs/specification/` 下的全部文档。
 - openspec/specs 目录保存 项目功能及其他 的详细设计规范文档，使用 openspec 命令管理，需要保持更新和正确，修改前编写对应的 changes（完成后进行归档和删除） 和 specs（修改验证后对文档进行更新实际情况和补充实现细节） 文档，openspec/specs 只是参考文档不是严格规范，置信度较 docs/specification/ 低，docs/specification/ 和用户提示为实际标准。
+- 用户提示和文档中使用的 “代码” 一词不包括 “注释”。而 “文档” 一词指的是如 Markdown 文件之类
 
 ## 禁止
 

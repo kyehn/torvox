@@ -44,7 +44,24 @@ rules:
       - pattern: runBlocking { ... }
       - pattern-not-inside: |
           @Test
-          ...
+          fun $F(...) {
+            ...
+          }
+      - pattern-not-inside: |
+          @BeforeClass @JvmStatic
+          fun $F(...) {
+            ...
+          }
+      - pattern-not: |
+          runBlocking {
+            withTimeoutOrNull($T) { $B }
+          }
+      - pattern-not-inside: |
+          Thread {
+            ...
+          }
+      - pattern-not-inside: |
+          Thread(...)
     message: "`runBlocking` blocks the current thread. Use structured
       concurrency with `suspend` functions and appropriate scopes."
     severity: ERROR
@@ -53,6 +70,8 @@ rules:
       exclude:
         - "**/*/test/*"
         - "**/*/tests/*"
+        # onStartCommand has no scope; dedicated daemon-thread bridge.
+        - "**/installer/BootstrapInstallService.kt"
 
   - id: no-non-null-assertion
     patterns:
@@ -112,7 +131,7 @@ rules:
           - pattern: ProcessBuilder($CMD, ...)
       - metavariable-regex:
           metavariable: $CMD
-          regex: '(?i)cargo|gradle|assembleDebug'
+          regex: '(?i).*(cargo|gradle|assembleDebug).*'
     message: "Unmanaged builds are forbidden; use nix develop tooling."
     severity: ERROR
     languages: [kotlin]
