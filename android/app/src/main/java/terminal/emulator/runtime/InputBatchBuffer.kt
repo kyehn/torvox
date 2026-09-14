@@ -30,6 +30,8 @@ class InputBatchBuffer(
     private var buffer: ByteBuffer = ByteBuffer.allocateDirect(capacity)
     private var frameCallback: Choreographer.FrameCallback? = null
     private var scheduled = false
+    private val fallbackHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val fallbackFlush = Runnable { flush() }
     private val sender: ExecutorService =
         Executors.newSingleThreadExecutor { runnable ->
             Thread(runnable, "PtyWriter").apply { isDaemon = true }
@@ -60,6 +62,7 @@ class InputBatchBuffer(
     }
 
     fun flush() {
+        fallbackHandler.removeCallbacks(fallbackFlush)
         val bytes = synchronized(lock) { drainLocked() }
         if (bytes.isNotEmpty()) send(bytes)
     }
@@ -113,7 +116,13 @@ class InputBatchBuffer(
 
     private fun scheduleFrame() {
         if (!useChoreographer) return
+        // Choreographer silently drops frame callbacks when the app renders
+        // nothing (idle downclock stops frames entirely), so buffered
+        // keystrokes wait forever and IME commits are lost mid-typing. A
+        // handler fallback guarantees the drain even with zero frames.
         scheduled = true
+        fallbackHandler.removeCallbacks(fallbackFlush)
+        fallbackHandler.postDelayed(fallbackFlush, FALLBACK_FLUSH_TIMEOUT_MS)
         if (frameCallback == null) {
             frameCallback = Choreographer.FrameCallback { _ -> flush() }
         }
@@ -132,6 +141,7 @@ class InputBatchBuffer(
 
     companion object {
         private const val BATCH_CAPACITY = 8192
+        private const val FALLBACK_FLUSH_TIMEOUT_MS = 50L
 
         /** Factory for test usage — avoids Choreographer dependency. */
         fun forTest(
