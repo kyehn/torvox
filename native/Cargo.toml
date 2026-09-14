@@ -7,38 +7,38 @@ description = "Terminal engine"
 [lib]
 crate-type = ["cdylib", "lib"]
 [dependencies]
-nix = { workspace = true }
-libc = { workspace = true }
+base64 = "0.23"
+bytemuck = { workspace = true }
+cosmic-text = { workspace = true }
 flume = { workspace = true }
 foldhash = "0.2"
-parking_lot = "0.12"
-log = { workspace = true }
-regex = "1"
-linkify = "0.11"
-lru = { workspace = true }
-strsim = { workspace = true }
-futures = { workspace = true }
-bytemuck = { workspace = true }
-thiserror = { workspace = true }
-roxmltree = "0.21"
-libghostty-vt = { workspace = true, features = ["png"] }
-serde = { workspace = true, features = ["derive"] }
-serde_json = "1"
-base64 = "0.23"
-wgpu = { workspace = true, features = ["vulkan"] }
-raw-window-handle = { workspace = true }
-wgpu-types = { workspace = true }
-cosmic-text = { workspace = true }
 fontdb = { workspace = true }
-swash = { workspace = true }
+futures = { workspace = true }
 guillotiere = { workspace = true }
 jni = { workspace = true }
+libc = { workspace = true }
+libghostty-vt = { workspace = true, features = ["png"] }
+linkify = "0.11"
+log = { workspace = true }
+lru = { workspace = true }
+nix = { workspace = true }
+parking_lot = "0.12"
+raw-window-handle = { workspace = true }
+regex = "1"
+roxmltree = "0.21"
+serde = { workspace = true }
+serde_json = "1"
+strsim = { workspace = true }
+swash = { workspace = true }
+thiserror = { workspace = true }
+wgpu = { workspace = true, features = ["vulkan"] }
+wgpu-types = { workspace = true }
 [dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+cucumber = "0.23"
 proptest = { workspace = true }
 shuttle = "0.9"
-cucumber = "0.23"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
-criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 [[test]]
 name = "bdd"
 path = "tests/bdd/main.rs"

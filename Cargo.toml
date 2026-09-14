@@ -1,36 +1,36 @@
 [workspace]
 resolver = "2"
-members = [ "native", ]
+members = ["native"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.98"
 [workspace.dependencies]
-native = { path = "native" }
+base64 = "0.23"
+bytemuck = { version = "1", features = ["derive"] }
+cosmic-text = "0.19"
+flume = "0.12"
+fontdb = "0.23"
+futures = "0.3"
+guillotiere = "0.7"
+jni = { version = "0.22", default-features = false }
 libc = "0.2"
+libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
+libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
+log = "0.4"
+lru = "0.18"
 nix = { version = "0.31", features = ["term", "process", "signal", "fs"] }
+proptest = "1.11"
+raw-window-handle = "0.6"
 serde = { version = "1", default-features = false, features = [
   "derive",
   "alloc",
 ] }
+strsim = "0.11"
+swash = "0.2"
 thiserror = { version = "2", default-features = false }
 wgpu = "30"
 wgpu-types = "30"
-raw-window-handle = "0.6"
-bytemuck = { version = "1", features = ["derive"] }
-cosmic-text = "0.19"
-fontdb = "0.23"
-swash = "0.2"
-guillotiere = "0.7"
-jni = { version = "0.22", default-features = false }
-flume = "0.12"
-proptest = "1.11"
-lru = "0.18"
-futures = "0.3"
-log = "0.4"
-strsim = "0.11"
-libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
-libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
 [profile.dev]
 incremental = true
 opt-level = "z"
