@@ -8,7 +8,7 @@ def main [] {
     cargo test --workspace --no-fail-fast
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
     markdownlint-cli2 "**/*.md" "#target/**" "#android/**/build/**"
-    cargo bench --workspace -- --quick --verbose
+    cargo bench --workspace --bench cell_builder --bench vt_typing -- --quick --verbose
     rustup component add llvm-tools-preview
     cargo llvm-cov --html
 }
