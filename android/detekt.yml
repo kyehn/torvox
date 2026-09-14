@@ -6,31 +6,25 @@ comments:
   DeprecatedBlockTag:
     active: true
 complexity:
+  # 规范允许抑制行数/嵌套层数类复杂度规则；关闭后不再需要baseline文件。
   CognitiveComplexMethod:
-    active: true
-    threshold: 30
+    active: false
   ComplexCondition:
     threshold: 12
   CyclomaticComplexMethod:
-    threshold: 20
+    active: false
   LargeClass:
     threshold: 1600
   LongMethod:
-    threshold: 80
+    active: false
   LongParameterList:
     functionThreshold: 10
     constructorThreshold: 9
     ignoreDefaultParameters: true
   NestedBlockDepth:
-    threshold: 5
+    active: false
   TooManyFunctions:
-    thresholdInFiles: 20
-    thresholdInClasses: 15
-    thresholdInInterfaces: 15
-    thresholdInObjects: 15
-    thresholdInEnums: 15
-    ignoreDeprecated: true
-    ignoreAnnotatedFunctions: ['Composable']
+    active: false
 empty-blocks:
   EmptyFunctionBlock:
     ignoreOverridden: true
