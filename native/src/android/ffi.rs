@@ -1512,7 +1512,7 @@ fn compute_render_selection(
 /// highlights) as dirty in the mask. These are per-row visual overlays
 /// whose addition/removal changes pixels without touching cell content.
 fn mark_overlay_dirty_rows(
-    dirty_mask: &mut Vec<bool>,
+    dirty_mask: &mut [bool],
     rows_usize: usize,
     render_selection: &Option<crate::render::cell_builder::SelectionRange>,
     previous_selection: Option<crate::render::cell_builder::SelectionRange>,
@@ -2208,8 +2208,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_getTerminalTex
         drop(session);
         drop(registry);
 
-        let mut lines: Vec<String> =
-            Vec::with_capacity((grid.scrollback.len() + grid.rows as usize) as usize);
+        let mut lines: Vec<String> = Vec::with_capacity(grid.scrollback.len() + grid.rows as usize);
         for row_cells in &grid.scrollback {
             let line: String = row_cells
                 .iter()
@@ -2468,7 +2467,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_listFontFamili
         };
         for (i, family) in families.iter().enumerate() {
             if let Ok(s) = env.new_string(family) {
-                let _ = array.set_element(env, i as usize, &s);
+                let _ = array.set_element(env, i, &s);
             }
         }
         array.into_raw()

@@ -786,7 +786,7 @@ pub(crate) fn locale_token_match(family_name: &str, locale_tag: &str) -> bool {
 /// priority let load order pick Serif).
 fn cjk_family_priority(family_name: &str, locale_tag: &str) -> i16 {
     let is_locale_match = locale_token_match(family_name, locale_tag);
-    let locale_boost = if is_locale_match { CJK_LOCALE_BONUS } else { 0 };
+    let locale_boost: i16 = if is_locale_match { CJK_LOCALE_BONUS } else { 0 };
     let base_priority: i16 = if family_name.contains("noto sans sc")
         || family_name.contains("noto sans tc")
         || family_name.contains("noto sans hk")
@@ -812,7 +812,7 @@ fn cjk_family_priority(family_name: &str, locale_tag: &str) -> i16 {
     } else {
         CJK_PRIORITY_FALLBACK as i16
     };
-    base_priority + locale_boost as i16
+    base_priority + locale_boost
 }
 
 #[cfg(test)]
