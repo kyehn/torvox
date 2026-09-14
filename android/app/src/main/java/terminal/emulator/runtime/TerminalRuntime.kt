@@ -1443,7 +1443,7 @@ constructor(
                                             } else {
                                                 RENDER_ERROR_SLEEP_MS
                                             }
-                                        Thread.sleep(sleepMs)
+                                        delay(sleepMs)
                                     } else {
                                         if (consecutiveErrors > 0) {
                                             LogUtil.i(
