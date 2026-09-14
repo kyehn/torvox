@@ -6,7 +6,7 @@ comments:
   DeprecatedBlockTag:
     active: true
 complexity:
-  # 规范允许抑制行数/嵌套层数类复杂度规则；关闭后不再需要baseline文件。
+  # 规范允许抑制参数数量/行数/嵌套层数类规则。
   CognitiveComplexMethod:
     active: false
   ComplexCondition:
@@ -18,9 +18,7 @@ complexity:
   LongMethod:
     active: false
   LongParameterList:
-    functionThreshold: 10
-    constructorThreshold: 9
-    ignoreDefaultParameters: true
+    active: false
   NestedBlockDepth:
     active: false
   TooManyFunctions:
@@ -29,7 +27,7 @@ empty-blocks:
   EmptyFunctionBlock:
     ignoreOverridden: true
 exceptions:
-  # 规范要求捕获后记录并继续或崩溃退出，与这三条冲突，故关闭。
+  # 规范要求捕获后记录并继续或崩溃退出，与这几条冲突，故关闭。
   InstanceOfCheckForException:
     active: false
   SwallowedException:
@@ -40,11 +38,9 @@ exceptions:
     active: false
 naming:
   ConstructorParameterNaming:
-    active: false
+    active: false #  wire 格式兼容（JSON/原生 snake_case），不可改名。
   FunctionNaming:
     ignoreAnnotated: ['Composable']
-  FunctionParameterNaming:
-    active: false
 potential-bugs:
   LateinitUsage:
     active: true
@@ -56,23 +52,23 @@ style:
   CollapsibleIfStatements:
     active: true
   LoopWithTooManyJumpStatements:
-    active: false
+    active: false # 有界排空循环依赖 break/continue。
   MagicNumber:
-    active: false
+    active: false # 计时/硬件常量均已内联标注单位。
   MandatoryBracesLoops:
     active: true
   MaxLineLength:
-    active: false
+    active: false # 中文注释与 URL 无法按列宽换行。
   NoTabs:
     active: true
   RedundantExplicitType:
     active: true
   ReturnCount:
-    active: false
+    active: false # 卫语句风格与之冲突。
   SpacingBetweenPackageAndImports:
     active: true
   ThrowsCount:
-    active: false
+    active: false # 入口显式抛错，规范要求尽早报错。
   TrailingWhitespace:
     active: true
   UnnecessaryBracesAroundTrailingLambda:
@@ -82,6 +78,6 @@ style:
   UnusedImports:
     active: true
   UnusedParameter:
-    active: false
+    active: false # 测试桩必须镜像安卓 API 签名。
   UseDataClass:
     active: true

@@ -201,7 +201,6 @@ fun rememberToolbarLayout(): ImmutableList<ToolbarItem>? {
  * 'PASTE'` (long-press pastes the clipboard). All buttons are borderless with transparent
  * background. Each button has equal weight for uniform sizing.
  */
-@Suppress("LongParameterList", "LongMethod", "CognitiveComplexMethod")
 @Composable
 fun ModifierBar(
     onKeyClick: (String) -> Unit,
@@ -688,7 +687,6 @@ private fun ModifierBarTextInputPage(
     )
 }
 
-@Suppress("LongParameterList", "CyclomaticComplexMethod")
 @Composable
 private fun ConfigurableModifierBar(
     toolbarLayout: ImmutableList<ToolbarItem>,
@@ -989,7 +987,6 @@ private fun ModifierBarButtonRow(
     }
 }
 
-@Suppress("LongParameterList", "CyclomaticComplexMethod", "LongMethod", "CognitiveComplexMethod")
 @Composable
 private fun RowScope.ExtraKeyButton(
     text: String,

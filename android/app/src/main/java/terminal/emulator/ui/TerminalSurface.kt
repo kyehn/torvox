@@ -46,13 +46,6 @@ import terminal.emulator.util.runCatchingCancellable
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-@Suppress("UnusedPrivateProperty")
-private val modifierBarHeightPx: Int by lazy {
-    android.content.res.Resources.getSystem().displayMetrics.density.let { density ->
-        (80f * density + 0.5f).toInt()
-    }
-}
-
 internal fun isWordChar(c: Char): Boolean = c.isLetterOrDigit() || c == '_' || c == '-' || c == '.' || c == '/'
 
 /**
@@ -99,7 +92,6 @@ internal fun expandWordOnLine(
     return Pair(startCol, endCol)
 }
 
-@Suppress("TooManyFunctions")
 class TerminalSurface
 @JvmOverloads
 constructor(
@@ -1188,7 +1180,6 @@ constructor(
         private const val DRAWER_CLOSE_TAP_GRACE_NANOS = 350_000_000L
 
         // 350ms close animation
-        @Suppress("UnusedPrivateProperty")
         private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms settle, spec ime-translation
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
         private const val SURFACE_RECREATE_RETRY_DELAY_MS = 500L
@@ -1348,10 +1339,6 @@ constructor(
      */
     var searchActive: Boolean = false
 
-    @Suppress(
-        "CyclomaticComplexMethod",
-        "ComplexCondition",
-    ) // Acceptable — dispatches ~15 distinct gesture/intent types
     private var cachedCellWidth: Float = FALLBACK_CELL_WIDTH
     private var cachedCellHeight: Float = FALLBACK_CELL_HEIGHT
 
@@ -2714,16 +2701,10 @@ constructor(
     // SECTION 4: Touch event dispatch
     // ══════════════════════════════════════════════════════════════════════
 
-    @Suppress(
-        "CyclomaticComplexMethod",
-        "LongMethod",
-        "NestedBlockDepth",
-    ) // Acceptable — dispatches ~15 distinct gesture/intent types
     override fun performClick(): Boolean = super.performClick()
 
     // Acceptable: dispatches ~15 distinct gesture/intent types with
     // selection, scroll, long-press, and hardware-key interactions.
-    @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             // Accessibility contract: a view overriding onTouchEvent must
@@ -2952,7 +2933,6 @@ constructor(
     // ── TextureView's SurfaceTexture is consumed by the GL compositor and
     // ── blocks Vulkan dequeueBuffer on software emulators) ────────────────
 
-    @Suppress("CyclomaticComplexMethod") // Acceptable — dispatches ~15 distinct gesture/intent types
     override fun onSizeChanged(
         width: Int,
         height: Int,

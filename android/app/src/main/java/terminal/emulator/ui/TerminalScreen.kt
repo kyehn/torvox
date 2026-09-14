@@ -118,7 +118,7 @@ private fun announceForAccessibility(view: android.view.View, text: CharSequence
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Suppress("DEPRECATION", "CyclomaticComplexMethod", "LongMethod")
+@Suppress("DEPRECATION")
 @Composable
 fun TerminalScreen(
     modifier: Modifier = Modifier,

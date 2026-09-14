@@ -80,7 +80,6 @@ class BootGuard(
         private val LOCK = Any()
         private val alreadyKilling = AtomicBoolean(false)
 
-        @Suppress("TooGenericExceptionCaught")
         fun exit(logDir: File, reason: String) {
             if (!alreadyKilling.compareAndSet(false, true)) return
 
@@ -125,7 +124,6 @@ class BootGuard(
         val lastResetTime: Long,
     )
 
-    @Suppress("TooGenericExceptionCaught")
     private fun readCounter(): ExitCounter {
         val counterFile = counterFile()
         return try {
@@ -143,7 +141,6 @@ class BootGuard(
         }
     }
 
-    @Suppress("TooGenericExceptionCaught")
     private fun writeCounter(counter: ExitCounter) {
         val counterFile = counterFile()
         try {
