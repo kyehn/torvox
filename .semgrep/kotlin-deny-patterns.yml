@@ -135,3 +135,25 @@ rules:
     message: "Unmanaged builds are forbidden; use nix develop tooling."
     severity: ERROR
     languages: [kotlin]
+
+  - id: no-fail-on-no-discovered-tests
+    pattern-regex: 'failOnNoDiscoveredTests\s*=\s*false'
+    message: "failOnNoDiscoveredTests = false hides empty test discovery."
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.gradle.kts"
+
+  - id: no-gradle-unmanaged-build
+    patterns:
+      - pattern: commandLine($ARGS, ...)
+      - metavariable-regex:
+          metavariable: $ARGS
+          regex: '(?s).*(cargo|gradle|assembleDebug).*'
+    message: "Unmanaged builds are forbidden in Gradle scripts."
+    severity: ERROR
+    languages: [kotlin]
+    paths:
+      include:
+        - "**/*.gradle.kts"
