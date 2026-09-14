@@ -82,35 +82,12 @@ fun SessionDrawer(
     ) {
         Spacer(modifier = Modifier.height(8.dp))
 
-        Row(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.sessions),
-                color = textColor.copy(alpha = 0.7f),
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium,
-            )
-            Icon(
-                imageVector = Icons.Default.Add,
-                contentDescription = stringResource(R.string.cd_new_session),
-                tint = accent,
-                modifier =
-                Modifier
-                    .size(24.dp)
-                    .testTag("AddSessionButton")
-                    .clip(CircleShape)
-                    .clickable {
-                        onClose()
-                        viewModel.createSession()
-                    }.padding(2.dp),
-            )
-        }
+        SessionDrawerHeader(
+            onClose = onClose,
+            viewModel = viewModel,
+            textColor = textColor,
+            accent = accent,
+        )
 
         Spacer(modifier = Modifier.height(8.dp))
 
@@ -141,46 +118,101 @@ fun SessionDrawer(
             }
         }
 
-        Row(
-            modifier =
-            Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-        ) {
-            DrawerActionButton(
-                icon = Icons.Default.Search,
-                label = stringResource(R.string.text_search),
-                onClick = {
-                    onClose()
-                    onSearch()
-                },
-                textColor = textColor,
-                testTag = "SearchButton",
-            )
-            DrawerActionButton(
-                icon = Icons.Default.Keyboard,
-                label = stringResource(R.string.toggle_keyboard),
-                onClick = {
-                    onClose()
-                    onKeyboardToggle()
-                },
-                textColor = textColor,
-                testTag = "KeyboardToggle",
-            )
-            DrawerActionButton(
-                icon = Icons.Default.Settings,
-                label = stringResource(R.string.settings_button),
-                onClick = {
-                    onClose()
-                    onSettings()
-                },
-                textColor = textColor,
-                testTag = "SettingsButton",
-            )
-        }
+        SessionDrawerActions(
+            onClose = onClose,
+            onSearch = onSearch,
+            onKeyboardToggle = onKeyboardToggle,
+            onSettings = onSettings,
+            textColor = textColor,
+        )
 
         Spacer(modifier = Modifier.height(16.dp))
+    }
+}
+
+@Composable
+private fun SessionDrawerHeader(
+    onClose: () -> Unit,
+    viewModel: TerminalViewModel,
+    textColor: Color,
+    accent: Color,
+) {
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = stringResource(R.string.sessions),
+            color = textColor.copy(alpha = 0.7f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Icon(
+            imageVector = Icons.Default.Add,
+            contentDescription = stringResource(R.string.cd_new_session),
+            tint = accent,
+            modifier =
+            Modifier
+                .size(24.dp)
+                .testTag("AddSessionButton")
+                .clip(CircleShape)
+                .clickable {
+                    onClose()
+                    viewModel.createSession()
+                }.padding(2.dp),
+        )
+    }
+}
+
+@Composable
+private fun SessionDrawerActions(
+    onClose: () -> Unit,
+    onSearch: () -> Unit,
+    onKeyboardToggle: () -> Unit,
+    onSettings: () -> Unit,
+    textColor: Color,
+) {
+    Row(
+        modifier =
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        DrawerActionButton(
+            icon = Icons.Default.Search,
+            label = stringResource(R.string.text_search),
+            onClick = {
+                onClose()
+                onSearch()
+            },
+            textColor = textColor,
+            testTag = "SearchButton",
+        )
+        DrawerActionButton(
+            icon = Icons.Default.Keyboard,
+            label = stringResource(R.string.toggle_keyboard),
+            onClick = {
+                onClose()
+                onKeyboardToggle()
+            },
+            textColor = textColor,
+            testTag = "KeyboardToggle",
+        )
+        DrawerActionButton(
+            icon = Icons.Default.Settings,
+            label = stringResource(R.string.settings_button),
+            onClick = {
+                onClose()
+                onSettings()
+            },
+            textColor = textColor,
+            testTag = "SettingsButton",
+        )
     }
 }
 
