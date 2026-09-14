@@ -39,7 +39,7 @@
 
 只允许修正拼写 / 语法错误，或修正格式 / 排版，不可更改实际内容，未经询问不可修改错误或其他问题，修复错误或其他阻塞项必须询问用户且避免不必要的修改（修改后重新设置只读属性）。需用户明确同意后方可修改，禁止非法修改。
 
-- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/`
+- `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/` `.markdownlint.jsonc`
 
 ## 不得轻易更改文件，必须确保符合 docs/specification/ 要求
 
