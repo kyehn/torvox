@@ -172,15 +172,6 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
   }
 }
 
-// NativeBridgeSmokeTest 等 JVM 单测直连主机 libnative.so（<repo>/target/{release,debug}/）。
-// cargo ndk 只产出设备 ABI，新检出/CI 上没有主机 .so，单测会全红；在此声明前置构建，
-// test-gradle.nu 与 workflow 文件保持不动。
-val buildHostNativeForUnitTest by tasks.registering(Exec::class) {
-  description = "Builds the host libnative.so required by JVM unit tests (NativeBridgeSmokeTest)."
-  workingDir(rootDir.parentFile)
-  commandLine("cargo", "build", "--package", "native")
-}
-
 tasks
   .withType<Test>()
   .matching { it.name == "testDebugUnitTest" }
@@ -190,8 +181,6 @@ tasks
     failOnNoDiscoveredTests = false
   }
 
-// CI 诊断：connected 测试失败时把用例名与断言摘要打到 stdout（日志随 run 保留），
-// 否则只能看到 "There were failing tests" 而拿不到 HTML 报告。只读结果 XML，不改测试行为。
 val reportConnectedFailures by tasks.registering {
   description = "Prints connected-test failure names and messages from UTP XML results."
   doLast {
