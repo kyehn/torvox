@@ -2866,7 +2866,6 @@ mod osc_title_regressions {
 // ── Termux-style behavioral VT tests ────────────────────────────────────
 
 /// CSI 14t and 16t (pixel/character size reports) must not crash.
-
 /// dec_erase_rect erases the rectangle to spaces and leaves cells outside it
 /// untouched; a zero-width/height rect is a no-op.
 #[test]
@@ -3434,10 +3433,10 @@ fn row_cache_invalidated_on_resize() {
     // 确定性轮询直到工作线程产出对应尺寸数据，杜绝固定时长等待的 flaky。
     let start = Instant::now();
     let before_cells = loop {
-        if let Some((cells, _)) = t.receive_cell_data() {
-            if cells.len() == 24 * 80 {
-                break cells;
-            }
+        if let Some((cells, _)) = t.receive_cell_data()
+            && cells.len() == 24 * 80
+        {
+            break cells;
         }
         assert!(
             start.elapsed() < std::time::Duration::from_secs(5),
@@ -3450,10 +3449,10 @@ fn row_cache_invalidated_on_resize() {
     assert!(t.resize(10, 40), "resize to 10x40");
     let start = Instant::now();
     let after_cells = loop {
-        if let Some((cells, _)) = t.receive_cell_data() {
-            if cells.len() == 10 * 40 {
-                break cells;
-            }
+        if let Some((cells, _)) = t.receive_cell_data()
+            && cells.len() == 10 * 40
+        {
+            break cells;
         }
         assert!(
             start.elapsed() < std::time::Duration::from_secs(5),
