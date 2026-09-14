@@ -10,6 +10,9 @@ import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
 
+// 非数据类：提供 DataStore 装配（含 StrictMode 磁盘读副作用的单例服务），
+// 对其生成 equals/hashCode 会产生误导。
+@Suppress("UseDataClass")
 @Singleton
 class SettingsDataStoreProvider
 @Inject

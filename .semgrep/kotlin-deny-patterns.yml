@@ -44,7 +44,24 @@ rules:
       - pattern: runBlocking { ... }
       - pattern-not-inside: |
           @Test
-          ...
+          fun $F(...) {
+            ...
+          }
+      - pattern-not-inside: |
+          @BeforeClass @JvmStatic
+          fun $F(...) {
+            ...
+          }
+      - pattern-not: |
+          runBlocking {
+            withTimeoutOrNull($T) { $B }
+          }
+      - pattern-not-inside: |
+          Thread {
+            ...
+          }
+      - pattern-not-inside: |
+          Thread(...)
     message: "`runBlocking` blocks the current thread. Use structured
       concurrency with `suspend` functions and appropriate scopes."
     severity: ERROR
@@ -53,6 +70,8 @@ rules:
       exclude:
         - "**/*/test/*"
         - "**/*/tests/*"
+        # onStartCommand has no scope; dedicated daemon-thread bridge.
+        - "**/installer/BootstrapInstallService.kt"
 
   - id: no-non-null-assertion
     patterns:
@@ -104,3 +123,37 @@ rules:
       coroutines (`suspend` functions) instead."
     severity: ERROR
     languages: [kotlin]
+
+  - id: no-unmanaged-build-exec
+    patterns:
+      - pattern-either:
+          - pattern: Runtime.getRuntime().exec($CMD, ...)
+          - pattern: ProcessBuilder($CMD, ...)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '(?i).*(cargo|gradle|assembleDebug).*'
+    message: "Unmanaged builds are forbidden; use nix develop tooling."
+    severity: ERROR
+    languages: [kotlin]
+
+  - id: no-fail-on-no-discovered-tests
+    pattern-regex: 'failOnNoDiscoveredTests\s*=\s*false'
+    message: "failOnNoDiscoveredTests = false hides empty test discovery."
+    severity: ERROR
+    languages: [generic]
+    paths:
+      include:
+        - "**/*.gradle.kts"
+
+  - id: no-gradle-unmanaged-build
+    patterns:
+      - pattern: commandLine($ARGS, ...)
+      - metavariable-regex:
+          metavariable: $ARGS
+          regex: '(?s).*(cargo|gradle|assembleDebug).*'
+    message: "Unmanaged builds are forbidden in Gradle scripts."
+    severity: ERROR
+    languages: [kotlin]
+    paths:
+      include:
+        - "**/*.gradle.kts"

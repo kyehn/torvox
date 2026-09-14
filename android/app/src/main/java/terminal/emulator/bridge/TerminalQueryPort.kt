@@ -18,7 +18,6 @@ package terminal.emulator.bridge
  */
 // The query surface is intentionally wide: it mirrors the native exports
 // one-to-one so the seam can be swapped without UI churn.
-@Suppress("TooManyFunctions")
 interface TerminalQueryPort {
     fun getTitle(): String?
     fun getActiveSessionTitle(): String = getTitle() ?: ""
