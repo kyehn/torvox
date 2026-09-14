@@ -370,11 +370,11 @@ fn grapheme_cluster_base_plus_combining() {
     let snap = process_and_snapshot(&mut t, b"A\xCC\x81");
     let cell = &snap.cells[0];
     assert_eq!(cell.codepoint, 0x41, "primary codepoint = 'A'");
-    if cell.graphemes.is_empty() {
-        // Some Ghostty VT configurations may decompose combining chars
-        // This is acceptable — graphemes field MUST exist
-        return;
-    }
+    assert!(
+        !cell.graphemes.is_empty(),
+        "graphemes field must be populated for base+combining: {:?}",
+        cell.graphemes
+    );
     assert!(
         cell.graphemes.contains(&0x301),
         "graphemes must include combining acute: {:?}",

@@ -36,7 +36,8 @@ rules:
           mod tests {
             ...
           }
-    message: "`todo!()` and `unimplemented!()` panic at runtime. Replace with a real implementation or a compile-time marker."
+    message: "`todo!()` and `unimplemented!()` panic at runtime. Replace with a
+      real implementation or a compile-time marker."
     severity: ERROR
     languages: [rust]
     paths:
@@ -47,7 +48,8 @@ rules:
   - id: no-process-exit
     patterns:
       - pattern: std::process::exit($ARG)
-    message: "`std::process::exit()` kills the process immediately without cleanup. Return an error instead."
+    message: "`std::process::exit()` kills the process immediately without
+      cleanup. Return an error instead."
     severity: ERROR
     languages: [rust]
     paths:
@@ -61,7 +63,8 @@ rules:
       - pattern-not: |
           // SAFETY: ...
           std::mem::transmute<$TYPE>($ARG)
-    message: "`std::mem::transmute()` is extremely unsafe. Add a `// SAFETY: ...` comment explaining why the types have the same layout."
+    message: "`std::mem::transmute()` is extremely unsafe. Add a
+      `// SAFETY: ...` comment explaining why the types have the same layout."
     severity: ERROR
     languages: [rust]
 
@@ -71,18 +74,42 @@ rules:
       - pattern-not: |
           // $COMMENT
           #[allow(dead_code)]
-    message: "`#[allow(dead_code)]` suppresses compiler warnings. Add a comment explaining why the item is intentionally unused."
+    message: "`#[allow(dead_code)]` suppresses compiler warnings. Add a comment
+      explaining why the item is intentionally unused."
+    severity: ERROR
+    languages: [rust]
+
+  - id: no-test-ignore-attribute
+    pattern-regex: '#\[ignore'
+    message: "#[ignore] hides failures. spec TESTING bans silent skips."
+    severity: ERROR
+    languages: [rust]
+
+  - id: no-test-skip-diagnostic
+    pattern-regex: 'eprintln!\("SKIP:'
+    message: "SKIP logs hide missing preconditions. Assert them instead."
+    severity: ERROR
+    languages: [rust]
+
+  - id: no-test-early-return
+    patterns:
+      - pattern: return;
+      - pattern-inside: |
+          #[test]
+          fn $NAME(...) {
+            ...
+          }
+    message: "bare return in #[test] passes vacuously. Assert preconditions."
     severity: ERROR
     languages: [rust]
 
   - id: no-eprintln-library
     patterns:
       - pattern: eprintln!($ARG)
-    message: "`eprintln!` in library code writes to stderr. Use a logging framework instead."
+    message: "`eprintln!` in library code writes to stderr. Use a logging
+      framework instead."
     severity: ERROR
     languages: [rust]
     paths:
       exclude:
-        - "**/*/examples/*"
         - "**/*/tests/*"
-        - "**/exec-bin/**"
