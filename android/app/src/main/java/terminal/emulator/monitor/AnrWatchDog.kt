@@ -10,6 +10,16 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 
 @Suppress("DEPRECATION")
 class AnrWatchDog(
@@ -21,7 +31,8 @@ class AnrWatchDog(
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val running = AtomicBoolean(false)
-    private var watchThread: Thread? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var watchJob: Job? = null
     private val anrInProgress = AtomicBoolean(false)
     private val completed = AtomicBoolean(false)
 
@@ -37,10 +48,9 @@ class AnrWatchDog(
         val myGeneration = generation.incrementAndGet()
         completed.set(false)
         anrInProgress.set(false)
-        watchThread =
-            Thread({ watchLoop(myGeneration) }, "AnrWatchDog").apply {
-                isDaemon = true
-                start()
+        watchJob =
+            scope.launch {
+                watchLoop(myGeneration)
             }
     }
 
@@ -50,14 +60,16 @@ class AnrWatchDog(
     fun stop() {
         running.set(false)
         generation.incrementAndGet()
-        watchThread?.apply {
-            interrupt()
-            join(1000)
+        val job = watchJob
+        watchJob = null
+        if (job != null) {
+            runBlocking {
+                withTimeoutOrNull(1000L) { job.cancelAndJoin() }
+            }
         }
-        watchThread = null
     }
 
-    private fun watchLoop(myGeneration: Int) {
+    private suspend fun watchLoop(myGeneration: Int) {
         // Warm-up window: cold start (Hilt injection, first Compose frame,
         // DataStore reads) routinely exceeds 5s on slow devices; a single
         // false positive kills the process and loses every session. Skip
@@ -65,21 +77,11 @@ class AnrWatchDog(
         val startUpNanos = System.nanoTime()
         while (System.nanoTime() - startUpNanos < warmUpMillis * 1_000_000L) {
             if (!running.get() || generation.get() != myGeneration) return
-            try {
-                Thread.sleep(WARM_UP_SLEEP_MILLIS)
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-                return
-            }
+            delay(WARM_UP_SLEEP_MILLIS)
         }
         while (running.get() && generation.get() == myGeneration) {
             if (anrInProgress.get()) {
-                try {
-                    Thread.sleep(timeoutMs)
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                    break
-                }
+                delay(timeoutMs)
                 continue
             }
             completed.set(false)
@@ -87,24 +89,19 @@ class AnrWatchDog(
                 completed.set(true)
             }
             val startMs = System.currentTimeMillis()
-            try {
-                while (running.get() && generation.get() == myGeneration) {
-                    val elapsed = System.currentTimeMillis() - startMs
-                    if (elapsed >= timeoutMs) {
-                        onAnrDetected()
-                        // ANR is terminal: either BootGuard kills the
-                        // process or killing is suppressed and the dump was
-                        // already logged. Re-arming here would re-trigger
-                        // every `timeoutMs` (filling the data partition in
-                        // the suppressed case) — stop the watcher instead.
-                        return
-                    }
-                    if (completed.get()) break
-                    Thread.sleep(BUSY_WAIT_SLEEP_MILLIS)
+            while (running.get() && generation.get() == myGeneration) {
+                val elapsed = System.currentTimeMillis() - startMs
+                if (elapsed >= timeoutMs) {
+                    onAnrDetected()
+                    // ANR is terminal: either BootGuard kills the
+                    // process or killing is suppressed and the dump was
+                    // already logged. Re-arming here would re-trigger
+                    // every `timeoutMs` (filling the data partition in
+                    // the suppressed case) — stop the watcher instead.
+                    return
                 }
-            } catch (_: InterruptedException) {
-                Thread.currentThread().interrupt()
-                break
+                if (completed.get()) break
+                delay(BUSY_WAIT_SLEEP_MILLIS)
             }
         }
     }

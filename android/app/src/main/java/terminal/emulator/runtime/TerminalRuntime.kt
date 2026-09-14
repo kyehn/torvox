@@ -2735,7 +2735,7 @@ constructor(
         }
     }
 
-    fun switchSession(
+    suspend fun switchSession(
         id: Long,
         surface: Surface,
         width: Int,
@@ -2745,7 +2745,7 @@ constructor(
         updateState()
     }
 
-    private fun switchSessionInternal(
+    private suspend fun switchSessionInternal(
         id: Long,
         surface: Surface,
         width: Int,
@@ -2879,7 +2879,7 @@ constructor(
             var initialRender = target.bridge?.render() ?: 0
             var attempts = 1
             while (initialRenderRetryNeeded(initialRender, attempts, RENDER_INITIAL_RETRY_MAX)) {
-                Thread.sleep(RENDER_INITIAL_RETRY_DELAY_MS)
+                delay(RENDER_INITIAL_RETRY_DELAY_MS)
                 initialRender = target.bridge?.render() ?: 0
                 attempts++
             }
