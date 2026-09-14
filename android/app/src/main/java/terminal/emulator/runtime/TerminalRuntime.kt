@@ -197,7 +197,28 @@ internal data class SessionEntry(
         }
     }
 
+    /**
+     * Vsync-alignment poke: raises the render-thread wakeup WITHOUT touching
+     * the idle clock and WITHOUT setting [renderSignaled]. The per-vsync
+     * [notifyRender] call used to refresh [lastSignalNanos] every display
+     * frame, which kept the clock perpetually fresh so the idle latch could
+     * never engage (self-sustaining 60-166fps loop on an idle terminal).
+     */
+    fun pokeVsync() {
+        renderThreadRef?.let {
+            java.util.concurrent.locks.LockSupport.unpark(it)
+        }
+    }
+
     @Volatile var scrollOffset: Int = 0
+
+    /**
+     * Last viewport cursor row seen by this session's render thread
+     * (0-based, Bridge.CURSOR_ROW_UNKNOWN = hidden/off-viewport). Mirrors
+     * the active session's cursorRowFlow so session switches can reseed it
+     * without a JNI query.
+     */
+    @Volatile var cursorRow: Int = Bridge.CURSOR_ROW_UNKNOWN
 
     /**
      * Per-pixel scroll remainder (px, positive = content down), picked up by the render thread
@@ -246,6 +267,16 @@ constructor(
     private val _state = MutableStateFlow(RuntimeState())
     val state: StateFlow<RuntimeState> = _state.asStateFlow()
 
+    /**
+     * Active session's viewport cursor row (0-based,
+     * [Bridge.CURSOR_ROW_UNKNOWN] = hidden/off-viewport).
+     * Published by the render thread on change only; the IME-follow pan
+     * collects it while the keyboard is open. Separate from [state] so cursor
+     * motion does not recompose state subscribers when the keyboard is closed.
+     */
+    private val cursorRowFlowInternal = MutableStateFlow(Bridge.CURSOR_ROW_UNKNOWN)
+    val cursorRowFlow: StateFlow<Int> = cursorRowFlowInternal.asStateFlow()
+
     private val sessions = ConcurrentHashMap<Long, SessionEntry>()
 
     // ── P2-1 vsync frame-callback chain (warp semantics) ─────────────
@@ -276,9 +307,17 @@ constructor(
                 // Lock-free read: sessions is a ConcurrentHashMap and
                 // activeSessionId is @Volatile.
                 val entry = sessions[activeSessionId]
-                if (entry != null) {
+                // Idle sessions stay parked: the poke must not refresh the
+                // idle clock (pokeVsync) and stops once the clock aged past
+                // the threshold, so the 500ms idle latch engages and an idle
+                // terminal no longer burns CPU/GPU at display rate (emulator
+                // System UI ANR). The chain itself stays alive (cheap).
+                if (
+                    entry != null &&
+                    System.nanoTime() - entry.lastSignalNanos <= RENDER_IDLE_THRESHOLD_NANOS
+                ) {
                     entry.vsyncRequested = true
-                    entry.notifyRender()
+                    entry.pokeVsync()
                 }
                 // Self-reschedule (warp pattern): keep the chain alive at
                 // display refresh rate regardless of whether this frame
@@ -312,6 +351,20 @@ constructor(
     @Volatile var cellWidth: Float = 0f
 
     @Volatile var cellHeight: Float = 0f
+
+    /**
+     * ModifierBar overlay height in physical pixels. Single owner of the
+     * reservation: the grid (recomputeGridFromFontMetrics and
+     * TerminalSurface.applyGridResize) and the IME-follow pan all subtract
+     * this same value, so rows and pan can never disagree about which rows
+     * the bar covers.
+     */
+    internal val modifierBarHeightPx: Int
+        get() =
+            (
+                MODIFIER_BAR_HEIGHT_DP *
+                    context.resources.displayMetrics.density + 0.5f
+                ).toInt()
 
     // ⑥ last font size pushed to native (tenths). Zoom gestures anchor to
     // this so the preview/finalize math starts from the actually rendered
@@ -1294,7 +1347,13 @@ constructor(
                                 entry.lastRenderStart = System.nanoTime()
                                 // Combined render + consumeNewOutput in a single JNI
                                 // crossing (~0.1-0.3ms saved per frame).
-                                val (count, newOutput) = bridge.renderWithNewOutput()
+                                val (count, newOutput, cursorRow) = bridge.renderWithNewOutput()
+                                if (cursorRow != entry.cursorRow) {
+                                    entry.cursorRow = cursorRow
+                                    if (entry.id == activeSessionId) {
+                                        cursorRowFlowInternal.value = cursorRow
+                                    }
+                                }
                                 val frameMs = (System.nanoTime() - entry.lastRenderStart) / 1_000_000.0
                                 if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
                                     LogUtil.w(
@@ -1327,16 +1386,14 @@ constructor(
                                             }
                                         }
                                 }
-                                if (count > 0) {
-                                    // New content was actually rendered. Refresh
-                                    // the idle clock here: previously only UI
-                                    // interactions updated lastSignalNanos, so a
-                                    // sustained PTY output stream (tail -f, ping,
-                                    // gradle, ...) with no interaction let
-                                    // idleNanos grow past RENDER_IDLE_THRESHOLD
-                                    // after ~5s and the loop fell into the 500ms
-                                    // idle latch — rendering dropped to ~2 FPS
-                                    // while the terminal was actively printing.
+                                if (newOutput) {
+                                    // Only real PTY ingest refreshes the idle
+                                    // clock: count also counts idle repaints of
+                                    // a static grid, which kept lastSignalNanos
+                                    // within the idle threshold forever so the
+                                    // 500ms idle latch never engaged. Sustained
+                                    // streams (tail -f, ping, gradle) always
+                                    // carry newOutput, so they stay active.
                                     entry.lastSignalNanos = System.nanoTime()
                                     // P1-1 scroll semantics (termux onScreenUpdated
                                     // parity): consume the native new_output flag
@@ -2884,6 +2941,9 @@ constructor(
             try {
                 renderSupervisor.startRenderThread(target)
                 activeSessionId = id
+                // Reseed the cursor pan source: the new session's render
+                // thread republishes on change from here.
+                cursorRowFlowInternal.value = target.cursorRow
                 // Clear any stale per-pixel scroll remainder from the
                 // previous session: the native viewport offset is global,
                 // so the new session must start aligned (its own render
@@ -3086,8 +3146,7 @@ constructor(
      * initial font application.
      */
     private fun recomputeGridFromFontMetrics() {
-        val density = context.resources.displayMetrics.density
-        val barHeightPx = (MODIFIER_BAR_HEIGHT_DP * density + 0.5f).toInt()
+        val barHeightPx = modifierBarHeightPx
         // Surface size: the pending surface (set by startRuntime) is the
         // authoritative source before the first attachSurface lands.
         val surfaceW = pendingSurfaceWidth

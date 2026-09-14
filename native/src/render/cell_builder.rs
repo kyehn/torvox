@@ -294,6 +294,11 @@ pub struct CachedInstances {
     /// with the new grid but holds NO row data: serving "clean" rows from
     /// it would copy 0 instances and drop rows regression).
     built: bool,
+    /// Font atlas generation the cached instances were built against.
+    /// Atlas rebuilds and glyph evictions relocate UVs, so a generation
+    /// mismatch forces a full rebuild (stale UVs would render wrong or
+    /// blank glyphs until each row happened to re-dirty).
+    atlas_generation: u64,
 }
 
 impl CachedInstances {
@@ -304,6 +309,7 @@ impl CachedInstances {
             rows,
             cols,
             built: false,
+            atlas_generation: 0,
         }
     }
 
@@ -336,13 +342,22 @@ impl CachedInstances {
         (start, end)
     }
 
-    /// Replace the cache contents after a build.
-    fn update(&mut self, rows: u32, cols: u32, instances: &[CellInstance], row_ends: Vec<usize>) {
+    /// Replace the cache contents after a build, stamping the atlas
+    /// generation the instances were built against.
+    fn update(
+        &mut self,
+        rows: u32,
+        cols: u32,
+        instances: &[CellInstance],
+        row_ends: Vec<usize>,
+        atlas_generation: u64,
+    ) {
         self.rows = rows;
         self.cols = cols;
         self.row_ends = row_ends;
         self.instances.clear();
         self.instances.extend_from_slice(instances);
+        self.atlas_generation = atlas_generation;
         self.built = true;
     }
 
@@ -520,8 +535,13 @@ fn build_row_instances_into(
     // Partition into per-row ranges once; used for both the incremental
     // dirty-row decision and the per-row iteration below.
     let row_ranges = build_row_ranges(cell_data, rows)?;
+    // Incremental serving requires dimensional compatibility AND a current
+    // atlas generation: rebuilds/evictions relocate glyph UVs, so instances
+    // cached against an older generation would render wrong or blank glyphs.
     let incremental = dirty_rows.is_some_and(|d| d.len() >= rows as usize)
-        && cache.as_ref().is_some_and(|c| c.is_compatible(rows, cols));
+        && cache.as_ref().is_some_and(|c| {
+            c.is_compatible(rows, cols) && c.atlas_generation == font_pipeline.atlas_generation()
+        });
 
     let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
     for (row, range) in row_ranges.iter().enumerate() {
@@ -568,7 +588,13 @@ fn build_row_instances_into(
         row_ends.push(instances.len());
     }
     if let Some(c) = cache.as_mut() {
-        c.update(rows, cols, &instances[..], row_ends);
+        c.update(
+            rows,
+            cols,
+            &instances[..],
+            row_ends,
+            font_pipeline.atlas_generation(),
+        );
     }
     Some(())
 }
@@ -1228,6 +1254,65 @@ mod tests {
         assert!(
             instances_equal(cache.instances(), &instances),
             "cache must be refreshed with the latest instances"
+        );
+    }
+
+    /// Atlas staleness (rebuild or glyph eviction relocates UVs): a cache
+    /// built against an older atlas generation must NOT serve clean rows —
+    /// the frame must equal a full rebuild, since stale UVs would render
+    /// wrong or blank glyphs until each row happened to re-dirty.
+    #[test]
+    fn cached_stale_atlas_generation_forces_full_rebuild() {
+        let mk = |row: u32, ch: char| {
+            cell_data(row, 0, ch, [1.0, 1.0, 1.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)
+        };
+        let cells: Vec<CellData> = (0..24).map(|r| mk(r, 'a')).collect();
+        let cursor = CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: CursorStyle::Block,
+            color: None,
+        };
+
+        // Frame 1: full dirty pass seeds the cache.
+        let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
+        let mut instances = Vec::new();
+        let mut cache = CachedInstances::new(24, 80);
+        let all_dirty = vec![true; 24];
+        let ok = run_cached_build(
+            &cells,
+            cursor,
+            &all_dirty,
+            &mut font_pipeline,
+            &mut cache,
+            &mut instances,
+        );
+        assert!(ok.is_some(), "initial full build should succeed");
+
+        // Simulate an atlas rebuild/eviction after the cache was populated.
+        cache.atlas_generation = cache.atlas_generation.wrapping_add(1);
+
+        // Frame 2 changes row 2 but claims nothing is dirty: with a current
+        // generation the stale row would be served from cache; with a stale
+        // generation the whole frame must rebuild instead.
+        let mut cells2 = cells.clone();
+        cells2[2] = mk(2, 'z');
+        let clean = vec![false; 24];
+        instances.clear();
+        let ok = run_cached_build(
+            &cells2,
+            cursor,
+            &clean,
+            &mut font_pipeline,
+            &mut cache,
+            &mut instances,
+        );
+        assert!(ok.is_some(), "rebuild after atlas change should succeed");
+        let full_frame2 = build(&cells2, cursor, None, &[]);
+        assert!(
+            instances_equal(&instances, &full_frame2),
+            "stale atlas generation must force a full rebuild, not serve cached rows"
         );
     }
 
