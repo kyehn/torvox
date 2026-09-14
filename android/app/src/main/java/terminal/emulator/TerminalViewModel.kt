@@ -14,7 +14,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +44,7 @@ import terminal.emulator.runtime.TerminalRuntime
 import terminal.emulator.settings.SettingsRepository
 import terminal.emulator.ui.SmartCopy
 import terminal.emulator.ui.clampSelection
+import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.charCellWidth
 import terminal.emulator.util.runCatchingCancellable
 import javax.inject.Inject
@@ -945,55 +945,6 @@ constructor(
             return bridge.selectionText(lo.row, lo.col, hi.row, hi.col, rectangle = false) ?: ""
         }
 
-        private fun smartJoinLines(parts: List<String>): String {
-            if (parts.size <= 1) return parts.joinToString("")
-            val result = StringBuilder(parts[0])
-            for (index in 1 until parts.size) {
-                val previousLine = parts[index - 1]
-                val currentLine = parts[index]
-                if (isContinuationUrl(previousLine)) {
-                    result.append(currentLine)
-                } else if (isUrlStart(currentLine)) {
-                    result.append("\n").append(currentLine)
-                } else if (isPathOrProtocol(currentLine)) {
-                    result.append(currentLine)
-                } else if (isTuiBorder(currentLine)) {
-                    break
-                } else if (shouldJoinWithNewline(previousLine, currentLine)) {
-                    result.append("\n").append(currentLine)
-                } else {
-                    result.append(currentLine)
-                }
-            }
-            return result.toString()
-        }
-
-        private fun isContinuationUrl(line: String): Boolean = line.endsWith("https://") || line.endsWith("http://")
-
-        private fun isUrlStart(line: String): Boolean = line.startsWith("https://") || line.startsWith("http://")
-
-        private fun isPathOrProtocol(line: String): Boolean = line.startsWith("/") || line.startsWith("http")
-
-        private fun shouldJoinWithNewline(
-            previousLine: String,
-            currentLine: String,
-        ): Boolean {
-            if (previousLine.isBlank() || currentLine.isBlank()) return false
-            if (currentLine.startsWith(" ")) return false
-            if (previousLine.endsWith(" ")) return false
-            return true
-        }
-
-        private fun isTuiBorder(line: String): Boolean {
-            val trimmed = line.trim()
-            if (trimmed.isEmpty()) return false
-            val uniqueChars = trimmed.toSet().size
-            if (uniqueChars <= 2 && trimmed.all { it in "│─╭╮╰╯┌┐└┘┬┴├┤┼═║╗╝╚╔╠╣╦╩╬ " }) {
-                return true
-            }
-            return false
-        }
-
         /**
          * Extract a column-bounded rectangle slice from a single line, correctly handling CJK wide
          * characters that occupy 2 cell columns.
@@ -1048,7 +999,7 @@ constructor(
      */
     inner class FontManager {
         fun loadFonts() {
-            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
                     val bridge = runtime.bridge()
                     val rustFontFamilies = bridge?.listFontFamilies() ?: emptyList()
@@ -1117,7 +1068,7 @@ constructor(
         }
 
         fun setFontSize(size: Float) {
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 fontApplyMutex.withLock {
                     settingsRepository.setFontSize(size)
                     runtime.applyFontSettings()
@@ -1130,7 +1081,7 @@ constructor(
         }
 
         fun setFontFamily(family: String) {
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
                     android.util.Log.d("Font", "Setting font family: $family")
                     settingsRepository.setFontFamily(family)
@@ -1141,7 +1092,7 @@ constructor(
                     _defaultFontName.value = fontName
                     _fontInfo.value = fontInfo
                     android.util.Log.d("Font", "Font applied: $fontName")
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         android.widget.Toast.makeText(
                             context,
                             context.getString(R.string.font_applied, fontName),
@@ -1151,7 +1102,7 @@ constructor(
                     }
                 } catch (exception: Exception) {
                     android.util.Log.e("Font", "setFontFamily failed for $family", exception)
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         android.widget.Toast.makeText(
                             context,
                             context.getString(R.string.font_apply_failed, exception.message ?: ""),
@@ -1164,7 +1115,7 @@ constructor(
         }
 
         fun installFontFile(uri: Uri) {
-            viewModelScope.launch(Dispatchers.IO) {
+            viewModelScope.launch(TerminalDispatchers.inputOutput) {
                 try {
                     val rawName = getFileNameFromUri(uri) ?: uri.lastPathSegment ?: "custom_font.ttf"
                     // Sanitize: DISPLAY_NAME from a content provider may contain
@@ -1184,7 +1135,7 @@ constructor(
                         }
                     }
                         ?: run {
-                            kotlinx.coroutines.withContext(Dispatchers.Main) {
+                            kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                                 android.widget.Toast.makeText(
                                     context,
                                     context.getString(R.string.font_read_failed),
@@ -1206,7 +1157,7 @@ constructor(
                         settingsRepository.setFontFamily(familyName)
                         runtime.applyFontSettings()
                         loadFonts()
-                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                             android.widget.Toast.makeText(
                                 context,
                                 context.getString(R.string.font_installed, familyName),
@@ -1219,7 +1170,7 @@ constructor(
                             "Font",
                             "Font load failed: null family from ${destFile.absolutePath}",
                         )
-                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                             android.widget.Toast.makeText(
                                 context,
                                 context.getString(R.string.font_not_supported),
@@ -1230,7 +1181,7 @@ constructor(
                     }
                 } catch (exception: Exception) {
                     android.util.Log.e("TerminalViewModel", "installFontFile failed", exception)
-                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    kotlinx.coroutines.withContext(TerminalDispatchers.main) {
                         android.widget.Toast.makeText(
                             context,
                             context.getString(R.string.font_install_failed, exception.message ?: ""),
@@ -1295,7 +1246,7 @@ constructor(
         currentSurface = surface
         surfaceWidth = width
         surfaceHeight = height
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(TerminalDispatchers.inputOutput) {
             runtime.start(surface, width, height)
         }
     }
@@ -1413,7 +1364,7 @@ constructor(
      * Toasts) must hop to the main thread themselves or use Android's auto-posting Toast API.
      */
     fun clearAppData(onComplete: () -> Unit) {
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(TerminalDispatchers.inputOutput) {
             try {
                 context.getDir("prefs", Context.MODE_PRIVATE).deleteRecursively()
                 context.getDir("sessions", Context.MODE_PRIVATE).deleteRecursively()
@@ -1453,7 +1404,7 @@ constructor(
         lastMetaSessionIds = ids
         lastMetaRefreshMs = now
         if (ids.isEmpty()) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(TerminalDispatchers.inputOutput) {
             val homeDirectory = context.filesDir.parentFile?.resolve("files/home")?.absolutePath.orEmpty()
             val fresh = ids.mapIndexed { index, id ->
                 val title = runCatchingCancellable { NativeBridge.getTitle(id) }.getOrNull().orEmpty()
@@ -1464,7 +1415,7 @@ constructor(
                     directory = directory?.let { abbreviateDirectory(it, homeDirectory) }.orEmpty(),
                 )
             }
-            withContext(Dispatchers.Main) {
+            withContext(TerminalDispatchers.main) {
                 _state.update { current ->
                     if (current.sessions.map { it.id }.sorted() != ids) {
                         current
@@ -1578,7 +1529,7 @@ constructor(
         // CAS so a rapid double-tap of the Install button cannot start two
         // concurrent installs.
         if (!_bootstrapRunning.compareAndSet(false, true)) return
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(TerminalDispatchers.inputOutput) {
             _bootstrapResult.value = null
             _bootstrapProgress.value = null
             try {
@@ -1836,7 +1787,7 @@ constructor(
             return
         }
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(TerminalDispatchers.inputOutput) {
             val currentSurfaceNow = currentSurface
             if (currentSurfaceNow == null || !currentSurfaceNow.isValid) {
                 android.util.Log.e(
@@ -1902,7 +1853,7 @@ constructor(
             return
         }
 
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        viewModelScope.launch(TerminalDispatchers.inputOutput) {
             try {
                 runtime.switchSession(id, surface, surfaceWidthPixels, surfaceHeightPixels)
             } catch (exception: Exception) {
@@ -1938,7 +1889,7 @@ constructor(
     }
 
     fun closeSession(id: Long) {
-        viewModelScope.launch(Dispatchers.IO) {
+        viewModelScope.launch(TerminalDispatchers.inputOutput) {
             try {
                 runtime.closeSession(id)
             } catch (exception: Exception) {
@@ -1948,7 +1899,7 @@ constructor(
                 android.util.Log.e("TerminalViewModel", "closeSession failed for id=$id", exception)
                 return@launch
             }
-            withContext(Dispatchers.Main) {
+            withContext(TerminalDispatchers.main) {
                 _state.update { current ->
                     val remaining = current.sessions.filter { it.id != id }
                     if (remaining.isEmpty()) {

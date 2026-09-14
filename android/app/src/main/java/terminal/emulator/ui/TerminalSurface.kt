@@ -1183,7 +1183,6 @@ constructor(
         private const val ZOOM_FONT_SIZE_MAX_SP = 48f
         private const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
         private const val ZOOM_PREVIEW_INTERVAL_NANOS = 60_000_000L // 60ms
-        private const val DRAWER_WIDTH_DP = 280
 
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
         private const val DRAWER_CLOSE_TAP_GRACE_NANOS = 350_000_000L
@@ -1348,10 +1347,6 @@ constructor(
      * terminal surface instead of being excluded at the bottom.
      */
     var searchActive: Boolean = false
-
-    private val drawerWidthPixels: Float by lazy {
-        DRAWER_WIDTH_DP.toFloat() * resources.displayMetrics.density
-    }
 
     @Suppress(
         "CyclomaticComplexMethod",

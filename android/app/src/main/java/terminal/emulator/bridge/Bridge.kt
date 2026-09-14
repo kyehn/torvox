@@ -385,7 +385,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         // sticky — later events for a dead session are stale).
         var result = PollResult()
         // Plain for loop: `break` is required when the queue drains.
-        for (unused in 0 until MAX_EVENTS_PER_POLL) {
+        for (_ in 0 until MAX_EVENTS_PER_POLL) {
             val json = NativeBridge.pollEvent() ?: break
             val parsed =
                 try {

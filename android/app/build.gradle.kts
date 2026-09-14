@@ -6,9 +6,17 @@ plugins {
   id("org.jetbrains.kotlin.plugin.serialization")
   id("com.google.dagger.hilt.android")
   id("com.google.devtools.ksp")
+  id("io.gitlab.arturbosch.detekt")
   id("com.ncorti.ktfmt.gradle")
   id("org.jlleitschuh.gradle.ktlint")
   id("de.infix.testBalloon")
+}
+
+detekt {
+  config.setFrom(files("../detekt.yml"))
+  baseline = file("detekt-baseline.xml")
+  buildUponDefaultConfig = true
+  allRules = false
 }
 
 android {
