@@ -240,22 +240,29 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     /**
      * Combined render + consumeNewOutput in a single JNI crossing (saves ~0.1-0.3ms per frame vs two
-     * separate calls). Returns [RenderResult] with the render count and the new-output flag.
+     * separate calls). Returns [RenderResult] with the render count, the new-output flag and the
+     * viewport cursor row (-1 when hidden/off-viewport, drives the IME-follow pan).
      */
     fun renderWithNewOutput(): RenderResult {
-        if (sessionId == 0L) return RenderResult(0, false)
+        if (sessionId == 0L) return RenderResult(0, false, CURSOR_ROW_UNKNOWN)
         return try {
             val packed = NativeBridge.renderWithNewOutput(sessionId, lastSurfaceWidth, lastSurfaceHeight)
             val count = packed.toInt()
-            val newOutput = (packed shr 32) != 0L
-            RenderResult(count, newOutput)
+            // Mask bit 32 only: bits 33..48 carry the cursor row and must
+            // not leak into the output flag (idle latch depends on it).
+            val newOutput = ((packed shr 32) and 0x1L) != 0L
+            val cursorRow =
+                ((packed shr 33) and CURSOR_ROW_HIDDEN_BITS.toLong()).toInt().let { raw ->
+                    if (raw == CURSOR_ROW_HIDDEN_BITS) CURSOR_ROW_UNKNOWN else raw
+                }
+            RenderResult(count, newOutput, cursorRow)
         } catch (exception: RuntimeException) {
             LogUtil.e("Bridge", "renderWithNewOutput failed: ${exception.javaClass.simpleName}")
-            RenderResult(-1, false)
+            RenderResult(-1, false, CURSOR_ROW_UNKNOWN)
         }
     }
 
-    data class RenderResult(val count: Int, val newOutput: Boolean)
+    data class RenderResult(val count: Int, val newOutput: Boolean, val cursorRow: Int)
 
     /**
      * Take and clear the native `new_output` flag for this session (P1-1 scroll-reset signal,
@@ -811,6 +818,12 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     companion object {
         private const val TAG = "Bridge"
+
+        /** renderWithNewOutput packing: cursor row bits 33..48, this value = hidden/off-viewport. */
+        const val CURSOR_ROW_HIDDEN_BITS = 0xFFFF
+
+        /** Decoded cursor row when hidden/off-viewport (or no session). */
+        const val CURSOR_ROW_UNKNOWN = -1
 
         /** Max events drained per pollAll() frame — bounds render-thread cost. */
         private const val MAX_EVENTS_PER_POLL = 32

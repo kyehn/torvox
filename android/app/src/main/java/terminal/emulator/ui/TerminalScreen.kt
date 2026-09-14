@@ -62,6 +62,7 @@ import kotlinx.coroutines.launch
 import terminal.emulator.R
 import terminal.emulator.SelectionAnchor
 import terminal.emulator.TerminalViewModel
+import terminal.emulator.bridge.Bridge
 import terminal.emulator.input.ModifierState
 import terminal.emulator.input.next
 import terminal.emulator.ui.theme.BuiltInThemes
@@ -491,10 +492,27 @@ fun TerminalScreen(
 
             // IME 跟随：纯平移不重排（修复闪烁与底部行遮挡）。动画与定居均用 placement 阶段 offset，
             // Surface 尺寸永不变化，不触发交换链重建与网格重排；定居态用 settled 值避免每帧重组。
+            // 终端区按光标最小平移（稀疏会话不再整体上抬播黑屏），修饰键栏仍整体跟随到键盘上方。
             val density = LocalDensity.current
             val rawImeBottomPx = WindowInsets.ime.getBottom(density)
             var settledImePx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
             var isImeSettled by remember { mutableStateOf(true) }
+            var heldTerminalPanPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            // 与网格同一预留（runtime.modifierBarHeightPx）：平移与行数严格一致，
+            // 光标行恰好停在键栏上方，不多不少。
+            val reservedBarPx = viewModel.runtime.modifierBarHeightPx
+            val imeOpen = rawImeBottomPx > 0 || settledImePx > 0
+            // 仅键盘打开时订阅光标行：关闭时不为此重组。
+            var followedCursorRow by remember {
+                androidx.compose.runtime.mutableIntStateOf(Bridge.CURSOR_ROW_UNKNOWN)
+            }
+            LaunchedEffect(imeOpen) {
+                if (!imeOpen) {
+                    followedCursorRow = Bridge.CURSOR_ROW_UNKNOWN
+                    return@LaunchedEffect
+                }
+                viewModel.runtime.cursorRowFlow.collect { followedCursorRow = it }
+            }
             LaunchedEffect(rawImeBottomPx) {
                 if (rawImeBottomPx == settledImePx) {
                     isImeSettled = true
@@ -506,20 +524,28 @@ fun TerminalScreen(
                 isImeSettled = true
                 surfaceRef.value?.onImeSettled(rawImeBottomPx)
             }
+            val settledBarPx = (if (isImeSettled) settledImePx else rawImeBottomPx).coerceAtLeast(0)
+            // 光标最小平移：只把被键盘挡住的光标行抬到可见区；光标隐藏
+            // （上滑浏览历史）时保持上次位置，不抢夺视图。
+            LaunchedEffect(followedCursorRow, settledBarPx, terminalBoxSize, reservedBarPx) {
+                val cellHeightPx = viewModel.runtime.cellHeight
+                computeTerminalPanPx(
+                    cursorRow = followedCursorRow,
+                    cellHeightPx = cellHeightPx,
+                    boxHeightPx = terminalBoxSize.height,
+                    imePx = settledBarPx,
+                    barPx = reservedBarPx,
+                )?.let { heldTerminalPanPx = it }
+                if (settledBarPx <= 0) heldTerminalPanPx = 0
+            }
 
-            // v5: 全程 placement 阶段 offset（无重测）。原始值跟随系统 WindowInsetsAnimation 插值，
-            // 无需 Compose 弹簧；定居态用 settled 值，尺寸恒定，网格不收缩。
+            // v5: 全程 placement 阶段 offset（无重测）。终端区用光标最小平移，
+            // 修饰键栏用整体跟随；尺寸恒定，网格不收缩。
             Column(
                 modifier =
                 Modifier.fillMaxSize()
                     .testTag("TerminalContent")
-                    .then(
-                        if (isImeSettled) {
-                            Modifier.offset { IntOffset(0, -settledImePx.coerceAtLeast(0)) }
-                        } else {
-                            Modifier.offset { IntOffset(0, -rawImeBottomPx.coerceAtLeast(0)) }
-                        },
-                    ),
+                    .offset { IntOffset(0, -heldTerminalPanPx) },
             ) {
                 // Terminal content area — moves above IME via animated padding
                 Box(
@@ -801,19 +827,13 @@ fun TerminalScreen(
                 // END OF COLUMN — terminal and bar both above IME
             } // close Column
 
-            // 底部栏随动：与内容同策略的纯偏移，避免重测与交换链重建。
+            // 底部栏随动：整体跟随到键盘上方（与终端区的光标最小平移不同策略），避免重测与交换链重建。
             Box(
                 modifier =
                 Modifier.fillMaxWidth()
                     .align(Alignment.BottomCenter)
                     .background(resolvedTerminalTheme.background)
-                    .then(
-                        if (isImeSettled) {
-                            Modifier.offset { IntOffset(0, -settledImePx.coerceAtLeast(0)) }
-                        } else {
-                            Modifier.offset { IntOffset(0, -rawImeBottomPx.coerceAtLeast(0)) }
-                        },
-                    )
+                    .offset { IntOffset(0, -settledBarPx) }
                     .testTag("ModifierBarOverlay"),
             ) {
                 // Bottom bar — below terminal, above IME
@@ -992,6 +1012,23 @@ fun TerminalScreen(
             // content on narrow screens.
         }
     }
+}
+
+@VisibleForTesting
+internal fun computeTerminalPanPx(
+    cursorRow: Int,
+    cellHeightPx: Float,
+    boxHeightPx: Int,
+    imePx: Int,
+    barPx: Int,
+): Int? {
+    // null = hold the previous pan (cursor hidden while browsing history).
+    if (imePx <= 0) return 0
+    if (cursorRow < 0) return null
+    if (cellHeightPx <= 0f || boxHeightPx <= 0) return imePx
+    val cursorBottomPx = (cursorRow + 1) * cellHeightPx
+    val visibleContentPx = boxHeightPx - imePx - barPx
+    return (cursorBottomPx - visibleContentPx).toInt().coerceIn(0, imePx)
 }
 
 @VisibleForTesting

@@ -1839,9 +1839,12 @@ fn render_inner(session_id: u64) -> jint {
 /// Returns a packed `jlong`:
 ///   - bits 0..31  = render count (same semantics as `render()`)
 ///   - bit  32     = new_output flag (1 = PTY output was ingested, 0 = idle)
-///   - bits 33..63 = 0 (reserved)
+///   - bits 33..48 = viewport cursor row (0xFFFF = hidden/off-viewport)
+///   - bits 49..63 = 0 (reserved)
 ///
-/// On error the render count is negative and new_output is 0.
+/// Kotlin must mask both fields: a bare `(packed shr 32) != 0` read would see
+/// cursor bits as output. On error the render count is negative, new_output
+/// is 0 and the cursor row is 0xFFFF.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewOutput<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -1853,19 +1856,25 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_renderWithNewO
     let count = jni_export_guard!(&mut unowned_env, -1i32, |_env| render_inner(
         session_id as u64
     ));
-    let mut new_output: i32 = 0;
+    let mut new_output: i64 = 0;
+    let mut cursor_bits: i64 = 0xFFFF;
     if count > 0 {
         // Consume the new_output flag inline (same logic as
-        // consumeNewOutput but without a second JNI crossing).
+        // consumeNewOutput but without a second JNI crossing), and sample
+        // the viewport cursor row from the same locked session so the
+        // IME-follow pan sees the coordinates this frame drew.
         let registry = rlock_session_registry();
         if let Some(entry) = registry.get(&(session_id as u64)) {
             let session = entry.session.lock();
             if session.take_new_output() {
                 new_output = 1;
             }
+            if let Some((row, _)) = session.terminal().render_cursor() {
+                cursor_bits = (row as i64) & 0xFFFF;
+            }
         }
     }
-    ((new_output as i64) << 32) | (count as i64 & 0xFFFF_FFFF)
+    (new_output << 32) | (cursor_bits << 33) | (count as i64 & 0xFFFF_FFFF)
 }
 
 // ══════════════════════════════════════════════════════════════════════════

@@ -136,12 +136,20 @@ impl FontPipeline {
             None => {
                 let evict_count =
                     (self.caches.glyph_cache.len() / GLYPH_CACHE_EVICTION_DIVISOR).max(1);
+                let mut evicted_any = false;
                 for _ in 0..evict_count {
                     if let Some((_, evicted)) = self.caches.glyph_cache.pop_lru()
                         && let Some(allocated_id) = evicted.allocation_id
                     {
                         self.atlas.deallocate(allocated_id);
+                        evicted_any = true;
                     }
+                }
+                // Evicted regions are handed to later allocations: cached
+                // cell instances still reference the old UVs, so the
+                // instance cache must rebuild (see atlas_generation).
+                if evicted_any {
+                    self.atlas_generation = self.atlas_generation.wrapping_add(1);
                 }
                 if let Some(a) = self
                     .atlas
