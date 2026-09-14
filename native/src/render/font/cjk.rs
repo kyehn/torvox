@@ -75,14 +75,24 @@ impl FontPipeline {
 
     pub(crate) fn find_cjk_fallback_fonts(&mut self, system_locale: &str) {
         let locale_tag = locale_tag(system_locale);
+        // spec DESIGN 字体选择: CJK fallback only for CJK environments.
+        // An explicitly non-CJK locale (e.g. en-US) skips; an unset locale
+        // keeps the scan so host tests exercise the real fallback path.
+        if !system_locale.is_empty() && locale_tag.is_empty() {
+            log::debug!("CJK_FALLBACK: skipped (non-CJK locale)");
+            return;
+        }
 
         if let Some(primary_id) = self.font_id {
             let db = self.font_system.db();
+            // Probe the locale's representative char: CJK fonts are
+            // locale-sliced (a CN font need not cover Hangul syllables),
+            // so requiring 中/日/가 together would reject a matching primary.
+            let probe = if locale_tag == "kr" { '가' } else { '中' };
             let primary_supports_cjk = db
                 .with_face_data(primary_id, |font_data, face_index| {
                     let font_ref = swash::FontRef::from_index(font_data, face_index as usize)?;
-                    let charmap = font_ref.charmap();
-                    Some(charmap.map('中') != 0 && charmap.map('日') != 0 && charmap.map('가') != 0)
+                    Some(font_ref.charmap().map(probe) != 0)
                 })
                 .flatten()
                 .unwrap_or(false);
