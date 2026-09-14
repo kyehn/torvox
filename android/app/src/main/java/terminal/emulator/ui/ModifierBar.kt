@@ -55,6 +55,7 @@ import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.withTimeoutOrNull
 import terminal.emulator.R
 import terminal.emulator.input.ModifierState
+
 private const val BUTTON_HEIGHT_DP = 36
 private const val BUTTON_FONT_SIZE_SP = 10
 
