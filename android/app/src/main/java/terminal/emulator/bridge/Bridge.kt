@@ -85,7 +85,6 @@ fun createBridge(config: TerminalConfig): Bridge = Bridge(config)
  * query-path stubs backed by [NativeQueryPort].
  */
 // when-dispatch over the PollEvent sealed class — one branch per variant.
-@Suppress("TooManyFunctions", "LongMethod") // parseEvent is a straight
 class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     /**
      * ADR-0007: native query path wired — all queries delegate to [NativeQueryPort], which maps 1:1
@@ -384,8 +383,10 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         // Results merge: a later event of the same kind wins (exit is
         // sticky — later events for a dead session are stale).
         var result = PollResult()
-        // Plain for loop: `break` is required when the queue drains.
-        for (_ in 0 until MAX_EVENTS_PER_POLL) {
+        // 有界排空：队列见空即 break；计数器具名（下划线形式需实验开关）。
+        var pollAttempt = 0
+        while (pollAttempt < MAX_EVENTS_PER_POLL) {
+            pollAttempt += 1
             val json = NativeBridge.pollEvent() ?: break
             val parsed =
                 try {

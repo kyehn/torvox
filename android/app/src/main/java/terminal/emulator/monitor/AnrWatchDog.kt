@@ -105,7 +105,6 @@ class AnrWatchDog(
         }
     }
 
-    @Suppress("TooGenericExceptionCaught")
     private fun onAnrDetected() {
         if (!anrInProgress.compareAndSet(false, true)) return
         try {

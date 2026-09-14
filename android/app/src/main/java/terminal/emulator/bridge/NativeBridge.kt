@@ -38,9 +38,7 @@ object NativeBridge {
 
     /** Create a new terminal session. Returns session ID (0 on failure). */
     @JvmStatic
-    @Suppress(
-        "LongParameterList",
-    ) // JNI signature mirrors native init_session - parameters cannot be grouped
+    // JNI signature mirrors native init_session - parameters cannot be grouped
     external fun initSession(
         rows: Int,
         cols: Int,

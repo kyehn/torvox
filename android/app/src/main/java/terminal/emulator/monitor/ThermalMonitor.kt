@@ -26,7 +26,6 @@ class ThermalMonitor(
     private var thermalExecutor: java.util.concurrent.ExecutorService? = null
     private var thermalListener: PowerManager.OnThermalStatusChangedListener? = null
 
-    @Suppress("TooGenericExceptionCaught")
     fun register() {
         thermalListener =
             PowerManager.OnThermalStatusChangedListener { status ->
@@ -83,7 +82,6 @@ class ThermalMonitor(
         }
     }
 
-    @Suppress("TooGenericExceptionCaught")
     private fun writeThermalLog(
         status: Int,
         label: String,

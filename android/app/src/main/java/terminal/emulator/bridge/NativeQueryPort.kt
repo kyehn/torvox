@@ -13,7 +13,6 @@ import kotlinx.serialization.json.Json
  * never fake data. Single-row/font queries are cheap; bulk queries
  * ([getTerminalText], [searchAllInScrollback]) are debounced by the UI.
  */
-@Suppress("TooManyFunctions")
 class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQueryPort {
     override fun getTitle(): String? = NativeBridge.getTitle(sessionIdProvider())
 

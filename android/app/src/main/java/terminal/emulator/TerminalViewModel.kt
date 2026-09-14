@@ -899,7 +899,6 @@ constructor(
             syncSelectionToNative()
         }
 
-        @Suppress("CyclomaticComplexMethod")
         private fun extractSelectedText(selection: SelectionState): String {
             val start = selection.start ?: return ""
             val end = selection.end ?: return ""
