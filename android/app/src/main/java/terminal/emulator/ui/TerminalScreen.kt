@@ -351,7 +351,12 @@ fun TerminalScreen(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
             ) {
                 SessionDrawer(
-                    viewModel = viewModel,
+                    sessions = state.sessions,
+                    activeSessionId = state.activeSessionId,
+                    onSwitchSession = { viewModel.switchSession(it) },
+                    onCloseSession = { viewModel.closeSession(it) },
+                    onAddSession = { viewModel.createSession() },
+                    onRefreshSessions = { viewModel.refreshSessionMetas() },
                     onSettings = {
                         scope.launch { drawerState.close() }
                         onSettings()
