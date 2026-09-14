@@ -2,8 +2,8 @@ package terminal.emulator.installer
 
 import android.system.Os
 import android.util.Log
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import terminal.emulator.util.TerminalDispatchers
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -30,7 +30,7 @@ class SecondStageRunner(
         val errors: List<String> = emptyList(),
     )
 
-    suspend fun run(): Result = withContext(Dispatchers.IO) {
+    suspend fun run(): Result = withContext(TerminalDispatchers.inputOutput) {
         val lockFile = File(prefixDir, "bin/termux-bootstrap-second-stage.sh.lock")
         if (lockFile.exists() || java.nio.file.Files.isSymbolicLink(lockFile.toPath())) {
             // The lock is a SELF-REFERENTIAL symlink (created below).

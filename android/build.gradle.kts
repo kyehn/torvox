@@ -8,6 +8,7 @@ plugins {
   id("com.google.dagger.hilt.android") version "2.60.1" apply false
   id("com.google.devtools.ksp") version "2.3.12" apply false
   id("com.diffplug.spotless") version "8.10.2" apply false
+  id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
   id("androidx.benchmark") version "1.5.0" apply false
   id("androidx.baselineprofile") version "1.5.0" apply false
   id("com.github.ben-manes.versions") version "0.62.0" apply false

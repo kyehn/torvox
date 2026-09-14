@@ -296,7 +296,7 @@ class MainActivity : ComponentActivity() {
         super.onConfigurationChanged(newConfig)
         val currentNightMode = newConfig.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         if (currentNightMode != previousNightMode) {
-            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            lifecycleScope.launch(terminal.emulator.util.TerminalDispatchers.inputOutput) {
                 runtime.applySettings()
             }
         }
@@ -358,13 +358,11 @@ private fun TerminalNavHost(
     Box(Modifier.semantics { testTagsAsResourceId = true }) {
         MaterialTheme(colorScheme = colorScheme) {
             TerminalScreen(
-                viewModel = viewModel,
                 onSettings = { showSettings = true },
                 isOverlayVisible = showSettings,
             )
             if (showSettings) {
                 SettingsScreen(
-                    viewModel = viewModel,
                     onBack = { showSettings = false },
                 )
             }

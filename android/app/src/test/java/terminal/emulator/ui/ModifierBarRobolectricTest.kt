@@ -133,4 +133,32 @@ class ModifierBarRobolectricTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("Key_CTRL").assertIsSelected()
     }
+
+    @Test
+    fun `arrow sends CSI in normal cursor mode`() {
+        val sent = mutableListOf<String>()
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(onKeyClick = { sent.add(it) })
+            }
+        }
+        composeRule.onNodeWithTag("Key_\u2192").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(listOf("\u001b[C"), sent)
+    }
+
+    @Test
+    fun `arrow sends SS3 in application cursor mode`() {
+        // DECCKM 回归：vim/less 等应用光标模式下辅助键栏方向键须发 SS3，
+        // 与物理键盘路径（TerminalInputEncoder.arrowSequence）一致。
+        val sent = mutableListOf<String>()
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(onKeyClick = { sent.add(it) }, isAppCursorMode = { true })
+            }
+        }
+        composeRule.onNodeWithTag("Key_\u2192").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(listOf("\u001bOC"), sent)
+    }
 }
