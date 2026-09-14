@@ -14,7 +14,6 @@ plugins {
 
 detekt {
   config.setFrom(files("../detekt.yml"))
-  baseline = file("detekt-baseline.xml")
   buildUponDefaultConfig = true
   allRules = false
 }
