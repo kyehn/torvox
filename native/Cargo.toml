@@ -17,7 +17,6 @@ regex = "1"
 linkify = "0.11"
 lru = { workspace = true }
 strsim = { workspace = true }
-shell-words = { workspace = true }
 futures = { workspace = true }
 bytemuck = { workspace = true }
 thiserror = { workspace = true }
@@ -35,9 +34,7 @@ swash = { workspace = true }
 guillotiere = { workspace = true }
 jni = { workspace = true }
 [dev-dependencies]
-image = { workspace = true }
 proptest = { workspace = true }
-toml = { workspace = true }
 shuttle = "0.9"
 cucumber = "0.23"
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
