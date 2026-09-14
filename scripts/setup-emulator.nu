@@ -14,7 +14,6 @@ def emulator-alive [] {
 
 def print-log-tail [path: path, lines: int] {
     if ($path | path exists) {
-        print "=== EMULATOR LOG (last ($lines) lines) ==="
         open $path | lines | last $lines | each { print $in }
     } else {
         print $"(ansi yellow)no emulator log at ($path)(ansi reset)"
