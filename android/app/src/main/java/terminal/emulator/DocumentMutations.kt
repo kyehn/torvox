@@ -2,10 +2,10 @@ package terminal.emulator
 
 import android.content.Context
 import android.provider.DocumentsContract
+import terminal.emulator.util.runCatchingCancellable
 import java.io.File
 import java.io.IOException
 import java.nio.file.LinkOption
-import terminal.emulator.util.runCatchingCancellable
 
 /**
  * 文件变更操作：创建、重命名、删除、复制、移动。
@@ -217,7 +217,7 @@ internal class DocumentMutations(
         val target = uniqueChild(targetParent, baseName)
         try {
             copyTreeInto(source, target)
-        } catch (failure: Exception) {
+        } catch (failure: IOException) {
             // 半截复制产物不能留给客户端：尽力清掉再把原错抛出去。
             runCatchingCancellable { deleteWithoutFollowingSymlinks(target) }
             throw failure
@@ -279,9 +279,7 @@ internal class DocumentMutations(
         // 非法名是客户端契约违反，大声失败：空名或 "." 会让
         // File(parent, name) 指回父目录自身，后续删除将清空整棵树。
         val safeName = displayName.replace(Regex("[/\\\\]"), "_").replace("..", "_").trim()
-        if (safeName.isEmpty() || safeName == ".") {
-            throw IllegalArgumentException("Invalid document name: '$displayName'")
-        }
+        require(safeName.isNotEmpty() && safeName != ".") { "Invalid document name: '$displayName'" }
         return safeName
     }
 

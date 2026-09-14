@@ -9,6 +9,7 @@ import kotlinx.coroutines.CancellationException
  * DenyListedApi）。本函数将其重新抛出，其余行为与 [runCatching] 一致； 调用处保持 `runCatching { }.getOrNull()` 形态，不引入
  * try/catch（detekt TooGenericExceptionCaught）。
  */
+@Suppress("TooGenericExceptionCaught") // runCatching 对等语义必须捕获 Exception；取消信号已优先重抛。
 inline fun <T> runCatchingCancellable(block: () -> T): Result<T> = try {
     Result.success(block())
 } catch (cancelled: CancellationException) {
