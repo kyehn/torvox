@@ -72,10 +72,7 @@
                 fenix.targets.x86_64-linux-android.stable.rust-std
                 fenix.targets.aarch64-linux-android.stable.rust-std
               ])
-              cargo-fuzz
-              cargo-geiger
               cargo-machete
-              cargo-llvm-cov
               kotlin
               gradle
               jdk

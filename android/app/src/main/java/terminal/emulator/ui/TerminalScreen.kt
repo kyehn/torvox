@@ -999,6 +999,7 @@ fun TerminalScreen(
                         useNerdFontGlyphs = useNerdFontGlyphs,
                         toolbarLayout = rememberToolbarLayout(),
                         barMode = barMode,
+                        isAppCursorMode = { viewModel.runtime.bridge()?.isAppCursorMode() == true },
                         onCopy =
                         if (selectionActive) {
                             {
