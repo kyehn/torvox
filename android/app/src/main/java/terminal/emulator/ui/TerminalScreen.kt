@@ -119,6 +119,8 @@ private fun announceForAccessibility(view: android.view.View, text: CharSequence
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Suppress("DEPRECATION")
+// 仅简体中文：无复数形态，plurals 仅 other 分支生效，无需本地化计数修饰。
+@SuppressLint("ArgInFormattedQuantityStringRes")
 @Composable
 fun TerminalScreen(
     modifier: Modifier = Modifier,

@@ -1,5 +1,6 @@
 package terminal.emulator.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -96,6 +97,8 @@ class TerminalForegroundService : Service() {
         return START_STICKY
     }
 
+    // 仅简体中文：无复数形态，plurals 仅 other 分支生效，无需本地化计数修饰。
+    @SuppressLint("ArgInFormattedQuantityStringRes")
     private fun startForegroundWithSessionCount(count: Int) {
         val text =
             if (count <= 1) {
