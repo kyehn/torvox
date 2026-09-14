@@ -11,9 +11,9 @@
 
 - 使用 Mesa lavapipe 提供 Vulkan 测试环境。
 - 使用 rapidocr cli 进行 OCR 识别
-- 使用 npx aislop@latest scan 和 npm install -g jscpd 检查代码
-- 使用 <https://github.com/awesome-skills/code-review-skill> 审查代码
 
 ## 覆盖范围
 
 - 字体设置值与实际渲染尺寸的对照测试。
+- 使用 npx aislop@latest scan 和 npm install -g jscpd 检查代码
+- 使用 <https://github.com/awesome-skills/code-review-skill> 审查代码

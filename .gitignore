@@ -36,11 +36,12 @@ ultracode/
 .workflow/
 .reasonix/
 mutants.out/
+mutants.out.old/
+generated-patches/
 .cache/
 *.rgba
 *.meta
 *.profraw
 .pi/
 .pi-glla/
-.longgraph/
-*.p12
+android/app/aosp-testkey.p12

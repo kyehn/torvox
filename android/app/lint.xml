@@ -1,4 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <lint>
+    <!-- targetSdk 28 系刻意选择（恢复应用数据目录执行权限，见 BUILD.md），非疏漏：Play 商店政策不适用。 -->
     <issue id="ExpiredTargetSdkVersion" severity="ignore" />
+    <!-- 项目惯例直接使用标准调度器（viewModelScope.launch(Dispatchers.IO)），随处注入调度器与现有架构冲突。 -->
+    <issue id="RawDispatchersUse" severity="ignore" />
+    <!-- 以下 compose 签名风格规则与现有 UI 架构（ViewModel 下传、双发射分支）冲突，改动面盖全量界面，风险大于收益。 -->
+    <issue id="ComposeMultipleContentEmitters" severity="ignore" />
+    <issue id="ComposeViewModelForwarding" severity="ignore" />
+    <!-- 仅简体中文（见 STYLE.md），复数无需本地化修饰符。 -->
+    <issue id="ArgInFormattedQuantityStringRes" severity="ignore" />
+    <!-- 自适应图标需版本化目录（v26/v33），即使 minSdk 33 也不可合并，否则 AAPT 链接失败。 -->
+    <issue id="ObsoleteSdkInt" severity="ignore" />
 </lint>
