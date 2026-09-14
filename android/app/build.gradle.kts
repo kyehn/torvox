@@ -176,9 +176,7 @@ tasks
   .withType<Test>()
   .matching { it.name == "testDebugUnitTest" }
   .configureEach {
-    dependsOn(buildHostNativeForUnitTest)
     jvmArgs("-Djava.library.path=")
-    failOnNoDiscoveredTests = false
   }
 
 val reportConnectedFailures by tasks.registering {
