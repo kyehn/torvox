@@ -1,0 +1,43 @@
+name: fmt
+on:
+  workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  fmt:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@main
+        with:
+          fetch-depth: 0
+      - uses: actions/checkout@main
+        with:
+          repository: ${{ github.actor }}/kudzu
+          path: result-kudzu
+      - uses: ./result-kudzu/.github/actions/install-nix
+      - uses: cachix/cachix-action@master
+        continue-on-error: true
+        with:
+          name: ${{ secrets.CACHIX_NAME }}
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - run: |
+          set -e
+          rm -f ~/.config/nix/nix.conf
+          nix flake update
+          nix develop --command markdownlint-cli2 --fix "**/*.md"
+          nix develop --command cargo fmt --all -v
+          nix develop --command cargo clippy --workspace --all-targets --fix --allow-dirty
+          pushd android
+          ./gradlew spotlessApply
+          popd
+          nix fmt
+          git add .
+          git commit --amend --no-edit
+      - uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+          force_with_lease: true
