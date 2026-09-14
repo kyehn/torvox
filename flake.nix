@@ -135,6 +135,13 @@
                 ]
               );
               VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
+              FONTCONFIG_FILE = pkgs.makeFontsConf {
+                fontDirectories = with pkgs; [
+                  maple-mono.Normal-NF-CN
+                  noto-fonts-cjk-sans
+                  liberation_ttf
+                ];
+              };
             };
             shellHook = ''
               set -e
