@@ -13,6 +13,7 @@ import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
 import terminal.emulator.cucumber.ComposeRuleHolder
 import terminal.emulator.openDrawer
+import terminal.emulator.probeAssertion
 import terminal.emulator.util.runCatchingCancellable
 import terminal.emulator.waitForSettingsScreen
 import javax.inject.Inject
@@ -57,13 +58,11 @@ constructor(
                 val probeDeadline = System.currentTimeMillis() + 8000
                 while (System.currentTimeMillis() < probeDeadline) {
                     val visible =
-                        runCatchingCancellable {
+                        probeAssertion {
                             rule
                                 .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
                                 .assertIsDisplayed()
-                            true
                         }
-                            .getOrDefault(false)
                     if (visible) return@runCatchingCancellable true
                     Thread.sleep(200)
                 }
@@ -81,12 +80,11 @@ constructor(
                     device.findObject(By.text("设置"))?.click()
                     rule.waitForIdle()
                     Thread.sleep(500)
-                    runCatchingCancellable {
+                    probeAssertion {
                         rule
                             .onNodeWithTag("SettingsScreen", useUnmergedTree = true)
                             .assertIsDisplayed()
-                    }
-                        .isSuccess || device.hasObject(By.text("字体"))
+                    } || device.hasObject(By.text("字体"))
                 } else {
                     false
                 }

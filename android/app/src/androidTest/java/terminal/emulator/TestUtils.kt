@@ -20,6 +20,20 @@ import terminal.emulator.util.runCatchingCancellable
 
 // ── Data model ──────────────────────────────────────
 
+/**
+ * Display probe for Compose assertions: returns false when the assertion
+ * fails instead of throwing. Compose assertions throw AssertionError (an
+ * Error, not an Exception), so the cancellable Result wrapper cannot be
+ * used for probes — it would propagate and fail the calling test at the
+ * probe site instead of letting fallbacks run.
+ */
+internal inline fun probeAssertion(crossinline check: () -> Unit): Boolean = try {
+    check()
+    true
+} catch (_: AssertionError) {
+    false
+}
+
 fun AndroidComposeTestRule<*, *>.waitForSession(timeoutMs: Long = 60_000) {
     System.setProperty("test.minSurface", "true")
     // MainActivity.onCreate() requests POST_NOTIFICATIONS on first run
@@ -105,11 +119,9 @@ fun AndroidComposeTestRule<*, *>.openDrawer() {
         runCatchingCancellable {
             waitUntil(timeoutMillis = 10000) {
                 val composeVisible =
-                    runCatchingCancellable {
+                    probeAssertion {
                         onNodeWithTag("SessionDrawer", useUnmergedTree = true).assertIsDisplayed()
-                        true
                     }
-                        .getOrDefault(false)
                 if (composeVisible) return@waitUntil true
                 device.hasObject(By.text("Sessions")) ||
                     device.hasObject(By.res("SessionDrawer")) ||
@@ -144,10 +156,9 @@ fun AndroidComposeTestRule<*, *>.openSettings() {
     }
     // Fast-path: Settings may already be visible (shared activity across cucumber scenarios).
     val settingsAlreadyVisible =
-        runCatchingCancellable {
+        probeAssertion {
             onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertIsDisplayed()
         }
-            .isSuccess
     if (settingsAlreadyVisible) return
     val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
     if (
@@ -246,11 +257,9 @@ private fun AndroidComposeTestRule<*, *>.waitForSettingsScreenProbe(timeoutMs: L
     val deadline = System.currentTimeMillis() + timeoutMs
     while (System.currentTimeMillis() < deadline) {
         val visible =
-            runCatchingCancellable {
+            probeAssertion {
                 onNodeWithTag("SettingsScreen", useUnmergedTree = true).assertIsDisplayed()
-                true
             }
-                .getOrDefault(false)
         if (visible) return true
         // Check both text and resource id (testTagsAsResourceId) for robustness on PlayStore image
         if (

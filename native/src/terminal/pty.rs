@@ -799,6 +799,18 @@ fn close_stray_fds() {
 }
 
 fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
+    base_env_with_host(prefix, &|key| std::env::var(key).ok())
+}
+
+/// [`base_env`] with an injectable host environment: production passes the
+/// real process env; tests pass a fixed map so assertions stay hermetic on
+/// any machine (CI runners export ANDROID_ROOT/EXTERNAL_STORAGE, dev
+/// machines usually do not — an exact-set assertion on `base_env` alone is
+/// environment-dependent and must not exist).
+fn base_env_with_host(
+    prefix: Option<&str>,
+    host_var: &dyn Fn(&str) -> Option<String>,
+) -> Vec<(String, String)> {
     let mut result = vec![
         ("TERM".to_string(), DEFAULT_TERM.to_string()),
         ("COLORTERM".to_string(), DEFAULT_COLORTERM.to_string()),
@@ -835,7 +847,7 @@ fn base_env(prefix: Option<&str>) -> Vec<(String, String)> {
         "SYSTEMSERVERCLASSPATH",
     ];
     for key in ANDROID_ENV_VARS {
-        if let Ok(value) = std::env::var(key) {
+        if let Some(value) = host_var(key) {
             result.push((key.to_string(), value));
         }
     }
@@ -999,16 +1011,40 @@ mod tests {
 
     #[test]
     fn base_env_is_minimal_set() {
-        // Minimal contract: TERM/COLORTERM/LANG plus TMPDIR (falls back
-        // to /data/local/tmp without a prefix). TERM_PROGRAM* were removed
+        // Hermetic: an empty host env yields exactly the minimal contract
+        // (TERM/COLORTERM/LANG plus TMPDIR fallback). Asserting on base_env
+        // directly is environment-dependent (CI exports ANDROID_ROOT/
+        // EXTERNAL_STORAGE) and must not be done. TERM_PROGRAM* were removed
         // (no consumer); everything else is layered by build_env.
-        let keys: std::collections::BTreeSet<String> =
-            base_env(None).into_iter().map(|(k, _)| k).collect();
+        let keys: std::collections::BTreeSet<String> = base_env_with_host(None, &|_| None)
+            .into_iter()
+            .map(|(k, _)| k)
+            .collect();
         let expected: std::collections::BTreeSet<String> = ["COLORTERM", "LANG", "TERM", "TMPDIR"]
             .into_iter()
             .map(str::to_string)
             .collect();
         assert_eq!(keys, expected);
+    }
+
+    #[test]
+    fn base_env_forwards_only_present_host_vars() {
+        // Spec passthrough, hermetically: present host vars are forwarded
+        // with their values, absent ones are omitted.
+        let host = std::collections::HashMap::from([
+            ("ANDROID_ROOT".to_string(), "/system".to_string()),
+            ("EXTERNAL_STORAGE".to_string(), "/sdcard".to_string()),
+        ]);
+        let env = base_env_with_host(None, &|key| host.get(key).cloned());
+        assert!(
+            env.iter()
+                .any(|(k, v)| k == "ANDROID_ROOT" && v == "/system"),
+        );
+        assert!(
+            env.iter()
+                .any(|(k, v)| k == "EXTERNAL_STORAGE" && v == "/sdcard"),
+        );
+        assert!(env.iter().all(|(k, _)| k != "ANDROID_DATA"));
     }
 
     #[test]
@@ -1137,52 +1173,6 @@ mod tests {
                 .any(|(k, _)| k == "TERMUX_TMP_PREFIX_DIR_PATH"),
             "TMPDIR 对等变量无 prefix 时也必须存在"
         );
-    }
-
-    #[test]
-    fn base_env_passthrough_android_vars_from_host() {
-        // Android system env vars present in the host process
-        // env must be forwarded (termux-kotlin AndroidShellEnvironment
-        // pattern). Set one and verify it appears; unset others stay absent.
-        unsafe {
-            std::env::set_var("ANDROID_ROOT", "/system_ext");
-        }
-        unsafe {
-            std::env::set_var("EXTERNAL_STORAGE", "/sdcard");
-        }
-        let result = base_env(None);
-        assert!(
-            result
-                .iter()
-                .any(|(k, v)| k == "ANDROID_ROOT" && v == "/system_ext"),
-            "host ANDROID_ROOT must be forwarded as-is, not hardcoded"
-        );
-        assert!(
-            result
-                .iter()
-                .any(|(k, v)| k == "EXTERNAL_STORAGE" && v == "/sdcard")
-        );
-        // Cleanup: unset so other tests are not polluted.
-        unsafe {
-            std::env::remove_var("ANDROID_ROOT");
-            std::env::remove_var("EXTERNAL_STORAGE");
-        }
-    }
-
-    #[test]
-    fn base_env_does_not_invent_android_vars() {
-        // Vars absent from the host env must NOT be fabricated (no
-        // hardcoded /system default — values differ per Android version).
-        unsafe {
-            std::env::remove_var("ANDROID_ROOT");
-            std::env::remove_var("BOOTCLASSPATH");
-        }
-        let result = base_env(None);
-        assert!(
-            !result.iter().any(|(k, _)| k == "ANDROID_ROOT"),
-            "absent host var must stay absent"
-        );
-        assert!(!result.iter().any(|(k, _)| k == "BOOTCLASSPATH"));
     }
 
     #[test]
