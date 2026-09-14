@@ -1,8 +1,8 @@
 package terminal.emulator.ui
 
+import android.annotation.SuppressLint
 import android.content.ClipData
 import android.content.Context
-import android.annotation.SuppressLint
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertNotNull
