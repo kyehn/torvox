@@ -5,11 +5,11 @@
 
 ## Status header
 
-Current milestone: M2 门禁全绿 | Round: 6 CONVERGE | Last round net lines: -8
-Next unclosed work item: R6 等 cargo 单线程 lib 测试与 gradle 全门禁（gate4）结果
+Current milestone: M5 双绿验证 | Round: 12 | Last round net lines: +21
+Next unclosed work item: R13 等 CI build-and-release（探针修复）结果；本地交互验证暂停（宿主杀模拟器）
 Last directive folded: none
 
-Convergence tracker: rounds since last 5: **0** | net lines since last +400: **+0** | **next round converges: no**
+Convergence tracker: rounds since last 5: **1** | net lines since last +400: **-8** | **next round converges: no**
 
 Milestone gate: `open`
 Run status: `active`
@@ -18,22 +18,22 @@ Run status: `active`
 
 ## Current slice (the next round starts here)
 
-Item: R4 等 cargo test 与 gradle 全门禁（gate3）结果
-Write set: read-only（证据 /tmp/rust-test-workspace.log、/tmp/gradle-gate3.log）
-Context: C-02, C-08, C-09
-Verify: 两份日志含最终 EXIT 行
-Done when: cargo test/dokka/lintDebug/单测结果落表；红项转新 slice；全绿则 M2→pending-audit
+Item: R13 等 CI build-and-release（542b2ad 探针修复）结果并收敛双绿
+Write set: read-only（gh 轮询 + 日志分析）
+Context: C-09, C-10
+Verify: CI run 34803109259 结论 + 失败明细（如有）
+Done when: 三 workflow 全绿确认；若仍红则定位下一 slice；随后跑第二次全绿循环
 
 ---
 
 ## Starting snapshot (carried-forward — replaces bulk history)
 
 - 需求：全量修复——GHA/Rust/Kotlin 检查、lintDebug、模拟器测试、DocumentsProvider、IME 闪烁与字体压扁拉伸、底部行遮挡、滚动折叠撕裂、辅助键栏误触、切应用黑屏、启动缓慢、nix 红色 error 不可见、help 丢字母、超宽内容不可横向查看。循环直到连续两次全绿，日志+截图/OCR 验证。
-- 已合入：336cac3（spotless+detekt 全绿，HEAD 已推 main）。
-- R2/R3：cargo fmt 绿；clippy 绿（CLIPPY_EXIT=0）；spotless 绿；detekt 绿（10 issues 全修，VERIFY2_EXIT=0）。
-- GHA 基线：gradle-checks 红在 test-gradle.nu；build-and-release 红在 connectedDebugAndroidTest（有 failing tests）；rust-checks 绿（09-13）。
-- 关键嫌疑（待重新取证，不作结论）：IME 期 attachWindow 480x420<->480x819 抖动 + setFontSizeInPlace 高频调用；cell_builder 缺字形分支；Manifest provider 声明；windowSoftInputMode=adjustNothing。
-- M4 根因候选（静态已定位，待设备验证）：applyGridResize 与 recomputeGridFromFontMetrics 网格公式互相矛盾（修饰键栏高度一减一不减），可解释底部行遮挡+IME 闪烁。
+- 已合入：336cac3（spotless+detekt）、695bf9d（主机 so 前置+按键测试）、fae18c0（测试收敛）、472b130（空闲渲染降频）、a14a293（测试 hermetic+lint 内存）、99a5527（IME 网格统一+光标跟随）、07baa52（平移纯函数+单测）、542b2ad（探针 AssertionError 修复），均已推 main。
+- M2 CLOSED（本地）：cargo fmt/clippy/test 全绿；test-gradle.nu 全绿（GATE5/GATE9_EXIT=0）。
+- CI：gradle-checks✓ rust-checks✓（a14a293）；build-and-release 在 99a5527 红（connected 字体测试），根因为测试探针误用 runCatchingCancellable 捕获不到 AssertionError，已修（542b2ad），待 CI 重跑确认。
+- M4 已验证：空闲 166fps→~3fps（设备日志）；IME 网格统一+光标跟随（单测 7/7）；断言探针修复（编译+lint 绿）。
+- 本地交互验证暂停：宿主环境 6 次杀模拟器进程（无崩溃日志），转 CI 设备信号 + 主机门禁。
 - 生效约束：.github/scripts/flake.nix/rust-toolchain.toml/README/AGENTS/docs/specification 只读（内容）；GHA 变绿只靠修产品代码。
 
 ---
@@ -42,26 +42,26 @@ Done when: cargo test/dokka/lintDebug/单测结果落表；红项转新 slice；
 
 | Gate | Status | Evidence / next action |
 | --- | --- | --- |
-| lintDebug 全绿 | in-progress | spotless 绿；detekt 绿；lintDebug/单测待 gate3 |
-| Kotlin 检查全绿（detekt 等） | in-progress | detekt 绿；dokka/单测待 gate3 |
-| Rust 检查全绿（clippy/test） | in-progress | fmt 绿；clippy 绿；cargo test 跑量中 |
-| GHA 全绿（只修代码，不改 workflow 内容） | open | 基线：gradle-checks 红在 test-gradle.nu；build-and-release 红在 connectedDebugAndroidTest；rust-checks 绿 |
-| 模拟器测试全绿且连续两次 | open | CI connectedDebugAndroidTest 有 failing tests（明细待本地复现）；本地 emulator-5554 已连接 |
-| DocumentsProvider 复制进入/修改正常 | open | 待 M3 slice；SAF 实测 + 单测 |
-| IME 无字体压扁拉伸闪烁 | open | 待 M4 slice；日志无抖动 attach + 截图 |
-| IME 剩余区域显示底部行 | open | 待 M4 slice；底部行截图/OCR |
-| 上下滑正常滚动无折叠撕裂 | open | 待 M4 slice；滚动测试 + 截图 |
-| 超宽内容可横向查看 | open | 待 M4 slice；横滑/右键验证 |
-| 辅助键栏不被上滑误触 | open | 待 M4 slice；手势测试 |
-| 切应用返回无黑屏 | open | 待 M4 slice；后台前台循环 |
-| 终端启动不缓慢 | open | 待 M4 slice；冷启动耗时 |
-| nix 红色 error 可见、help 字母完整 | open | 待 M4 slice；截图/OCR + 单测 |
+| lintDebug 全绿 | closed | GATE5/GATE9_EXIT=0（0 FAILED） |
+| Kotlin 检查全绿（detekt 等） | closed | detekt 绿 + 全门禁绿 |
+| Rust 检查全绿（clippy/test） | closed | fmt/clippy/test-workspace/test-lib1 全绿 |
+| GHA 全绿（只修代码，不改 workflow 内容） | in-progress | gradle-checks✓ rust-checks✓；build-and-release 重跑中（542b2ad） |
+| 模拟器测试全绿且连续两次 | in-progress | 本地字体测试 2 失败（探针 bug 已修，待 CI 确认）；本地交互暂停（宿主杀模拟器） |
+| DocumentsProvider 复制进入/修改正常 | in-progress | 合同完整+单测绿；SAF 实测待稳定设备 |
+| IME 无字体压扁拉伸闪烁 | in-progress | 网格统一（无重排）+ 单测；动画截图待稳定设备 |
+| IME 剩余区域显示底部行 | in-progress | 光标最小跟随 + 单测 7/7；截图待稳定设备 |
+| 上下滑正常滚动无折叠撕裂 | open | 渲染路径静态无致命缺陷；待设备复现 |
+| 超宽内容可横向查看 | open | 待设备复现定性（换行 vs 截断 vs 丢字） |
+| 辅助键栏不被上滑误触 | in-progress | 松手确认+单测锁定；设备手势待验 |
+| 切应用返回无黑屏 | open | 恢复路径静态完整；待设备循环验证 |
+| 终端启动不缓慢 | in-progress | 空闲 166fps→3fps 已验证；冷启动耗时待量 |
+| nix 红色 error 可见、help 字母完整 | open | 候选：增量渲染过期；待设备复现 |
 
 ## Pending promotion (durable while Milestone gate = `pending-audit`)
 
-Boundary: none
-Audit surface: none
-Evidence: none
+Boundary: M2→M3/M4
+Audit surface: /tmp/gradle-gate9.log（GATE9_EXIT=0）,/tmp/rust-gate3.log（RUSTGATE3_EXIT=0）,commits 336cac3..542b2ad
+Evidence: M2 本地全绿；CI gradle/rust✓；build-and-release 重跑中
 
 ## owner-blocked (genuinely case-by-case human decisions only)
 
@@ -73,14 +73,17 @@ Evidence: none
 
 | ID | Priority | Milestone | One line |
 | --- | --- | --- | --- |
-| GAP-001 | P0 | M2 | cargo test 与 gate3 结果待 R4 落定 |
-| GAP-002 | P1 | M3 | provider 声明与 SAF 行为待实测对照验证 |
-| GAP-003 | P1 | M4 | IME 高度差来源待确认（adjustNothing 下谁改了 Surface 高度） |
-| GAP-004 | P1 | M4 | 缺字形根因待查（atlas/shaping，为何 ASCII 字母丢失） |
-| GAP-005 | P1 | M4 | 红色 error 不可见根因待查（颜色管线/主题/SGR 解析） |
+| GAP-002 | P1 | M3 | provider SAF 实测待稳定设备（合同完整+单测绿） |
+| GAP-003 | P1 | M4 | 滚动折叠/撕裂待设备复现（增量路径静态无致命缺陷） |
+| GAP-004 | P1 | M4 | 缺字形/红字不可见待设备复现（候选：增量渲染过期） |
+| GAP-005 | P1 | M4 | 超宽内容/黑屏返回/启动耗时待设备验证 |
+| GAP-006 | P0 | M5 | CI build-and-release（542b2ad）待绿；后跑第二次全绿循环 |
+| GAP-007 | P1 | M5 | 本地交互验证暂停：宿主 6 次杀模拟器进程，记录为环境缺陷 |
 
 ## Rounds log — last 5 only (older → `archive/rounds.md`)
 
-- R1 2026-09-14 | M1 基线：fmt 绿、spotless 红定位到 4 文件并 spotlessApply、GHA 基线落表 | changed: 4 kt 文件(格式) | verify: /tmp/gradle-baseline.log, APPLY_EXIT=0 | net +9/-0 | next: R2 + C-02/C-08/C-09
-- R2 2026-09-14 | clippy 绿（CLIPPY_EXIT=0），detekt 红定位到 10 issues | changed: none | verify: /tmp/rust-clippy-baseline.log | net +0/-0 | next: R3 修 detekt
-- R3 2026-09-14 | detekt 10 issues 全修并验证绿，已提交推送 336cac3 | changed: 6 kt 文件 | verify: VERIFY2_EXIT=0 | net +58/-0 | next: R4 + C-02/C-08
+- R8 2026-09-14 | IME 网格统一+光标跟随打包（Rust/Kotlin），CI gradle/rust 重跑成功，提交 99a5527 | changed: 6 文件 | verify: GATE8=0, CI✓✓ | net +152/-48 | next: R10 平移单测
+- R9 2026-09-14 | 平移纯函数抽取+7 单测全绿（XML 7/7），提交 07baa52 | changed: 2 文件 | verify: PAN_EXIT=0 | net +75/-12 | next: R10 探针修复
+- R10 2026-09-14 | 测试探针 AssertionError 逃逸根因并修复 5 处，提交 542b2ad | changed: 2 测试文件 | verify: PROBE2_EXIT=0 | net +21/-14 | next: R11 收敛记分牌
+- R11 2026-09-14 | 记分牌同步 + 本地交互暂停（宿主环境缺陷）+ CI build-and-release 重跑中 | changed: ledger | verify: run 34803109259 | net +0/-0 | next: R12 双绿收敛
+- R12 pending | 等 CI build-and-release（542b2ad）结果 | changed: none | verify: gh run view | net +0/-0 | next: 第二次全绿循环
