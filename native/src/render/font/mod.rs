@@ -1153,6 +1153,7 @@ mod tests {
         if !names.iter().any(|n| n.contains("Liberation")) {
             // Coverage guard: the scan tail is exercised on hosts that
             // ship Liberation Mono (the standard Debian/CI set).
+            // nosemgrep: semgrep.no-eprintln-library — test skip diagnostic
             eprintln!("SKIP: symbol_glyph_resolves_via_database_scan (no Liberation Mono)");
             return;
         }
@@ -1308,6 +1309,7 @@ mod tests {
     fn fonts_xml_index_match_resolves_exact_face() {
         let mut db = fontdb::Database::new();
         if !try_load_cjk_fonts(&mut db) {
+            // nosemgrep: semgrep.no-eprintln-library — test skip diagnostic
             eprintln!("SKIP: fonts_xml_index_match_resolves_exact_face (no CJK fonts)");
             return;
         }
@@ -1349,6 +1351,7 @@ mod tests {
         // Unknown filename: no exact hit, caller fills from the scan.
         let mut db = fontdb::Database::new();
         if !try_load_cjk_fonts(&mut db) {
+            // nosemgrep: semgrep.no-eprintln-library — test skip diagnostic
             eprintln!("SKIP: fonts_xml_missing_file_falls_back_to_scan (no CJK fonts)");
             return;
         }

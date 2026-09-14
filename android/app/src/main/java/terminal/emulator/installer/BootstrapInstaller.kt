@@ -269,7 +269,7 @@ class BootstrapInstaller(
             //     startsWith("../") check wrongly rejected those
             //     ;
             //  2. ABSOLUTE targets into the final prefix
-            //     (`/data/data/com.termux/files/usr/share/...`), which are
+            //     (`<home>/usr/share/...`, i.e. under filesDir), which are
             //     broken during staging but become valid once the staging
             //     dir is atomically renamed to `files/usr`. Only allow
             //     absolute targets that resolve inside the canonical

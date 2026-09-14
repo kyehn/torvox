@@ -124,7 +124,7 @@ class SecondStageRunner(
                     "PREFIX" to prefixDir.absolutePath,
                 )
             // postinst scripts start with
-            // `#!/data/data/com.termux/files/usr/bin/sh`, and Android
+            // `#!<home>/usr/bin/sh` (prefix sh under filesDir), and Android
             // 15+ SELinux denies execute_no_trans of app_data_file —
             // direct exec of the script fails EACCES even when the
             // shell itself works. Run the interpreter through the
@@ -275,8 +275,8 @@ class SecondStageRunner(
             }
         // /bin/sh (system) scripts run directly; prefix scripts need the
         // linker. Compare canonical paths: Termux packages hardcode the
-        // shebang as /data/data/com.termux/files/usr/bin/sh, which is the
-        // same inode as /data/user/0/com.termux/files/usr/bin/sh — a plain
+        // shebang as <home>/usr/bin/sh (both /data/data and /data/user/0
+        // spellings resolve to the same inode) — a plain
         // string prefix check would send prefix scripts down the direct
         // exec path and die with SELinux EACCES.
         val canonicalInterpreter = File(interpreterPath).canonicalPath

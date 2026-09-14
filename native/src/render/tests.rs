@@ -2419,3 +2419,146 @@ mod vertical_shift_tests {
         assert_eq!(detect_vertical_shift(&empty, &empty, 4, 8), None);
     }
 }
+
+// ══════════════════════════════════════════════════════════════════════════
+// End-to-End Pipeline Benchmarks  (terminal write → CellData → instances)
+// Moved from terminal::ghostty_terminal::tests: they drive the render
+// pipeline, and terminal modules must not reference render (rust-arch).
+// ══════════════════════════════════════════════════════════════════════════
+
+/// 本地严格阈值与 CI 防抖阈值的开关（与终端侧同名辅助保持一致）。
+fn strict_benchmarks() -> bool {
+    std::env::var("CI").is_err() && std::env::var("GITHUB_ACTIONS").is_err()
+}
+
+/// Simulate scrolling through terminal history.
+/// Writes many lines of content, then measures take_snapshot_with_scroll
+/// at varying offset positions.
+#[test]
+fn bench_scroll_throughput() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    use crate::terminal::ghostty_terminal::GhosttyTerminal;
+    // Serialize against the GPU benches: in parallel runs the shared CPU
+    // (Lavapipe software rasterizer + this CPU-bound bench) drops the
+    // measured throughput below the threshold — 400-500 MB/s vs 725 MB/s
+    // in isolation. Each bench is fast (<1s) so the lock is
+    // uncontended in practice.
+    let _serial = super::GPU_BENCH_LOCK.lock();
+    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
+    // Fill scrollback with 500 lines of content
+    for i in 0..500 {
+        t.vt_write(
+            format!("Line {i}: some realistic terminal content with numbers and text\n").as_bytes(),
+        );
+    }
+    t.flush();
+
+    // Measure scroll snapshot at 3 different offsets
+    let offsets = [0u32, 100, 400];
+    let n = 20;
+    for &offset in &offsets {
+        let start = Instant::now();
+        for _ in 0..n {
+            let snap = black_box(t.take_snapshot_with_scroll(offset));
+            black_box(snap.cells.len());
+        }
+        let elapsed = start.elapsed();
+        let snaps_per_sec = n as f64 / elapsed.as_secs_f64();
+        println!(
+            "Scroll offset={}: {:.0} snapshots/sec ({:.1}ms for {} iterations)",
+            offset,
+            snaps_per_sec,
+            elapsed.as_millis(),
+            n,
+        );
+        // Local single-run throughput is ~2000+ snaps/sec; the full suite
+        // runs tests in parallel and CPU contention (software Vulkan
+        // benches) cuts wall time significantly. The CI floor is ~5x below
+        // the single-run number; local runs assert the strict bound.
+        let threshold = if strict_benchmarks() {
+            if offset == 0 { 800.0 } else { 500.0 }
+        } else if offset == 0 {
+            400.0
+        } else {
+            250.0
+        };
+        assert!(
+            snaps_per_sec > threshold,
+            "Scroll offset={offset} too slow: {:.0} snapshots/sec (need >{threshold:.0})",
+            snaps_per_sec,
+        );
+    }
+}
+
+/// Benchmark the full CPU-side pipeline: write terminal content → flush →
+/// receive CellData → build CellInstances. This simulates the complete
+/// per-frame data path before GPU submission.
+#[test]
+fn bench_end_to_end_cpu_pipeline_latency() {
+    use std::hint::black_box;
+    use std::time::Instant;
+
+    use crate::terminal::ghostty_terminal::GhosttyTerminal;
+
+    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
+    let mut font_pipeline = super::font::FontPipeline::new(1024, 1024, 14.0);
+
+    // Simulate a realistic screen: fill with text content
+    let content = b"user@host:~$ cargo build --release --features=test-util\n   Compiling native v0.1.0\n    Finished `release` profile [optimized] target(s) in 0.42s\n";
+    let n = 20; // 20 screens
+
+    let start = Instant::now();
+    for _ in 0..n {
+        t.vt_write(content);
+        t.flush();
+        let cell_data = t.receive_cell_data();
+        let (cells, cursor_info) = cell_data.expect("should receive CellData after flush");
+
+        let cursor = super::CellCursor {
+            row: cursor_info.row,
+            col: cursor_info.col,
+            visible: cursor_info.visible,
+            style: cursor_info.style,
+            color: None,
+        };
+        let mut instances = Vec::new();
+        super::build_instances_from_cell_data(
+            &cells,
+            super::cell_builder::CellInstanceConfig {
+                rows: 24,
+                cols: 80,
+                grid_cell_w: 1024.0 / 80.0,
+                grid_cell_h: 1024.0 / 24.0,
+                cursor,
+                atlas_width: 1024.0,
+                atlas_height: 1024.0,
+                selection: None,
+                search_highlights: &[],
+            },
+            &mut font_pipeline,
+            &mut instances,
+        );
+        let count = black_box(instances.len());
+        black_box(count);
+    }
+    let elapsed = start.elapsed();
+    let ms_per_frame = elapsed.as_millis() as f64 / n as f64;
+    let fps = n as f64 / elapsed.as_secs_f64();
+    println!(
+        "End-to-end CPU pipeline: {:.1}ms per frame ({:.0} fps) — terminal write + CellData + build_instances",
+        ms_per_frame, fps,
+    );
+    // Must complete within two frame budgets: the single-run cost is
+    // ~8ms/frame, but the full test suite runs tests in parallel and CPU
+    // contention (especially with the software-Vulkan benchmarks) pushes
+    // wall time well past the 16ms single-frame budget. Note the 32ms
+    // bound only catches >=4x regressions; it is primarily an
+    // anti-flake guard, not a precise performance gate.
+    assert!(
+        ms_per_frame < 32.0,
+        "End-to-end CPU pipeline too slow: {:.1}ms per frame (need <32ms)",
+        ms_per_frame,
+    );
+}
