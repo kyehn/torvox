@@ -188,12 +188,14 @@ object NativeBridge {
      * Returns a packed `Long`:
      * - bits 0..31 = render count (same as [render])
      * - bit 32 = new_output flag (1 = PTY output ingested, 0 = idle)
+     * - bits 33..48 = viewport cursor row (0xFFFF = hidden/off-viewport)
      *
      * Usage:
      * ```kotlin
      * val packed = NativeBridge.renderWithNewOutput(sessionId, width, height)
      * val count = packed.toInt()
-     * val newOutput = (packed shr 32) != 0L
+     * val newOutput = ((packed shr 32) and 0x1L) != 0L
+     * val cursorRow = ((packed shr 33) and 0xFFFFL).toInt().let { if (it == 0xFFFF) -1 else it }
      * ```
      */
     @JvmStatic external fun renderWithNewOutput(sessionId: Long, width: Int, height: Int): Long

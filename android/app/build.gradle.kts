@@ -180,10 +180,68 @@ tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach 
   }
 }
 
+// NativeBridgeSmokeTest 等 JVM 单测直连主机 libnative.so（<repo>/target/{release,debug}/）。
+// cargo ndk 只产出设备 ABI，新检出/CI 上没有主机 .so，单测会全红；在此声明前置构建，
+// test-gradle.nu 与 workflow 文件保持不动。
+val buildHostNativeForUnitTest by tasks.registering(Exec::class) {
+  description = "Builds the host libnative.so required by JVM unit tests (NativeBridgeSmokeTest)."
+  workingDir(rootDir.parentFile)
+  commandLine("cargo", "build", "--package", "native")
+}
+
 tasks
   .withType<Test>()
   .matching { it.name == "testDebugUnitTest" }
   .configureEach {
+    dependsOn(buildHostNativeForUnitTest)
     jvmArgs("-Djava.library.path=")
     failOnNoDiscoveredTests = false
+  }
+
+// CI 诊断：connected 测试失败时把用例名与断言摘要打到 stdout（日志随 run 保留），
+// 否则只能看到 "There were failing tests" 而拿不到 HTML 报告。只读结果 XML，不改测试行为。
+val reportConnectedFailures by tasks.registering {
+  description = "Prints connected-test failure names and messages from UTP XML results."
+  doLast {
+    val resultsDir =
+      layout.buildDirectory
+        .dir("outputs/androidTest-results/connected")
+        .get()
+        .asFile
+    val reports = resultsDir.walkTopDown().filter { it.isFile && it.extension == "xml" }.toList()
+    if (reports.isEmpty()) {
+      println("connected-failures: no UTP XML results under ${resultsDir.path}")
+      return@doLast
+    }
+    var failed = 0
+    val documentBuilder = javax.xml.parsers.DocumentBuilderFactory.newInstance().newDocumentBuilder()
+    reports.forEach { report ->
+      val document = documentBuilder.parse(report)
+      val cases = document.getElementsByTagName("testcase")
+      for (index in 0 until cases.length) {
+        val testCase = cases.item(index) as org.w3c.dom.Element
+        val failures = testCase.getElementsByTagName("failure")
+        val errors = testCase.getElementsByTagName("error")
+        val detail = if (failures.length > 0) {
+          failures.item(0)
+        } else if (errors.length > 0) {
+          errors.item(0)
+        } else {
+          null
+        }
+        if (detail != null) {
+          failed++
+          println("connected-failure: ${testCase.getAttribute("classname")}#${testCase.getAttribute("name")}")
+          println("connected-failure-message: ${detail.textContent.trim().take(600)}")
+        }
+      }
+    }
+    println("connected-failures: $failed failed in ${reports.size} report files")
+  }
+}
+
+tasks
+  .matching { it.name == "connectedDebugAndroidTest" }
+  .configureEach {
+    finalizedBy(reportConnectedFailures)
   }
