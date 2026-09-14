@@ -49,11 +49,6 @@ class SessionCreationInstrumentedTest {
 
     @Test
     fun add_second_session_does_not_crash() {
-        if (android.os.Build.SUPPORTED_ABIS[0]
-                .startsWith("x86")
-        ) {
-            return
-        }
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("AddSessionButton").performClick()
@@ -67,11 +62,6 @@ class SessionCreationInstrumentedTest {
 
     @Test
     fun session_drawer_shows_multiple_sessions() {
-        if (android.os.Build.SUPPORTED_ABIS[0]
-                .startsWith("x86")
-        ) {
-            return
-        }
         composeTestRule.onNodeWithTag("Key_DRAWER").performClick()
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithTag("AddSessionButton").performClick()

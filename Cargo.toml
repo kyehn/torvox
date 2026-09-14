@@ -28,10 +28,7 @@ proptest = "1.11"
 lru = "0.18"
 futures = "0.3"
 log = "0.4"
-toml = "1"
-image = "0.25"
 strsim = "0.11"
-shell-words = "1"
 libghostty-vt = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
 libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "5988a0b78b4aa804d1c12e66bbfe662bd97d81c0" }
 [profile.dev]
