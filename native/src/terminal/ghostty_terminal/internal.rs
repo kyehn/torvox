@@ -140,31 +140,6 @@ impl super::GhosttyTerminal {
                     "query channel send failed",
                 );
             }
-            Query::OriginMode(tx) => {
-                if let Err(error) =
-                    tx.send(terminal.mode(Mode::new(6, ModeKind::Dec)).unwrap_or(false))
-                {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
-            }
-            Query::Autowrap(tx) => {
-                if let Err(error) =
-                    tx.send(terminal.mode(Mode::new(7, ModeKind::Dec)).unwrap_or(false))
-                {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
-            }
-            Query::AltScreen(tx) => {
-                let is_alt = terminal
-                    .active_screen()
-                    .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate);
-                // Mirror lock-free for the Android input path (Haven
-                // research: altScreen wheel consumption — touch-scroll on the
-                // alternate screen must forward to the remote, not scroll
-                // local scrollback).
-                alt_screen_active.store(is_alt, Ordering::Release);
-                try_send(&tx, is_alt, "ghostty_terminal: query channel send failed");
-            }
             Query::Title(tx) => {
                 try_send(
                     &tx,
@@ -266,14 +241,23 @@ impl super::GhosttyTerminal {
                 let kitty_graphics_data = (|| -> Option<KittyGraphicsImageData> {
                     let graphics = terminal.kitty_graphics().ok()?;
                     let image = graphics.image(id)?;
+                    // 上游 Image::data() 为 Ok(None) 表示元数据已驻留但像素载荷待定
+                    //（分片传输中），须返回 None 而非空图像，避免调用方把待定误判为空图。
+                    // 未安装 PNG 解码器时 PNG 载荷未经解码，暂不透出（待解码器落地）。
+                    if matches!(
+                        image.format().ok()?,
+                        libghostty_vt::kitty::graphics::ImageFormat::Png
+                    ) {
+                        return None;
+                    }
+                    let bytes = image.data().ok()??;
                     let width = image.width().ok()?;
                     let height = image.height().ok()?;
-                    let data = image.data().ok()?;
                     Some(KittyGraphicsImageData {
                         id,
                         width,
                         height,
-                        data: data.map(|bytes| bytes.to_vec()).unwrap_or_default(),
+                        data: bytes.to_vec(),
                     })
                 })();
                 try_send(
@@ -487,6 +471,50 @@ impl super::GhosttyTerminal {
             }
         }) {
             log::error!("ghostty_terminal: on_pty_write callback registration failed: {error}");
+        }
+        // OSC 7 工作目录与 OSC 52 剪贴板写入改走上游回调：序列直达 Ghostty，
+        // 事件经通道推送、由调用方在 flush 后收割。本仓不再自建 OSC 解析器。
+        // try_send 永不阻塞 VT 线程；OSC 52 读取请求（`?`）上游明确忽略，
+        // 仍由 OutputProcessor 的最小扫描器拦截（FR-036）。
+        if let Err(error) = terminal.on_pwd_changed({
+            let cwd_tx = config.cwd_tx.clone();
+            move |term| {
+                if let Ok(pwd) = term.pwd() {
+                    let _ = cwd_tx.try_send(pwd.to_string());
+                }
+            }
+        }) {
+            log::error!("ghostty_terminal: on_pwd_changed callback registration failed: {error}");
+        }
+        if let Err(error) = terminal.on_clipboard_write({
+            let clipboard_tx = config.clipboard_tx.clone();
+            move |_term, write| {
+                // 选择器字母沿用 xterm 约定（Kotlin 侧原样透传）：c=剪贴板、p=主选区、s=次选区。
+                let selection = match write.location() {
+                    libghostty_vt::terminal::ClipboardLocation::Standard => "c",
+                    libghostty_vt::terminal::ClipboardLocation::Primary => "p",
+                    libghostty_vt::terminal::ClipboardLocation::Selection => "s",
+                }
+                .to_string();
+                let mut fallback: Option<&[u8]> = None;
+                let mut chosen: Option<&[u8]> = None;
+                for content in write.contents() {
+                    if fallback.is_none() {
+                        fallback = Some(content.data);
+                    }
+                    if content.mime.starts_with("text/") {
+                        chosen = Some(content.data);
+                        break;
+                    }
+                }
+                let text = String::from_utf8_lossy(chosen.or(fallback).unwrap_or(&[])).into_owned();
+                let _ = clipboard_tx.try_send((selection, text));
+                Ok(())
+            }
+        }) {
+            log::error!(
+                "ghostty_terminal: on_clipboard_write callback registration failed: {error}"
+            );
         }
 
         let mut default_bg = Self::byte_color_to_float(config.background_color);
@@ -702,6 +730,16 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         batch_dirty = true;
                     }
+                    Command::Reset => {
+                        // RIS 全重置：恢复初始状态并清空回滚；全部帧缓存失效。
+                        terminal.reset();
+                        row_cache.clear();
+                        cached_snapshot = None;
+                        cached_scroll_offset = u32::MAX;
+                        last_cell_data_push = None;
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
                     Command::TakeSnapshot { tx, scroll_offset } => {
                         let needs_rebuild = snapshot_needs_rebuild(
                             grid_dirty,
@@ -837,7 +875,9 @@ impl super::GhosttyTerminal {
         let rows = terminal.rows().unwrap_or(24) as u32;
         let cols = terminal.cols().unwrap_or(80) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
-        let palette = Self::catppuccin_mocha_palette().0;
+        let (palette, background, foreground) = Self::catppuccin_mocha_palette();
+        let default_foreground = Self::byte_color_to_float(foreground);
+        let default_background = Self::byte_color_to_float(background);
 
         let mut visible = Vec::with_capacity((rows * cols) as usize);
         for row in 0..rows {
@@ -853,7 +893,11 @@ impl super::GhosttyTerminal {
                     }
                     if let Ok(style) = point.style() {
                         Self::apply_style_to_snapshot(
-                            &mut data, &style, [0.0; 4], [0.0; 4], &palette,
+                            &mut data,
+                            &style,
+                            default_foreground,
+                            default_background,
+                            &palette,
                         );
                     }
                 }
@@ -876,7 +920,11 @@ impl super::GhosttyTerminal {
                     }
                     if let Ok(style) = point.style() {
                         Self::apply_style_to_snapshot(
-                            &mut data, &style, [0.0; 4], [0.0; 4], &palette,
+                            &mut data,
+                            &style,
+                            default_foreground,
+                            default_background,
+                            &palette,
                         );
                     }
                 }
@@ -1099,12 +1147,9 @@ impl super::GhosttyTerminal {
         alt_screen_active: &Arc<AtomicBool>,
     ) -> Option<(Vec<CellData>, CursorInfo)> {
         // Keep the lock-free alternate-screen mirror in sync on every frame
-        // the VT thread emits (not only when a `Query::AltScreen` query
-        // arrives — no production caller issues that query, so a query-only
-        // update would leave the mirror stale at `false` forever). The
-        // Android input path reads this mirror lock-free on every touch-scroll
-        // to decide whether to forward the gesture to the remote (Haven
-        // research: altScreen wheel consumption).
+        // the VT thread emits. The Android input path reads this mirror
+        // lock-free on every touch-scroll to decide whether to forward the
+        // gesture to the remote (Haven research: altScreen wheel consumption).
         alt_screen_active.store(
             terminal
                 .active_screen()
@@ -1455,7 +1500,6 @@ impl super::GhosttyTerminal {
                     strikethrough: style.strikethrough,
                     blink: style.blink,
                     hidden: style.invisible,
-                    uri: None,
                     overline: style.overline,
                     double_underline: style.underline == libghostty_vt::style::Underline::Double,
                     width,
@@ -1542,16 +1586,17 @@ impl super::GhosttyTerminal {
     /// whitespace; grid columns map to char indices internally so CJK wide
     /// glyphs are never split (no column-to-char drift on surrogate pairs).
     ///
-    /// Coordinates are screen-space rows (0..rows+scrollback are valid);
-    /// scrollback rows are passed as negative offsets per ghostty Point
-    /// semantics. Returns an empty string for an invalid selection.
+    /// Coordinates are absolute grid rows (0 = top of history; the viewport
+    /// starts at `scrollback_rows`). History rows resolve via Point::History
+    /// and viewport rows via Point::Viewport (equivalent to Point::Screen
+    /// with an absolute y). Returns an empty string for an invalid selection.
     pub(crate) fn selection_text_impl(
         terminal: &Terminal,
         start: (u32, u32),
         end: (u32, u32),
         rectangle: bool,
     ) -> String {
-        let cols = terminal.cols().unwrap_or(80) as u32;
+        let cols = terminal.cols().unwrap_or(80).max(1) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let start_col = (start.1).min(cols - 1);
         let end_col = (end.1).min(cols - 1);
@@ -1635,12 +1680,25 @@ impl super::GhosttyTerminal {
         if !cell.has_hyperlink().unwrap_or(false) {
             return None;
         }
+        // 超长 URI（>4KiB）按上游 OutOfSpace{required} 重试，避免截断长链接。
         let mut buf = [0u8; 4096];
-        let len = grid_ref.hyperlink_uri(&mut buf).ok()?;
-        if len == 0 {
-            return None;
+        match grid_ref.hyperlink_uri(&mut buf) {
+            Ok(0) => None,
+            Ok(len) => Some(String::from_utf8_lossy(&buf[..len]).into_owned()),
+            Err(libghostty_vt::error::Error::OutOfSpace { required }) => {
+                let capped = required.min(64 * 1024);
+                if capped == 0 {
+                    return None;
+                }
+                let mut grown = vec![0u8; capped];
+                let grown_len = grid_ref.hyperlink_uri(&mut grown).ok()?;
+                if grown_len == 0 {
+                    return None;
+                }
+                Some(String::from_utf8_lossy(&grown[..grown_len]).into_owned())
+            }
+            Err(_) => None,
         }
-        Some(String::from_utf8_lossy(&buf[..len]).into_owned())
     }
 
     pub(crate) fn search_in_scrollback_impl(
@@ -1653,9 +1711,11 @@ impl super::GhosttyTerminal {
         let total = terminal.total_rows().unwrap_or(0) as u32;
         for row in 0..total {
             if let Some(line) = Self::read_line_text_impl(terminal, row)
-                && let Some(col) = line.find(query)
+                && let Some(byte_offset) = line.find(query)
             {
-                return Some((row, col as u32));
+                // SearchMatch 列为字符列而非字节偏移，CJK 行须转换以免高亮错位。
+                let column = line[..byte_offset].chars().count() as u32;
+                return Some((row, column));
             }
         }
         None

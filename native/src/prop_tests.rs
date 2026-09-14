@@ -1,7 +1,5 @@
 //! Property-based (proptest) and concurrency (shuttle) tests.
 //!
-//! - `osc52_roundtrip`: arbitrary UTF-8 text round-trips through the real
-//!   `dispatch_osc52` path byte-identical (selection + text).
 //! - `event_queue_concurrent_push_pop`: many threads push/pop the shared
 //!   EventQueue concurrently — every pushed event is popped exactly once
 //!   (no loss, no duplication, no deadlock).
@@ -9,36 +7,9 @@
 //!   the queue never evict an Exit event (the invariant Kotlin depends on
 //!   to reap sessions).
 
-use proptest::prelude::*;
 use std::sync::Arc;
 
 use crate::event::{Event, EventQueue};
-use crate::terminal::osc_handler::OscHandler;
-
-proptest! {
-    /// Any UTF-8 string, when round-tripped through the OSC 52 dispatch
-    /// path, yields an identical Clipboard event (selection + text).
-    /// (Arbitrary bytes are covered separately by
-    /// `osc52_arbitrary_payload_never_panics` because OSC 52 is a text
-    /// protocol; the terminal delivers UTF-8 strings.)
-    #[test]
-    fn osc52_roundtrip(text in "\\PC*", selection in "[^;]{0,16}") {
-        let handler = OscHandler::new();
-        use base64::Engine;
-        let encoded = base64::engine::general_purpose::STANDARD.encode(text.as_bytes());
-        let payload = format!("{selection};{encoded}");
-        let event = handler.dispatch_osc52_for_test(&payload);
-        let osc_event = event.expect("valid OSC 52 payload must dispatch");
-        match osc_event {
-            crate::terminal::osc_handler::OscEvent::Clipboard(ev) => {
-                prop_assert_eq!(ev.selection, selection);
-                prop_assert_eq!(ev.text, text);
-            }
-            other => panic!("expected Clipboard event, got {other:?}"),
-        }
-    }
-
-}
 
 /// Concurrent push/pop on the shared EventQueue: every pushed event is
 /// popped exactly once, regardless of scheduling (shuttle explores

@@ -513,6 +513,11 @@ impl Session {
         Ok(())
     }
 
+    /// RIS 全重置：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
+    pub fn reset_terminal(&self) {
+        self.terminal.reset();
+    }
+
     /// Lock-free read of the last known grid size (spawn/resize). Never
     /// blocks: the VT thread's authoritative size is only reachable via a
     /// query RPC, which callers holding the registry write lock must avoid.
@@ -577,14 +582,8 @@ impl Session {
         while let Ok(data) = self.output_rx.try_recv() {
             let snap = self.output_processor.process(&data);
 
-            if let Some(text) = snap.clipboard {
-                *self.clipboard_text.lock() = Some(text);
-            }
             if let Some(selection) = snap.clipboard_read {
                 *self.clipboard_read.lock() = Some(selection);
-            }
-            if let Some(path) = snap.cwd {
-                *self.current_directory.lock() = Some(path);
             }
             self.terminal.pty_write(&snap.filtered);
             count += 1;
@@ -599,6 +598,7 @@ impl Session {
                     self.output_rx.len(),
                 );
                 self.terminal.flush();
+                self.drain_callback_events();
                 // Drain write-back responses even on the cap path: a flood
                 // of output must not starve DECRPM/DSR/DA replies (the
                 // child application would wait for them indefinitely).
@@ -609,6 +609,7 @@ impl Session {
         if count > 0 {
             log::trace!("poll_pty_output: processed {count} chunks");
             self.terminal.flush();
+            self.drain_callback_events();
             self.drain_pty_write_back();
             true
         } else {
@@ -645,6 +646,17 @@ impl Session {
     /// read-clear consumer. Independent from the P2-1 `dirty` flag.
     pub fn take_new_output(&self) -> bool {
         self.output_processor.take_new_output()
+    }
+
+    /// 收割 VT 线程经上游 OSC 回调上报的事件（cwd/剪贴板写入）到锁存槽。
+    /// 紧跟 flush 调用：flush 返回时 VT 线程已处理完本批输出，回调已触发。
+    fn drain_callback_events(&self) {
+        while let Some(path) = self.terminal.poll_cwd_event() {
+            *self.current_directory.lock() = Some(path);
+        }
+        while let Some((_, text)) = self.terminal.poll_clipboard_event() {
+            *self.clipboard_text.lock() = Some(text);
+        }
     }
 
     /// Poll for clipboard text set by an OSC 52 escape sequence.

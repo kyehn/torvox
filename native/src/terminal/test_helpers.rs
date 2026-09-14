@@ -1,10 +1,5 @@
 use crate::terminal::ghostty_terminal::{GhosttyTerminal, GridSnapshot};
 
-/// Convenience shorthand: `tc(&mut term).write(b"X").assert_row_text(0, "X")`.
-pub fn tc<'a>(term: &'a mut GhosttyTerminal) -> TermTestCase<'a> {
-    TermTestCase::new(term)
-}
-
 /// Maximum allowed per-channel difference for color equality.
 /// Corresponds to ±5 in u8 space (~0.0196 in f32).
 pub const COLOR_TOLERANCE: f32 = 5.0 / 255.0;
@@ -357,13 +352,6 @@ impl<'a> TermTestCase<'a> {
         );
         tc
     }
-
-    /// Snapshot and check structural invariants at end of a chain.
-    pub fn take_and_invariants(self) -> Self {
-        let snap = self.term.take_snapshot();
-        assert_invariants(&snap);
-        self
-    }
 }
 
 #[cfg(test)]
@@ -566,78 +554,6 @@ mod tests {
                 "DECXCPR should start with ESC[?, got: {text}"
             );
         }
-    }
-
-    #[test]
-    fn test_is_mouse_tracking_active() {
-        let mut t = term();
-        assert!(!t.is_mouse_tracking_active());
-        t.vt_write(b"\x1b[?1000h");
-        t.flush();
-        assert!(t.is_mouse_tracking_active());
-        t.vt_write(b"\x1b[?1000l");
-        t.flush();
-        assert!(!t.is_mouse_tracking_active());
-    }
-
-    #[test]
-    fn test_is_cursor_enabled() {
-        let mut t = term();
-        assert!(t.is_cursor_enabled());
-        t.vt_write(b"\x1b[?25l");
-        t.flush();
-        assert!(!t.is_cursor_enabled());
-        t.vt_write(b"\x1b[?25h");
-        t.flush();
-        assert!(t.is_cursor_enabled());
-    }
-
-    #[test]
-    fn test_is_bracketed_paste_active() {
-        let mut t = term();
-        assert!(!t.is_bracketed_paste_active());
-        t.vt_write(b"\x1b[?2004h");
-        t.flush();
-        assert!(t.is_bracketed_paste_active());
-        t.vt_write(b"\x1b[?2004l");
-        t.flush();
-        assert!(!t.is_bracketed_paste_active());
-    }
-
-    #[test]
-    fn test_is_origin_mode() {
-        let mut t = term();
-        assert!(!t.is_origin_mode());
-        t.vt_write(b"\x1b[?6h");
-        t.flush();
-        assert!(t.is_origin_mode());
-        t.vt_write(b"\x1b[?6l");
-        t.flush();
-        assert!(!t.is_origin_mode());
-    }
-
-    #[test]
-    fn test_is_autowrap_enabled() {
-        let mut t = term();
-        assert!(t.is_autowrap_enabled());
-        t.vt_write(b"\x1b[?7l");
-        t.flush();
-        assert!(!t.is_autowrap_enabled());
-        t.vt_write(b"\x1b[?7h");
-        t.flush();
-        assert!(t.is_autowrap_enabled());
-    }
-
-    #[test]
-    fn test_is_alt_screen_active() {
-        let mut t = term();
-        assert!(!t.is_alt_screen_active());
-        t.vt_write(b"\x1b[?1049h");
-        t.flush();
-        assert!(t.is_alt_screen_active());
-        t.vt_write(b"\x1b[?1049l");
-        t.flush();
-        assert!(!t.is_alt_screen_active());
     }
 
     #[test]

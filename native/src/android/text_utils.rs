@@ -101,7 +101,6 @@ mod tests {
             strikethrough: false,
             blink: false,
             hidden: false,
-            uri: None,
             overline: false,
             double_underline: false,
             width,

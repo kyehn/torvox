@@ -617,6 +617,32 @@ fn switch_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> jb
 }
 
 // ══════════════════════════════════════════════════════════════════════════
+// JNI Export: resetTerminal
+// ══════════════════════════════════════════════════════════════════════════
+
+/// RIS 全重置指定会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetTerminal(
+    mut unowned_env: EnvUnowned<'_>,
+    _class: JClass,
+    session_id: jlong,
+) {
+    jni_export_guard!(&mut unowned_env, (), |env| {
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            let _ = env.throw_new(
+                jni_str!("java/lang/RuntimeException"),
+                jni_str!("resetTerminal: session not found"),
+            );
+            return Ok(());
+        };
+        let session = entry.session.lock();
+        session.reset_terminal();
+    })
+}
+
+// ══════════════════════════════════════════════════════════════════════════
 // JNI Export: getSessionCount
 // ══════════════════════════════════════════════════════════════════════════
 

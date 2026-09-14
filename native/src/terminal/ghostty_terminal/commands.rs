@@ -36,6 +36,8 @@ pub enum Command {
     /// the app's scrollback browsing: previously a Kotlin-side
     /// no-op — the CellData render path had no scroll support at all).
     ScrollViewport(isize),
+    /// RIS 全重置：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
+    Reset,
     /// Graceful shutdown signal.
     Terminate,
 }
@@ -59,9 +61,6 @@ pub enum Query {
     CursorX(Sender<u32>),
     CursorY(Sender<u32>),
     CursorVisible(Sender<bool>),
-    OriginMode(Sender<bool>),
-    Autowrap(Sender<bool>),
-    AltScreen(Sender<bool>),
     Title(Sender<String>),
     Cwd(Sender<String>),
     ModeGet(u16, u8, Sender<bool>),
@@ -157,9 +156,13 @@ pub(crate) struct RunConfig {
     pub(crate) response_buffer: Arc<Mutex<Vec<Vec<u8>>>>,
     pub(crate) snapshot_rebuild_count: Arc<AtomicU64>,
     /// Mirror of the alternate-screen state, updated lock-free by the VT
-    /// thread on every `Query::AltScreen` so the input path can detect it
-    /// without a blocking RPC.
+    /// thread on every emitted frame (build_cell_data) so the input path
+    /// can detect it without a blocking RPC.
     pub(crate) alt_screen_active: Arc<AtomicBool>,
+    /// 上游 OSC 回调事件通道（VT 线程推送，调用方轮询）：工作目录与剪贴板写入。
+    /// 有界丢弃——VT 线程永不阻塞；Kotlin 经 session 锁存槽读取。
+    pub(crate) cwd_tx: flume::Sender<String>,
+    pub(crate) clipboard_tx: flume::Sender<(String, String)>,
     /// Optional channel for auto-pushing CellData after each frame update.
     /// When set, the ghostty thread will automatically build and send
     /// Vec<CellData> (via CellIterator) whenever the grid changes.
