@@ -1,4 +1,4 @@
-name: gradle-checks
+name: check
 on:
   schedule:
     - cron: '0 5 * * *'
@@ -6,8 +6,10 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+permissions:
+  contents: read
 jobs:
-  gradle-checks:
+  check:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -27,7 +29,15 @@ jobs:
           path: |
             ~/.gradle/caches/
             ~/.gradle/wrapper/
-          key: ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ github.workflow }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: |
-            ${{ github.workflow }}-cache-${{ runner.os }}-${{ runner.arch }}-
-      - run: scripts/test-gradle.nu
+            ${{ github.workflow }}-${{ runner.os }}-${{ runner.arch }}-
+      - env:
+          CARGO_INCREMENTAL: "0"
+        run: |
+          scripts/check-rust.nu
+          scripts/build-android-libs.nu --profile dev x86_64
+          scripts/check-gradle.nu

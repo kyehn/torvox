@@ -1,4 +1,4 @@
-name: build-and-release
+name: build
 on:
   workflow_dispatch:
   schedule:
@@ -9,9 +9,9 @@ concurrency:
 permissions:
   contents: write
 jobs:
-  build-and-release:
+  build:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@main
       - uses: actions/checkout@main
@@ -24,6 +24,17 @@ jobs:
         with:
           name: ${{ secrets.CACHIX_NAME }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: actions/cache@main
+        with:
+          path: |
+            ~/.gradle/caches/
+            ~/.gradle/wrapper/
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ github.workflow }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          restore-keys: |
+            ${{ github.workflow }}-${{ runner.os }}-${{ runner.arch }}-
       - run: |
           scripts/build-android-libs.nu --profile release
           scripts/build-apk.nu --release
@@ -31,7 +42,9 @@ jobs:
         with:
           name: release-apk
           path: android/app/build/outputs/apk/release/*.apk
-      - run: scripts/build-apk.nu --debug
+      - run: |
+          scripts/build-android-libs.nu --profile dev
+          scripts/build-apk.nu --debug
       - uses: actions/upload-artifact@main
         with:
           name: debug-apk
@@ -43,8 +56,6 @@ jobs:
       - uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
-          # 基准测试的 lockClocks 需要 root，Play Store 镜像是 user 构建无 root，
-          # 必须用 userdebug 的 google_apis 镜像（与 setup-emulator.nu 一致）。
           target: google_apis
           arch: x86_64
           ram-size: 1536M

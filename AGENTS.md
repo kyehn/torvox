@@ -4,12 +4,12 @@
 
 ## 必须
 
-- 修改前阅读 `docs/specification/` 下的全部规范。
-- openspec/specs 目录保存 项目功能及其他 的详细设计规范文档，使用 openspec 命令管理，需要保持更新和正确，修改前编写 changes 和 specs 文档，修改验证后对文档进行更新实际情况和补充实现细节，openspec/specs 只是参考文档不是规范，置信度低，docs/specification/ 和用户提示为实际标准。
+- 修改任何文件前阅读 `docs/specification/` 下的全部文档。
+- openspec/specs 目录保存 项目功能及其他 的详细设计规范文档，使用 openspec 命令管理，需要保持更新和正确，修改前编写对应的 changes（完成后进行归档和删除） 和 specs（修改验证后对文档进行更新实际情况和补充实现细节） 文档，openspec/specs 只是参考文档不是严格规范，置信度较 docs/specification/ 低，docs/specification/ 和用户提示为实际标准。
 
 ## 禁止
 
-- Java 文件、`portable-pty`、`rust-android-gradle`
+- Java 文件
 - 逐单元格 `Canvas.drawText`、跨 FFI 传递原始字节、`/proc/self/exe`
 - 在库 crate 中使用 `anyhow` — 请使用 `thiserror 2`
 - 在核心终端数据路径中使用 `unsafe`
@@ -35,8 +35,12 @@
 - 遇到合并冲突时：停止操作并展示冲突文件。
 - 优先修复根因：避免通过删除文件、跳过测试或添加 `#[allow(...)]` 来掩盖问题。
 
-## 禁止修改文件
+## 禁止修改文件和目录，文件不得修改，目录递归要求并且不得创建/删除/重命名文件
 
-只允许修正拼写 / 语法错误，或修正格式 / 排版，不可更改实际内容，未经询问不可修改错误或其他问题。需用户明确要求后方可修改，禁止非法修改。修复错误或其他阻塞项需询问用户且避免不必要的修改（修改后重新设置只读属性）。
+只允许修正拼写 / 语法错误，或修正格式 / 排版，不可更改实际内容，未经询问不可修改错误或其他问题，修复错误或其他阻塞项必须询问用户且避免不必要的修改（修改后重新设置只读属性）。需用户明确同意后方可修改，禁止非法修改。
 
 - `.github/`、`scripts/`、`flake.nix`、`rust-toolchain.toml`、`README.md` `AGENTS.md`、`docs/specification/`
+
+## 不得轻易更改文件，必须确保符合 docs/specification/ 要求
+
+`Cargo.toml` `build.gradle.kts`  `settings.gradle.kts` `detekt.yml` `lint.xml`

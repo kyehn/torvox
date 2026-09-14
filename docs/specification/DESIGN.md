@@ -3,6 +3,7 @@
 ## 依赖
 
 - 依赖/工具尽量使用最新版本，尽量不固定版本
+- 未声明的细节 参考 https://github.com/termux/termux-app 和 https://github.com/sylirre/ghostty-android-terminal
 
 ## 习惯
 
@@ -16,7 +17,7 @@
 
 - 最小体积，不做任何多余或不必要功能，能不做则无必要。
 
-- 高性能、低功耗是目标。
+- 高性能、低功耗是目标，性能优先，低内存友好
 
 - 不做过多冗余，减少兜底，尽早抛出错误，避免浪费资源。
 
@@ -26,13 +27,15 @@
 
 - 图标（非软件桌面图标）使用 系统提供 或 图标包，不 vendor，不从外部单独下载
 
-- 应用应该适配 Android 软件启动屏/动画
+- 应该适配 Android 软件启动屏/动画
 
 - 解决问题前必须通过调试确定原因，修复后需要验证，不做猜测
 
 - 较低安全性/隐私策略， 方便快捷更重要，不设计权限管理
 
 - 简洁设计，不干涉用户数据
+
+- 遵循 Material Design 3 最新标准
 
 ## 架构
 
@@ -53,7 +56,7 @@
   │       ├── test/
   ```
 
-- 以 Ghostty 作为终端状态的单一来源（Single Source of Terminal State）。
+- 以 Ghostty 作为终端状态的单一来源（Single Source of Terminal State），不入侵 Ghostty 层工作
 
 - 渲染完全在 Rust 侧通过 `wgpu` 完成。Kotlin 仅通过直接 JNI 接收轻量事件，无网格数据跨越 FFI 边界。
 
@@ -69,7 +72,11 @@
 
 - 上游 `libghostty-vt` / `libghostty-vt-sys` 固定跟踪 git master，无本地补丁。
 
-- 剪贴板集成：通过终端序列（OSC 52）与用户交互读写系统剪贴板。
+- 剪贴板集成：通过终端序列（OSC 52）与用户交互读写系统剪贴板。仅在 ghostty 支持时实现，不做过度复杂工作。
+
+- 下划线颜色 (SGR 58) 和上划线 (SGR 53)
+
+- libghostty-vt 使用参考 https://github.com/sylirre/ghostty-android-terminal/blob/main/docs/architecture.md#libghostty-vt
 
 ### Kotlin
 
@@ -112,9 +119,7 @@
   - 修饰键栏支持向左滑动进入 文本输入框，位置：修饰键栏 文本输入框
   - 固定2行7列（高度 宽度 等均参考 termux）。
 
-- **实际终端启动入口路径及参数设置框**。默认 /data/data/com.termux/files/usr/bin/bash 或 /data/data/com.termux/files/usr/bin/login，无其他任何回退。
-
-- **终端回滚行数**：提供调节条，范围与精度须受限。
+- **Shell 启动入口路径及参数设置框**。提供保存按钮，必须正确保存和显示设置的文本。不检查文件是否存在，不检查参数是否合法，未设置时为空。
 
 - **Bootstrap**：支持 URL 与本地文件安装。
   - 只提供 Termux 预设选项，使用 apt-android-7（较大值） 和 2026.02.12-r1（最新值），不提供 apt-android-5 2022.04.28-r6 等旧值，从 termux-app/app/build.gradle 提取逻辑
@@ -133,14 +138,20 @@
   - 宿主透传变量，仅宿主存在时透传，不硬编：`ANDROID_ASSETS`、`ANDROID_DATA`、`ANDROID_ROOT`、`ANDROID_STORAGE`、`EXTERNAL_STORAGE`、`ASEC_MOUNTPOINT`、`LOOP_MOUNTPOINT`、`ANDROID_RUNTIME_ROOT`、`ANDROID_ART_ROOT`、`ANDROID_I18N_ROOT`、`ANDROID_TZDATA_ROOT`、`BOOTCLASSPATH`、`DEX2OATBOOTCLASSPATH`、`SYSTEMSERVERCLASSPATH`。
   - 必须兼容 nix-on-droid，nix-on-droid 需要提供和 termux bootstrap 一致的格式，软件不做任何特殊兼容。模拟器测试用例（需要手动测试）：下载 <https://github.com/kyehn/nix-on-droid/releases/download/bootstrap-unstable/bootstrap-x86_64.zip> 或从源码编译，通过 bootstrap 安装逻辑（不得直接解压/复制），使用终端输入 nix build 命令（不得使用adb shell 替代）进行测试。
   - 禁止对 nix-on-droid 特殊处理，termux/nix-on-droid bootstrap 共用安装逻辑代码，postinstall 只在存在时运行，不做无意义检查/校验，出现问题正常报错就是。
-  
-- **Shizuku 集成开关**。支持从 <https://github.com/rikkaapps/shizuku> 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出），Shizuku 需要 `adb shell /data/app/~~Sa3_liMwmjUIoWwNMF_x7w==/moe.shizuku.privileged.api-No2vLGXjkKhlYU6TcXtuHg==/lib/arm64/libshizuku.so` 类似命令激活
 
 - **清除应用数据按钮**。
 
 ## 终端
 
 ### 终端页面
+
+- 脏跟踪，跳过干净快照，跳过逐行复制，减少突发输出期间的工作量
+
+- 内容横向溢出到右侧时，修饰键栏的向右按键（->）将可见区域向右移动，修饰键栏的向左按键将可见区域向左移动，移动范围不超过内容
+
+- 批量快照查询
+
+- 只渲染当前使用的会话，后台会话/切换应用/进入设置时暂停渲染
 
 - 输入光标为方块样式，不闪烁
 
@@ -152,29 +163,38 @@
 
 - 退格应该流畅，渲染不应卡顿
 
-- **文本选择**：应该和 termux 设计一致，终端支持长按文本选择，被长按文本高亮，文本左右侧出现可拖动指针（可灵活拖动，流畅不卡顿，拖动时菜单隐藏），文本附近显示选项菜单（菜单始终不遮挡被选择文本，如果长按的是无内容区域：粘贴。如果是有内容区域：复制 选择所有 分享 打开链接（根据内容选择是否显示））
+- **文本选择**：应该和 termux 设计一致，终端支持长按文本选择，被长按文本高亮，文本左右侧出现可拖动指针（可灵活拖动，流畅不卡顿，拖动时菜单隐藏），文本附近显示选项菜单（菜单始终不遮挡被选择文本，如果长按的是无内容区域：粘贴。如果是有内容区域：复制 分享 全选 打开链接（OSC 8 超链接）/打开文件（根据内容选择是否显示））
+  - 选定内容存在于终端中，而不是视图中。长按操作通过 GHOSTTY_TERMINAL_OPT_SELECTION（跟踪网格参考）安装选定内容，因此它会跟随文本滚动/输出/重排，仅在端点坐标处绘制控制柄以报告快照，并且从不存储单元格位置。
+  - 全选后复制功能必须能够正常工作，全选只涉及有内容区域。
+  - 弹出菜单始终不遮挡被选择文本，必须保持合适距离，包括变更选择范围后（参考 termux 实现），按钮必须可直接点击而不是两次。
+  - 打开链接/打开文件 只在选择长度合理时，只检查 链接/文件位置 是否格式匹配，不检查 链接/文件 的实际可用性，点击后通过系统 api 进行跳转
+  - 打开文件 点击后检查文件是否实际存在，其他应用可以编辑和回写。
 
 - 支持全功能输入法（不限制输入法特性），支持 cjk 输入法
 
-- 支持 连字 kitty图像协议 等特性（参考 https://github.com/sylirre/ghostty-android-terminal 实现）
+- 支持 连字 kitty图像协议 等特性（参考 ghostty-android-terminal 实现）
 
-- 支持鼠标操作（参考 https://github.com/sylirre/ghostty-android-terminal 实现）
+- 支持鼠标操作（参考 ghostty-android-terminal 实现）
 
-- 支持按像素流畅滚动（参考 https://github.com/sylirre/ghostty-android-terminal 实现）
+- 支持按像素流畅滚动（参考 ghostty-android-terminal 实现）
 
 ### Shell
+
+- Shell 启动入口为空时依次尝试 /data/data/com.termux/files/usr/bin/bash 和 /data/data/com.termux/files/usr/bin/login，无其他任何回退。支持 `/data/data/com.termux/files/usr/bin/sh` `/system/bin/sh /data/data/com.termux/files/usr/bin/login.sh` `/data/data/com.termux/files/usr/bin/bash -l`。不支持 `/data/data/com.termux/files/usr/bin/login.sh`，即启动入口必须是二进制文件且必须是可绝对路径，不检查是否实际合法，只是不对这些进行特殊处理。
 
 - 默认 LANG 为 en_US.UTF-8
 
 - shell 崩溃（非主动正常退出）保留现场不关闭会话且保留终端显示（参考termux），正常退出时（如 exit 命令或用户点击关闭按钮）关闭会话
 
-- 启动入口失败不得 Fallback，保留输出显示（参考termux）
+- 启动入口失败不得 Fallback，保留输出显示（参考 termux）
+
+- 回滚行数和 termux 保持一致，如 2K
 
 ### 修饰键栏
 
 - 修饰键栏默认布局跟随 Termux（基本一致），支持左滑与右滑：左滑展示第二排修饰键栏，右滑展示文本输入框（参考 Termux）。
 
-- 修饰键不应该和全面屏手势冲突
+- 修饰键不应该和全面屏手势冲突，不应该被上滑手势触发
 
 - 修饰键动画应该较快，反应轻快
 
@@ -185,6 +205,8 @@
 - 修饰键栏使用和终端相同的配色。
 
 - **文本搜索输入框**：当文本搜索时，文本搜索输入框取代修饰键栏位置，具有 文本输入框 大小写匹配 当前顺序/总匹配数 上一个 下一个 关闭 等按钮
+  - 被搜索文本的长度/搜索频率被限制
+  - 不处理复杂场景
 
 ## 侧边面板
 
@@ -192,8 +214,10 @@
   - 每一项包括 “会话序号 目录路径”（点击切换会话，目录路径可能需要缩写，实现参考 termux），关闭按钮（或支持向右滑动进行关闭）
   - 会话序号从1开始递增，列表改变时也是如此。
   - 仅当前使用的会话被渲染
+  - 需要实现 工作目录跟踪 (OSC 7/9/1337)
 
 - 添加会话按钮。
+- 重置终端 按钮，通过 ghostty_terminal_reset 重置 ghostty terminal 状态以恢复卡住的终端，清除滚动条
 - 文本搜索按钮。
 - 显示 / 隐藏输入法按钮。
 - 设置按钮。
@@ -215,6 +239,9 @@
 - 设置-环境变量编辑功能
 - 背景图片，透明背景，背景模糊
 - termux.env 文件及相关逻辑代码
+- 内嵌 proot
+- 内嵌 bootstrap，预装发行版
+- 桌面环境，X11
 
 ### 横向/平板
 
@@ -228,9 +255,11 @@
 
 - **光标样式**：方块、竖线、下划线。
 
-- **终端启动入口状态**。
+- **Shell 启动入口状态**。
 
 - **自定义终端启动目录**。
+
+- **终端回滚行数**：提供调节条，范围与精度须受限。
 
 - **修饰键栏布局编辑器**：可以对修饰键栏的布局进行修改（参考 ghostty-android-terminal）。
   - 不复杂设计，修饰键栏支持的按键种类固定（包括各种常用修饰键）。
@@ -241,4 +270,9 @@
   - 提供“重置为默认”按钮。
 
 - **自定义终端主题**：支持用户自定义主题：自定义主题可以修改（支持预览）和删除（未使用状态下，包括名称也可修改）。
-  
+
+- **Shizuku 集成开关**。支持从 <https://github.com/rikkaapps/shizuku> 获取权限并提供给 Shell，只为启动入口设置。新会话启动时检查权限如果已打开开关但未被实际授权显示对话框提示提供两个选项：关闭 Shizuku 集成开关/关闭会话（无其他会话时应用退出），Shizuku 需要 `adb shell /data/app/~~Sa3_liMwmjUIoWwNMF_x7w==/moe.shizuku.privileged.api-No2vLGXjkKhlYU6TcXtuHg==/lib/arm64/libshizuku.so` 类似命令激活
+
+## 注意
+
+- mksh 会在收到 SIGWINCH 信号时清除提示符。因此，会话应该在完成首次布局后才生成 MainActivity，并且 resize 跳过空操作的调整大小。不要在会话生成时重新执行调整大小的操作。
