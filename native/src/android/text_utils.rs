@@ -139,6 +139,71 @@ mod tests {
         assert_eq!(cell_line_text(&[]), "");
     }
 
+    #[test]
+    fn cell_line_text_skips_invalid_codepoint() {
+        // 代理区码点不是合法 Unicode 标量值，必须跳过而不崩溃。
+        let cells = [cell(0xD800, 1), cell(b'a' as u32, 1)];
+        assert_eq!(cell_line_text(&cells), "a");
+    }
+
+    // ── plain_text_url_at ─────────────────────────────────────────
+
+    fn url_session(rows: u32, cols: u32) -> Session {
+        let (pty, _handle) = crate::terminal::mock_pty::MockPty::new(rows as u16, cols as u16);
+        Session::with_pty(
+            Box::new(pty) as Box<dyn crate::terminal::pty::Pty>,
+            rows,
+            cols,
+        )
+        .expect("with_pty must succeed")
+    }
+
+    fn write_line(session: &mut Session, line: &[u8]) {
+        session.terminal_mut().vt_write(line);
+        session.terminal_mut().flush();
+    }
+
+    #[test]
+    fn plain_text_url_at_visible_row() {
+        let mut session = url_session(24, 80);
+        write_line(&mut session, b"visit https://example.com now");
+        assert_eq!(
+            plain_text_url_at(&session, 0, 6),
+            Some("https://example.com".to_string())
+        );
+        assert_eq!(plain_text_url_at(&session, 0, 0), None);
+    }
+
+    #[test]
+    fn plain_text_url_at_scrollback_row() {
+        let mut session = url_session(3, 40);
+        write_line(&mut session, b"go https://example.com ok");
+        for index in 0..7 {
+            write_line(&mut session, format!("line{index}\n").as_bytes());
+        }
+        let dumped = session.terminal().dump_grid();
+        assert!(
+            !dumped.scrollback.is_empty(),
+            "scrollback should hold scrolled-off lines"
+        );
+        let row_abs = dumped
+            .scrollback
+            .iter()
+            .position(|row| cell_line_text(row).contains("https://example.com"))
+            .expect("scrollback must contain the url line") as u32;
+        assert_eq!(
+            plain_text_url_at(&session, row_abs, 3),
+            Some("https://example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn plain_text_url_at_out_of_range_returns_none() {
+        let mut session = url_session(24, 80);
+        write_line(&mut session, b"visit https://example.com now");
+        assert_eq!(plain_text_url_at(&session, u32::MAX, 0), None);
+    }
+
     // ── encode_modifiers ──────────────────────────────────────────
 
     #[test]

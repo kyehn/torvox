@@ -53,7 +53,6 @@
   │       ├── android/  ← JNI 导出（ffi.rs）
   │       ├── render/
   │       └── terminal/
-  │       ├── test/
   ```
 
 - 以 Ghostty 作为终端状态的单一来源（Single Source of Terminal State），不入侵 Ghostty 层工作

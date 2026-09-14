@@ -10,7 +10,6 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.annotation.VisibleForTesting
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,7 +20,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.DrawerValue
@@ -30,7 +28,6 @@ import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -51,7 +48,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -122,7 +118,9 @@ private fun announceForAccessibility(view: android.view.View, text: CharSequence
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-@Suppress("DEPRECATION", "CyclomaticComplexMethod", "LongMethod")
+@Suppress("DEPRECATION")
+// 仅简体中文：无复数形态，plurals 仅 other 分支生效，无需本地化计数修饰。
+@SuppressLint("ArgInFormattedQuantityStringRes")
 @Composable
 fun TerminalScreen(
     modifier: Modifier = Modifier,
@@ -355,7 +353,12 @@ fun TerminalScreen(
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
             ) {
                 SessionDrawer(
-                    viewModel = viewModel,
+                    sessions = state.sessions,
+                    activeSessionId = state.activeSessionId,
+                    onSwitchSession = { viewModel.switchSession(it) },
+                    onCloseSession = { viewModel.closeSession(it) },
+                    onAddSession = { viewModel.createSession() },
+                    onRefreshSessions = { viewModel.refreshSessionMetas() },
                     onSettings = {
                         scope.launch { drawerState.close() }
                         onSettings()
@@ -996,6 +999,7 @@ fun TerminalScreen(
                         useNerdFontGlyphs = useNerdFontGlyphs,
                         toolbarLayout = rememberToolbarLayout(),
                         barMode = barMode,
+                        isAppCursorMode = { viewModel.runtime.bridge()?.isAppCursorMode() == true },
                         onCopy =
                         if (selectionActive) {
                             {
@@ -1157,20 +1161,4 @@ internal fun computeMenuPosition(
         flipAbove,
         coversSelection,
     )
-}
-
-@Composable
-private fun SelectionMenuItem(
-    text: String,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier.clickable { onClick() }.padding(horizontal = 12.dp, vertical = 8.dp),
-    ) {
-        Text(
-            text = text,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.labelMedium,
-        )
-    }
 }

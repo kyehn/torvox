@@ -46,13 +46,6 @@ import terminal.emulator.util.runCatchingCancellable
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-@Suppress("UnusedPrivateProperty")
-private val modifierBarHeightPx: Int by lazy {
-    android.content.res.Resources.getSystem().displayMetrics.density.let { density ->
-        (80f * density + 0.5f).toInt()
-    }
-}
-
 internal fun isWordChar(c: Char): Boolean = c.isLetterOrDigit() || c == '_' || c == '-' || c == '.' || c == '/'
 
 /**
@@ -99,7 +92,6 @@ internal fun expandWordOnLine(
     return Pair(startCol, endCol)
 }
 
-@Suppress("TooManyFunctions")
 class TerminalSurface
 @JvmOverloads
 constructor(
@@ -457,17 +449,25 @@ constructor(
             // debounce to the settled size via IME_RESIZE_DEBOUNCE_MS —
             // every intermediate size otherwise forces a full swapchain
             // reconfigure + PTY grid reflow (frame drops, CellData race
-            // errors, battery drain).
+            // errors, battery drain). While debounced, pause rendering so
+            // the stale-sized buffer is never stretched over the animating
+            // view (squash on show, stretch on hide); the settled fire
+            // below resumes and presents one fresh frame.
             if (lastConfiguredWidth == 0) {
                 applySurfaceResizeNow(width, height)
                 return
             }
+            viewModel?.runtime?.setRenderPaused(true)
             pendingSurfaceResize?.let { removeCallbacks(it) }
             pendingSurfaceResize =
                 Runnable {
                     pendingSurfaceResize = null
                     // Latest size wins: onSizeChanged already stored it.
                     applySurfaceResizeNow(surfaceWidthPixels, surfaceHeightPixels)
+                    // The settled fire may land back on the configured size
+                    // and early-return before its own resume — always resume
+                    // here (idempotent on the success path).
+                    viewModel?.runtime?.setRenderPaused(false)
                 }
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
         }
@@ -1183,13 +1183,11 @@ constructor(
         private const val ZOOM_FONT_SIZE_MAX_SP = 48f
         private const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
         private const val ZOOM_PREVIEW_INTERVAL_NANOS = 60_000_000L // 60ms
-        private const val DRAWER_WIDTH_DP = 280
 
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
         private const val DRAWER_CLOSE_TAP_GRACE_NANOS = 350_000_000L
 
         // 350ms close animation
-        @Suppress("UnusedPrivateProperty")
         private const val IME_RESIZE_DEBOUNCE_MS = 48L // 3×16ms settle, spec ime-translation
         private const val SCROLLBACK_QUERY_THROTTLE_NANOS = 100_000_000L // 10 Hz
         private const val SURFACE_RECREATE_RETRY_DELAY_MS = 500L
@@ -1349,14 +1347,6 @@ constructor(
      */
     var searchActive: Boolean = false
 
-    private val drawerWidthPixels: Float by lazy {
-        DRAWER_WIDTH_DP.toFloat() * resources.displayMetrics.density
-    }
-
-    @Suppress(
-        "CyclomaticComplexMethod",
-        "ComplexCondition",
-    ) // Acceptable — dispatches ~15 distinct gesture/intent types
     private var cachedCellWidth: Float = FALLBACK_CELL_WIDTH
     private var cachedCellHeight: Float = FALLBACK_CELL_HEIGHT
 
@@ -2719,16 +2709,10 @@ constructor(
     // SECTION 4: Touch event dispatch
     // ══════════════════════════════════════════════════════════════════════
 
-    @Suppress(
-        "CyclomaticComplexMethod",
-        "LongMethod",
-        "NestedBlockDepth",
-    ) // Acceptable — dispatches ~15 distinct gesture/intent types
     override fun performClick(): Boolean = super.performClick()
 
     // Acceptable: dispatches ~15 distinct gesture/intent types with
     // selection, scroll, long-press, and hardware-key interactions.
-    @Suppress("LongMethod", "CyclomaticComplexMethod", "CognitiveComplexMethod")
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.actionMasked == MotionEvent.ACTION_UP) {
             // Accessibility contract: a view overriding onTouchEvent must
@@ -2957,7 +2941,6 @@ constructor(
     // ── TextureView's SurfaceTexture is consumed by the GL compositor and
     // ── blocks Vulkan dequeueBuffer on software emulators) ────────────────
 
-    @Suppress("CyclomaticComplexMethod") // Acceptable — dispatches ~15 distinct gesture/intent types
     override fun onSizeChanged(
         width: Int,
         height: Int,
