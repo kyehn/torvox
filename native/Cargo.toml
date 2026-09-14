@@ -3,7 +3,7 @@ name = "native"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Terminal engine"
+description = "terminal engine, GPU renderer, JNI bridge"
 [lib]
 crate-type = ["cdylib", "lib"]
 [dependencies]
