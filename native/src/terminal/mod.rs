@@ -9,8 +9,10 @@
 //! * The Ghostty key encoder (`key::Encoder` + `key::Event`) is allocated
 //!   **once per terminal worker** and reused across keystrokes; encoder modes
 //!   are re-synced every key via `set_options_from_terminal`.
-//! * OSC 7 (cwd) is intercepted by [`osc_handler`] and surfaced as
-//!   `OscEvent::Cwd`; the session stores it in [`session::Session::current_directory`].
+//! * OSC 7（cwd）与 OSC 52（剪贴板写入）直达 Ghostty，以上游为单一来源：
+//!   session 经上游回调收割事件存入 [`session::Session::current_directory`]
+//!   与剪贴板槽；仅上游明确忽略的 OSC 52 读取请求（`?`）由 [`output_processor`]
+//!   的最小扫描器拦截。.
 //! * PTY hygiene (setsid + controlling tty, IUTF8, IXON/IXOFF cleared,
 //!   `ws_xpixel`/`ws_ypixel`, stray-fd close) is configured in [`pty`].
 
@@ -21,7 +23,6 @@
 pub mod ghostty_terminal;
 #[cfg(test)]
 pub mod mock_pty;
-pub mod osc_handler;
 pub mod output_processor;
 pub mod pty;
 pub mod session;
@@ -33,8 +34,6 @@ pub mod url_regex;
 pub(crate) mod snapshot_test;
 #[cfg(test)]
 pub(crate) mod test_helpers;
-#[cfg(test)]
-pub(crate) mod vt_conformance;
 
 #[cfg(test)]
 pub use mock_pty::{MockPty, MockPtyHandle};

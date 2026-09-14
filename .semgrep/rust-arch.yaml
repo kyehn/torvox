@@ -8,7 +8,6 @@ rules:
     severity: ERROR
     languages:
       - kotlin
-
   - id: no-allow-in-prod
     patterns:
       - pattern-regex: '#\[allow\('
@@ -22,7 +21,6 @@ rules:
     severity: ERROR
     languages:
       - rust
-
   - id: no-android-in-terminal
     pattern-regex: 'crate::android::'
     paths:
@@ -32,7 +30,6 @@ rules:
     severity: ERROR
     languages:
       - rust
-
   - id: no-android-in-render
     pattern-regex: 'crate::android::'
     paths:
@@ -42,7 +39,6 @@ rules:
     severity: ERROR
     languages:
       - rust
-
   - id: no-render-in-terminal
     pattern-regex: 'crate::render::'
     paths:
@@ -52,7 +48,6 @@ rules:
     severity: ERROR
     languages:
       - rust
-
   - id: no-anyhow-in-native
     pattern-regex: '\banyhow\b'
     paths:

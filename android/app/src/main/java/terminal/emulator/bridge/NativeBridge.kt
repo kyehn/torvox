@@ -291,6 +291,9 @@ object NativeBridge {
         selectionBgArgb: Int,
     )
 
+    /** RIS 全重置当前会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。 */
+    @JvmStatic external fun resetTerminal(sessionId: Long)
+
     external fun setTheme(sessionId: Long, data: ByteArray)
 
     external fun setRenderPaused(sessionId: Long, paused: Boolean)

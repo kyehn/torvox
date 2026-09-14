@@ -6,37 +6,30 @@ rules:
     severity: ERROR
     languages: [rust]
     fix: ""
-
   - id: no-todo-unimplemented
     patterns:
       - pattern-either:
           - pattern: todo!()
           - pattern: unimplemented!()
-    message: "`todo!()` and `unimplemented!()` panic at runtime. Replace with a
-      real implementation or a compile-time marker."
+    message: "`todo!()` and `unimplemented!()` panic at runtime. Replace with a real implementation or a compile-time marker."
     severity: ERROR
     languages: [rust]
-
   - id: no-process-exit
     patterns:
       - pattern: std::process::exit($ARG)
-    message: "`std::process::exit()` kills the process immediately without
-      cleanup. Return an error instead."
+    message: "`std::process::exit()` kills the process immediately without cleanup. Return an error instead."
     severity: ERROR
     languages: [rust]
-
   - id: no-test-ignore-attribute
     pattern-regex: '#\[ignore'
     message: "#[ignore] hides failures. spec TESTING bans silent skips."
     severity: ERROR
     languages: [rust]
-
   - id: no-test-skip-diagnostic
     pattern-regex: 'eprintln!\("SKIP:'
     message: "SKIP logs hide missing preconditions. Assert them instead."
     severity: ERROR
     languages: [rust]
-
   - id: no-test-early-return
     patterns:
       - pattern: return;
@@ -48,12 +41,10 @@ rules:
     message: "bare return in #[test] passes vacuously. Assert preconditions."
     severity: ERROR
     languages: [rust]
-
   - id: no-eprintln-library
     patterns:
       - pattern: eprintln!(...)
-    message: "`eprintln!` in library code writes to stderr. Use a logging
-      framework instead."
+    message: "`eprintln!` in library code writes to stderr. Use a logging framework instead."
     severity: ERROR
     languages: [rust]
     paths:
@@ -61,7 +52,6 @@ rules:
         - "**/*/tests/*"
         # cfg(test)-gated bless/progress diagnostics; test-only output.
         - "**/snapshot_test.rs"
-
   - id: no-criterion-black-box
     patterns:
       - pattern-either:
@@ -70,7 +60,6 @@ rules:
     message: "Use std::hint::black_box, not criterion::black_box."
     severity: ERROR
     languages: [rust]
-
   - id: no-unmanaged-build-command
     patterns:
       - pattern: $CMD::new($PROG, ...)
@@ -83,13 +72,11 @@ rules:
     message: "Unmanaged builds are forbidden; use nix develop tooling."
     severity: ERROR
     languages: [rust]
-
   - id: no-forbidden-env-var-set
     pattern-regex: '(set_var|\.env)\("(LD_LIBRARY_PATH|PWD|LD_PRELOAD)"'
     message: "Setting LD_LIBRARY_PATH/PWD/LD_PRELOAD is forbidden by spec."
     severity: ERROR
     languages: [rust]
-
   - id: no-embedded-proot
     pattern-regex: '\bproot\b'
     message: "Embedded proot is forbidden by spec; remove related code."
@@ -100,49 +87,41 @@ rules:
         - "**/src/test/**"
         - "**/src/androidTest/**"
         - "**/tests/**"
-
   - id: no-termux-api-refs
     pattern-regex: 'termux-api|termux_api|termux\.env\b'
     message: "termux-api and termux.env are forbidden by spec."
     severity: ERROR
     languages: [rust, kotlin]
-
   - id: no-deprecated-bootstrap-values
     pattern-regex: 'apt-android-5\b|2022\.04\.28\b'
     message: "Old bootstrap presets are forbidden; use current values."
     severity: ERROR
     languages: [rust, kotlin]
-
   - id: no-bootstrap-sidecar
     pattern-regex: '\bsidecar\b'
     message: "Bootstrap sha256 sidecar checks are forbidden by spec."
     severity: ERROR
     languages: [rust, kotlin]
-
   - id: no-prohibited-shells
     pattern-regex: '\b(fish|dash|zsh)\b'
     message: "fish/dash/zsh must not appear in code."
     severity: ERROR
     languages: [rust, kotlin]
-
   - id: no-torvox-identifier
     pattern-regex: '[Tt]orvox'
     message: "Use generic terms; Torvox only in intro docs."
     severity: ERROR
     languages: [rust, kotlin]
-
   - id: no-nix-store-paths
     pattern-regex: 'nix/store'
     message: "Hardcoded nix store paths are forbidden in code."
     severity: ERROR
     languages: [rust, kotlin]
-
   - id: no-zigbuild
     pattern-regex: 'zigbuild'
     message: "Use cargo ndk for Android builds, not cargo zigbuild."
     severity: ERROR
     languages: [rust, kotlin]
-
   # Repo tooling rules (generic): manifests, scripts and workflows.
   # check-rust.nu scans this file, so they live here.
   - id: no-crate-features
@@ -153,7 +132,6 @@ rules:
     paths:
       include:
         - "**/Cargo.toml"
-
   - id: no-nu-which-lookup
     pattern-regex: '\bwhich\s'
     message: "Tools come from nix develop; no which lookup in scripts."
@@ -162,7 +140,6 @@ rules:
     paths:
       include:
         - "**/scripts/*.nu"
-
   - id: no-nu-ignore-errors
     pattern-regex: 'do\s+--ignore-errors'
     message: "Let failures propagate; no do --ignore-errors in scripts."
@@ -171,7 +148,6 @@ rules:
     paths:
       include:
         - "**/scripts/*.nu"
-
   - id: no-nu-stderr-devnull
     pattern-regex: 'err>\s*/dev/null|\be\|>\s*null'
     message: "Stderr is diagnostic; never redirect it to /dev/null."
@@ -180,7 +156,6 @@ rules:
     paths:
       include:
         - "**/scripts/*.nu"
-
   - id: no-nu-pipe-ignore
     pattern-regex: '\|\s*ignore'
     message: "Handle errors explicitly; no pipe-to-ignore suppression."
@@ -189,7 +164,6 @@ rules:
     paths:
       include:
         - "**/scripts/*.nu"
-
   - id: no-nu-step-label
     pattern-regex: 'print\s+"==='
     message: "No === step labels in scripts; output results only."
@@ -198,7 +172,6 @@ rules:
     paths:
       include:
         - "**/scripts/*.nu"
-
   - id: no-nu-done-print
     pattern-regex: 'print\s+"(Done!|Boot verified)"'
     message: "No Done!/Boot-verified style prints."
@@ -207,7 +180,6 @@ rules:
     paths:
       include:
         - "**/scripts/*.nu"
-
   - id: no-pinned-action-version
     patterns:
       - pattern-regex: 'uses:\s*\S+@v?[0-9]'

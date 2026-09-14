@@ -91,6 +91,7 @@
 
     <!-- Text Search -->
     <string name="text_search">文本搜索</string>
+    <string name="reset_terminal">重置终端</string>
     <string name="search_placeholder">搜索终端…</string>
     <string name="search_next">下一个</string>
     <string name="search_previous">上一个</string>

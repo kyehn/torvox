@@ -167,13 +167,6 @@ impl GridSnapshot {
         }
         &self.cells[idx]
     }
-    pub fn uri_at(&self, row: u32, col: u32) -> Option<&str> {
-        if row >= self.rows || col >= self.cols {
-            return None;
-        }
-        let idx = (row * self.cols + col) as usize;
-        self.cells.get(idx).and_then(|c| c.uri.as_deref())
-    }
 }
 
 /// A snapshot of the entire terminal grid for serialization across FFI boundaries.
@@ -199,13 +192,14 @@ pub struct CellSnapshot {
     pub strikethrough: bool,
     pub blink: bool,
     pub hidden: bool,
-    pub uri: Option<String>,
     pub overline: bool,
     pub double_underline: bool,
     pub width: u8,
 }
 
 pub(crate) const COMMAND_CHANNEL_CAPACITY: usize = 1024;
+/// 上游 OSC 回调事件通道容量（cwd/剪贴板写入，低频；满则丢弃，VT 线程永不阻塞）。
+pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 16;
 pub(crate) const QUERY_TIMEOUT_MS: u64 = 500;
 /// How long `flush()` waits for the VT thread to drain its backlog before
 /// giving up. Must be far above legitimate burst-write drain times in
@@ -217,8 +211,6 @@ pub(crate) const DISCONNECTED_COLS: u32 = 80;
 pub(crate) const DISCONNECTED_CURSOR_X: u32 = 0;
 pub(crate) const DISCONNECTED_CURSOR_Y: u32 = 0;
 pub(crate) const DISCONNECTED_CURSOR_VISIBLE: bool = true;
-pub(crate) const DISCONNECTED_MODE_ORIGIN: bool = false;
-pub(crate) const DISCONNECTED_MODE_AUTOWRAP: bool = false;
 pub(crate) const DISCONNECTED_TITLE: &str = "";
 pub(crate) const DISCONNECTED_SCROLLBACK: u32 = 0;
 static DEFAULT_CELL: CellSnapshot = CellSnapshot {
@@ -234,7 +226,6 @@ static DEFAULT_CELL: CellSnapshot = CellSnapshot {
     strikethrough: false,
     blink: false,
     hidden: false,
-    uri: None,
     overline: false,
     double_underline: false,
     width: 1,

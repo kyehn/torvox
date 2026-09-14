@@ -368,6 +368,7 @@ fun TerminalScreen(
                         surfaceRef.value?.searchActive = true
                     },
                     onKeyboardToggle = toggleKeyboard,
+                    onResetTerminal = { viewModel.resetActiveTerminal() },
                     onClose = {
                         scope.launch { drawerState.close() }
                     },

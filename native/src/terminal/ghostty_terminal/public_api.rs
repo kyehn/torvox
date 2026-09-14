@@ -46,6 +46,8 @@ impl super::GhosttyTerminal {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
         let (query_tx, query_rx) = flume::bounded::<Query>(256);
         let (cell_data_tx, cell_data_rx) = flume::bounded::<(Vec<CellData>, CursorInfo)>(4);
+        let (cwd_tx, cwd_rx) = bounded::<String>(EVENT_CHANNEL_CAPACITY);
+        let (clipboard_tx, clipboard_rx) = bounded::<(String, String)>(EVENT_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = pty_write_responses.clone();
         let snapshot_rebuild_count = Arc::new(AtomicU64::new(0));
@@ -71,6 +73,8 @@ impl super::GhosttyTerminal {
                         snapshot_rebuild_count: snapshot_rebuild_count_for_run,
                         alt_screen_active: alt_screen_active_for_run,
                         cell_data_tx: Some(cell_data_tx),
+                        cwd_tx,
+                        clipboard_tx,
                     })
                 }));
                 if let Err(panic) = result {
@@ -91,6 +95,8 @@ impl super::GhosttyTerminal {
             cmd_tx,
             query_tx,
             cell_data_rx: Some(cell_data_rx),
+            cwd_rx,
+            clipboard_rx,
             handle: Some(handle),
             pty_write_responses,
             snapshot_rebuild_count,
@@ -112,6 +118,18 @@ impl super::GhosttyTerminal {
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         std::mem::take(&mut *guard)
+    }
+
+    /// 取出 VT 线程经上游 OSC 7 回调（on_pwd_changed）上报的工作目录（不阻塞，无事件为 None）。
+    /// 上游同时处理 OSC 7/9/1337，本方法返回其规范化结果。
+    pub fn poll_cwd_event(&self) -> Option<String> {
+        self.cwd_rx.try_recv().ok()
+    }
+
+    /// 取出 VT 线程经上游 OSC 52 回调（on_clipboard_write）上报的剪贴板写入
+    ///（选择器字母，文本）。不阻塞，无事件为 None。
+    pub fn poll_clipboard_event(&self) -> Option<(String, String)> {
+        self.clipboard_rx.try_recv().ok()
     }
 
     pub fn vt_write(&mut self, data: &[u8]) {
@@ -288,6 +306,14 @@ impl super::GhosttyTerminal {
             return false;
         }
         true
+    }
+
+    /// RIS 全重置：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
+    /// try_send 非阻塞：VT 线程卡住时丢弃而非阻塞调用方（与 resize 同策略）。
+    pub fn reset(&self) {
+        if let Err(error) = self.cmd_tx.try_send(Command::Reset) {
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for reset: {error}");
+        }
     }
 
     pub fn rows(&self) -> u32 {
@@ -545,47 +571,9 @@ impl super::GhosttyTerminal {
         }
     }
 
-    pub fn origin_mode(&self) -> bool {
-        self.query(Query::OriginMode, DISCONNECTED_MODE_ORIGIN, "origin_mode")
-    }
-
-    pub fn autowrap(&self) -> bool {
-        self.query(Query::Autowrap, DISCONNECTED_MODE_AUTOWRAP, "autowrap")
-    }
-
-    pub fn alt_screen(&self) -> bool {
-        self.query(Query::AltScreen, false, "alt_screen")
-    }
-
-    pub fn is_mouse_tracking_active(&self) -> bool {
-        self.mode_get(1000, 0) || self.mode_get(1002, 0) || self.mode_get(1003, 0)
-    }
-
-    pub fn is_cursor_enabled(&self) -> bool {
-        self.mode_get(25, 0)
-    }
-
-    pub fn is_bracketed_paste_active(&self) -> bool {
-        self.mode_get(2004, 0)
-    }
-
-    pub fn is_origin_mode(&self) -> bool {
-        self.origin_mode()
-    }
-
-    pub fn is_autowrap_enabled(&self) -> bool {
-        self.autowrap()
-    }
-
-    pub fn is_alt_screen_active(&self) -> bool {
-        self.alt_screen()
-    }
-
     /// Lock-free read of the alternate-screen mirror, updated by the VT thread
-    /// on every `Query::AltScreen` query. Safe to call from the Android
-    /// input path on every touch-scroll event without blocking the UI thread
-    /// (unlike `is_alt_screen_active`, which round-trips through the VT
-    /// thread via a query RPC).
+    /// on every emitted frame. Safe to call from the Android
+    /// input path on every touch-scroll event without blocking the UI thread.
     pub fn alt_screen_active_atomic(&self) -> bool {
         self.alt_screen_active.load(Ordering::Acquire)
     }
@@ -698,54 +686,5 @@ impl super::GhosttyTerminal {
             },
             "dump_grid",
         )
-    }
-
-    /// DECFRA: Fill rectangle with char_code (rows top..bottom, cols left..right, 1-indexed).
-    pub fn dec_fill_rect(&mut self, char_code: u8, top: u32, left: u32, bottom: u32, right: u32) {
-        let count = (right - left + 1) as usize;
-        for row in top..=bottom {
-            // Build the full cursor-move + fill sequence in one buffer so the
-            // single `vt_write` call contains a complete, self-terminated
-            // sequence (see `vt_write` contract — never split one sequence).
-            let mut buf = Vec::with_capacity(count + 16);
-            let pos = format!("\x1b[{};{}H", row, left);
-            buf.extend_from_slice(pos.as_bytes());
-            buf.extend(std::iter::repeat_n(char_code, count));
-            self.vt_write(&buf);
-        }
-        self.flush();
-    }
-
-    /// DECERA: Erase rectangle (fill with spaces).
-    pub fn dec_erase_rect(&mut self, top: u32, left: u32, bottom: u32, right: u32) {
-        self.dec_fill_rect(b' ', top, left, bottom, right);
-    }
-
-    /// DECCARA: Change attribute in rectangle.
-    /// Writes spaces with the given SGR attribute applied.
-    pub fn dec_change_attr_rect(
-        &mut self,
-        sgr_seq: &[u8],
-        top: u32,
-        left: u32,
-        bottom: u32,
-        right: u32,
-    ) {
-        let count = (right - left + 1) as usize;
-        for row in top..=bottom {
-            // Build the entire cursor-move + SGR + fill sequence in one buffer.
-            // Splitting the SGR escape sequence (`\x1b[` + params + `m`) across
-            // multiple `vt_write` calls would inject a stray ST/SGR reset inside
-            // the sequence and is therefore forbidden by the `vt_write` contract.
-            let mut buf = Vec::with_capacity(count + sgr_seq.len() + 16);
-            let pos = format!("\x1b[{};{}H", row, left);
-            buf.extend_from_slice(pos.as_bytes());
-            buf.extend_from_slice(b"\x1b[");
-            buf.extend_from_slice(sgr_seq);
-            buf.extend_from_slice(b"m");
-            buf.extend(std::iter::repeat_n(b' ', count));
-            self.vt_write(&buf);
-        }
-        self.flush();
     }
 }

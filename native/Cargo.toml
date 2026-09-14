@@ -34,7 +34,9 @@ thiserror = { workspace = true }
 wgpu = { workspace = true, features = ["vulkan"] }
 wgpu-types = { workspace = true }
 [dev-dependencies]
-criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.8", default-features = false, features = [
+  "cargo_bench_support",
+] }
 cucumber = "0.23"
 proptest = { workspace = true }
 shuttle = "0.9"

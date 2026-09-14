@@ -17,11 +17,9 @@ rules:
       - metavariable-regex:
           metavariable: $ACTIVITY
           regex: '.*Activity'
-    message: "Storing an Activity reference in a companion/object leaks the
-      Activity. Use `WeakReference<Activity>` or a lifecycle-aware pattern."
+    message: "Storing an Activity reference in a companion/object leaks the Activity. Use `WeakReference<Activity>` or a lifecycle-aware pattern."
     severity: ERROR
     languages: [kotlin]
-
   - id: no-basecontext-stored
     patterns:
       - pattern-either:
@@ -49,18 +47,13 @@ rules:
                 var $FIELD = $CTX.baseContext
                 ...
               }
-    message: "Storing `BaseContext` in a companion/object leaks the context.
-      Use `ApplicationContext` with `WeakReference` or pass context
-      explicitly."
+    message: "Storing `BaseContext` in a companion/object leaks the context. Use `ApplicationContext` with `WeakReference` or pass context explicitly."
     severity: ERROR
     languages: [kotlin]
-
   - id: no-thread-sleep-main
     patterns:
       - pattern: Thread.sleep($MILLIS)
-    message: "`Thread.sleep()` blocks the current thread, potentially causing
-      ANRs. Prefer coroutines `delay()` on the main thread or structured
-      threading."
+    message: "`Thread.sleep()` blocks the current thread, potentially causing ANRs. Prefer coroutines `delay()` on the main thread or structured threading."
     severity: ERROR
     languages: [kotlin, java]
     fix: |

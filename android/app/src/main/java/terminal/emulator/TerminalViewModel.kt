@@ -1934,6 +1934,21 @@ constructor(
         }
     }
 
+    /** RIS 全重置当前会话：恢复终端初始状态并清空回滚，同时清除已选区（端点已失效）。 */
+    fun resetActiveTerminal() {
+        val id = _state.value.activeSessionId
+        if (id == 0L) return
+        viewModelScope.launch(TerminalDispatchers.inputOutput) {
+            try {
+                NativeBridge.resetTerminal(id)
+            } catch (exception: Exception) {
+                android.util.Log.e("TerminalViewModel", "resetTerminal failed for id=$id", exception)
+                return@launch
+            }
+            clearSelection()
+        }
+    }
+
     fun setSessionTitle(title: String) {
         _state.update { it.copy(title = title) }
     }
