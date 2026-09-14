@@ -7,8 +7,7 @@ def main [] {
     semgrep scan --error --dataflow-traces --time --config .semgrep/rust-deny-patterns.yml --config .semgrep/rust-arch.yaml
     cargo test --workspace --no-fail-fast
     RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --workspace
-    markdownlint-cli2 "**/*.md" "#target/**" "#android/**/build/**"
-    cargo bench --workspace --bench cell_builder --bench vt_typing -- --quick --verbose
-    rustup component add llvm-tools-preview
-    cargo llvm-cov --html
+    markdownlint-cli2 "**/*.md"
+    cargo bench --workspace
+    cargo-llvm-cov --html
 }
