@@ -200,10 +200,10 @@ mod tests {
     fn mixed_string_produces_three_run_kinds() {
         let s = "Hello, 世界 🎉";
         let kinds: Vec<RunKind> = s.chars().map(classify_char).collect();
-        assert!(kinds.iter().any(|k| *k == RunKind::Latin));
-        assert!(kinds.iter().any(|k| *k == RunKind::Cjk));
+        assert!(kinds.contains(&RunKind::Latin));
+        assert!(kinds.contains(&RunKind::Cjk));
         assert!(
-            kinds.iter().any(|k| *k == RunKind::Emoji),
+            kinds.contains(&RunKind::Emoji),
             "🎉 (U+1F389) must classify as Emoji"
         );
     }
@@ -1581,8 +1581,8 @@ mod tests {
         // 避免像素计数偶然相同导致的误判。
         let bitmap = p.atlas_bitmap();
         let atlas_width = p.atlas_width as usize;
-        let regular_alpha = glyph_region_alpha(&regular, &bitmap, atlas_width);
-        let italic_alpha = glyph_region_alpha(&italic, &bitmap, atlas_width);
+        let regular_alpha = glyph_region_alpha(&regular, bitmap, atlas_width);
+        let italic_alpha = glyph_region_alpha(&italic, bitmap, atlas_width);
         assert!(
             regular_alpha.iter().any(|&alpha| alpha > 0),
             "常规字形区域必须有墨水"

@@ -1885,8 +1885,10 @@ mod tests {
 
     #[test]
     fn pack_style_flags_plain_underline_sets_only_underline_bit() {
-        let mut style = Style::default();
-        style.underline = Underline::Single;
+        let style = Style {
+            underline: Underline::Single,
+            ..Default::default()
+        };
         let flags = GhosttyTerminal::pack_style_flags(&style);
         assert_eq!(flags, 1 << cell_flags::UNDERLINE);
     }

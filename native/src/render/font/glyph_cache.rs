@@ -105,8 +105,8 @@ mod tests {
         assert!(gc.style_face_cache.len() == 1);
         assert!(gc.style_glyph_id_cache.len() == 1);
         gc.clear();
-        assert!(gc.style_face_cache.len() == 0);
-        assert!(gc.style_glyph_id_cache.len() == 0);
+        assert!(gc.style_face_cache.is_empty());
+        assert!(gc.style_glyph_id_cache.is_empty());
     }
 
     #[test]
