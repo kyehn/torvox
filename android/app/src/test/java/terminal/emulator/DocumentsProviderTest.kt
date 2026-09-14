@@ -289,8 +289,7 @@ class DocumentsProviderTest {
                 )
                 .waitFor()
         } catch (expected: Exception) {
-            // symlink creation unavailable — nothing to verify.
-            return
+            fail("symlink creation must work for this test: $expected")
         }
         val cursor = provider.querySearchDocuments("terminal_home", "outside-secret", null)
         cursor.use {

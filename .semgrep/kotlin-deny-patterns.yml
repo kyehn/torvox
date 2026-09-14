@@ -1,8 +1,39 @@
 rules:
+  - id: no-junit-ignore
+    pattern-regex: '@Ignore\b'
+    message: "@Ignore hides failures. spec TESTING bans silent skips."
+    severity: ERROR
+    languages: [kotlin]
+
+  - id: no-junit-assume
+    patterns:
+      - pattern-either:
+          - pattern: Assume.$METHOD(...)
+          - pattern: assumeTrue(...)
+          - pattern: assumeFalse(...)
+          - pattern: assumeThat(...)
+    message: "Assume aborts tests silently. Assert preconditions instead."
+    severity: ERROR
+    languages: [kotlin]
+
+  - id: no-test-early-return
+    patterns:
+      - pattern: return
+      - pattern-inside: |
+          @Test
+          fun $NAME(...) {
+            ...
+          }
+    message: "bare return in @Test passes vacuously. Use fail(...) instead."
+    severity: ERROR
+    languages: [kotlin]
+
   - id: no-globalscope-launch
     patterns:
       - pattern: GlobalScope.launch { ... }
-    message: "`GlobalScope.launch` creates a fire-and-forget coroutine with no lifecycle management. Use `viewModelScope`, `lifecycleScope`, or a custom `CoroutineScope` tied to the component lifecycle."
+    message: "`GlobalScope.launch` creates a fire-and-forget coroutine with no
+      lifecycle management. Use `viewModelScope`, `lifecycleScope`, or a custom
+      `CoroutineScope` tied to the component lifecycle."
     severity: ERROR
     languages: [kotlin]
     fix: |
@@ -14,7 +45,8 @@ rules:
       - pattern-not-inside: |
           @Test
           ...
-    message: "`runBlocking` blocks the current thread. Use structured concurrency with `suspend` functions and appropriate scopes."
+    message: "`runBlocking` blocks the current thread. Use structured
+      concurrency with `suspend` functions and appropriate scopes."
     severity: ERROR
     languages: [kotlin]
     paths:
@@ -25,7 +57,8 @@ rules:
   - id: no-non-null-assertion
     patterns:
       - pattern: $VAR!!
-    message: "Non-null assertion `!!` throws NullPointerException if the value is null. Use safe calls (`?.`), Elvis (`?:`), or proper null handling."
+    message: "Non-null assertion `!!` throws NullPointerException if the value
+      is null. Use safe calls (`?.`), Elvis (`?:`), or proper null handling."
     severity: ERROR
     languages: [kotlin]
     paths:
@@ -37,21 +70,24 @@ rules:
   - id: no-thread-block
     patterns:
       - pattern: thread { ... }
-    message: "Raw `thread { }` is discouraged. Use `viewModelScope.launch` or `lifecycleScope.launch` with `Dispatchers.IO` for background work."
+    message: "Raw `thread { }` is discouraged. Use `viewModelScope.launch` or
+      `lifecycleScope.launch` with `Dispatchers.IO` for background work."
     severity: ERROR
     languages: [kotlin]
 
   - id: no-system-exit
     patterns:
       - pattern: System.exit($ARG)
-    message: "`System.exit()` terminates the JVM process. Use proper activity/fragment lifecycle management."
+    message: "`System.exit()` terminates the JVM process. Use proper
+      activity/fragment lifecycle management."
     severity: ERROR
     languages: [kotlin, java]
 
   - id: no-map-get-nonnull
     patterns:
       - pattern: $MAP.get($KEY)!!
-    message: "`.get()!!` throws NullPointerException if the key is missing. Use `$MAP[$KEY] ?: <default>` or `$MAP.getValue($KEY)`."
+    message: "`.get()!!` throws NullPointerException if the key is missing. Use
+      `$MAP[$KEY] ?: <default>` or `$MAP.getValue($KEY)`."
     severity: WARNING
     languages: [kotlin]
 
@@ -64,6 +100,7 @@ rules:
       - metavariable-pattern:
           metavariable: $CALLBACK
           pattern: AsyncCallback
-    message: "Raw `object : AsyncCallback` blocks the callback style. Use coroutines (`suspend` functions) instead."
+    message: "Raw `object : AsyncCallback` blocks the callback style. Use
+      coroutines (`suspend` functions) instead."
     severity: ERROR
     languages: [kotlin]
