@@ -19,7 +19,7 @@
 - minSdkVersion 为 33，compileSdkVersion 为 37，targetSdkVersion 为 28
 - ndkVersion 为 r30，不在代码中固定版本
 - versionCode 为 2000，versionName 为 0.1.0
-- Rust 版本最低为 1.98，edition 最低为 2024 
+- Rust 版本最低为 1.98，edition 最低为 2024
 - 不得保留未使用依赖，所有依赖使用最新稳定（或最新不稳定）版本，不得降级依赖
 - rust/kotlin 代码中绝不能出现使用 `cargo build` `cargo test` `./gradlew ":app:assembleDebug"` 或其他类似命令，绝对禁止不受管理的构建
 - 只支持 arm64-v8a x86_64（x86_64 仅构建/测试/模拟器测试时使用）
