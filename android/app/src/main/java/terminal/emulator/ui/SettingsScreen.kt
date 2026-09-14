@@ -244,30 +244,32 @@ private fun SettingsHeader(
     textColor: Color,
     isSmallScreen: Boolean,
 ) {
-    Spacer(modifier = Modifier.height(8.dp))
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IconButton(onClick = onBack, modifier = Modifier.testTag("SettingsBackButton")) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                contentDescription = stringResource(R.string.back),
-                tint = textColor,
+    Column {
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onBack, modifier = Modifier.testTag("SettingsBackButton")) {
+                Icon(
+                    Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = stringResource(R.string.back),
+                    tint = textColor,
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = stringResource(R.string.settings),
+                style =
+                if (isSmallScreen) {
+                    MaterialTheme.typography.titleLarge
+                } else {
+                    MaterialTheme.typography.headlineSmall
+                },
+                color = textColor,
+                fontWeight = FontWeight.Bold,
             )
         }
-        Spacer(modifier = Modifier.width(4.dp))
-        Text(
-            text = stringResource(R.string.settings),
-            style =
-            if (isSmallScreen) {
-                MaterialTheme.typography.titleLarge
-            } else {
-                MaterialTheme.typography.headlineSmall
-            },
-            color = textColor,
-            fontWeight = FontWeight.Bold,
-        )
     }
 }
 
@@ -295,36 +297,38 @@ private fun AppearanceSectionContent(
     // reflowing the grid per step — the "slider jumps / layout garbles"
     // reports. Preview keeps drags cheap and single-threaded.
     var sliderFontSize by rememberSaveable { mutableFloatStateOf(fontSize) }
-    FontSizeSlider(
-        modifier = Modifier.testTag("FontSizeSlider"),
-        value = sliderFontSize,
-        onValueChange = {
-            sliderFontSize = it
-            onFontSizePreview(it)
-        },
-        onValueChangeFinished = { onFontSizeCommitted(sliderFontSize) },
-        textColor = textColor,
-        secondaryText = secondaryText,
-        accentColor = accentColor,
-    )
-    Spacer(modifier = Modifier.height(12.dp))
-    FontFamilySelectors(
-        regularFamily = fontFamily,
-        onFamilySelected = { family -> onFontFamilySelected(family) },
-        customFontLauncher = customFontLauncher,
-        colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
-        availableFonts = availableFonts.toImmutableList(),
-        defaultFontName = defaultFontName,
-        fontInfo = fontInfo,
-    )
-    FontInfoSectionIfAvailable(
-        fontInfo = fontInfo,
-        defaultFontName = defaultFontName,
-        fontSize = fontSize,
-        textColor = textColor,
-        secondaryText = secondaryText,
-    )
-    Spacer(modifier = Modifier.height(12.dp))
+    Column {
+        FontSizeSlider(
+            modifier = Modifier.testTag("FontSizeSlider"),
+            value = sliderFontSize,
+            onValueChange = {
+                sliderFontSize = it
+                onFontSizePreview(it)
+            },
+            onValueChangeFinished = { onFontSizeCommitted(sliderFontSize) },
+            textColor = textColor,
+            secondaryText = secondaryText,
+            accentColor = accentColor,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        FontFamilySelectors(
+            regularFamily = fontFamily,
+            onFamilySelected = { family -> onFontFamilySelected(family) },
+            customFontLauncher = customFontLauncher,
+            colors = SettingsColors(textColor, secondaryText, accentColor, backgroundColor),
+            availableFonts = availableFonts.toImmutableList(),
+            defaultFontName = defaultFontName,
+            fontInfo = fontInfo,
+        )
+        FontInfoSectionIfAvailable(
+            fontInfo = fontInfo,
+            defaultFontName = defaultFontName,
+            fontSize = fontSize,
+            textColor = textColor,
+            secondaryText = secondaryText,
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+    }
 }
 
 @Composable
@@ -336,15 +340,17 @@ private fun AppThemeSection(
     accentColor: Color,
     sectionTitleColor: Color,
 ) {
-    SectionHeader(stringResource(R.string.software_theme), sectionTitleColor)
-    SettingsCard(cardBackground) {
-        AppThemeSelector(
-            selectedMode = appThemeMode,
-            onModeSelected = { onAppThemeModeSelected(it) },
-            textColor = textColor,
-            cardBackground = cardBackground,
-            accentColor = accentColor,
-        )
+    Column {
+        SectionHeader(stringResource(R.string.software_theme), sectionTitleColor)
+        SettingsCard(cardBackground) {
+            AppThemeSelector(
+                selectedMode = appThemeMode,
+                onModeSelected = { onAppThemeModeSelected(it) },
+                textColor = textColor,
+                cardBackground = cardBackground,
+                accentColor = accentColor,
+            )
+        }
     }
 }
 
@@ -369,57 +375,59 @@ private fun TerminalThemeSection(
         terminal.emulator.ui.theme.BuiltInThemes.all.toImmutableList()
     }
 
-    SectionHeader(stringResource(R.string.theme), sectionTitleColor)
-    SettingsCard(cardBackground) {
-        TerminalThemeModeSelector(
-            selectedMode = themeMode,
-            onModeSelected = { onThemeModeSelected(it) },
-            textColor = textColor,
-            cardBackground = cardBackground,
-            accentColor = MaterialTheme.colorScheme.primary,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        when (themeMode) {
-            "follow_system",
-            "day",
-            "night",
-            -> {
-                Column(modifier = Modifier.testTag("DayNightThemeSection")) {
+    Column {
+        SectionHeader(stringResource(R.string.theme), sectionTitleColor)
+        SettingsCard(cardBackground) {
+            TerminalThemeModeSelector(
+                selectedMode = themeMode,
+                onModeSelected = { onThemeModeSelected(it) },
+                textColor = textColor,
+                cardBackground = cardBackground,
+                accentColor = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            when (themeMode) {
+                "follow_system",
+                "day",
+                "night",
+                -> {
+                    Column(modifier = Modifier.testTag("DayNightThemeSection")) {
+                        ThemeSelector(
+                            label = stringResource(R.string.day_theme),
+                            selectedTheme = dayThemeName,
+                            themes = allThemes,
+                            onThemeSelected = { onDayThemeSelected(it) },
+                            textColor = textColor,
+                            secondaryText = secondaryText,
+                            cardBackground = cardBackground,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        ThemeSelector(
+                            label = stringResource(R.string.night_theme),
+                            selectedTheme = nightThemeName,
+                            themes = allThemes,
+                            onThemeSelected = { onNightThemeSelected(it) },
+                            textColor = textColor,
+                            secondaryText = secondaryText,
+                            cardBackground = cardBackground,
+                        )
+                    }
+                }
+
+                "fixed" -> {
                     ThemeSelector(
-                        label = stringResource(R.string.day_theme),
-                        selectedTheme = dayThemeName,
+                        label = "",
+                        selectedTheme = themeName,
                         themes = allThemes,
-                        onThemeSelected = { onDayThemeSelected(it) },
-                        textColor = textColor,
-                        secondaryText = secondaryText,
-                        cardBackground = cardBackground,
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    ThemeSelector(
-                        label = stringResource(R.string.night_theme),
-                        selectedTheme = nightThemeName,
-                        themes = allThemes,
-                        onThemeSelected = { onNightThemeSelected(it) },
+                        onThemeSelected = { onFixedThemeSelected(it) },
                         textColor = textColor,
                         secondaryText = secondaryText,
                         cardBackground = cardBackground,
                     )
                 }
             }
-
-            "fixed" -> {
-                ThemeSelector(
-                    label = "",
-                    selectedTheme = themeName,
-                    themes = allThemes,
-                    onThemeSelected = { onFixedThemeSelected(it) },
-                    textColor = textColor,
-                    secondaryText = secondaryText,
-                    cardBackground = cardBackground,
-                )
-            }
+            Spacer(modifier = Modifier.height(12.dp))
         }
-        Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
@@ -436,15 +444,17 @@ private fun TerminalConfigSection(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
-    SettingsCard(cardBackground) {
-        ShellInput(
-            shellPath = selectedShell,
-            onShellChanged = { onShellChanged(it) },
-            textColor = textColor,
-            accentColor = accentColor,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
+    Column {
+        SectionHeader(stringResource(R.string.terminal), sectionTitleColor)
+        SettingsCard(cardBackground) {
+            ShellInput(
+                shellPath = selectedShell,
+                onShellChanged = { onShellChanged(it) },
+                textColor = textColor,
+                accentColor = accentColor,
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+        }
     }
 }
 
@@ -464,20 +474,22 @@ private fun BootstrapSectionFromSettings(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
-    SettingsCard(cardBackground, Modifier.testTag("BootstrapSection")) {
-        BootstrapSection(
-            bootstrapUrl = bootstrapUrl,
-            onUrlChanged = { onUrlChanged(it) },
-            onRunBootstrap = { onRunBootstrap() },
-            onInstallOffline = { uri -> onInstallOffline(uri) },
-            bootstrapRunning = bootstrapRunning,
-            bootstrapResult = bootstrapResult,
-            bootstrapProgress = bootstrapProgress,
-            textColor = textColor,
-            accentColor = accentColor,
-            secondaryText = secondaryText,
-        )
+    Column {
+        SectionHeader(stringResource(R.string.bootstrap), sectionTitleColor)
+        SettingsCard(cardBackground, Modifier.testTag("BootstrapSection")) {
+            BootstrapSection(
+                bootstrapUrl = bootstrapUrl,
+                onUrlChanged = { onUrlChanged(it) },
+                onRunBootstrap = { onRunBootstrap() },
+                onInstallOffline = { uri -> onInstallOffline(uri) },
+                bootstrapRunning = bootstrapRunning,
+                bootstrapResult = bootstrapResult,
+                bootstrapProgress = bootstrapProgress,
+                textColor = textColor,
+                accentColor = accentColor,
+                secondaryText = secondaryText,
+            )
+        }
     }
 }
 
@@ -489,9 +501,11 @@ private fun ClearAppDataSectionItem(
     sectionTitleColor: Color,
     isSmallScreen: Boolean,
 ) {
-    SectionHeader(stringResource(R.string.clear_app_data), sectionTitleColor)
-    SettingsCard(cardBackground) {
-        ClearAppDataSection(onClearAppData = onClearAppData, textColor = textColor)
+    Column {
+        SectionHeader(stringResource(R.string.clear_app_data), sectionTitleColor)
+        SettingsCard(cardBackground) {
+            ClearAppDataSection(onClearAppData = onClearAppData, textColor = textColor)
+        }
     }
 }
 
@@ -643,69 +657,71 @@ private fun SystemFontSelector(
     val labelStyle =
         if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
     val displayName = if (defaultFontName.isEmpty()) "Noto Sans Mono" else defaultFontName
-
-    Spacer(modifier = Modifier.height(4.dp))
-    Text(
-        text = titleOverride ?: stringResource(R.string.font_family),
-        style = labelStyle,
-        color = textColor,
-        maxLines = 1,
-    )
-    Spacer(modifier = Modifier.height(4.dp))
     var showFontPicker by remember { mutableStateOf(false) }
 
-    Box {
-        Row(
-            modifier =
-            Modifier.testTag("FontFamilySelector")
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .background(cardBackground)
-                .clickable {
-                    showFontPicker = true
-                }
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = if (selectedFamily.isEmpty()) displayName else selectedFamily,
-                color = textColor,
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = stringResource(R.string.change),
-                color = accentColor,
-                style = MaterialTheme.typography.bodySmall,
-            )
-        }
-
-        if (showFontPicker) {
-            FontPickerDialog(
-                fonts = systemFonts.toImmutableList(),
-                selectedFamily = selectedFamily,
-                onFamilySelected = { font ->
-                    onFamilySelected(font)
-                    showFontPicker = false
-                },
-                onDismiss = { showFontPicker = false },
-                textColor = textColor,
-                cardBackground = cardBackground,
-                accentColor = accentColor,
-                onPickFontFile = { onPickFontFile?.invoke() },
-            )
-        }
-    }
-
-    val fontInfoDto = FontInfoDto.fromJson(fontInfo)
-    if (fontInfoDto?.cjkState == "none") {
+    Column {
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = stringResource(R.string.cjk_fallback_missing_warning),
-            style = MaterialTheme.typography.bodySmall,
-            color = WARNING_ORANGE,
+            text = titleOverride ?: stringResource(R.string.font_family),
+            style = labelStyle,
+            color = textColor,
+            maxLines = 1,
         )
+        Spacer(modifier = Modifier.height(4.dp))
+
+        Box {
+            Row(
+                modifier =
+                Modifier.testTag("FontFamilySelector")
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(cardBackground)
+                    .clickable {
+                        showFontPicker = true
+                    }
+                    .padding(horizontal = 12.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = if (selectedFamily.isEmpty()) displayName else selectedFamily,
+                    color = textColor,
+                    modifier = Modifier.weight(1f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = stringResource(R.string.change),
+                    color = accentColor,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+
+            if (showFontPicker) {
+                FontPickerDialog(
+                    fonts = systemFonts.toImmutableList(),
+                    selectedFamily = selectedFamily,
+                    onFamilySelected = { font ->
+                        onFamilySelected(font)
+                        showFontPicker = false
+                    },
+                    onDismiss = { showFontPicker = false },
+                    textColor = textColor,
+                    cardBackground = cardBackground,
+                    accentColor = accentColor,
+                    onPickFontFile = { onPickFontFile?.invoke() },
+                )
+            }
+        }
+
+        val fontInfoDto = FontInfoDto.fromJson(fontInfo)
+        if (fontInfoDto?.cjkState == "none") {
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = stringResource(R.string.cjk_fallback_missing_warning),
+                style = MaterialTheme.typography.bodySmall,
+                color = WARNING_ORANGE,
+            )
+        }
     }
 }
 
@@ -1017,90 +1033,92 @@ private fun BootstrapSection(
     var url by remember { mutableStateOf(bootstrapUrl) }
     LaunchedEffect(bootstrapUrl) { url = bootstrapUrl }
 
-    OutlinedTextField(
-        value = url,
-        onValueChange = {
-            url = it
-            onUrlChanged(it)
-        },
-        label = { Text(stringResource(R.string.bootstrap_url_label)) },
-        placeholder = { Text(stringResource(R.string.bootstrap_url_placeholder)) },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth().testTag("BootstrapUrlInput"),
-        colors =
-        OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = accentColor,
-            unfocusedBorderColor = textColor.copy(alpha = 0.5f),
-            cursorColor = accentColor,
-            focusedLabelColor = accentColor,
-        ),
-    )
-    Spacer(modifier = Modifier.height(4.dp))
-    Text(
-        text = stringResource(R.string.bootstrap_desc),
-        style = MaterialTheme.typography.bodySmall,
-        color = secondaryText,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-    Text(
-        text = stringResource(R.string.bootstrap_presets),
-        style = MaterialTheme.typography.bodyMedium,
-        color = textColor,
-    )
-    Spacer(modifier = Modifier.height(4.dp))
-
-    val arch = terminal.emulator.detectArchFromAbi()
-    val termuxUrl =
-        "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-$arch.zip"
-
-    val presets =
-        listOf(
-            Triple(
-                stringResource(R.string.bootstrap_preset_termux),
-                termuxUrl,
-                stringResource(R.string.bootstrap_preset_termux_desc),
-            ),
-        )
-    presets.forEachIndexed { index, preset ->
-        BootstrapPresetItem(
-            preset = preset,
-            colors = PresetColors(accentColor, textColor, secondaryText),
-            modifier =
-            Modifier.testTag(
-                "BootstrapPreset_TermuxDefault",
-            ),
-            onAction = {
-                url = preset.second
-                onUrlChanged(preset.second)
+    Column {
+        OutlinedTextField(
+            value = url,
+            onValueChange = {
+                url = it
+                onUrlChanged(it)
             },
+            label = { Text(stringResource(R.string.bootstrap_url_label)) },
+            placeholder = { Text(stringResource(R.string.bootstrap_url_placeholder)) },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth().testTag("BootstrapUrlInput"),
+            colors =
+            OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = accentColor,
+                unfocusedBorderColor = textColor.copy(alpha = 0.5f),
+                cursorColor = accentColor,
+                focusedLabelColor = accentColor,
+            ),
         )
-    }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = stringResource(R.string.bootstrap_desc),
+            style = MaterialTheme.typography.bodySmall,
+            color = secondaryText,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.bootstrap_presets),
+            style = MaterialTheme.typography.bodyMedium,
+            color = textColor,
+        )
+        Spacer(modifier = Modifier.height(4.dp))
 
-    Spacer(modifier = Modifier.height(8.dp))
-    BootstrapInstallButton(
-        onRunBootstrap,
-        bootstrapRunning,
-        bootstrapResult,
-        bootstrapProgress,
-        accentColor,
-        textColor,
-    )
+        val arch = terminal.emulator.detectArchFromAbi()
+        val termuxUrl =
+            "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-$arch.zip"
 
-    // Offline install: pick a.zip file via SAF, no network required
-    Spacer(modifier = Modifier.height(8.dp))
-    val offlineLauncher =
-        rememberLauncherForActivityResult(
-            contract = ActivityResultContracts.OpenDocument(),
-        ) { uri ->
-            uri?.let { onInstallOffline(it) }
+        val presets =
+            listOf(
+                Triple(
+                    stringResource(R.string.bootstrap_preset_termux),
+                    termuxUrl,
+                    stringResource(R.string.bootstrap_preset_termux_desc),
+                ),
+            )
+        presets.forEachIndexed { index, preset ->
+            BootstrapPresetItem(
+                preset = preset,
+                colors = PresetColors(accentColor, textColor, secondaryText),
+                modifier =
+                Modifier.testTag(
+                    "BootstrapPreset_TermuxDefault",
+                ),
+                onAction = {
+                    url = preset.second
+                    onUrlChanged(preset.second)
+                },
+            )
         }
-    OutlinedButton(
-        onClick = { offlineLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
-        enabled = !bootstrapRunning,
-        modifier = Modifier.fillMaxWidth().testTag("OfflineInstallButton"),
-        colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
-    ) {
-        Text(stringResource(R.string.bootstrap_install_offline))
+
+        Spacer(modifier = Modifier.height(8.dp))
+        BootstrapInstallButton(
+            onRunBootstrap,
+            bootstrapRunning,
+            bootstrapResult,
+            bootstrapProgress,
+            accentColor,
+            textColor,
+        )
+
+        // Offline install: pick a.zip file via SAF, no network required
+        Spacer(modifier = Modifier.height(8.dp))
+        val offlineLauncher =
+            rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.OpenDocument(),
+            ) { uri ->
+                uri?.let { onInstallOffline(it) }
+            }
+        OutlinedButton(
+            onClick = { offlineLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+            enabled = !bootstrapRunning,
+            modifier = Modifier.fillMaxWidth().testTag("OfflineInstallButton"),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = textColor),
+        ) {
+            Text(stringResource(R.string.bootstrap_install_offline))
+        }
     }
 }
 

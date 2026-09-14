@@ -129,37 +129,39 @@ private fun SearchToggleButtons(
             stringResource(R.string.enable_fuzzy_match)
         }
 
-    IconButton(
-        onClick = { onCaseSensitiveToggle(!caseSensitive) },
-        modifier = Modifier.size(32.dp).testTag("SearchCaseSensitive"),
-    ) {
-        Text(
-            text = "Aa",
-            fontSize = 13.sp,
-            color = aaColor,
-        )
-    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(
+            onClick = { onCaseSensitiveToggle(!caseSensitive) },
+            modifier = Modifier.size(32.dp).testTag("SearchCaseSensitive"),
+        ) {
+            Text(
+                text = "Aa",
+                fontSize = 13.sp,
+                color = aaColor,
+            )
+        }
 
-    IconButton(
-        onClick = { onFuzzyMatchToggle(!fuzzyMatch) },
-        modifier =
-        Modifier
-            .size(32.dp)
-            .testTag("SearchFuzzyMatch")
-            .semantics {
-                contentDescription = fuzzyMatchDescription
-            },
-    ) {
-        Text(
-            text = "~",
-            fontSize = 13.sp,
-            color =
-            if (fuzzyMatch) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-        )
+        IconButton(
+            onClick = { onFuzzyMatchToggle(!fuzzyMatch) },
+            modifier =
+            Modifier
+                .size(32.dp)
+                .testTag("SearchFuzzyMatch")
+                .semantics {
+                    contentDescription = fuzzyMatchDescription
+                },
+        ) {
+            Text(
+                text = "~",
+                fontSize = 13.sp,
+                color =
+                if (fuzzyMatch) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
     }
 }
 
@@ -169,24 +171,26 @@ private fun SearchResultCounter(
     resultCount: Int,
     currentResultIndex: Int,
 ) {
-    Spacer(modifier = Modifier.width(4.dp))
-    if (query.isNotEmpty()) {
-        Text(
-            text =
-            if (resultCount == 0) {
-                stringResource(R.string.search_no_results)
-            } else {
-                stringResource(R.string.search_result_of, currentResultIndex + 1, resultCount)
-            },
-            fontSize = 12.sp,
-            color =
-            if (resultCount == 0) {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onSurfaceVariant
-            },
-            modifier = Modifier.testTag("SearchResultCount"),
-        )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Spacer(modifier = Modifier.width(4.dp))
+        if (query.isNotEmpty()) {
+            Text(
+                text =
+                if (resultCount == 0) {
+                    stringResource(R.string.search_no_results)
+                } else {
+                    stringResource(R.string.search_result_of, currentResultIndex + 1, resultCount)
+                },
+                fontSize = 12.sp,
+                color =
+                if (resultCount == 0) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                modifier = Modifier.testTag("SearchResultCount"),
+            )
+        }
     }
 }
 
@@ -196,21 +200,23 @@ private fun SearchNavButtons(
     onPrevious: () -> Unit,
     onNext: () -> Unit,
 ) {
-    Spacer(modifier = Modifier.width(4.dp))
-    SearchNavButton(
-        imageVector = Icons.Filled.KeyboardArrowUp,
-        description = stringResource(R.string.search_previous),
-        resultCount = resultCount,
-        onClick = onPrevious,
-        testTag = "SearchPrevious",
-    )
-    SearchNavButton(
-        imageVector = Icons.Filled.KeyboardArrowDown,
-        description = stringResource(R.string.search_next),
-        resultCount = resultCount,
-        onClick = onNext,
-        testTag = "SearchNext",
-    )
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Spacer(modifier = Modifier.width(4.dp))
+        SearchNavButton(
+            imageVector = Icons.Filled.KeyboardArrowUp,
+            description = stringResource(R.string.search_previous),
+            resultCount = resultCount,
+            onClick = onPrevious,
+            testTag = "SearchPrevious",
+        )
+        SearchNavButton(
+            imageVector = Icons.Filled.KeyboardArrowDown,
+            description = stringResource(R.string.search_next),
+            resultCount = resultCount,
+            onClick = onNext,
+            testTag = "SearchNext",
+        )
+    }
 }
 
 /** Arrow step button for the search bar, dimmed when there are no results. */
