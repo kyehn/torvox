@@ -740,9 +740,11 @@ mod tests {
             );
         } else {
             pipeline.set_font_family("monospace");
-            if pipeline.cache_length() == 0 {
-                return;
-            }
+            assert_ne!(
+                pipeline.cache_length(),
+                0,
+                "cache must be non-empty after font switch"
+            );
             assert!(
                 pipeline.cache_length() < before,
                 "cache should shrink after font switch"
@@ -1051,14 +1053,16 @@ mod tests {
     fn cjk_fallback_uses_vector_font() {
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let names = pipeline.cjk_fallback_names();
-        if !names.is_empty() {
-            let cjk_info = pipeline.glyph_information('好').expect("CJK glyph info");
-            assert!(
-                cjk_info.width > 0,
-                "CJK glyph should have meaningful width, got {}",
-                cjk_info.width
-            );
-        }
+        assert!(
+            !names.is_empty(),
+            "CJK fallback fonts must load (run inside nix develop)"
+        );
+        let cjk_info = pipeline.glyph_information('好').expect("CJK glyph info");
+        assert!(
+            cjk_info.width > 0,
+            "CJK glyph should have meaningful width, got {}",
+            cjk_info.width
+        );
     }
 
     fn try_load_cjk_fonts(db: &mut fontdb::Database) -> bool {
@@ -1150,13 +1154,10 @@ mod tests {
         // which must resolve the glyph in a non-primary font.
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let names = pipeline.list_monospace_fonts();
-        if !names.iter().any(|n| n.contains("Liberation")) {
-            // Coverage guard: the scan tail is exercised on hosts that
-            // ship Liberation Mono (the standard Debian/CI set).
-            // nosemgrep: semgrep.no-eprintln-library — test skip diagnostic
-            eprintln!("SKIP: symbol_glyph_resolves_via_database_scan (no Liberation Mono)");
-            return;
-        }
+        assert!(
+            names.iter().any(|n| n.contains("Liberation")),
+            "Liberation Mono must be present (run inside nix develop)"
+        );
         assert!(
             pipeline.set_font_family("Liberation Mono"),
             "switch to Liberation Mono"
@@ -1217,11 +1218,10 @@ mod tests {
     #[test]
     fn cjk_locale_selects_correct_variant() {
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
-        if !try_load_cjk_fonts(pipeline.font_system.db_mut()) {
-            // nosemgrep: semgrep.no-eprintln-library — test skip diagnostic
-            eprintln!("SKIP: cjk_locale_selects_correct_variant (no CJK fonts)");
-            return;
-        }
+        assert!(
+            try_load_cjk_fonts(pipeline.font_system.db_mut()),
+            "CJK fonts must load (run inside nix develop)"
+        );
         let cases: &[(&str, &str)] = &[
             ("zh-CN", "sc"),
             ("zh-TW", "tc"),
@@ -1254,11 +1254,10 @@ mod tests {
     #[test]
     fn primary_cjk_font_no_fallback() {
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
-        if !try_load_cjk_fonts(pipeline.font_system.db_mut()) {
-            // nosemgrep: semgrep.no-eprintln-library — test skip diagnostic
-            eprintln!("SKIP: primary_cjk_font_no_fallback (no CJK fonts)");
-            return;
-        }
+        assert!(
+            try_load_cjk_fonts(pipeline.font_system.db_mut()),
+            "CJK fonts must load (run inside nix develop)"
+        );
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         try_load_cjk_fonts(pipeline.font_system.db_mut());
         pipeline.set_system_locale("zh-CN");
@@ -1280,11 +1279,10 @@ mod tests {
     #[test]
     fn max_one_fallback_font() {
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-        if !try_load_cjk_fonts(pipeline.font_system.db_mut()) {
-            // nosemgrep: semgrep.no-eprintln-library — test skip diagnostic
-            eprintln!("SKIP: max_one_fallback_font (no CJK fonts)");
-            return;
-        }
+        assert!(
+            try_load_cjk_fonts(pipeline.font_system.db_mut()),
+            "CJK fonts must load (run inside nix develop)"
+        );
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
         try_load_cjk_fonts(pipeline.font_system.db_mut());
         pipeline.set_system_locale("zh-CN");
@@ -1308,11 +1306,10 @@ mod tests {
     #[test]
     fn fonts_xml_index_match_resolves_exact_face() {
         let mut db = fontdb::Database::new();
-        if !try_load_cjk_fonts(&mut db) {
-            // nosemgrep: semgrep.no-eprintln-library — test skip diagnostic
-            eprintln!("SKIP: fonts_xml_index_match_resolves_exact_face (no CJK fonts)");
-            return;
-        }
+        assert!(
+            try_load_cjk_fonts(&mut db),
+            "CJK fonts must load (run inside nix develop)"
+        );
         // Pick a TTC face so (filename, index) mapping is exercised.
         let (filename, index) = db
             .faces()
@@ -1350,11 +1347,10 @@ mod tests {
     fn fonts_xml_missing_file_falls_back_to_scan() {
         // Unknown filename: no exact hit, caller fills from the scan.
         let mut db = fontdb::Database::new();
-        if !try_load_cjk_fonts(&mut db) {
-            // nosemgrep: semgrep.no-eprintln-library — test skip diagnostic
-            eprintln!("SKIP: fonts_xml_missing_file_falls_back_to_scan (no CJK fonts)");
-            return;
-        }
+        assert!(
+            try_load_cjk_fonts(&mut db),
+            "CJK fonts must load (run inside nix develop)"
+        );
         let xml = r#"<familyset version="23"><family lang="zh-Hans"><font index="2">NoSuchFont-Regular.ttc</font></family></familyset>"#;
         let ids = FontPipeline::match_fonts_xml_fallbacks(&db, xml, "zh-CN", 3);
         assert!(
@@ -1388,12 +1384,8 @@ mod tests {
         // CJK + Latin resolve through the same cache, keeping CJK render
         // speed on par with Latin (no per-glyph fallback scan).
         let mut maple_db = fontdb::Database::new();
-        let Some(font_path) = find_maple_mono_font(&mut maple_db) else {
-            eprintln!(
-                "SKIP: maple_mono_primary_skips_cjk_fallback (no Maple Mono in system fonts)"
-            );
-            return;
-        };
+        let font_path = find_maple_mono_font(&mut maple_db)
+            .expect("Maple Mono must be present (run inside nix develop)");
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         let family = pipeline
             .load_font_file(&font_path)

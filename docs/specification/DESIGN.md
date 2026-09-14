@@ -3,7 +3,7 @@
 ## 依赖
 
 - 依赖/工具尽量使用最新版本，尽量不固定版本
-- 未声明的细节 参考 https://github.com/termux/termux-app 和 https://github.com/sylirre/ghostty-android-terminal
+- 未声明的细节 参考 <https://github.com/termux/termux-app> 和 <https://github.com/sylirre/ghostty-android-terminal>
 
 ## 习惯
 
@@ -76,7 +76,7 @@
 
 - 下划线颜色 (SGR 58) 和上划线 (SGR 53)
 
-- libghostty-vt 使用参考 https://github.com/sylirre/ghostty-android-terminal/blob/main/docs/architecture.md#libghostty-vt
+- libghostty-vt 使用参考 <https://github.com/sylirre/ghostty-android-terminal/blob/main/docs/architecture.md#libghostty-vt>
 
 ### Kotlin
 
