@@ -1,25 +1,7 @@
 {
   "default": true,
   "MD013": false,
-  "MD033": {
-    "allowed_elements": [
-      "details",
-      "summary",
-      "kbd",
-      "br"
-    ]
-  },
-  "MD041": false,
   "MD024": {
     "siblings_only": true
-  },
-  "MD034": false,
-  "MD014": false,
-  "MD046": false,
-  "no-inline-html": false,
-  "MD060": false,
-  "MD029": {
-    "style": "ordered"
-  },
-  "MD040": false
+  }
 }

@@ -96,16 +96,6 @@
               semgrep
               systemdLibs
               fontconfig
-              (maple-mono.Normal-NF-CN.overrideAttrs (_: {
-                installPhase = ''
-                  runHook preInstall
-
-                  install MapleMonoNormal-NF-CN-Medium.ttf -D --target-directory $out/share/fonts/truetype
-
-                  runHook postInstall
-                '';
-              }))
-              noto-fonts-cjk-sans
               libpulseaudio
               (lib.getLib stdenv.cc.cc)
               (python3.withPackages (
@@ -137,9 +127,16 @@
               VK_ICD_FILENAMES = "${pkgs.mesa}/share/vulkan/icd.d/lvp_icd.x86_64.json";
               FONTCONFIG_FILE = pkgs.makeFontsConf {
                 fontDirectories = with pkgs; [
-                  maple-mono.Normal-NF-CN
+                  (maple-mono.Normal-NF-CN.overrideAttrs (_: {
+                    installPhase = ''
+                      runHook preInstall
+
+                      install MapleMonoNormal-NF-CN-Medium.ttf -D --target-directory $out/share/fonts/truetype
+
+                      runHook postInstall
+                    '';
+                  }))
                   noto-fonts-cjk-sans
-                  liberation_ttf
                 ];
               };
             };
