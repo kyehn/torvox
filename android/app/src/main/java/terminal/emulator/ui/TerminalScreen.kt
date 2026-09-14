@@ -239,6 +239,13 @@ fun TerminalScreen(
                 // AndroidComposeView, not the TerminalSurface; use the
                 // surfaceRef captured from the AndroidView factory.
                 surfaceRef.value?.finishComposing()
+                // Stop the render thread while backgrounded: surfaceDestroyed
+                // is NOT called on app-switch (the Surface is retained), so
+                // without this the thread keeps acquiring on a BufferQueue
+                // the system reclaims → ERROR_SURFACE_LOST_KHR → permanent
+                // black screen on return (emulator-verified).
+                viewModel.runtime.setRenderPaused(true)
+                viewModel.runtime.pauseRendering()
                 val inputMethodManager =
                     context.getSystemService(
                         android.content.Context.INPUT_METHOD_SERVICE,
@@ -254,9 +261,30 @@ fun TerminalScreen(
                 if (
                     surface != null && surface.isAttachedToWindow && surface.width > 0 && surface.height > 0
                 ) {
-                    viewModel.runtime.setRenderPaused(false)
-                    viewModel.runtime.resumeRendering()
-                    viewModel.runtime.forceRender()
+                    // The system may reclaim the BufferQueue while backgrounded
+                    // even though the Surface object survives (no
+                    // surfaceDestroyed): re-attaching reconfigures a dead
+                    // surface → ERROR_SURFACE_LOST_KHR forever. Drop it first
+                    // so attach takes the slow path and rebuilds the swapchain
+                    // from the (now valid again) ANativeWindow. Use the
+                    // holder's live Surface, not the cached currentSurface
+                    // (its isValid stays false after the reclaim).
+                    val bridge = viewModel.runtime.bridge()
+                    val holderSurface = surface.holder?.surface
+                    if (bridge != null && holderSurface != null && holderSurface.isValid) {
+                        viewModel.currentSurface = holderSurface
+                        bridge.releaseGpuSurface()
+                        bridge.attachSurface(holderSurface, surface.width, surface.height)
+                        viewModel.runtime.setRenderPaused(false)
+                        viewModel.runtime.resumeRendering()
+                        viewModel.runtime.forceRender()
+                    } else {
+                        // Holder not valid yet (system still restoring the
+                        // BufferQueue): retry until it is, then rebuild.
+                        // Do NOT unpause now — frames on the dead surface
+                        // would fail forever.
+                        surface.postDelayedSurfaceRecreate(viewModel)
+                    }
                 } else {
                     surface?.postDelayedUnpause(200L)
                 }
