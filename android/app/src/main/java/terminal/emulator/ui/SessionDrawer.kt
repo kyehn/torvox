@@ -42,26 +42,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import terminal.emulator.R
-import terminal.emulator.TerminalViewModel
+import terminal.emulator.SessionInfo
 
 @Composable
 fun SessionDrawer(
-    viewModel: TerminalViewModel,
+    sessions: List<SessionInfo>,
+    activeSessionId: Long,
+    onSwitchSession: (Long) -> Unit,
+    onCloseSession: (Long) -> Unit,
+    onAddSession: () -> Unit,
+    onRefreshSessions: () -> Unit,
     onSettings: () -> Unit,
     onSearch: () -> Unit,
     onKeyboardToggle: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val state by viewModel.state.collectAsStateWithLifecycle()
     val backgroundColor = MaterialTheme.colorScheme.surfaceVariant
     val textColor = MaterialTheme.colorScheme.onSurfaceVariant
     val accent = MaterialTheme.colorScheme.primary
     val surface = MaterialTheme.colorScheme.surface
     LaunchedEffect(Unit) {
-        viewModel.refreshSessionMetas()
+        onRefreshSessions()
     }
 
     Column(
@@ -84,7 +87,7 @@ fun SessionDrawer(
 
         SessionDrawerHeader(
             onClose = onClose,
-            viewModel = viewModel,
+            onAddSession = onAddSession,
             textColor = textColor,
             accent = accent,
         )
@@ -95,7 +98,7 @@ fun SessionDrawer(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            itemsIndexed(state.sessions, key = { _, session -> session.id }) { index, session ->
+            itemsIndexed(sessions, key = { _, session -> session.id }) { index, session ->
                 val sessionNumber = stringResource(R.string.session_number, index + 1)
                 SessionItem(
                     title = sessionNumber,
@@ -103,13 +106,13 @@ fun SessionDrawer(
                     session.directory.ifEmpty {
                         session.title.takeIf { it != sessionNumber }.orEmpty()
                     },
-                    isActive = session.id == state.activeSessionId,
+                    isActive = session.id == activeSessionId,
                     onClick = {
-                        viewModel.switchSession(session.id)
+                        onSwitchSession(session.id)
                         onClose()
                     },
                     onClose = {
-                        viewModel.closeSession(session.id)
+                        onCloseSession(session.id)
                     },
                     accent = accent,
                     surface = surface,
@@ -133,7 +136,7 @@ fun SessionDrawer(
 @Composable
 private fun SessionDrawerHeader(
     onClose: () -> Unit,
-    viewModel: TerminalViewModel,
+    onAddSession: () -> Unit,
     textColor: Color,
     accent: Color,
 ) {
@@ -162,7 +165,7 @@ private fun SessionDrawerHeader(
                 .clip(CircleShape)
                 .clickable {
                     onClose()
-                    viewModel.createSession()
+                    onAddSession()
                 }.padding(2.dp),
         )
     }
