@@ -72,7 +72,14 @@ rules:
     languages: [rust]
 
   - id: no-unmanaged-build-command
-    pattern-regex: 'Command::new\(\s*"(cargo|gradle|\./gradlew)"'
+    patterns:
+      - pattern: $CMD::new($PROG, ...)
+      - metavariable-regex:
+          metavariable: $CMD
+          regex: '.*Command'
+      - metavariable-regex:
+          metavariable: $PROG
+          regex: '(?s).*(cargo|gradle).*'
     message: "Unmanaged builds are forbidden; use nix develop tooling."
     severity: ERROR
     languages: [rust]
