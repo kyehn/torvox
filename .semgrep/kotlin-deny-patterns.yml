@@ -127,7 +127,7 @@ rules:
   - id: no-unmanaged-build-exec
     patterns:
       - pattern-either:
-          - pattern: Runtime.getRuntime().exec($CMD)
+          - pattern: Runtime.getRuntime().exec($CMD, ...)
           - pattern: ProcessBuilder($CMD, ...)
       - metavariable-regex:
           metavariable: $CMD
