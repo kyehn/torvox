@@ -34,7 +34,6 @@ mod tests;
 // ── Re-exports ───────────────────────────────────────────────────────────
 pub use cell_builder::{CellCursor, CellRun, build_instances_from_cell_data, build_row_runs};
 #[cfg(test)]
-#[allow(unused_imports)]
 pub(crate) use cell_builder::{SearchHighlight, SelectionRange, blend_highlight, cell_highlight};
 pub use context::FrameContext;
 pub use context::Renderer;
@@ -43,7 +42,6 @@ pub use context::orthographic_projection;
 pub use invalidation::{FrameInvalidation, InvalidationLevel};
 pub use pipeline::GpuUniforms;
 #[cfg(test)]
-#[allow(unused_imports)]
 pub(crate) use pipeline::QUAD_CORNERS;
 
 /// Serialises GPU benchmarks: under software Vulkan (Mesa Lavapipe) each
