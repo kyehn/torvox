@@ -2,11 +2,11 @@ package terminal.emulator.installer
 
 import android.content.Context
 import android.util.Log
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import terminal.emulator.util.TerminalDispatchers
 import java.io.File
 import java.io.FileOutputStream
 import java.util.concurrent.TimeUnit
@@ -33,7 +33,7 @@ class BootstrapDownloader(
     suspend fun download(
         url: String,
         arch: String,
-    ): Result<File> = withContext(Dispatchers.IO) {
+    ): Result<File> = withContext(TerminalDispatchers.inputOutput) {
         // Integrity gate: the bootstrap zip is extracted and its.postinst
         // script is executed, so the download must be authenticated.
         // Plain-http is trivially MITM-able; the default URL already ships

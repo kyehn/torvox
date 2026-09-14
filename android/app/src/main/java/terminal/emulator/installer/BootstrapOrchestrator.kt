@@ -1,7 +1,7 @@
 package terminal.emulator.installer
 
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import terminal.emulator.util.TerminalDispatchers
 import java.util.concurrent.atomic.AtomicReference
 
 class BootstrapOrchestrator(
@@ -41,7 +41,7 @@ class BootstrapOrchestrator(
         state.get()
     }
 
-    suspend fun ensureBootstrap(bootstrapUrl: String): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun ensureBootstrap(bootstrapUrl: String): Result<String> = withContext(TerminalDispatchers.inputOutput) {
         if (installer.isInstalled()) {
             return@withContext Result.success("")
         }
