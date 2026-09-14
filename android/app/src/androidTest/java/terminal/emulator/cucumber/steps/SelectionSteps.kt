@@ -34,6 +34,12 @@ constructor(
     private var dragBeforeEnd: SelectionAnchor? = null
     private var copiedText: String? = null
 
+    companion object {
+        // 会话孵化期写入重试上限与间隔：只补发被丢弃的写入，不延长输出轮询窗。
+        private const val WRITE_RETRY_MAX = 3
+        private const val WRITE_RETRY_INTERVAL_MS = 500L
+    }
+
     private fun surface(): View {
         val scenario = composeRuleHolder.composeRule.activityRule.scenario
         var surface: View? = null
@@ -55,14 +61,26 @@ constructor(
     private fun ensureScreenText() {
         val rule = composeRuleHolder.composeRule
         val bridge = rule.getBridge() ?: throw AssertionError("拿不到终端桥")
-        bridge.writeToPty(
-            "echo SELTEXT_START\nseq 1 50\necho SELTEXT_END\n".toByteArray(Charsets.UTF_8),
-        )
+        val payload = "echo SELTEXT_START\nseq 1 50\necho SELTEXT_END\n".toByteArray(Charsets.UTF_8)
+        // 会话仍在孵化时写入会被丢弃（writeToPty 返回 false）： bounded 重试，
+        // 而不是把一次过早写入当成无输出。输出仍须在轮询窗内出现，不放宽断言。
+        var written = bridge.writeToPty(payload)
+        var attempts = 1
+        while (!written && attempts < WRITE_RETRY_MAX) {
+            Thread.sleep(WRITE_RETRY_INTERVAL_MS)
+            written = bridge.writeToPty(payload)
+            attempts++
+        }
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
                 bridge.getTerminalText()?.contains("SELTEXT_END") == true
             }
-        assertNotNull("终端未显示文本", seen)
+        val snapshot = bridge.getTerminalText()
+        assertNotNull(
+            "终端未显示文本 written=$written attempts=$attempts textLen=${snapshot?.length} " +
+                "sample=${snapshot?.takeLast(120)}",
+            seen,
+        )
     }
 
     private fun longPressCenter(): View {

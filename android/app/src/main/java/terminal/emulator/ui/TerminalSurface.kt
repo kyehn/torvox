@@ -370,37 +370,44 @@ constructor(
      * fields directly.
      */
     inner class ResizeManager {
+        /**
+         * Single grid formula, shared with
+         * [TerminalRuntime.recomputeGridFromFontMetrics]: rows =
+         * (surface − ModifierBar) / cell, cols = surface / cell. The IME
+         * inset is deliberately NOT subtracted — the keyboard is followed by
+         * pure pan ([TerminalScreen] cursor pan), never by grid reflow, so
+         * showing/hiding it must not change rows/cols (reflow flicker,
+         * wrapped-line shuffle, lost bottom rows).
+         */
         internal fun applyGridResize(
             width: Int,
             height: Int,
-            imeBottom: Int,
         ) {
-            val cellWidth = viewModel?.runtime?.cellWidth ?: return
-            val cellHeight = viewModel?.runtime?.cellHeight ?: return
+            val runtime = viewModel?.runtime ?: return
+            val cellWidth = runtime.cellWidth
+            val cellHeight = runtime.cellHeight
             if (cellWidth <= 0f || cellHeight <= 0f) return
-            // Hybrid pan-then-reflow: height is the SurfaceView's layout height
-            // (already excludes navigation bars; with Compose offset it does NOT
-            // shrink during animation). Settled reflow shrinks the PTY grid by
-            // the IME inset only — the ModifierBar is an overlay, not inside this
-            // height, so do NOT subtract modifierBarHeightPx (double-subtraction bug).
-            val availableHeight = (height - imeBottom).coerceAtLeast(1)
+            // Height is the SurfaceView's layout height. The ModifierBar
+            // overlays its bottom, so its height is subtracted before
+            // computing rows — the same reservation the runtime applies.
+            val availableHeight = (height - runtime.modifierBarHeightPx).coerceAtLeast(1)
             if (availableHeight <= 0) return
             val newCols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
             val newRows = (availableHeight.toFloat() / cellHeight).toInt().coerceAtLeast(1)
             Log.d(
                 "TerminalSurface",
-                "applyGridResize: $width x $height ime=$imeBottom cell=($cellWidth,$cellHeight) " +
+                "applyGridResize: $width x $height cell=($cellWidth,$cellHeight) " +
                     "-> ${newRows}x$newCols (was ${rows}x$cols)",
             )
             if (newRows != rows || newCols != cols) {
-                viewModel?.runtime?.resize(newRows, newCols)
+                runtime.resize(newRows, newCols)
                 // Push the pixel dimensions alongside the grid resize so the
                 // PTY winsize carries real ws_xpixel/ws_ypixel: pixel-aware
                 // programs (`icat`, fullscreen TUIs) read them from
                 // TIOCGWINSZ and misrender when they are 0 (ghostty-android
-                // pty_jni.c:84-87). availableHeight excludes the IME inset
-                // and the modifier bar — exactly the grid area rows covers.
-                viewModel?.runtime?.setPixelSize(width, availableHeight)
+                // pty_jni.c:84-87). availableHeight excludes the modifier
+                // bar — exactly the grid area rows covers.
+                runtime.setPixelSize(width, availableHeight)
                 rows = newRows
                 cols = newCols
             }
@@ -415,8 +422,15 @@ constructor(
                 val cellWidth = viewModel.runtime.cellWidth
                 val cellHeight = viewModel.runtime.cellHeight
                 if (cellWidth > 0f && cellHeight > 0f) {
+                    // Same reservation as the runtime grid: without the bar
+                    // subtraction this mirror disagreed by the bar rows and
+                    // forced requestLayout() on every recomposition.
+                    val barPx = viewModel.runtime.modifierBarHeightPx
                     cols = (width.toFloat() / cellWidth).toInt().coerceAtLeast(1)
-                    rows = (height.toFloat() / cellHeight).toInt().coerceAtLeast(1)
+                    rows =
+                        ((height - barPx).coerceAtLeast(1).toFloat() / cellHeight)
+                            .toInt()
+                            .coerceAtLeast(1)
                     return
                 }
             }
@@ -519,7 +533,9 @@ constructor(
             // Use the shared formula so both paths agree on the grid.
             // Effective only once real cell metrics arrive (Bridge.getCellWidth
             // is an ADR-0007 stub returning 0, so this is a no-op until then).
-            applyGridResize(width, height, lastImeBottom)
+            // IME insets never reach the grid: the keyboard is followed by
+            // pure pan, so rows/cols stay put while it shows/hides.
+            applyGridResize(width, height)
         }
 
         internal fun setDimensions(
