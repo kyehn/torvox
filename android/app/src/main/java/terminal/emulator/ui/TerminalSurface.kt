@@ -449,17 +449,25 @@ constructor(
             // debounce to the settled size via IME_RESIZE_DEBOUNCE_MS —
             // every intermediate size otherwise forces a full swapchain
             // reconfigure + PTY grid reflow (frame drops, CellData race
-            // errors, battery drain).
+            // errors, battery drain). While debounced, pause rendering so
+            // the stale-sized buffer is never stretched over the animating
+            // view (squash on show, stretch on hide); the settled fire
+            // below resumes and presents one fresh frame.
             if (lastConfiguredWidth == 0) {
                 applySurfaceResizeNow(width, height)
                 return
             }
+            viewModel?.runtime?.setRenderPaused(true)
             pendingSurfaceResize?.let { removeCallbacks(it) }
             pendingSurfaceResize =
                 Runnable {
                     pendingSurfaceResize = null
                     // Latest size wins: onSizeChanged already stored it.
                     applySurfaceResizeNow(surfaceWidthPixels, surfaceHeightPixels)
+                    // The settled fire may land back on the configured size
+                    // and early-return before its own resume — always resume
+                    // here (idempotent on the success path).
+                    viewModel?.runtime?.setRenderPaused(false)
                 }
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
         }
