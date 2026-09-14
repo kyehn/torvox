@@ -5,11 +5,11 @@
 
 ## Status header
 
-Current milestone: M1 证据基线 | Round: 1 | Last round net lines: +9
-Next unclosed work item: R2 等 clippy/gradle 全门禁结果并落表
+Current milestone: M2 门禁全绿 | Round: 6 CONVERGE | Last round net lines: -8
+Next unclosed work item: R6 等 cargo 单线程 lib 测试与 gradle 全门禁（gate4）结果
 Last directive folded: none
 
-Convergence tracker: rounds since last 5: **1** | net lines since last +400: **+9** | **next round converges: no**
+Convergence tracker: rounds since last 5: **0** | net lines since last +400: **+0** | **next round converges: no**
 
 Milestone gate: `open`
 Run status: `active`
@@ -18,20 +18,22 @@ Run status: `active`
 
 ## Current slice (the next round starts here)
 
-Item: R2 等 clippy/gradle 全门禁结果并落表
-Write set: read-only（证据 /tmp/rust-clippy-baseline.log、/tmp/gradle-gate2.log）
+Item: R4 等 cargo test 与 gradle 全门禁（gate3）结果
+Write set: read-only（证据 /tmp/rust-test-workspace.log、/tmp/gradle-gate3.log）
 Context: C-02, C-08, C-09
-Verify: 两份日志含最终 EXIT 行且基线表填完
-Done when: clippy/cargo test/detekt/lintDebug/单测基线全部落表，红项转 M2 slice
+Verify: 两份日志含最终 EXIT 行
+Done when: cargo test/dokka/lintDebug/单测结果落表；红项转新 slice；全绿则 M2→pending-audit
 
 ---
 
 ## Starting snapshot (carried-forward — replaces bulk history)
 
 - 需求：全量修复——GHA/Rust/Kotlin 检查、lintDebug、模拟器测试、DocumentsProvider、IME 闪烁与字体压扁拉伸、底部行遮挡、滚动折叠撕裂、辅助键栏误触、切应用黑屏、启动缓慢、nix 红色 error 不可见、help 丢字母、超宽内容不可横向查看。循环直到连续两次全绿，日志+截图/OCR 验证。
-- 基线：git 干净，分支 main，HEAD 87bacdf；R1：cargo fmt 全绿；spotlessKotlinCheck 红（4 文件）→已 spotlessApply 待验证；clippy/gradle 全门禁跑量中。
+- 已合入：336cac3（spotless+detekt 全绿，HEAD 已推 main）。
+- R2/R3：cargo fmt 绿；clippy 绿（CLIPPY_EXIT=0）；spotless 绿；detekt 绿（10 issues 全修，VERIFY2_EXIT=0）。
 - GHA 基线：gradle-checks 红在 test-gradle.nu；build-and-release 红在 connectedDebugAndroidTest（有 failing tests）；rust-checks 绿（09-13）。
 - 关键嫌疑（待重新取证，不作结论）：IME 期 attachWindow 480x420<->480x819 抖动 + setFontSizeInPlace 高频调用；cell_builder 缺字形分支；Manifest provider 声明；windowSoftInputMode=adjustNothing。
+- M4 根因候选（静态已定位，待设备验证）：applyGridResize 与 recomputeGridFromFontMetrics 网格公式互相矛盾（修饰键栏高度一减一不减），可解释底部行遮挡+IME 闪烁。
 - 生效约束：.github/scripts/flake.nix/rust-toolchain.toml/README/AGENTS/docs/specification 只读（内容）；GHA 变绿只靠修产品代码。
 
 ---
@@ -40,9 +42,9 @@ Done when: clippy/cargo test/detekt/lintDebug/单测基线全部落表，红项�
 
 | Gate | Status | Evidence / next action |
 | --- | --- | --- |
-| lintDebug 全绿 | open | spotless 红→已 spotlessApply，待 gate2 日志验证 |
-| Kotlin 检查全绿（detekt 等） | open | 待 gate2（detekt/dokka/单测） |
-| Rust 检查全绿（clippy/test） | open | fmt 全绿；clippy 编译中；cargo test 待跑 |
+| lintDebug 全绿 | in-progress | spotless 绿；detekt 绿；lintDebug/单测待 gate3 |
+| Kotlin 检查全绿（detekt 等） | in-progress | detekt 绿；dokka/单测待 gate3 |
+| Rust 检查全绿（clippy/test） | in-progress | fmt 绿；clippy 绿；cargo test 跑量中 |
 | GHA 全绿（只修代码，不改 workflow 内容） | open | 基线：gradle-checks 红在 test-gradle.nu；build-and-release 红在 connectedDebugAndroidTest；rust-checks 绿 |
 | 模拟器测试全绿且连续两次 | open | CI connectedDebugAndroidTest 有 failing tests（明细待本地复现）；本地 emulator-5554 已连接 |
 | DocumentsProvider 复制进入/修改正常 | open | 待 M3 slice；SAF 实测 + 单测 |
@@ -71,7 +73,7 @@ Evidence: none
 
 | ID | Priority | Milestone | One line |
 | --- | --- | --- | --- |
-| GAP-001 | P0 | M1 | clippy/gradle 全门禁结果待 R2 落定 |
+| GAP-001 | P0 | M2 | cargo test 与 gate3 结果待 R4 落定 |
 | GAP-002 | P1 | M3 | provider 声明与 SAF 行为待实测对照验证 |
 | GAP-003 | P1 | M4 | IME 高度差来源待确认（adjustNothing 下谁改了 Surface 高度） |
 | GAP-004 | P1 | M4 | 缺字形根因待查（atlas/shaping，为何 ASCII 字母丢失） |
@@ -80,3 +82,5 @@ Evidence: none
 ## Rounds log — last 5 only (older → `archive/rounds.md`)
 
 - R1 2026-09-14 | M1 基线：fmt 绿、spotless 红定位到 4 文件并 spotlessApply、GHA 基线落表 | changed: 4 kt 文件(格式) | verify: /tmp/gradle-baseline.log, APPLY_EXIT=0 | net +9/-0 | next: R2 + C-02/C-08/C-09
+- R2 2026-09-14 | clippy 绿（CLIPPY_EXIT=0），detekt 红定位到 10 issues | changed: none | verify: /tmp/rust-clippy-baseline.log | net +0/-0 | next: R3 修 detekt
+- R3 2026-09-14 | detekt 10 issues 全修并验证绿，已提交推送 336cac3 | changed: 6 kt 文件 | verify: VERIFY2_EXIT=0 | net +58/-0 | next: R4 + C-02/C-08

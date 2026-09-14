@@ -5,9 +5,11 @@ import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import io.cucumber.java.zh_cn.假如
 import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
 import terminal.emulator.cucumber.ComposeRuleHolder
+import terminal.emulator.probeAssertion
 import javax.inject.Inject
 
 class ModifierBarSteps
@@ -15,6 +17,23 @@ class ModifierBarSteps
 constructor(
     private val composeRuleHolder: ComposeRuleHolder,
 ) {
+    companion object {
+        // 跨场景共享 activity，CTRL 可能被之前场景留在 armed 态：归一到关闭态
+        // 再断言切换，上限内仍未关闭则大声失败（不断言掩盖真坏）。
+        private const val TOGGLE_NORMALIZE_MAX_TAPS = 3
+    }
+
+    @假如("^CTRL 键处于关闭态$")
+    fun ctrlKeyStartsOff() {
+        val rule = composeRuleHolder.composeRule
+        repeat(TOGGLE_NORMALIZE_MAX_TAPS) {
+            if (probeAssertion { rule.onNodeWithTag("Key_CTRL").assertIsNotSelected() }) return
+            rule.onNodeWithTag("Key_CTRL").performClick()
+            rule.waitForIdle()
+        }
+        rule.onNodeWithTag("Key_CTRL").assertIsNotSelected()
+    }
+
     @那么("^修饰键栏显示 ESC TAB CTRL ALT HOME END PGUP PGDN 按键$")
     fun modifierBarShowsAllKeys() {
         composeRuleHolder.composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()

@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
@@ -12,6 +13,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import kotlinx.collections.immutable.persistentListOf
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -67,27 +69,68 @@ class ModifierBarRobolectricTest {
         composeRule.onNodeWithTag("Key_TAB").assertIsDisplayed()
     }
 
-    @Test
-    fun `plain extra key fires on touch down without waiting for up`() {
-        // spec modifier-bar-interaction "按下即发": DOWN alone must
-        // deliver the key (termux semantics), not wait for a dwell window
-        // or the lift.
-        var clicks = 0
+    private fun setClickCountingBar(onKeyClick: (String) -> Unit) {
         composeRule.setContent {
             MaterialTheme {
-                ModifierBar(onKeyClick = { clicks++ })
+                ModifierBar(onKeyClick = onKeyClick)
             }
         }
+    }
+
+    @Test
+    fun `plain extra key fires on release within slop`() {
+        // spec modifier-bar-interaction 松手确认：单击在抬手时触发一次；
+        // 任一阶段滑出触摸容差即取消，底部上滑不再误触按键。
+        var clicks = 0
+        setClickCountingBar { clicks++ }
         composeRule.onNodeWithTag("Key_ESC").performTouchInput {
             down(center)
+            up()
         }
         composeRule.waitForIdle()
         org.junit.Assert.assertEquals(
-            "key must fire on ACTION_DOWN before any UP arrives",
+            "tap must fire once on release",
             1,
             clicks,
         )
-        // Release so the injected stream ends cleanly.
-        composeRule.onNodeWithTag("Key_ESC").performTouchInput { up() }
+    }
+
+    @Test
+    fun `slide off key cancels the tap without firing`() {
+        // 底部上滑误触回归：按下后滑出按键再松手，不得触发。
+        var clicks = 0
+        setClickCountingBar { clicks++ }
+        composeRule.onNodeWithTag("Key_ESC").performTouchInput {
+            down(center)
+            moveBy(Offset(0f, -300f))
+            up()
+        }
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(
+            "swipe off the key must not fire",
+            0,
+            clicks,
+        )
+    }
+
+    @Test
+    fun `configurable ctrl key toggles selected on tap`() {
+        // App path (toolbarLayout != null) with Termux-parity wiring: a tap
+        // must arm CTRL (selected), mirroring the device scenario
+        // 修饰键可以切换状态 which regressed to Selected=false.
+        var ctrl by mutableStateOf(ModifierState.Off)
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onKeyClick = {},
+                    ctrlState = ctrl,
+                    onToggleCtrl = { ctrl = ctrl.next() },
+                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.CTRL)),
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_CTRL").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("Key_CTRL").assertIsSelected()
     }
 }
