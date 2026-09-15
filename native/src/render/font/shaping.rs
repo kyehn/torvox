@@ -133,7 +133,6 @@ mod tests {
         let mut pipeline = fixture();
         let glyphs = pipeline.shape_run("Hello");
         assert!(!glyphs.is_empty(), "ASCII 'Hello' must shape to glyphs");
-        #[allow(clippy::excessive_precision)]
         let mut prev_x = 0.0f32;
         for g in &glyphs {
             assert!(g.x >= prev_x, "glyph x must not go backwards");
