@@ -1625,7 +1625,11 @@ fn kitty_graphics_transmit_returns_1x1_image() {
         .expect("image id 1 must exist after transmit");
     assert_eq!(image.width, 1);
     assert_eq!(image.height, 1);
-    assert_eq!(image.data, vec![255, 0, 0, 255], "RGB 载荷归一化为不透明 RGBA");
+    assert_eq!(
+        image.data,
+        vec![255, 0, 0, 255],
+        "RGB 载荷归一化为不透明 RGBA"
+    );
 }
 
 /// PNG 载荷经进程内解码器透出为 RGBA（1x1 红点 PNG，对标上游文档示例）。
@@ -1641,6 +1645,25 @@ fn kitty_graphics_png_decodes_to_rgba() {
         .expect("PNG 图像解码后必须存在");
     assert_eq!((image.width, image.height), (1, 1));
     assert_eq!(image.data.len(), 4, "解码输出为 RGBA8");
+}
+
+/// PNG 调色板/16bit 灰度经解码器展开为 8bit RGBA（解码器 EXPAND/STRIP_16 路径回归）。
+#[test]
+fn kitty_graphics_png_palette_and_gray16_decode() {
+    let mut terminal = term();
+    terminal.pty_write(b"\x1b_Ga=T,f=100,i=11;iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAMAAAAoyzS7AAAAA1BMVEX/AAAZ4gk3AAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==\x1b\\");
+    terminal.pty_write(b"\x1b_Ga=T,f=100,i=12;iVBORw0KGgoAAAANSUhEUgAAAAEAAAABEAAAAABq7kcWAAAAC0lEQVR4nGP4/x8AAwAB//wl3FEAAAAASUVORK5CYII=\x1b\\");
+    terminal.flush();
+    let palette = terminal
+        .take_kitty_graphics_image(11)
+        .expect("调色板 PNG 必须解码");
+    assert_eq!((palette.width, palette.height), (1, 1));
+    assert_eq!(palette.data, vec![255, 0, 0, 255]);
+    let gray = terminal
+        .take_kitty_graphics_image(12)
+        .expect("16bit 灰度 PNG 必须解码");
+    assert_eq!((gray.width, gray.height), (1, 1));
+    assert_eq!(gray.data, vec![255, 255, 255, 255]);
 }
 
 /// Kitty 放置采集：传输并显示 1x1 图像后，可见放置恰为 1 个且几何非零。
