@@ -54,7 +54,7 @@ pub(crate) static GPU_BENCH_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::n
 // ── Public Constants ─────────────────────────────────────────────────────
 pub const RENDER_SCALE: f32 = 1.0;
 
-pub const CATPPUCCIN_MOCHA_BG: wgpu::Color = wgpu::Color {
+pub const CATPPUCCIN_MOCHA_BACKGROUND: wgpu::Color = wgpu::Color {
     r: 30.0 / 255.0,
     g: 30.0 / 255.0,
     b: 46.0 / 255.0,
@@ -88,9 +88,9 @@ pub struct CellInstance {
     pub quad_origin: [f32; 2],
     pub atlas_offset: [f32; 2],
     pub atlas_size: [f32; 2],
-    pub fg_color: [f32; 4],
-    pub bg_color: [f32; 4],
-    /// SGR 58 underline/decoration color (falls back to fg upstream).
+    pub foreground: [f32; 4],
+    pub background: [f32; 4],
+    /// SGR 58 underline/decoration color (falls back to foreground upstream).
     pub underline_color: [f32; 4],
     pub quad_size: [f32; 2],
     pub flags: f32,
@@ -176,6 +176,6 @@ pub mod gpu {
     pub use super::context::{Renderer, orthographic_projection};
     pub use super::pipeline::GpuUniforms;
     pub use super::{
-        CATPPUCCIN_MOCHA_BG, CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE,
+        CATPPUCCIN_MOCHA_BACKGROUND, CellInstance, GpuError, KittyGraphicsInstance, RENDER_SCALE,
     };
 }

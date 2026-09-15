@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 use wgpu::util::DeviceExt;
 
 use crate::render::pipeline::QUAD_CORNERS;
-use crate::render::{CATPPUCCIN_MOCHA_BG, GpuError};
+use crate::render::{CATPPUCCIN_MOCHA_BACKGROUND, GpuError};
 
 pub(crate) fn log_gpu_error(error: &wgpu::Error) {
     log::error!("GPU_UNCAPTURED_ERROR: {error:#?}");
@@ -129,7 +129,7 @@ pub struct Renderer {
     pub(crate) projection_height: u32,
     pub(crate) readback_texture: Option<wgpu::Texture>,
     pub(crate) readback_buffer: Option<wgpu::Buffer>,
-    pub(crate) bg_color: wgpu::Color,
+    pub(crate) background: wgpu::Color,
     pub(crate) kgp_pipeline: Option<wgpu::RenderPipeline>,
     pub(crate) kgp_bind_group_layout: Option<wgpu::BindGroupLayout>,
     pub(crate) kgp_bind_group: Option<wgpu::BindGroup>,
@@ -321,7 +321,7 @@ impl Renderer {
             projection_height: 0,
             readback_texture: None,
             readback_buffer: None,
-            bg_color: CATPPUCCIN_MOCHA_BG,
+            background: CATPPUCCIN_MOCHA_BACKGROUND,
             kgp_pipeline: None,
             kgp_bind_group_layout: None,
             kgp_bind_group: None,
@@ -554,8 +554,8 @@ impl Renderer {
         self.surface_config = Some(config);
     }
 
-    pub fn set_bg_color(&mut self, background: [u8; 3]) {
-        self.bg_color = wgpu::Color {
+    pub fn set_background_color(&mut self, background: [u8; 3]) {
+        self.background = wgpu::Color {
             r: background[0] as f64 / 255.0,
             g: background[1] as f64 / 255.0,
             b: background[2] as f64 / 255.0,
