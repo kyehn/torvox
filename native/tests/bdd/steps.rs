@@ -11,7 +11,7 @@ pub struct TerminalWorld {
     pub prefix: Option<String>,
     pub env: Vec<(String, String)>,
     pub clipboard_read: Option<String>,
-    pub term: TermSlot,
+    pub terminal: TermSlot,
     pub probe_line: String,
     pub probe_col: usize,
     pub found_url: Option<String>,
@@ -33,7 +33,7 @@ impl std::fmt::Debug for TermSlot {
 }
 
 impl TermSlot {
-    pub fn expect_term(&mut self) -> &mut GhosttyTerminal {
+    pub fn expect_terminal(&mut self) -> &mut GhosttyTerminal {
         self.inner.as_mut().expect("终端尚未创建")
     }
 }

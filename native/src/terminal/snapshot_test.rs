@@ -91,11 +91,11 @@ fn cell_to_json(cell: &CellSnapshot) -> CellJson {
 }
 
 /// Capture a `TestSnapshot` from the current terminal state.
-pub fn capture_snapshot(term: &GhosttyTerminal) -> TestSnapshot {
-    let dumped = term.dump_grid();
-    let cursor_x = term.cursor_x();
-    let cursor_y = term.cursor_y();
-    let cursor_visible = term.cursor_visible();
+pub fn capture_snapshot(terminal: &GhosttyTerminal) -> TestSnapshot {
+    let dumped = terminal.dump_grid();
+    let cursor_x = terminal.cursor_x();
+    let cursor_y = terminal.cursor_y();
+    let cursor_visible = terminal.cursor_visible();
     from_dumped_grid(&dumped, cursor_x, cursor_y, cursor_visible)
 }
 
@@ -252,16 +252,16 @@ pub fn run_ref_test(
     let seq_bytes =
         fs::read(seq_path).unwrap_or_else(|e| panic!("failed to read seq {seq_path:?}: {e}"));
 
-    let mut term = GhosttyTerminal::new(rows, cols, scrollback)
+    let mut terminal = GhosttyTerminal::new(rows, cols, scrollback)
         .unwrap_or_else(|e| panic!("failed to create terminal ({rows}x{cols}): {e}"));
 
     // Use pty_write so that \n in the seq test files is converted to \r\n,
     // matching the expected behavior for text output. Raw VT sequences
     // in the test files do not contain bare \n data bytes.
-    term.pty_write(&seq_bytes);
-    term.flush();
+    terminal.pty_write(&seq_bytes);
+    terminal.flush();
 
-    let actual = capture_snapshot(&term);
+    let actual = capture_snapshot(&terminal);
 
     if env::var("UPDATE_EXPECT").as_deref() == Ok("1") {
         let parent = json_path
@@ -354,14 +354,14 @@ mod tests {
     use super::*;
     use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
-    fn make_term(rows: u32, cols: u32) -> GhosttyTerminal {
-        GhosttyTerminal::new(rows, cols, 1000).expect("term")
+    fn make_terminal(rows: u32, cols: u32) -> GhosttyTerminal {
+        GhosttyTerminal::new(rows, cols, 1000).expect("terminal")
     }
 
     #[test]
     fn capture_empty_snapshot() {
-        let term = make_term(24, 80);
-        let snap = capture_snapshot(&term);
+        let terminal = make_terminal(24, 80);
+        let snap = capture_snapshot(&terminal);
         assert_eq!(snap.rows, 24);
         assert_eq!(snap.cols, 80);
         assert_eq!(snap.cells.len(), 24 * 80);
@@ -371,10 +371,10 @@ mod tests {
 
     #[test]
     fn capture_with_content() {
-        let mut term = make_term(3, 10);
-        term.vt_write(b"Hi");
-        term.flush();
-        let snap = capture_snapshot(&term);
+        let mut terminal = make_terminal(3, 10);
+        terminal.vt_write(b"Hi");
+        terminal.flush();
+        let snap = capture_snapshot(&terminal);
         assert_eq!(snap.cells[0].content, "H");
         assert_eq!(snap.cells[1].content, "i");
         assert!(snap.cells[2].content.is_empty());
@@ -384,17 +384,17 @@ mod tests {
 
     #[test]
     fn diff_identical_is_empty() {
-        let term = make_term(3, 5);
-        let a = capture_snapshot(&term);
-        let b = capture_snapshot(&term);
+        let terminal = make_terminal(3, 5);
+        let a = capture_snapshot(&terminal);
+        let b = capture_snapshot(&terminal);
         let result = diff(&a, &b);
         assert!(result.is_empty());
     }
 
     #[test]
     fn diff_detects_content_change() {
-        let term = make_term(3, 5);
-        let snap1 = capture_snapshot(&term);
+        let terminal = make_terminal(3, 5);
+        let snap1 = capture_snapshot(&terminal);
 
         let mut snap2 = snap1.clone();
         snap2.cells[0].content = "X".to_string();
@@ -406,8 +406,8 @@ mod tests {
 
     #[test]
     fn diff_detects_cursor_change() {
-        let term = make_term(3, 5);
-        let snap1 = capture_snapshot(&term);
+        let terminal = make_terminal(3, 5);
+        let snap1 = capture_snapshot(&terminal);
 
         let mut snap2 = snap1.clone();
         snap2.cursor_col = 10;
@@ -418,13 +418,13 @@ mod tests {
 
     #[test]
     fn diff_detects_dimension_mismatch() {
-        let mut term = make_term(3, 5);
-        term.vt_write(b"test");
-        term.flush();
-        let snap1 = capture_snapshot(&term);
+        let mut terminal = make_terminal(3, 5);
+        terminal.vt_write(b"test");
+        terminal.flush();
+        let snap1 = capture_snapshot(&terminal);
 
-        let term2 = make_term(4, 5);
-        let snap2 = capture_snapshot(&term2);
+        let second_terminal = make_terminal(4, 5);
+        let snap2 = capture_snapshot(&second_terminal);
 
         let result = diff(&snap1, &snap2);
         assert!(result.dimension_diff.is_some());
@@ -432,8 +432,8 @@ mod tests {
 
     #[test]
     fn serde_round_trip() {
-        let term = make_term(3, 10);
-        let snap = capture_snapshot(&term);
+        let terminal = make_terminal(3, 10);
+        let snap = capture_snapshot(&terminal);
         let json = serde_json::to_string_pretty(&snap).unwrap();
         let restored: TestSnapshot = serde_json::from_str(&json).unwrap();
         assert_eq!(snap, restored);
@@ -441,10 +441,10 @@ mod tests {
 
     #[test]
     fn serde_with_content_round_trip() {
-        let mut term = make_term(3, 10);
-        term.vt_write(b"Hello\nWorld");
-        term.flush();
-        let snap = capture_snapshot(&term);
+        let mut terminal = make_terminal(3, 10);
+        terminal.vt_write(b"Hello\nWorld");
+        terminal.flush();
+        let snap = capture_snapshot(&terminal);
         let json = serde_json::to_string_pretty(&snap).unwrap();
         let restored: TestSnapshot = serde_json::from_str(&json).unwrap();
         let result = diff(&snap, &restored);
@@ -453,12 +453,12 @@ mod tests {
 
     #[test]
     fn scrollback_captured() {
-        let mut term = GhosttyTerminal::new(3, 10, 100).expect("term");
+        let mut terminal = GhosttyTerminal::new(3, 10, 100).expect("terminal");
         for i in 0..10u8 {
-            term.vt_write(format!("line {i}\n").as_bytes());
+            terminal.vt_write(format!("line {i}\n").as_bytes());
         }
-        term.flush();
-        let snap = capture_snapshot(&term);
+        terminal.flush();
+        let snap = capture_snapshot(&terminal);
         assert!(snap.scrollback_rows > 0);
         assert!(!snap.scrollback.is_empty());
     }

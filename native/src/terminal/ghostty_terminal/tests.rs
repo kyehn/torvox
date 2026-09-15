@@ -18,12 +18,12 @@ use std::time::Instant;
 use super::*;
 use crate::terminal::test_helpers::assert_invariants;
 
-fn term() -> GhosttyTerminal {
+fn terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(24, 80, 1000).expect("terminal create")
 }
 
 fn small_term() -> GhosttyTerminal {
-    GhosttyTerminal::new(3, 3, 100).expect("term")
+    GhosttyTerminal::new(3, 3, 100).expect("terminal")
 }
 
 /// Get the cell at a given row and column from the snapshot
@@ -50,13 +50,13 @@ fn row_text(snap: &GridSnapshot, row: u32) -> String {
 
 #[test]
 fn create_terminal_zero_scrollback() {
-    let t = GhosttyTerminal::new(5, 10, 0).expect("term");
+    let t = GhosttyTerminal::new(5, 10, 0).expect("terminal");
     assert_eq!(t.scrollback_length(), 0);
 }
 
 #[test]
 fn read_line_text_returns_text() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"\x1b[1;1HHello World");
     t.flush();
     let text = t.read_line_text(0);
@@ -66,14 +66,14 @@ fn read_line_text_returns_text() {
 
 #[test]
 fn read_line_text_empty_returns_none() {
-    let t = term();
+    let t = terminal();
     let text = t.read_line_text(5);
     assert!(text.is_none());
 }
 
 #[test]
 fn reset_clears_grid_and_scrollback() {
-    let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+    let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     terminal.vt_write(b"reset_marker_xyz\nsecond line");
     terminal.flush();
     assert!(terminal.read_visible_text().contains("reset_marker_xyz"));
@@ -88,7 +88,7 @@ fn reset_clears_grid_and_scrollback() {
 
 #[test]
 fn reset_clears_selection() {
-    let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+    let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     terminal.vt_write(b"hello");
     terminal.flush();
     let snap = terminal.take_snapshot();
@@ -97,9 +97,7 @@ fn reset_clears_selection() {
     terminal.flush();
     terminal.reset();
     terminal.flush();
-    let (cells, _) = terminal
-        .receive_cell_data()
-        .expect("cell data after reset");
+    let (cells, _) = terminal.receive_cell_data().expect("cell data after reset");
     let picked = cells
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 0)
@@ -113,7 +111,7 @@ fn reset_clears_selection() {
 
 #[test]
 fn search_in_scrollback_finds_match() {
-    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     t.vt_write(b"search_target_here\n");
     t.flush();
     for i in 0..5 {
@@ -135,13 +133,13 @@ fn search_in_scrollback_finds_match() {
 
 #[test]
 fn search_in_scrollback_empty_query() {
-    let t = term();
+    let t = terminal();
     assert_eq!(t.search_in_scrollback(""), None);
 }
 
 #[test]
 fn dump_grid_dimensions_match() {
-    let t = term();
+    let t = terminal();
     // 查询经工作线程超时回退空值，新终端繁忙时单次查询可能命中回退；
     // 确定性轮询直到就绪，杜绝 flaky。
     let start = Instant::now();
@@ -165,7 +163,7 @@ fn dump_grid_dimensions_match() {
 
 #[test]
 fn dump_grid_visible_populated() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"hello");
     t.flush();
     let dumped = t.dump_grid();
@@ -180,7 +178,7 @@ fn dump_grid_visible_populated() {
 
 #[test]
 fn dump_grid_scrollback_populated_after_scroll() {
-    let mut t = GhosttyTerminal::new(3, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(3, 10, 100).expect("terminal");
     for i in 0..10 {
         t.vt_write(format!("line{i}\n").as_bytes());
     }
@@ -206,7 +204,7 @@ fn dump_grid_scrollback_populated_after_scroll() {
 /// drops mouse events when `get_mouse_mode()` is false.
 #[test]
 fn encode_mouse_event_gated_off_without_tracking_mode() {
-    let t = term();
+    let t = terminal();
     let encoded = t.encode_mouse_event((50.0, 60.0), 0, 0, 10.0, 20.0);
     let encoded = encoded.expect("encode_mouse_event should return Some");
     assert!(
@@ -220,7 +218,7 @@ fn encode_mouse_event_gated_off_without_tracking_mode() {
 /// cell (3,2). Matches ghostty's standard SGR encoding.
 #[test]
 fn encode_mouse_event_sgr_press() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"\x1b[?1000h\x1b[?1006h");
     t.flush();
     let encoded = t
@@ -239,7 +237,7 @@ fn encode_mouse_event_sgr_press() {
 /// The Ghostty encoder emits button 4 for wheel-up; SGR adds 32 for press.
 #[test]
 fn encode_mouse_event_wheel() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"\x1b[?1000h\x1b[?1006h");
     t.flush();
     let up = t
@@ -264,7 +262,7 @@ fn encode_mouse_event_wheel() {
 /// behavior — the application should clamp before calling this.
 #[test]
 fn encode_mouse_event_bounds_negative_clamp() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"\x1b[?1000h\x1b[?1006h");
     t.flush();
     let result = t.encode_mouse_event((-5.0, -10.0), 0, 0, 10.0, 20.0);
@@ -290,7 +288,7 @@ fn encode_mouse_event_bounds_negative_clamp() {
 /// gracefully — no panic, no overflow.
 #[test]
 fn encode_mouse_event_bounds_oversized_clamp() {
-    let mut t = term(); // default 24 rows × 80 cols
+    let mut t = terminal(); // default 24 rows × 80 cols
     t.vt_write(b"\x1b[?1000h\x1b[?1006h");
     t.flush();
     // Position far beyond the grid: 9999x9999 with 10x20 cells.
@@ -319,7 +317,7 @@ fn encode_mouse_event_bounds_oversized_clamp() {
 /// (0=press, 2=motion, 1=release).
 #[test]
 fn encode_mouse_event_drag_sequence() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"\x1b[?1000h\x1b[?1006h"); // button tracking + SGR
     t.vt_write(b"\x1b[?1002h"); // button-event tracking (motion reports)
     t.flush();
@@ -384,7 +382,7 @@ fn encode_mouse_event_drag_sequence() {
 /// must be consumed by the OSC, not rendered as text).
 #[test]
 fn osc_title_split_buffer() {
-    let mut t = term();
+    let mut t = terminal();
     // Send the first and second parts of OSC 0 sequence
     t.vt_write(b"\x1b]0;My ");
     t.flush();
@@ -398,7 +396,10 @@ fn osc_title_split_buffer() {
     let found = snap2.cells.iter().any(|c| c.codepoint == 'A' as u32);
     assert!(found, "OSC split: text after split title should render");
     let leaked = snap2.cells.iter().any(|c| c.codepoint == 'Q' as u32);
-    assert!(!leaked, "OSC split: title second half must be consumed, not rendered");
+    assert!(
+        !leaked,
+        "OSC split: title second half must be consumed, not rendered"
+    );
     assert_invariants(&snap2);
 }
 
@@ -406,7 +407,7 @@ fn osc_title_split_buffer() {
 /// must reach the clipboard callback, not the grid).
 #[test]
 fn osc_clipboard_split_buffer() {
-    let mut t = term();
+    let mut t = terminal();
     // OSC 52 sequence: first part sets clipboard selection, second provides data.
     t.vt_write(b"\x1b]52;c;");
     t.flush();
@@ -431,7 +432,7 @@ fn osc_clipboard_split_buffer() {
 /// OSC color reset — sent across split buffer.
 #[test]
 fn osc_color_reset_split_buffer() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"\x1b]104;");
     t.flush();
     t.vt_write(b"\x07");
@@ -447,7 +448,7 @@ fn osc_color_reset_split_buffer() {
 /// OSC sequence terminated after partial first block — crash test
 #[test]
 fn osc_aborted_after_partial_feed() {
-    let mut t = term();
+    let mut t = terminal();
     // Send partial OSC sequence, then BEL to terminate it
     t.vt_write(b"H\x1b]0;Partial\x07");
     t.flush();
@@ -465,7 +466,7 @@ fn osc_aborted_after_partial_feed() {
 /// Oversized OSC 52 payload — no crash
 #[test]
 fn osc_large_clipboard_payload_terminal_survives() {
-    let mut t = term();
+    let mut t = terminal();
     let large = vec![b'A'; 1024 * 4]; // 4KB base64
     let mut seq = Vec::from(b"\x1b]52;c;");
     seq.extend_from_slice(&large);
@@ -483,7 +484,7 @@ fn osc_large_clipboard_payload_terminal_survives() {
 /// Extremely long 8KB OSC string — no crash
 #[test]
 fn osc_extremely_long_8kb_string() {
-    let mut t = term();
+    let mut t = terminal();
     let mut seq = Vec::from(b"\x1b]0;");
     seq.extend(std::iter::repeat_n(b'x', 8000));
     seq.push(b'\x07');
@@ -516,7 +517,7 @@ fn osc_extremely_long_8kb_string() {
 /// 100 resize cycles with scrolling — ring buffer stress test.
 #[test]
 fn resize_stress_100_cycles_with_scroll() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     for cycle in 0..50 {
         t.vt_write(format!("cycle{cycle}\n").as_bytes());
         // Alternate width and height
@@ -588,7 +589,7 @@ fn cell_snapshot_clone() {
 /// cells from both paths cell-by-cell.
 #[test]
 fn cell_iterator_matches_legacy_grid_ref() {
-    let mut t = term();
+    let mut t = terminal();
 
     // Feed mixed content: ASCII, bold, colored, CJK
     t.vt_write(b"\x1b[31mRed\x1b[0m Normal ");
@@ -668,7 +669,7 @@ fn cell_iterator_matches_legacy_grid_ref() {
 /// characters in the snapshot (width=2).
 #[test]
 fn cell_iterator_cjk_double_width() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     t.vt_write("A中B".as_bytes());
     t.flush();
     let snap = t.take_snapshot();
@@ -690,7 +691,7 @@ fn cell_iterator_cjk_double_width() {
 /// matching the GridSnapshot content.
 #[test]
 fn build_cell_data_matches_grid_snapshot() {
-    let mut t = term();
+    let mut t = terminal();
     // Feed various content
     t.vt_write(b"AB");
     t.vt_write(b"\x1b[31mRed\x1b[0m");
@@ -738,7 +739,7 @@ fn build_cell_data_matches_grid_snapshot() {
 /// CellIterator snapshot path.
 #[test]
 fn cell_iterator_grid_dimensions() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"Hello World");
     t.flush();
     let snap = t.take_snapshot();
@@ -802,7 +803,7 @@ fn cell_iterator_grid_dimensions() {
 /// previous line's end column instead of column 0.
 #[test]
 fn newline_lf_implies_crlf() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     t.flush();
     // Write "AB\nCD" — after LF→CR+LF conversion, CD should be at col 0 of row 1
     t.pty_write(b"AB\nCD");
@@ -827,7 +828,7 @@ fn newline_lf_implies_crlf() {
 fn newline_lf_after_full_line_restore() {
     // Simulate session restore: write a full-width line then \n then another line.
     // LF must return cursor to column 0 so the next line starts correctly.
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     t.flush();
     // "ABCDEFGHIJ" is exactly 10 chars (full width), then \n, then "next"
     t.pty_write(b"ABCDEFGHIJ\nnext");
@@ -855,7 +856,7 @@ fn newline_lf_after_full_line_restore() {
 #[test]
 fn newline_crlf_still_works() {
     // CR+LF must continue to work as before
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     t.flush();
     t.vt_write(b"AB\r\nCD");
     t.flush();
@@ -872,7 +873,7 @@ fn newline_crlf_still_works() {
 /// TC-IV-002: Alt buffer has no history
 #[test]
 fn tc_iv_002_alt_buffer_no_history() {
-    let mut t = GhosttyTerminal::new(3, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(3, 10, 100).expect("terminal");
     t.flush();
     for i in 0..5 {
         t.vt_write(format!("line{i}\r\n").as_bytes());
@@ -918,7 +919,7 @@ fn tc_iv_002_alt_buffer_no_history() {
 /// TC-SM-001: Create terminal with valid dimensions
 #[test]
 fn tc_sm_001_create_valid_dimensions() {
-    let t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     t.flush();
     assert_eq!(t.rows(), 24, "SM-001: rows == 24");
     assert_eq!(t.cols(), 80, "SM-001: cols == 80");
@@ -952,7 +953,7 @@ fn tc_sm_002_independent_sessions() {
 /// TC-SM-003: Drop terminal cleans up
 #[test]
 fn tc_sm_003_drop_cleans_up() {
-    let t = GhosttyTerminal::new(3, 3, 100).expect("term");
+    let t = GhosttyTerminal::new(3, 3, 100).expect("terminal");
     t.flush();
     let snap = t.take_snapshot();
     assert_invariants(&snap);
@@ -963,7 +964,7 @@ fn tc_sm_003_drop_cleans_up() {
 /// TC-SM-004: Double drop is safe (handled by Drop impl)
 #[test]
 fn tc_sm_004_double_drop_safe() {
-    let t = GhosttyTerminal::new(3, 3, 100).expect("term");
+    let t = GhosttyTerminal::new(3, 3, 100).expect("terminal");
     t.flush();
     // Can't explicitly double-drop in safe Rust, but we can verify
     // that a normal drop completes without panic
@@ -975,7 +976,7 @@ fn tc_sm_004_double_drop_safe() {
 /// TC-SM-005: Process-like cleanup (just verify terminal works)
 #[test]
 fn tc_sm_005_terminal_works_after_writes() {
-    let mut t = term();
+    let mut t = terminal();
     t.flush();
     t.vt_write(b"SessionActive");
     t.flush();
@@ -992,7 +993,7 @@ fn tc_sm_005_terminal_works_after_writes() {
 /// TC-AL-001: "Pause" (snapshot) preserves content — verify via snapshot
 #[test]
 fn tc_al_001_snapshot_preserves_content() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     t.flush();
     t.vt_write(b"LifecycleContent");
     t.flush();
@@ -1006,7 +1007,7 @@ fn tc_al_001_snapshot_preserves_content() {
 /// TC-AL-002: Alt screen via snapshot
 #[test]
 fn tc_al_002_alt_screen_preserved() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     t.flush();
     t.vt_write(b"\x1b[?1049h");
     t.vt_write(b"AltContent");
@@ -1021,7 +1022,7 @@ fn tc_al_002_alt_screen_preserved() {
 /// TC-AL-003: Cursor position restored after resize cycle
 #[test]
 fn tc_al_003_cursor_restored() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     t.flush();
     t.vt_write(b"\x1b[3;5H"); // CUP to (3,5)
     t.flush();
@@ -1046,7 +1047,7 @@ fn tc_al_003_cursor_restored() {
 /// TC-AL-004: Mode state preserved after resize cycle
 #[test]
 fn tc_al_004_mode_preserved() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     t.flush();
     t.vt_write(b"\x1b[?25l"); // hide cursor
     t.flush();
@@ -1063,7 +1064,7 @@ fn tc_al_004_mode_preserved() {
 
 #[test]
 fn tc_lifecycle_001_pause_resume_cycles() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     t.vt_write(b"BaseContent");
     t.flush();
 
@@ -1088,7 +1089,7 @@ fn tc_lifecycle_001_pause_resume_cycles() {
 
 #[test]
 fn tc_lifecycle_002_content_preserved_after_pause_resume() {
-    let mut t = GhosttyTerminal::new(5, 20, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
     t.vt_write(b"PreserveThisContent!");
     t.flush();
 
@@ -1154,7 +1155,7 @@ fn strict_benchmarks() -> bool {
 
 #[test]
 fn bench_typing_latency() {
-    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
+    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
     // Pre-fill with some content to avoid empty-terminal optimizations
     for _ in 0..10 {
         t.vt_write(b"A line to fill the screen with some realistic content\n");
@@ -1194,7 +1195,7 @@ fn bench_typing_latency() {
 /// debug builds; ANSI throughput is implicitly covered by other benchmarks).
 #[test]
 fn bench_bulk_output_throughput() {
-    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
+    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
     // Build a 4KB buffer of realistic plain-text terminal output
     let mut buf = Vec::with_capacity(4096);
     while buf.len() < 4096 {
@@ -1240,7 +1241,7 @@ fn bench_bulk_output_throughput() {
 #[test]
 fn scrollback_fallback_on_disconnected_terminal() {
     // Create a terminal and fill with content to establish scrollback.
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     for i in 0..20 {
         t.vt_write(format!("line {i}\n").as_bytes());
     }
@@ -1276,7 +1277,7 @@ fn scrollback_fallback_on_disconnected_terminal() {
 /// consistent results across multiple calls (cache hit path).
 #[test]
 fn scrollback_cache_consistency() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     t.vt_write(b"Hello World\n");
     t.flush();
 
@@ -1296,7 +1297,7 @@ fn scrollback_cache_consistency() {
 /// browsing previously did nothing).
 #[test]
 fn scroll_viewport_delta_scrolls_cell_data() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     for i in 0..20 {
         t.vt_write(format!("line {i}\n").as_bytes());
     }
@@ -1365,7 +1366,7 @@ fn scroll_viewport_delta_scrolls_cell_data() {
 /// the reported cursor "block" offset ~1 cell down/right.
 #[test]
 fn cursor_viewport_coordinates_track_scrollback_scroll() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     for i in 0..20 {
         t.vt_write(format!("line {i}\n").as_bytes());
     }
@@ -1441,7 +1442,7 @@ fn terminal_is_alive_after_flush() {
 /// the public receive_cell_data() stream.
 #[test]
 fn row_cache_returns_consistent_cell_data_across_writes() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"hello");
     t.flush();
     let first = t.receive_cell_data().expect("first cell data");
@@ -1488,7 +1489,7 @@ fn row_cache_returns_consistent_cell_data_across_writes() {
 /// reflect the new grid dimensions, not stale cached rows.
 #[test]
 fn row_cache_invalidated_on_resize() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"top");
     t.flush();
     // 确定性轮询直到工作线程产出对应尺寸数据，杜绝固定时长等待的 flaky。
@@ -1533,7 +1534,7 @@ fn row_cache_invalidated_on_resize() {
 /// semantics). Write a line longer than 80 cols then select across the wrap.
 #[test]
 fn selection_text_unwraps_soft_wrapped_lines() {
-    let mut t = term(); // 24x80
+    let mut t = terminal(); // 24x80
     // 90 chars: exceeds the 80-col width -> soft wrap onto row 2.
     let long = "a".repeat(90);
     t.vt_write(long.as_bytes());
@@ -1560,7 +1561,7 @@ fn selection_text_unwraps_soft_wrapped_lines() {
 /// content (TerminalRow.findStartOfColumn equivalent).
 #[test]
 fn selection_text_wide_char_columns() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write("中".as_bytes()); // wide char at cols 0-1
     t.vt_write(b"ab");
     t.flush();
@@ -1578,7 +1579,7 @@ fn selection_text_wide_char_columns() {
 /// 清除后恢复。该测试断言本仓的安装—烘焙链路，不复述上游选区语义。
 #[test]
 fn terminal_owned_selection_inverts_cell_data() {
-    let mut t = term(); // 24x80
+    let mut t = terminal(); // 24x80
     t.vt_write(b"hello");
     t.flush();
     let snap = t.take_snapshot();
@@ -1627,7 +1628,7 @@ fn terminal_owned_selection_inverts_cell_data() {
 /// cells and None outside them.
 #[test]
 fn hyperlink_at_returns_uri_inside_link() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"\x1b]8;;https://example.com\x1b\\Link\x1b]8;;\x1b\\");
     t.flush();
     let snap = t.take_snapshot();
@@ -1648,7 +1649,7 @@ fn hyperlink_at_returns_uri_inside_link() {
 /// take_kitty_graphics_image 返回 Some 且宽高为 1x1。
 #[test]
 fn kitty_graphics_transmit_returns_1x1_image() {
-    let mut t = term();
+    let mut t = terminal();
     // 1x1 RGB 红色像素：base64("/wAA") = {0xff, 0x00, 0x00}。
     // 显式 i=1 指定图像 id（上游默认自动分配 id，不保证为 1）。
     // 注意：vt_write/pty_write 均为分片直透（上游跨调用重组，无 ST/SGR 提前闭合）；
@@ -1670,7 +1671,7 @@ fn kitty_graphics_transmit_returns_1x1_image() {
 /// PNG 载荷经进程内解码器透出为 RGBA（1x1 红点 PNG，对标上游文档示例）。
 #[test]
 fn kitty_graphics_png_decodes_to_rgba() {
-    let mut terminal = term();
+    let mut terminal = terminal();
     terminal.pty_write(
         b"\x1b_Ga=T,f=100,i=2;iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==\x1b\\",
     );
@@ -1685,7 +1686,7 @@ fn kitty_graphics_png_decodes_to_rgba() {
 /// PNG 调色板/16bit 灰度经解码器展开为 8bit RGBA（解码器 EXPAND/STRIP_16 路径回归）。
 #[test]
 fn kitty_graphics_png_palette_and_gray16_decode() {
-    let mut terminal = term();
+    let mut terminal = terminal();
     terminal.pty_write(b"\x1b_Ga=T,f=100,i=11;iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAMAAAAoyzS7AAAAA1BMVEX/AAAZ4gk3AAAACklEQVR4nGNgAAAAAgABSK+kcQAAAABJRU5ErkJggg==\x1b\\");
     terminal.pty_write(b"\x1b_Ga=T,f=100,i=12;iVBORw0KGgoAAAANSUhEUgAAAAEAAAABEAAAAABq7kcWAAAAC0lEQVR4nGP4/x8AAwAB//wl3FEAAAAASUVORK5CYII=\x1b\\");
     terminal.flush();
@@ -1704,7 +1705,7 @@ fn kitty_graphics_png_palette_and_gray16_decode() {
 /// Kitty 放置采集：传输并显示 1x1 图像后，可见放置恰为 1 个且几何非零。
 #[test]
 fn kitty_placements_collects_visible_display() {
-    let mut terminal = term();
+    let mut terminal = terminal();
     terminal.set_cell_pixel_size(8, 16);
     terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=7;/wAA\x1b\\");
     terminal.flush();
@@ -1726,7 +1727,7 @@ fn kitty_placements_collects_visible_display() {
 /// build_cell_data → (cells, CursorInfo).
 #[test]
 fn cursor_matches_last_printed_row_after_echo_print() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"$ ");
     t.vt_write(b"abc");
     t.flush();
@@ -1765,7 +1766,7 @@ fn cursor_matches_last_printed_row_after_echo_print() {
 /// must agree with the echo path — one coordinate contract for both.
 #[test]
 fn cursor_matches_cell_rows_after_cup_positioning() {
-    let mut t = term();
+    let mut t = terminal();
     t.vt_write(b"\x1b[3;5H"); // CUP to row 2, col 4 (1-based)
     t.flush();
 
@@ -1791,7 +1792,7 @@ fn cursor_matches_cell_rows_after_cup_positioning() {
 /// OSC 7 与 OSC 1337 工作目录上报（上游归一化，本仓只断言透出内容）。
 #[test]
 fn osc7_and_osc1337_report_working_directory() {
-    let mut osc7_terminal = term();
+    let mut osc7_terminal = terminal();
     osc7_terminal.pty_write(b"\x1b]7;file:///tmp\x07");
     osc7_terminal.flush();
     assert_eq!(
@@ -1799,7 +1800,7 @@ fn osc7_and_osc1337_report_working_directory() {
         Some("file:///tmp".to_string()),
         "OSC 7 must surface the working directory"
     );
-    let mut osc1337_terminal = term();
+    let mut osc1337_terminal = terminal();
     osc1337_terminal.pty_write(b"\x1b]1337;CurrentDir=/tmp\x07");
     osc1337_terminal.flush();
     assert_eq!(

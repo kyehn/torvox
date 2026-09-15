@@ -1142,7 +1142,7 @@ fn group_highlights_by_row(
 }
 
 #[test]
-fn search_highlight_current_match_inverts_fg_bg() {
+fn search_highlight_current_match_inverts_foreground_background() {
     // Current match: alpha >= 128 triggers foreground/background swap
     let highlights = vec![SearchHighlight {
         row: 0,
@@ -1269,25 +1269,25 @@ fn search_highlight_current_match_alpha_matches_production() {
     // Production anchor: SearchHighlightColors.CURRENT_MATCH_ALPHA = 255.
     let hl: [u8; 4] = [255, 200, 0, 255];
 
-    let original_fg: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // white text
-    let original_bg: [f32; 4] = [0.0, 0.0, 0.0, 1.0]; // black background
-    let mut foreground = original_fg;
-    let mut background = original_bg;
+    let original_foreground: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // white text
+    let original_background: [f32; 4] = [0.0, 0.0, 0.0, 1.0]; // black background
+    let mut foreground = original_foreground;
+    let mut background = original_background;
 
     apply_search_highlight(&mut foreground, &mut background, hl);
 
     // alpha >= 128 must swap foreground/background (inverse video): foreground becomes the
     // ORIGINAL background...
     assert!(
-        f32_arrays_equal(&foreground, &original_bg),
+        f32_arrays_equal(&foreground, &original_background),
         "alpha=255 must swap foreground/background; foreground should become the original background: {:?}",
         foreground
     );
     // ...and the swapped background is fully covered by the opaque
     // highlight color.
-    let expected_bg = blend_highlight(original_bg, hl);
+    let expected_background = blend_highlight(original_background, hl);
     assert!(
-        f32_arrays_equal(&background, &expected_bg),
+        f32_arrays_equal(&background, &expected_background),
         "background should be highlight blended over the swapped background: {:?}",
         background
     );
@@ -1306,30 +1306,30 @@ fn search_highlight_other_match_alpha_matches_production() {
     // at or above the 128 swap threshold (: ALL matches invert).
     let hl: [u8; 4] = [100, 150, 200, 160];
 
-    let original_fg: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
-    let original_bg: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-    let mut foreground = original_fg;
-    let mut background = original_bg;
+    let original_foreground: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+    let original_background: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
+    let mut foreground = original_foreground;
+    let mut background = original_background;
 
     apply_search_highlight(&mut foreground, &mut background, hl);
 
     // alpha >= 128 must swap (inverse video): foreground becomes the original background.
     assert!(
-        f32_arrays_equal(&foreground, &original_bg),
+        f32_arrays_equal(&foreground, &original_background),
         "alpha=160 must swap foreground/background like every match: {:?}",
         foreground
     );
     // Background gets the highlight blended over the swapped background — which now
     // holds the ORIGINAL foreground — visibly different from BOTH the
     // untouched background and the fully opaque current-match treatment.
-    let expected_bg = blend_highlight(original_fg, hl);
+    let expected_background = blend_highlight(original_foreground, hl);
     assert!(
-        f32_arrays_equal(&background, &expected_bg),
+        f32_arrays_equal(&background, &expected_background),
         "background should be highlight blended over the swapped background: {:?}",
         background
     );
     assert!(
-        !f32_arrays_equal(&background, &original_bg),
+        !f32_arrays_equal(&background, &original_background),
         "the alpha=160 blend must visibly change the background"
     );
 }
@@ -2322,7 +2322,7 @@ fn bench_scroll_throughput() {
     // in isolation. Each bench is fast (<1s) so the lock is
     // uncontended in practice.
     let _serial = super::GPU_BENCH_LOCK.lock();
-    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
+    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
     // Fill scrollback with 500 lines of content
     for i in 0..500 {
         t.vt_write(
@@ -2378,7 +2378,7 @@ fn bench_end_to_end_cpu_pipeline_latency() {
 
     use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
-    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("term");
+    let mut t = GhosttyTerminal::new(24, 80, 5000).expect("terminal");
     let mut font_pipeline = super::font::FontPipeline::new(1024, 1024, 14.0);
 
     // Simulate a realistic screen: fill with text content

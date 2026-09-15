@@ -101,13 +101,16 @@ pub fn assert_invariants(snap: &GridSnapshot) {
 /// Provides chainable assertions that consume and return `Self`,
 /// enabling the Termux-style `.write().assert_lines_are().assert_cursor_at()` pattern.
 pub struct TermTestCase<'a> {
-    term: &'a mut GhosttyTerminal,
+    terminal: &'a mut GhosttyTerminal,
     before: Option<GridSnapshot>,
 }
 
 impl<'a> TermTestCase<'a> {
-    pub fn new(term: &'a mut GhosttyTerminal) -> Self {
-        Self { term, before: None }
+    pub fn new(terminal: &'a mut GhosttyTerminal) -> Self {
+        Self {
+            terminal,
+            before: None,
+        }
     }
 
     /// Write bytes to the terminal (typically PTY/test text output),
@@ -115,9 +118,9 @@ impl<'a> TermTestCase<'a> {
     /// Uses `pty_write` which converts LF to CR+LF for correct
     /// terminal text behavior.
     pub fn write(self, data: &[u8]) -> Self {
-        self.term.pty_write(data);
-        self.term.flush();
-        let snap = self.term.take_snapshot();
+        self.terminal.pty_write(data);
+        self.terminal.flush();
+        let snap = self.terminal.take_snapshot();
         assert_invariants(&snap);
         self
     }
@@ -126,22 +129,22 @@ impl<'a> TermTestCase<'a> {
     pub fn writeln(self, data: &[u8]) -> Self {
         let mut buf = data.to_vec();
         buf.push(b'\n');
-        self.term.pty_write(&buf);
-        self.term.flush();
-        let snap = self.term.take_snapshot();
+        self.terminal.pty_write(&buf);
+        self.terminal.flush();
+        let snap = self.terminal.take_snapshot();
         assert_invariants(&snap);
         self
     }
 
     /// Capture a snapshot *before* the next write for `assert_content_preserved`.
     pub fn capture_before(mut self) -> Self {
-        self.before = Some(self.term.take_snapshot());
+        self.before = Some(self.terminal.take_snapshot());
         self
     }
 
     /// Assert a specific row's trimmed text matches.
     pub fn assert_row_text(self, row: u32, expected: &str) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         let actual = row_text(&snap, row);
         assert_eq!(
             actual, expected,
@@ -152,7 +155,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert that given rows contain expected text (trimmed).
     pub fn assert_lines_are(self, expected: &[&str]) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         for (i, &exp) in expected.iter().enumerate() {
             let actual = row_text(&snap, i as u32);
             assert_eq!(
@@ -165,7 +168,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert cursor position using snapshot cursor info.
     pub fn assert_cursor_at(self, row: u32, col: u32) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         assert_eq!(
             snap.cursor_row, row,
             "cursor row mismatch: expected {row}, got {}",
@@ -181,7 +184,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert foreground color of the cell at (row, col) approximates `expected`.
     pub fn assert_foreground(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(
             colors_approx_eq(&cell.foreground, &expected),
@@ -206,7 +209,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert background color of the cell at (row, col) approximates `expected`.
     pub fn assert_background(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(
             colors_approx_eq(&cell.background, &expected),
@@ -218,7 +221,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert the cell at (row, col) has all given effect flags set.
     pub fn assert_effects(self, row: u32, col: u32, effects: &[EffectFlag]) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         for effect in effects {
             match effect {
@@ -235,7 +238,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert strikethrough is set at (row, col).
     pub fn assert_strikethrough(self, row: u32, col: u32) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(
             cell.strikethrough,
@@ -246,7 +249,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert blink is set at (row, col).
     pub fn assert_blink(self, row: u32, col: u32) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(cell.blink, "expected blink at ({row},{col})");
         self
@@ -254,7 +257,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert hidden (concealed) at (row, col).
     pub fn assert_hidden(self, row: u32, col: u32) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(cell.hidden, "expected hidden at ({row},{col})");
         self
@@ -262,7 +265,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert the terminal's current title matches `expected`.
     pub fn assert_title(self, expected: &str) -> Self {
-        let title = self.term.title();
+        let title = self.terminal.title();
         assert!(
             title.contains(expected),
             "title mismatch: expected to contain {expected:?}, got {title:?}"
@@ -272,7 +275,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert that DEC private mode N is in the expected state.
     pub fn assert_mode(self, mode_num: u16, expected: bool) -> Self {
-        let actual = self.term.mode_get(mode_num, 0);
+        let actual = self.terminal.mode_get(mode_num, 0);
         assert_eq!(
             actual, expected,
             "DEC mode {mode_num} mismatch: expected {expected}, got {actual}"
@@ -282,7 +285,7 @@ impl<'a> TermTestCase<'a> {
 
     /// Assert the cell at (row, col) does NOT have given effect flags.
     pub fn assert_no_effects(self, row: u32, col: u32, effects: &[EffectFlag]) -> Self {
-        let snap = self.term.take_snapshot();
+        let snap = self.terminal.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         for effect in effects {
             match effect {
@@ -306,7 +309,7 @@ impl<'a> TermTestCase<'a> {
             .before
             .as_ref()
             .expect("assert_content_preserved requires a prior capture_before() call");
-        let after = self.term.take_snapshot();
+        let after = self.terminal.take_snapshot();
         assert_eq!(
             before.rows, after.rows,
             "row count changed between snapshots"
@@ -344,7 +347,7 @@ impl<'a> TermTestCase<'a> {
             .write(sequence)
             .write(token)
             .assert_cursor_at(expected_row, expected_col);
-        let snap = tc.term.take_snapshot();
+        let snap = tc.terminal.take_snapshot();
         let actual_row = row_text(&snap, expected_row);
         assert!(
             actual_row.contains(token_str),
@@ -359,17 +362,17 @@ mod tests {
     use super::*;
     use crate::terminal::ghostty_terminal::GhosttyTerminal;
 
-    fn term() -> GhosttyTerminal {
+    fn terminal() -> GhosttyTerminal {
         GhosttyTerminal::new(24, 80, 1000).expect("terminal create")
     }
 
-    fn small_term() -> GhosttyTerminal {
-        GhosttyTerminal::new(3, 3, 100).expect("term")
+    fn small_terminal() -> GhosttyTerminal {
+        GhosttyTerminal::new(3, 3, 100).expect("terminal")
     }
 
     #[test]
     fn test_case_write_and_assert_row() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"Hello, World!")
             .assert_row_text(0, "Hello, World!");
@@ -377,7 +380,7 @@ mod tests {
 
     #[test]
     fn test_case_write_multiline() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .writeln(b"line one")
             .writeln(b"line two")
@@ -386,7 +389,7 @@ mod tests {
 
     #[test]
     fn test_case_cursor_movement() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[5;10HX")
             .assert_cursor_at(4, 10);
@@ -394,7 +397,7 @@ mod tests {
 
     #[test]
     fn test_case_sgr_bold() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[1mB")
             .assert_effects(0, 0, &[EffectFlag::Bold])
@@ -411,7 +414,7 @@ mod tests {
 
     #[test]
     fn test_case_sgr_color() {
-        let mut t = term();
+        let mut t = terminal();
         // Use 24-bit color (SGR 38;2) because palette-indexed colors (SGR 31)
         // resolve to StyleColor::PaletteIndex, which build_snapshot maps to
         // default_foreground rather than the palette entry.
@@ -423,7 +426,7 @@ mod tests {
 
     #[test]
     fn test_case_sgr_reset_clears_attrs() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[1;3;4;7mA\x1b[0mB")
             .assert_no_effects(
@@ -441,7 +444,7 @@ mod tests {
 
     #[test]
     fn test_case_content_preserved_after_noop() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"persistent content")
             .capture_before()
@@ -451,20 +454,20 @@ mod tests {
 
     #[test]
     fn test_case_sequence_clean() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t).assert_sequence_clean(b"\x1b[31m", b"OK", 0, 2);
     }
 
     #[test]
     fn test_case_row_text_raw_trailing_nulls() {
-        let mut t = small_term();
+        let mut t = small_terminal();
         // The "AB" fills cols 0-1; col 2 has codepoint 0 (empty)
         // row_text_raw encodes codepoint 0 as \0
         let tc = TermTestCase::new(&mut t).write(b"AB");
-        let snap = tc.term.take_snapshot();
+        let snap = tc.terminal.take_snapshot();
         let raw = row_text_raw(&snap, 0);
         // Must have exactly 3 chars: A, B, null
-        assert_eq!(raw.len(), 3, "3 cols in small_term");
+        assert_eq!(raw.len(), 3, "3 cols in small_terminal");
         assert_eq!(raw.as_bytes()[0], b'A');
         assert_eq!(raw.as_bytes()[1], b'B');
         assert_eq!(raw.as_bytes()[2], 0, "col 2 is null");
@@ -472,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_case_invariants_after_scroll() {
-        let mut t = GhosttyTerminal::new(3, 10, 100).expect("term");
+        let mut t = GhosttyTerminal::new(3, 10, 100).expect("terminal");
         for i in 0..10u8 {
             t.vt_write(format!("line {i}\n").as_bytes());
         }
@@ -484,7 +487,7 @@ mod tests {
 
     #[test]
     fn test_assert_lines_are_full_width() {
-        let mut t = GhosttyTerminal::new(3, 5, 100).expect("term");
+        let mut t = GhosttyTerminal::new(3, 5, 100).expect("terminal");
         TermTestCase::new(&mut t)
             .write(b"ABCDE")
             .assert_lines_are(&["ABCDE", "", ""]);
@@ -492,7 +495,7 @@ mod tests {
 
     #[test]
     fn test_assert_lines_are_multiple_rows_exact() {
-        let mut t = GhosttyTerminal::new(3, 5, 100).expect("term");
+        let mut t = GhosttyTerminal::new(3, 5, 100).expect("terminal");
         TermTestCase::new(&mut t)
             .write(b"ABCDE\n12345")
             .assert_lines_are(&["ABCDE", "12345", ""]);
@@ -500,14 +503,14 @@ mod tests {
 
     #[test]
     fn test_auto_invariants_on_write_no_corruption() {
-        let mut t = GhosttyTerminal::new(3, 10, 100).expect("term");
+        let mut t = GhosttyTerminal::new(3, 10, 100).expect("terminal");
         // write() auto-calls invariants — if the terminal state is corrupt, this panics
         TermTestCase::new(&mut t).write(b"normal text\nmore text\nfinal line");
     }
 
     #[test]
     fn test_output_capture_dsr() {
-        let mut t = term();
+        let mut t = terminal();
         t.vt_write(b"\x1b[5n");
         t.flush();
         let responses = t.drain_pty_write_responses();
@@ -522,7 +525,7 @@ mod tests {
 
     #[test]
     fn test_output_capture_cpr() {
-        let mut t = term();
+        let mut t = terminal();
         t.vt_write(b"\x1b[5;10H"); // CUP to row 5, col 10
         t.vt_write(b"\x1b[6n"); // CPR
         t.flush();
@@ -539,7 +542,7 @@ mod tests {
 
     #[test]
     fn test_output_capture_decxpr() {
-        let mut t = term();
+        let mut t = terminal();
         t.vt_write(b"\x1b[?6n");
         t.flush();
         let responses = t.drain_pty_write_responses();
@@ -558,7 +561,7 @@ mod tests {
 
     #[test]
     fn test_assert_foreground_exact() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[38;2;255;128;64mX")
             .assert_foreground_exact(0, 0, 255, 128, 64);
@@ -566,7 +569,7 @@ mod tests {
 
     #[test]
     fn test_assert_background_exact() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[48;2;64;128;255mX")
             .assert_background_exact(0, 0, 64, 128, 255);
@@ -574,7 +577,7 @@ mod tests {
 
     #[test]
     fn test_assert_strikethrough() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[9mX")
             .assert_strikethrough(0, 0);
@@ -582,7 +585,7 @@ mod tests {
 
     #[test]
     fn test_assert_blink() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[5mX")
             .assert_blink(0, 0);
@@ -590,7 +593,7 @@ mod tests {
 
     #[test]
     fn test_assert_hidden() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[8mX")
             .assert_hidden(0, 0);
@@ -598,7 +601,7 @@ mod tests {
 
     #[test]
     fn test_assert_title_osc2() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b]2;MyTitle\x1b\\")
             .assert_title("MyTitle");
@@ -606,7 +609,7 @@ mod tests {
 
     #[test]
     fn test_assert_title_osc0() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b]0;IconTitle\x1b\\")
             .assert_title("IconTitle");
@@ -614,7 +617,7 @@ mod tests {
 
     #[test]
     fn test_assert_mode_set_reset_cycle() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[?1h")
             .assert_mode(1, true)
@@ -624,7 +627,7 @@ mod tests {
 
     #[test]
     fn test_assert_mode_origin() {
-        let mut t = term();
+        let mut t = terminal();
         TermTestCase::new(&mut t)
             .write(b"\x1b[?6h")
             .assert_mode(6, true)

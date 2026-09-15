@@ -901,7 +901,7 @@ mod tests {
 
     /// SGR 7 reverse swaps foreground and background.
     #[test]
-    fn reverse_swaps_fg_bg() {
+    fn reverse_swaps_foreground_background() {
         let cells = vec![cell_data(
             0,
             0,
@@ -1003,7 +1003,7 @@ mod tests {
     /// Block cursor replaces background with cursor color (semi-transparent) and
     /// keeps the original foreground so the glyph stays readable.
     #[test]
-    fn block_cursor_paints_bg_keeps_fg() {
+    fn block_cursor_paints_background_keeps_foreground() {
         let cells = vec![cell_data(
             5,
             5,
@@ -1397,13 +1397,13 @@ mod tests {
     #[test]
     fn cell_run_mixed_format() {
         let foreground = [1.0, 1.0, 1.0, 1.0];
-        let bg_a = [0.0, 0.0, 0.0, 1.0];
-        let bg_b = [1.0, 0.0, 0.0, 1.0];
+        let background_a = [0.0, 0.0, 0.0, 1.0];
+        let background_b = [1.0, 0.0, 0.0, 1.0];
         let cells = vec![
-            cell_data(0, 0, 'a', foreground, bg_a, 0),
-            cell_data(0, 1, 'b', foreground, bg_a, 0),
-            cell_data(0, 2, 'c', foreground, bg_b, 0), // background change
-            cell_data(0, 3, 'd', foreground, bg_b, 0),
+            cell_data(0, 0, 'a', foreground, background_a, 0),
+            cell_data(0, 1, 'b', foreground, background_a, 0),
+            cell_data(0, 2, 'c', foreground, background_b, 0), // background change
+            cell_data(0, 3, 'd', foreground, background_b, 0),
         ];
         let runs = build_row_runs(&cells);
         assert_eq!(runs.len(), 2, "background change → 2 runs");
