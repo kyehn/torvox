@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::env;
 use std::fs;
 use std::path::Path;
 
@@ -240,7 +239,8 @@ pub fn save_snapshot(path: &Path, snap: &TestSnapshot) {
 
 /// Manual reference tool (not called by automated tests): run a ref test
 /// from a `.seq` file and compare against the expected `.json`. Returns
-/// `true` if the test passed or the expected file was updated.
+/// `true` if the test passed. Regenerate stale expectations with the
+/// `save_snapshot` manual tool, never from inside a test.
 #[allow(dead_code)]
 pub fn run_ref_test(
     seq_path: &Path,
@@ -263,19 +263,9 @@ pub fn run_ref_test(
 
     let actual = capture_snapshot(&terminal);
 
-    if env::var("UPDATE_EXPECT").as_deref() == Ok("1") {
-        let parent = json_path
-            .parent()
-            .expect("snapshot path must have a parent directory");
-        fs::create_dir_all(parent).ok();
-        save_snapshot(json_path, &actual);
-        eprintln!("UPDATED: {}", json_path.display());
-        return true;
-    }
-
     assert!(
         json_path.exists(),
-        "expected snapshot {} not found. Run with UPDATE_EXPECT=1 to generate",
+        "expected snapshot {} not found. Regenerate it with the save_snapshot manual tool",
         json_path.display()
     );
 
