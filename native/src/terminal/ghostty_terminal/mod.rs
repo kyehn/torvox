@@ -49,7 +49,8 @@ pub struct GhosttyTerminal {
 
 impl Drop for GhosttyTerminal {
     fn drop(&mut self) {
-        if let Err(error) = self.cmd_tx.send(Command::Terminate) {
+        // try_send：VT 线程卡住时不得阻塞析构（与全仓非阻塞策略一致），失败仅记日志后 join。
+        if let Err(error) = self.cmd_tx.try_send(Command::Terminate) {
             log::error!("ghostty_terminal: cmd_tx send Terminate failed: {error}");
         }
         if let Some(handle) = self.handle.take()
