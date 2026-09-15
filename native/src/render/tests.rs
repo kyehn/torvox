@@ -791,8 +791,125 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
     let mut extras = [0u32; 7];
     extras[0] = 0x301;
     extras[1] = 0x302;
-    let cell_data = vec![CellData {
+    let cluster_cell = |row: u32, col: u32| CellData {
         codepoint: 'a' as u32,
+        width: 1,
+        grapheme_extra: extras,
+        foreground: [1.0; 4],
+        background: [0.0; 4],
+        underline_color: [1.0; 4],
+        flags: 0,
+        row,
+        col,
+    };
+    let blank_cell = |row: u32, col: u32| CellData {
+        codepoint: ' ' as u32,
+        width: 1,
+        grapheme_extra: [0; 7],
+        foreground: [1.0; 4],
+        background: [0.0; 4],
+        underline_color: [1.0; 4],
+        flags: 0,
+        row,
+        col,
+    };
+    // Clusters at non-zero column and row prove the overlay origin
+    // includes the full grid origin, not just the shaper offset.
+    let cell_data = vec![
+        cluster_cell(0, 0),
+        blank_cell(0, 1),
+        blank_cell(0, 2),
+        cluster_cell(0, 3),
+        blank_cell(1, 0),
+        cluster_cell(1, 1),
+        blank_cell(1, 2),
+        blank_cell(1, 3),
+    ];
+    let cursor = crate::render::CellCursor {
+        row: 9,
+        col: 9,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 2,
+            cols: 4,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
+            atlas_width: TEST_ATLAS_SIZE,
+            atlas_height: TEST_ATLAS_SIZE,
+            search_highlights: &[],
+        },
+        &mut font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
+    // Primary glyph plus the positioned combining-mark overlay.
+    assert!(
+        instances.len() >= 2,
+        "cluster cell must emit primary plus overlay, got {}",
+        instances.len()
+    );
+    // The overlay origin carries the shaper offset: recompute the
+    // expected offset from the same cluster shaping and require an
+    // instance at exactly that position (base cell is col 0).
+    let shaped = font_pipeline.shape_run("a\u{301}\u{302}");
+    assert!(
+        shaped.len() > 1,
+        "fixture must shape multi-mark cluster to several glyphs"
+    );
+    let expected_origin = [shaped[1].x_offset, shaped[1].y_offset];
+    let is_shaped_overlay = |instance: &crate::render::CellInstance| {
+        instance.atlas_size != [0.0; 2] && instance.quad_origin == expected_origin
+    };
+    assert!(
+        instances.iter().any(is_shaped_overlay),
+        "a glyph overlay must sit at the shaper offset {expected_origin:?}"
+    );
+    let expected_shifted = [3.0 * cell_w + shaped[1].x_offset, shaped[1].y_offset];
+    let is_shifted_overlay = |instance: &crate::render::CellInstance| {
+        instance.atlas_size != [0.0; 2] && instance.quad_origin == expected_shifted
+    };
+    assert!(
+        instances.iter().any(is_shifted_overlay),
+        "an overlay must sit at grid origin plus shaper offset {expected_shifted:?}"
+    );
+    let expected_row = [cell_w + shaped[1].x_offset, cell_h + shaped[1].y_offset];
+    let is_row_overlay = |instance: &crate::render::CellInstance| {
+        instance.atlas_size != [0.0; 2] && instance.quad_origin == expected_row
+    };
+    assert!(
+        instances.iter().any(is_row_overlay),
+        "an overlay must include the grid row origin {expected_row:?}"
+    );
+    // The cluster shaping ran through the shared shape cache.
+    assert!(
+        font_pipeline
+            .caches
+            .shape_cache
+            .get("a\u{301}\u{302}")
+            .is_some(),
+        "cluster shape must be cached"
+    );
+}
+
+#[test]
+fn cluster_cell_invalid_extra_falls_back_without_overlay() {
+    use crate::terminal::ghostty_terminal::CellData;
+    let mut font_pipeline = ascii_font();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    // An unrepresentable extra (lone surrogate) cannot join the cluster
+    // string and cannot convert back to char: shaping is skipped and the
+    // fallback drops it, leaving exactly the primary quad.
+    let mut extras = [0u32; 7];
+    extras[0] = 0xd800;
+    let cell_data = vec![CellData {
+        codepoint: 'x' as u32,
         width: 1,
         grapheme_extra: extras,
         foreground: [1.0; 4],
@@ -811,25 +928,15 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
     };
     let instances =
         build_configured_cell_instance(&cell_data, cursor, cell_w, cell_h, &mut font_pipeline);
-    // Primary glyph plus at least the combining-mark overlay.
-    assert!(
-        instances.len() >= 2,
-        "cluster cell must emit primary plus overlay, got {}",
+    assert_eq!(
+        instances.len(),
+        1,
+        "invalid extra must not produce overlays, got {}",
         instances.len()
-    );
-    // The cluster shaping ran through the shared shape cache.
-    assert!(
-        font_pipeline
-            .caches
-            .shape_cache
-            .get("a\u{301}\u{302}")
-            .is_some(),
-        "cluster shape must be cached"
     );
 }
 
 // ── Bearing correctness: Termux-aligned font metrics ──────────────
-
 /// Verify bearing_y uses font baseline, not centering.
 /// build_cell_instances_from_flat uses raw bearing_y = ascent_pixels - placement.top
 /// (no centering, no clamping — the raw font baseline offset).
