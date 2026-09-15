@@ -754,8 +754,8 @@ fn append_row_instances(
             // when shaping produced nothing usable.
             if cluster_shaped.len() > 1 {
                 for glyph in cluster_shaped.iter().skip(1) {
-                    if let Some(info) = font_pipeline
-                        .glyph_information_for_glyph(glyph.font_id, glyph.glyph_id)
+                    if let Some(info) =
+                        font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id)
                     {
                         let shaped_origin = [
                             glyph_quad_origin[0] + glyph.x_offset,
