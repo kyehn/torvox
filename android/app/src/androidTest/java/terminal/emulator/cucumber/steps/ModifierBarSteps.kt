@@ -9,6 +9,7 @@ import io.cucumber.java.zh_cn.假如
 import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
 import terminal.emulator.cucumber.ComposeRuleHolder
+import terminal.emulator.getBridge
 import terminal.emulator.probeAssertion
 import javax.inject.Inject
 
@@ -57,26 +58,25 @@ constructor(
     fun ctrlKeyIsTappedTwice() {
         val rule = composeRuleHolder.composeRule
         // 双击 = 两次点按：第一次选中，第二次取消选中。
-        // performClick 在 cucumber 规则下第二次点击会被手势残留吞掉，
-        // 改用 UiDevice 点击视图中心坐标（与 SelectionSteps 的
-        // injectLongPress 同一底层路径，绕过 compose 手势协程）。
+        // 两次 performClick 之间等选中态落定（waitForIdle 不等重组），
+        // 落定后直接点第二次：产品已修偷 Once 的 bug，此处不再重试。
+        // 双击前先让 shell 吐出可观测输出：若 PTY 桥尚未就绪（会话孵化中），
+        // 先等就绪再点——之前失败的真正面目可能是桥未就绪时点击被吞，
+        // 而非手势竞态。用输出存在性做可观测门禁，大声失败。
+        val bridge = rule.getBridge() ?: throw AssertionError("拿不到终端桥")
+        var echoed = false
+        val deadline = System.currentTimeMillis() + 15000
+        while (!echoed && System.currentTimeMillis() < deadline) {
+            bridge.writeToPty("echo CTRL_PROBE\n".toByteArray(Charsets.UTF_8))
+            Thread.sleep(500)
+            echoed = bridge.getTerminalText()?.contains("CTRL_PROBE") == true
+        }
+        check(echoed) { "shell 无回显，桥未就绪" }
         rule.onNodeWithTag("Key_CTRL").performClick()
         rule.waitUntil(timeoutMillis = 5000) {
             probeAssertion { rule.onNodeWithTag("Key_CTRL").assertIsSelected() }
         }
-        // compose 语义树的 boundsInRoot 是逻辑坐标，直接喂给 UiDevice
-        // 会点偏（实测 uiautomator 坐标系下 CTRL 在 [155,2242][310,2337]）。
-        // 改用 UiSelector 按 content-desc 定位后点击，坐标由系统解析。
-        val device =
-            androidx.test.platform.app.InstrumentationRegistry
-                .getInstrumentation()
-                .let { androidx.test.uiautomator.UiDevice.getInstance(it) }
-        val ctrlButton =
-            device.findObject(
-                androidx.test.uiautomator.By.desc("Ctrl 切换"),
-            )
-        check(ctrlButton != null) { "找不到 Ctrl 切换按钮" }
-        ctrlButton.click()
+        rule.onNodeWithTag("Key_CTRL").performClick()
         rule.waitForIdle()
     }
 

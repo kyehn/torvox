@@ -33,7 +33,7 @@ pub(crate) mod wgpu_backend;
 mod tests;
 
 // ── Re-exports ───────────────────────────────────────────────────────────
-pub use cell_builder::{CellCursor, CellRun, build_instances_from_cell_data, build_row_runs};
+pub use cell_builder::{CellCursor, build_instances_from_cell_data};
 #[cfg(test)]
 pub(crate) use cell_builder::{SearchHighlight, blend_highlight, cell_highlight};
 pub use context::FrameContext;
@@ -172,8 +172,9 @@ impl KittyGraphicsInstance {
 // Benches and in-crate tests reach the render internals (instance types +
 // builders) through this single module.
 pub mod gpu {
-    pub use super::cell_builder::{CellCursor, CellInstanceConfig, build_instances_from_cell_data};
-    pub use super::cell_builder::{CellRun, SearchHighlight, build_row_runs};
+    pub use super::cell_builder::{
+        CellCursor, CellInstanceConfig, SearchHighlight, build_instances_from_cell_data,
+    };
     pub use super::context::{Renderer, orthographic_projection};
     pub use super::pipeline::GpuUniforms;
     pub use super::{
