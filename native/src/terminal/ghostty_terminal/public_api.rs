@@ -225,7 +225,7 @@ impl super::GhosttyTerminal {
     /// `None`，测试需先制造内容变更再 `expect`。
     pub fn flush(&self) {
         let (tx, rx) = bounded(1);
-        if let Err(error) = self.cmd_tx.send(Command::FlushAck(tx)) {
+        if let Err(error) = self.cmd_tx.try_send(Command::FlushAck(tx)) {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
             return;
         }
@@ -355,7 +355,7 @@ impl super::GhosttyTerminal {
         let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
         if let Err(error) = self
             .cmd_tx
-            .send(Command::TakeSnapshot { tx, scroll_offset })
+            .try_send(Command::TakeSnapshot { tx, scroll_offset })
         {
             log::warn!("ghostty_terminal: cmd_tx full/dropped failed: {error}");
             return GridSnapshot::fallback(DISCONNECTED_ROWS, DISCONNECTED_COLS);
@@ -400,7 +400,7 @@ impl super::GhosttyTerminal {
             let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
             if self
                 .cmd_tx
-                .send(Command::TakeSnapshot { tx, scroll_offset })
+                .try_send(Command::TakeSnapshot { tx, scroll_offset })
                 .is_ok()
             {
                 cache.pending_rx = Some(rx);
@@ -413,7 +413,7 @@ impl super::GhosttyTerminal {
         let (tx, rx): (Sender<Arc<GridSnapshot>>, _) = bounded(1);
         if self
             .cmd_tx
-            .send(Command::TakeSnapshot { tx, scroll_offset })
+            .try_send(Command::TakeSnapshot { tx, scroll_offset })
             .is_ok()
         {
             cache.pending_rx = Some(rx);
