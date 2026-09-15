@@ -487,7 +487,11 @@ impl FontPipeline {
 
     pub fn set_font_size_in_place(&mut self, new_size: f32) -> (f32, f32) {
         self.font_size = new_size;
-        self.caches.shape_cache.clear();
+        // 字形身份缓存必须同步失效：ascii_glyph_ids 存的是旧尺寸光栅化
+        // 前解析的字形 id，若不清零，d 等字符会命中旧 id 对应的错误位图
+        //（“d 在某些区域像 a”类字形混淆）。glyph_cache 以 (font, gid,
+        // 尺寸) 为键，清 glyph_cache 不清 ascii 表仍会查到脏 id。
+        self.clear_identity_caches();
         self.caches.glyph_cache.clear();
         self.reset_atlas();
         let (cw, ch) = self.cell_metrics();
