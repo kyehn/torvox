@@ -22,8 +22,8 @@ pub struct FrameContext {
     pub(crate) encoder: wgpu::CommandEncoder,
     pub(crate) view: wgpu::TextureView,
     pub(crate) texture: wgpu::SurfaceTexture,
-    pub(crate) cfg_width: u32,
-    pub(crate) cfg_height: u32,
+    pub(crate) config_width: u32,
+    pub(crate) config_height: u32,
 }
 
 impl FrameContext {
@@ -212,22 +212,22 @@ impl Renderer {
             });
             self.pending_gpu_drain = false;
         }
-        let cfg_width = self.surface_config.as_ref().map(|c| c.width)?;
-        let cfg_height = self.surface_config.as_ref().map(|c| c.height)?;
+        let config_width = self.surface_config.as_ref().map(|c| c.width)?;
+        let config_height = self.surface_config.as_ref().map(|c| c.height)?;
 
-        self.refresh_cell_uniforms(cfg_width as f32, cfg_height as f32);
-        self.ensure_kgp_pipeline(cfg_width, cfg_height);
+        self.refresh_cell_uniforms(config_width as f32, config_height as f32);
+        self.ensure_kgp_pipeline(config_width, config_height);
 
         let surface = self.surface.as_ref()?;
-        let output = self.acquire_texture(surface, cfg_width, cfg_height)?;
+        let output = self.acquire_texture(surface, config_width, config_height)?;
 
         let tex_size = output.texture.size();
-        let (cfg_width, cfg_height) =
-            if tex_size.width != cfg_width || tex_size.height != cfg_height {
+        let (config_width, config_height) =
+            if tex_size.width != config_width || tex_size.height != config_height {
                 log::warn!(
                     "begin_frame: size mismatch! config={}x{} texture={}x{}",
-                    cfg_width,
-                    cfg_height,
+                    config_width,
+                    config_height,
                     tex_size.width,
                     tex_size.height
                 );
@@ -241,12 +241,12 @@ impl Renderer {
                 self.surface_config = Some(new_config);
                 (tex_size.width, tex_size.height)
             } else {
-                (cfg_width, cfg_height)
+                (config_width, config_height)
             };
 
         // Uniform buffer content is rewritten every frame — the bind group
         // is bound by object identity and stays valid.
-        self.refresh_cell_uniforms(cfg_width as f32, cfg_height as f32);
+        self.refresh_cell_uniforms(config_width as f32, config_height as f32);
 
         let view = output
             .texture
@@ -262,8 +262,8 @@ impl Renderer {
             encoder,
             view,
             texture: output,
-            cfg_width,
-            cfg_height,
+            config_width,
+            config_height,
         })
     }
 }
