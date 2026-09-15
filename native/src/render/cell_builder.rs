@@ -672,7 +672,38 @@ fn append_row_instances(
         // same-family styled face preferred, else synthesis).
         let cell_bold = (cd.flags >> cell_flags::BOLD) & 1 == 1;
         let cell_italic = (cd.flags >> cell_flags::ITALIC) & 1 == 1;
-        if let Some(info) = font_pipeline.glyph_information_styled(ch, cell_bold, cell_italic) {
+        // Cluster shaping for grapheme continuations (combining marks,
+        // emoji ZWJ sequences): shape the whole cluster once so each mark
+        // lands per font positioning. Cells without extras skip shaping
+        // entirely, so the common case pays nothing.
+        let mut cluster_text = String::new();
+        cluster_text.push(ch);
+        for codepoint in &cd.grapheme_extra {
+            if *codepoint == 0 {
+                continue;
+            }
+            if let Some(mark) = char::from_u32(*codepoint) {
+                cluster_text.push(mark);
+            }
+        }
+        let cluster_shaped: Vec<crate::render::font::ShapedGlyphInfo> =
+            if cluster_text.chars().count() > 1 {
+                font_pipeline.shape_run(&cluster_text)
+            } else {
+                Vec::new()
+            };
+        // A cluster shaping to a single glyph (ZWJ emoji) replaces the
+        // base glyph as the primary quad; positioned marks are handled
+        // in the overlay loop below.
+        let merged_cluster_glyph = if cluster_shaped.len() == 1 {
+            let glyph = &cluster_shaped[0];
+            font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id)
+        } else {
+            None
+        };
+        if let Some(info) = merged_cluster_glyph
+            .or_else(|| font_pipeline.glyph_information_styled(ch, cell_bold, cell_italic))
+        {
             let uv_x = info.atlas_x as f32 / atlas_width;
             let uv_y = info.atlas_y as f32 / atlas_height;
             let uv_w = info.width as f32 / atlas_width;
@@ -718,24 +749,53 @@ fn append_row_instances(
             });
 
             // Grapheme continuation codepoints (combining marks, emoji ZWJ, etc.)
-            // Rendered as overlay instances on top of the base glyph.
-            for cp in &cd.grapheme_extra {
-                if *cp == 0 {
-                    continue;
+            // Rendered as overlay instances on top of the base glyph, positioned
+            // by the cluster shaping above; unshaped per-codepoint fallback
+            // when shaping produced nothing usable.
+            if cluster_shaped.len() > 1 {
+                for glyph in cluster_shaped.iter().skip(1) {
+                    if let Some(info) = font_pipeline
+                        .glyph_information_for_glyph(glyph.font_id, glyph.glyph_id)
+                    {
+                        let shaped_origin = [
+                            glyph_quad_origin[0] + glyph.x_offset,
+                            glyph_quad_origin[1] + glyph.y_offset,
+                        ];
+                        if let Some(overlay) = font_pipeline.shaped_overlay_instance(
+                            &info,
+                            crate::render::font::OverlayQuad {
+                                origin: shaped_origin,
+                                size: glyph_quad_size,
+                                foreground: effective_foreground,
+                                background: effective_background,
+                                deco: cd.underline_color,
+                                flags: cd.flags as f32,
+                            },
+                            cell_h,
+                        ) {
+                            instances.push(overlay);
+                        }
+                    }
                 }
-                if let Some(overlay) = font_pipeline.overlay_glyph_instance(
-                    *cp,
-                    crate::render::font::OverlayQuad {
-                        origin: glyph_quad_origin,
-                        size: glyph_quad_size,
-                        foreground: effective_foreground,
-                        background: effective_background,
-                        deco: cd.underline_color,
-                        flags: cd.flags as f32,
-                    },
-                    cell_h,
-                ) {
-                    instances.push(overlay);
+            } else {
+                for cp in &cd.grapheme_extra {
+                    if *cp == 0 {
+                        continue;
+                    }
+                    if let Some(overlay) = font_pipeline.overlay_glyph_instance(
+                        *cp,
+                        crate::render::font::OverlayQuad {
+                            origin: glyph_quad_origin,
+                            size: glyph_quad_size,
+                            foreground: effective_foreground,
+                            background: effective_background,
+                            deco: cd.underline_color,
+                            flags: cd.flags as f32,
+                        },
+                        cell_h,
+                    ) {
+                        instances.push(overlay);
+                    }
                 }
             }
         } else {
