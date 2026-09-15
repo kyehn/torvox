@@ -24,7 +24,7 @@ jobs:
         with:
           name: ${{ secrets.CACHIX_NAME }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: actions/cache@main
+      - uses: actions/cache/restore@main
         with:
           path: |
             ~/.gradle/caches/
@@ -32,9 +32,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ github.workflow }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: |
-            ${{ github.workflow }}-${{ runner.os }}-${{ runner.arch }}-
+            ${{ runner.os }}-${{ runner.arch }}-
       - run: |
           scripts/build-android-libs.nu --profile release
           scripts/build-apk.nu --release
@@ -71,3 +71,13 @@ jobs:
         with:
           generate_release_notes: false
           files: android/app/build/outputs/apk/release/*.apk
+      - if: always()
+        uses: actions/cache/save@main
+        with:
+          path: |
+            ~/.gradle/caches/
+            ~/.gradle/wrapper/
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
