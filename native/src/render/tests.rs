@@ -2337,7 +2337,6 @@ mod vertical_shift_tests {
 /// 归属说明：度量对象虽为终端快照，但本用例与相邻渲染 bench 共享
 /// `GPU_BENCH_LOCK`（防 Lavapipe 并行争用），故置于渲染 bench 套件内；
 /// 终端输入仅作夹具。阈值为单防抖地板（见本文件头注释）。
-
 /// Simulate scrolling through terminal history.
 /// Writes many lines of content, then measures take_snapshot_with_scroll
 /// at varying offset positions.
