@@ -738,8 +738,9 @@ impl super::GhosttyTerminal {
                     }
                     Command::Reset => {
                         // RIS 全重置：恢复初始状态并清空回滚；全部帧缓存失效。
-                        // reset 同时清除终端持有的活动选区（上游语义）。
+                        // 显式清除终端持有的活动选区（幂等，不依赖上游副作用）。
                         terminal.reset();
+                        let _ = terminal.set_selection(None);
                         row_cache.clear();
                         cached_snapshot = None;
                         cached_scroll_offset = u32::MAX;
