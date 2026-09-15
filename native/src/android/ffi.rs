@@ -489,7 +489,7 @@ fn init_session_inner(
     };
 
     // Parse scrollback_lines: Kotlin Settings → JNI → native.
-    // Non-positive values fall back to the default (50 000).
+    // Non-positive values fall back to the default (2000).
     let scrollback_lines = u32::try_from(scrollback_lines)
         .unwrap_or(crate::terminal::session::DEFAULT_SCROLLBACK_LINES)
         .max(1);
