@@ -2,7 +2,7 @@
 
 def main [] {
     let model_dir: string = "/tmp/.rapidocr-models"
-    if ($model_dir | path exists) and ((ls $model_dir | length) > 0) {
+    if ($model_dir | path exists) and (ls $model_dir | is-not-empty) {
         return
     }
     mkdir $model_dir
