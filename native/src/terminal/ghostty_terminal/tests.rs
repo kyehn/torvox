@@ -22,7 +22,7 @@ fn terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(24, 80, 1000).expect("terminal create")
 }
 
-fn small_term() -> GhosttyTerminal {
+fn small_terminal() -> GhosttyTerminal {
     GhosttyTerminal::new(3, 3, 100).expect("terminal")
 }
 
@@ -1405,20 +1405,20 @@ fn cursor_viewport_coordinates_track_scrollback_scroll() {
 
 #[test]
 fn terminal_is_alive_after_creation() {
-    let t = small_term();
+    let t = small_terminal();
     assert!(t.is_alive());
 }
 
 #[test]
 fn terminal_is_alive_after_vt_write() {
-    let mut t = small_term();
+    let mut t = small_terminal();
     t.vt_write(b"Hello, world!");
     assert!(t.is_alive());
 }
 
 #[test]
 fn terminal_is_alive_after_flush() {
-    let mut t = small_term();
+    let mut t = small_terminal();
     t.vt_write(b"ABC");
     t.flush();
     assert!(t.is_alive());
