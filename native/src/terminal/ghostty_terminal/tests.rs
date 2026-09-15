@@ -1450,28 +1450,12 @@ fn row_cache_returns_consistent_cell_data_across_writes() {
     let cols = 80usize;
     let row0_first: Vec<u32> = first_cells[..cols].iter().map(|c| c.codepoint).collect();
 
-    // Since the idle CellData dedup (97be660), a quiet VT thread no longer
-    // auto-pushes equal content every 50ms: `second` may legitimately be
-    // None. Row-cache consistency is still fully verified by the third
-    // snapshot (row 0 must survive the row-1 write); when a second build
-    // does happen (no dedup), its content must match the first.
-    std::thread::sleep(std::time::Duration::from_millis(70));
-    if let Some((second_cells, _)) = t.receive_cell_data() {
-        assert_eq!(first_cells.len(), second_cells.len(), "grid size stable");
-        // Row 0 content must match (hello at cols 0..5).
-        let row0_second: Vec<u32> = second_cells[..cols].iter().map(|c| c.codepoint).collect();
-        assert_eq!(
-            row0_first, row0_second,
-            "row 0 codepoints stable across builds"
-        );
-        assert_eq!(row0_first[0], 'h' as u32, "row 0 col 0 is 'h'");
-        assert_eq!(row0_first[4], 'o' as u32, "row 0 col 4 is 'o'");
-    }
+    // 空闲去重下静默 VT 线程不再推送相同内容：一致性由下方第三快照
+    // （新输入后的确定性重建）验证，此处不做定时等待。
 
     // New input on row 1 must not disturb row 0's cached content.
     t.vt_write(b"\nworld");
     t.flush();
-    std::thread::sleep(std::time::Duration::from_millis(70));
     let third = t.receive_cell_data().expect("third cell data");
     let (third_cells, _) = third;
     let row0_third: Vec<u32> = third_cells[..cols].iter().map(|c| c.codepoint).collect();
