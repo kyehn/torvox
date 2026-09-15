@@ -213,10 +213,8 @@ impl PtyPair {
         // under $PREFIX fails with EACCES. The Termux solution: exec the
         // system linker with the ELF path as its argument
         // (`/system/bin/linker64 $PREFIX/bin/bash`) — the linker runs in
-        // system_linker_exec domain and loads app-data ELFs fine. The
-        // child also gets LD_PRELOAD=$PREFIX/lib/libtermux-exec.so so
-        // *its own* execve() calls (running `ls`, `apt`,...) go through
-        // the same linker indirection.
+        // system_linker_exec domain and loads app-data ELFs fine.
+        // 子进程不设置 `LD_PRELOAD`，仅走 linker 间接。
         let prefix = env.prefix.as_deref().unwrap_or("");
         let use_linker = !prefix.is_empty()
             && shell_executable.starts_with(&format!("{prefix}/"))
@@ -899,8 +897,8 @@ pub fn build_env(env: &ShellEnv) -> Vec<(String, String)> {
     let mut result = base_env(env.prefix.as_deref());
     result.push(("HOME".to_string(), env.home.clone()));
     result.push(("TERMUX_HOME_DIR_PATH".to_string(), env.home.clone()));
+    // `PREFIX` 已由 base_env 压入，此处仅补镜像键，避免重复键。
     if let Some(prefix) = env.prefix.as_deref() {
-        result.push(("PREFIX".to_string(), prefix.to_string()));
         result.push(("TERMUX_PREFIX_DIR_PATH".to_string(), prefix.to_string()));
     }
     if let Some(tmpdir) = result
