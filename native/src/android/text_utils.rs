@@ -93,6 +93,7 @@ mod tests {
             graphemes: vec![],
             foreground: [0.0; 4],
             background: [0.0; 4],
+            underline_color: [0.0; 4],
             bold: false,
             dim: false,
             italic: false,

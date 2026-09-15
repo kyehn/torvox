@@ -16,6 +16,7 @@ pub(crate) struct OverlayQuad {
     pub size: [f32; 2],
     pub fg: [f32; 4],
     pub bg: [f32; 4],
+    pub deco: [f32; 4],
     pub flags: f32,
 }
 
@@ -555,6 +556,7 @@ impl FontPipeline {
             atlas_size: [uv_w, uv_h],
             fg_color: quad.fg,
             bg_color: quad.bg,
+            underline_color: quad.deco,
             quad_size: quad.size,
             flags: quad.flags,
             bearing: [bearing_x, bearing_y],
