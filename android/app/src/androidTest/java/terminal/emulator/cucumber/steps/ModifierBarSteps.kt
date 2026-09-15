@@ -58,7 +58,7 @@ constructor(
         val rule = composeRuleHolder.composeRule
         // 双击 = 两次点按：第一次选中，第二次取消选中。
         // performClick 在 cucumber 规则下第二次点击会被手势残留吞掉
-        //（3 次全灭），改用 Espresso 底层点击绕过 compose 手势协程。
+        // （3 次全灭），改用 Espresso 底层点击绕过 compose 手势协程。
         rule.onNodeWithTag("Key_CTRL").performClick()
         rule.waitUntil(timeoutMillis = 5000) {
             probeAssertion { rule.onNodeWithTag("Key_CTRL").assertIsSelected() }
