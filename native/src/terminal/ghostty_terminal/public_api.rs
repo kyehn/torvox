@@ -120,7 +120,8 @@ impl super::GhosttyTerminal {
     }
 
     /// 取出 VT 线程经上游 OSC 7 回调（on_pwd_changed）上报的工作目录（不阻塞，无事件为 None）。
-    /// 上游同时处理 OSC 7/9/1337，本方法返回其规范化结果。
+    /// 上游同时解析 OSC 7/9/1337，其中工作目录由 OSC 7 与 OSC 1337 CurrentDir 触发
+    ///（OSC 9 进度上报不产出目录，实测 poll 无事件）。
     pub fn poll_cwd_event(&self) -> Option<String> {
         self.cwd_rx.try_recv().ok()
     }
