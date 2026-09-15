@@ -1916,6 +1916,39 @@ fn render_inner(session_id: u64) -> jint {
                 dirty_mask[cursor.row as usize] = true;
             }
             mark_overlay_dirty_rows(dirty_mask, rows_usize, &highlight_rows);
+            // Idle Kitty 同步：字体/缩放变化不经过 VT（无 New 帧），缓存实例
+            // 会按旧单元格尺寸错位。纯本地经布局重建（无 RPC，图集未变不重传）。
+            if !render_state.kitty_frames.is_empty() {
+                let (idle_font_width, idle_font_height) = render_state.font_pipeline.cell_metrics();
+                let idle_scale = render_state.font_pipeline.get_raster_scale();
+                let idle_cell_width = idle_font_width * idle_scale;
+                let idle_cell_height = idle_font_height * idle_scale;
+                let idle_cell_changed = (idle_cell_width - render_state.kitty_cell_width).abs()
+                    > f32::EPSILON
+                    || (idle_cell_height - render_state.kitty_cell_height).abs() > f32::EPSILON;
+                if idle_cell_changed {
+                    let rebuilt = crate::render::kitty::layout_entries(&render_state.kitty_frames)
+                        .filter(|(layout_width, layout_height, _)| {
+                            *layout_width == render_state.renderer.kgp_atlas_width
+                                && *layout_height == render_state.renderer.kgp_atlas_height
+                        })
+                        .map(|(layout_width, layout_height, entries)| {
+                            crate::render::kitty::build_kitty_instances(
+                                &render_state.kitty_frames,
+                                layout_width,
+                                layout_height,
+                                &entries,
+                                idle_cell_width,
+                                idle_cell_height,
+                            )
+                        });
+                    if let Some(instances) = rebuilt {
+                        render_state.kitty_instances = instances;
+                    }
+                    render_state.kitty_cell_width = idle_cell_width;
+                    render_state.kitty_cell_height = idle_cell_height;
+                }
+            }
             let result = render_state.renderer.render_cell_data(
                 cached_cells,
                 cached_rows,
