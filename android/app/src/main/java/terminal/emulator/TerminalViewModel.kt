@@ -1661,6 +1661,7 @@ constructor(
 
     /** Keep only the final path segment and reject any traversal. */
     private val shellTextDebounce = MutableStateFlow("")
+    private val startDirTextDebounce = MutableStateFlow("")
     private val bootstrapUrlDebounce = MutableStateFlow("")
 
     // Written on the UI thread, read on an IO coroutine; volatile makes the
@@ -1679,6 +1680,12 @@ constructor(
         }
         @OptIn(kotlinx.coroutines.FlowPreview::class)
         viewModelScope.launch {
+            startDirTextDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
+                settingsRepository.setStartDir(value)
+            }
+        }
+        @OptIn(kotlinx.coroutines.FlowPreview::class)
+        viewModelScope.launch {
             bootstrapUrlDebounce.debounce(DEBOUNCE_MILLIS).distinctUntilChanged().collect { value ->
                 settingsRepository.setBootstrapUrl(value)
             }
@@ -1687,6 +1694,10 @@ constructor(
 
     fun setShell(shell: String) {
         shellTextDebounce.value = shell
+    }
+
+    fun setStartDir(startDir: String) {
+        startDirTextDebounce.value = startDir
     }
 
     // ══════════════════════════════════════════════════════════════════════
