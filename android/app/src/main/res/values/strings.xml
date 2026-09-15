@@ -45,6 +45,8 @@
     <!-- Terminal -->
     <string name="terminal">终端</string>
     <string name="shell">壳</string>
+    <string name="start_dir">启动目录</string>
+    <string name="start_dir_placeholder">默认家目录</string>
     <string name="action_new_session_failsafe">新建会话（Failsafe）</string>
     <string name="shell_placeholder">/system/bin/sh</string>
 

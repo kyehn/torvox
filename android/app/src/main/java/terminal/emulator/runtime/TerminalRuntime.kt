@@ -836,11 +836,13 @@ constructor(
     ): TerminalConfig {
         val configReads = coroutineScope {
             val shellDeferred = async { settingsRepository.shell.first() }
+            val startDirDeferred = async { settingsRepository.startDir.first() }
             val scrollbackDeferred = async { settingsRepository.scrollbackLines.first() }
             val fontDeferred = async { computeFontSizeTenths() }
             val themeDeferred = async { resolveThemeName() }
             ConfigReads(
                 shellPath = shellDeferred.await(),
+                startDir = startDirDeferred.await(),
                 scrollbackLines = scrollbackDeferred.await(),
                 fontSizeTenths = fontDeferred.await(),
                 themeName = themeDeferred.await(),
@@ -885,6 +887,8 @@ constructor(
                     .absolutePath
             }
         ensureMkshPromptRc(effectiveHome)
+        // 自定义启动目录：为空回落家目录，不校验存在性（子进程 chdir 失败仅记日志）。
+        val startDir = configReads.startDir.ifEmpty { effectiveHome }
         return TerminalConfig(
             shell = effectiveShell,
             rows = rows,
@@ -893,7 +897,7 @@ constructor(
             font_size_tenths = configReads.fontSizeTenths,
             theme = bridgeTheme,
             home = effectiveHome,
-            workingDirectory = effectiveHome,
+            workingDirectory = startDir,
             prefix = effectivePrefix,
         )
     }
@@ -1853,6 +1857,7 @@ constructor(
 
     private data class ConfigReads(
         val shellPath: String,
+        val startDir: String,
         val scrollbackLines: Int,
         val fontSizeTenths: Int,
         val themeName: String,
