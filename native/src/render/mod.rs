@@ -15,7 +15,6 @@
 
 // ── Sub-modules ──────────────────────────────────────────────────────────
 pub mod font;
-pub mod invalidation;
 pub mod kitty;
 
 pub(crate) mod cell_builder;
@@ -40,7 +39,6 @@ pub use context::FrameContext;
 pub use context::Renderer;
 pub use context::apply_scroll_px_offset;
 pub use context::orthographic_projection;
-pub use invalidation::{FrameInvalidation, InvalidationLevel};
 pub use pipeline::GpuUniforms;
 #[cfg(test)]
 pub(crate) use pipeline::QUAD_CORNERS;
