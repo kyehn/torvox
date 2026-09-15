@@ -53,5 +53,3 @@ harness = false
 name = "vt_typing"
 path = "benches/vt_typing.rs"
 harness = false
-[lints]
-workspace = true
