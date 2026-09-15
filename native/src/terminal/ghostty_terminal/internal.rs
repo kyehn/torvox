@@ -555,8 +555,9 @@ impl super::GhosttyTerminal {
             }
         };
 
-        // Initial theme: libghostty-vt is a pure VT layer and does not
-        // process OSC 10/11/4 color escapes (the embedder owns them), so use
+        // Initial theme: libghostty-vt does not process OSC 10/11
+        // default-color escapes (the embedder owns the defaults; OSC 4
+        // palette overrides are processed upstream), so use
         // the native setters. Without this the terminal keeps the built-in
         // xterm palette and the theme colors never reach the grid.
         Self::apply_theme(
@@ -679,9 +680,9 @@ impl super::GhosttyTerminal {
                             default_foreground
                         );
                         // Use the native theme API instead of hand-written
-                        // OSC 10/11/4 sequences: libghostty-vt is a pure VT
-                        // layer and does not process OSC color escapes (the
-                        // embedder owns them), so the OSC approach silently
+                        // OSC 10/11 sequences: libghostty-vt does not process
+                        // OSC default-color escapes (the embedder owns the
+                        // defaults; OSC 4 overrides are processed upstream), so the OSC approach silently
                         // kept the built-in xterm palette. These setters store
                         // the default colors that upstream cell color queries
                         // resolve against.
@@ -1008,8 +1009,9 @@ impl super::GhosttyTerminal {
     }
 
     /// Apply default background/foreground colors and the 16-color ANSI palette via the
-    /// native theme API. libghostty-vt is a pure VT layer that does not
-    /// process OSC 10/11/4 color escapes (the embedder owns them), so the
+    /// native theme API. libghostty-vt does not process OSC 10/11
+    /// default-color escapes (the embedder owns the defaults; OSC 4 palette
+    /// overrides are processed upstream), so the
     /// embedder must push theme colors directly; without this the terminal
     /// keeps the built-in xterm palette.
     fn apply_theme(
