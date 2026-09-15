@@ -633,7 +633,12 @@ constructor(
                         lastCommitMs = nowMs
                         // EmptyFinish: when committing from empty composing, clear any stale state
                         // to prevent Gboard double-submit on next composition start.
-                        terminalViewModel?.consumeOneShotModifiers()
+                        // 仅当本次提交实际消费了修饰键才清 Once：无修饰提交
+                        // 也清会偷走修饰键栏点亮后、输入法提交前的 Once 态
+                        // （cucumber 双击 CTRL 场景实测：落定选中后被偷走）。
+                        if (ctrlActive || altActive) {
+                            terminalViewModel?.consumeOneShotModifiers()
+                        }
                         return true
                     }
 
