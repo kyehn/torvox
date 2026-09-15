@@ -57,10 +57,6 @@
 //! - `ACTIVE_SESSION_ID` is an `AtomicU64` with `Acquire`/`Release` ordering.
 //!   ID 0 means "no active session".
 
-// Style: nested-if is an error-handling idiom for JNI; unused-mut is a
-// false positive with jni crate (new_string needs &mut self on some configs).
-#![allow(clippy::collapsible_if, unused_mut, clippy::type_complexity)]
-
 use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -284,7 +280,11 @@ static EVENT_QUEUE: crate::event::EventQueue = crate::event::EventQueue::new();
 /// Monotonic counter for clipboard request IDs.
 static NEXT_REQUEST_ID: AtomicU64 = AtomicU64::new(1);
 
-static REQUEST_REGISTRY: LazyLock<Mutex<HashMap<(u64, u64), std::sync::mpsc::Sender<String>>>> =
+/// Channel sender for a pending host-app clipboard answer, keyed by
+/// (session id, request id) in [`REQUEST_REGISTRY`].
+type ClipboardAnswerTx = std::sync::mpsc::Sender<String>;
+
+static REQUEST_REGISTRY: LazyLock<Mutex<HashMap<(u64, u64), ClipboardAnswerTx>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Wait for a host-app clipboard answer with a bounded timeout.
@@ -481,7 +481,7 @@ fn init_session_inner(
     };
 
     match Session::spawn_with_theme(&shell_path, rows, cols, &shell_env, None, theme) {
-        Ok(mut session) => {
+        Ok(session) => {
             let id = next_session_id();
             let entry = SessionEntry {
                 session: Arc::new(Mutex::new(session)),
@@ -595,7 +595,7 @@ fn switch_session_inner(_env: &mut Env, _class: JClass, session_id: jlong) -> jb
     // stale active id. destroy/switch are both low-frequency, so write-lock
     // contention is a non-issue.
     {
-        let mut guard = wlock_session_registry();
+        let guard = wlock_session_registry();
         if !guard.contains_key(&id) {
             log::warn!("FFI: switchSession id={} not found", id);
             return JNI_FALSE;
@@ -728,13 +728,13 @@ fn resize_inner(env: &mut Env, _class: JClass, session_id: jlong, rows: jint, co
             return;
         }
     };
-    if let Err(e) = session.resize(rows, cols) {
-        if let Err(e) = env.throw_new(
+    if let Err(e) = session.resize(rows, cols)
+        && let Err(e) = env.throw_new(
             jni_str!("java/lang/RuntimeException"),
             JNIString::from(format!("resize: failed: {e}")),
-        ) {
-            log::error!("resize: throw_new failed: {e}");
-        }
+        )
+    {
+        log::error!("resize: throw_new failed: {e}");
     }
 }
 
@@ -788,13 +788,13 @@ fn set_pixel_size_inner(
         return;
     };
     let session = entry.session.lock();
-    if let Err(error) = session.set_pixel_size(width, height) {
-        if let Err(e) = env.throw_new(
+    if let Err(error) = session.set_pixel_size(width, height)
+        && let Err(e) = env.throw_new(
             jni_str!("java/lang/RuntimeException"),
             JNIString::from(format!("setPixelSize failed: {error}")),
-        ) {
-            log::error!("setPixelSize: throw_new failed: {e}");
-        }
+        )
+    {
+        log::error!("setPixelSize: throw_new failed: {e}");
     }
 }
 
@@ -959,13 +959,13 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_writeKey(
     _class: JClass,
     session_id: jlong,
     key: JString,
-    mods: jint,
+    modifiers: jint,
     text: JString,
 ) {
     // A panic escaping this JNI export would abort the whole process.
     // Convert it into a Java exception instead.
     jni_export_guard!(&mut unowned_env, (), |env| {
-        write_key_inner(env, _class, session_id, key, mods, text)
+        write_key_inner(env, _class, session_id, key, modifiers, text)
     })
 }
 
@@ -974,7 +974,7 @@ fn write_key_inner(
     _class: JClass,
     session_id: jlong,
     key: JString,
-    mods: jint,
+    modifiers: jint,
     text: JString,
 ) {
     let id = session_id as u64;
@@ -1010,7 +1010,7 @@ fn write_key_inner(
             // This is a basic encoder; the modern Ghostty key
             // encoder path (internal.rs key::Encoder + key::Event)
             // should be used for full Kitty keyboard protocol support.
-            let bytes = encode_modifiers(key_str.as_bytes(), mods);
+            let bytes = encode_modifiers(key_str.as_bytes(), modifiers);
             session.write(&bytes)
         };
         if let Err(e) = result {
@@ -1171,7 +1171,7 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
     let mut pending_exits: Vec<(u64, Arc<Mutex<Session>>)> = Vec::new();
     // Clipboard/exit polling is identical for the active
     // session and every background session; single shared implementation.
-    let mut collect_session_events =
+    let collect_session_events =
         |session_id: u64,
          session: &mut Session,
          handle: &Arc<Mutex<Session>>,
@@ -1193,33 +1193,33 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
     let active_id = ACTIVE_SESSION_ID.load(std::sync::atomic::Ordering::Acquire);
     {
         let registry = rlock_session_registry();
-        if active_id != 0 {
-            if let Some(entry) = registry.get(&active_id) {
-                let mut session = entry.session.lock();
-                // Process VT output from the PTY reader thread. This is the
-                // critical path that drives all terminal state updates: it
-                // reads from the output_rx channel, feeds data into Ghostty's
-                // VT parser, and populates event flags (clipboard, etc.)
-                // that are polled below. Without this call the terminal will
-                // never process output and the output channel deadlocks.
-                session.process_output();
-                // Check OSC 52 clipboard read request (`ESC ] 52 ; c ; ?`).
-                // Collect the selection here (inside the session lock); the
-                // one-shot slot + responder thread are set up after the
-                // registry/session locks are released (see below) so the
-                // lock order stays single-directional.
-                if let Some(selection) = session.poll_clipboard_read() {
-                    pending_clipboard_reads.push((active_id, selection));
-                }
-                collect_session_events(
-                    active_id,
-                    &mut session,
-                    &entry.session,
-                    &mut pending_events,
-                    &mut pending_exits,
-                );
-                // Session lock is dropped here (end of the if-let block).
+        if active_id != 0
+            && let Some(entry) = registry.get(&active_id)
+        {
+            let mut session = entry.session.lock();
+            // Process VT output from the PTY reader thread. This is the
+            // critical path that drives all terminal state updates: it
+            // reads from the output_rx channel, feeds data into Ghostty's
+            // VT parser, and populates event flags (clipboard, etc.)
+            // that are polled below. Without this call the terminal will
+            // never process output and the output channel deadlocks.
+            session.process_output();
+            // Check OSC 52 clipboard read request (`ESC ] 52 ; c ; ?`).
+            // Collect the selection here (inside the session lock); the
+            // one-shot slot + responder thread are set up after the
+            // registry/session locks are released (see below) so the
+            // lock order stays single-directional.
+            if let Some(selection) = session.poll_clipboard_read() {
+                pending_clipboard_reads.push((active_id, selection));
             }
+            collect_session_events(
+                active_id,
+                &mut session,
+                &entry.session,
+                &mut pending_events,
+                &mut pending_exits,
+            );
+            // Session lock is dropped here (end of the if-let block).
         }
         // Sweep background sessions: report exits once (exit_reported flag)
         // AND drain their PTY output. A background session whose output

@@ -54,25 +54,34 @@ pub(crate) fn cell_line_text(cells: &[crate::terminal::ghostty_terminal::CellSna
 
 /// Apply Ctrl/Alt/Meta modifier semantics to a key string, producing the
 /// byte sequence the terminal receives. Printable ASCII under Ctrl uses the
-/// standard `c & 0x1F` formula; Alt/Meta gains an ESC prefix; control chars
+/// standard `code & 0x1F` formula; Alt/Meta gains an ESC prefix; control chars
 /// and non-ASCII bytes pass through unchanged.
-pub(crate) fn encode_modifiers(input: &[u8], mods: i32) -> Vec<u8> {
-    let ctrl = (mods & 4) != 0;
-    let alt_or_meta = (mods & (2 | 8)) != 0;
+///
+/// Mask values mirror `KeyModifiers` (SHIFT=1, ALT=2, CTRL=4, META=8).
+pub(crate) fn encode_modifiers(input: &[u8], modifiers: i32) -> Vec<u8> {
+    const CTRL_MASK: i32 = 4;
+    const ALT_MASK: i32 = 2;
+    const META_MASK: i32 = 8;
+    const ESCAPE_BYTE: u8 = 0x1B;
+    const CONTROL_FORMULA_MASK: u8 = 0x1F;
+    const PRINTABLE_ASCII_RANGE: std::ops::RangeInclusive<u8> = 0x20..=0x7E;
+
+    let ctrl = (modifiers & CTRL_MASK) != 0;
+    let alt_or_meta = (modifiers & (ALT_MASK | META_MASK)) != 0;
 
     let mut output = Vec::with_capacity(input.len() + 2);
 
     if alt_or_meta {
-        output.push(0x1B); // ESC prefix for Alt/Meta
+        output.push(ESCAPE_BYTE); // ESC prefix for Alt/Meta
     }
 
     if ctrl && input.len() == 1 {
-        let c = input[0];
-        // For printable ASCII (0x20-0x7E), apply the standard Ctrl
-        // formula c & 0x1F. Pre-existing control chars and non-ASCII
+        let code = input[0];
+        // For printable ASCII, apply the standard Ctrl formula
+        // code & 0x1F. Pre-existing control chars and non-ASCII
         // bytes pass through unchanged.
-        if (0x20..=0x7E).contains(&c) {
-            output.push(c & 0x1F);
+        if PRINTABLE_ASCII_RANGE.contains(&code) {
+            output.push(code & CONTROL_FORMULA_MASK);
             return output;
         }
     }
