@@ -384,7 +384,6 @@ pub(crate) fn diff_dirty_rows_into(
 /// applies no selection of its own.
 ///
 /// Returns `None` if conversion fails (font atlas unavailable, etc.).
-#[allow(clippy::too_many_arguments)]
 pub fn build_instances_from_cell_data(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     config: CellInstanceConfig<'_>,
