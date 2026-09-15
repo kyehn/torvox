@@ -24,7 +24,7 @@ jobs:
         with:
           name: ${{ secrets.CACHIX_NAME }}
           authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - uses: actions/cache@main
+      - uses: actions/cache/restore@main
         with:
           path: |
             ~/.gradle/caches/
@@ -32,12 +32,22 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ github.workflow }}-${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}
           restore-keys: |
-            ${{ github.workflow }}-${{ runner.os }}-${{ runner.arch }}-
+            ${{ runner.os }}-${{ runner.arch }}-
       - env:
           CARGO_INCREMENTAL: "0"
         run: |
           scripts/check-rust.nu
           scripts/build-android-libs.nu --profile dev x86_64
           scripts/check-gradle.nu
+      - if: always()
+        uses: actions/cache/save@main
+        with:
+          path: |
+            ~/.gradle/caches/
+            ~/.gradle/wrapper/
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-${{ github.run_id }}

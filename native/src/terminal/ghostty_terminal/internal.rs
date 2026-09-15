@@ -1043,9 +1043,7 @@ impl super::GhosttyTerminal {
         default: [f32; 4],
     ) -> [f32; 4] {
         match color {
-            libghostty_vt::style::StyleColor::Rgb(c) => {
-                Self::byte_color_to_float([c.r, c.g, c.b])
-            }
+            libghostty_vt::style::StyleColor::Rgb(c) => Self::byte_color_to_float([c.r, c.g, c.b]),
             libghostty_vt::style::StyleColor::Palette(idx) => terminal
                 .color_palette()
                 .map(|palette| {
@@ -1246,45 +1244,42 @@ impl super::GhosttyTerminal {
                 };
 
                 let style_id = raw.style_id().ok();
-                let (_style, fg_color, bg_color, ul_color, flags) =
-                    if style_id.is_some() && style_id == cached_style_id {
-                        // Same style run: reuse the cached resolved colors.
-                        (None, cached_fg, cached_bg, cached_ul, cached_flags)
-                    } else {
-                        match cell.style() {
-                            Ok(s) => {
-                                let fg = Self::cell_color(cell.fg_color(), default_fg);
-                                let bg = Self::cell_color(cell.bg_color(), default_bg);
-                                let ul = Self::resolve_style_color(
-                                    terminal,
-                                    &s.underline_color,
-                                    fg,
-                                );
-                                let fl = Self::pack_style_flags(&s);
-                                cached_style_id = style_id;
-                                cached_fg = fg;
-                                cached_bg = bg;
-                                cached_ul = ul;
-                                cached_flags = fl;
-                                (Some(s), fg, bg, ul, fl)
-                            }
-                            Err(_) => {
-                                row_data.push(CellData {
-                                    codepoint: 0,
-                                    width: 1,
-                                    grapheme_extra: [0; 7],
-                                    fg_color: default_fg,
-                                    bg_color: default_bg,
-                                    underline_color: default_fg,
-                                    flags: 0,
-                                    row: current_row,
-                                    col: current_col,
-                                });
-                                current_col += 1;
-                                continue;
-                            }
+                let (_style, fg_color, bg_color, ul_color, flags) = if style_id.is_some()
+                    && style_id == cached_style_id
+                {
+                    // Same style run: reuse the cached resolved colors.
+                    (None, cached_fg, cached_bg, cached_ul, cached_flags)
+                } else {
+                    match cell.style() {
+                        Ok(s) => {
+                            let fg = Self::cell_color(cell.fg_color(), default_fg);
+                            let bg = Self::cell_color(cell.bg_color(), default_bg);
+                            let ul = Self::resolve_style_color(terminal, &s.underline_color, fg);
+                            let fl = Self::pack_style_flags(&s);
+                            cached_style_id = style_id;
+                            cached_fg = fg;
+                            cached_bg = bg;
+                            cached_ul = ul;
+                            cached_flags = fl;
+                            (Some(s), fg, bg, ul, fl)
                         }
-                    };
+                        Err(_) => {
+                            row_data.push(CellData {
+                                codepoint: 0,
+                                width: 1,
+                                grapheme_extra: [0; 7],
+                                fg_color: default_fg,
+                                bg_color: default_bg,
+                                underline_color: default_fg,
+                                flags: 0,
+                                row: current_row,
+                                col: current_col,
+                            });
+                            current_col += 1;
+                            continue;
+                        }
+                    }
+                };
 
                 let codepoint = raw.codepoint().unwrap_or(0);
 
