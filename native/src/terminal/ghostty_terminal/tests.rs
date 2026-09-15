@@ -87,6 +87,31 @@ fn reset_clears_grid_and_scrollback() {
 }
 
 #[test]
+fn reset_clears_selection() {
+    let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+    terminal.vt_write(b"hello");
+    terminal.flush();
+    let snap = terminal.take_snapshot();
+    let row = snap.scrollback_length;
+    terminal.set_selection((row, 0), (row, 4), false);
+    terminal.flush();
+    terminal.reset();
+    terminal.flush();
+    let (cells, _) = terminal
+        .receive_cell_data()
+        .expect("cell data after reset");
+    let picked = cells
+        .iter()
+        .find(|cell| cell.row == 0 && cell.col == 0)
+        .expect("row 0 col 0 present");
+    let theme_foreground = GhosttyTerminal::byte_color_to_float([205, 214, 244]);
+    assert_eq!(
+        picked.foreground, theme_foreground,
+        "重置后选区反白必须清除"
+    );
+}
+
+#[test]
 fn search_in_scrollback_finds_match() {
     let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
     t.vt_write(b"search_target_here\n");
