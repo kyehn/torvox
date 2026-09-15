@@ -1,4 +1,5 @@
-//! PTY master/slave creation — only allowed fork unsafe.
+//! PTY master/slave creation — fork 与直接系统调用处允许 unsafe，
+//! VT/网格数据路径禁用 unsafe。
 //!
 //! # Requirements
 //! - [FR-026](crate) — PTY: master/slave pair creation
