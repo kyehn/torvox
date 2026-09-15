@@ -77,7 +77,7 @@ class ToolbarPreferencesTest {
     @Test
     fun `unknown key is skipped while known keys survive`() {
         // 旧版本残留未知键：只跳过该项，已存的已知键必须保留
-        //（对等 ghostty ExtraKeysConfig.enabledKeysSkipUnknownIds）。
+        // （对等 ghostty ExtraKeysConfig.enabledKeysSkipUnknownIds）。
         val context = ApplicationProvider.getApplicationContext<Context>()
         context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
             .edit()
