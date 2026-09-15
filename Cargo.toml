@@ -20,6 +20,7 @@ libghostty-vt-sys = { git = "https://github.com/Uzaaft/libghostty-rs", rev = "59
 log = "0.4"
 lru = "0.18"
 nix = { version = "0.31", features = ["term", "process", "signal", "fs"] }
+png = "0.18"
 proptest = "1.11"
 raw-window-handle = "0.6"
 serde = { version = "1", default-features = false, features = [

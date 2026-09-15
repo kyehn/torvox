@@ -238,23 +238,12 @@ impl super::GhosttyTerminal {
                 let kitty_graphics_data = (|| -> Option<KittyGraphicsImageData> {
                     let graphics = terminal.kitty_graphics().ok()?;
                     let image = graphics.image(id)?;
-                    // 上游 Image::data() 为 Ok(None) 表示元数据已驻留但像素载荷待定
-                    //（分片传输中），须返回 None 而非空图像，避免调用方把待定误判为空图。
-                    // 未安装 PNG 解码器时 PNG 载荷未经解码，暂不透出（待解码器落地）。
-                    if matches!(
-                        image.format().ok()?,
-                        libghostty_vt::kitty::graphics::ImageFormat::Png
-                    ) {
-                        return None;
-                    }
-                    let bytes = image.data().ok()??;
-                    let width = image.width().ok()?;
-                    let height = image.height().ok()?;
+                    let (width, height, rgba) = Self::kitty_image_to_rgba(&image)?;
                     Some(KittyGraphicsImageData {
                         id,
                         width,
                         height,
-                        data: bytes.to_vec(),
+                        data: rgba,
                     })
                 })();
                 try_send(
@@ -445,17 +434,13 @@ impl super::GhosttyTerminal {
         if let Err(error) = terminal.set_kitty_image_storage_limit(KGP_STORAGE_LIMIT) {
             log::error!("ghostty_terminal: set_kitty_image_storage_limit failed: {error}");
         }
-        // PNG decoder is disabled because the upstream RustPngDecoder API has not
-        // stabilized across libghostty-vt versions. KGP image storage still accepts
-        // pre-decoded raw RGBA data from external PNG decoders.
-        //
-        // Upgrade path (doc item): (1) track libghostty-vt upstream and
-        // re-enable the RustPngDecoder once its API stabilizes (gate on the
-        // png/image feature); or (2) register an `image`-crate decoder via the
-        // terminal's kitty image-decoder hook so kitty `a=Z`/`a=T` payloads are
-        // decoded in-process. Until either lands, callers must decode PNG bytes
-        // to raw RGBA externally and submit them through the pre-decoded
-        // raw-RGBA kitty image path.
+        // PNG 载荷在进程内解码为 RGBA8（线程局部回调，须在 VT 线程注册；
+        // 上游 RustPngDecoder 无公开构造器，自实现等价解码器）。
+        if let Err(error) = libghostty_vt::kitty::graphics::set_png_decoder(Some(Box::new(
+            KittyPngDecoder::default(),
+        ))) {
+            log::error!("ghostty_terminal: set_png_decoder failed: {error}");
+        }
 
         // Register PTY write-back callback for terminal responses
         // (DECRPM mode reports, DSR, DA, etc.)
@@ -1129,6 +1114,105 @@ impl super::GhosttyTerminal {
             *last_push = Some(data.clone());
             let _ = tx.try_send(data);
         }
+    }
+}
+
+/// PNG 解码器（上游 `DecodePng` 实现，等价于缺构造器的 RustPngDecoder）。
+#[derive(Default)]
+struct KittyPngDecoder {
+    scratch: Vec<u8>,
+}
+
+impl libghostty_vt::kitty::graphics::DecodePng for KittyPngDecoder {
+    fn decode_png<'alloc>(
+        &mut self,
+        alloc: &'alloc libghostty_vt::alloc::Allocator<'_>,
+        data: &[u8],
+    ) -> Option<libghostty_vt::kitty::graphics::DecodedImage<'alloc>> {
+        use png::{Decoder, Transformations};
+        use std::io::Cursor;
+        let mut decoder = Decoder::new(Cursor::new(data));
+        decoder.set_transformations(Transformations::EXPAND | Transformations::STRIP_16);
+        let mut reader = decoder.read_info().ok()?;
+        let mut raw = vec![0u8; reader.output_buffer_size()?];
+        let info = reader.next_frame(&mut raw).ok()?;
+        let mut bytes =
+            libghostty_vt::alloc::Bytes::new_with_alloc(alloc, info.buffer_size()).ok()?;
+        bytes.copy_from_slice(&raw[..info.buffer_size()]);
+        self.scratch.clear();
+        Some(libghostty_vt::kitty::graphics::DecodedImage {
+            width: info.width,
+            height: info.height,
+            data: bytes,
+        })
+    }
+}
+
+impl super::GhosttyTerminal {
+    /// 上游 Kitty 图像载荷归一化为 RGBA8：Ok(None) 为分片传输待定返回 None；
+    /// RGB 直扩 alpha，灰度按亮度展开，PNG 经线程解码器已为 RGBA（按长度兜底）。
+    fn kitty_image_to_rgba(
+        image: &libghostty_vt::kitty::graphics::Image<'_>,
+    ) -> Option<(u32, u32, Vec<u8>)> {
+        use libghostty_vt::kitty::graphics::ImageFormat;
+        let width = image.width().ok()?;
+        let height = image.height().ok()?;
+        let bytes = image.data().ok()??;
+        let pixel_count = width.checked_mul(height)? as usize;
+        let rgba = match image.format().ok()? {
+            ImageFormat::Rgba => {
+                if bytes.len() != pixel_count.checked_mul(4)? {
+                    return None;
+                }
+                bytes.to_vec()
+            }
+            ImageFormat::Rgb => {
+                if bytes.len() != pixel_count.checked_mul(3)? {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(pixel_count * 4);
+                for triple in bytes.chunks_exact(3) {
+                    out.extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
+                }
+                out
+            }
+            ImageFormat::Gray => {
+                if bytes.len() != pixel_count {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(pixel_count * 4);
+                for gray in bytes {
+                    out.extend_from_slice(&[*gray, *gray, *gray, 255]);
+                }
+                out
+            }
+            ImageFormat::GrayAlpha => {
+                if bytes.len() != pixel_count.checked_mul(2)? {
+                    return None;
+                }
+                let mut out = Vec::with_capacity(pixel_count * 4);
+                for pair in bytes.chunks_exact(2) {
+                    out.extend_from_slice(&[pair[0], pair[0], pair[0], pair[1]]);
+                }
+                out
+            }
+            ImageFormat::Png => {
+                // 解码器输出 RGBA；按长度兜底 RGB（防御上游行为漂移）。
+                if bytes.len() == pixel_count.checked_mul(4)? {
+                    bytes.to_vec()
+                } else if bytes.len() == pixel_count.checked_mul(3)? {
+                    let mut out = Vec::with_capacity(pixel_count * 4);
+                    for triple in bytes.chunks_exact(3) {
+                        out.extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
+                    }
+                    out
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        };
+        Some((width, height, rgba))
     }
 
     /// Builds the full `CellData` grid for rendering, skipping clean rows.

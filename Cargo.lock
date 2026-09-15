@@ -1509,6 +1509,7 @@ dependencies = [
  "lru",
  "nix",
  "parking_lot",
+ "png",
  "proptest",
  "raw-window-handle",
  "regex",
