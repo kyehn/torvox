@@ -2749,7 +2749,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         if bytes.len() != 54 {
             let _ = env.throw_new(
                 jni_str!("java/lang/IllegalArgumentException"),
-                jni_str!("setTheme: expected exactly 54 bytes (bg3 fg3 ansi48)"),
+                jni_str!("setTheme: expected exactly 54 bytes (background3 foreground3 ansi48)"),
             );
             return Ok(());
         }

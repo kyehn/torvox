@@ -438,7 +438,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     // ── Theme / appearance ────────────────────────────────────────────
     // Wired end-to-end: setTheme packs 54 bytes
-    // (bg3 fg3 ansi48) for the native palette; OSC 10/11/4 color handling
+    // (background3 foreground3 ansi48) for the native palette; OSC 10/11/4 color handling
     // lives in the terminal engine and is applied via the palette API.
     // The cursor color rides a separate [setCursorColor] channel so the
     // 54-byte layout stays stable (ffi.rs validates the exact length).
