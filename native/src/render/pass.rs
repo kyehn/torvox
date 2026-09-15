@@ -580,6 +580,7 @@ impl Renderer {
         search_highlights: &[crate::render::cell_builder::SearchHighlight],
         dirty_rows: Option<&[bool]>,
         scroll_up_rows: Option<u32>,
+        kgp_instances: &[crate::render::KittyGraphicsInstance],
     ) -> Result<(), GpuError> {
         // Grid cell dimensions from the attached surface: quads must cover
         // the full grid (surface_w/cols x surface_h/rows), not the font
@@ -702,7 +703,7 @@ impl Renderer {
             scroll_up_rows,
             cell_h_px: grid_cell_h,
         };
-        let result = self.render_frame_with_plan(&cpu_instances, &[], &plan);
+        let result = self.render_frame_with_plan(&cpu_instances, kgp_instances, &plan);
         self.cpu_instances = cpu_instances;
         result
     }

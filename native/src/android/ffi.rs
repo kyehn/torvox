@@ -200,6 +200,16 @@ struct RenderState {
     /// Idle to avoid the synchronous `scrollback_length()` RPC that blocks
     /// the render thread for up to 50 ms when the VT thread is busy.
     cached_scrollback: u32,
+    /// Kitty 图像缓存（按会话键控）：VT 线程经生成戳推送变更通知，
+    /// 渲染线程仅在生成戳/滚动/网格变化时查询放置，平时复用实例。
+    kitty_session: u64,
+    kitty_generation: u64,
+    kitty_scroll_offset: i64,
+    kitty_rows: u32,
+    kitty_cols: u32,
+    kitty_frames: Vec<crate::terminal::ghostty_terminal::KittyPlacementFrame>,
+    kitty_instances: Vec<crate::render::KittyGraphicsInstance>,
+    kitty_uploaded_generation: u64,
     /// P2-1 content-dirty flag (dual-flag protocol — see
     /// docs/reference/dual-flag-protocol.md): raised by the JNI entry
     /// points that mutate deferred render inputs (`setSearchHighlights`/
@@ -239,6 +249,14 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             cursor_color: None,
             dirty_mask: Vec::new(),
             cached_scrollback: 0,
+            kitty_session: 0,
+            kitty_generation: u64::MAX,
+            kitty_scroll_offset: i64::MIN,
+            kitty_rows: u32::MAX,
+            kitty_cols: u32::MAX,
+            kitty_frames: Vec::new(),
+            kitty_instances: Vec::new(),
+            kitty_uploaded_generation: u64::MAX,
             dirty: AtomicBool::new(false),
         });
         log::info!("render state initialized (renderer + font pipeline)");
@@ -1593,6 +1611,7 @@ fn render_inner(session_id: u64) -> jint {
             cursor_info: crate::terminal::ghostty_terminal::CursorInfo,
             rows: u32,
             cols: u32,
+            scroll_offset: i64,
         },
         Idle {},
     }
@@ -1616,6 +1635,7 @@ fn render_inner(session_id: u64) -> jint {
                     cursor_info,
                     rows,
                     cols,
+                    scroll_offset: entry.last_scroll_offset,
                 }
             }
             None => FrameData::Idle {},
@@ -1642,12 +1662,69 @@ fn render_inner(session_id: u64) -> jint {
             cursor_info,
             rows,
             cols,
+            scroll_offset,
         } => {
             // Use scrollback_length from the cell data channel — no
             // synchronous RPC needed. The VT thread piggybacks it on
             // every CursorInfo push.
             let scrollback = cursor_info.scrollback_length;
             render_state.cached_scrollback = scrollback;
+            // Kitty 同步：生成戳为 0 且无缓存时跳过查询（纯文本零开销）；
+            // 会话/生成戳/滚动/网格任一变化才重查放置，图集仅在生成戳变化时重传。
+            let kitty_generation = cursor_info.kitty_generation;
+            let kitty_keys_changed = session_id != render_state.kitty_session
+                || kitty_generation != render_state.kitty_generation
+                || scroll_offset != render_state.kitty_scroll_offset
+                || rows != render_state.kitty_rows
+                || cols != render_state.kitty_cols;
+            if kitty_keys_changed {
+                render_state.kitty_session = session_id;
+                render_state.kitty_generation = kitty_generation;
+                render_state.kitty_scroll_offset = scroll_offset;
+                render_state.kitty_rows = rows;
+                render_state.kitty_cols = cols;
+                if kitty_generation == 0 {
+                    render_state.kitty_frames.clear();
+                    render_state.kitty_instances.clear();
+                } else {
+                    // render_state 锁内 RPC：仅图像会话触发；VT 刚推送帧，
+                    // 查询通常毫秒级返回（卡住时由 500ms 超时兜底）。
+                    let frames = {
+                        let registry = rlock_session_registry();
+                        registry
+                            .get(&session_id)
+                            .map(|entry| entry.session.lock().terminal().take_kitty_placements())
+                            .unwrap_or_default()
+                    };
+                    // 网格单元格像素（与 render_cell_data 同口径：字体度量×光栅缩放）。
+                    let (font_width, font_height) =
+                        render_state.font_pipeline.cell_metrics();
+                    let raster_scale = render_state.font_pipeline.get_raster_scale();
+                    let grid_cell_width = font_width * raster_scale;
+                    let grid_cell_height = font_height * raster_scale;
+                    if let Some((atlas, atlas_width, atlas_height, instances)) =
+                        crate::render::kitty::pack_and_build(
+                            &frames,
+                            grid_cell_width,
+                            grid_cell_height,
+                        )
+                    {
+                        if kitty_generation != render_state.kitty_uploaded_generation {
+                            render_state.renderer.set_kgp_atlas(
+                                &atlas,
+                                atlas_width,
+                                atlas_height,
+                            );
+                            render_state.kitty_uploaded_generation = kitty_generation;
+                        }
+                        render_state.kitty_frames = frames;
+                        render_state.kitty_instances = instances;
+                    } else {
+                        render_state.kitty_frames = frames;
+                        render_state.kitty_instances.clear();
+                    }
+                }
+            }
             let cursor = build_cursor(render_state, &cursor_info);
             // Build dirty mask using pre-allocated buffer.
             let rows_usize = rows as usize;
@@ -1711,6 +1788,7 @@ fn render_inner(session_id: u64) -> jint {
                 &render_state.search_highlights,
                 Some(&render_state.dirty_mask),
                 scroll_up_rows,
+                &render_state.kitty_instances,
             );
             if result.is_ok() {
                 render_state.last_frame = Some((cells, cursor_info, rows, cols));
@@ -1773,6 +1851,7 @@ fn render_inner(session_id: u64) -> jint {
                 &render_state.search_highlights,
                 Some(&render_state.dirty_mask),
                 None,
+                &render_state.kitty_instances,
             );
             if result.is_ok() {
                 render_state.last_drawn_search_highlights = render_state.search_highlights.clone();

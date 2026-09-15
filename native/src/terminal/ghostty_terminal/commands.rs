@@ -127,6 +127,10 @@ pub enum Query {
         id: u32,
         tx: Sender<Option<KittyGraphicsImageData>>,
     },
+    /// 采集全部可见 Kitty 放置（含几何 + RGBA），供渲染线程组装图集。
+    TakeKittyPlacements {
+        tx: Sender<Vec<KittyPlacementFrame>>,
+    },
     KeyEncode {
         key_code: u32,
         modifiers: u16,
