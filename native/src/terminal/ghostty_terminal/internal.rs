@@ -2130,6 +2130,17 @@ mod tests {
         );
     }
 
+    /// SGR 53 上划线进入快照（与 SGR 58 用例对称的端到端覆盖）。
+    #[test]
+    fn sgr53_overline_reaches_dumped_grid() {
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+        terminal.vt_write(b"\x1b[53mO");
+        terminal.flush();
+        let dumped = terminal.dump_grid();
+        let cell = &dumped.visible[0];
+        assert!(cell.overline, "SGR 53 must set overline");
+    }
+
     fn style_with_flags() -> Style {
         Style {
             bold: true,
