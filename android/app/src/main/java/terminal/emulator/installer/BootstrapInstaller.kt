@@ -46,7 +46,13 @@ class BootstrapInstaller(
                     isSystemShellScript(File(prefixDir, "bin/login"))
                 )
         ) ||
-        File(prefixDir, "bin/bash").exists()
+        (
+            File(prefixDir, "bin/bash").isFile &&
+                (
+                    isElf(File(prefixDir, "bin/bash")) ||
+                        isSystemShellScript(File(prefixDir, "bin/bash"))
+                    )
+            )
 
     /** 安装状态只认启动入口存在性，不写任何标记文件。 */
     fun isInstalled(): Boolean = hasShellBinary()
