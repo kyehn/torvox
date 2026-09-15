@@ -5,7 +5,7 @@ use libghostty_vt::Terminal;
 use libghostty_vt::key::{self, Mods};
 use libghostty_vt::mouse;
 use libghostty_vt::render::{CellIterator, RenderState, RowIterator};
-use libghostty_vt::style::{PaletteIndex, StyleColor};
+use libghostty_vt::style::PaletteIndex;
 use libghostty_vt::terminal::{Mode, ModeKind, Point, PointCoordinate};
 
 use super::commands::{Command, Query, RunConfig};
@@ -847,32 +847,15 @@ impl super::GhosttyTerminal {
     pub(crate) fn apply_style_to_snapshot(
         data: &mut CellSnapshot,
         style: &libghostty_vt::style::Style,
+        terminal: &Terminal,
         default_fg: [f32; 4],
         default_bg: [f32; 4],
-        palette: &[[u8; 3]; 16],
     ) {
-        match style.fg_color {
-            StyleColor::Rgb(c) => {
-                data.foreground = Self::byte_color_to_float([c.r, c.g, c.b]);
-            }
-            StyleColor::Palette(idx) => {
-                data.foreground = Self::palette_index_to_float(idx, palette);
-            }
-            _ => {
-                data.foreground = default_fg;
-            }
-        }
-        match style.bg_color {
-            StyleColor::Rgb(c) => {
-                data.background = Self::byte_color_to_float([c.r, c.g, c.b]);
-            }
-            StyleColor::Palette(idx) => {
-                data.background = Self::palette_index_to_float(idx, palette);
-            }
-            _ => {
-                data.background = default_bg;
-            }
-        }
+        data.foreground = Self::resolve_style_color(terminal, &style.fg_color, default_fg);
+        data.background = Self::resolve_style_color(terminal, &style.bg_color, default_bg);
+        // SGR 58 下划线色：未设置时回退到解析后的前景（着色器旧 `deco = fg` 语义）。
+        data.underline_color =
+            Self::resolve_style_color(terminal, &style.underline_color, data.foreground);
         data.bold = style.bold;
         data.dim = style.faint;
         data.italic = style.italic;
@@ -896,7 +879,7 @@ impl super::GhosttyTerminal {
         let rows = terminal.rows().unwrap_or(24) as u32;
         let cols = terminal.cols().unwrap_or(80) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
-        let (palette, background, foreground) = Self::catppuccin_mocha_palette();
+        let (_, background, foreground) = Self::catppuccin_mocha_palette();
         let default_foreground = Self::byte_color_to_float(foreground);
         let default_background = Self::byte_color_to_float(background);
 
@@ -916,9 +899,9 @@ impl super::GhosttyTerminal {
                         Self::apply_style_to_snapshot(
                             &mut data,
                             &style,
+                            terminal,
                             default_foreground,
                             default_background,
-                            &palette,
                         );
                     }
                 }
@@ -943,9 +926,9 @@ impl super::GhosttyTerminal {
                         Self::apply_style_to_snapshot(
                             &mut data,
                             &style,
+                            terminal,
                             default_foreground,
                             default_background,
-                            &palette,
                         );
                     }
                 }
@@ -981,6 +964,7 @@ impl super::GhosttyTerminal {
             grapheme_extra: [0; 7],
             fg_color: default_fg,
             bg_color: default_bg,
+            underline_color: default_fg,
             flags: 0,
             row,
             col,
@@ -1049,6 +1033,30 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// Resolve a `StyleColor` against the terminal's EFFECTIVE 256-color
+    /// palette (default colors plus OSC 4 overrides), falling back to
+    /// `default` when unset or unreadable. Replaces the historic static
+    /// 16-color table + xterm formula, which silently ignored OSC 4 recolors.
+    pub(crate) fn resolve_style_color(
+        terminal: &Terminal,
+        color: &libghostty_vt::style::StyleColor,
+        default: [f32; 4],
+    ) -> [f32; 4] {
+        match color {
+            libghostty_vt::style::StyleColor::Rgb(c) => {
+                Self::byte_color_to_float([c.r, c.g, c.b])
+            }
+            libghostty_vt::style::StyleColor::Palette(idx) => terminal
+                .color_palette()
+                .map(|palette| {
+                    let rgb = palette.get(*idx);
+                    Self::byte_color_to_float([rgb.r, rgb.g, rgb.b])
+                })
+                .unwrap_or(default),
+            _ => default,
+        }
+    }
+
     pub(crate) fn byte_color_to_float(color: [u8; 3]) -> [f32; 4] {
         [
             Self::byte_to_float(color[0]),
@@ -1056,32 +1064,6 @@ impl super::GhosttyTerminal {
             Self::byte_to_float(color[2]),
             1.0,
         ]
-    }
-
-    pub(crate) fn palette_index_to_float(idx: PaletteIndex, palette: &[[u8; 3]; 16]) -> [f32; 4] {
-        let index = idx.0 as usize;
-        if index < 16 {
-            let [red, green, blue] = palette[index];
-            Self::byte_color_to_float([red, green, blue])
-        } else {
-            // Extended 256-color palette (indices 16-231: 6x6x6 cube, 232-255: grayscale)
-            let (red, green, blue) = if index < 232 {
-                let offset = index - 16;
-                let red_index = offset / 36;
-                let green_index = (offset % 36) / 6;
-                let blue_index = offset % 6;
-                let expand = |value: u8| -> u8 { if value == 0 { 0 } else { value * 40 + 55 } };
-                (
-                    expand(red_index as u8),
-                    expand(green_index as u8),
-                    expand(blue_index as u8),
-                )
-            } else {
-                let gray = (index - 232) * 10 + 8;
-                (gray as u8, gray as u8, gray as u8)
-            };
-            Self::byte_color_to_float([red, green, blue])
-        }
     }
 
     /// Rebuild CellData from current terminal state and push it to the render
@@ -1244,6 +1226,7 @@ impl super::GhosttyTerminal {
             let mut cached_style_id: Option<libghostty_vt::style::Id> = None;
             let mut cached_fg = default_fg;
             let mut cached_bg = default_bg;
+            let mut cached_ul = default_fg;
             let mut cached_flags = 0u32;
 
             while let Some(cell) = cell_iter_impl.next() {
@@ -1263,21 +1246,27 @@ impl super::GhosttyTerminal {
                 };
 
                 let style_id = raw.style_id().ok();
-                let (_style, fg_color, bg_color, flags) =
+                let (_style, fg_color, bg_color, ul_color, flags) =
                     if style_id.is_some() && style_id == cached_style_id {
                         // Same style run: reuse the cached resolved colors.
-                        (None, cached_fg, cached_bg, cached_flags)
+                        (None, cached_fg, cached_bg, cached_ul, cached_flags)
                     } else {
                         match cell.style() {
                             Ok(s) => {
                                 let fg = Self::cell_color(cell.fg_color(), default_fg);
                                 let bg = Self::cell_color(cell.bg_color(), default_bg);
+                                let ul = Self::resolve_style_color(
+                                    terminal,
+                                    &s.underline_color,
+                                    fg,
+                                );
                                 let fl = Self::pack_style_flags(&s);
                                 cached_style_id = style_id;
                                 cached_fg = fg;
                                 cached_bg = bg;
+                                cached_ul = ul;
                                 cached_flags = fl;
-                                (Some(s), fg, bg, fl)
+                                (Some(s), fg, bg, ul, fl)
                             }
                             Err(_) => {
                                 row_data.push(CellData {
@@ -1286,6 +1275,7 @@ impl super::GhosttyTerminal {
                                     grapheme_extra: [0; 7],
                                     fg_color: default_fg,
                                     bg_color: default_bg,
+                                    underline_color: default_fg,
                                     flags: 0,
                                     row: current_row,
                                     col: current_col,
@@ -1323,15 +1313,17 @@ impl super::GhosttyTerminal {
                     }
                 }
 
-                // 终端持有选区的行内反白（经典反白：前景背景互换，与覆盖层旧语义一致）。
-                let (fg_color, bg_color) = if row_selection.as_ref().is_some_and(|range| {
-                    let col = current_col as u16;
-                    col >= range.start_x && col <= range.end_x
-                }) {
-                    (bg_color, fg_color)
-                } else {
-                    (fg_color, bg_color)
-                };
+                // 终端持有选区的行内反白（经典反白：前景背景互换，与覆盖层旧语义一致；
+                // 下划线色同步取反白后的前景，保证选中文本的下划线仍可见）。
+                let (fg_color, bg_color, underline_color) =
+                    if row_selection.as_ref().is_some_and(|range| {
+                        let col = current_col as u16;
+                        col >= range.start_x && col <= range.end_x
+                    }) {
+                        (bg_color, fg_color, bg_color)
+                    } else {
+                        (fg_color, bg_color, ul_color)
+                    };
 
                 row_data.push(CellData {
                     codepoint,
@@ -1339,6 +1331,7 @@ impl super::GhosttyTerminal {
                     grapheme_extra,
                     fg_color,
                     bg_color,
+                    underline_color,
                     flags,
                     row: current_row,
                     col: current_col,
@@ -1526,12 +1519,15 @@ impl super::GhosttyTerminal {
 
                 let foreground = Self::cell_color(cell.fg_color(), default_fg);
                 let background = Self::cell_color(cell.bg_color(), default_bg);
+                let underline_color =
+                    Self::resolve_style_color(terminal, &style.underline_color, foreground);
 
                 cells.push(CellSnapshot {
                     codepoint,
                     graphemes,
                     foreground,
                     background,
+                    underline_color,
                     bold: style.bold,
                     dim: style.faint,
                     italic: style.italic,
@@ -1859,26 +1855,7 @@ impl super::GhosttyTerminal {
 mod tests {
     use super::*;
     use crate::terminal::ghostty_terminal::GhosttyTerminal;
-    use libghostty_vt::style::{PaletteIndex, Style, StyleColor, Underline};
-
-    const PALETTE: [[u8; 3]; 16] = [
-        [0, 0, 0],       // black
-        [205, 49, 49],   // red
-        [13, 188, 121],  // green
-        [229, 229, 16],  // yellow
-        [36, 114, 200],  // blue
-        [188, 63, 188],  // magenta
-        [17, 168, 205],  // cyan
-        [229, 229, 229], // white
-        [102, 102, 102], // bright black
-        [255, 0, 0],     // bright red
-        [0, 255, 0],     // bright green
-        [255, 255, 0],   // bright yellow
-        [0, 0, 255],     // bright blue
-        [255, 0, 255],   // bright magenta
-        [0, 255, 255],   // bright cyan
-        [255, 255, 255], // bright white
-    ];
+    use libghostty_vt::style::{Style, StyleColor, Underline};
 
     #[test]
     fn byte_to_float_scales_255() {
@@ -1896,38 +1873,51 @@ mod tests {
         assert_eq!(color[3], 1.0, "alpha must be opaque");
     }
 
+    /// OSC 4 调色板覆盖必须生效：有效调色板（含覆盖）而非静态表决定渲染色。
     #[test]
-    fn palette_index_to_float_maps_16_color_palette() {
-        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex::RED, &PALETTE);
-        let expected = GhosttyTerminal::byte_color_to_float(PALETTE[1]);
-        assert_eq!(color, expected);
+    fn osc4_palette_override_reaches_dumped_grid() {
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+        // 调色板索引 1 改为纯绿，再以红色（索引 1）写字：看到的必须是绿色。
+        terminal.vt_write(b"\x1b]4;1;#00ff00\x07\x1b[31mX");
+        terminal.flush();
+        let dumped = terminal.dump_grid();
+        let cell = &dumped.visible[0];
+        assert_eq!(cell.codepoint, 'X' as u32);
+        assert_eq!(
+            cell.foreground,
+            GhosttyTerminal::byte_color_to_float([0, 255, 0]),
+            "OSC 4 override must win over the static palette"
+        );
+    }
+
+    /// SGR 58 下划线色进入快照（未设置时回退前景）。
+    #[test]
+    fn sgr58_underline_color_reaches_dumped_grid() {
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+        terminal.vt_write(b"\x1b[4m\x1b[58;2;255;0;0mU");
+        terminal.flush();
+        let dumped = terminal.dump_grid();
+        let cell = &dumped.visible[0];
+        assert!(cell.underline, "SGR 4 must set underline");
+        assert_eq!(
+            cell.underline_color,
+            GhosttyTerminal::byte_color_to_float([255, 0, 0]),
+            "SGR 58 must set the underline color"
+        );
     }
 
     #[test]
-    fn palette_index_to_float_extended_cube() {
-        // Index 16 = (0,0,0) of the 6x6x6 cube → black.
-        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(16), &PALETTE);
-        assert_eq!(color, [0.0, 0.0, 0.0, 1.0]);
-        // Index 17 = offset 1 → (red=0, green=0, blue=1) → blue 95.
-        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(17), &PALETTE);
-        let expected = GhosttyTerminal::byte_color_to_float([0, 0, 95]);
-        assert_eq!(color, expected);
-        // Index 55 = offset 39 → (red=1, green=0, blue=3) → 95/0/175.
-        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(55), &PALETTE);
-        let expected = GhosttyTerminal::byte_color_to_float([95, 0, 175]);
-        assert_eq!(color, expected);
-    }
-
-    #[test]
-    fn palette_index_to_float_extended_grayscale() {
-        // Index 232 = gray 8.
-        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(232), &PALETTE);
-        let expected = GhosttyTerminal::byte_color_to_float([8, 8, 8]);
-        assert_eq!(color, expected);
-        // Index 255 = gray 238.
-        let color = GhosttyTerminal::palette_index_to_float(PaletteIndex(255), &PALETTE);
-        let expected = GhosttyTerminal::byte_color_to_float([238, 238, 238]);
-        assert_eq!(color, expected);
+    fn underline_color_falls_back_to_foreground() {
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+        terminal.vt_write(b"\x1b[4m\x1b[31mV");
+        terminal.flush();
+        let dumped = terminal.dump_grid();
+        let cell = &dumped.visible[0];
+        assert!(cell.underline);
+        assert_eq!(
+            cell.underline_color, cell.foreground,
+            "unset SGR 58 must fall back to the resolved foreground"
+        );
     }
 
     fn style_with_flags() -> Style {
