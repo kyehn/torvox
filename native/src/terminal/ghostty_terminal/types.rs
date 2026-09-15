@@ -218,6 +218,10 @@ pub struct CellSnapshot {
 }
 
 pub(crate) const COMMAND_CHANNEL_CAPACITY: usize = 1024;
+/// VT 查询通道容量（无界语义由有界 256 + try_send 回退实现）。
+pub(crate) const QUERY_CHANNEL_CAPACITY: usize = 256;
+/// 单元格帧通道容量（渲染线程逐帧消费，满则丢弃旧帧）。
+pub(crate) const CELL_DATA_CHANNEL_CAPACITY: usize = 4;
 /// 上游 OSC 回调事件通道容量（cwd/剪贴板写入，低频；满则丢弃，VT 线程永不阻塞）。
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 16;
 pub(crate) const QUERY_TIMEOUT_MS: u64 = 500;
