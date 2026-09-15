@@ -270,10 +270,10 @@ impl Renderer {
         &self,
         dirty_bands: &[crate::render::cell_builder::DirtyBand],
         cell_h_px: f32,
-        surface_width: u32,
-        surface_height: u32,
+        config_width: u32,
+        config_height: u32,
     ) -> Vec<crate::render::CellInstance> {
-        if cell_h_px <= 0.0 || surface_width == 0 || surface_height == 0 {
+        if cell_h_px <= 0.0 || config_width == 0 || config_height == 0 {
             return Vec::new();
         }
         let background = [
@@ -285,8 +285,7 @@ impl Renderer {
         let mut instances = Vec::with_capacity(dirty_bands.len());
         for band in dirty_bands {
             let y0 = (band.start_row as f32 * cell_h_px).floor().max(0.0) as u32;
-            let y1 =
-                ((band.end_row_exclusive as f32 * cell_h_px).ceil() as u32).min(surface_height);
+            let y1 = ((band.end_row_exclusive as f32 * cell_h_px).ceil() as u32).min(config_height);
             if y1 > y0 {
                 instances.push(crate::render::CellInstance {
                     quad_origin: [0.0, y0 as f32],
@@ -295,7 +294,7 @@ impl Renderer {
                     foreground: background,
                     background,
                     underline_color: background,
-                    quad_size: [surface_width as f32, (y1 - y0) as f32],
+                    quad_size: [config_width as f32, (y1 - y0) as f32],
                     flags: 0.0,
                     bearing: [0.0; 2],
                     glyph_advance_width: 0.0,
