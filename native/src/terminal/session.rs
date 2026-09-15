@@ -210,10 +210,10 @@ pub struct ThemeConfig {
 
 impl Default for ThemeConfig {
     fn default() -> Self {
-        let (ansi, bg, fg) = GhosttyTerminal::catppuccin_mocha_palette();
+        let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
         Self {
-            background: bg,
-            foreground: fg,
+            background,
+            foreground,
             ansi,
             scrollback_lines: DEFAULT_SCROLLBACK_LINES,
         }
@@ -535,17 +535,17 @@ impl Session {
             .map_err(|error| SessionError::Ghostty(format!("invalid signal {signum}: {error}")))?;
         let child = self.pty.child_pid();
         // Kill the foreground process group first (zed-port pattern: pty_info.rs:29-53).
-        if let Some(fg_pid) = self.pty.foreground_pid() {
-            let fg_raw = fg_pid.as_raw() as libc::pid_t;
-            if fg_raw > 1 {
-                let pgid = -fg_raw;
+        if let Some(foreground_pid) = self.pty.foreground_pid() {
+            let foreground_raw = foreground_pid.as_raw() as libc::pid_t;
+            if foreground_raw > 1 {
+                let pgid = -foreground_raw;
                 // SAFETY: killpg sends signal to a process group.
                 let result = unsafe { libc::kill(pgid, signal as i32) };
                 if result == 0 {
                     return Ok(());
                 }
                 log::warn!(
-                    "send_signal: group kill(-{fg_raw}, {signal:?}) failed: {}, falling back to child",
+                    "send_signal: group kill(-{foreground_raw}, {signal:?}) failed: {}, falling back to child",
                     nix::errno::Errno::last()
                 );
             }

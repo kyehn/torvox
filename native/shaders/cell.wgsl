@@ -12,8 +12,8 @@ struct Uniforms {
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) cell_uv: vec2<f32>,
-    @location(1) fg_color: vec4<f32>,
-    @location(2) bg_color: vec4<f32>,
+    @location(1) foreground: vec4<f32>,
+    @location(2) background: vec4<f32>,
     @location(10) deco_color: vec4<f32>,
     @location(3) has_glyph: f32,
     @location(4) bearing: vec2<f32>,
@@ -30,8 +30,8 @@ fn vs_main(
     @location(1) quad_origin: vec2<f32>,
     @location(2) uv_offset: vec2<f32>,
     @location(3) uv_size: vec2<f32>,
-    @location(4) fg_color: vec4<f32>,
-    @location(5) bg_color: vec4<f32>,
+    @location(4) foreground: vec4<f32>,
+    @location(5) background: vec4<f32>,
     @location(10) deco_color: vec4<f32>,
     @location(6) quad_size: vec2<f32>,
     @location(7) flags: f32,
@@ -46,8 +46,8 @@ fn vs_main(
     output.position = clip_pos;
     let uv_corner = offset * 0.5 + vec2<f32>(0.5);
     output.cell_uv = uv_corner;
-    output.fg_color = fg_color;
-    output.bg_color = bg_color;
+    output.foreground = foreground;
+    output.background = background;
     output.deco_color = deco_color;
     output.has_glyph = f32(uv_size.x * uv_size.y > 0.0);
     output.bearing = bearing;
@@ -62,8 +62,8 @@ fn vs_main(
 @fragment
 fn fs_main(
     @location(0) cell_uv: vec2<f32>,
-    @location(1) fg_color: vec4<f32>,
-    @location(2) bg_color: vec4<f32>,
+    @location(1) foreground: vec4<f32>,
+    @location(2) background: vec4<f32>,
     @location(10) deco_color: vec4<f32>,
     @location(3) has_glyph: f32,
     @location(4) bearing: vec2<f32>,
@@ -99,13 +99,13 @@ fn fs_main(
         if in_glyph {
             let corrected_uv = uv_offset + glyph_px / uniforms.atlas_size;
             let texel = textureSample(atlas_texture, atlas_sampler, corrected_uv);
-            color = mix(bg_color, fg_color, texel.r);
+            color = mix(background, foreground, texel.r);
             glyph_coverage = texel.r;
         } else {
-            color = bg_color;
+            color = background;
         }
     } else {
-        color = bg_color;
+        color = background;
     }
 
     let f = u32(flags);
