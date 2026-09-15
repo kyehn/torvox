@@ -1723,6 +1723,7 @@ impl super::GhosttyTerminal {
 
                 let codepoint = raw.codepoint().unwrap_or(0);
 
+                // 快照路径保留占位：与 CellData 跳过 Spacer 不同，快照按网格索引逐格存放，宽字符占位格须保留 width=1 条目以对齐行列。仅测试行使。
                 let width = match raw.wide() {
                     Ok(libghostty_vt::screen::CellWide::Wide) => 2,
                     _ => 1,

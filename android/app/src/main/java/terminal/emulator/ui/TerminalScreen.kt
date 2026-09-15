@@ -743,10 +743,8 @@ fun TerminalScreen(
                     // separate system windows that render above it.
                     val menuSurface = surfaceRef.value
                     if (menuSurface != null && selectionActive && !selection.dragging) {
-                        // The selection menu is a system ActionMode toolbar
-                        // that positions itself; the tested positioning
-                        // reference algorithm (computeMenuPosition /
-                        // TerminalScreenMenuTest) is no longer called here.
+                        // 选择菜单走 Surface 侧 PopupWindow（showSelectionMenu+menuAnchor 定位）；定位参考算法
+                        //（computeMenuPosition/TerminalScreenMenuTest）仅测试行使，不参与生产定位。
                         val menuVisible = !selection.menuDismissed
                         if (menuVisible) {
                             val themeAccentArgb =
@@ -756,11 +754,7 @@ fun TerminalScreen(
                                     resolvedTerminalTheme.foreground
                                 }
                                     .toArgb()
-                            // the selection menu is the system
-                            // ActionMode toolbar (like Termux): the system
-                            // positions it, colors it from the theme, and
-                            // handles item layout — no custom popup, no
-                            // accent-colored text, no dividers.
+                            // 选择菜单走 Surface 侧 PopupWindow 定位与绘制，不用系统 ActionMode。
                             LaunchedEffect(selection.pasteOnly, selection.menuDismissed) {
                                 if (selection.menuDismissed) {
                                     menuSurface.hideSelectionMenu()
