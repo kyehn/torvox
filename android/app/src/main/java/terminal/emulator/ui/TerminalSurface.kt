@@ -264,14 +264,6 @@ constructor(
         return bridge.hyperlinkAt(start.row, start.col) != null
     }
 
-    internal fun isOpenableFile(text: String): Boolean {
-        if (!isFilePathCandidate(text)) return false
-        return isUnderFileProviderRoots(
-            text.trim().trim('"', '\'', '(', ')', '[', ']')
-                .substringBefore("\n").trim(),
-        )
-    }
-
     internal fun isUnderFileProviderRoots(path: String): Boolean {
         if (path.isEmpty()) return false
         return try {
