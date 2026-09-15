@@ -14,6 +14,7 @@ struct VertexOutput {
     @location(0) cell_uv: vec2<f32>,
     @location(1) fg_color: vec4<f32>,
     @location(2) bg_color: vec4<f32>,
+    @location(10) deco_color: vec4<f32>,
     @location(3) has_glyph: f32,
     @location(4) bearing: vec2<f32>,
     @location(5) glyph_size_px: vec2<f32>,
@@ -31,6 +32,7 @@ fn vs_main(
     @location(3) uv_size: vec2<f32>,
     @location(4) fg_color: vec4<f32>,
     @location(5) bg_color: vec4<f32>,
+    @location(10) deco_color: vec4<f32>,
     @location(6) quad_size: vec2<f32>,
     @location(7) flags: f32,
     @location(8) bearing: vec2<f32>,
@@ -46,6 +48,7 @@ fn vs_main(
     output.cell_uv = uv_corner;
     output.fg_color = fg_color;
     output.bg_color = bg_color;
+    output.deco_color = deco_color;
     output.has_glyph = f32(uv_size.x * uv_size.y > 0.0);
     output.bearing = bearing;
     output.glyph_size_px = uv_size * uniforms.atlas_size;
@@ -61,6 +64,7 @@ fn fs_main(
     @location(0) cell_uv: vec2<f32>,
     @location(1) fg_color: vec4<f32>,
     @location(2) bg_color: vec4<f32>,
+    @location(10) deco_color: vec4<f32>,
     @location(3) has_glyph: f32,
     @location(4) bearing: vec2<f32>,
     @location(5) glyph_size_px: vec2<f32>,
@@ -105,7 +109,6 @@ fn fs_main(
     }
 
     let f = u32(flags);
-    let deco_color = fg_color;
     let deco_thickness = 0.06;
     if (f & 64u) != 0u && cell_uv.y < deco_thickness {
         color = deco_color;

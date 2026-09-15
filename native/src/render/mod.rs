@@ -90,6 +90,8 @@ pub struct CellInstance {
     pub atlas_size: [f32; 2],
     pub fg_color: [f32; 4],
     pub bg_color: [f32; 4],
+    /// SGR 58 underline/decoration color (falls back to fg upstream).
+    pub underline_color: [f32; 4],
     pub quad_size: [f32; 2],
     pub flags: f32,
     pub bearing: [f32; 2],
@@ -97,12 +99,13 @@ pub struct CellInstance {
 }
 
 impl CellInstance {
-    pub const ATTRIBS: [wgpu::VertexAttribute; 9] = wgpu::vertex_attr_array![
+    pub const ATTRIBS: [wgpu::VertexAttribute; 10] = wgpu::vertex_attr_array![
         1 => Float32x2,
         2 => Float32x2,
         3 => Float32x2,
         4 => Float32x4,
         5 => Float32x4,
+        10 => Float32x4,
         6 => Float32x2,
         7 => Float32,
         8 => Float32x2,

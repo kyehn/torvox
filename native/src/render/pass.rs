@@ -294,6 +294,7 @@ impl Renderer {
                     atlas_size: [0.0; 2],
                     fg_color: bg,
                     bg_color: bg,
+                    underline_color: bg,
                     quad_size: [surface_width as f32, (y1 - y0) as f32],
                     flags: 0.0,
                     bearing: [0.0; 2],

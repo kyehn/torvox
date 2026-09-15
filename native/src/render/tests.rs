@@ -29,7 +29,7 @@ fn ascii_font() -> crate::render::font::FontPipeline {
 
 #[test]
 fn cell_instance_size() {
-    assert_eq!(std::mem::size_of::<CellInstance>(), 80);
+    assert_eq!(std::mem::size_of::<CellInstance>(), 96);
 }
 
 #[test]
@@ -144,6 +144,7 @@ fn cell_instance_pod_roundtrip() {
         atlas_size: [0.1, 0.1],
         fg_color: [1.0, 1.0, 1.0, 1.0],
         bg_color: [0.0, 0.0, 0.0, 1.0],
+        underline_color: [1.0, 1.0, 1.0, 1.0],
         quad_size: [3.0, 4.0],
         flags: 5.0,
         bearing: [0.0; 2],
@@ -204,11 +205,12 @@ fn orthographic_projection_basic() {
 #[test]
 fn cell_instance_attribs_locations() {
     let attribs = CellInstance::ATTRIBS;
-    assert_eq!(attribs.len(), 9);
+    assert_eq!(attribs.len(), 10);
     assert_eq!(attribs[0].shader_location, 1);
     assert_eq!(attribs[1].shader_location, 2);
-    assert_eq!(attribs[7].shader_location, 8);
-    assert_eq!(attribs[8].shader_location, 9);
+    assert_eq!(attribs[5].shader_location, 10);
+    assert_eq!(attribs[8].shader_location, 8);
+    assert_eq!(attribs[9].shader_location, 9);
 }
 
 #[test]
@@ -515,6 +517,7 @@ fn cursor_rendering_on_visible_cursor() {
             grapheme_extra: [0; 7],
             fg_color: [1.0, 1.0, 1.0, 1.0],
             bg_color: [0.0, 0.0, 0.0, 1.0],
+            underline_color: [1.0, 1.0, 1.0, 1.0],
             flags: 0,
             row: 0,
             col: 0,
@@ -525,6 +528,7 @@ fn cursor_rendering_on_visible_cursor() {
             grapheme_extra: [0; 7],
             fg_color: [1.0, 1.0, 1.0, 1.0],
             bg_color: [0.0, 0.0, 0.0, 1.0],
+            underline_color: [1.0, 1.0, 1.0, 1.0],
             flags: 0,
             row: 0,
             col: 1,
@@ -674,6 +678,7 @@ fn build_cursor_probe_instance(
         grapheme_extra: [0; 7],
         fg_color: foreground,
         bg_color: background,
+        underline_color: foreground,
         flags,
         row: 0,
         col: 0,
@@ -703,6 +708,7 @@ fn build_single_cell_instance(
         grapheme_extra: [0; 7],
         fg_color: [1.0; 4],
         bg_color: [0.0; 4],
+        underline_color: [1.0; 4],
         flags: 0,
         row: 0,
         col: 0,
@@ -804,6 +810,7 @@ fn all_chars_share_same_baseline_y() {
             grapheme_extra: [0; 7],
             fg_color: [1.0; 4],
             bg_color: [0.0; 4],
+            underline_color: [1.0; 4],
             flags: 0,
             row: 0,
             col: i as u32,
@@ -878,6 +885,7 @@ fn cjk_bearing_y_not_centered() {
                 grapheme_extra: [0; 7],
                 fg_color: [1.0; 4],
                 bg_color: [0.0; 4],
+                underline_color: [1.0; 4],
                 flags: 0,
                 row: 0,
                 col: 0,
@@ -1020,6 +1028,7 @@ fn search_highlight_blends_on_non_cursor_cell() {
         grapheme_extra: [0; 7],
         fg_color: [1.0, 1.0, 1.0, 1.0],
         bg_color: [0.0, 0.0, 0.0, 1.0],
+        underline_color: [1.0, 1.0, 1.0, 1.0],
         flags: 0,
         row: 0,
         col: 0,
@@ -1074,6 +1083,7 @@ fn cursor_cell_not_affected_by_search_highlight() {
         grapheme_extra: [0; 7],
         fg_color: [0.0, 1.0, 0.0, 1.0],
         bg_color: [0.0, 0.0, 0.0, 1.0],
+        underline_color: [0.0, 1.0, 0.0, 1.0],
         flags: 0,
         row: 0,
         col: 0,
@@ -1343,6 +1353,7 @@ fn selection_intersect_current_match_double_swap() {
         grapheme_extra: [0; 7],
         fg_color: [0.0, 0.0, 0.0, 1.0],
         bg_color: [1.0, 1.0, 1.0, 1.0],
+        underline_color: [0.0, 0.0, 0.0, 1.0],
         flags: 0,
         row: 0,
         col: 0,
@@ -1511,6 +1522,7 @@ fn cursor_color_custom_values() {
         grapheme_extra: [0; 7],
         fg_color: [1.0, 1.0, 1.0, 1.0],
         bg_color: [0.0, 0.0, 0.0, 1.0],
+        underline_color: [1.0, 1.0, 1.0, 1.0],
         flags: 0,
         row: 0,
         col: 0,
@@ -1656,6 +1668,7 @@ fn bench_build_instances_from_cell_data() {
                 grapheme_extra: [0; 7],
                 fg_color: fg,
                 bg_color: bg,
+                underline_color: fg,
                 flags: fl,
                 row: (i / cols as usize) as u32,
                 col: (i % cols as usize) as u32,
@@ -1749,6 +1762,7 @@ fn bench_gpu_buffer_upload_throughput() {
             atlas_size: [0.0, 0.0],
             fg_color: [0.9, 0.9, 0.9, 1.0],
             bg_color: [0.1, 0.1, 0.1, 1.0],
+            underline_color: [0.9, 0.9, 0.9, 1.0],
             quad_size: [10.0, 20.0],
             flags: 0.0,
             bearing: [0.0, 0.0],
@@ -1886,6 +1900,7 @@ fn bench_gpu_full_submit_throughput() {
             atlas_size: [0.0, 0.0],
             fg_color: [0.9, 0.9, 0.9, 1.0],
             bg_color: [0.1, 0.1, 0.1, 1.0],
+            underline_color: [0.9, 0.9, 0.9, 1.0],
             quad_size: [10.0, 20.0],
             flags: 0.0,
             bearing: [0.0, 0.0],
