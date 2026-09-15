@@ -589,7 +589,7 @@ impl Renderer {
         kgp_instances: &[crate::render::KittyGraphicsInstance],
     ) -> Result<(), GpuError> {
         // Grid cell dimensions from the attached surface: quads must cover
-        // the full grid (surface_w/cols x surface_h/rows), not the font
+        // the full grid (surface_width/cols x surface_height/rows), not the font
         // cell metrics — otherwise rows show gaps of the clear color.
         // quad geometry uses the FONT cell size (logical cell
         // metrics × raster_scale, i.e. the same physical values the Kotlin
