@@ -464,6 +464,8 @@ constructor(
      */
     private fun maybeShowProcessCompletedPrompt(entry: SessionEntry, exitCode: Int): Boolean {
         if (entry.id != activeSessionId || entry.waitingForProcessCompleted) return false
+        // 正常退出（exit 0）直接关闭会话；仅非零退出保留现场待回车确认关闭。
+        if (exitCode == 0) return false
         synchronized(sessionLock) {
             if (!sessions.containsKey(entry.id)) return false
             entry.waitingForProcessCompleted = true
