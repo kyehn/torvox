@@ -454,6 +454,15 @@ impl super::GhosttyTerminal {
         )
     }
 
+    /// 采集全部可见 Kitty 放置（渲染线程按需调用；VT 繁忙时回退空列表）。
+    pub fn take_kitty_placements(&self) -> Vec<KittyPlacementFrame> {
+        self.query(
+            |tx| Query::TakeKittyPlacements { tx },
+            Vec::new(),
+            "take_kitty_placements",
+        )
+    }
+
     pub fn cursor_x(&self) -> u32 {
         self.query(Query::CursorX, DISCONNECTED_CURSOR_X, "cursor_x")
     }
