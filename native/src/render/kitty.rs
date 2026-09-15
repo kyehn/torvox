@@ -60,6 +60,9 @@ fn layout_strip(frames: &[KittyPlacementFrame]) -> Option<StripLayout> {
 type PackedAtlas = (Vec<u8>, u32, u32, Vec<Option<AtlasEntry>>);
 
 /// 组装图集：源矩形钳制到图像边界；无有效帧返回 None（调用方清空实例与图集）。
+/// 输入总量由上游存储上限约束（KGP_STORAGE_LIMIT=64MiB，见 types.rs）；
+/// 横条带布局存在矩形空洞（输出像素数可大于输入面积和），此处饱和/受检算术
+/// 仅防溢出 panic，不另设未声明的截断。
 fn pack_atlas(frames: &[KittyPlacementFrame]) -> Option<PackedAtlas> {
     if frames.is_empty() {
         return None;
