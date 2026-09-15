@@ -9,7 +9,7 @@ use crate::terminal::ghostty_terminal::cell_flags;
 
 use foldhash::fast::RandomState;
 
-/// Alpha threshold above which search highlights swap fg/bg colors
+/// Alpha threshold above which search highlights swap foreground/background colors
 /// (high-alpha = opaque highlight, swap is visually clearer).
 /// Below this threshold, only blending is applied (subtle tint).
 const SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD: u8 = 128;
@@ -84,11 +84,15 @@ pub(crate) fn blend_highlight(base: [f32; 4], hl_rgba: [u8; 4]) -> [f32; 4] {
 
 #[inline]
 /// Apply a search-highlight RGBA to a cell foreground/background.
-pub(crate) fn apply_search_highlight(fg: &mut [f32; 4], bg: &mut [f32; 4], hl: [u8; 4]) {
+pub(crate) fn apply_search_highlight(
+    foreground: &mut [f32; 4],
+    background: &mut [f32; 4],
+    hl: [u8; 4],
+) {
     if hl[3] >= SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD {
-        std::mem::swap(fg, bg);
+        std::mem::swap(foreground, background);
     }
-    *bg = blend_highlight(*bg, hl);
+    *background = blend_highlight(*background, hl);
 }
 
 /// Contiguous run of dirty grid rows, resolved to its instance slice.
@@ -162,15 +166,15 @@ pub struct CellRun {
     /// Number of cells in this run (always ≥ 1).
     pub length: u32,
     /// Foreground color (RGBA float, bytemuck-equivalent for comparison).
-    pub fg: [f32; 4],
+    pub foreground: [f32; 4],
     /// Background color (RGBA float, bytemuck-equivalent for comparison).
-    pub bg: [f32; 4],
+    pub background: [f32; 4],
     /// Packed style flags (bold, italic, underline, etc.).
     pub flags: u32,
 }
 
 /// Scan a row of `CellData` and merge adjacent cells with identical
-/// `fg_color`, `bg_color`, and `flags` into contiguous runs.
+/// `foreground`, `background`, and `flags` into contiguous runs.
 /// (termlib CellRun pattern, termlib/CellRun.kt: run-length merging)
 ///
 /// Returns an empty `Vec` when `cell_row` is empty. Each run has
@@ -187,29 +191,29 @@ pub fn build_row_runs(cell_row: &[crate::terminal::ghostty_terminal::CellData]) 
     let mut current_run = CellRun {
         start_col: first.col,
         length: 1,
-        fg: first.fg_color,
-        bg: first.bg_color,
+        foreground: first.foreground,
+        background: first.background,
         flags: first.flags,
     };
-    let mut fg_bits = current_run.fg.map(f32::to_bits);
-    let mut bg_bits = current_run.bg.map(f32::to_bits);
+    let mut foreground_bits = current_run.foreground.map(f32::to_bits);
+    let mut background_bits = current_run.background.map(f32::to_bits);
     for cell in iter {
-        let same_fg = cell.fg_color.map(f32::to_bits) == fg_bits;
-        let same_bg = cell.bg_color.map(f32::to_bits) == bg_bits;
+        let same_foreground = cell.foreground.map(f32::to_bits) == foreground_bits;
+        let same_background = cell.background.map(f32::to_bits) == background_bits;
         let same_flags = cell.flags == current_run.flags;
-        if same_fg && same_bg && same_flags {
+        if same_foreground && same_background && same_flags {
             current_run.length += 1;
         } else {
             runs.push(current_run);
             current_run = CellRun {
                 start_col: cell.col,
                 length: 1,
-                fg: cell.fg_color,
-                bg: cell.bg_color,
+                foreground: cell.foreground,
+                background: cell.background,
                 flags: cell.flags,
             };
-            fg_bits = cell.fg_color.map(f32::to_bits);
-            bg_bits = cell.bg_color.map(f32::to_bits);
+            foreground_bits = cell.foreground.map(f32::to_bits);
+            background_bits = cell.background.map(f32::to_bits);
         }
     }
     runs.push(current_run);
@@ -562,22 +566,22 @@ fn append_row_instances(
         let ch = char::from_u32(cd.codepoint).unwrap_or(' ');
         let cell_span = cd.width.max(1) as f32;
         let quad_origin = [cd.col as f32 * cell_w, cd.row as f32 * cell_h];
-        let mut fg_color = cd.fg_color;
-        let mut bg_color = cd.bg_color;
+        let mut foreground = cd.foreground;
+        let mut background = cd.background;
         // SGR 7 reverse video: swap foreground and background colors
         // Check reverse attribute (bit 2 in new layout matching old path's
         // `cell.reverse` bit position used by pack_style_flags → shader).
         // Matches termux TerminalRenderer.java:182-187 (selection &
-        // reverseVideo fold into the same fg/bg swap) and Ghostty's
+        // reverseVideo fold into the same foreground/background swap) and Ghostty's
         // renderer inverse-video handling.
         if (cd.flags >> cell_flags::REVERSE) & 1 == 1 {
-            std::mem::swap(&mut fg_color, &mut bg_color);
+            std::mem::swap(&mut foreground, &mut background);
         }
 
         // Search highlight overlay (applied on top of the terminal-baked
         // selection inverse video).
         if let Some(hl) = cell_highlight(cd.row, cd.col, highlights_by_row) {
-            apply_search_highlight(&mut fg_color, &mut bg_color, *hl);
+            apply_search_highlight(&mut foreground, &mut background, *hl);
         }
         // (spec cursor-rendering "宽字符光标几何"): wide-char
         // cursors must cover the FULL glyph. build_cell_data emits ONE CellData
@@ -587,8 +591,8 @@ fn append_row_instances(
         // the Bar marker by cell_span is exactly what makes the cursor cover
         // both columns. There is no separate spacer row entry to mark.
         let is_cursor = cursor.visible && cd.row == cursor.row && cd.col == cursor.col;
-        let effective_fg = fg_color;
-        let mut effective_bg = bg_color;
+        let effective_foreground = foreground;
+        let mut effective_background = background;
         // Default quad size (used for Block cursor and empty cells)
         let quad_size = [cell_w * cell_span, cell_h];
         // Block cursor height tracks the glyph (ascent+descent in
@@ -601,7 +605,7 @@ fn append_row_instances(
             // original foreground; only the background is replaced by cursor
             // color (semi-transparent overlay).
             let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
-            effective_bg = [
+            effective_background = [
                 cursor_color[0],
                 cursor_color[1],
                 cursor_color[2],
@@ -650,8 +654,8 @@ fn append_row_instances(
                     quad_origin: origin,
                     atlas_offset: [0.0; 2],
                     atlas_size: [0.0; 2],
-                    fg_color: effective_fg,
-                    bg_color: effective_bg,
+                    foreground: effective_foreground,
+                    background: effective_background,
                     underline_color: cd.underline_color,
                     quad_size: size,
                     flags: cd.flags as f32,
@@ -705,8 +709,8 @@ fn append_row_instances(
                 quad_origin: origin,
                 atlas_offset: [uv_x, uv_y],
                 atlas_size: [uv_w, uv_h],
-                fg_color: effective_fg,
-                bg_color: effective_bg,
+                foreground: effective_foreground,
+                background: effective_background,
                 underline_color: cd.underline_color,
                 quad_size: size,
                 flags: cd.flags as f32,
@@ -725,8 +729,8 @@ fn append_row_instances(
                     crate::render::font::OverlayQuad {
                         origin: glyph_quad_origin,
                         size: glyph_quad_size,
-                        fg: effective_fg,
-                        bg: effective_bg,
+                        foreground: effective_foreground,
+                        background: effective_background,
                         deco: cd.underline_color,
                         flags: cd.flags as f32,
                     },
@@ -743,8 +747,8 @@ fn append_row_instances(
                 quad_origin,
                 atlas_offset: [0.0; 2],
                 atlas_size: [0.0; 2],
-                fg_color: effective_fg,
-                bg_color: effective_bg,
+                foreground: effective_foreground,
+                background: effective_background,
                 underline_color: cd.underline_color,
                 quad_size,
                 flags: cd.flags as f32,
@@ -827,14 +831,21 @@ mod tests {
     use super::*;
     use crate::terminal::ghostty_terminal::CellData;
 
-    fn cell_data(row: u32, col: u32, ch: char, fg: [f32; 4], bg: [f32; 4], flags: u32) -> CellData {
+    fn cell_data(
+        row: u32,
+        col: u32,
+        ch: char,
+        foreground: [f32; 4],
+        background: [f32; 4],
+        flags: u32,
+    ) -> CellData {
         CellData {
             codepoint: ch as u32,
             width: 1,
             grapheme_extra: [0; 7],
-            fg_color: fg,
-            bg_color: bg,
-            underline_color: fg,
+            foreground,
+            background,
+            underline_color: foreground,
             flags,
             row,
             col,
@@ -883,12 +894,12 @@ mod tests {
         )];
         let instances = build(&cells, CellCursor::default(), &[]);
         assert_eq!(instances.len(), 1);
-        assert_eq!(instances[0].fg_color, [1.0, 0.0, 0.0, 1.0]);
-        assert_eq!(instances[0].bg_color, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(instances[0].foreground, [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(instances[0].background, [0.0, 0.0, 1.0, 1.0]);
         assert_eq!(instances[0].flags, 0.0);
     }
 
-    /// SGR 7 reverse swaps fg and bg.
+    /// SGR 7 reverse swaps foreground and background.
     #[test]
     fn reverse_swaps_fg_bg() {
         let cells = vec![cell_data(
@@ -900,8 +911,8 @@ mod tests {
             1 << cell_flags::REVERSE,
         )];
         let instances = build(&cells, CellCursor::default(), &[]);
-        assert_eq!(instances[0].fg_color, [0.0, 0.0, 1.0, 1.0]);
-        assert_eq!(instances[0].bg_color, [1.0, 0.0, 0.0, 1.0]);
+        assert_eq!(instances[0].foreground, [0.0, 0.0, 1.0, 1.0]);
+        assert_eq!(instances[0].background, [1.0, 0.0, 0.0, 1.0]);
     }
 
     /// SGR 58 underline color reaches the GPU instance for the shader deco pass.
@@ -924,7 +935,7 @@ mod tests {
         );
     }
 
-    /// Search highlight with alpha >= 128 swaps fg/bg then blends bg.
+    /// Search highlight with alpha >= 128 swaps foreground/background then blends background.
     #[test]
     fn search_highlight_swaps_and_blends() {
         let cells = vec![cell_data(
@@ -942,14 +953,14 @@ mod tests {
             color: [0xFF, 0xFF, 0x00, 0xFF], // opaque yellow
         };
         let instances = build(&cells, CellCursor::default(), &[hl]);
-        // Alpha >= 128 → swap fg/bg, then bg = blend(bg, yellow, alpha=1) = yellow.
+        // Alpha >= 128 → swap foreground/background, then background = blend(background, yellow, alpha=1) = yellow.
         assert_eq!(
-            instances[0].fg_color,
+            instances[0].foreground,
             [0.0, 0.0, 1.0, 1.0],
-            "highlight swaps fg→bg"
+            "highlight swaps foreground→background"
         );
         assert_eq!(
-            instances[0].bg_color,
+            instances[0].background,
             [1.0, 1.0, 0.0, 1.0],
             "blend with opaque yellow"
         );
@@ -974,23 +985,23 @@ mod tests {
         };
         let instances = build(&cells, CellCursor::default(), &[hl]);
         assert_eq!(
-            instances[0].fg_color,
+            instances[0].foreground,
             [0.0, 0.0, 0.0, 1.0],
-            "fg unchanged below alpha 128"
+            "foreground unchanged below alpha 128"
         );
-        // bg = white * (1-a) + red * a with a = 0x7F/255
+        // background = white * (1-a) + red * a with a = 0x7F/255
         let alpha = 0x7F as f32 / 255.0;
         let expected = 1.0 - alpha;
         assert!(
-            (instances[0].bg_color[0] - 1.0).abs() < 1e-5,
+            (instances[0].background[0] - 1.0).abs() < 1e-5,
             "red channel keeps base white"
         );
-        assert!((instances[0].bg_color[1] - expected).abs() < 1e-5);
-        assert!((instances[0].bg_color[2] - expected).abs() < 1e-5);
+        assert!((instances[0].background[1] - expected).abs() < 1e-5);
+        assert!((instances[0].background[2] - expected).abs() < 1e-5);
     }
 
-    /// Block cursor replaces bg with cursor color (semi-transparent) and
-    /// keeps the original fg so the glyph stays readable.
+    /// Block cursor replaces background with cursor color (semi-transparent) and
+    /// keeps the original foreground so the glyph stays readable.
     #[test]
     fn block_cursor_paints_bg_keeps_fg() {
         let cells = vec![cell_data(
@@ -1010,14 +1021,14 @@ mod tests {
         };
         let instances = build(&cells, cursor, &[]);
         assert_eq!(
-            instances[0].fg_color,
+            instances[0].foreground,
             [1.0, 0.0, 0.0, 1.0],
-            "block cursor keeps fg"
+            "block cursor keeps foreground"
         );
         assert_eq!(
-            instances[0].bg_color,
+            instances[0].background,
             [0.0, 1.0, 0.0, 0.7],
-            "bg = cursor color * 0.7"
+            "background = cursor color * 0.7"
         );
     }
 
@@ -1038,7 +1049,7 @@ mod tests {
             instances[0].atlas_size, [0.0; 2],
             "no glyph UVs for a space"
         );
-        assert_eq!(instances[0].bg_color, [0.1, 0.1, 0.1, 1.0]);
+        assert_eq!(instances[0].background, [0.1, 0.1, 0.1, 1.0]);
     }
 
     // Field-by-field comparison (CellInstance does not derive PartialEq).
@@ -1085,8 +1096,8 @@ mod tests {
                 x.quad_origin == y.quad_origin
                     && x.atlas_offset == y.atlas_offset
                     && x.atlas_size == y.atlas_size
-                    && x.fg_color == y.fg_color
-                    && x.bg_color == y.bg_color
+                    && x.foreground == y.foreground
+                    && x.background == y.background
                     && x.quad_size == y.quad_size
                     && x.flags == y.flags
                     && x.bearing == y.bearing
@@ -1369,33 +1380,33 @@ mod tests {
     /// Five identical-format cells must merge into a single run.
     #[test]
     fn cell_run_single_format() {
-        let fg = [1.0, 0.0, 0.0, 1.0];
-        let bg = [0.0, 0.0, 0.0, 1.0];
+        let foreground = [1.0, 0.0, 0.0, 1.0];
+        let background = [0.0, 0.0, 0.0, 1.0];
         let cells: Vec<CellData> = (0..5)
-            .map(|col| cell_data(0, col, 'x', fg, bg, 0))
+            .map(|col| cell_data(0, col, 'x', foreground, background, 0))
             .collect();
         let runs = build_row_runs(&cells);
         assert_eq!(runs.len(), 1, "5 same-format cells → 1 run");
         assert_eq!(runs[0].start_col, 0);
         assert_eq!(runs[0].length, 5);
-        assert_eq!(runs[0].fg, fg);
-        assert_eq!(runs[0].bg, bg);
+        assert_eq!(runs[0].foreground, foreground);
+        assert_eq!(runs[0].background, background);
     }
 
     /// Background color change in the middle splits into 2 runs.
     #[test]
     fn cell_run_mixed_format() {
-        let fg = [1.0, 1.0, 1.0, 1.0];
+        let foreground = [1.0, 1.0, 1.0, 1.0];
         let bg_a = [0.0, 0.0, 0.0, 1.0];
         let bg_b = [1.0, 0.0, 0.0, 1.0];
         let cells = vec![
-            cell_data(0, 0, 'a', fg, bg_a, 0),
-            cell_data(0, 1, 'b', fg, bg_a, 0),
-            cell_data(0, 2, 'c', fg, bg_b, 0), // bg change
-            cell_data(0, 3, 'd', fg, bg_b, 0),
+            cell_data(0, 0, 'a', foreground, bg_a, 0),
+            cell_data(0, 1, 'b', foreground, bg_a, 0),
+            cell_data(0, 2, 'c', foreground, bg_b, 0), // background change
+            cell_data(0, 3, 'd', foreground, bg_b, 0),
         ];
         let runs = build_row_runs(&cells);
-        assert_eq!(runs.len(), 2, "bg change → 2 runs");
+        assert_eq!(runs.len(), 2, "background change → 2 runs");
         assert_eq!(runs[0].length, 2);
         assert_eq!(runs[1].start_col, 2);
         assert_eq!(runs[1].length, 2);
@@ -1404,12 +1415,12 @@ mod tests {
     /// Flags change (bold) splits into 2 runs.
     #[test]
     fn cell_run_flags_change() {
-        let fg = [1.0, 1.0, 1.0, 1.0];
-        let bg = [0.0, 0.0, 0.0, 1.0];
+        let foreground = [1.0, 1.0, 1.0, 1.0];
+        let background = [0.0, 0.0, 0.0, 1.0];
         let cells = vec![
-            cell_data(0, 0, 'a', fg, bg, 0),
-            cell_data(0, 1, 'b', fg, bg, 0),
-            cell_data(0, 2, 'c', fg, bg, 1 << cell_flags::BOLD),
+            cell_data(0, 0, 'a', foreground, background, 0),
+            cell_data(0, 1, 'b', foreground, background, 0),
+            cell_data(0, 2, 'c', foreground, background, 1 << cell_flags::BOLD),
         ];
         let runs = build_row_runs(&cells);
         assert_eq!(runs.len(), 2, "flags change → 2 runs");

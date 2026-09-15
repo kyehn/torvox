@@ -1558,17 +1558,23 @@ fn terminal_owned_selection_inverts_cell_data() {
         .find(|cell| cell.row == 0 && cell.col == 0)
         .expect("row 0 col 0 present");
     // Catppuccin Mocha 默认：前景 #CDD6F4，背景 #1E1E2E；选中后互换。
-    let theme_fg = GhosttyTerminal::byte_color_to_float([205, 214, 244]);
-    let theme_bg = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
-    assert_eq!(picked.fg_color, theme_bg, "selected fg must be theme bg");
-    assert_eq!(picked.bg_color, theme_fg, "selected bg must be theme fg");
+    let theme_foreground = GhosttyTerminal::byte_color_to_float([205, 214, 244]);
+    let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
+    assert_eq!(
+        picked.foreground, theme_background,
+        "selected foreground must be theme background"
+    );
+    assert_eq!(
+        picked.background, theme_foreground,
+        "selected background must be theme foreground"
+    );
     // 选区外单元格不受影响。
     let outside = selected
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 10)
         .expect("row 0 col 10 present");
-    assert_eq!(outside.fg_color, theme_fg);
-    assert_eq!(outside.bg_color, theme_bg);
+    assert_eq!(outside.foreground, theme_foreground);
+    assert_eq!(outside.background, theme_background);
     // 清除后恢复基线。
     t.clear_selection();
     t.flush();
@@ -1577,8 +1583,8 @@ fn terminal_owned_selection_inverts_cell_data() {
         .iter()
         .find(|cell| cell.row == 0 && cell.col == 0)
         .expect("row 0 col 0 present");
-    assert_eq!(restored.fg_color, theme_fg);
-    assert_eq!(restored.bg_color, theme_bg);
+    assert_eq!(restored.foreground, theme_foreground);
+    assert_eq!(restored.background, theme_background);
 }
 
 /// OSC 8 hyperlink query (termux TerminalView.openLinkAt equivalent):

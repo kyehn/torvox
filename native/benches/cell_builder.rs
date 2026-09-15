@@ -32,14 +32,14 @@ fn build_instances(c: &mut Criterion) {
 
     let cell_data: Vec<CellData> = (0..count)
         .map(|i| {
-            let (ch, w, fg, bg, fl) = mixed_data[i % mixed_data.len()];
+            let (ch, w, foreground, background, fl) = mixed_data[i % mixed_data.len()];
             CellData {
                 codepoint: ch as u32,
                 width: w,
                 grapheme_extra: [0; 7],
-                fg_color: fg,
-                bg_color: bg,
-                underline_color: fg,
+                foreground,
+                background,
+                underline_color: foreground,
                 flags: fl,
                 row: (i / cols as usize) as u32,
                 col: (i % cols as usize) as u32,

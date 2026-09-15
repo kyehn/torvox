@@ -29,10 +29,10 @@ internal fun argbToRgbFloats(argb: Int): FloatArray = floatArrayOf(
  */
 data class BridgeTheme(
     val name: String,
-    val bg: Int,
-    val fg: Int,
+    val background: Int,
+    val foreground: Int,
     val cursor: Int,
-    val selectionBg: Int,
+    val selectionBackground: Int,
     val ansi0: Int,
     val ansi1: Int,
     val ansi2: Int,
@@ -451,8 +451,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             data[dst + 1] = (argb shr 8 and 0xFF).toByte()
             data[dst + 2] = (argb and 0xFF).toByte()
         }
-        packColor(0, theme.bg)
-        packColor(3, theme.fg)
+        packColor(0, theme.background)
+        packColor(3, theme.foreground)
         val ansi =
             listOf(
                 theme.ansi0,
@@ -757,9 +757,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         endCol: Int,
         hasSelection: Boolean?,
         mode: Byte,
-        selectionBgArgb: Int,
+        selectionBackgroundArgb: Int,
     ) {
-        queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBgArgb)
+        queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBackgroundArgb)
     }
 
     override fun expandAndSetSelection(
