@@ -244,7 +244,7 @@ private fun SessionItem(
     surface: Color,
     textColor: Color,
 ) {
-    val bgColor = if (isActive) surface else Color.Transparent
+    val itemBackgroundColor = if (isActive) surface else Color.Transparent
     val titleColor = if (isActive) textColor else textColor.copy(alpha = 0.7f)
 
     Row(
@@ -254,7 +254,7 @@ private fun SessionItem(
             .fillMaxWidth()
             .padding(horizontal = 8.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(bgColor)
+            .background(itemBackgroundColor)
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,

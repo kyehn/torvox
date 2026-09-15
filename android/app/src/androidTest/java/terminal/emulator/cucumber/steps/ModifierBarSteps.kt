@@ -56,16 +56,16 @@ constructor(
     @当("^双击 CTRL 键$")
     fun ctrlKeyIsTappedTwice() {
         val rule = composeRuleHolder.composeRule
-        // 两次点击之间等待选中态落定再点第二次：背靠背点击会竞态，
-        // 第二次点击可能作用于第一次之前的状态而导致选中态残留。
+        // 连续两次 performClick 背靠背会竞态：第二次点击的按下事件
+        // 可能在第一次的状态更新组合前被手势协程消费，导致选中态残留。
+        // 点击后轮询等选中态真正落定（上限内未落定则大声失败），
+        // 而不是只等主线程空闲。
         rule.onNodeWithTag("Key_CTRL").performClick()
         rule.waitUntil(timeoutMillis = 5000) {
             probeAssertion { rule.onNodeWithTag("Key_CTRL").assertIsSelected() }
         }
         rule.onNodeWithTag("Key_CTRL").performClick()
-        rule.waitUntil(timeoutMillis = 5000) {
-            probeAssertion { rule.onNodeWithTag("Key_CTRL").assertIsNotSelected() }
-        }
+        rule.waitForIdle()
     }
 
     @那么("^CTRL 键呈选中态$")

@@ -4,7 +4,7 @@
 //! 1. 快照管线：snapshot 缓存/回退、视口映射、行缓存；
 //! 2. 查询 API：dump_grid / read_line_text / hyperlink_at / selection_text /
 //!    search_in（断言对象是本仓包装与格式化）；
-//! 3. 输入输出管道：vt_write 清洗与 ST 兜底、pty_write LF→CRLF 与跨块跟踪、
+//! 3. 输入输出管道：vt_write 清洗、pty_write LF→CRLF 与分片直透（无 ST/SGR 提前闭合）、
 //!    键盘/鼠标编码（含钳制）；
 //! 4. 会话与生命周期 tc_sm_ / tc_al_ / tc_lifecycle_，性能基准 bench_*。
 //!
@@ -1651,8 +1651,8 @@ fn kitty_graphics_transmit_returns_1x1_image() {
     let mut t = term();
     // 1x1 RGB 红色像素：base64("/wAA") = {0xff, 0x00, 0x00}。
     // 显式 i=1 指定图像 id（上游默认自动分配 id，不保证为 1）。
-    // 注意：vt_write 会在 chunk 末尾追加 ST+SGR 关闭未完成序列，
-    // 不能用于 APC/kitty 传输；此处走 pty_write 原始写入。
+    // 注意：vt_write/pty_write 均为分片直透（上游跨调用重组，无 ST/SGR 提前闭合）；
+    // 此处走 pty_write 以覆盖 LF→CRLF 文本路径。
     t.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=1;/wAA\x1b\\");
     t.flush();
     let image = t
