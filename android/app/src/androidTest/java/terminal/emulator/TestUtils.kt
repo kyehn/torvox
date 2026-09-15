@@ -66,13 +66,15 @@ fun grantNotificationPermission() {
 
 fun AndroidComposeTestRule<*, *>.getBridge(): Bridge? {
     var bridge: Bridge? = null
-    val rule = activityRule as ActivityScenarioRule<*>
-    val deadlineMs = System.currentTimeMillis() + 15_000
-    while (bridge == null && System.currentTimeMillis() < deadlineMs) {
-        Thread.sleep(100)
-        rule.scenario.onActivity { activity: android.app.Activity ->
+    // v2 createAndroidComposeRule 没有 activityRule 字段（v1 API）：
+    // 用 activity 直接进主线程读桥。runOnUiThread 本身同步返回，
+    // 无需 sleep 轮询；桥为 null（会话孵化中）则由调用方重试写入。
+    try {
+        activity.runOnUiThread {
             bridge = (activity as MainActivity).runtime.bridge()
         }
+    } catch (_: Exception) {
+        bridge = null
     }
     return bridge
 }
