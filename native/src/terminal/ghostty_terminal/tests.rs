@@ -1787,3 +1787,24 @@ fn cursor_matches_cell_rows_after_cup_positioning() {
         "CUP alone must not print cells, got rows {text_rows:?}"
     );
 }
+
+/// OSC 7 与 OSC 1337 工作目录上报（上游归一化，本仓只断言透出内容）。
+#[test]
+fn osc7_and_osc1337_report_working_directory() {
+    let mut osc7_terminal = term();
+    osc7_terminal.pty_write(b"\x1b]7;file:///tmp\x07");
+    osc7_terminal.flush();
+    assert_eq!(
+        osc7_terminal.poll_cwd_event(),
+        Some("file:///tmp".to_string()),
+        "OSC 7 must surface the working directory"
+    );
+    let mut osc1337_terminal = term();
+    osc1337_terminal.pty_write(b"\x1b]1337;CurrentDir=/tmp\x07");
+    osc1337_terminal.flush();
+    assert_eq!(
+        osc1337_terminal.poll_cwd_event(),
+        Some("/tmp".to_string()),
+        "OSC 1337 CurrentDir must surface the working directory"
+    );
+}
