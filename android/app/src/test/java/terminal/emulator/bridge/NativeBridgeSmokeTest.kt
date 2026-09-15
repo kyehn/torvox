@@ -32,8 +32,8 @@ import kotlin.system.measureTimeMillis
  * everything exercised here is pure CPU logic.
  *
  * Locating the library: unit tests run with cwd = `android/app/`, so repo-root candidates are
- * `../../target/...`. Override via the TERMINAL_NATIVE_LIB env var. Missing host .so → SKIPPED
- * (never fails): build one with `cargo build --package native`.
+ * `../../target/...`. Override via the TERMINAL_NATIVE_LIB env var. Missing host .so → FAILS:
+ * build one with `cargo build --package native` first (CI check 任务已提供)。
  */
 class NativeBridgeSmokeTest {
     private companion object {
