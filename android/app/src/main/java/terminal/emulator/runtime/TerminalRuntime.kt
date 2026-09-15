@@ -422,7 +422,7 @@ constructor(
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Answer MCP clipboard_get / OSC 52 read requests: read the system clipboard and reply via
+     * Answer OSC 52 clipboard read requests: read the system clipboard and reply via
      * [NativeBridge.clipboardResult]. Empty text is a legitimate result; only exceptions produce an
      * empty fallback reply.
      */
@@ -3369,14 +3369,14 @@ constructor(
 
     /**
      * Resize the active session's terminal grid. Values are clamped to the native u16 range
-     * (1..=65535) BEFORE the bridge call so the PTY/MCP dimensions and the UI state agree.
+     * (1..=65535) BEFORE the bridge call so the PTY grid dimensions and the UI state agree.
      */
     fun resize(
         rows: Int,
         cols: Int,
     ) {
         val entry = sessions[activeSessionId] ?: return
-        // Clamp BEFORE the bridge call so native (PTY/MCP dims) and UI state
+        // Clamp BEFORE the bridge call so native (PTY grid dims) and UI state
         // can never diverge: 0 is a legal native size but would break grid
         // math elsewhere, and native resize rejects anything >u16 (the
         // Kotlin state would otherwise carry a value the PTY silently

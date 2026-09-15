@@ -189,7 +189,7 @@ pub struct Session {
     // ── Cached grid size ─────────────────────────────────────────────
     /// Last known terminal grid size, updated on spawn and successful
     /// resize. Read lock-free by ffi::switch_session_inner to refresh the
-    /// MCP terminal_info dims WITHOUT a blocking query RPC on the VT
+    /// cached grid dims WITHOUT a blocking query RPC on the VT
     /// thread (a query inside the registry write lock would freeze every
     /// session operation for up to 2×QUERY_TIMEOUT_MS).
     terminal_rows: AtomicU32,
@@ -529,8 +529,7 @@ impl Session {
     }
 
     /// Send a POSIX signal (by number) to the child process backing this session.
-    /// Used by the MCP server's `send_signal` tool so an external controller can
-    /// interrupt / terminate a live shell.
+    /// 供外部控制器调用，向存活 Shell 发送中断/终止信号。
     pub fn send_signal(&self, signum: i32) -> Result<(), SessionError> {
         let signal = nix::sys::signal::Signal::try_from(signum)
             .map_err(|error| SessionError::Ghostty(format!("invalid signal {signum}: {error}")))?;
