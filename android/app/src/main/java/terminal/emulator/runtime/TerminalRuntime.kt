@@ -379,7 +379,7 @@ constructor(
     /**
      * Failsafe session request (termux-compatible app shortcut extra
      * `com.termux.app.failsafe_session`): the next session starts with the system shell and no prefix
-     * bootstrap, so a broken bootstrap cannot brick terminal access. Consumed (not reset) by
+     * bootstrap, so a broken bootstrap cannot brick terminal access. Consumed once by
      * buildConfig; a second shortcut tap while a session is already up is a no-op 因为只保留单个会话 (see
      * start()'s `sessions.isNotEmpty()` guard).
      */
@@ -860,9 +860,10 @@ constructor(
         // PREFIX — so a broken bootstrap cannot brick terminal access
         // (matches termux-app TermuxSession.java:95-113 isFailsafe path).
         if (failsafeRequested) {
+            failsafeRequested = false
             return buildFailsafeConfig(rows, cols, configReads, bridgeTheme, homeDir)
         }
-        // 前缀 shell 解析：登录优先。候选为 ELF 二进制或系统解释器启动脚本；
+        // 前缀 shell 解析：依次尝试 bash 与 login。候选为 ELF 二进制或系统解释器启动脚本；
         // 私有目录 shebang 脚本不计入（其解释器本身尚不可用，linker 亦无法加载），由后续 ELF 候选承接。
         // 系统脚本经内核 shebang 直接执行，不走 linker 桥接（pty 侧非 PIE 即直接执行）。
         val prefixShell = findPrefixShell(prefixDir)
@@ -931,7 +932,7 @@ constructor(
             font_size_tenths = configReads.fontSizeTenths,
             theme = bridgeTheme,
             home = home,
-            workingDirectory = homeDir,
+            workingDirectory = configReads.startDir.ifEmpty { homeDir },
             prefix = "",
         )
     }
@@ -1851,7 +1852,10 @@ constructor(
         prefixComplete: Boolean,
         shell: Shell,
     ): Shell {
-        if (prefixComplete) return Shell.Custom("$prefixDir/$prefixShell")
+        // 自定义启动入口优先：用户已设置时原样 honor（含参数），仅默认入口才走前缀探测。
+        if (shell is Shell.Custom) return shell
+        val prefixShellChecked = prefixShell ?: return shell
+        if (prefixComplete) return Shell.Custom("$prefixDir/$prefixShellChecked")
         return shell
     }
 
@@ -1868,8 +1872,8 @@ constructor(
      * shebang 直接执行，不走 linker 桥接； 私有目录 shebang 脚本不计入，其解释器本身尚不可用，仍由后续 ELF 候选承接。
      */
     private fun findPrefixShell(prefixDir: String): String? {
-        // 登录优先，ELF 与系统脚本均可选中，顺序即优先级。
-        return listOf("bin/login", "bin/bash").firstOrNull { candidate ->
+        // 依次尝试 bash 与 login，顺序即优先级（见 DESIGN Shell 节）。
+        return listOf("bin/bash", "bin/login").firstOrNull { candidate ->
             val file = java.io.File("$prefixDir/$candidate")
             file.isFile && (isElf(file) || isSystemShellScript(file))
         }
