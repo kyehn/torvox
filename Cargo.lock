@@ -1516,7 +1516,6 @@ dependencies = [
  "serde",
  "serde_json",
  "shuttle",
- "strsim",
  "swash",
  "thiserror",
  "tokio",

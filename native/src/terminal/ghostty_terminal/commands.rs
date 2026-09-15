@@ -36,6 +36,15 @@ pub enum Command {
     /// the app's scrollback browsing: previously a Kotlin-side
     /// no-op — the CellData render path had no scroll support at all).
     ScrollViewport(isize),
+    /// 安装终端持有的活动选区（跟踪网格引用，随滚动/输出/重排跟随文本）。
+    /// 坐标为绝对网格行（0 = 回滚顶部）与列；rectangle 为块选。
+    SetSelection {
+        start: (u32, u32),
+        end: (u32, u32),
+        rectangle: bool,
+    },
+    /// 清除终端持有的活动选区。
+    ClearSelection,
     /// RIS 全重置：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
     Reset,
     /// Graceful shutdown signal.
@@ -103,7 +112,6 @@ pub enum Query {
     SearchInScrollbackAll {
         query: String,
         case_sensitive: bool,
-        fuzzy: bool,
         tx: Sender<Vec<SearchMatch>>,
     },
     DumpGrid {

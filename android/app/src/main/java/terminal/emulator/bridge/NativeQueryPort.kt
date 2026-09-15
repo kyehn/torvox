@@ -27,10 +27,9 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         mode: Byte,
         selectionBgArgb: Int,
     ) {
-        // Selection is rendered through the render path (SelectionRange),
-        // driven by TerminalSurface.consumeSelectionState. Forward to the
-        // native render state so the GPU shader swaps the background
-        // color of the selected cells.
+        // Selection lives in the terminal (tracked refs, installed via
+        // NativeBridge.setSelection): the VT thread bakes the inverse
+        // video into CellData, so no view-side cell bookkeeping is needed.
         val active = hasSelection ?: true
         NativeBridge.setSelection(
             sessionIdProvider(),
@@ -100,7 +99,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
 
     override fun isCellEmpty(row: Int, col: Int): Boolean = NativeBridge.isCellEmpty(sessionIdProvider(), row, col)
 
-    override fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>? = NativeBridge.searchAllInScrollback(sessionIdProvider(), query, caseSensitive, fuzzyMatch)
+    override fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? = NativeBridge.searchAllInScrollback(sessionIdProvider(), query, caseSensitive)
         ?.let { parseSearchMatches(it) }
 
     override fun setScrollOffset(offset: Int) {

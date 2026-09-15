@@ -29,18 +29,6 @@ pub enum CursorStyle {
     Block,
 }
 
-/// Selection mode — used by the renderer for selection rendering.
-/// Replaces the deleted terminal_core::selection::SelectionMode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum SelectionMode {
-    #[default]
-    Char,
-    Word,
-    Line,
-    Semantic,
-    Block,
-}
-
 /// Bit positions in `CellData::flags`, the single source of truth shared by
 /// the style packer (`ghostty_terminal::internal::pack_style_flags`), the GPU
 /// cell builder (`render::cell_builder`), the CPU fallback (`render::cpu_frame`)

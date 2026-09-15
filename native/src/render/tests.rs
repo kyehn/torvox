@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 
-use crate::terminal::{CursorStyle, SelectionMode};
+use crate::terminal::CursorStyle;
 use wgpu::util::DeviceExt;
 
 use super::*;
@@ -548,7 +548,6 @@ fn cursor_rendering_on_visible_cursor() {
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            selection: None,
             search_highlights: &[],
         },
         &mut font_pipeline,
@@ -622,78 +621,14 @@ fn reverse_video_applied_to_blank_cell() {
     );
 }
 
-#[test]
-fn selection_swaps_fg_bg() {
-    use super::SelectionRange;
-    use crate::terminal::ghostty_terminal::CellData;
-    let mut font_pipeline = ascii_font();
-    let (cell_w, cell_h) = font_pipeline.cell_metrics();
-    let cell_data = vec![CellData {
-        codepoint: 'X' as u32,
-        width: 1,
-        grapheme_extra: [0; 7],
-        fg_color: [1.0, 0.0, 0.0, 1.0],
-        bg_color: [0.0, 0.0, 0.0, 1.0],
-        flags: 0,
-        row: 0,
-        col: 0,
-    }];
-    let cursor = crate::render::CellCursor {
-        row: 0,
-        col: 0,
-        visible: false,
-        style: CursorStyle::Block,
-        color: None,
-    };
-    let selection = Some(SelectionRange {
-        start_row: 0,
-        end_row: 0,
-        start_col: 0,
-        end_col: 0,
-        active: true,
-        mode: SelectionMode::Char,
-        origin: None,
-        is_empty: false,
-    });
-    let mut instances = Vec::new();
-    let built = crate::render::build_instances_from_cell_data(
-        &cell_data,
-        crate::render::gpu::CellInstanceConfig {
-            rows: 1,
-            cols: 1,
-            grid_cell_w: cell_w,
-            grid_cell_h: cell_h,
-            cursor,
-            atlas_width: 1024.0,
-            atlas_height: 1024.0,
-            selection,
-            search_highlights: &[],
-        },
-        &mut font_pipeline,
-        &mut instances,
-    );
-    assert!(built.is_some(), "production instance build failed");
-    assert_eq!(instances.len(), 1);
-    let cell = &instances[0];
-    assert!(
-        f32_arrays_equal(&cell.fg_color, &[0.0, 0.0, 0.0, 1.0]),
-        "selected cell fg should be original bg (swap)"
-    );
-    assert!(
-        f32_arrays_equal(&cell.bg_color, &[1.0, 0.0, 0.0, 1.0]),
-        "selected cell bg should be original fg (swap)"
-    );
-}
-
 const TEST_ATLAS_SIZE: f32 = 1024.0;
 
-/// Build production instances for one configured cell (shared by cursor,
-/// reverse-video and selection tests): caller supplies the cell contents,
-/// cursor state and optional selection, unit grid otherwise.
+/// Build production instances for one configured cell (shared by cursor
+/// and reverse-video tests): caller supplies the cell contents, cursor
+/// state and grid metrics, unit grid otherwise.
 fn build_configured_cell_instance(
     cell_data: &[crate::terminal::ghostty_terminal::CellData],
     cursor: crate::render::CellCursor,
-    selection: Option<super::SelectionRange>,
     cell_width: f32,
     cell_height: f32,
     font_pipeline: &mut crate::render::font::FontPipeline,
@@ -709,7 +644,6 @@ fn build_configured_cell_instance(
             cursor,
             atlas_width: TEST_ATLAS_SIZE,
             atlas_height: TEST_ATLAS_SIZE,
-            selection,
             search_highlights: &[],
         },
         font_pipeline,
@@ -751,14 +685,7 @@ fn build_cursor_probe_instance(
         style: CursorStyle::Block,
         color: Some([1.0, 1.0, 1.0, 1.0]),
     };
-    build_configured_cell_instance(
-        &cell_data,
-        cursor,
-        None,
-        cell_width,
-        cell_height,
-        font_pipeline,
-    )
+    build_configured_cell_instance(&cell_data, cursor, cell_width, cell_height, font_pipeline)
 }
 
 /// Build production instances for a single cell (shared by the bearing tests
@@ -798,7 +725,6 @@ fn build_single_cell_instance(
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            selection: None,
             search_highlights: &[],
         },
         font_pipeline,
@@ -901,7 +827,6 @@ fn all_chars_share_same_baseline_y() {
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            selection: None,
             search_highlights: &[],
         },
         &mut font_pipeline,
@@ -976,7 +901,6 @@ fn cjk_bearing_y_not_centered() {
                     cursor,
                     atlas_width: 1024.0,
                     atlas_height: 1024.0,
-                    selection: None,
                     search_highlights: &[],
                 },
                 &mut font_pipeline,
@@ -1124,7 +1048,6 @@ fn search_highlight_blends_on_non_cursor_cell() {
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            selection: None,
             search_highlights: &highlights,
         },
         &mut font_pipeline,
@@ -1179,7 +1102,6 @@ fn cursor_cell_not_affected_by_search_highlight() {
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            selection: None,
             search_highlights: &highlights,
         },
         &mut font_pipeline,
@@ -1192,56 +1114,6 @@ fn cursor_cell_not_affected_by_search_highlight() {
         f32_arrays_equal(&cell.bg_color, &[0.5, 0.5, 1.0, 0.7]),
         "cursor cell bg should be cursor color (with block alpha), not highlight color"
     );
-}
-
-#[test]
-fn selection_range_line_mode() {
-    let sel = SelectionRange {
-        start_row: 2,
-        start_col: 0,
-        end_row: 4,
-        end_col: 0,
-        active: true,
-        mode: SelectionMode::Line,
-        origin: None,
-        is_empty: false,
-    };
-    assert!(sel.contains(3, 50, 80));
-    assert!(!sel.contains(1, 0, 80));
-}
-
-#[test]
-fn selection_range_block_mode() {
-    let sel = SelectionRange {
-        start_row: 1,
-        start_col: 5,
-        end_row: 3,
-        end_col: 10,
-        active: true,
-        mode: SelectionMode::Block,
-        origin: None,
-        is_empty: false,
-    };
-    assert!(sel.contains(2, 7, 80));
-    assert!(!sel.contains(2, 3, 80));
-    assert!(!sel.contains(4, 7, 80));
-}
-
-#[test]
-fn selection_range_char_mode() {
-    let sel = SelectionRange {
-        start_row: 1,
-        start_col: 5,
-        end_row: 3,
-        end_col: 10,
-        active: true,
-        mode: SelectionMode::Char,
-        origin: None,
-        is_empty: false,
-    };
-    assert!(sel.contains(2, 0, 80));
-    assert!(!sel.contains(1, 4, 80)); // before start_col on start row
-    assert!(!sel.contains(0, 5, 80)); // before first row
 }
 
 // ── Search highlight helpers and tests ───────────────────────────
@@ -1454,8 +1326,9 @@ fn search_highlight_other_match_alpha_matches_production() {
 
 #[test]
 fn selection_intersect_current_match_double_swap() {
-    // Covers the build path in cell_builder.rs where selection swaps fg/bg
-    // first and apply_search_highlight runs on top: a current-match
+    // Covers the highlight-on-terminal-selection path: the VT thread bakes
+    // the tracked-selection inverse video into CellData (fg/bg pre-swapped
+    // here), then apply_search_highlight runs on top. A current-match
     // highlight (production alpha 255 >= 128 from
     // SearchHighlightColors.CURRENT_MATCH_ALPHA) swaps AGAIN, so the two
     // swaps cancel — the cell keeps its original foreground while the
@@ -1463,12 +1336,13 @@ fn selection_intersect_current_match_double_swap() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    // Terminal-baked selection: white-on-black becomes black-on-white.
     let cell_data = vec![CellData {
         codepoint: 'X' as u32,
         width: 1,
         grapheme_extra: [0; 7],
-        fg_color: [1.0, 1.0, 1.0, 1.0], // white text
-        bg_color: [0.0, 0.0, 0.0, 1.0], // black background
+        fg_color: [0.0, 0.0, 0.0, 1.0],
+        bg_color: [1.0, 1.0, 1.0, 1.0],
         flags: 0,
         row: 0,
         col: 0,
@@ -1486,16 +1360,6 @@ fn selection_intersect_current_match_double_swap() {
         end_col_exclusive: 1,
         color: [255, 200, 0, 255], // CURRENT_MATCH_ALPHA = 255 >= 128
     }];
-    let selection = SelectionRange {
-        start_row: 0,
-        start_col: 0,
-        end_row: 0,
-        end_col: 0,
-        active: true,
-        mode: SelectionMode::Char,
-        origin: None,
-        is_empty: false,
-    };
     let mut instances = Vec::new();
     let built = crate::render::build_instances_from_cell_data(
         &cell_data,
@@ -1507,7 +1371,6 @@ fn selection_intersect_current_match_double_swap() {
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            selection: Some(selection),
             search_highlights: &highlights,
         },
         &mut font_pipeline,
@@ -1670,7 +1533,6 @@ fn cursor_color_custom_values() {
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            selection: None,
             search_highlights: &[],
         },
         &mut font_pipeline,
@@ -1823,7 +1685,6 @@ fn bench_build_instances_from_cell_data() {
                 cursor,
                 atlas_width: 1024.0,
                 atlas_height: 1024.0,
-                selection: None,
                 search_highlights: &[],
             },
             &mut font_pipeline,
@@ -2534,7 +2395,6 @@ fn bench_end_to_end_cpu_pipeline_latency() {
                 cursor,
                 atlas_width: 1024.0,
                 atlas_height: 1024.0,
-                selection: None,
                 search_highlights: &[],
             },
             &mut font_pipeline,

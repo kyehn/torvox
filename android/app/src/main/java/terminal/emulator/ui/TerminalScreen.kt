@@ -92,7 +92,6 @@ private data class SearchState(
     val results: List<SearchResult> = emptyList(),
     val currentIndex: Int = 0,
     val caseSensitive: Boolean = false,
-    val fuzzyMatch: Boolean = false,
     val previousQuery: String = "",
     val highlightsActive: Boolean = false,
 ) {
@@ -481,9 +480,9 @@ fun TerminalScreen(
                             return
                         }
                 val effectiveCaseSensitive =
-                    searchState.caseSensitive || (query.any { it.isUpperCase() } && !searchState.fuzzyMatch)
+                    searchState.caseSensitive || query.any { it.isUpperCase() }
                 val matches =
-                    bridge.searchAllInScrollback(query, effectiveCaseSensitive, searchState.fuzzyMatch)
+                    bridge.searchAllInScrollback(query, effectiveCaseSensitive)
                         ?: run {
                             searchState = searchState.copy(results = emptyList())
                             return
@@ -515,7 +514,7 @@ fun TerminalScreen(
                 }
             }
 
-            LaunchedEffect(searchState.caseSensitive, searchState.fuzzyMatch) {
+            LaunchedEffect(searchState.caseSensitive) {
                 if (searchState.query.isNotEmpty()) {
                     searchJob?.cancel()
                     searchJob = scope.launch { performSearch() }
@@ -925,8 +924,6 @@ fun TerminalScreen(
                         },
                         caseSensitive = searchState.caseSensitive,
                         onCaseSensitiveToggle = { searchState = searchState.copy(caseSensitive = it) },
-                        fuzzyMatch = searchState.fuzzyMatch,
-                        onFuzzyMatchToggle = { searchState = searchState.copy(fuzzyMatch = it) },
                         autoCaseSensitive =
                         !searchState.caseSensitive && searchState.query.any { it.isUpperCase() },
                         modifier = Modifier.testTag("TextSearchBar"),

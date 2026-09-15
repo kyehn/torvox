@@ -73,4 +73,35 @@ class ToolbarPreferencesTest {
         assertEquals(preferences.defaultLayout().size, restored.size)
         assertTrue(restored.all { it is ToolbarItem.Default })
     }
+
+    @Test
+    fun `unknown key is skipped while known keys survive`() {
+        // 旧版本残留未知键：只跳过该项，已存的已知键必须保留
+        //（对等 ghostty ExtraKeysConfig.enabledKeysSkipUnknownIds）。
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString(
+                "layout",
+                """[{"key":"ESC"},{"key":"BOGUS_KEY"},{"key":"ALT"}]""",
+            )
+            .commit()
+
+        val restored = preferences.getLayout()
+        assertEquals(
+            listOf("ESC", "ALT"),
+            restored.map(::labelOf),
+        )
+    }
+
+    @Test
+    fun `all unknown keys fall back to the default layout`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("layout", """[{"key":"BOGUS_KEY"}]""")
+            .commit()
+
+        assertEquals(preferences.defaultLayout().size, preferences.getLayout().size)
+    }
 }

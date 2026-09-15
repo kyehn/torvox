@@ -41,7 +41,7 @@ interface TerminalQueryPort {
     /** Cursor viewport position packed `(y << 32) | x`, or -1 when hidden. */
     fun cursorViewportPacked(): Long
     fun isCellEmpty(row: Int, col: Int): Boolean
-    fun searchAllInScrollback(query: String, caseSensitive: Boolean, fuzzyMatch: Boolean): List<Triple<Int, Int, Int>>?
+    fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>?
     fun setScrollOffset(offset: Int)
 
     /** Viewport Y pixel remainder for per-pixel smooth scrolling (positive = content down). */

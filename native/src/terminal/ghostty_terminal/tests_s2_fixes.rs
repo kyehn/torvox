@@ -246,8 +246,7 @@ fn search_all_in_scrollback_finds_all_matches() {
     t.vt_write(b"hello again\n");
     t.vt_write(b"goodbye\n");
     t.flush();
-    let results = t.search_all_in_scrollback("hello", true, false);
-    assert!(!results.is_empty(), "must find 'hello'");
+    let results = t.search_all_in_scrollback("hello", true);
     assert_eq!(results.len(), 2, "must find 'hello' in both lines");
     for m in &results {
         assert!(m.row < 3, "match row must be valid");
@@ -262,7 +261,7 @@ fn search_all_in_scrollback_case_insensitive() {
     t.vt_write(b"HELLO world\n");
     t.vt_write(b"hello again\n");
     t.flush();
-    let results = t.search_all_in_scrollback("hello", false, false);
+    let results = t.search_all_in_scrollback("hello", false);
     assert_eq!(results.len(), 2, "must find 'hello' case-insensitively");
 }
 
@@ -270,7 +269,7 @@ fn search_all_in_scrollback_case_insensitive() {
 #[test]
 fn search_all_in_scrollback_empty_query() {
     let t = GhosttyTerminal::new(3, 80, 100).expect("term");
-    let results = t.search_all_in_scrollback("", true, false);
+    let results = t.search_all_in_scrollback("", true);
     assert!(results.is_empty(), "empty query must return no matches");
 }
 
@@ -280,38 +279,8 @@ fn search_all_in_scrollback_no_matches() {
     let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
     t.vt_write(b"abc def\n");
     t.flush();
-    let results = t.search_all_in_scrollback("xyz", true, false);
+    let results = t.search_all_in_scrollback("xyz", true);
     assert!(results.is_empty(), "no-match query must return empty vec");
-}
-
-/// P1-S3: fuzzy search returns ALL near-matches per line, not just the closest
-#[test]
-fn search_all_in_scrollback_fuzzy_finds_multiple_per_line() {
-    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
-    t.vt_write(b"hello helxo heplo\n");
-    t.flush();
-    let results = t.search_all_in_scrollback("hello", true, true);
-    // "hello" at col 0 (exact match), "helxo" at col 6 (1 edit), "heplo" at col 12 (1 edit)
-    // With query len=5, max_distance = max(1, 5/3) = 1
-    // So all three should match since each is ≤1 edit from "hello"
-    assert!(
-        results.len() >= 3,
-        "fuzzy search should find all three near-matches, found {}",
-        results.len()
-    );
-    // Verify all three positions are within bounds
-    for m in &results {
-        assert!(m.start_col < m.end_col, "start_col must precede end_col");
-        assert!(m.row == 0, "all matches on row 0");
-    }
-    // Verify the third match is different from the first (not deduped to nearest)
-    let positions: std::collections::HashSet<(u32, u32)> =
-        results.iter().map(|m| (m.start_col, m.end_col)).collect();
-    assert!(
-        positions.len() >= 3,
-        "fuzzy search should return at least 3 distinct match positions, got {}",
-        positions.len()
-    );
 }
 
 /// key_encode_submit returns a Some(receiver) for a valid key and the
@@ -372,35 +341,21 @@ fn key_encode_submit_dropped_receiver_does_not_panic() {
 }
 
 /// Regression: search must not panic on multi-byte (CJK) lines — byte
-/// slicing used to land mid-character (start = abs_col + 1 and byte
-/// sliding windows), which panics deterministically on CJK text.
+/// slicing used to land mid-character (start = abs_col + 1), which panics
+/// deterministically on CJK text.
 #[test]
 fn search_all_in_scrollback_cjk_no_panic() {
     let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
     t.vt_write("你好世界 hello 中文测试\n".as_bytes());
     t.flush();
-    // Non-fuzzy: query after a multi-byte char; overlap stepping must
-    // stay on char boundaries. (Ghostty reads wide-char rows with
-    // interleaved spaces, e.g. "你 好 世 界  hello 中 文 测 试",
+    // Query after a multi-byte char; overlap stepping must stay on char
+    // boundaries. (Ghostty reads wide-char rows with interleaved spaces, e.g. "你 好 世 界  hello 中 文 测 试",
     // so an ASCII query is the reliable probe here.)
-    let results = t.search_all_in_scrollback("hello", true, false);
+    let results = t.search_all_in_scrollback("hello", true);
     assert_eq!(results.len(), 1, "must find ASCII query on CJK line");
-    // Fuzzy: byte sliding window over CJK content must not panic and
-    // must return matches with valid (byte-offset) ranges. The query
-    // "世界" matches the row text "世 界" at edit distance 1
-    // (max_distance = max(1, 2/3) = 1).
-    let fuzzy = t.search_all_in_scrollback("世界", true, true);
-    assert!(
-        !fuzzy.is_empty(),
-        "fuzzy CJK query must find near-match, got {:?}",
-        fuzzy
-    );
-    for m in &fuzzy {
-        assert!(m.start_col < m.end_col, "start_col must precede end_col");
-    }
     // Case-insensitive path over the same CJK row: must not panic and
     // must still find the ASCII query.
-    let lower = t.search_all_in_scrollback("HELLO", false, false);
+    let lower = t.search_all_in_scrollback("HELLO", false);
     assert!(
         lower.iter().any(|m| m.row == 0),
         "case-insensitive query must find the match on row 0"
@@ -415,7 +370,7 @@ fn search_returns_character_columns_not_byte_offsets() {
     let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
     t.vt_write("你hello\n".as_bytes());
     t.flush();
-    let results = t.search_all_in_scrollback("hello", true, false);
+    let results = t.search_all_in_scrollback("hello", true);
     assert_eq!(results.len(), 1, "must find ASCII query after CJK char");
     let m = &results[0];
     // Ghostty reads wide-char rows with an interleaved fill space

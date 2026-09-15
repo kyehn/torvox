@@ -127,10 +127,18 @@ class ToolbarPreferences(
     fun getLayout(): List<ToolbarItem> {
         val json = sharedPreferences.getString("layout", null) ?: return defaultLayout()
         return try {
-            pollEventJson.decodeFromString<List<ToolbarItemDto>>(json).map { dto ->
+            pollEventJson.decodeFromString<List<ToolbarItemDto>>(json).mapNotNull { dto ->
                 if (dto.key != null) {
+                    val key =
+                        try {
+                            ToolbarKey.valueOf(dto.key)
+                        } catch (unused: IllegalArgumentException) {
+                            // 旧版本残留的未知键：跳过该项而非丢弃整个布局。
+                            Log.w("ToolbarPreferences", "unknown toolbar key: ${dto.key}")
+                            return@mapNotNull null
+                        }
                     ToolbarItem.Default(
-                        key = ToolbarKey.valueOf(dto.key),
+                        key = key,
                         width = dto.width ?: 1,
                         secondaryLabel = dto.secondaryLabel,
                         secondarySequence = dto.secondarySequence,
@@ -146,7 +154,7 @@ class ToolbarPreferences(
                         secondarySequence = dto.secondarySequence,
                     )
                 }
-            }
+            }.ifEmpty { defaultLayout() }
         } catch (e: Exception) {
             Log.w("ToolbarPreferences", "loadLayout failed", e)
             defaultLayout()

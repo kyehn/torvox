@@ -316,6 +316,26 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 安装终端持有的活动选区（跟踪引用，随滚动/输出/重排跟随文本）。
+    /// 坐标为绝对网格行（0 = 回滚顶部）与列；Block 模式传 rectangle=true。
+    /// try_send 非阻塞：VT 线程卡住时丢弃而非阻塞调用方（与 resize 同策略）。
+    pub fn set_selection(&self, start: (u32, u32), end: (u32, u32), rectangle: bool) {
+        if let Err(error) = self.cmd_tx.try_send(Command::SetSelection {
+            start,
+            end,
+            rectangle,
+        }) {
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for set_selection: {error}");
+        }
+    }
+
+    /// 清除终端持有的活动选区（与 set_selection 同一非阻塞策略）。
+    pub fn clear_selection(&self) {
+        if let Err(error) = self.cmd_tx.try_send(Command::ClearSelection) {
+            log::warn!("ghostty_terminal: cmd_tx full/dropped failed for clear_selection: {error}");
+        }
+    }
+
     pub fn rows(&self) -> u32 {
         self.query(Query::Rows, DISCONNECTED_ROWS, "rows")
     }
@@ -657,17 +677,11 @@ impl super::GhosttyTerminal {
         )
     }
 
-    pub fn search_all_in_scrollback(
-        &self,
-        query: &str,
-        case_sensitive: bool,
-        fuzzy: bool,
-    ) -> Vec<SearchMatch> {
+    pub fn search_all_in_scrollback(&self, query: &str, case_sensitive: bool) -> Vec<SearchMatch> {
         self.query(
             |tx| Query::SearchInScrollbackAll {
                 query: query.to_string(),
                 case_sensitive,
-                fuzzy,
                 tx,
             },
             Vec::new(),
