@@ -276,7 +276,7 @@ object NativeBridge {
 
     /**
      * Set active text selection (visible-grid rows/cols). mode: 0=Char 1=Word 2=Line 3=Semantic
-     * 4=Block (see SelectionMode). selectionBgArgb: theme selection background color, ARGB packed.
+     * 4=Block (see SelectionMode). selectionBackgroundArgb: theme selection background color, ARGB packed.
      */
     @JvmStatic
     external fun setSelection(
@@ -287,7 +287,7 @@ object NativeBridge {
         endCol: Int,
         hasSelection: Boolean,
         mode: Byte,
-        selectionBgArgb: Int,
+        selectionBackgroundArgb: Int,
     )
 
     /** RIS 全重置当前会话：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。 */

@@ -5,7 +5,7 @@ package terminal.emulator.ui
  *
  * The Rust renderer consumes these packed RGBA bytes in `native/src/render/cell_builder.rs` →
  * `apply_search_highlight`:
- * - alpha >= 128 → swap fg/bg, then blend the highlight into the bg
+ * - alpha >= 128 → swap foreground/background, then blend the highlight into the background
  * - alpha < 128 → blend only (no swap)
  *
  * These constants MUST stay in sync with the production-value assertions in
@@ -16,7 +16,7 @@ package terminal.emulator.ui
 object SearchHighlightColors {
     /**
      * Current match: fully opaque high-contrast background. Alpha >= 128 makes the renderer swap
-     * fg/bg (inverse video) and then blend the opaque color over the background, so the current hit
+     * foreground/background (inverse video) and then blend the opaque color over the background, so the current hit
      * is unmistakable.
      */
     const val CURRENT_MATCH_ALPHA: Int = 255
@@ -24,7 +24,7 @@ object SearchHighlightColors {
     /**
      * Other matches: inverted like every match ( spec text-search-highlight "all matches visible
      * inversion": user requires ALL matches in inverse video), at reduced opacity so the current hit
-     * still stands out. Alpha >= 128 keeps it above the swap threshold — fg/bg swap + blend, clearly
+     * still stands out. Alpha >= 128 keeps it above the swap threshold — foreground/background swap + blend, clearly
      * distinct from the fully opaque current match while unmistakably inverted.
      */
     const val OTHER_MATCH_ALPHA: Int = 160

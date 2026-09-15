@@ -202,7 +202,7 @@ data class TerminalState(
     val sessions: List<SessionInfo> = emptyList(),
     val activeSessionId: Long = 0L,
     val keyboardMode: KeyboardMode = KeyboardMode.Secure,
-    val selectionBg: Int = 0,
+    val selectionBackground: Int = 0,
     val selectionAccent: Int = 0,
     // Bumped on every programmatic scroll reset (input-driven snap to
     // bottom); TerminalScreen observes it and resyncs the surface's
@@ -1326,7 +1326,7 @@ constructor(
                             title = title,
                             sessions = sessions,
                             activeSessionId = active,
-                            selectionBg = runtime.selectionBgColor,
+                            selectionBackground = runtime.selectionBackgroundColor,
                             selectionAccent = runtime.accentColor,
                         )
                     }
@@ -1817,7 +1817,7 @@ constructor(
                             selection = SelectionState(),
                             sessions = sessions,
                             activeSessionId = newId,
-                            selectionBg = runtime.selectionBgColor,
+                            selectionBackground = runtime.selectionBackgroundColor,
                             selectionAccent = runtime.accentColor,
                         )
                     }
@@ -1870,7 +1870,7 @@ constructor(
                     },
                     activeSessionId = id,
                     selection = SelectionState(),
-                    selectionBg = runtime.selectionBgColor,
+                    selectionBackground = runtime.selectionBackgroundColor,
                     selectionAccent = runtime.accentColor,
                 )
             }

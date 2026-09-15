@@ -2590,7 +2590,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
 /// 输出/重排跟随文本），高亮由 VT 线程按行级选区反白直接烘焙进 CellData；
 /// 本层不再存储单元格位置，仅透传。`hasSelection=false` 清除选区。
 /// `mode` 为 Kotlin `SelectionMode` 序号（Char=0, Word=1, Line=2, Block=3,
-/// Semantic=4），仅 Block 映射为矩形选区。`selectionBgArgb` 为 Kotlin 合约保留参数。
+/// Semantic=4），仅 Block 映射为矩形选区。`selectionBackgroundArgb` 为 Kotlin 合约保留参数。
 #[unsafe(no_mangle)]
 // JNI exports receive raw handles (jstring/jbyteArray are pointer types)
 // whose validity is the JVM's contract, not a Rust lifetime guarantee.
@@ -2605,7 +2605,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     end_col: jint,
     has_selection: jboolean,
     mode: jbyte,
-    _selection_bg_argb: jint,
+    _selection_background_argb: jint,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
         let id = session_id as u64;
@@ -2689,24 +2689,26 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setTheme(
         let session = entry.session.lock();
         session.terminal().set_theme(background, foreground, ansi);
         // The cell shader's Fix F transparency check compares each cell's
-        // background against `uniforms.default_bg`, which is sourced from
-        // `Renderer::bg_color`. Without syncing it here, the terminal
+        // background against `uniforms.default_background`, which is sourced from
+        // `Renderer::background`. Without syncing it here, the terminal
         // theme (e.g. #151515) never matches the renderer default
-        // (#1E1E2E Catppuccin), `is_default_bg` stays false, and the
+        // (#1E1E2E Catppuccin), `is_default_background` stays false, and the
         // wallpaper is hidden behind opaque cell backgrounds
-        // (emulator-verified: checkerboard probe proved the bg
-        // pass and cell transparency both work; only the default_bg
+        // (emulator-verified: checkerboard probe proved the background
+        // pass and cell transparency both work; only the default_background
         // comparison failed).
         {
             let mut state = render_state_mut();
             if let Some(render_state) = state.as_mut() {
-                render_state.renderer.set_bg_color(background);
+                render_state.renderer.set_background_color(background);
                 // 主题色存于实例缓存，闲时无新 CellData 则颜色过期，同刷。
                 render_state.renderer.cell_cache = None;
                 render_state.dirty.store(true, Ordering::Relaxed);
             }
         }
-        log::info!("setTheme: session {id} bg={background:02X?} fg={foreground:02X?}");
+        log::info!(
+            "setTheme: session {id} background={background:02X?} foreground={foreground:02X?}"
+        );
     })
 }
 

@@ -264,7 +264,7 @@ impl Renderer {
     }
 
     /// Build one flat-fill instance per dirty band: a has_glyph=0 quad the
-    /// cell shader paints with `bg_color` verbatim, covering the band's full
+    /// cell shader paints with `background` verbatim, covering the band's full
     /// pixel rect (all grid columns × the band's row span).
     fn band_clear_instances(
         &self,
@@ -276,11 +276,11 @@ impl Renderer {
         if cell_h_px <= 0.0 || surface_width == 0 || surface_height == 0 {
             return Vec::new();
         }
-        let bg = [
-            self.bg_color.r as f32,
-            self.bg_color.g as f32,
-            self.bg_color.b as f32,
-            self.bg_color.a as f32,
+        let background = [
+            self.background.r as f32,
+            self.background.g as f32,
+            self.background.b as f32,
+            self.background.a as f32,
         ];
         let mut instances = Vec::with_capacity(dirty_bands.len());
         for band in dirty_bands {
@@ -292,9 +292,9 @@ impl Renderer {
                     quad_origin: [0.0, y0 as f32],
                     atlas_offset: [0.0; 2],
                     atlas_size: [0.0; 2],
-                    fg_color: bg,
-                    bg_color: bg,
-                    underline_color: bg,
+                    foreground: background,
+                    background,
+                    underline_color: background,
                     quad_size: [surface_width as f32, (y1 - y0) as f32],
                     flags: 0.0,
                     bearing: [0.0; 2],
@@ -367,7 +367,7 @@ impl Renderer {
         // pixels in place — most visibly old cursor blocks that never
         // disappeared ( emulator evidence: blocks accumulated at
         // every previous cursor column). The cell shader paints
-        // has_glyph=0 quads with bg_color verbatim, so one clear instance
+        // has_glyph=0 quads with background verbatim, so one clear instance
         // per band wipes the band's stale pixels before the redraw — no
         // extra pipeline needed.
         let clear_instances = if partial {
@@ -456,11 +456,11 @@ impl Renderer {
         // ── Main merged pass: background → cells → KGP ──────
         // Load rules:
         // - partial: always Load (bands composite over previous output)
-        // - plain background: Clear(bg_color)
+        // - plain background: Clear(background)
         let load = if partial {
             wgpu::LoadOp::Load
         } else {
-            wgpu::LoadOp::Clear(self.bg_color)
+            wgpu::LoadOp::Clear(self.background)
         };
         let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("Main Render Pass"),
@@ -804,7 +804,7 @@ impl Renderer {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(self.bg_color),
+                        load: wgpu::LoadOp::Clear(self.background),
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
@@ -966,9 +966,9 @@ mod tests {
         assert_eq!(clears[0].quad_size, [1080.0, cell_h]);
         assert_eq!(clears[1].quad_origin, [0.0, 3.0 * cell_h]);
         assert_eq!(clears[1].quad_size, [1080.0, 2.0 * cell_h]);
-        // Flat fill: no glyph, bg carries the clear color.
+        // Flat fill: no glyph, background carries the clear color.
         assert_eq!(clears[0].atlas_size, [0.0; 2]);
-        assert_eq!(clears[0].bg_color[3], 1.0);
+        assert_eq!(clears[0].background[3], 1.0);
         // Degenerate geometry produces no clears.
         assert!(
             renderer

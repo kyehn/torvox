@@ -76,12 +76,12 @@ pub struct CellData {
     /// Most cells have zero extras; `codepoint` alone suffices for ASCII.
     pub grapheme_extra: [u32; 7],
     /// Resolved foreground color as [R, G, B, A] in 0..1.
-    pub fg_color: [f32; 4],
+    pub foreground: [f32; 4],
     /// Resolved background color as [R, G, B, A] in 0..1.
-    pub bg_color: [f32; 4],
+    pub background: [f32; 4],
     /// Resolved underline (SGR 58) color as [R, G, B, A] in 0..1.
     /// Falls back to the resolved foreground when the cell sets no explicit
-    /// underline color, matching the shader's historic `deco_color = fg`.
+    /// underline color, matching the shader's historic `deco_color = foreground`.
     pub underline_color: [f32; 4],
     /// Packed style flags; bit positions are defined by [`cell_flags`]
     /// (bold/italic/reverse/underline/strikethrough/overline/faint/double
