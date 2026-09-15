@@ -1868,7 +1868,7 @@ constructor(
     )
 
     /**
-     * Find the prefix shell binary using login-first resolution. 可执行项为 ELF 二进制或系统解释器启动脚本：后者经内核
+     * Find the prefix shell binary using bash-first resolution. 可执行项为 ELF 二进制或系统解释器启动脚本：后者经内核
      * shebang 直接执行，不走 linker 桥接； 私有目录 shebang 脚本不计入，其解释器本身尚不可用，仍由后续 ELF 候选承接。
      */
     private fun findPrefixShell(prefixDir: String): String? {
