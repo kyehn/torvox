@@ -107,7 +107,6 @@ impl super::GhosttyTerminal {
             }),
             panicked,
             last_pty_write_byte: 0,
-            last_in_string_mode: false,
             alt_screen_active,
         })
     }
@@ -144,12 +143,8 @@ impl super::GhosttyTerminal {
             .collect();
         let mut buf = Vec::with_capacity(data.len() + 4);
         buf.extend_from_slice(&sanitized);
-        // Append ST + SGR reset to close any incomplete escape sequence
-        // (OSC, DCS, SOS, PM, APC) that may have been truncated at the end
-        // of this chunk. vt_write is only used for programmatic VT data
-        // (settings, OSC sequences, test data), not for streaming PTY output,
-        // so SGR reset here does NOT break colored output.
-        buf.extend_from_slice(b"\x1b\\\x1b[0m");
+        // 分片直透：上游解析器在同一 Terminal 对象上跨调用保持状态，
+        // 此处不得追加 ST/SGR 提前闭合（会截断合法跨块 OSC 并洗掉颜色）。
         // try_send: a wedged VT thread must not block the caller
         // indefinitely (same policy as pty_write). vt_write is used for
         // programmatic VT data only, never on a hot path.
@@ -172,10 +167,6 @@ impl super::GhosttyTerminal {
         // chunk boundaries (common with PTY output on Linux). Without this
         // the LF→CRLF converter inserts a spurious `\r`, producing `\r\r\n`.
         let mut prev: u8 = self.last_pty_write_byte;
-        let mut in_string = self.last_in_string_mode;
-        // The previous chunk may have ended with ESC (the first byte of a
-        // two-byte sequence); seed the tracking state accordingly.
-        let mut prev_was_esc = prev == 0x1B;
         for &b in data {
             // Convert a bare LF to CRLF, but only when the LF is not already
             // preceded by a CR. Input that already contains CRLF (common from
@@ -185,33 +176,12 @@ impl super::GhosttyTerminal {
                 buf.push(b'\r');
             }
             buf.push(b);
-            // Track OSC/DCS/SOS/PM/APC string mode: these sequences are
-            // terminated by ST (ESC \) or BEL (OSC). If a chunk ends inside
-            // one, the next chunk would be swallowed as string data; a CSI
-            // sequence (ESC [) needs no such handling — the VT parser is a
-            // state machine and resumes it across chunks on its own.
-            if in_string {
-                // ST = ESC \ ; detect the backslash following the ESC byte.
-                if b == 0x07 || (b == b'\\' && prev_was_esc) {
-                    in_string = false;
-                }
-            } else if prev_was_esc {
-                match b {
-                    b']' | b'P' | b'X' | b'^' | b'_' => in_string = true,
-                    _ => {}
-                }
-            }
-            prev_was_esc = b == 0x1B;
             prev = b;
         }
-        // Close an unterminated string with ST so the parser never stays in
-        // string mode across chunks. No SGR reset here: it would break a
-        // colour run split across a chunk boundary.
-        if in_string {
-            buf.extend_from_slice(b"\x1b\\");
-        }
+        // 分片直透：上游解析器在同一 Terminal 对象上跨调用保持状态，
+        // CSI/OSC/DCS 分片由上游增量重组，此处不得提前闭合（ST 自动闭合
+        // 会截断合法跨块 OSC，实测分片 OSC 52 被截为空内容）。
         self.last_pty_write_byte = prev;
-        self.last_in_string_mode = in_string;
         // try_send: this runs on the session/render path while holding the
         // session lock. A full command channel (VT thread busy with a long
         // command) must not block the caller indefinitely; dropping a chunk
