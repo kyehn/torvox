@@ -21,6 +21,14 @@ const TERMUX_VERSION: &str = "0.119.0-beta.3";
 /// which is guaranteed to be writable by the app process on all API levels.
 const ANDROID_TMPDIR: &str = "/data/local/tmp";
 
+/// 切分 Shell 启动入口为可执行路径与附加参数（DESIGN Shell 节支持
+/// `/data/.../bash -l` 形态）。以 ASCII 空白切分，无引号转义语义。
+fn split_shell_entry(shell: &str) -> (&str, Vec<&str>) {
+    let mut words = shell.split_ascii_whitespace();
+    let executable = words.next().unwrap_or(shell);
+    (executable, words.collect())
+}
+
 #[derive(Debug, Error)]
 pub enum PtyError {
     #[error("fork failed: {0}")]
@@ -154,11 +162,24 @@ impl PtyPair {
 
         // Build all child process data before fork to avoid allocations in child.
         // (Multi-threaded process fork may corrupt malloc heap.)
-        let shell_cstr = std::ffi::CString::new(shell).map_err(|e| {
+        // Shell 启动入口可含参数（如 `/data/.../bash -l`，见 DESIGN Shell 节）：
+        // 以 ASCII 空白切分出可执行路径与附加参数，执行路径用于前缀/linker/shebang
+        // 判定，附加参数拼入各分支 argv。无引号转义语义，设置页原样保存显示。
+        let (shell_executable, shell_argument_texts) = split_shell_entry(shell);
+        let shell_cstr = std::ffi::CString::new(shell_executable).map_err(|e| {
             let msg = format!("shell path contains null byte: {e}");
             log::error!("{msg}");
             PtyError::Fork(nix::errno::Errno::EINVAL)
         })?;
+        let shell_argument_cstrs: Vec<std::ffi::CString> = shell_argument_texts
+            .into_iter()
+            .map(|argument| {
+                std::ffi::CString::new(argument).map_err(|_| {
+                    log::error!("shell argument contains null byte");
+                    PtyError::Fork(nix::errno::Errno::EINVAL)
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
         let env_cstrings: Vec<std::ffi::CString> = build_env(env)
             .into_iter()
             .map(|(k, v)| {
@@ -197,12 +218,12 @@ impl PtyPair {
         // the same linker indirection.
         let prefix = env.prefix.as_deref().unwrap_or("");
         let use_linker = !prefix.is_empty()
-            && shell.starts_with(&format!("{prefix}/"))
-            && !shell.contains('\0')
-            && is_pie(shell);
+            && shell_executable.starts_with(&format!("{prefix}/"))
+            && !shell_executable.contains('\0')
+            && is_pie(shell_executable);
         if use_linker {
             log::info!("SPAWN_LINKER: shell={shell} prefix={prefix}");
-        } else if !prefix.is_empty() && shell.starts_with(&format!("{prefix}/")) {
+        } else if !prefix.is_empty() && shell_executable.starts_with(&format!("{prefix}/")) {
             log::info!("SPAWN_DIRECT_ET_EXEC: shell={shell} (non-PIE, skip linker)");
         } else {
             log::info!("SPAWN_DIRECT: shell={shell} prefix={prefix:?}");
@@ -226,7 +247,7 @@ impl PtyPair {
         // 等价且满足 SELinux。解释器在前缀内且为 PIE 时仍走 linker 桥接。
         let script_dispatch: Option<(std::ffi::CString, Option<std::ffi::CString>)> =
             if linker_cstr.is_none() {
-                read_shebang_interpreter(shell)
+                read_shebang_interpreter(shell_executable)
             } else {
                 None
             };
@@ -276,13 +297,16 @@ impl PtyPair {
         };
         let working_directory_ptr = working_directory_cstr.as_ptr();
         let args_ptrs: Vec<*const libc::c_char> = if let Some(linker_cstr) = &linker_cstr {
-            let mut args = Vec::with_capacity(4);
+            let mut args = Vec::with_capacity(4 + shell_argument_cstrs.len());
             args.push(linker_cstr.as_ptr());
             args.push(shell_ptr);
+            for argument in &shell_argument_cstrs {
+                args.push(argument.as_ptr());
+            }
             args.push(std::ptr::null());
             args
         } else if let Some((interpreter, interpreter_argument)) = &script_dispatch {
-            let mut args = Vec::with_capacity(6);
+            let mut args = Vec::with_capacity(6 + shell_argument_cstrs.len());
             if let Some(script_linker) = &script_linker_cstr {
                 args.push(script_linker.as_ptr());
             }
@@ -291,11 +315,17 @@ impl PtyPair {
                 args.push(argument.as_ptr());
             }
             args.push(shell_ptr);
+            for argument in &shell_argument_cstrs {
+                args.push(argument.as_ptr());
+            }
             args.push(std::ptr::null());
             args
         } else {
-            let mut args = Vec::with_capacity(3);
+            let mut args = Vec::with_capacity(3 + shell_argument_cstrs.len());
             args.push(shell_ptr);
+            for argument in &shell_argument_cstrs {
+                args.push(argument.as_ptr());
+            }
             args.push(std::ptr::null());
             args
         };
@@ -940,6 +970,17 @@ fn read_shebang_interpreter(path: &str) -> Option<(std::ffi::CString, Option<std
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn shell_entry_splits_executable_and_arguments() {
+        let (executable, arguments) =
+            split_shell_entry("/data/data/com.termux/files/usr/bin/bash -l");
+        assert_eq!(executable, "/data/data/com.termux/files/usr/bin/bash");
+        assert_eq!(arguments, vec!["-l"]);
+        let (single, empty) = split_shell_entry("/system/bin/sh");
+        assert_eq!(single, "/system/bin/sh");
+        assert!(empty.is_empty());
+    }
 
     fn test_env() -> ShellEnv {
         ShellEnv {
