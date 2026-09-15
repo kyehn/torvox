@@ -18,12 +18,12 @@ fn enable_kitty(t: &mut GhosttyTerminal) {
 /// `a\nb` and `a\r\nb` must reach the same cell layout.
 #[test]
 fn pty_write_lf_crlf_idempotent() {
-    let mut lf = GhosttyTerminal::new(5, 10, 100).expect("term lf");
+    let mut lf = GhosttyTerminal::new(5, 10, 100).expect("terminal lf");
     lf.flush();
     lf.pty_write(b"a\nb");
     lf.flush();
 
-    let mut crlf = GhosttyTerminal::new(5, 10, 100).expect("term crlf");
+    let mut crlf = GhosttyTerminal::new(5, 10, 100).expect("terminal crlf");
     crlf.flush();
     crlf.pty_write(b"a\r\nb");
     crlf.flush();
@@ -62,7 +62,7 @@ fn pty_write_lf_crlf_idempotent() {
 /// transform must fire for `a\nb`, placing 'b' on row 1).
 #[test]
 fn pty_write_lf_is_promoted_to_crlf() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     t.flush();
     t.pty_write(b"a\nb");
     t.flush();
@@ -80,7 +80,7 @@ fn pty_write_lf_is_promoted_to_crlf() {
 /// 不得渲染；ST 闭合后后续文本正常渲染（此前 ST 自动闭合会截断合法跨块 OSC）。
 #[test]
 fn pty_write_split_osc_reassembled_across_chunks() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     t.flush();
     // 块 1 在 OSC 内结束（无 ST/BEL）：上游保持字符串状态等待续接。
     t.pty_write(b"\x1b]52;c;abc");
@@ -101,7 +101,7 @@ fn pty_write_split_osc_reassembled_across_chunks() {
 /// next chunk inside string mode.
 #[test]
 fn pty_write_complete_st_resets_string_mode() {
-    let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
+    let mut t = GhosttyTerminal::new(5, 10, 100).expect("terminal");
     t.flush();
     t.pty_write(b"\x1b]0;title\x1b\\");
     t.flush();
@@ -121,7 +121,7 @@ fn pty_write_complete_st_resets_string_mode() {
 /// sensible snapshot whose dimensions match the terminal.
 #[test]
 fn take_snapshot_with_scroll_returns_dims_when_alive() {
-    let t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     t.flush();
     let snap = t.take_snapshot_with_scroll(0);
     assert_eq!(snap.rows, 24, "snapshot rows must match terminal");
@@ -138,7 +138,7 @@ fn take_snapshot_with_scroll_returns_dims_when_alive() {
 /// have the correct rows/cols with one CellSnapshot per cell.
 #[test]
 fn scrollback_fallback_uses_fallback_snapshot() {
-    let t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     t.flush();
     let snap = t.take_snapshot_with_scroll(1);
     assert_eq!(snap.rows, 24, "fallback snapshot rows must match terminal");
@@ -157,7 +157,7 @@ fn scrollback_fallback_uses_fallback_snapshot() {
 /// the char), the encoder emits the bare printable 'A'.
 #[test]
 fn key_encode_shift_a_uses_utf8_char() {
-    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     enable_kitty(&mut t);
     let shift = key::Mods::SHIFT.bits();
     let out = t.key_encode(29, shift, 0, 0x41, 0x61).expect("encode");
@@ -182,7 +182,7 @@ fn key_encode_shift_a_uses_utf8_char() {
 /// (proving the strip is conditional, not blanket).
 #[test]
 fn key_encode_shift_enter_keeps_shift() {
-    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     enable_kitty(&mut t);
     let shift = key::Mods::SHIFT.bits();
     let out = t.key_encode(66, shift, 0, 0x0d, 0x0d).expect("encode");
@@ -200,7 +200,7 @@ fn key_encode_shift_enter_keeps_shift() {
 /// codepoint (the malformed `1;5u` form).
 #[test]
 fn key_encode_ctrl_a_passes_null_utf8() {
-    let t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     let ctrl = key::Mods::CTRL.bits();
     let out = t.key_encode(29, ctrl, 0, 0x01, 0).expect("encode");
     assert!(
@@ -223,7 +223,7 @@ fn key_encode_ctrl_a_passes_null_utf8() {
 /// identical output (no per-call state loss from re-allocation).
 #[test]
 fn key_encode_encoder_reused_stable() {
-    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     enable_kitty(&mut t);
     let shift = key::Mods::SHIFT.bits();
     let first = t.key_encode(29, shift, 0, 0x41, 0x61).expect("encode");
@@ -236,7 +236,7 @@ fn key_encode_encoder_reused_stable() {
 /// P1-S3: search_all_in_scrollback returns all occurrences of a query
 #[test]
 fn search_all_in_scrollback_finds_all_matches() {
-    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     t.vt_write(b"hello world\n");
     t.vt_write(b"hello again\n");
     t.vt_write(b"goodbye\n");
@@ -252,7 +252,7 @@ fn search_all_in_scrollback_finds_all_matches() {
 /// 相邻匹配不跳过：`aaaa` 搜 `aa` 须返回 2 个不重叠匹配（列 0-2 与 2-4）。
 #[test]
 fn search_all_in_scrollback_finds_adjacent_matches() {
-    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     t.vt_write(b"aaaa\n");
     t.flush();
     let results = t.search_all_in_scrollback("aa", true);
@@ -268,7 +268,7 @@ fn search_all_in_scrollback_finds_adjacent_matches() {
 /// P1-S3: search_all_in_scrollback with case-insensitive matching
 #[test]
 fn search_all_in_scrollback_case_insensitive() {
-    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     t.vt_write(b"HELLO world\n");
     t.vt_write(b"hello again\n");
     t.flush();
@@ -279,7 +279,7 @@ fn search_all_in_scrollback_case_insensitive() {
 /// P1-S3: search_all_in_scrollback empty query returns nothing
 #[test]
 fn search_all_in_scrollback_empty_query() {
-    let t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    let t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     let results = t.search_all_in_scrollback("", true);
     assert!(results.is_empty(), "empty query must return no matches");
 }
@@ -287,7 +287,7 @@ fn search_all_in_scrollback_empty_query() {
 /// P1-S3: search_all_in_scrollback no matches returns empty
 #[test]
 fn search_all_in_scrollback_no_matches() {
-    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     t.vt_write(b"abc def\n");
     t.flush();
     let results = t.search_all_in_scrollback("xyz", true);
@@ -298,7 +298,7 @@ fn search_all_in_scrollback_no_matches() {
 /// receiver produces the expected encoded bytes (same semantic as key_encode).
 #[test]
 fn key_encode_submit_returns_receiver() {
-    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     enable_kitty(&mut t);
     let shift = key::Mods::SHIFT.bits();
     let rx = t.key_encode_submit(29, shift, 0, 0x41, 0x61);
@@ -318,7 +318,7 @@ fn key_encode_submit_returns_receiver() {
 /// the synchronous key_encode for the same input.
 #[test]
 fn key_encode_submit_and_key_encode_produce_same_result() {
-    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let mut t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     enable_kitty(&mut t);
     let shift = key::Mods::SHIFT.bits();
     let rx = t
@@ -339,7 +339,7 @@ fn key_encode_submit_and_key_encode_produce_same_result() {
 /// terminal remains usable for subsequent requests.
 #[test]
 fn key_encode_submit_dropped_receiver_does_not_panic() {
-    let t = GhosttyTerminal::new(24, 80, 1000).expect("term");
+    let t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
     let rx = t.key_encode_submit(29, 0, 0, 0x61, 0x61);
     drop(rx);
     let result = t
@@ -356,7 +356,7 @@ fn key_encode_submit_dropped_receiver_does_not_panic() {
 /// deterministically on CJK text.
 #[test]
 fn search_all_in_scrollback_cjk_no_panic() {
-    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     t.vt_write("你好世界 hello 中文测试\n".as_bytes());
     t.flush();
     // Query after a multi-byte char; overlap stepping must stay on char
@@ -378,7 +378,7 @@ fn search_returns_character_columns_not_byte_offsets() {
     // "你" is 3 UTF-8 bytes but 1 character column. A match after it must
     // report character columns so the renderer's CellData.col highlight
     // aligns (byte offsets would be wider and shifted on CJK rows).
-    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("terminal");
     t.vt_write("你hello\n".as_bytes());
     t.flush();
     let results = t.search_all_in_scrollback("hello", true);

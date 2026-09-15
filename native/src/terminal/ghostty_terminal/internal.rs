@@ -454,7 +454,7 @@ impl super::GhosttyTerminal {
         // (DECRPM mode reports, DSR, DA, etc.)
         if let Err(error) = terminal.on_pty_write({
             let response_buffer = config.response_buffer.clone();
-            move |_term, data| {
+            move |_terminal, data| {
                 if let Ok(mut guard) = response_buffer.lock() {
                     guard.push(data.to_vec());
                 }
@@ -468,8 +468,8 @@ impl super::GhosttyTerminal {
         // 仍由 OutputProcessor 的最小扫描器拦截（FR-036）。
         if let Err(error) = terminal.on_pwd_changed({
             let cwd_tx = config.cwd_tx.clone();
-            move |term| {
-                if let Ok(pwd) = term.pwd() {
+            move |terminal| {
+                if let Ok(pwd) = terminal.pwd() {
                     let _ = cwd_tx.try_send(pwd.to_string());
                 }
             }
@@ -478,7 +478,7 @@ impl super::GhosttyTerminal {
         }
         if let Err(error) = terminal.on_clipboard_write({
             let clipboard_tx = config.clipboard_tx.clone();
-            move |_term, write| {
+            move |_terminal, write| {
                 // 选择器字母沿用 xterm 约定（Kotlin 侧原样透传）：c=剪贴板、p=主选区、s=次选区。
                 let selection = match write.location() {
                     libghostty_vt::terminal::ClipboardLocation::Standard => "c",
@@ -2086,7 +2086,7 @@ mod tests {
     /// OSC 4 调色板覆盖必须生效：有效调色板（含覆盖）而非静态表决定渲染色。
     #[test]
     fn osc4_palette_override_reaches_dumped_grid() {
-        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("terminal");
         // 调色板索引 1 改为纯绿，再以红色（索引 1）写字：看到的必须是绿色。
         terminal.vt_write(b"\x1b]4;1;#00ff00\x07\x1b[31mX");
         terminal.flush();
@@ -2103,7 +2103,7 @@ mod tests {
     /// SGR 58 下划线色进入快照（未设置时回退前景）。
     #[test]
     fn sgr58_underline_color_reaches_dumped_grid() {
-        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("terminal");
         terminal.vt_write(b"\x1b[4m\x1b[58;2;255;0;0mU");
         terminal.flush();
         let dumped = terminal.dump_grid();
@@ -2118,7 +2118,7 @@ mod tests {
 
     #[test]
     fn underline_color_falls_back_to_foreground() {
-        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("terminal");
         terminal.vt_write(b"\x1b[4m\x1b[31mV");
         terminal.flush();
         let dumped = terminal.dump_grid();
@@ -2133,7 +2133,7 @@ mod tests {
     /// SGR 53 上划线进入快照（与 SGR 58 用例对称的端到端覆盖）。
     #[test]
     fn sgr53_overline_reaches_dumped_grid() {
-        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("term");
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("terminal");
         terminal.vt_write(b"\x1b[53mO");
         terminal.flush();
         let dumped = terminal.dump_grid();
