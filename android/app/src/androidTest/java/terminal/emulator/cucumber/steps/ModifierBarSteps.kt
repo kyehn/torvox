@@ -56,15 +56,16 @@ constructor(
     @当("^双击 CTRL 键$")
     fun ctrlKeyIsTappedTwice() {
         val rule = composeRuleHolder.composeRule
-        // 连续两次 performClick 背靠背会竞态：第二次点击的按下事件
-        // 可能在第一次的状态更新组合前被手势协程消费，导致选中态残留。
-        // 点击后轮询等选中态真正落定（上限内未落定则大声失败），
-        // 而不是只等主线程空闲。
+        // 双击 = 两次点按：第一次选中，第二次取消选中。
+        // performClick 在 cucumber 规则下第二次点击会被手势残留吞掉
+        //（3 次全灭），改用 Espresso 底层点击绕过 compose 手势协程。
         rule.onNodeWithTag("Key_CTRL").performClick()
         rule.waitUntil(timeoutMillis = 5000) {
             probeAssertion { rule.onNodeWithTag("Key_CTRL").assertIsSelected() }
         }
-        rule.onNodeWithTag("Key_CTRL").performClick()
+        androidx.test.espresso.Espresso
+            .onView(androidx.test.espresso.matcher.ViewMatchers.withContentDescription("Ctrl 切换"))
+            .perform(androidx.test.espresso.action.ViewActions.click())
         rule.waitForIdle()
     }
 
