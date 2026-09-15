@@ -76,29 +76,24 @@ fn pty_write_lf_is_promoted_to_crlf() {
 
 // ── R: pty_write string-mode termination across chunk boundaries ──
 
-/// An OSC string split across two chunks must be closed with ST at the
-/// first chunk boundary so the following text is not swallowed as string
-/// data by the VT parser.
+/// 分片 OSC 由上游跨调用重组：块 1 未闭合时块 2 作为字符串续接被消费，
+/// 不得渲染；ST 闭合后后续文本正常渲染（此前 ST 自动闭合会截断合法跨块 OSC）。
 #[test]
-fn pty_write_closes_unterminated_osc_across_chunks() {
+fn pty_write_split_osc_reassembled_across_chunks() {
     let mut t = GhosttyTerminal::new(5, 10, 100).expect("term");
     t.flush();
-    // Chunk 1 ends inside an OSC (no ST/BEL yet).
+    // 块 1 在 OSC 内结束（无 ST/BEL）：上游保持字符串状态等待续接。
     t.pty_write(b"\x1b]52;c;abc");
     t.flush();
-    // Chunk 2 continues with normal text. If chunk 1 had NOT been closed
-    // with ST, the parser would still be in string mode and swallow 'def'.
-    t.pty_write(b"def");
+    // 块 2 先闭合 OSC，再写正常文本：续接内容被 OSC 消费，不渲染。
+    t.pty_write(b"def\x07OK");
     t.flush();
     let snap = t.take_snapshot();
-    // 'def' must render at row 0 — proving the auto-ST closed the OSC and
-    // the OSC payload ('abc') itself never rendered.
     assert_eq!(
-        snap.cells[0].codepoint, 'd' as u32,
-        "'d' must render at row0 col0 — the unterminated OSC from chunk 1 \
-         must be closed with ST so chunk 2 is not swallowed"
+        snap.cells[0].codepoint, 'O' as u32,
+        "续接内容必须被 OSC 消费，OK 应从 row0 col0 渲染"
     );
-    assert_eq!(snap.cells[3].codepoint, 0, "OSC payload must not render");
+    assert_eq!(snap.cells[1].codepoint, 'K' as u32, "OK 的 K 应在 col1");
     assert_invariants(&snap);
 }
 
