@@ -890,9 +890,19 @@ impl super::GhosttyTerminal {
         let rows = terminal.rows().unwrap_or(24) as u32;
         let cols = terminal.cols().unwrap_or(80) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
-        let (_, background, foreground) = Self::catppuccin_mocha_palette();
-        let default_foreground = Self::byte_color_to_float(foreground);
-        let default_background = Self::byte_color_to_float(background);
+        let (_, fallback_background, fallback_foreground) = Self::catppuccin_mocha_palette();
+        let default_foreground = terminal
+            .default_fg_color()
+            .ok()
+            .flatten()
+            .map(|color| Self::byte_color_to_float([color.r, color.g, color.b]))
+            .unwrap_or_else(|| Self::byte_color_to_float(fallback_foreground));
+        let default_background = terminal
+            .default_bg_color()
+            .ok()
+            .flatten()
+            .map(|color| Self::byte_color_to_float([color.r, color.g, color.b]))
+            .unwrap_or_else(|| Self::byte_color_to_float(fallback_background));
 
         let mut visible = Vec::with_capacity((rows * cols) as usize);
         for row in 0..rows {
@@ -1953,6 +1963,11 @@ impl super::GhosttyTerminal {
     /// Query the OSC 8 hyperlink URI at a grid cell (termux TerminalView
     /// openLinkAt equivalent; ghostty cell.has_hyperlink + hyperlink_uri).
     pub(crate) fn hyperlink_at_impl(terminal: &Terminal, row: u32, col: u32) -> Option<String> {
+        let cols = terminal.cols().unwrap_or(80) as u32;
+        let total_rows = terminal.total_rows().unwrap_or(0) as u32;
+        if col >= cols || row >= total_rows {
+            return None;
+        }
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let point = if row < scrollback_rows {
             Point::History(PointCoordinate {
