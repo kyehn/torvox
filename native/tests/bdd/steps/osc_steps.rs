@@ -8,18 +8,18 @@ use native::terminal::output_processor::OutputProcessor;
 
 use super::{TerminalWorld, unescape};
 
-fn term(world: &mut TerminalWorld) -> &mut GhosttyTerminal {
-    world.term.expect_term()
+fn terminal(world: &mut TerminalWorld) -> &mut GhosttyTerminal {
+    world.terminal.expect_terminal()
 }
 
 #[then(expr = "工作目录为 {string}")]
 pub async fn expect_cwd(world: &mut TerminalWorld, expected: String) {
-    assert_eq!(term(world).cwd(), expected, "工作目录不符");
+    assert_eq!(terminal(world).cwd(), expected, "工作目录不符");
 }
 
 #[then(expr = "剪贴板事件文本为 {string}")]
 pub async fn expect_clipboard(world: &mut TerminalWorld, expected: String) {
-    let actual = term(world).poll_clipboard_event().map(|(_, text)| text);
+    let actual = terminal(world).poll_clipboard_event().map(|(_, text)| text);
     assert_eq!(actual.as_deref(), Some(expected.as_str()), "剪贴板事件不符",);
 }
 
@@ -47,7 +47,9 @@ pub async fn expect_clipboard_read_selection(world: &mut TerminalWorld, expected
 #[then(expr = "第 {int} 行第 {int} 列超链接为 {string}")]
 pub async fn expect_hyperlink(world: &mut TerminalWorld, row: usize, col: usize, expected: String) {
     assert_eq!(
-        term(world).hyperlink_at(row as u32, col as u32).as_deref(),
+        terminal(world)
+            .hyperlink_at(row as u32, col as u32)
+            .as_deref(),
         Some(expected.as_str()),
         "超链接不符",
     );
@@ -56,7 +58,7 @@ pub async fn expect_hyperlink(world: &mut TerminalWorld, row: usize, col: usize,
 #[then(expr = "第 {int} 行第 {int} 列无超链接")]
 pub async fn expect_no_hyperlink(world: &mut TerminalWorld, row: usize, col: usize) {
     assert_eq!(
-        term(world).hyperlink_at(row as u32, col as u32),
+        terminal(world).hyperlink_at(row as u32, col as u32),
         None,
         "不应存在超链接",
     );
