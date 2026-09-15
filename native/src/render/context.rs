@@ -1019,7 +1019,7 @@ impl Renderer {
         );
 
         log::info!(
-            "initialize_pipeline_and_bind_group: pipeline={} atlas={}x{} surf={}x{}",
+            "initialize_pipeline_and_bind_group: pipeline={} atlas={}x{} surface={}x{}",
             self.cell_pipeline.is_some(),
             atlas_width,
             atlas_height,
