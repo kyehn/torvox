@@ -1140,18 +1140,10 @@ fn tc_lifecycle_002_content_preserved_after_pause_resume() {
 
 /// Simulate user typing latency: small writes (1-10 chars) followed by flush.
 /// Measures wall-clock time per iteration — the user-visible metric.
-/// Benchmark thresholds are two-tiered (see docs/standards/TESTING.md,
-/// "Benchmarks & Performance Thresholds"):
-///
-/// - Local (non-CI) runs assert strict thresholds: the machine is idle and
-///   the numbers are reproducible, so a real regression fails the test.
-/// - CI runs keep the anti-flake floor: parallel test execution and
-///   software Vulkan contention cut wall time significantly. The floor is
-///   ~5x below the local single-run number — it catches order-of-magnitude
-///   regressions only.
-fn strict_benchmarks() -> bool {
-    std::env::var("CI").is_err() && std::env::var("GITHUB_ACTIONS").is_err()
-}
+/// Single anti-flake threshold (no environment checks per TESTING.md):
+/// parallel execution and software Vulkan contention make wall time noisy,
+/// so this floor catches order-of-magnitude regressions only.
+/// Fine-grained tracking belongs to `cargo bench` (see check-rust.nu).
 
 #[test]
 fn bench_typing_latency() {
@@ -1181,7 +1173,7 @@ fn bench_typing_latency() {
         elapsed.as_millis(),
         n * keystrokes.len(),
     );
-    let threshold = if strict_benchmarks() { 3.0 } else { 6.0 };
+    let threshold = 6.0;
     assert!(
         ms_per_keystroke < threshold,
         "Typing too slow: {:.3}ms per keystroke (need <{threshold:.1}ms)",
@@ -1220,11 +1212,7 @@ fn bench_bulk_output_throughput() {
         n,
         buf.len() / 1024,
     );
-    let threshold = if strict_benchmarks() {
-        8_000.0
-    } else {
-        4_000.0
-    };
+    let threshold = 4_000.0;
     assert!(
         throughput_cells > threshold,
         "Bulk output too slow: {:.0} cells/sec (need >{threshold:.0})",
