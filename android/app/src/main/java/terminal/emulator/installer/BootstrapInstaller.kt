@@ -65,7 +65,6 @@ class BootstrapInstaller(
             // This staging + atomic-swap design matches termux TermuxInstaller.java:137-257
             // (staging dir + SYMLINKS.txt + renameTo atomic switch + rollback).
             delete(stagingDir)
-            delete(File(prefixDir.parentFile, "${prefixDir.name}.prev"))
             createDirectories()
             onProgress?.onProgress(BootstrapProgress.Extracting(0, 0))
             val symlinks = extractZip(zipFile)
@@ -315,14 +314,14 @@ class BootstrapInstaller(
         }
     }
 
-    /** 上一次安装的旧目录：固定单备份，安装成功后保留，由用户手动删除。 */
+    /** 上一次安装的旧目录：随机后缀备份，安装成功后保留，由用户手动删除，从不自动删除。 */
     private fun atomicRename() {
         val staging = stagingDir
         val prefix = prefixDir
         if (prefix.exists()) {
-            // 旧目录先整体移入固定备份（同文件系统 rename 为原子操作），再换入新目录；
+            // 旧目录先整体移入随机后缀备份（同文件系统 rename 为原子操作），再换入新目录；
             // 失败则恢复备份，旧环境保持可用；成功后备份保留，由用户手动删除。
-            val backup = File(prefix.parentFile, "${prefix.name}.prev")
+            val backup = File(prefix.parentFile, "${prefix.name}.${java.util.UUID.randomUUID().toString().take(8)}")
             if (!prefix.renameTo(backup)) {
                 throw Exception("Failed to move old prefix aside: ${prefix.path}")
             }
