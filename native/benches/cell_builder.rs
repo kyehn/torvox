@@ -65,7 +65,6 @@ fn build_instances(c: &mut Criterion) {
                 cursor,
                 atlas_width: 1024.0,
                 atlas_height: 1024.0,
-                selection: None,
                 search_highlights: &[],
             };
             black_box(native::render::build_instances_from_cell_data(

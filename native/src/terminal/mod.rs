@@ -41,4 +41,4 @@ pub use pty::{Pty, PtyError, PtyPair};
 pub use shell_env::ShellEnv;
 
 // Re-export core types that were formerly in terminal-core.
-pub use ghostty_terminal::{CellData, CursorInfo, CursorStyle, SelectionMode};
+pub use ghostty_terminal::{CellData, CursorInfo, CursorStyle};

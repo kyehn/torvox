@@ -173,11 +173,6 @@ struct RenderState {
     /// Stored as parsed structs so `render_inner` passes them by slice.
     /// Cleared by `clearSearchHighlights`.
     search_highlights: Vec<crate::render::cell_builder::SearchHighlight>,
-    /// Active text selection for the next frame. Set by `setSelection`
-    /// (row/col bounds in visible-grid coordinates), consumed by
-    /// `render_inner`; same deferred-consume pattern as
-    /// `search_highlights`.
-    selection: Option<crate::render::cell_builder::SelectionRange>,
     /// Last rendered frame (cells + cursor + dims). Cached so the idle
     /// path can repaint without rebuilding instances when nothing changed:
     /// `render()` only draws on new terminal output, so an idle terminal
@@ -192,9 +187,6 @@ struct RenderState {
     /// gate to detect per-pixel scroll remainder changes and force a
     /// redraw (the offset moves pixels without touching cell content).
     last_scroll_px: f32,
-    /// Selection state at last draw — used by the idle repaint gate to
-    /// detect selection changes and force a redraw.
-    last_drawn_selection: Option<crate::render::cell_builder::SelectionRange>,
     /// Search highlights at last draw (viewport row space). Dirty-band
     /// rendering must mark their rows when they change or are cleared,
     /// otherwise stale highlight pixels would persist in the accumulator.
@@ -214,13 +206,12 @@ struct RenderState {
     cached_scrollback: u32,
     /// P2-1 content-dirty flag (dual-flag protocol — see
     /// docs/reference/dual-flag-protocol.md): raised by the JNI entry
-    /// points that mutate deferred render inputs (`setSelection`,
-    /// `setSearchHighlights`/`clearSearchHighlights`,
-    /// `setFontSizeInPlace`) and consumed by the render thread with a
+    /// points that mutate deferred render inputs (`setSearchHighlights`/
+    /// `clearSearchHighlights`, `setFontSizeInPlace`) and consumed by the render thread with a
     /// single `getAndSet(false)` swap in `render_inner`. Independent from
     /// the P1-1 per-session `new_output` flag (PTY ingest):
-    /// selection/highlight/font-size changes must repaint but never
-    /// reset the viewport. It is BOTH a wake signal for the Kotlin render
+    /// highlight/font-size changes must repaint but never reset the viewport.
+    /// It is BOTH a wake signal for the Kotlin render
     /// loop (UI callers' notifyRender() + the safety-net latch cadence)
     /// and one of the idle-gate pass conditions — NEVER an outer
     /// short-circuit (the idle repaint decision is made inside the gate).
@@ -246,10 +237,8 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             renderer,
             font_pipeline,
             search_highlights: Vec::new(),
-            selection: None,
             last_frame: None,
             last_scroll_px: 0.0,
-            last_drawn_selection: None,
             last_drawn_search_highlights: Vec::new(),
             cursor_color: None,
             dirty_mask: Vec::new(),
@@ -1522,44 +1511,12 @@ fn build_cursor(
     }
 }
 
-/// Compute the selection range adjusted for scrollback offset.
-fn compute_render_selection(
-    selection: Option<crate::render::cell_builder::SelectionRange>,
-    scrollback: u32,
-) -> Option<crate::render::cell_builder::SelectionRange> {
-    selection.map(|mut sel| {
-        sel.start_row -= scrollback as i32;
-        sel.end_row -= scrollback as i32;
-        sel
-    })
-}
-
-/// Mark overlay rows (current selection, previous selection, search
-/// highlights) as dirty in the mask. These are per-row visual overlays
-/// whose addition/removal changes pixels without touching cell content.
-fn mark_overlay_dirty_rows(
-    dirty_mask: &mut [bool],
-    rows_usize: usize,
-    render_selection: &Option<crate::render::cell_builder::SelectionRange>,
-    previous_selection: Option<crate::render::cell_builder::SelectionRange>,
-    highlight_rows: &[i32],
-) {
-    if let Some(sel) = render_selection {
-        let start = sel.start_row.max(0) as usize;
-        let end = (sel.end_row + 1).max(0) as usize;
-        for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
-            *slot = true;
-        }
-    }
-    // Previous selection: clearing/shrinking a selection must
-    // repaint the rows it used to cover.
-    if let Some(old_sel) = previous_selection {
-        let start = old_sel.start_row.max(0) as usize;
-        let end = (old_sel.end_row + 1).max(0) as usize;
-        for slot in dirty_mask.iter_mut().take(end.min(rows_usize)).skip(start) {
-            *slot = true;
-        }
-    }
+/// Mark overlay rows (search highlights) as dirty in the mask. These are
+/// per-row visual overlays whose addition/removal changes pixels without
+/// touching cell content. Selection needs no overlay handling: the VT thread
+/// bakes the tracked-selection inverse video into CellData, so selection
+/// changes arrive as new cell content through the normal dirty path.
+fn mark_overlay_dirty_rows(dirty_mask: &mut [bool], rows_usize: usize, highlight_rows: &[i32]) {
     // Search highlight rows, current AND last drawn: highlights are
     // per-row overlays; adding/removing/moving them changes pixels
     // without changing cell content.
@@ -1689,7 +1646,6 @@ fn render_inner(session_id: u64) -> jint {
             let scrollback = cursor_info.scrollback_length;
             render_state.cached_scrollback = scrollback;
             let cursor = build_cursor(render_state, &cursor_info);
-            let render_selection = compute_render_selection(render_state.selection, scrollback);
             // Build dirty mask using pre-allocated buffer.
             let rows_usize = rows as usize;
             // Immutable snapshots first: the mask is a &mut borrow of
@@ -1700,8 +1656,6 @@ fn render_inner(session_id: u64) -> jint {
                 .last_frame
                 .as_ref()
                 .map(|(_, old_cursor_info, _, _)| old_cursor_info.row);
-            let previous_selection_rows =
-                compute_render_selection(render_state.last_drawn_selection, scrollback);
             let highlight_rows = collect_highlight_rows(render_state);
             let dirty_mask = &mut render_state.dirty_mask;
             dirty_mask.clear();
@@ -1742,13 +1696,7 @@ fn render_inner(session_id: u64) -> jint {
             {
                 dirty_mask[prev_row as usize] = true;
             }
-            mark_overlay_dirty_rows(
-                dirty_mask,
-                rows_usize,
-                &render_selection,
-                previous_selection_rows,
-                &highlight_rows,
-            );
+            mark_overlay_dirty_rows(dirty_mask, rows_usize, &highlight_rows);
             let result = render_state.renderer.render_cell_data(
                 &cells,
                 rows,
@@ -1757,14 +1705,12 @@ fn render_inner(session_id: u64) -> jint {
                 &mut render_state.font_pipeline,
                 ATLAS_SIZE as f32,
                 ATLAS_SIZE as f32,
-                render_selection,
                 &render_state.search_highlights,
                 Some(&render_state.dirty_mask),
                 scroll_up_rows,
             );
             if result.is_ok() {
                 render_state.last_frame = Some((cells, cursor_info, rows, cols));
-                render_state.last_drawn_selection = render_state.selection;
                 render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
                 render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
             }
@@ -1785,29 +1731,24 @@ fn render_inner(session_id: u64) -> jint {
             };
             let cursor = build_cursor(render_state, &cached_cursor);
             // Idle repaint gate (P2-1): only repaint when something actually
-            // changed — selection change, search highlights, scroll offset,
-            // content-dirty flag raised, or accumulator invalidated (surface
-            // re-attach/resize: the new swapchain never received a frame and
-            // would stay black forever on an idle shell).
-            let selection_changed = render_state.selection != render_state.last_drawn_selection;
+            // changed — search highlights, scroll offset, content-dirty flag
+            // raised, or accumulator invalidated (surface re-attach/resize:
+            // the new swapchain never received a frame and would stay black
+            // forever on an idle shell). Selection arrives as new cell
+            // content through the VT thread, so it needs no gate of its own.
             let highlights_changed =
                 render_state.search_highlights != render_state.last_drawn_search_highlights;
             let scroll_px_changed =
                 (render_state.renderer.viewport_scroll_px - render_state.last_scroll_px).abs()
                     > f32::EPSILON;
-            let needs_repaint = selection_changed
-                || highlights_changed
+            let needs_repaint = highlights_changed
                 || scroll_px_changed
                 || content_dirty
                 || render_state.renderer.frame_invalidated;
             if !needs_repaint {
                 return 0;
             }
-            let scrollback = render_state.cached_scrollback;
-            let render_selection = compute_render_selection(render_state.selection, scrollback);
             let rows_usize = cached_rows as usize;
-            let previous_selection_rows =
-                compute_render_selection(render_state.last_drawn_selection, scrollback);
             let highlight_rows = collect_highlight_rows(render_state);
             let dirty_mask = &mut render_state.dirty_mask;
             dirty_mask.clear();
@@ -1817,13 +1758,7 @@ fn render_inner(session_id: u64) -> jint {
             if (cursor.row as usize) < rows_usize {
                 dirty_mask[cursor.row as usize] = true;
             }
-            mark_overlay_dirty_rows(
-                dirty_mask,
-                rows_usize,
-                &render_selection,
-                previous_selection_rows,
-                &highlight_rows,
-            );
+            mark_overlay_dirty_rows(dirty_mask, rows_usize, &highlight_rows);
             let result = render_state.renderer.render_cell_data(
                 cached_cells,
                 cached_rows,
@@ -1832,13 +1767,11 @@ fn render_inner(session_id: u64) -> jint {
                 &mut render_state.font_pipeline,
                 ATLAS_SIZE as f32,
                 ATLAS_SIZE as f32,
-                render_selection,
                 &render_state.search_highlights,
                 Some(&render_state.dirty_mask),
                 None,
             );
             if result.is_ok() {
-                render_state.last_drawn_selection = render_state.selection;
                 render_state.last_drawn_search_highlights = render_state.search_highlights.clone();
                 render_state.last_scroll_px = render_state.renderer.viewport_scroll_px;
                 // NOTE: last_frame NOT updated on idle — cells unchanged.
@@ -2361,7 +2294,6 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
     session_id: jlong,
     query: JString<'local>,
     case_sensitive: jboolean,
-    fuzzy: jboolean,
 ) -> jstring {
     jni_export_guard!(&mut unowned_env, std::ptr::null_mut(), |env| {
         let id = session_id as u64;
@@ -2383,7 +2315,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_searchAllInScr
         let session = entry.session.lock();
         let matches = session
             .terminal()
-            .search_all_in_scrollback(&query, case_sensitive, fuzzy);
+            .search_all_in_scrollback(&query, case_sensitive);
         log::info!(
             "searchAllInScrollback: query={query:?} matches={}",
             matches.len(),
@@ -2653,13 +2585,12 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
 /// Set the active text selection for the next rendered frame.
 ///
 /// Coordinates are visible-grid rows/cols (as produced by `build_cell_data`
-/// — row 0 is the top visible line), which is what Kotlin's long-press /
-/// drag handle logic works in. `hasSelection=false` clears the selection.
-/// `mode` follows the Kotlin `SelectionMode` ordinal (Char=0, Word=1,
-/// Line=2, Block=3, Semantic=4 — note Block/Semantic are swapped relative
-/// to the Rust enum, mapped below). `selectionBgArgb` is the theme's
-/// selection background color (ARGB packed, e.g. 0xFF45475A), converted
-/// to linear f32 for the shader.
+/// 终端持有选区安装口：坐标为绝对网格行（row 0 = 回滚顶部），与控制柄逻辑一致。
+/// 选区经 `GhosttyTerminal::set_selection` 安装为终端状态（跟踪引用，随滚动/
+/// 输出/重排跟随文本），高亮由 VT 线程按行级选区反白直接烘焙进 CellData；
+/// 本层不再存储单元格位置，仅透传。`hasSelection=false` 清除选区。
+/// `mode` 为 Kotlin `SelectionMode` 序号（Char=0, Word=1, Line=2, Block=3,
+/// Semantic=4），仅 Block 映射为矩形选区。`selectionBgArgb` 为 Kotlin 合约保留参数。
 #[unsafe(no_mangle)]
 // JNI exports receive raw handles (jstring/jbyteArray are pointer types)
 // whose validity is the JVM's contract, not a Rust lifetime guarantee.
@@ -2667,7 +2598,7 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSearchHighl
 pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     mut unowned_env: EnvUnowned<'_>,
     _class: JClass,
-    _session_id: jlong,
+    session_id: jlong,
     start_row: jint,
     start_col: jint,
     end_row: jint,
@@ -2677,37 +2608,30 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setSelection(
     _selection_bg_argb: jint,
 ) {
     jni_export_guard!(&mut unowned_env, (), |_env| {
-        // Kotlin SelectionMode ordinal → Rust SelectionMode.
-        let mode = match mode {
-            0 => crate::terminal::SelectionMode::Char,
-            1 => crate::terminal::SelectionMode::Word,
-            2 => crate::terminal::SelectionMode::Line,
-            3 => crate::terminal::SelectionMode::Block,
-            4 => crate::terminal::SelectionMode::Semantic,
-            _ => crate::terminal::SelectionMode::Char,
+        let id = session_id as u64;
+        let registry = rlock_session_registry();
+        let Some(entry) = registry.get(&id) else {
+            return Ok(());
         };
-        // `selection_bg_argb` is accepted for Kotlin contract stability but
-        // no longer stored: classic inverse video (fg<->bg swap) renders
-        // the selection highlight (see rejected-technologies §1.7 #33).
-        let selection = if has_selection == jni::sys::JNI_TRUE {
-            Some(crate::render::cell_builder::SelectionRange {
-                start_row,
-                start_col,
-                end_row,
-                end_col,
-                active: true,
-                mode,
-                origin: None,
-                is_empty: false,
-            })
+        let session = entry.session.lock();
+        if has_selection == jni::sys::JNI_TRUE {
+            // 仅 Block 为矩形选区；其余模式均为线性选区（反白语义一致）。
+            let rectangle = mode == 3;
+            session.terminal().set_selection(
+                (start_row.max(0) as u32, start_col.max(0) as u32),
+                (end_row.max(0) as u32, end_col.max(0) as u32),
+                rectangle,
+            );
         } else {
-            None
-        };
+            session.terminal().clear_selection();
+        }
+        drop(session);
+        drop(registry);
+        // P2-1 dirty: selection changes must repaint even on an idle
+        // terminal (the VT thread also re-pushes CellData, this only
+        // wakes the render gate without waiting for it).
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
-            render_state.selection = selection;
-            // P2-1 dirty: selection changes must repaint even on an idle
-            // terminal (deferred field otherwise waits for PTY output).
             render_state.dirty.store(true, Ordering::Relaxed);
         }
     });

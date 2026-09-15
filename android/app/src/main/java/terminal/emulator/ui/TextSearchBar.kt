@@ -59,8 +59,6 @@ fun TextSearchBar(
     caseSensitive: Boolean = false,
     onCaseSensitiveToggle: (Boolean) -> Unit = {},
     autoCaseSensitive: Boolean = false,
-    fuzzyMatch: Boolean = false,
-    onFuzzyMatchToggle: (Boolean) -> Unit = {},
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -97,9 +95,7 @@ fun TextSearchBar(
         SearchToggleButtons(
             caseSensitive = caseSensitive,
             autoCaseSensitive = autoCaseSensitive,
-            fuzzyMatch = fuzzyMatch,
             onCaseSensitiveToggle = onCaseSensitiveToggle,
-            onFuzzyMatchToggle = onFuzzyMatchToggle,
         )
 
         SearchResultCounter(query, resultCount, currentResultIndex)
@@ -112,9 +108,7 @@ fun TextSearchBar(
 private fun SearchToggleButtons(
     caseSensitive: Boolean,
     autoCaseSensitive: Boolean,
-    fuzzyMatch: Boolean,
     onCaseSensitiveToggle: (Boolean) -> Unit,
-    onFuzzyMatchToggle: (Boolean) -> Unit,
 ) {
     val aaColor =
         when {
@@ -122,13 +116,6 @@ private fun SearchToggleButtons(
             autoCaseSensitive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
             else -> MaterialTheme.colorScheme.onSurfaceVariant
         }
-    val fuzzyMatchDescription =
-        if (fuzzyMatch) {
-            stringResource(R.string.disable_fuzzy_match)
-        } else {
-            stringResource(R.string.enable_fuzzy_match)
-        }
-
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(
             onClick = { onCaseSensitiveToggle(!caseSensitive) },
@@ -138,28 +125,6 @@ private fun SearchToggleButtons(
                 text = "Aa",
                 fontSize = 13.sp,
                 color = aaColor,
-            )
-        }
-
-        IconButton(
-            onClick = { onFuzzyMatchToggle(!fuzzyMatch) },
-            modifier =
-            Modifier
-                .size(32.dp)
-                .testTag("SearchFuzzyMatch")
-                .semantics {
-                    contentDescription = fuzzyMatchDescription
-                },
-        ) {
-            Text(
-                text = "~",
-                fontSize = 13.sp,
-                color =
-                if (fuzzyMatch) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
             )
         }
     }

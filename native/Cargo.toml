@@ -28,7 +28,6 @@ regex = "1"
 roxmltree = "0.21"
 serde = { workspace = true }
 serde_json = "1"
-strsim = { workspace = true }
 swash = { workspace = true }
 thiserror = { workspace = true }
 wgpu = { workspace = true, features = ["vulkan"] }

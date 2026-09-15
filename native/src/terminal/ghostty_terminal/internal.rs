@@ -12,7 +12,6 @@ use super::commands::{Command, Query, RunConfig};
 use super::keymap::map_android_key_code;
 use super::types::*;
 use flume::Sender;
-use strsim::levenshtein as levenshtein_distance;
 
 /// Send a value over a channel, logging on failure.
 fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
@@ -226,11 +225,9 @@ impl super::GhosttyTerminal {
             Query::SearchInScrollbackAll {
                 query,
                 case_sensitive,
-                fuzzy,
                 tx,
             } => {
-                let results =
-                    Self::search_in_scrollback_all_impl(terminal, &query, case_sensitive, fuzzy);
+                let results = Self::search_in_scrollback_all_impl(terminal, &query, case_sensitive);
                 try_send(&tx, results, "ghostty_terminal: query channel send failed");
             }
             Query::DumpGrid { tx } => {
@@ -732,10 +729,34 @@ impl super::GhosttyTerminal {
                     }
                     Command::Reset => {
                         // RIS 全重置：恢复初始状态并清空回滚；全部帧缓存失效。
+                        // reset 同时清除终端持有的活动选区（上游语义）。
                         terminal.reset();
                         row_cache.clear();
                         cached_snapshot = None;
                         cached_scroll_offset = u32::MAX;
+                        last_cell_data_push = None;
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
+                    Command::SetSelection {
+                        start,
+                        end,
+                        rectangle,
+                    } => {
+                        // 终端持有化：选区经 set_selection 安装为终端状态
+                        //（上游转为跟踪引用，随滚动/输出/重排跟随文本）。
+                        // 选区变化改变每行反白，需失效行缓存并重推帧。
+                        Self::install_selection_impl(&terminal, start, end, rectangle);
+                        row_cache.clear();
+                        last_cell_data_push = None;
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
+                    Command::ClearSelection => {
+                        if terminal.set_selection(None).is_err() {
+                            log::warn!("ghostty_terminal: clear selection failed");
+                        }
+                        row_cache.clear();
                         last_cell_data_push = None;
                         grid_dirty = true;
                         batch_dirty = true;
@@ -1180,13 +1201,29 @@ impl super::GhosttyTerminal {
 
         let mut data = Vec::with_capacity(size);
         let mut current_row = 0u32;
+        // 终端持有选区激活期间禁用行缓存读取：跟踪选区随滚动/输出移动时，
+        // 网格未变脏的行也可能改变反白归属，缓存会提供过期高亮。
+        // （写入仍更新缓存；清除选区时整缓存失效。）
+        let selection_active = terminal
+            .selection()
+            .map(|selected| selected.is_some())
+            .unwrap_or(false);
 
         while let Some(row) = row_iter_impl.next() {
             let row_idx = current_row as usize;
             let is_dirty = row.dirty().unwrap_or(true);
+            // 行级选区范围（无选区时为 None）：每行一次 FFI，避免逐单元格查询。
+            let row_selection = if selection_active {
+                row.selection().ok().flatten()
+            } else {
+                None
+            };
             // zelland row-cache pattern: clean rows are copied from the
             // cache instead of re-walking their cells (FFI per cell).
-            if !is_dirty && let Some(cached) = row_cache.get(row_idx) {
+            if !is_dirty
+                && !selection_active
+                && let Some(cached) = row_cache.get(row_idx)
+            {
                 data.extend_from_slice(cached);
                 current_row += 1;
                 continue;
@@ -1285,6 +1322,16 @@ impl super::GhosttyTerminal {
                         grapheme_extra[i - 1] = c as u32;
                     }
                 }
+
+                // 终端持有选区的行内反白（经典反白：前景背景互换，与覆盖层旧语义一致）。
+                let (fg_color, bg_color) = if row_selection.as_ref().is_some_and(|range| {
+                    let col = current_col as u16;
+                    col >= range.start_x && col <= range.end_x
+                }) {
+                    (bg_color, fg_color)
+                } else {
+                    (fg_color, bg_color)
+                };
 
                 row_data.push(CellData {
                     codepoint,
@@ -1660,6 +1707,40 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 将视图坐标的选区安装为终端持有的活动选区（跟踪引用）。
+    /// 与 selection_text_impl 同一坐标系：绝对网格行（0 = 回滚顶部）。
+    /// 无效端点时静默忽略（调用方已标记脏并重推，保持帧一致）。
+    pub(crate) fn install_selection_impl(
+        terminal: &Terminal,
+        start: (u32, u32),
+        end: (u32, u32),
+        rectangle: bool,
+    ) {
+        let cols = terminal.cols().unwrap_or(80).max(1) as u32;
+        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let resolve = |row: u32, col: u32| {
+            let clamped = col.min(cols - 1) as u16;
+            if row < scrollback_rows {
+                Point::History(PointCoordinate { x: clamped, y: row })
+            } else {
+                Point::Viewport(PointCoordinate {
+                    x: clamped,
+                    y: row - scrollback_rows,
+                })
+            }
+        };
+        let (Ok(start_ref), Ok(end_ref)) = (
+            terminal.grid_ref(resolve(start.0, start.1)),
+            terminal.grid_ref(resolve(end.0, end.1)),
+        ) else {
+            return;
+        };
+        let selection = libghostty_vt::selection::Selection::new(start_ref, end_ref, rectangle);
+        if terminal.set_selection(Some(&selection)).is_err() {
+            log::warn!("ghostty_terminal: install selection failed");
+        }
+    }
+
     /// Query the OSC 8 hyperlink URI at a grid cell (termux TerminalView
     /// openLinkAt equivalent; ghostty cell.has_hyperlink + hyperlink_uri).
     pub(crate) fn hyperlink_at_impl(terminal: &Terminal, row: u32, col: u32) -> Option<String> {
@@ -1725,7 +1806,6 @@ impl super::GhosttyTerminal {
         terminal: &Terminal,
         query: &str,
         case_sensitive: bool,
-        fuzzy: bool,
     ) -> Vec<SearchMatch> {
         if query.is_empty() {
             return vec![];
@@ -1744,70 +1824,30 @@ impl super::GhosttyTerminal {
                 } else {
                     line.to_lowercase()
                 };
-                if fuzzy {
-                    // Window size is the query's char count, not byte
-                    // length: a multi-byte query (CJK) otherwise forms
-                    // windows that end mid-character and can never match.
-                    let query_chars = search_query.chars().count();
-                    let max_distance = std::cmp::max(1, query_chars / 3);
-                    // Char-boundary byte offsets of the line; windows are
-                    // sized by char count so slicing stays valid.
-                    let boundaries: Vec<usize> = search_line
-                        .char_indices()
-                        .map(|(offset, _)| offset)
-                        .collect();
-                    if query_chars <= boundaries.len() {
-                        // Sliding window: find all windows whose edit distance is within threshold.
-                        // Return each match position so all results are highlighted, not just
-                        // the nearest one (which would miss overlapping near-matches).
-                        for (window_index, &start) in boundaries.iter().enumerate() {
-                            let end = boundaries
-                                .get(window_index + query_chars)
-                                .copied()
-                                .unwrap_or(search_line.len());
-                            let window = &search_line[start..end];
-                            let dist = levenshtein_distance(&search_query, window);
-                            if dist <= max_distance {
-                                // Convert byte offsets to character columns:
-                                // rendering highlights by CellData.col (char
-                                // index), not byte offset — CJK/emoji rows
-                                // would misalign otherwise.
-                                let start_col = search_line[..start].chars().count() as u32;
-                                let end_col = search_line[..end].chars().count() as u32;
-                                results.push(SearchMatch {
-                                    row,
-                                    start_col,
-                                    end_col,
-                                });
-                            }
-                        }
-                    }
-                } else {
-                    let mut start = 0;
-                    while let Some(col) = search_line[start..].find(&search_query) {
-                        let abs_col = start + col;
-                        // Byte offset -> character column (see above).
-                        let match_start_col = search_line[..abs_col].chars().count() as u32;
-                        let match_end = abs_col + search_query.len();
-                        let match_end_col = search_line[..match_end].chars().count() as u32;
-                        results.push(SearchMatch {
-                            row,
-                            start_col: match_start_col,
-                            end_col: match_end_col,
-                        });
-                        // Advance past this match to its end (always a char
-                        // boundary), then step to the next boundary so
-                        // overlapping matches are still found without
-                        // slicing mid-character.
-                        let mut next = abs_col + search_query.len();
-                        if next < search_line.len() {
+                let mut start = 0;
+                while let Some(col) = search_line[start..].find(&search_query) {
+                    let abs_col = start + col;
+                    // Byte offset -> character column (see above).
+                    let match_start_col = search_line[..abs_col].chars().count() as u32;
+                    let match_end = abs_col + search_query.len();
+                    let match_end_col = search_line[..match_end].chars().count() as u32;
+                    results.push(SearchMatch {
+                        row,
+                        start_col: match_start_col,
+                        end_col: match_end_col,
+                    });
+                    // Advance past this match to its end (always a char
+                    // boundary), then step to the next boundary so
+                    // overlapping matches are still found without
+                    // slicing mid-character.
+                    let mut next = abs_col + search_query.len();
+                    if next < search_line.len() {
+                        next += 1;
+                        while next < search_line.len() && !search_line.is_char_boundary(next) {
                             next += 1;
-                            while next < search_line.len() && !search_line.is_char_boundary(next) {
-                                next += 1;
-                            }
                         }
-                        start = next;
                     }
+                    start = next;
                 }
             }
         }

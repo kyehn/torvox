@@ -254,7 +254,6 @@ object NativeBridge {
         sessionId: Long,
         query: String,
         caseSensitive: Boolean,
-        fuzzyMatch: Boolean,
     ): String?
 
     /** True when the cell at (row, col) has no printable codepoint. */

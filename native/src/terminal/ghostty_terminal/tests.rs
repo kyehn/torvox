@@ -1537,6 +1537,49 @@ fn selection_text_wide_char_columns() {
     );
 }
 
+/// 终端持有选区反白（spec 文本选择：选区存于终端，跟踪引用）：
+/// 安装选区后 VT 线程把行级选区反白烘焙进 CellData（前景背景互换），
+/// 清除后恢复。该测试断言本仓的安装—烘焙链路，不复述上游选区语义。
+#[test]
+fn terminal_owned_selection_inverts_cell_data() {
+    let mut t = term(); // 24x80
+    t.vt_write(b"hello");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    // 基线：未选中时前景为主题前景色。
+    let (_, _) = t.receive_cell_data().expect("baseline cell data");
+    t.set_selection((row0, 0), (row0, 4), false);
+    t.flush();
+    let (selected, _) = t.receive_cell_data().expect("selected cell data");
+    let picked = selected
+        .iter()
+        .find(|cell| cell.row == 0 && cell.col == 0)
+        .expect("row 0 col 0 present");
+    // Catppuccin Mocha 默认：前景 #CDD6F4，背景 #1E1E2E；选中后互换。
+    let theme_fg = GhosttyTerminal::byte_color_to_float([205, 214, 244]);
+    let theme_bg = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
+    assert_eq!(picked.fg_color, theme_bg, "selected fg must be theme bg");
+    assert_eq!(picked.bg_color, theme_fg, "selected bg must be theme fg");
+    // 选区外单元格不受影响。
+    let outside = selected
+        .iter()
+        .find(|cell| cell.row == 0 && cell.col == 10)
+        .expect("row 0 col 10 present");
+    assert_eq!(outside.fg_color, theme_fg);
+    assert_eq!(outside.bg_color, theme_bg);
+    // 清除后恢复基线。
+    t.clear_selection();
+    t.flush();
+    let (cleared, _) = t.receive_cell_data().expect("cleared cell data");
+    let restored = cleared
+        .iter()
+        .find(|cell| cell.row == 0 && cell.col == 0)
+        .expect("row 0 col 0 present");
+    assert_eq!(restored.fg_color, theme_fg);
+    assert_eq!(restored.bg_color, theme_bg);
+}
+
 /// OSC 8 hyperlink query (termux TerminalView.openLinkAt equivalent):
 /// after writing an OSC 8 link, hyperlink_at returns the URI at the link
 /// cells and None outside them.
