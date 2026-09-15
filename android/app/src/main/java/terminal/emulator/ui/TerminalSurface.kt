@@ -26,7 +26,9 @@ import android.view.inputmethod.InputConnection
 import android.widget.Magnifier
 import android.widget.OverScroller
 import android.widget.PopupWindow
+import androidx.core.content.FileProvider
 import androidx.core.net.toUri
+import java.io.File
 import kotlinx.coroutines.cancel
 import terminal.emulator.R
 import terminal.emulator.SelectionMode
@@ -186,10 +188,19 @@ constructor(
         selectionMenuPopup = popup
     }
 
-    /** Menu items for a selection: termux semantics (COPY|SELECT ALL / PASTE-if-clipboard). */
+    /** Menu items for a selection: termux semantics (COPY|SHARE|SELECT ALL|OPEN LINK|OPEN FILE / PASTE-if-clipboard). */
     private fun menuActions(
         pasteOnly: Boolean,
         pasteEnabled: Boolean,
+    ): List<Pair<String, () -> Unit>> {
+        val selectionText = viewModel?.state?.value?.selection?.selectedText.orEmpty()
+        return menuActionsForSelection(pasteOnly, pasteEnabled, selectionText)
+    }
+
+    internal fun menuActionsForSelection(
+        pasteOnly: Boolean,
+        pasteEnabled: Boolean,
+        selectionText: String,
     ): List<Pair<String, () -> Unit>> = buildList {
         if (pasteOnly) {
             if (pasteEnabled) {
@@ -210,6 +221,13 @@ constructor(
                     },
             )
             add(
+                context.getString(R.string.share) to
+                    {
+                        viewModel?.shareSelection()
+                        viewModel?.clearSelection()
+                    },
+            )
+            add(
                 context.getString(R.string.select_all) to
                     {
                         // termux behavior: select-all keeps the menu open so the
@@ -217,6 +235,89 @@ constructor(
                         viewModel?.selectAll()
                     },
             )
+            if (isOpenableLink(selectionText)) {
+                add(
+                    context.getString(R.string.open_link) to
+                        {
+                            openSelectionAsLink(selectionText)
+                            viewModel?.clearSelection()
+                        },
+                )
+            }
+            if (isOpenableFile(selectionText)) {
+                add(
+                    context.getString(R.string.open_file) to
+                        {
+                            openSelectionAsFile(selectionText)
+                            viewModel?.clearSelection()
+                        },
+                )
+            }
+        }
+    }
+
+    internal fun isOpenableLink(text: String): Boolean {
+        if (isLinkTextCandidate(text)) return true
+        val selection = viewModel?.state?.value?.selection ?: return false
+        val start = selection.start ?: return false
+        val bridge = viewModel?.runtime?.bridge() ?: return false
+        return bridge.hyperlinkAt(start.row, start.col) != null
+    }
+
+    internal fun isOpenableFile(text: String): Boolean {
+        if (!isFilePathCandidate(text)) return false
+        val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
+            .substringBefore("\n").trim()
+        return try {
+            val file = File(trimmed)
+            file.isFile && file.exists()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    internal fun openSelectionAsLink(text: String) {
+        val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
+        if (trimmed.isEmpty()) return
+        val uri = try {
+            trimmed.toUri()
+        } catch (_: IllegalArgumentException) {
+            return
+        }
+        val scheme = uri.scheme?.lowercase()
+        if (scheme != "http" && scheme != "https") return
+        try {
+            val intent =
+                android.content.Intent(android.content.Intent.ACTION_VIEW, uri)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+            context.startActivity(intent)
+        } catch (exception: Exception) {
+            LogUtil.w(TAG, "openSelectionAsLink: no handler", exception)
+        }
+    }
+
+    internal fun openSelectionAsFile(text: String) {
+        val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
+            .substringBefore("\n").trim()
+        if (trimmed.isEmpty()) return
+        val file = try {
+            File(trimmed)
+        } catch (_: Exception) {
+            return
+        }
+        if (!file.isFile || !file.exists()) return
+        try {
+            val uri =
+                FileProvider.getUriForFile(context, "com.termux.fileprovider", file)
+            val intent =
+                android.content.Intent(android.content.Intent.ACTION_VIEW)
+                    .setDataAndType(uri, context.contentResolver.getType(uri))
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    .addFlags(android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+            context.startActivity(intent)
+        } catch (exception: Exception) {
+            LogUtil.w(TAG, "openSelectionAsFile: no handler", exception)
         }
     }
 
@@ -3210,3 +3311,28 @@ internal fun shouldSuppressTapAfterDragEnd(
     lastDragEndMs: Long,
     windowMs: Long = SELECTION_MENU_RESHOW_GUARD_MS,
 ): Boolean = lastDragEndMs > 0L && nowMs >= lastDragEndMs && nowMs - lastDragEndMs < windowMs
+
+/** 选择长度合理阈值：链接/文件项只在该长度内按格式匹配显示，不查可用性。 */
+internal const val MAX_SELECTION_ACTION_LENGTH = 2048
+
+/** 菜单显示用链接格式匹配（纯逻辑，不查可用性）。 */
+internal fun isLinkTextCandidate(
+    text: String,
+    maxLength: Int = MAX_SELECTION_ACTION_LENGTH,
+): Boolean {
+    val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
+    if (trimmed.isEmpty() || trimmed.length > maxLength) return false
+    return terminal.emulator.util.UrlToken.looksLikeFullUrl(trimmed)
+}
+
+/** 菜单显示用文件格式匹配（纯逻辑：绝对路径形态，不查存在性）。 */
+internal fun isFilePathCandidate(
+    text: String,
+    maxLength: Int = MAX_SELECTION_ACTION_LENGTH,
+): Boolean {
+    val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
+        .substringBefore("\n").trim()
+    if (trimmed.isEmpty() || trimmed.length > maxLength) return false
+    if (!trimmed.startsWith("/")) return false
+    return !trimmed.contains("\u0000")
+}
