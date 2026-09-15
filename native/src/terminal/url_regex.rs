@@ -40,7 +40,7 @@ fn scheme_only_regex() -> &'static regex::Regex {
 /// Strips trailing punctuation from a scheme-only link (linkify does this
 /// itself for its own matches).
 fn trim_trailing_punctuation(raw: &str) -> String {
-    raw.trim_end_matches(['.', ',', ';', ':', '!', '?', '"', '\''])
+    raw.trim_end_matches(['.', ',', ';', ':', '!', '?', '"', '\'', ')'])
         .to_string()
 }
 
@@ -140,6 +140,11 @@ mod tests {
         assert_eq!(
             url_at_column("link https://example.com/path), done", 6),
             Some("https://example.com/path".to_string())
+        );
+        // scheme-only 回退同样剥离包裹右括号。
+        assert_eq!(
+            url_at_column("(call tel:+1234567890)", 7),
+            Some("tel:+1234567890".to_string())
         );
     }
 
