@@ -50,7 +50,7 @@ class BootstrapInstallerTest {
     @After
     fun cleanup() {
         prefixDir.deleteRecursively()
-        File(prefixDir.parentFile, "${prefixDir.name}.prev").deleteRecursively()
+        prefixDir.parentFile?.listFiles { file -> file.name.startsWith("${prefixDir.name}.") }?.forEach { it.deleteRecursively() }
         homeDir.deleteRecursively()
         stagingDir.deleteRecursively()
         zipFile.delete()
@@ -308,14 +308,15 @@ class BootstrapInstallerTest {
     fun install_keeps_single_previous_backup() {
         val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
         assertTrue(runBlocking { installer.install(buildFakeBootstrapZip(true)) }.isSuccess)
-        val backup = File(prefixDir.parentFile, "${prefixDir.name}.prev")
-        assertFalse("no backup after first install", backup.exists())
+        val backupsAfterFirst = prefixDir.parentFile?.listFiles { file -> file.name.startsWith("${prefixDir.name}.") } ?: emptyArray()
+        assertTrue("no backup after first install", backupsAfterFirst.isEmpty())
         File(prefixDir, "bin/bash").writeText("#!/bin/sh\nfirst\n")
         assertTrue(runBlocking { installer.install(buildFakeBootstrapZip(true)) }.isSuccess)
-        assertTrue("previous prefix kept as single backup", backup.isDirectory)
+        val backups = prefixDir.parentFile?.listFiles { file -> file.isDirectory && file.name.startsWith("${prefixDir.name}.") } ?: emptyArray()
+        assertEquals("previous prefix kept as single random backup", 1, backups.size)
         assertTrue(
             "backup holds the previous tree",
-            File(backup, "bin/bash").readText().contains("first"),
+            File(backups[0], "bin/bash").readText().contains("first"),
         )
     }
 }
