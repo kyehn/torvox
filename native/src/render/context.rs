@@ -997,8 +997,8 @@ impl Renderer {
         &mut self,
         atlas_width: u32,
         atlas_height: u32,
-        surface_width: u32,
-        surface_height: u32,
+        config_width: u32,
+        config_height: u32,
     ) {
         let format = self
             .surface_config
@@ -1007,15 +1007,15 @@ impl Renderer {
         self.pipeline_format = format;
         self.cell_pipeline = Some(Self::create_cell_pipeline(&self.device, format));
 
-        self.projection_width = surface_width;
-        self.projection_height = surface_height;
+        self.projection_width = config_width;
+        self.projection_height = config_height;
         self.create_atlas_texture(atlas_width, atlas_height);
 
         self.write_uniforms(
             atlas_width as f32,
             atlas_height as f32,
-            surface_width as f32,
-            surface_height as f32,
+            config_width as f32,
+            config_height as f32,
         );
 
         log::info!(
@@ -1023,8 +1023,8 @@ impl Renderer {
             self.cell_pipeline.is_some(),
             atlas_width,
             atlas_height,
-            surface_width,
-            surface_height,
+            config_width,
+            config_height,
         );
     }
 }

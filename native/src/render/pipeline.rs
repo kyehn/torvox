@@ -210,7 +210,7 @@ impl Renderer {
         (pipeline, kgp_bind_group_layout)
     }
 
-    pub(crate) fn ensure_kgp_pipeline(&mut self, surface_width: u32, surface_height: u32) {
+    pub(crate) fn ensure_kgp_pipeline(&mut self, config_width: u32, config_height: u32) {
         if self.kgp_texture.is_none() {
             return;
         }
@@ -253,8 +253,8 @@ impl Renderer {
         };
 
         let uniforms = self.cell_uniforms(
-            surface_width as f32,
-            surface_height as f32,
+            config_width as f32,
+            config_height as f32,
             self.kgp_atlas_width as f32,
             self.kgp_atlas_height as f32,
         );

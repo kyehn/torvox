@@ -676,14 +676,17 @@ fn append_row_instances(
         // emoji ZWJ sequences): shape the whole cluster once so each mark
         // lands per font positioning. Cells without extras skip shaping
         // entirely, so the common case pays nothing.
+        let has_cluster = cd.grapheme_extra.iter().any(|&codepoint| codepoint != 0);
         let mut cluster_text = String::new();
-        cluster_text.push(ch);
-        for codepoint in &cd.grapheme_extra {
-            if *codepoint == 0 {
-                continue;
-            }
-            if let Some(mark) = char::from_u32(*codepoint) {
-                cluster_text.push(mark);
+        if has_cluster {
+            cluster_text.push(ch);
+            for codepoint in &cd.grapheme_extra {
+                if *codepoint == 0 {
+                    continue;
+                }
+                if let Some(mark) = char::from_u32(*codepoint) {
+                    cluster_text.push(mark);
+                }
             }
         }
         let cluster_shaped: Vec<crate::render::font::ShapedGlyphInfo> =
@@ -778,12 +781,12 @@ fn append_row_instances(
                     }
                 }
             } else {
-                for cp in &cd.grapheme_extra {
-                    if *cp == 0 {
+                for codepoint in &cd.grapheme_extra {
+                    if *codepoint == 0 {
                         continue;
                     }
                     if let Some(overlay) = font_pipeline.overlay_glyph_instance(
-                        *cp,
+                        *codepoint,
                         crate::render::font::OverlayQuad {
                             origin: glyph_quad_origin,
                             size: glyph_quad_size,
