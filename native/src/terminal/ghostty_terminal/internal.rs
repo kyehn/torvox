@@ -717,17 +717,13 @@ impl super::GhosttyTerminal {
                     } => {
                         // 同行列重调，仅更新单元格像素几何（Kitty 放置/鼠标映射用）。
                         // 网格内容不变，不失效行缓存、不置脏，避免字体变化引发全量重绘。
-                        let (Ok(cols), Ok(rows)) =
-                            (terminal.cols(), terminal.rows())
-                        else {
+                        let (Ok(cols), Ok(rows)) = (terminal.cols(), terminal.rows()) else {
                             continue;
                         };
                         if cell_width == 0 || cell_height == 0 {
                             continue;
                         }
-                        if let Err(error) =
-                            terminal.resize(cols, rows, cell_width, cell_height)
-                        {
+                        if let Err(error) = terminal.resize(cols, rows, cell_width, cell_height) {
                             log::error!("ghostty_terminal: cell resize failed: {error}");
                         }
                     }
@@ -1157,23 +1153,49 @@ impl libghostty_vt::kitty::graphics::DecodePng for KittyPngDecoder {
         alloc: &'alloc libghostty_vt::alloc::Allocator<'_>,
         data: &[u8],
     ) -> Option<libghostty_vt::kitty::graphics::DecodedImage<'alloc>> {
-        use png::{Decoder, Transformations};
+        use png::{ColorType, Decoder, Transformations};
         use std::io::Cursor;
         let mut decoder = Decoder::new(Cursor::new(data));
-        // 与上游 RustPngDecoder 一致：调色板/灰度展开为 RGBA8，
-        // 16 位截断为 8 位（ALPHA 保留透明通道，不得用 EXPAND）。
+        // 与上游 RustPngDecoder 一致：ALPHA 把调色板展开为 RGBA 并保留透明，
+        // STRIP_16 把 16 位截断为 8 位。png crate 不支持灰度转 RGB，
+        // 剩余灰度/RGB 输出在下面手动展开为 RGBA8。
         decoder.set_transformations(Transformations::ALPHA | Transformations::STRIP_16);
-        let mut frame = decoder.read_info().ok()?;
-        let buffer_size = frame.output_buffer_size()?;
-        if buffer_size > self.scratch.capacity() {
-            self.scratch.reserve(buffer_size - self.scratch.capacity());
-        }
-        self.scratch.resize(buffer_size, 0);
-        let info = frame.next_frame(&mut self.scratch).ok()?;
+        let mut reader = decoder.read_info().ok()?;
+        let mut raw = vec![0u8; reader.output_buffer_size()?];
+        let info = reader.next_frame(&mut raw).ok()?;
+        let frame_bytes = raw.get(..info.buffer_size())?;
+        self.scratch.clear();
+        let rgba: &[u8] = match info.color_type {
+            ColorType::Rgba => frame_bytes,
+            ColorType::Rgb => {
+                self.scratch.reserve(frame_bytes.len() / 3 * 4);
+                for triple in frame_bytes.as_chunks::<3>().0 {
+                    self.scratch.extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
+                }
+                &self.scratch
+            }
+            ColorType::Grayscale => {
+                self.scratch.reserve(frame_bytes.len() * 4);
+                for gray in frame_bytes {
+                    self.scratch
+                        .extend_from_slice(&[*gray, *gray, *gray, 255]);
+                }
+                &self.scratch
+            }
+            ColorType::GrayscaleAlpha => {
+                self.scratch.reserve(frame_bytes.len() / 2 * 4);
+                for pair in frame_bytes.as_chunks::<2>().0 {
+                    self.scratch
+                        .extend_from_slice(&[pair[0], pair[0], pair[0], pair[1]]);
+                }
+                &self.scratch
+            }
+            _ => return None,
+        };
         let mut bytes =
-            libghostty_vt::alloc::Bytes::new_with_alloc(alloc, info.buffer_size()).ok()?;
-        bytes.copy_from_slice(&self.scratch[..info.buffer_size()]);
-        frame.finish().ok()?;
+            libghostty_vt::alloc::Bytes::new_with_alloc(alloc, rgba.len()).ok()?;
+        bytes.copy_from_slice(rgba);
+        reader.finish().ok()?;
         Some(libghostty_vt::kitty::graphics::DecodedImage {
             width: info.width,
             height: info.height,
@@ -1276,8 +1298,7 @@ impl super::GhosttyTerminal {
             let Some(image) = graphics.image(image_id) else {
                 continue;
             };
-            let Some((image_width, image_height, image_rgba)) =
-                Self::kitty_image_to_rgba(&image)
+            let Some((image_width, image_height, image_rgba)) = Self::kitty_image_to_rgba(&image)
             else {
                 continue;
             };
