@@ -741,14 +741,58 @@ fn build_single_cell_instance(
 }
 
 #[test]
-fn cluster_cell_shapes_overlays_and_caches() {
+fn cluster_cell_merged_precomposed_emits_single_primary() {
     use crate::terminal::ghostty_terminal::CellData;
     let mut font_pipeline = ascii_font();
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    // e + combining acute shapes to one precomposed glyph: it replaces
+    // the primary quad instead of stacking an overlay.
     let mut extras = [0u32; 7];
     extras[0] = 0x301;
     let cell_data = vec![CellData {
         codepoint: 'e' as u32,
+        width: 1,
+        grapheme_extra: extras,
+        foreground: [1.0; 4],
+        background: [0.0; 4],
+        underline_color: [1.0; 4],
+        flags: 0,
+        row: 0,
+        col: 0,
+    }];
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let instances =
+        build_configured_cell_instance(&cell_data, cursor, cell_w, cell_h, &mut font_pipeline);
+    assert_eq!(
+        instances.len(),
+        1,
+        "precomposed cluster must emit exactly the primary quad, got {}",
+        instances.len()
+    );
+    assert!(
+        font_pipeline.caches.shape_cache.get("e\u{301}").is_some(),
+        "cluster shape must be cached"
+    );
+}
+
+#[test]
+fn cluster_cell_multi_mark_shapes_positioned_overlays() {
+    use crate::terminal::ghostty_terminal::CellData;
+    let mut font_pipeline = ascii_font();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    // a + two combining marks shapes to two glyphs: base primary plus
+    // one positioned overlay from the shaper.
+    let mut extras = [0u32; 7];
+    extras[0] = 0x301;
+    extras[1] = 0x302;
+    let cell_data = vec![CellData {
+        codepoint: 'a' as u32,
         width: 1,
         grapheme_extra: extras,
         foreground: [1.0; 4],
@@ -775,7 +819,11 @@ fn cluster_cell_shapes_overlays_and_caches() {
     );
     // The cluster shaping ran through the shared shape cache.
     assert!(
-        font_pipeline.caches.shape_cache.get("e\u{301}").is_some(),
+        font_pipeline
+            .caches
+            .shape_cache
+            .get("a\u{301}\u{302}")
+            .is_some(),
         "cluster shape must be cached"
     );
 }
@@ -2458,5 +2506,45 @@ fn bench_end_to_end_cpu_pipeline_latency() {
         ms_per_frame < 32.0,
         "End-to-end CPU pipeline too slow: {:.1}ms per frame (need <32ms)",
         ms_per_frame,
+    );
+}
+
+#[test]
+fn merged_cluster_emits_single_primary_without_ghost_overlays() {
+    use crate::terminal::ghostty_terminal::CellData;
+    let mut font_pipeline = ascii_font();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    // 👨‍👩‍👧 shapes to one glyph: it must replace the primary quad,
+    // not stack component overlays on top (ghosting).
+    let mut extras = [0u32; 7];
+    extras[0] = 0x200d;
+    extras[1] = 0x1f469;
+    extras[2] = 0x200d;
+    extras[3] = 0x1f467;
+    let cell_data = vec![CellData {
+        codepoint: 0x1f468,
+        width: 2,
+        grapheme_extra: extras,
+        foreground: [1.0; 4],
+        background: [0.0; 4],
+        underline_color: [1.0; 4],
+        flags: 0,
+        row: 0,
+        col: 0,
+    }];
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 0,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let instances =
+        build_configured_cell_instance(&cell_data, cursor, cell_w, cell_h, &mut font_pipeline);
+    assert_eq!(
+        instances.len(),
+        1,
+        "merged cluster must emit exactly the primary quad, got {}",
+        instances.len()
     );
 }
