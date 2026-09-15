@@ -150,6 +150,18 @@ mod tests {
     }
 
     #[test]
+    fn combining_cluster_shapes_to_positioned_glyphs() {
+        let mut pipeline = fixture();
+        // e + combining acute must shape without panic and populate
+        // the shape cache (the render cluster path keys on this).
+        let cluster = "e\u{301}";
+        let glyphs = pipeline.shape_run(cluster);
+        assert!(!glyphs.is_empty(), "combining cluster must shape to glyphs");
+        let cached = pipeline.shape_run(cluster);
+        assert_eq!(glyphs, cached, "cluster shape must come from cache");
+    }
+
+    #[test]
     fn cjk_mixed_text_shapes_without_panic() {
         let mut pipeline = fixture();
         // CJK triggers the fallback path; with or without CJK fonts in the
