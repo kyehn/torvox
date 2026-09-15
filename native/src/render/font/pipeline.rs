@@ -538,6 +538,18 @@ impl FontPipeline {
     ) -> Option<crate::render::CellInstance> {
         let mark_ch = char::from_u32(codepoint)?;
         let info = self.glyph_information(mark_ch)?;
+        self.shaped_overlay_instance(&info, quad, cell_h)
+    }
+
+    /// Overlay quad from an already-rasterized shaped glyph (cluster shaping
+    /// path): same math as the codepoint lookup above, plus the caller
+    /// bakes the shaper position into the quad origin beforehand.
+    pub(crate) fn shaped_overlay_instance(
+        &self,
+        info: &super::GlyphInfo,
+        quad: super::OverlayQuad,
+        cell_h: f32,
+    ) -> Option<crate::render::CellInstance> {
         let atlas_width = self.atlas_width as f32;
         let atlas_height = self.atlas_height as f32;
         let raster_scale = self.raster_scale;
