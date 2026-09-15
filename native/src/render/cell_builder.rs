@@ -652,6 +652,7 @@ fn append_row_instances(
                     atlas_size: [0.0; 2],
                     fg_color: effective_fg,
                     bg_color: effective_bg,
+                    underline_color: cd.underline_color,
                     quad_size: size,
                     flags: cd.flags as f32,
                     bearing: [0.0; 2],
@@ -706,6 +707,7 @@ fn append_row_instances(
                 atlas_size: [uv_w, uv_h],
                 fg_color: effective_fg,
                 bg_color: effective_bg,
+                underline_color: cd.underline_color,
                 quad_size: size,
                 flags: cd.flags as f32,
                 bearing: [bearing_x, bearing_y],
@@ -725,6 +727,7 @@ fn append_row_instances(
                         size: glyph_quad_size,
                         fg: effective_fg,
                         bg: effective_bg,
+                        deco: cd.underline_color,
                         flags: cd.flags as f32,
                     },
                     cell_h,
@@ -742,6 +745,7 @@ fn append_row_instances(
                 atlas_size: [0.0; 2],
                 fg_color: effective_fg,
                 bg_color: effective_bg,
+                underline_color: cd.underline_color,
                 quad_size,
                 flags: cd.flags as f32,
                 bearing: [0.0; 2],
@@ -830,6 +834,7 @@ mod tests {
             grapheme_extra: [0; 7],
             fg_color: fg,
             bg_color: bg,
+            underline_color: fg,
             flags,
             row,
             col,
@@ -897,6 +902,26 @@ mod tests {
         let instances = build(&cells, CellCursor::default(), &[]);
         assert_eq!(instances[0].fg_color, [0.0, 0.0, 1.0, 1.0]);
         assert_eq!(instances[0].bg_color, [1.0, 0.0, 0.0, 1.0]);
+    }
+
+    /// SGR 58 underline color reaches the GPU instance for the shader deco pass.
+    #[test]
+    fn underline_color_reaches_instance() {
+        let mut decorated = cell_data(
+            0,
+            0,
+            'U',
+            [1.0, 1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0],
+            1 << cell_flags::UNDERLINE,
+        );
+        decorated.underline_color = [1.0, 0.0, 0.0, 1.0];
+        let instances = build(&[decorated], CellCursor::default(), &[]);
+        assert_eq!(
+            instances[0].underline_color,
+            [1.0, 0.0, 0.0, 1.0],
+            "SGR 58 color must reach the instance deco channel"
+        );
     }
 
     /// Search highlight with alpha >= 128 swaps fg/bg then blends bg.

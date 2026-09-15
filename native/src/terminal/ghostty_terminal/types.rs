@@ -63,7 +63,7 @@ pub struct CursorInfo {
 /// (where it's produced via Ghostty CellIterator) to the Render thread
 /// (where it's converted to CellInstance for GPU upload).
 ///
-/// This is a fixed-size bytemuck struct (80 bytes) so `Vec<CellData>` can be
+/// This is a fixed-size bytemuck struct (96 bytes) so `Vec<CellData>` can be
 /// sent across a flume channel with zero copying overhead per cell.
 #[repr(C)]
 #[derive(Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
@@ -79,6 +79,10 @@ pub struct CellData {
     pub fg_color: [f32; 4],
     /// Resolved background color as [R, G, B, A] in 0..1.
     pub bg_color: [f32; 4],
+    /// Resolved underline (SGR 58) color as [R, G, B, A] in 0..1.
+    /// Falls back to the resolved foreground when the cell sets no explicit
+    /// underline color, matching the shader's historic `deco_color = fg`.
+    pub underline_color: [f32; 4],
     /// Packed style flags; bit positions are defined by [`cell_flags`]
     /// (bold/italic/reverse/underline/strikethrough/overline/faint/double
     /// underline), packed by `pack_style_flags` and consumed by the GPU and
@@ -95,7 +99,7 @@ mod tests {
     use super::*;
     #[test]
     fn cell_data_size() {
-        assert_eq!(std::mem::size_of::<CellData>(), 80);
+        assert_eq!(std::mem::size_of::<CellData>(), 96);
     }
     #[test]
     fn cell_data_is_bytemuck() {
@@ -172,6 +176,8 @@ pub struct CellSnapshot {
     pub graphemes: Vec<u32>,
     pub foreground: [f32; 4],
     pub background: [f32; 4],
+    /// Resolved SGR 58 underline color (falls back to `foreground`).
+    pub underline_color: [f32; 4],
     pub bold: bool,
     pub dim: bool,
     pub italic: bool,
@@ -206,6 +212,7 @@ static DEFAULT_CELL: CellSnapshot = CellSnapshot {
     graphemes: Vec::new(),
     foreground: [0.0; 4],
     background: [0.0; 4],
+    underline_color: [0.0; 4],
     bold: false,
     dim: false,
     italic: false,

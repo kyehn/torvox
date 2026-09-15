@@ -521,6 +521,7 @@ fn cell_snapshot_clone() {
         graphemes: Vec::new(),
         foreground: [1.0, 0.0, 0.0, 1.0],
         background: [0.0, 0.0, 0.0, 1.0],
+        underline_color: [1.0, 0.0, 0.0, 1.0],
         bold: true,
         dim: false,
         italic: false,

@@ -39,6 +39,7 @@ fn build_instances(c: &mut Criterion) {
                 grapheme_extra: [0; 7],
                 fg_color: fg,
                 bg_color: bg,
+                underline_color: fg,
                 flags: fl,
                 row: (i / cols as usize) as u32,
                 col: (i % cols as usize) as u32,
