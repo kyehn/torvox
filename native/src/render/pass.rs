@@ -476,7 +476,14 @@ impl Renderer {
             depth_stencil_attachment: None,
             ..Default::default()
         });
-        render_pass.set_viewport(0.0, 0.0, config_width as f32, config_height as f32, 0.0, 1.0);
+        render_pass.set_viewport(
+            0.0,
+            0.0,
+            config_width as f32,
+            config_height as f32,
+            0.0,
+            1.0,
+        );
         render_pass.set_scissor_rect(0, 0, config_width, config_height);
 
         // Cells: either just the dirty bands or everything.
