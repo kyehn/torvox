@@ -235,7 +235,7 @@ constructor(
                         viewModel?.selectAll()
                     },
             )
-            if (isOpenableLink(selectionText)) {
+            if (isLinkTextCandidate(selectionText) || isOpenableLink(selectionText)) {
                 add(
                     context.getString(R.string.open_link) to
                         {
@@ -244,7 +244,7 @@ constructor(
                         },
                 )
             }
-            if (isOpenableFile(selectionText)) {
+            if (isFilePathCandidate(selectionText)) {
                 add(
                     context.getString(R.string.open_file) to
                         {
@@ -266,11 +266,21 @@ constructor(
 
     internal fun isOpenableFile(text: String): Boolean {
         if (!isFilePathCandidate(text)) return false
-        val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
-            .substringBefore("\n").trim()
+        return isUnderFileProviderRoots(
+            text.trim().trim('"', '\'', '(', ')', '[', ']')
+                .substringBefore("\n").trim(),
+        )
+    }
+
+    internal fun isUnderFileProviderRoots(path: String): Boolean {
+        if (path.isEmpty()) return false
         return try {
-            val file = File(trimmed)
-            file.isFile && file.exists()
+            val roots = listOfNotNull(
+                context.filesDir?.absolutePath,
+                context.cacheDir?.absolutePath,
+                context.getExternalFilesDir(null)?.absolutePath,
+            )
+            roots.any { root -> path == root || path.startsWith("$root/") }
         } catch (_: Exception) {
             false
         }
@@ -299,25 +309,49 @@ constructor(
     internal fun openSelectionAsFile(text: String) {
         val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
             .substringBefore("\n").trim()
-        if (trimmed.isEmpty()) return
+        if (trimmed.isEmpty()) {
+            toastCannotOpenFile()
+            return
+        }
         val file = try {
             File(trimmed)
         } catch (_: Exception) {
+            toastCannotOpenFile()
             return
         }
-        if (!file.isFile || !file.exists()) return
+        if (!file.isFile || !file.exists()) {
+            toastCannotOpenFile()
+            return
+        }
+        if (!isUnderFileProviderRoots(trimmed)) {
+            toastCannotOpenFile()
+            return
+        }
         try {
             val uri =
-                FileProvider.getUriForFile(context, "com.termux.fileprovider", file)
+                FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+            val mime = context.contentResolver.getType(uri) ?: "*/*"
             val intent =
                 android.content.Intent(android.content.Intent.ACTION_VIEW)
-                    .setDataAndType(uri, context.contentResolver.getType(uri))
+                    .setDataAndType(uri, mime)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
                     .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     .addFlags(android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
             context.startActivity(intent)
         } catch (exception: Exception) {
             LogUtil.w(TAG, "openSelectionAsFile: no handler", exception)
+            toastCannotOpenFile()
+        }
+    }
+
+    internal fun toastCannotOpenFile() {
+        try {
+            android.widget.Toast.makeText(
+                context,
+                context.getString(R.string.open_file_failed),
+                android.widget.Toast.LENGTH_SHORT,
+            ).show()
+        } catch (_: Exception) {
         }
     }
 
