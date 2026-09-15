@@ -2310,6 +2310,9 @@ fn strict_benchmarks() -> bool {
 /// Simulate scrolling through terminal history.
 /// Writes many lines of content, then measures take_snapshot_with_scroll
 /// at varying offset positions.
+/// 归属说明：度量对象虽为终端快照，但本用例与相邻渲染 bench 共享
+/// `GPU_BENCH_LOCK`（防 Lavapipe 并行争用）与 `strict_benchmarks` 阈值开关，
+/// 故置于渲染 bench 套件内；终端输入仅作夹具。
 #[test]
 fn bench_scroll_throughput() {
     use std::hint::black_box;
