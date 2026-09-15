@@ -29,7 +29,7 @@ interface TerminalQueryPort {
         endCol: Int,
         hasSelection: Boolean? = null,
         mode: Byte = 0,
-        selectionBgArgb: Int = 0xFF45475A.toInt(),
+        selectionBackgroundArgb: Int = 0xFF45475A.toInt(),
     )
     fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair<Pair<Int, Int>, Pair<Int, Int>>?
 

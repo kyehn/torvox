@@ -18,10 +18,10 @@ pub struct CellJson {
     pub content: String,
     /// Foreground color as hex "RRGGBB" or empty for default.
     #[serde(default)]
-    pub fg: String,
+    pub foreground: String,
     /// Background color as hex "RRGGBB" or empty for default.
     #[serde(default)]
-    pub bg: String,
+    pub background: String,
     #[serde(default)]
     pub bold: bool,
     #[serde(default)]
@@ -63,7 +63,7 @@ fn cell_to_json(cell: &CellSnapshot) -> CellJson {
                 .map(|c| c.to_string())
                 .unwrap_or_default()
         },
-        fg: if cell.foreground[3] == 0.0 {
+        foreground: if cell.foreground[3] == 0.0 {
             String::new()
         } else {
             format!(
@@ -73,7 +73,7 @@ fn cell_to_json(cell: &CellSnapshot) -> CellJson {
                 (cell.foreground[2] * 255.0).round() as u8
             )
         },
-        bg: if cell.background[3] == 0.0 {
+        background: if cell.background[3] == 0.0 {
             String::new()
         } else {
             format!(
@@ -167,11 +167,17 @@ pub fn diff(expected: &TestSnapshot, actual: &TestSnapshot) -> DiffResult {
         if exp.content != act.content {
             diffs.push(format!("content {:?} got {:?}", exp.content, act.content));
         }
-        if exp.fg != act.fg {
-            diffs.push(format!("fg {} got {}", exp.fg, act.fg));
+        if exp.foreground != act.foreground {
+            diffs.push(format!(
+                "foreground {} got {}",
+                exp.foreground, act.foreground
+            ));
         }
-        if exp.bg != act.bg {
-            diffs.push(format!("bg {} got {}", exp.bg, act.bg));
+        if exp.background != act.background {
+            diffs.push(format!(
+                "background {} got {}",
+                exp.background, act.background
+            ));
         }
         if exp.bold != act.bold {
             diffs.push(format!("bold {} got {}", exp.bold, act.bold));

@@ -14,8 +14,8 @@ use super::{
 pub(crate) struct OverlayQuad {
     pub origin: [f32; 2],
     pub size: [f32; 2],
-    pub fg: [f32; 4],
-    pub bg: [f32; 4],
+    pub foreground: [f32; 4],
+    pub background: [f32; 4],
     pub deco: [f32; 4],
     pub flags: f32,
 }
@@ -554,8 +554,8 @@ impl FontPipeline {
             quad_origin: quad.origin,
             atlas_offset: [uv_x, uv_y],
             atlas_size: [uv_w, uv_h],
-            fg_color: quad.fg,
-            bg_color: quad.bg,
+            foreground: quad.foreground,
+            background: quad.background,
             underline_color: quad.deco,
             quad_size: quad.size,
             flags: quad.flags,

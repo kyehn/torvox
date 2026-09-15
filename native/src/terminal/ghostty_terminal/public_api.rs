@@ -39,8 +39,8 @@ impl super::GhosttyTerminal {
         rows: u32,
         cols: u32,
         scrollback_lines: u32,
-        initial_bg: [u8; 3],
-        initial_fg: [u8; 3],
+        initial_background: [u8; 3],
+        initial_foreground: [u8; 3],
         initial_ansi: [[u8; 3]; 16],
     ) -> Result<Self, TerminalError> {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
@@ -66,8 +66,8 @@ impl super::GhosttyTerminal {
                         rows,
                         cols,
                         scrollback_lines,
-                        background_color: initial_bg,
-                        foreground_color: initial_fg,
+                        background_color: initial_background,
+                        foreground_color: initial_foreground,
                         ansi_colors: initial_ansi,
                         response_buffer: pty_for_run,
                         snapshot_rebuild_count: snapshot_rebuild_count_for_run,

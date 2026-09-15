@@ -84,13 +84,13 @@ pub fn assert_invariants(snap: &GridSnapshot) {
         for ch in &cell.foreground {
             assert!(
                 *ch >= 0.0 && *ch <= 1.0,
-                "fg channel {ch} out of range [0,1] at ({row},{col})"
+                "foreground channel {ch} out of range [0,1] at ({row},{col})"
             );
         }
         for ch in &cell.background {
             assert!(
                 *ch >= 0.0 && *ch <= 1.0,
-                "bg channel {ch} out of range [0,1] at ({row},{col})"
+                "background channel {ch} out of range [0,1] at ({row},{col})"
             );
         }
     }
@@ -180,37 +180,37 @@ impl<'a> TermTestCase<'a> {
     }
 
     /// Assert foreground color of the cell at (row, col) approximates `expected`.
-    pub fn assert_fg(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
+    pub fn assert_foreground(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
         let snap = self.term.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(
             colors_approx_eq(&cell.foreground, &expected),
-            "fg at ({row},{col}) expected {expected:?}, got {:?}",
+            "foreground at ({row},{col}) expected {expected:?}, got {:?}",
             cell.foreground
         );
         self
     }
 
     /// Assert foreground color of the cell at (row, col) using exact u8 RGB values.
-    pub fn assert_fg_exact(self, row: u32, col: u32, r: u8, g: u8, b: u8) -> Self {
+    pub fn assert_foreground_exact(self, row: u32, col: u32, r: u8, g: u8, b: u8) -> Self {
         let expected = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0];
-        self.assert_fg(row, col, expected)
+        self.assert_foreground(row, col, expected)
     }
 
     // Required: shared test helper — not all test binaries call every method.
     #[allow(dead_code)]
-    pub fn assert_bg_exact(self, row: u32, col: u32, r: u8, g: u8, b: u8) -> Self {
+    pub fn assert_background_exact(self, row: u32, col: u32, r: u8, g: u8, b: u8) -> Self {
         let expected = [r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0, 1.0];
-        self.assert_bg(row, col, expected)
+        self.assert_background(row, col, expected)
     }
 
     /// Assert background color of the cell at (row, col) approximates `expected`.
-    pub fn assert_bg(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
+    pub fn assert_background(self, row: u32, col: u32, expected: [f32; 4]) -> Self {
         let snap = self.term.take_snapshot();
         let cell = cell_at(&snap, row, col).unwrap_or_else(|| panic!("no cell at ({row}, {col})"));
         assert!(
             colors_approx_eq(&cell.background, &expected),
-            "bg at ({row},{col}) expected {expected:?}, got {:?}",
+            "background at ({row},{col}) expected {expected:?}, got {:?}",
             cell.background
         );
         self
@@ -414,11 +414,11 @@ mod tests {
         let mut t = term();
         // Use 24-bit color (SGR 38;2) because palette-indexed colors (SGR 31)
         // resolve to StyleColor::PaletteIndex, which build_snapshot maps to
-        // default_fg rather than the palette entry.
+        // default_foreground rather than the palette entry.
         let red = [1.0, 0.0, 0.0, 1.0];
         TermTestCase::new(&mut t)
             .write(b"\x1b[38;2;255;0;0mX")
-            .assert_fg(0, 0, red);
+            .assert_foreground(0, 0, red);
     }
 
     #[test]
@@ -557,19 +557,19 @@ mod tests {
     }
 
     #[test]
-    fn test_assert_fg_exact() {
+    fn test_assert_foreground_exact() {
         let mut t = term();
         TermTestCase::new(&mut t)
             .write(b"\x1b[38;2;255;128;64mX")
-            .assert_fg_exact(0, 0, 255, 128, 64);
+            .assert_foreground_exact(0, 0, 255, 128, 64);
     }
 
     #[test]
-    fn test_assert_bg_exact() {
+    fn test_assert_background_exact() {
         let mut t = term();
         TermTestCase::new(&mut t)
             .write(b"\x1b[48;2;64;128;255mX")
-            .assert_bg_exact(0, 0, 64, 128, 255);
+            .assert_background_exact(0, 0, 64, 128, 255);
     }
 
     #[test]

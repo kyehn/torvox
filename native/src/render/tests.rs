@@ -142,8 +142,8 @@ fn cell_instance_pod_roundtrip() {
         quad_origin: [1.0, 2.0],
         atlas_offset: [0.5, 0.5],
         atlas_size: [0.1, 0.1],
-        fg_color: [1.0, 1.0, 1.0, 1.0],
-        bg_color: [0.0, 0.0, 0.0, 1.0],
+        foreground: [1.0, 1.0, 1.0, 1.0],
+        background: [0.0, 0.0, 0.0, 1.0],
         underline_color: [1.0, 1.0, 1.0, 1.0],
         quad_size: [3.0, 4.0],
         flags: 5.0,
@@ -161,7 +161,7 @@ fn cell_instance_pod_roundtrip() {
 fn cell_instance_zeroable() {
     let c: CellInstance = bytemuck::Zeroable::zeroed();
     assert!(f32_arrays_equal(&c.quad_origin, &[0.0, 0.0]));
-    assert!(f32_arrays_equal(&c.fg_color, &[0.0, 0.0, 0.0, 0.0]));
+    assert!(f32_arrays_equal(&c.foreground, &[0.0, 0.0, 0.0, 0.0]));
     assert!(f32_eq(c.flags, 0.0));
     assert!(f32_arrays_equal(&c.bearing, &[0.0, 0.0]));
 }
@@ -269,10 +269,10 @@ fn blend_shader() -> wgpu::ShaderModuleDescriptor<'static> {
             "@group(0) @binding(0) var<storage, read_write> output: array<vec4<f32>>;
                 @compute @workgroup_size(1, 1, 1)
                 fn cs_main(@builtin(global_invocation_id) gid: vec3<u32>) {
-                    let bg = vec4<f32>(40.0/255.0, 42.0/255.0, 54.0/255.0, 1.0);
-                    let fg = vec4<f32>(1.0, 1.0, 1.0, 1.0);
+                    let background = vec4<f32>(40.0/255.0, 42.0/255.0, 54.0/255.0, 1.0);
+                    let foreground = vec4<f32>(1.0, 1.0, 1.0, 1.0);
                     let alpha = 0.5;
-                    output[gid.x] = mix(bg, fg, vec4<f32>(alpha, alpha, alpha, alpha));
+                    output[gid.x] = mix(background, foreground, vec4<f32>(alpha, alpha, alpha, alpha));
                 }",
         )),
     }
@@ -515,8 +515,8 @@ fn cursor_rendering_on_visible_cursor() {
             codepoint: 'A' as u32,
             width: 1,
             grapheme_extra: [0; 7],
-            fg_color: [1.0, 1.0, 1.0, 1.0],
-            bg_color: [0.0, 0.0, 0.0, 1.0],
+            foreground: [1.0, 1.0, 1.0, 1.0],
+            background: [0.0, 0.0, 0.0, 1.0],
             underline_color: [1.0, 1.0, 1.0, 1.0],
             flags: 0,
             row: 0,
@@ -526,8 +526,8 @@ fn cursor_rendering_on_visible_cursor() {
             codepoint: 0,
             width: 1,
             grapheme_extra: [0; 7],
-            fg_color: [1.0, 1.0, 1.0, 1.0],
-            bg_color: [0.0, 0.0, 0.0, 1.0],
+            foreground: [1.0, 1.0, 1.0, 1.0],
+            background: [0.0, 0.0, 0.0, 1.0],
             underline_color: [1.0, 1.0, 1.0, 1.0],
             flags: 0,
             row: 0,
@@ -562,13 +562,13 @@ fn cursor_rendering_on_visible_cursor() {
     let cursor_cell = &instances[0];
     // Block cursor alpha = cursor_color[3] * 0.7 (CURSOR_BLOCK_ALPHA constant)
     assert!(
-        f32_arrays_equal(&cursor_cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
-        "cursor cell bg should be white with block alpha when cursor_visible=true"
+        f32_arrays_equal(&cursor_cell.background, &[1.0, 1.0, 1.0, 0.7]),
+        "cursor cell background should be white with block alpha when cursor_visible=true"
     );
     let non_cursor_cell = &instances[1];
     assert!(
-        !f32_arrays_equal(&non_cursor_cell.bg_color, &[1.0, 1.0, 1.0, 1.0]),
-        "non-cursor cell bg should NOT be white"
+        !f32_arrays_equal(&non_cursor_cell.background, &[1.0, 1.0, 1.0, 1.0]),
+        "non-cursor cell background should NOT be white"
     );
 }
 
@@ -589,8 +589,8 @@ fn cursor_not_rendered_when_invisible() {
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
-        !f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 1.0]),
-        "cursor cell should not have white bg when cursor_visible=false"
+        !f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 1.0]),
+        "cursor cell should not have white background when cursor_visible=false"
     );
 }
 
@@ -613,15 +613,15 @@ fn reverse_video_applied_to_blank_cell() {
     );
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
-    // Reverse video swaps fg/bg: blank cell bg must become the foreground,
-    // fg must become the background.
+    // Reverse video swaps foreground/background: blank cell background must become the foreground,
+    // foreground must become the background.
     assert!(
-        f32_arrays_equal(&cell.bg_color, &foreground),
-        "reversed blank cell bg must equal foreground"
+        f32_arrays_equal(&cell.background, &foreground),
+        "reversed blank cell background must equal foreground"
     );
     assert!(
-        f32_arrays_equal(&cell.fg_color, &background),
-        "reversed blank cell fg must equal background"
+        f32_arrays_equal(&cell.foreground, &background),
+        "reversed blank cell foreground must equal background"
     );
 }
 
@@ -676,8 +676,8 @@ fn build_cursor_probe_instance(
         codepoint,
         width: 1,
         grapheme_extra: [0; 7],
-        fg_color: foreground,
-        bg_color: background,
+        foreground,
+        background,
         underline_color: foreground,
         flags,
         row: 0,
@@ -706,8 +706,8 @@ fn build_single_cell_instance(
         codepoint: ch as u32,
         width: 1,
         grapheme_extra: [0; 7],
-        fg_color: [1.0; 4],
-        bg_color: [0.0; 4],
+        foreground: [1.0; 4],
+        background: [0.0; 4],
         underline_color: [1.0; 4],
         flags: 0,
         row: 0,
@@ -808,8 +808,8 @@ fn all_chars_share_same_baseline_y() {
             codepoint: ch as u32,
             width: 1,
             grapheme_extra: [0; 7],
-            fg_color: [1.0; 4],
-            bg_color: [0.0; 4],
+            foreground: [1.0; 4],
+            background: [0.0; 4],
             underline_color: [1.0; 4],
             flags: 0,
             row: 0,
@@ -883,8 +883,8 @@ fn cjk_bearing_y_not_centered() {
                 codepoint: ch as u32,
                 width: 2,
                 grapheme_extra: [0; 7],
-                fg_color: [1.0; 4],
-                bg_color: [0.0; 4],
+                foreground: [1.0; 4],
+                background: [0.0; 4],
                 underline_color: [1.0; 4],
                 flags: 0,
                 row: 0,
@@ -965,7 +965,7 @@ fn gpu_background_plain_color_fill() {
     let idx = (25 * 50 + 25) * 4;
     assert_eq!(
         result[idx], 30,
-        "center R should be 30 (Catppuccin Mocha bg)"
+        "center R should be 30 (Catppuccin Mocha background)"
     );
     assert_eq!(result[idx + 1], 30, "center G should be 30");
     assert_eq!(result[idx + 2], 46, "center B should be 46");
@@ -1026,8 +1026,8 @@ fn search_highlight_blends_on_non_cursor_cell() {
         codepoint: 'X' as u32,
         width: 1,
         grapheme_extra: [0; 7],
-        fg_color: [1.0, 1.0, 1.0, 1.0],
-        bg_color: [0.0, 0.0, 0.0, 1.0],
+        foreground: [1.0, 1.0, 1.0, 1.0],
+        background: [0.0, 0.0, 0.0, 1.0],
         underline_color: [1.0, 1.0, 1.0, 1.0],
         flags: 0,
         row: 0,
@@ -1066,9 +1066,9 @@ fn search_highlight_blends_on_non_cursor_cell() {
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
-        cell.bg_color[0] > 0.4,
-        "highlighted cell bg should have red tint from blending: {:?}",
-        cell.bg_color
+        cell.background[0] > 0.4,
+        "highlighted cell background should have red tint from blending: {:?}",
+        cell.background
     );
 }
 
@@ -1081,8 +1081,8 @@ fn cursor_cell_not_affected_by_search_highlight() {
         codepoint: 'A' as u32,
         width: 1,
         grapheme_extra: [0; 7],
-        fg_color: [0.0, 1.0, 0.0, 1.0],
-        bg_color: [0.0, 0.0, 0.0, 1.0],
+        foreground: [0.0, 1.0, 0.0, 1.0],
+        background: [0.0, 0.0, 0.0, 1.0],
         underline_color: [0.0, 1.0, 0.0, 1.0],
         flags: 0,
         row: 0,
@@ -1121,8 +1121,8 @@ fn cursor_cell_not_affected_by_search_highlight() {
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
-        f32_arrays_equal(&cell.bg_color, &[0.5, 0.5, 1.0, 0.7]),
-        "cursor cell bg should be cursor color (with block alpha), not highlight color"
+        f32_arrays_equal(&cell.background, &[0.5, 0.5, 1.0, 0.7]),
+        "cursor cell background should be cursor color (with block alpha), not highlight color"
     );
 }
 
@@ -1143,7 +1143,7 @@ fn group_highlights_by_row(
 
 #[test]
 fn search_highlight_current_match_inverts_fg_bg() {
-    // Current match: alpha >= 128 triggers fg/bg swap
+    // Current match: alpha >= 128 triggers foreground/background swap
     let highlights = vec![SearchHighlight {
         row: 0,
         start_col: 2,
@@ -1159,7 +1159,7 @@ fn search_highlight_current_match_inverts_fg_bg() {
 
 #[test]
 fn search_highlight_other_match_no_invert() {
-    // Other match: alpha < 128 should NOT swap fg and bg
+    // Other match: alpha < 128 should NOT swap foreground and background
     let highlights = vec![SearchHighlight {
         row: 0,
         start_col: 2,
@@ -1271,30 +1271,30 @@ fn search_highlight_current_match_alpha_matches_production() {
 
     let original_fg: [f32; 4] = [1.0, 1.0, 1.0, 1.0]; // white text
     let original_bg: [f32; 4] = [0.0, 0.0, 0.0, 1.0]; // black background
-    let mut fg = original_fg;
-    let mut bg = original_bg;
+    let mut foreground = original_fg;
+    let mut background = original_bg;
 
-    apply_search_highlight(&mut fg, &mut bg, hl);
+    apply_search_highlight(&mut foreground, &mut background, hl);
 
-    // alpha >= 128 must swap fg/bg (inverse video): fg becomes the
+    // alpha >= 128 must swap foreground/background (inverse video): foreground becomes the
     // ORIGINAL background...
     assert!(
-        f32_arrays_equal(&fg, &original_bg),
-        "alpha=255 must swap fg/bg; fg should become the original bg: {:?}",
-        fg
+        f32_arrays_equal(&foreground, &original_bg),
+        "alpha=255 must swap foreground/background; foreground should become the original background: {:?}",
+        foreground
     );
     // ...and the swapped background is fully covered by the opaque
     // highlight color.
     let expected_bg = blend_highlight(original_bg, hl);
     assert!(
-        f32_arrays_equal(&bg, &expected_bg),
-        "bg should be highlight blended over the swapped bg: {:?}",
-        bg
+        f32_arrays_equal(&background, &expected_bg),
+        "background should be highlight blended over the swapped background: {:?}",
+        background
     );
     assert!(
-        f32_arrays_equal(&bg, &[1.0, 200.0 / 255.0, 0.0, 1.0]),
+        f32_arrays_equal(&background, &[1.0, 200.0 / 255.0, 0.0, 1.0]),
         "opaque highlight must fully replace the background: {:?}",
-        bg
+        background
     );
 }
 
@@ -1308,28 +1308,28 @@ fn search_highlight_other_match_alpha_matches_production() {
 
     let original_fg: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
     let original_bg: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
-    let mut fg = original_fg;
-    let mut bg = original_bg;
+    let mut foreground = original_fg;
+    let mut background = original_bg;
 
-    apply_search_highlight(&mut fg, &mut bg, hl);
+    apply_search_highlight(&mut foreground, &mut background, hl);
 
-    // alpha >= 128 must swap (inverse video): fg becomes the original bg.
+    // alpha >= 128 must swap (inverse video): foreground becomes the original background.
     assert!(
-        f32_arrays_equal(&fg, &original_bg),
-        "alpha=160 must swap fg/bg like every match: {:?}",
-        fg
+        f32_arrays_equal(&foreground, &original_bg),
+        "alpha=160 must swap foreground/background like every match: {:?}",
+        foreground
     );
-    // Background gets the highlight blended over the swapped bg — which now
+    // Background gets the highlight blended over the swapped background — which now
     // holds the ORIGINAL foreground — visibly different from BOTH the
     // untouched background and the fully opaque current-match treatment.
     let expected_bg = blend_highlight(original_fg, hl);
     assert!(
-        f32_arrays_equal(&bg, &expected_bg),
-        "bg should be highlight blended over the swapped bg: {:?}",
-        bg
+        f32_arrays_equal(&background, &expected_bg),
+        "background should be highlight blended over the swapped background: {:?}",
+        background
     );
     assert!(
-        !f32_arrays_equal(&bg, &original_bg),
+        !f32_arrays_equal(&background, &original_bg),
         "the alpha=160 blend must visibly change the background"
     );
 }
@@ -1337,7 +1337,7 @@ fn search_highlight_other_match_alpha_matches_production() {
 #[test]
 fn selection_intersect_current_match_double_swap() {
     // Covers the highlight-on-terminal-selection path: the VT thread bakes
-    // the tracked-selection inverse video into CellData (fg/bg pre-swapped
+    // the tracked-selection inverse video into CellData (foreground/background pre-swapped
     // here), then apply_search_highlight runs on top. A current-match
     // highlight (production alpha 255 >= 128 from
     // SearchHighlightColors.CURRENT_MATCH_ALPHA) swaps AGAIN, so the two
@@ -1351,8 +1351,8 @@ fn selection_intersect_current_match_double_swap() {
         codepoint: 'X' as u32,
         width: 1,
         grapheme_extra: [0; 7],
-        fg_color: [0.0, 0.0, 0.0, 1.0],
-        bg_color: [1.0, 1.0, 1.0, 1.0],
+        foreground: [0.0, 0.0, 0.0, 1.0],
+        background: [1.0, 1.0, 1.0, 1.0],
         underline_color: [0.0, 0.0, 0.0, 1.0],
         flags: 0,
         row: 0,
@@ -1392,15 +1392,15 @@ fn selection_intersect_current_match_double_swap() {
     let cell = &instances[0];
     // Double swap cancels: the text keeps its ORIGINAL foreground...
     assert!(
-        f32_arrays_equal(&cell.fg_color, &[1.0, 1.0, 1.0, 1.0]),
-        "selection swap + highlight swap must cancel; fg keeps original: {:?}",
-        cell.fg_color
+        f32_arrays_equal(&cell.foreground, &[1.0, 1.0, 1.0, 1.0]),
+        "selection swap + highlight swap must cancel; foreground keeps original: {:?}",
+        cell.foreground
     );
     // ...and the background is fully covered by the opaque highlight.
     assert!(
-        f32_arrays_equal(&cell.bg_color, &[1.0, 200.0 / 255.0, 0.0, 1.0]),
-        "bg should be the fully-opaque highlight color: {:?}",
-        cell.bg_color
+        f32_arrays_equal(&cell.background, &[1.0, 200.0 / 255.0, 0.0, 1.0]),
+        "background should be the fully-opaque highlight color: {:?}",
+        cell.background
     );
 }
 
@@ -1453,8 +1453,8 @@ fn cursor_not_rendered_when_visible_false() {
     let cell = &instances[0];
     // Non-cursor blank cell uses default background, not cursor color
     assert!(
-        !f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
-        "cursor cell should not have block alpha bg when cursor_visible=false"
+        !f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 0.7]),
+        "cursor cell should not have block alpha background when cursor_visible=false"
     );
 }
 
@@ -1479,7 +1479,7 @@ fn cursor_at_origin() {
     );
     let cell = &instances[0];
     assert!(
-        f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
+        f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 0.7]),
         "cursor at origin must render with block alpha"
     );
 }
@@ -1500,14 +1500,14 @@ fn cursor_with_text_and_block_style() {
     );
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
-    // Block cursor keeps the original fg readable, bg becomes cursor color×alpha.
+    // Block cursor keeps the original foreground readable, background becomes cursor color×alpha.
     assert!(
-        f32_arrays_equal(&cell.fg_color, &[0.0, 1.0, 0.0, 1.0]),
-        "block cursor on text: fg should stay the original foreground"
+        f32_arrays_equal(&cell.foreground, &[0.0, 1.0, 0.0, 1.0]),
+        "block cursor on text: foreground should stay the original foreground"
     );
     assert!(
-        f32_arrays_equal(&cell.bg_color, &[1.0, 1.0, 1.0, 0.7]),
-        "block cursor on text: bg should be cursor color with block alpha"
+        f32_arrays_equal(&cell.background, &[1.0, 1.0, 1.0, 0.7]),
+        "block cursor on text: background should be cursor color with block alpha"
     );
 }
 
@@ -1520,8 +1520,8 @@ fn cursor_color_custom_values() {
         codepoint: 0x20,
         width: 1,
         grapheme_extra: [0; 7],
-        fg_color: [1.0, 1.0, 1.0, 1.0],
-        bg_color: [0.0, 0.0, 0.0, 1.0],
+        foreground: [1.0, 1.0, 1.0, 1.0],
+        background: [0.0, 0.0, 0.0, 1.0],
         underline_color: [1.0, 1.0, 1.0, 1.0],
         flags: 0,
         row: 0,
@@ -1554,7 +1554,7 @@ fn cursor_color_custom_values() {
     assert_eq!(instances.len(), 1);
     let cell = &instances[0];
     assert!(
-        f32_arrays_equal(&cell.bg_color, &[0.5, 0.3, 0.8, 0.7]),
+        f32_arrays_equal(&cell.background, &[0.5, 0.3, 0.8, 0.7]),
         "custom cursor color should be reflected with block alpha multiplier"
     );
 }
@@ -1654,21 +1654,21 @@ fn bench_build_instances_from_cell_data() {
         ('中', 2, [1.0, 0.8, 0.2, 1.0], [0.05, 0.05, 0.1, 1.0], 0), // CJK (yellow)
         ('W', 1, [0.3, 0.8, 1.0, 1.0], [0.1, 0.1, 0.1, 1.0], 1), // bold blue
         ('i', 1, [0.5, 1.0, 0.5, 1.0], [0.1, 0.1, 0.1, 1.0], 2), // italic green
-        ('e', 1, [0.9, 0.9, 0.9, 1.0], [0.2, 0.0, 0.0, 1.0], 4), // red bg (diff)
+        ('e', 1, [0.9, 0.9, 0.9, 1.0], [0.2, 0.0, 0.0, 1.0], 4), // red background (diff)
         ('█', 1, [0.6, 0.6, 0.6, 1.0], [0.15, 0.15, 0.15, 1.0], 0), // block char
         ('~', 1, [0.4, 0.4, 0.4, 1.0], [0.1, 0.1, 0.1, 1.0], 8), // dim gray
     ];
 
     let cell_data: Vec<crate::terminal::ghostty_terminal::CellData> = (0..count)
         .map(|i| {
-            let (ch, w, fg, bg, fl) = mixed_data[i % mixed_data.len()];
+            let (ch, w, foreground, background, fl) = mixed_data[i % mixed_data.len()];
             crate::terminal::ghostty_terminal::CellData {
                 codepoint: ch as u32,
                 width: w,
                 grapheme_extra: [0; 7],
-                fg_color: fg,
-                bg_color: bg,
-                underline_color: fg,
+                foreground,
+                background,
+                underline_color: foreground,
                 flags: fl,
                 row: (i / cols as usize) as u32,
                 col: (i % cols as usize) as u32,
@@ -1760,8 +1760,8 @@ fn bench_gpu_buffer_upload_throughput() {
             quad_origin: [i as f32 % 80.0 * 10.0, i as f32 / 80.0 * 20.0],
             atlas_offset: [0.0, 0.0],
             atlas_size: [0.0, 0.0],
-            fg_color: [0.9, 0.9, 0.9, 1.0],
-            bg_color: [0.1, 0.1, 0.1, 1.0],
+            foreground: [0.9, 0.9, 0.9, 1.0],
+            background: [0.1, 0.1, 0.1, 1.0],
             underline_color: [0.9, 0.9, 0.9, 1.0],
             quad_size: [10.0, 20.0],
             flags: 0.0,
@@ -1898,8 +1898,8 @@ fn bench_gpu_full_submit_throughput() {
             quad_origin: [i as f32 % 80.0 * 10.0, i as f32 / 80.0 * 20.0],
             atlas_offset: [0.0, 0.0],
             atlas_size: [0.0, 0.0],
-            fg_color: [0.9, 0.9, 0.9, 1.0],
-            bg_color: [0.1, 0.1, 0.1, 1.0],
+            foreground: [0.9, 0.9, 0.9, 1.0],
+            background: [0.1, 0.1, 0.1, 1.0],
             underline_color: [0.9, 0.9, 0.9, 1.0],
             quad_size: [10.0, 20.0],
             flags: 0.0,

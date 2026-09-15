@@ -792,7 +792,7 @@ fun TerminalScreen(
                             Triple(it.getRows(), it.getMaxScrollOffset(), it.getScrollOffset())
                         },
                         resolvedTerminalTheme.foreground,
-                        resolvedTerminalTheme.selectionBg,
+                        resolvedTerminalTheme.selectionBackground,
                     ) {
                         if (showTextSearch && searchState.hasResults) {
                             val surface = surfaceRef.value
@@ -801,7 +801,7 @@ fun TerminalScreen(
                                 val scrollbackCount = surface.getMaxScrollOffset()
                                 val scrollOffset = surface.getScrollOffset()
                                 val themeForeground = resolvedTerminalTheme.foreground
-                                val themeSelectionBg = resolvedTerminalTheme.selectionBg
+                                val themeSelectionBackground = resolvedTerminalTheme.selectionBackground
 
                                 val buf = java.io.ByteArrayOutputStream()
                                 fun writeI32(v: Int) {
@@ -823,7 +823,7 @@ fun TerminalScreen(
                                     writeI32(match.endIndex.coerceAtLeast(match.startIndex + 1))
                                     if (isCurrent) {
                                         // Current match: fully opaque theme foreground.
-                                        // Alpha >= 128 makes the Rust renderer swap fg/bg
+                                        // Alpha >= 128 makes the Rust renderer swap foreground/background
                                         // (inverse video) and blend the opaque color over the
                                         // background, so the current hit is unmistakable.
                                         // See SearchHighlightColors.CURRENT_MATCH_ALPHA and
@@ -833,12 +833,12 @@ fun TerminalScreen(
                                         writeByte((themeForeground.blue * 255).toInt().toByte())
                                         writeByte(SearchHighlightColors.CURRENT_MATCH_ALPHA.toByte())
                                     } else {
-                                        // Other matches: selection_bg tint below the 128 swap
+                                        // Other matches: selection_background tint below the 128 swap
                                         // threshold — visible overlay, no inversion.
                                         // See SearchHighlightColors.OTHER_MATCH_ALPHA.
-                                        writeByte((themeSelectionBg.red * 255).toInt().toByte())
-                                        writeByte((themeSelectionBg.green * 255).toInt().toByte())
-                                        writeByte((themeSelectionBg.blue * 255).toInt().toByte())
+                                        writeByte((themeSelectionBackground.red * 255).toInt().toByte())
+                                        writeByte((themeSelectionBackground.green * 255).toInt().toByte())
+                                        writeByte((themeSelectionBackground.blue * 255).toInt().toByte())
                                         writeByte(SearchHighlightColors.OTHER_MATCH_ALPHA.toByte())
                                     }
                                 }

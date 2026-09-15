@@ -25,7 +25,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
         endCol: Int,
         hasSelection: Boolean?,
         mode: Byte,
-        selectionBgArgb: Int,
+        selectionBackgroundArgb: Int,
     ) {
         // Selection lives in the terminal (tracked refs, installed via
         // NativeBridge.setSelection): the VT thread bakes the inverse
@@ -39,7 +39,7 @@ class NativeQueryPort(private val sessionIdProvider: () -> Long) : TerminalQuery
             endCol,
             active,
             mode,
-            selectionBgArgb,
+            selectionBackgroundArgb,
         )
     }
 
