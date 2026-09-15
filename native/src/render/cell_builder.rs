@@ -704,6 +704,7 @@ fn append_row_instances(
         } else {
             None
         };
+        let has_merged_glyph = merged_cluster_glyph.is_some();
         if let Some(info) = merged_cluster_glyph
             .or_else(|| font_pipeline.glyph_information_styled(ch, cell_bold, cell_italic))
         {
@@ -780,7 +781,7 @@ fn append_row_instances(
                         }
                     }
                 }
-            } else {
+            } else if !has_merged_glyph {
                 for codepoint in &cd.grapheme_extra {
                     if *codepoint == 0 {
                         continue;
