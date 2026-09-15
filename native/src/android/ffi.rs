@@ -44,9 +44,6 @@
 //! bounded by the 1s join timeout). Background sessions have no render
 //! thread under the single-active-session design.
 //!
-//! `setMcpEnabled` may be called from settings or during initialisation.
-//! It is safe from any thread.
-//!
 //! # Concurrency model
 //!
 //! - `SESSION_REGISTRY` is an `RwLock`; reads dominate writes.
