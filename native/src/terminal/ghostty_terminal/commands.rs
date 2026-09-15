@@ -10,7 +10,7 @@ use super::types::*;
 /// The channel is **bounded** so a wedged VT thread cannot grow memory
 /// unboundedly; senders use `try_send` and fall back to a cached value.
 ///
-/// Stateless queries belong in [`Query`] (the unbounded `query_tx`
+/// Stateless queries belong in [`Query`] (the bounded `query_tx`
 /// channel, drained by the VT thread between commands) — the two channels
 /// exist so action ordering and query latency are independent.
 pub enum Command {
