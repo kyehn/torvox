@@ -2553,6 +2553,7 @@ constructor(
                 "createSession spawnTerminal result=$spawnResult elapsed=${spawnElapsedMs}ms",
             )
             if (spawnResult <= 0L) {
+                // 无回退：启动入口失败不尝试其他 shell；已有会话原样保留显示，失败经 logcat 输出。
                 throw RuntimeException("native spawn failed (result=$spawnResult)")
             }
             nextId = spawnResult
