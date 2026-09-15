@@ -207,6 +207,8 @@ struct RenderState {
     kitty_scroll_offset: i64,
     kitty_rows: u32,
     kitty_cols: u32,
+    kitty_cell_width: f32,
+    kitty_cell_height: f32,
     kitty_frames: Vec<crate::terminal::ghostty_terminal::KittyPlacementFrame>,
     kitty_instances: Vec<crate::render::KittyGraphicsInstance>,
     kitty_uploaded_generation: u64,
@@ -254,6 +256,8 @@ fn render_state_mut() -> std::sync::MutexGuard<'static, Option<RenderState>> {
             kitty_scroll_offset: i64::MIN,
             kitty_rows: u32::MAX,
             kitty_cols: u32::MAX,
+            kitty_cell_width: 0.0,
+            kitty_cell_height: 0.0,
             kitty_frames: Vec::new(),
             kitty_instances: Vec::new(),
             kitty_uploaded_generation: u64::MAX,
@@ -1670,57 +1674,129 @@ fn render_inner(session_id: u64) -> jint {
             let scrollback = cursor_info.scrollback_length;
             render_state.cached_scrollback = scrollback;
             // Kitty 同步：生成戳为 0 且无缓存时跳过查询（纯文本零开销）；
-            // 会话/生成戳/滚动/网格任一变化才重查放置，图集仅在生成戳变化时重传。
+            // 会话/生成戳/滚动/网格任一变化才重查放置；图集仅在生成戳变化时
+            // 打包重传，滚动/缩放只经无拷贝布局重建实例。
             let kitty_generation = cursor_info.kitty_generation;
-            let kitty_keys_changed = session_id != render_state.kitty_session
+            // 网格单元格像素（与 render_cell_data 同口径：字体度量×光栅缩放）。
+            let (font_width, font_height) = render_state.font_pipeline.cell_metrics();
+            let raster_scale = render_state.font_pipeline.get_raster_scale();
+            let grid_cell_width = font_width * raster_scale;
+            let grid_cell_height = font_height * raster_scale;
+            let mut kitty_keys_changed = session_id != render_state.kitty_session
                 || kitty_generation != render_state.kitty_generation
                 || scroll_offset != render_state.kitty_scroll_offset
                 || rows != render_state.kitty_rows
                 || cols != render_state.kitty_cols;
-            if kitty_keys_changed {
+            let kitty_cell_changed = (grid_cell_width - render_state.kitty_cell_width).abs()
+                > f32::EPSILON
+                || (grid_cell_height - render_state.kitty_cell_height).abs() > f32::EPSILON;
+            // 单元格几何失步：终端侧仍为旧值时上游按旧几何重算 pixel 尺寸，
+            // 与新 origin 口径不一致。先同步新尺寸到终端再重查
+            // （VT 先排空命令积压再处理查询，命令先发即先生效，无竞态）。
+            // 纯文本（generation==0）零开销跳过；首图/切会话无缓存帧也同步，
+            // 否则缓存的新尺寸会永久掩盖终端侧的旧几何。
+            if kitty_generation != 0
+                && (kitty_cell_changed || session_id != render_state.kitty_session)
+            {
+                let cell_width = grid_cell_width.max(1.0) as u32;
+                let cell_height = grid_cell_height.max(1.0) as u32;
+                let registry = rlock_session_registry();
+                if let Some(entry) = registry.get(&session_id) {
+                    entry
+                        .session
+                        .lock()
+                        .terminal()
+                        .set_cell_pixel_size(cell_width, cell_height);
+                }
+                // 强制重查：旧帧 pixel 尺寸按旧几何解算，必须按新几何重算。
+                kitty_keys_changed = true;
+            }
+            if kitty_keys_changed || kitty_cell_changed {
+                let generation_changed = kitty_generation != render_state.kitty_generation
+                    || session_id != render_state.kitty_session;
                 render_state.kitty_session = session_id;
                 render_state.kitty_generation = kitty_generation;
                 render_state.kitty_scroll_offset = scroll_offset;
                 render_state.kitty_rows = rows;
                 render_state.kitty_cols = cols;
+                render_state.kitty_cell_width = grid_cell_width;
+                render_state.kitty_cell_height = grid_cell_height;
                 if kitty_generation == 0 {
                     render_state.kitty_frames.clear();
                     render_state.kitty_instances.clear();
+                    if render_state.kitty_uploaded_generation != 0 {
+                        render_state.renderer.set_kgp_atlas(&[], 0, 0);
+                        render_state.kitty_uploaded_generation = 0;
+                    }
                 } else {
-                    // render_state 锁内 RPC：仅图像会话触发；VT 刚推送帧，
+                    // render_state 锁内 RPC：仅放置键变化时触发；VT 刚推送帧，
                     // 查询通常毫秒级返回（卡住时由 500ms 超时兜底）。
-                    let frames = {
-                        let registry = rlock_session_registry();
-                        registry
-                            .get(&session_id)
-                            .map(|entry| entry.session.lock().terminal().take_kitty_placements())
-                            .unwrap_or_default()
-                    };
-                    // 网格单元格像素（与 render_cell_data 同口径：字体度量×光栅缩放）。
-                    let (font_width, font_height) =
-                        render_state.font_pipeline.cell_metrics();
-                    let raster_scale = render_state.font_pipeline.get_raster_scale();
-                    let grid_cell_width = font_width * raster_scale;
-                    let grid_cell_height = font_height * raster_scale;
-                    if let Some((atlas, atlas_width, atlas_height, instances)) =
-                        crate::render::kitty::pack_and_build(
-                            &frames,
-                            grid_cell_width,
-                            grid_cell_height,
-                        )
-                    {
-                        if kitty_generation != render_state.kitty_uploaded_generation {
-                            render_state.renderer.set_kgp_atlas(
-                                &atlas,
-                                atlas_width,
-                                atlas_height,
-                            );
+                    if kitty_keys_changed {
+                        let frames = {
+                            let registry = rlock_session_registry();
+                            registry
+                                .get(&session_id)
+                                .map(|entry| {
+                                    entry.session.lock().terminal().take_kitty_placements()
+                                })
+                                .unwrap_or_default()
+                        };
+                        render_state.kitty_frames = frames;
+                    }
+                    if generation_changed {
+                        if let Some((atlas, atlas_width, atlas_height, instances)) =
+                            crate::render::kitty::pack_and_build(
+                                &render_state.kitty_frames,
+                                grid_cell_width,
+                                grid_cell_height,
+                            )
+                        {
+                            render_state
+                                .renderer
+                                .set_kgp_atlas(&atlas, atlas_width, atlas_height);
                             render_state.kitty_uploaded_generation = kitty_generation;
+                            render_state.kitty_instances = instances;
+                        } else {
+                            render_state.renderer.set_kgp_atlas(&[], 0, 0);
+                            render_state.kitty_uploaded_generation = kitty_generation;
+                            render_state.kitty_instances.clear();
                         }
-                        render_state.kitty_frames = frames;
-                        render_state.kitty_instances = instances;
+                    } else if let Some((atlas_width, atlas_height, entries)) =
+                        crate::render::kitty::layout_entries(&render_state.kitty_frames)
+                    {
+                        // 同图集复用：仅重建实例。防御已上传图集尺寸漂移则全量重传。
+                        let (uploaded_width, uploaded_height) = (
+                            render_state.renderer.kgp_atlas_width,
+                            render_state.renderer.kgp_atlas_height,
+                        );
+                        if atlas_width == uploaded_width && atlas_height == uploaded_height {
+                            render_state.kitty_instances =
+                                crate::render::kitty::build_kitty_instances(
+                                    &render_state.kitty_frames,
+                                    atlas_width,
+                                    atlas_height,
+                                    &entries,
+                                    grid_cell_width,
+                                    grid_cell_height,
+                                );
+                        } else if let Some((atlas, atlas_width, atlas_height, instances)) =
+                            crate::render::kitty::pack_and_build(
+                                &render_state.kitty_frames,
+                                grid_cell_width,
+                                grid_cell_height,
+                            )
+                        {
+                            render_state
+                                .renderer
+                                .set_kgp_atlas(&atlas, atlas_width, atlas_height);
+                            render_state.kitty_uploaded_generation = kitty_generation;
+                            render_state.kitty_instances = instances;
+                        } else {
+                            render_state.renderer.set_kgp_atlas(&[], 0, 0);
+                            render_state.kitty_uploaded_generation = kitty_generation;
+                            render_state.kitty_instances.clear();
+                        }
                     } else {
-                        render_state.kitty_frames = frames;
                         render_state.kitty_instances.clear();
                     }
                 }
