@@ -1625,7 +1625,22 @@ fn kitty_graphics_transmit_returns_1x1_image() {
         .expect("image id 1 must exist after transmit");
     assert_eq!(image.width, 1);
     assert_eq!(image.height, 1);
-    assert!(!image.data.is_empty(), "image data must be readable");
+    assert_eq!(image.data, vec![255, 0, 0, 255], "RGB 载荷归一化为不透明 RGBA");
+}
+
+/// PNG 载荷经进程内解码器透出为 RGBA（1x1 红点 PNG，对标上游文档示例）。
+#[test]
+fn kitty_graphics_png_decodes_to_rgba() {
+    let mut terminal = term();
+    terminal.pty_write(
+        b"\x1b_Ga=T,f=100,i=2;iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==\x1b\\",
+    );
+    terminal.flush();
+    let image = terminal
+        .take_kitty_graphics_image(2)
+        .expect("PNG 图像解码后必须存在");
+    assert_eq!((image.width, image.height), (1, 1));
+    assert_eq!(image.data.len(), 4, "解码输出为 RGBA8");
 }
 
 // ── : cursor/row coordinate consistency (D1 deterministic leg) ──
