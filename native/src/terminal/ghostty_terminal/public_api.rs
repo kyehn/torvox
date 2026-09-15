@@ -308,6 +308,18 @@ impl super::GhosttyTerminal {
         true
     }
 
+    /// 更新单元格像素尺寸（Kitty 放置几何依赖它；与 resize 同一非阻塞策略）。
+    pub fn set_cell_pixel_size(&self, cell_width: u32, cell_height: u32) {
+        if let Err(error) = self.cmd_tx.try_send(Command::SetCellPixelSize {
+            cell_width,
+            cell_height,
+        }) {
+            log::warn!(
+                "ghostty_terminal: cmd_tx full/dropped failed for set_cell_pixel_size: {error}"
+            );
+        }
+    }
+
     /// RIS 全重置：恢复终端初始状态并清空回滚（侧边面板“重置终端”按钮）。
     /// try_send 非阻塞：VT 线程卡住时丢弃而非阻塞调用方（与 resize 同策略）。
     pub fn reset(&self) {

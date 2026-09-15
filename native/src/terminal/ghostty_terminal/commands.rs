@@ -28,6 +28,12 @@ pub enum Command {
         rows: u32,
         cols: u32,
     },
+    /// 更新终端单元格像素尺寸（Kitty 图像几何与鼠标像素映射依赖它）。
+    /// 由 PTY 像素尺寸除以网格行列得出；VT 线程以当前行列重调 resize。
+    SetCellPixelSize {
+        cell_width: u32,
+        cell_height: u32,
+    },
     TakeSnapshot {
         tx: Sender<Arc<GridSnapshot>>,
         scroll_offset: u32,
