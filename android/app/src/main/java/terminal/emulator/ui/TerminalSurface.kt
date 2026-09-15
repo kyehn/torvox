@@ -629,16 +629,16 @@ constructor(
                         } else {
                             encodeAndSend(committedText, ctrlActive, altActive)
                         }
-                        lastCommitText = committedText
-                        lastCommitMs = nowMs
-                        // EmptyFinish: when committing from empty composing, clear any stale state
-                        // to prevent Gboard double-submit on next composition start.
-                        // 仅当本次提交实际消费了修饰键才清 Once：无修饰提交
-                        // 也清会偷走修饰键栏点亮后、输入法提交前的 Once 态
-                        // （cucumber 双击 CTRL 场景实测：落定选中后被偷走）。
+                        // One-shot 修饰键随本次提交一起消费：编码时已按住
+                        // ctrl/alt，本次提交后 Once 必须回到 Off，否则粘滞键
+                        // 永远不消失。Locked 不受影响（consume 只清 Once）。
+                        // 注意：必须在编码之后消费，且只消费一次——
+                        // 无修饰提交不清，避免偷走点亮后尚未使用的 Once。
                         if (ctrlActive || altActive) {
                             terminalViewModel?.consumeOneShotModifiers()
                         }
+                        lastCommitText = committedText
+                        lastCommitMs = nowMs
                         return true
                     }
 
