@@ -703,6 +703,26 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         batch_dirty = true;
                     }
+                    Command::SetCellPixelSize {
+                        cell_width,
+                        cell_height,
+                    } => {
+                        // 同行列重调，仅更新单元格像素几何（Kitty 放置/鼠标映射用）。
+                        // 网格内容不变，不失效行缓存、不置脏，避免字体变化引发全量重绘。
+                        let (Ok(cols), Ok(rows)) =
+                            (terminal.cols(), terminal.rows())
+                        else {
+                            continue;
+                        };
+                        if cell_width == 0 || cell_height == 0 {
+                            continue;
+                        }
+                        if let Err(error) =
+                            terminal.resize(cols, rows, cell_width, cell_height)
+                        {
+                            log::error!("ghostty_terminal: cell resize failed: {error}");
+                        }
+                    }
                     Command::ScrollViewport(delta) => {
                         // C ABI returns void; viewport failures surface as a
                         // no-op (grid unchanged) and the retry logic in
@@ -1132,14 +1152,20 @@ impl libghostty_vt::kitty::graphics::DecodePng for KittyPngDecoder {
         use png::{Decoder, Transformations};
         use std::io::Cursor;
         let mut decoder = Decoder::new(Cursor::new(data));
-        decoder.set_transformations(Transformations::EXPAND | Transformations::STRIP_16);
-        let mut reader = decoder.read_info().ok()?;
-        let mut raw = vec![0u8; reader.output_buffer_size()?];
-        let info = reader.next_frame(&mut raw).ok()?;
+        // 与上游 RustPngDecoder 一致：调色板/灰度展开为 RGBA8，
+        // 16 位截断为 8 位（ALPHA 保留透明通道，不得用 EXPAND）。
+        decoder.set_transformations(Transformations::ALPHA | Transformations::STRIP_16);
+        let mut frame = decoder.read_info().ok()?;
+        let buffer_size = frame.output_buffer_size()?;
+        if buffer_size > self.scratch.capacity() {
+            self.scratch.reserve(buffer_size - self.scratch.capacity());
+        }
+        self.scratch.resize(buffer_size, 0);
+        let info = frame.next_frame(&mut self.scratch).ok()?;
         let mut bytes =
             libghostty_vt::alloc::Bytes::new_with_alloc(alloc, info.buffer_size()).ok()?;
-        bytes.copy_from_slice(&raw[..info.buffer_size()]);
-        self.scratch.clear();
+        bytes.copy_from_slice(&self.scratch[..info.buffer_size()]);
+        frame.finish().ok()?;
         Some(libghostty_vt::kitty::graphics::DecodedImage {
             width: info.width,
             height: info.height,

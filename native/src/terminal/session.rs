@@ -510,6 +510,13 @@ impl Session {
     /// TIOCSWINSZ replaces the whole struct (see `Pty::set_pixel_size`).
     pub fn set_pixel_size(&self, width: u16, height: u16) -> Result<(), SessionError> {
         self.pty.set_pixel_size(width, height)?;
+        // 同步单元格像素几何到终端（Kitty 放置几何依赖它；失败仅日志，不阻断 PTY）。
+        let (rows, cols) = self.grid_size();
+        if rows > 0 && cols > 0 && width > 0 && height > 0 {
+            let cell_width = (u32::from(width) / cols).max(1);
+            let cell_height = (u32::from(height) / rows).max(1);
+            self.terminal.set_cell_pixel_size(cell_width, cell_height);
+        }
         Ok(())
     }
 
