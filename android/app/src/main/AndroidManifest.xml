@@ -48,6 +48,16 @@
             android:process=":install" />
 
         <provider
+            android:name=".util.TerminalFileProvider"
+            android:authorities="com.termux.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
+        <provider
             android:name=".TerminalDocumentsProvider"
             android:authorities="terminal.emulator.documents"
             android:exported="true"
