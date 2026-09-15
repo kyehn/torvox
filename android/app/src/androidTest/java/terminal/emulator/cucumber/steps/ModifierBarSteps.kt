@@ -57,15 +57,26 @@ constructor(
     fun ctrlKeyIsTappedTwice() {
         val rule = composeRuleHolder.composeRule
         // 双击 = 两次点按：第一次选中，第二次取消选中。
-        // performClick 在 cucumber 规则下第二次点击会被手势残留吞掉
-        // （3 次全灭），改用 Espresso 底层点击绕过 compose 手势协程。
+        // performClick 在 cucumber 规则下第二次点击会被手势残留吞掉，
+        // 改用 UiDevice 点击视图中心坐标（与 SelectionSteps 的
+        // injectLongPress 同一底层路径，绕过 compose 手势协程）。
         rule.onNodeWithTag("Key_CTRL").performClick()
         rule.waitUntil(timeoutMillis = 5000) {
             probeAssertion { rule.onNodeWithTag("Key_CTRL").assertIsSelected() }
         }
-        androidx.test.espresso.Espresso
-            .onView(androidx.test.espresso.matcher.ViewMatchers.withContentDescription("Ctrl 切换"))
-            .perform(androidx.test.espresso.action.ViewActions.click())
+        // compose 语义树的 boundsInRoot 是逻辑坐标，直接喂给 UiDevice
+        // 会点偏（实测 uiautomator 坐标系下 CTRL 在 [155,2242][310,2337]）。
+        // 改用 UiSelector 按 content-desc 定位后点击，坐标由系统解析。
+        val device =
+            androidx.test.platform.app.InstrumentationRegistry
+                .getInstrumentation()
+                .let { androidx.test.uiautomator.UiDevice.getInstance(it) }
+        val ctrlButton =
+            device.findObject(
+                androidx.test.uiautomator.By.desc("Ctrl 切换"),
+            )
+        check(ctrlButton != null) { "找不到 Ctrl 切换按钮" }
+        ctrlButton.click()
         rule.waitForIdle()
     }
 
