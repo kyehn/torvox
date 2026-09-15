@@ -31,7 +31,7 @@ pub enum CursorStyle {
 
 /// Bit positions in `CellData::flags`, the single source of truth shared by
 /// the style packer (`ghostty_terminal::internal::pack_style_flags`), the GPU
-/// cell builder (`render::cell_builder`), the CPU fallback (`render::cpu_frame`)
+/// cell builder (`render::cell_builder`)
 /// and the shader `cell.wgsl`. Keep in sync with `pack_style_flags` and
 /// `shaders/cell.wgsl` (which reads bits 3/5/6/7/8 for decorations).
 pub mod cell_flags {
