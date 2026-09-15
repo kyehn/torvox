@@ -1945,6 +1945,11 @@ constructor(
                 android.util.Log.e("TerminalViewModel", "resetTerminal failed for id=$id", exception)
                 return@launch
             }
+            // VT 视口已归零：同步清零 Kotlin 侧滚动记账并通知 surface 重同步，
+            // 否则残留偏移会在下次滚动时算出错误 delta。
+            runtime.setScrollOffset(0)
+            runtime.setScrollRemainderPx(0f)
+            _state.update { it.copy(scrollEpoch = it.scrollEpoch + 1) }
             clearSelection()
         }
     }

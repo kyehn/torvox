@@ -41,8 +41,7 @@ jobs:
           scripts/check-rust.nu
           scripts/build-android-libs.nu --profile dev x86_64
           scripts/check-gradle.nu
-      - if: always()
-        uses: actions/cache/save@main
+      - uses: actions/cache/save@main
         with:
           path: |
             ~/.gradle/caches/

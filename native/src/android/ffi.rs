@@ -618,8 +618,8 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetTerminal(
 ) {
     jni_export_guard!(&mut unowned_env, (), |env| {
         let id = session_id as u64;
-        let registry = rlock_session_registry();
-        let Some(entry) = registry.get(&id) else {
+        let mut registry = wlock_session_registry();
+        let Some(entry) = registry.get_mut(&id) else {
             let _ = env.throw_new(
                 jni_str!("java/lang/RuntimeException"),
                 jni_str!("resetTerminal: session not found"),
@@ -628,6 +628,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_resetTerminal(
         };
         let session = entry.session.lock();
         session.reset_terminal();
+        // VT 视口已归零：同步清零本会话的滚动记账，否则下一次
+        // setScrollOffset 会按 stale 值算出错误 delta 误滚视图。
+        entry.last_scroll_offset = 0;
     })
 }
 

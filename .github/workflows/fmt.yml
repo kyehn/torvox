@@ -50,8 +50,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: ${{ github.ref }}
           force_with_lease: true
-      - if: always()
-        uses: actions/cache/save@main
+      - uses: actions/cache/save@main
         with:
           path: |
             ~/.gradle/caches/
