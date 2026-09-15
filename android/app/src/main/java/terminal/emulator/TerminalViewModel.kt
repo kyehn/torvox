@@ -1951,6 +1951,10 @@ constructor(
             runtime.setScrollRemainderPx(0f)
             _state.update { it.copy(scrollEpoch = it.scrollEpoch + 1) }
             clearSelection()
+            // 搜索高亮是渲染覆盖层，存于全局 RenderState，reset 后空网格上会残留旧框。
+            // 经 Bridge 清除（仅拿 RENDER_STATE 锁，不进 registry，无锁序反转）。
+            runtime.bridge()?.clearSearchHighlights()
+            runtime.forceRender()
         }
     }
 
