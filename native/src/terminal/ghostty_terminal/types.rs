@@ -57,6 +57,10 @@ pub struct CursorInfo {
     /// Scrollback length — piggy-backed on the cell data channel so the
     /// render thread never needs a synchronous scrollback_length() RPC.
     pub scrollback_length: u32,
+    /// Kitty 图像存储生成戳（上游 `Graphics::generation`；0 = 从未写入）。
+    /// 生成戳不变时放置集合与图像像素相同，渲染线程跳过放置查询；
+    /// 滚动/缩放仍需重算几何（上游语义），由滚动长度与网格尺寸门控。
+    pub kitty_generation: u64,
 }
 
 /// Cell data — the per-cell payload transported from the Session thread
@@ -133,6 +137,28 @@ pub struct KittyGraphicsImageData {
     pub width: u32,
     pub height: u32,
     pub data: Vec<u8>,
+}
+
+/// 单个 Kitty 放置的可渲染几何 + RGBA8 像素（VT 线程采集，渲染线程组装图集）。
+/// 坐标为视口相对网格列/行（可为负，表示顶部滚出部分）；像素尺寸为上游
+/// placement_render_info 解算值；source 矩形已按 Kitty 语义钳制到图像边界。
+#[derive(Clone, Debug)]
+pub struct KittyPlacementFrame {
+    pub image_id: u32,
+    pub viewport_col: i32,
+    pub viewport_row: i32,
+    pub pixel_width: u32,
+    pub pixel_height: u32,
+    pub source_x: u32,
+    pub source_y: u32,
+    pub source_width: u32,
+    pub source_height: u32,
+    pub cell_offset_x: u32,
+    pub cell_offset_y: u32,
+    pub z: i32,
+    pub image_width: u32,
+    pub image_height: u32,
+    pub image_rgba: Vec<u8>,
 }
 
 impl GridSnapshot {
