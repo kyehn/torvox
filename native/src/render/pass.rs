@@ -102,8 +102,8 @@ impl Renderer {
     pub(crate) fn acquire_texture(
         &self,
         surface: &std::sync::Arc<wgpu::Surface<'static>>,
-        _cfg_width: u32,
-        _cfg_height: u32,
+        _config_width: u32,
+        _config_height: u32,
     ) -> Option<wgpu::SurfaceTexture> {
         // Mali-G57 (Unisoc SoCs) can hang vkAcquireNextImageKHR indefinitely when
         // SURFACE_VIEW_FORMATS is missing. Use a persistent worker thread with a
@@ -326,8 +326,8 @@ impl Renderer {
             .begin_frame()
             .ok_or_else(|| GpuError::Surface("begin_frame failed".to_string()))?;
 
-        let cfg_width = frame_ctx.cfg_width;
-        let cfg_height = frame_ctx.cfg_height;
+        let config_width = frame_ctx.config_width;
+        let config_height = frame_ctx.config_height;
         // Owned clone so it outlives &mut self calls below.
         let swapchain_view = frame_ctx.view.clone();
         let encoder = &mut frame_ctx.encoder;
@@ -335,7 +335,7 @@ impl Renderer {
         // ── Target selection (must run before `pipeline` borrows self) ──
         let format = self.pipeline_format;
         let accumulator_view = if self.swapchain_copy_supported {
-            self.ensure_frame_texture(cfg_width, cfg_height, format)
+            self.ensure_frame_texture(config_width, config_height, format)
         } else {
             None
         };
@@ -371,7 +371,7 @@ impl Renderer {
         // per band wipes the band's stale pixels before the redraw — no
         // extra pipeline needed.
         let clear_instances = if partial {
-            self.band_clear_instances(dirty_bands, plan.cell_h_px, cfg_width, cfg_height)
+            self.band_clear_instances(dirty_bands, plan.cell_h_px, config_width, config_height)
         } else {
             Vec::new()
         };
@@ -418,9 +418,9 @@ impl Renderer {
             && let Some(acc_texture) = self.frame_texture.as_ref()
         {
             let sh = (shift_rows as f32 * plan.cell_h_px).round() as i32;
-            if sh > 0 && sh < cfg_height as i32 {
+            if sh > 0 && sh < config_height as i32 {
                 let mut dst_y = 0i32;
-                while dst_y + sh <= cfg_height as i32 {
+                while dst_y + sh <= config_height as i32 {
                     encoder.copy_texture_to_texture(
                         wgpu::TexelCopyTextureInfo {
                             texture: acc_texture,
@@ -443,7 +443,7 @@ impl Renderer {
                             aspect: wgpu::TextureAspect::All,
                         },
                         wgpu::Extent3d {
-                            width: cfg_width,
+                            width: config_width,
                             height: sh as u32,
                             depth_or_array_layers: 1,
                         },
@@ -476,8 +476,8 @@ impl Renderer {
             depth_stencil_attachment: None,
             ..Default::default()
         });
-        render_pass.set_viewport(0.0, 0.0, cfg_width as f32, cfg_height as f32, 0.0, 1.0);
-        render_pass.set_scissor_rect(0, 0, cfg_width, cfg_height);
+        render_pass.set_viewport(0.0, 0.0, config_width as f32, config_height as f32, 0.0, 1.0);
+        render_pass.set_scissor_rect(0, 0, config_width, config_height);
 
         // Cells: either just the dirty bands or everything.
         {
@@ -530,8 +530,8 @@ impl Renderer {
                 acc_texture.as_image_copy(),
                 frame_ctx.texture.texture.as_image_copy(),
                 wgpu::Extent3d {
-                    width: cfg_width.min(frame_ctx.texture.texture.width()),
-                    height: cfg_height.min(frame_ctx.texture.texture.height()),
+                    width: config_width.min(frame_ctx.texture.texture.width()),
+                    height: config_height.min(frame_ctx.texture.texture.height()),
                     depth_or_array_layers: 1,
                 },
             );

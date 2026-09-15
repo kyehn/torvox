@@ -374,9 +374,7 @@ mod tests {
         // 手势缩放/字号切换走 set_font_size_in_place：若 ascii 字形 id
         // 表不清零，d 等字符会命中旧尺寸的脏 id 而显示错误字形。
         let mut pipeline = FontPipeline::new(1024, 1024, 14.0);
-        let before = pipeline
-            .glyph_information('d')
-            .expect("d glyph info");
+        let before = pipeline.glyph_information('d').expect("d glyph info");
         pipeline.set_font_size_in_place(28.0);
         let after = pipeline
             .glyph_information('d')
