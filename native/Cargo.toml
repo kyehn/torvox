@@ -23,6 +23,7 @@ log = { workspace = true }
 lru = { workspace = true }
 nix = { workspace = true }
 parking_lot = "0.12"
+png = { workspace = true }
 raw-window-handle = { workspace = true }
 regex = "1"
 roxmltree = "0.21"
