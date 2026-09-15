@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -56,6 +57,7 @@ fun SessionDrawer(
     onSettings: () -> Unit,
     onSearch: () -> Unit,
     onKeyboardToggle: () -> Unit,
+    onResetTerminal: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -125,6 +127,7 @@ fun SessionDrawer(
             onClose = onClose,
             onSearch = onSearch,
             onKeyboardToggle = onKeyboardToggle,
+            onResetTerminal = onResetTerminal,
             onSettings = onSettings,
             textColor = textColor,
         )
@@ -176,6 +179,7 @@ private fun SessionDrawerActions(
     onClose: () -> Unit,
     onSearch: () -> Unit,
     onKeyboardToggle: () -> Unit,
+    onResetTerminal: () -> Unit,
     onSettings: () -> Unit,
     textColor: Color,
 ) {
@@ -205,6 +209,16 @@ private fun SessionDrawerActions(
             },
             textColor = textColor,
             testTag = "KeyboardToggle",
+        )
+        DrawerActionButton(
+            icon = Icons.Default.Refresh,
+            label = stringResource(R.string.reset_terminal),
+            onClick = {
+                onClose()
+                onResetTerminal()
+            },
+            textColor = textColor,
+            testTag = "ResetTerminalButton",
         )
         DrawerActionButton(
             icon = Icons.Default.Settings,

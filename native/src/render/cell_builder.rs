@@ -5,7 +5,6 @@
 use crate::render::CellInstance;
 
 use crate::terminal::CursorStyle;
-use crate::terminal::SelectionMode;
 use crate::terminal::ghostty_terminal::cell_flags;
 
 use foldhash::fast::RandomState;
@@ -41,66 +40,7 @@ pub struct CellInstanceConfig<'a> {
     pub cursor: CellCursor,
     pub atlas_width: f32,
     pub atlas_height: f32,
-    pub selection: Option<SelectionRange>,
     pub search_highlights: &'a [SearchHighlight],
-}
-
-/// A selected range of characters to highlight with a background color.
-///
-/// Supports Char/Word/Semantic (box), Line (full rows), and Block modes.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct SelectionRange {
-    pub start_row: i32,
-    pub start_col: i32,
-    pub end_row: i32,
-    pub end_col: i32,
-    pub active: bool,
-    pub mode: SelectionMode,
-    pub origin: Option<(i32, i32)>,
-    pub is_empty: bool,
-}
-
-/// Returns ordered (lo_row, lo_col, hi_row, hi_col) so consuming code does
-/// not need to worry about direction.
-impl SelectionRange {
-    pub fn contains(&self, row: u32, col: u32, _cols: u32) -> bool {
-        if !self.active {
-            return false;
-        }
-        let row = row as i32;
-        let col = col as i32;
-        let (lo_row, lo_col, hi_row, hi_col) = self.ordered();
-        match self.mode {
-            SelectionMode::Line => row >= lo_row && row <= hi_row,
-            SelectionMode::Block => {
-                row >= lo_row && row <= hi_row && col >= lo_col && col <= hi_col
-            }
-            SelectionMode::Char | SelectionMode::Word | SelectionMode::Semantic => {
-                if row < lo_row || row > hi_row {
-                    return false;
-                }
-                if lo_row == hi_row {
-                    col >= lo_col && col <= hi_col
-                } else if row == lo_row {
-                    col >= lo_col
-                } else if row == hi_row {
-                    col <= hi_col
-                } else {
-                    true
-                }
-            }
-        }
-    }
-
-    fn ordered(&self) -> (i32, i32, i32, i32) {
-        if self.start_row < self.end_row
-            || (self.start_row == self.end_row && self.start_col <= self.end_col)
-        {
-            (self.start_row, self.start_col, self.end_row, self.end_col)
-        } else {
-            (self.end_row, self.end_col, self.start_row, self.start_col)
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -433,9 +373,11 @@ pub(crate) fn diff_dirty_rows_into(
 
 /// Convert pre-built `CellData` slices into GPU instance data.
 ///
-/// Takes selection and search highlight parameters so the renderer can
-/// apply visual feedback (selection background swap, search highlight
-/// overlay) without requiring a full GridSnapshot.
+/// Takes search highlight parameters so the renderer can apply visual
+/// feedback (search highlight overlay) without requiring a full GridSnapshot.
+/// Selection highlight is owned by the terminal: the VT thread bakes the
+/// tracked-selection inverse video into `CellData` colors, so the builder
+/// applies no selection of its own.
 ///
 /// Returns `None` if conversion fails (font atlas unavailable, etc.).
 #[allow(clippy::too_many_arguments)]
@@ -493,7 +435,6 @@ fn build_row_instances_into(
         cursor,
         atlas_width,
         atlas_height,
-        selection,
         search_highlights,
     } = config;
     // Quad geometry uses GRID cell dimensions (surface/rows, surface/cols),
@@ -518,7 +459,6 @@ fn build_row_instances_into(
     instances.clear();
     instances.reserve(cell_data.len());
 
-    let selection = selection.filter(|s| !s.is_empty);
     // foldhash (0.2, already in the dependency tree) instead of the std
     // SipHash13 default: this map is rebuilt and queried every frame
     // (~1920 hashes/frame @60fps); foldhash is ~5-10x faster on i32 keys.
@@ -560,9 +500,7 @@ fn build_row_instances_into(
                     atlas_width,
                     atlas_height,
                     cursor,
-                    selection,
                     &highlights_by_row,
-                    cols,
                     font_pipeline,
                     instances,
                     &cell_data[range.clone()],
@@ -577,9 +515,7 @@ fn build_row_instances_into(
                 atlas_width,
                 atlas_height,
                 cursor,
-                selection,
                 &highlights_by_row,
-                cols,
                 font_pipeline,
                 instances,
                 &cell_data[range.clone()],
@@ -610,9 +546,7 @@ fn append_row_instances(
     atlas_width: f32,
     atlas_height: f32,
     cursor: CellCursor,
-    selection: Option<SelectionRange>,
     highlights_by_row: &HashMap<i32, Vec<&SearchHighlight>, RandomState>,
-    cols: u32,
     font_pipeline: &mut crate::render::font::FontPipeline,
     instances: &mut Vec<CellInstance>,
     cell_row: &[crate::terminal::ghostty_terminal::CellData],
@@ -640,19 +574,8 @@ fn append_row_instances(
             std::mem::swap(&mut fg_color, &mut bg_color);
         }
 
-        // Selection highlight: classic terminal inverse video — the selected
-        // cell shows the background color as its text color and the
-        // foreground color as its background (fg<->bg swap), so the text
-        // visibly inverts instead of just getting a background tint
-        //, reported as "text does not change color when
-        // selected"). selection_bg is deliberately not applied here: on a
-        // dark theme it would keep the text dark on a dark highlight and
-        // break readability; the swap uses the terminal's own fg/bg which
-        // are already theme-derived.
-        if selection.unwrap_or_default().contains(cd.row, cd.col, cols) {
-            std::mem::swap(&mut fg_color, &mut bg_color);
-        }
-        // Search highlight overlay (applied on top of selection)
+        // Search highlight overlay (applied on top of the terminal-baked
+        // selection inverse video).
         if let Some(hl) = cell_highlight(cd.row, cd.col, highlights_by_row) {
             apply_search_highlight(&mut fg_color, &mut bg_color, *hl);
         }
@@ -916,7 +839,6 @@ mod tests {
     fn build(
         cells: &[CellData],
         cursor: CellCursor,
-        selection: Option<SelectionRange>,
         highlights: &[SearchHighlight],
     ) -> Vec<CellInstance> {
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
@@ -931,7 +853,6 @@ mod tests {
                 cursor,
                 atlas_width: 1024.0,
                 atlas_height: 1024.0,
-                selection,
                 search_highlights: highlights,
             },
             &mut font_pipeline,
@@ -944,7 +865,7 @@ mod tests {
         instances
     }
 
-    /// Without reverse/selection/highlight, a plain cell keeps its colors.
+    /// Without reverse/highlight, a plain cell keeps its colors.
     #[test]
     fn plain_cell_keeps_colors() {
         let cells = vec![cell_data(
@@ -955,7 +876,7 @@ mod tests {
             [0.0, 0.0, 1.0, 1.0],
             0,
         )];
-        let instances = build(&cells, CellCursor::default(), None, &[]);
+        let instances = build(&cells, CellCursor::default(), &[]);
         assert_eq!(instances.len(), 1);
         assert_eq!(instances[0].fg_color, [1.0, 0.0, 0.0, 1.0]);
         assert_eq!(instances[0].bg_color, [0.0, 0.0, 1.0, 1.0]);
@@ -973,67 +894,9 @@ mod tests {
             [0.0, 0.0, 1.0, 1.0],
             1 << cell_flags::REVERSE,
         )];
-        let instances = build(&cells, CellCursor::default(), None, &[]);
+        let instances = build(&cells, CellCursor::default(), &[]);
         assert_eq!(instances[0].fg_color, [0.0, 0.0, 1.0, 1.0]);
         assert_eq!(instances[0].bg_color, [1.0, 0.0, 0.0, 1.0]);
-    }
-
-    /// Selection without an explicit bg swaps fg/bg.
-    #[test]
-    fn selection_swaps_fg_bg() {
-        let cells = vec![cell_data(
-            1,
-            1,
-            'B',
-            [1.0, 0.0, 0.0, 1.0],
-            [0.0, 1.0, 0.0, 1.0],
-            0,
-        )];
-        let selection = SelectionRange {
-            start_row: 1,
-            start_col: 1,
-            end_row: 1,
-            end_col: 1,
-            active: true,
-            mode: SelectionMode::Char,
-            ..Default::default()
-        };
-        let instances = build(&cells, CellCursor::default(), Some(selection), &[]);
-        assert_eq!(
-            instances[0].fg_color,
-            [0.0, 1.0, 0.0, 1.0],
-            "selection swaps fg→bg"
-        );
-        assert_eq!(instances[0].bg_color, [1.0, 0.0, 0.0, 1.0]);
-    }
-
-    /// Selection with an explicit bg color still uses classic inverse video
-    /// the explicit selection bg no longer overrides the swap —
-    /// the terminal's own fg/bg are theme-derived, so the swap keeps the
-    /// selected text readable on both light and dark themes.
-    #[test]
-    fn selection_bg_does_not_override_inverse_video() {
-        let cells = vec![cell_data(
-            0,
-            0,
-            'C',
-            [1.0, 1.0, 1.0, 1.0],
-            [0.1, 0.1, 0.1, 1.0],
-            0,
-        )];
-        let selection = SelectionRange {
-            start_row: 0,
-            start_col: 0,
-            end_row: 0,
-            end_col: 0,
-            active: true,
-            mode: SelectionMode::Char,
-            ..Default::default()
-        };
-        let instances = build(&cells, CellCursor::default(), Some(selection), &[]);
-        // Inverse video: fg<->bg swapped (selection_bg arg ignored).
-        assert_eq!(instances[0].bg_color, [1.0, 1.0, 1.0, 1.0]);
-        assert_eq!(instances[0].fg_color, [0.1, 0.1, 0.1, 1.0]);
     }
 
     /// Search highlight with alpha >= 128 swaps fg/bg then blends bg.
@@ -1053,7 +916,7 @@ mod tests {
             end_col_exclusive: 4,
             color: [0xFF, 0xFF, 0x00, 0xFF], // opaque yellow
         };
-        let instances = build(&cells, CellCursor::default(), None, &[hl]);
+        let instances = build(&cells, CellCursor::default(), &[hl]);
         // Alpha >= 128 → swap fg/bg, then bg = blend(bg, yellow, alpha=1) = yellow.
         assert_eq!(
             instances[0].fg_color,
@@ -1084,7 +947,7 @@ mod tests {
             end_col_exclusive: 1,
             color: [0xFF, 0x00, 0x00, 0x7F], // alpha ~0.5 red (below the 128 swap threshold)
         };
-        let instances = build(&cells, CellCursor::default(), None, &[hl]);
+        let instances = build(&cells, CellCursor::default(), &[hl]);
         assert_eq!(
             instances[0].fg_color,
             [0.0, 0.0, 0.0, 1.0],
@@ -1120,7 +983,7 @@ mod tests {
             style: CursorStyle::Block,
             color: Some([0.0, 1.0, 0.0, 1.0]),
         };
-        let instances = build(&cells, cursor, None, &[]);
+        let instances = build(&cells, cursor, &[]);
         assert_eq!(
             instances[0].fg_color,
             [1.0, 0.0, 0.0, 1.0],
@@ -1144,63 +1007,13 @@ mod tests {
             [0.1, 0.1, 0.1, 1.0],
             0,
         )];
-        let instances = build(&cells, CellCursor::default(), None, &[]);
+        let instances = build(&cells, CellCursor::default(), &[]);
         assert_eq!(instances.len(), 1);
         assert_eq!(
             instances[0].atlas_size, [0.0; 2],
             "no glyph UVs for a space"
         );
         assert_eq!(instances[0].bg_color, [0.1, 0.1, 0.1, 1.0]);
-    }
-
-    /// SelectionRange.contains covers Char, Line and Block modes.
-    #[test]
-    fn selection_range_contains_modes() {
-        let char_sel = SelectionRange {
-            start_row: 1,
-            start_col: 2,
-            end_row: 2,
-            end_col: 3,
-            active: true,
-            mode: SelectionMode::Char,
-            ..Default::default()
-        };
-        assert!(char_sel.contains(1, 2, 80));
-        assert!(char_sel.contains(1, 5, 80), "middle row covers all cols");
-        assert!(char_sel.contains(2, 3, 80));
-        assert!(!char_sel.contains(0, 0, 80));
-        assert!(!char_sel.contains(2, 4, 80));
-
-        let line_sel = SelectionRange {
-            start_row: 0,
-            start_col: 0,
-            end_row: 3,
-            end_col: 0,
-            active: true,
-            mode: SelectionMode::Line,
-            ..Default::default()
-        };
-        assert!(
-            line_sel.contains(2, 99, 80),
-            "Line mode covers the whole row"
-        );
-        assert!(!line_sel.contains(4, 0, 80));
-
-        let block_sel = SelectionRange {
-            start_row: 1,
-            start_col: 1,
-            end_row: 2,
-            end_col: 2,
-            active: true,
-            mode: SelectionMode::Block,
-            ..Default::default()
-        };
-        assert!(block_sel.contains(1, 1, 80));
-        assert!(block_sel.contains(2, 2, 80));
-        assert!(
-            !block_sel.contains(1, 3, 80),
-            "Block mode bounds the column"
-        );
     }
 
     // Field-by-field comparison (CellInstance does not derive PartialEq).
@@ -1218,7 +1031,6 @@ mod tests {
             cursor,
             atlas_width: 1024.0,
             atlas_height: 1024.0,
-            selection: None,
             search_highlights: &[],
         }
     }
@@ -1288,7 +1100,7 @@ mod tests {
             &mut instances,
         );
         assert!(ok.is_some(), "initial full build should succeed");
-        let full_frame1 = build(&cells, cursor, None, &[]);
+        let full_frame1 = build(&cells, cursor, &[]);
         assert!(
             instances_equal(&instances, &full_frame1),
             "initial build equals a full build"
@@ -1310,7 +1122,7 @@ mod tests {
             &mut instances,
         );
         assert!(ok.is_some(), "incremental build should succeed");
-        let full_frame2 = build(&cells2, cursor, None, &[]);
+        let full_frame2 = build(&cells2, cursor, &[]);
         assert!(
             instances_equal(&instances, &full_frame2),
             "incremental result must match a full rebuild"
@@ -1374,7 +1186,7 @@ mod tests {
             &mut instances,
         );
         assert!(ok.is_some(), "rebuild after atlas change should succeed");
-        let full_frame2 = build(&cells2, cursor, None, &[]);
+        let full_frame2 = build(&cells2, cursor, &[]);
         assert!(
             instances_equal(&instances, &full_frame2),
             "stale atlas generation must force a full rebuild, not serve cached rows"
@@ -1397,7 +1209,7 @@ mod tests {
             color: None,
         };
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-        let full = build(&cells, cursor, None, &[]);
+        let full = build(&cells, cursor, &[]);
 
         // Stale cache: built for a 12-row grid while the grid has 24 rows.
         let mut cache = CachedInstances::new(12, 80);
@@ -1455,7 +1267,7 @@ mod tests {
             color: None,
         };
         let mut font_pipeline = crate::render::font::FontPipeline::new(1024, 1024, 14.0);
-        let full = build(&cells, cursor, None, &[]);
+        let full = build(&cells, cursor, &[]);
 
         // Simulate the resize frame: cache was built for 24x40 but the grid
         // is now 24x80 (cols-only change). A re-created empty cache for
@@ -1505,7 +1317,7 @@ mod tests {
         };
         // A single empty cell under the cursor (codepoint 0).
         let cells = vec![cell_data(0, 38, '\0', [1.0; 4], [0.0; 4], 0)];
-        let instances = build(&cells, cursor, None, &[]);
+        let instances = build(&cells, cursor, &[]);
         assert_eq!(instances.len(), 1, "empty cursor cell emits one quad");
         let cell_h = 1024.0 / 24.0;
         let origin_y = instances[0].quad_origin[1];

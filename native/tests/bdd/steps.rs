@@ -3,7 +3,6 @@
 use cucumber::World;
 
 use native::terminal::ghostty_terminal::{GhosttyTerminal, GridSnapshot};
-use native::terminal::osc_handler::OscEvent;
 
 /// 全部场景共享的可变状态，cucumber 为每个场景新建一个。
 #[derive(Debug, Default, World)]
@@ -11,8 +10,7 @@ pub struct TerminalWorld {
     pub home: String,
     pub prefix: Option<String>,
     pub env: Vec<(String, String)>,
-    pub osc_output: Vec<u8>,
-    pub osc_events: Vec<OscEvent>,
+    pub clipboard_read: Option<String>,
     pub term: TermSlot,
     pub probe_line: String,
     pub probe_col: usize,

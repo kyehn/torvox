@@ -12,7 +12,6 @@ use super::commands::{Command, Query, RunConfig};
 use super::keymap::map_android_key_code;
 use super::types::*;
 use flume::Sender;
-use strsim::levenshtein as levenshtein_distance;
 
 /// Send a value over a channel, logging on failure.
 fn try_send<T>(sender: &Sender<T>, value: T, context: &str) {
@@ -140,31 +139,6 @@ impl super::GhosttyTerminal {
                     "query channel send failed",
                 );
             }
-            Query::OriginMode(tx) => {
-                if let Err(error) =
-                    tx.send(terminal.mode(Mode::new(6, ModeKind::Dec)).unwrap_or(false))
-                {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
-            }
-            Query::Autowrap(tx) => {
-                if let Err(error) =
-                    tx.send(terminal.mode(Mode::new(7, ModeKind::Dec)).unwrap_or(false))
-                {
-                    log::error!("ghostty_terminal: query channel send failed: {error}");
-                }
-            }
-            Query::AltScreen(tx) => {
-                let is_alt = terminal
-                    .active_screen()
-                    .is_ok_and(|s| s == libghostty_vt::screen::Screen::Alternate);
-                // Mirror lock-free for the Android input path (Haven
-                // research: altScreen wheel consumption — touch-scroll on the
-                // alternate screen must forward to the remote, not scroll
-                // local scrollback).
-                alt_screen_active.store(is_alt, Ordering::Release);
-                try_send(&tx, is_alt, "ghostty_terminal: query channel send failed");
-            }
             Query::Title(tx) => {
                 try_send(
                     &tx,
@@ -251,11 +225,9 @@ impl super::GhosttyTerminal {
             Query::SearchInScrollbackAll {
                 query,
                 case_sensitive,
-                fuzzy,
                 tx,
             } => {
-                let results =
-                    Self::search_in_scrollback_all_impl(terminal, &query, case_sensitive, fuzzy);
+                let results = Self::search_in_scrollback_all_impl(terminal, &query, case_sensitive);
                 try_send(&tx, results, "ghostty_terminal: query channel send failed");
             }
             Query::DumpGrid { tx } => {
@@ -266,14 +238,23 @@ impl super::GhosttyTerminal {
                 let kitty_graphics_data = (|| -> Option<KittyGraphicsImageData> {
                     let graphics = terminal.kitty_graphics().ok()?;
                     let image = graphics.image(id)?;
+                    // 上游 Image::data() 为 Ok(None) 表示元数据已驻留但像素载荷待定
+                    //（分片传输中），须返回 None 而非空图像，避免调用方把待定误判为空图。
+                    // 未安装 PNG 解码器时 PNG 载荷未经解码，暂不透出（待解码器落地）。
+                    if matches!(
+                        image.format().ok()?,
+                        libghostty_vt::kitty::graphics::ImageFormat::Png
+                    ) {
+                        return None;
+                    }
+                    let bytes = image.data().ok()??;
                     let width = image.width().ok()?;
                     let height = image.height().ok()?;
-                    let data = image.data().ok()?;
                     Some(KittyGraphicsImageData {
                         id,
                         width,
                         height,
-                        data: data.map(|bytes| bytes.to_vec()).unwrap_or_default(),
+                        data: bytes.to_vec(),
                     })
                 })();
                 try_send(
@@ -487,6 +468,50 @@ impl super::GhosttyTerminal {
             }
         }) {
             log::error!("ghostty_terminal: on_pty_write callback registration failed: {error}");
+        }
+        // OSC 7 工作目录与 OSC 52 剪贴板写入改走上游回调：序列直达 Ghostty，
+        // 事件经通道推送、由调用方在 flush 后收割。本仓不再自建 OSC 解析器。
+        // try_send 永不阻塞 VT 线程；OSC 52 读取请求（`?`）上游明确忽略，
+        // 仍由 OutputProcessor 的最小扫描器拦截（FR-036）。
+        if let Err(error) = terminal.on_pwd_changed({
+            let cwd_tx = config.cwd_tx.clone();
+            move |term| {
+                if let Ok(pwd) = term.pwd() {
+                    let _ = cwd_tx.try_send(pwd.to_string());
+                }
+            }
+        }) {
+            log::error!("ghostty_terminal: on_pwd_changed callback registration failed: {error}");
+        }
+        if let Err(error) = terminal.on_clipboard_write({
+            let clipboard_tx = config.clipboard_tx.clone();
+            move |_term, write| {
+                // 选择器字母沿用 xterm 约定（Kotlin 侧原样透传）：c=剪贴板、p=主选区、s=次选区。
+                let selection = match write.location() {
+                    libghostty_vt::terminal::ClipboardLocation::Standard => "c",
+                    libghostty_vt::terminal::ClipboardLocation::Primary => "p",
+                    libghostty_vt::terminal::ClipboardLocation::Selection => "s",
+                }
+                .to_string();
+                let mut fallback: Option<&[u8]> = None;
+                let mut chosen: Option<&[u8]> = None;
+                for content in write.contents() {
+                    if fallback.is_none() {
+                        fallback = Some(content.data);
+                    }
+                    if content.mime.starts_with("text/") {
+                        chosen = Some(content.data);
+                        break;
+                    }
+                }
+                let text = String::from_utf8_lossy(chosen.or(fallback).unwrap_or(&[])).into_owned();
+                let _ = clipboard_tx.try_send((selection, text));
+                Ok(())
+            }
+        }) {
+            log::error!(
+                "ghostty_terminal: on_clipboard_write callback registration failed: {error}"
+            );
         }
 
         let mut default_bg = Self::byte_color_to_float(config.background_color);
@@ -702,6 +727,40 @@ impl super::GhosttyTerminal {
                         grid_dirty = true;
                         batch_dirty = true;
                     }
+                    Command::Reset => {
+                        // RIS 全重置：恢复初始状态并清空回滚；全部帧缓存失效。
+                        // reset 同时清除终端持有的活动选区（上游语义）。
+                        terminal.reset();
+                        row_cache.clear();
+                        cached_snapshot = None;
+                        cached_scroll_offset = u32::MAX;
+                        last_cell_data_push = None;
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
+                    Command::SetSelection {
+                        start,
+                        end,
+                        rectangle,
+                    } => {
+                        // 终端持有化：选区经 set_selection 安装为终端状态
+                        //（上游转为跟踪引用，随滚动/输出/重排跟随文本）。
+                        // 选区变化改变每行反白，需失效行缓存并重推帧。
+                        Self::install_selection_impl(&terminal, start, end, rectangle);
+                        row_cache.clear();
+                        last_cell_data_push = None;
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
+                    Command::ClearSelection => {
+                        if terminal.set_selection(None).is_err() {
+                            log::warn!("ghostty_terminal: clear selection failed");
+                        }
+                        row_cache.clear();
+                        last_cell_data_push = None;
+                        grid_dirty = true;
+                        batch_dirty = true;
+                    }
                     Command::TakeSnapshot { tx, scroll_offset } => {
                         let needs_rebuild = snapshot_needs_rebuild(
                             grid_dirty,
@@ -837,7 +896,9 @@ impl super::GhosttyTerminal {
         let rows = terminal.rows().unwrap_or(24) as u32;
         let cols = terminal.cols().unwrap_or(80) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
-        let palette = Self::catppuccin_mocha_palette().0;
+        let (palette, background, foreground) = Self::catppuccin_mocha_palette();
+        let default_foreground = Self::byte_color_to_float(foreground);
+        let default_background = Self::byte_color_to_float(background);
 
         let mut visible = Vec::with_capacity((rows * cols) as usize);
         for row in 0..rows {
@@ -853,7 +914,11 @@ impl super::GhosttyTerminal {
                     }
                     if let Ok(style) = point.style() {
                         Self::apply_style_to_snapshot(
-                            &mut data, &style, [0.0; 4], [0.0; 4], &palette,
+                            &mut data,
+                            &style,
+                            default_foreground,
+                            default_background,
+                            &palette,
                         );
                     }
                 }
@@ -876,7 +941,11 @@ impl super::GhosttyTerminal {
                     }
                     if let Ok(style) = point.style() {
                         Self::apply_style_to_snapshot(
-                            &mut data, &style, [0.0; 4], [0.0; 4], &palette,
+                            &mut data,
+                            &style,
+                            default_foreground,
+                            default_background,
+                            &palette,
                         );
                     }
                 }
@@ -1099,12 +1168,9 @@ impl super::GhosttyTerminal {
         alt_screen_active: &Arc<AtomicBool>,
     ) -> Option<(Vec<CellData>, CursorInfo)> {
         // Keep the lock-free alternate-screen mirror in sync on every frame
-        // the VT thread emits (not only when a `Query::AltScreen` query
-        // arrives — no production caller issues that query, so a query-only
-        // update would leave the mirror stale at `false` forever). The
-        // Android input path reads this mirror lock-free on every touch-scroll
-        // to decide whether to forward the gesture to the remote (Haven
-        // research: altScreen wheel consumption).
+        // the VT thread emits. The Android input path reads this mirror
+        // lock-free on every touch-scroll to decide whether to forward the
+        // gesture to the remote (Haven research: altScreen wheel consumption).
         alt_screen_active.store(
             terminal
                 .active_screen()
@@ -1135,13 +1201,29 @@ impl super::GhosttyTerminal {
 
         let mut data = Vec::with_capacity(size);
         let mut current_row = 0u32;
+        // 终端持有选区激活期间禁用行缓存读取：跟踪选区随滚动/输出移动时，
+        // 网格未变脏的行也可能改变反白归属，缓存会提供过期高亮。
+        // （写入仍更新缓存；清除选区时整缓存失效。）
+        let selection_active = terminal
+            .selection()
+            .map(|selected| selected.is_some())
+            .unwrap_or(false);
 
         while let Some(row) = row_iter_impl.next() {
             let row_idx = current_row as usize;
             let is_dirty = row.dirty().unwrap_or(true);
+            // 行级选区范围（无选区时为 None）：每行一次 FFI，避免逐单元格查询。
+            let row_selection = if selection_active {
+                row.selection().ok().flatten()
+            } else {
+                None
+            };
             // zelland row-cache pattern: clean rows are copied from the
             // cache instead of re-walking their cells (FFI per cell).
-            if !is_dirty && let Some(cached) = row_cache.get(row_idx) {
+            if !is_dirty
+                && !selection_active
+                && let Some(cached) = row_cache.get(row_idx)
+            {
                 data.extend_from_slice(cached);
                 current_row += 1;
                 continue;
@@ -1240,6 +1322,16 @@ impl super::GhosttyTerminal {
                         grapheme_extra[i - 1] = c as u32;
                     }
                 }
+
+                // 终端持有选区的行内反白（经典反白：前景背景互换，与覆盖层旧语义一致）。
+                let (fg_color, bg_color) = if row_selection.as_ref().is_some_and(|range| {
+                    let col = current_col as u16;
+                    col >= range.start_x && col <= range.end_x
+                }) {
+                    (bg_color, fg_color)
+                } else {
+                    (fg_color, bg_color)
+                };
 
                 row_data.push(CellData {
                     codepoint,
@@ -1455,7 +1547,6 @@ impl super::GhosttyTerminal {
                     strikethrough: style.strikethrough,
                     blink: style.blink,
                     hidden: style.invisible,
-                    uri: None,
                     overline: style.overline,
                     double_underline: style.underline == libghostty_vt::style::Underline::Double,
                     width,
@@ -1542,16 +1633,17 @@ impl super::GhosttyTerminal {
     /// whitespace; grid columns map to char indices internally so CJK wide
     /// glyphs are never split (no column-to-char drift on surrogate pairs).
     ///
-    /// Coordinates are screen-space rows (0..rows+scrollback are valid);
-    /// scrollback rows are passed as negative offsets per ghostty Point
-    /// semantics. Returns an empty string for an invalid selection.
+    /// Coordinates are absolute grid rows (0 = top of history; the viewport
+    /// starts at `scrollback_rows`). History rows resolve via Point::History
+    /// and viewport rows via Point::Viewport (equivalent to Point::Screen
+    /// with an absolute y). Returns an empty string for an invalid selection.
     pub(crate) fn selection_text_impl(
         terminal: &Terminal,
         start: (u32, u32),
         end: (u32, u32),
         rectangle: bool,
     ) -> String {
-        let cols = terminal.cols().unwrap_or(80) as u32;
+        let cols = terminal.cols().unwrap_or(80).max(1) as u32;
         let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
         let start_col = (start.1).min(cols - 1);
         let end_col = (end.1).min(cols - 1);
@@ -1615,6 +1707,40 @@ impl super::GhosttyTerminal {
         }
     }
 
+    /// 将视图坐标的选区安装为终端持有的活动选区（跟踪引用）。
+    /// 与 selection_text_impl 同一坐标系：绝对网格行（0 = 回滚顶部）。
+    /// 无效端点时静默忽略（调用方已标记脏并重推，保持帧一致）。
+    pub(crate) fn install_selection_impl(
+        terminal: &Terminal,
+        start: (u32, u32),
+        end: (u32, u32),
+        rectangle: bool,
+    ) {
+        let cols = terminal.cols().unwrap_or(80).max(1) as u32;
+        let scrollback_rows = terminal.scrollback_rows().unwrap_or(0) as u32;
+        let resolve = |row: u32, col: u32| {
+            let clamped = col.min(cols - 1) as u16;
+            if row < scrollback_rows {
+                Point::History(PointCoordinate { x: clamped, y: row })
+            } else {
+                Point::Viewport(PointCoordinate {
+                    x: clamped,
+                    y: row - scrollback_rows,
+                })
+            }
+        };
+        let (Ok(start_ref), Ok(end_ref)) = (
+            terminal.grid_ref(resolve(start.0, start.1)),
+            terminal.grid_ref(resolve(end.0, end.1)),
+        ) else {
+            return;
+        };
+        let selection = libghostty_vt::selection::Selection::new(start_ref, end_ref, rectangle);
+        if terminal.set_selection(Some(&selection)).is_err() {
+            log::warn!("ghostty_terminal: install selection failed");
+        }
+    }
+
     /// Query the OSC 8 hyperlink URI at a grid cell (termux TerminalView
     /// openLinkAt equivalent; ghostty cell.has_hyperlink + hyperlink_uri).
     pub(crate) fn hyperlink_at_impl(terminal: &Terminal, row: u32, col: u32) -> Option<String> {
@@ -1635,12 +1761,25 @@ impl super::GhosttyTerminal {
         if !cell.has_hyperlink().unwrap_or(false) {
             return None;
         }
+        // 超长 URI（>4KiB）按上游 OutOfSpace{required} 重试，避免截断长链接。
         let mut buf = [0u8; 4096];
-        let len = grid_ref.hyperlink_uri(&mut buf).ok()?;
-        if len == 0 {
-            return None;
+        match grid_ref.hyperlink_uri(&mut buf) {
+            Ok(0) => None,
+            Ok(len) => Some(String::from_utf8_lossy(&buf[..len]).into_owned()),
+            Err(libghostty_vt::error::Error::OutOfSpace { required }) => {
+                let capped = required.min(64 * 1024);
+                if capped == 0 {
+                    return None;
+                }
+                let mut grown = vec![0u8; capped];
+                let grown_len = grid_ref.hyperlink_uri(&mut grown).ok()?;
+                if grown_len == 0 {
+                    return None;
+                }
+                Some(String::from_utf8_lossy(&grown[..grown_len]).into_owned())
+            }
+            Err(_) => None,
         }
-        Some(String::from_utf8_lossy(&buf[..len]).into_owned())
     }
 
     pub(crate) fn search_in_scrollback_impl(
@@ -1653,9 +1792,11 @@ impl super::GhosttyTerminal {
         let total = terminal.total_rows().unwrap_or(0) as u32;
         for row in 0..total {
             if let Some(line) = Self::read_line_text_impl(terminal, row)
-                && let Some(col) = line.find(query)
+                && let Some(byte_offset) = line.find(query)
             {
-                return Some((row, col as u32));
+                // SearchMatch 列为字符列而非字节偏移，CJK 行须转换以免高亮错位。
+                let column = line[..byte_offset].chars().count() as u32;
+                return Some((row, column));
             }
         }
         None
@@ -1665,7 +1806,6 @@ impl super::GhosttyTerminal {
         terminal: &Terminal,
         query: &str,
         case_sensitive: bool,
-        fuzzy: bool,
     ) -> Vec<SearchMatch> {
         if query.is_empty() {
             return vec![];
@@ -1684,70 +1824,30 @@ impl super::GhosttyTerminal {
                 } else {
                     line.to_lowercase()
                 };
-                if fuzzy {
-                    // Window size is the query's char count, not byte
-                    // length: a multi-byte query (CJK) otherwise forms
-                    // windows that end mid-character and can never match.
-                    let query_chars = search_query.chars().count();
-                    let max_distance = std::cmp::max(1, query_chars / 3);
-                    // Char-boundary byte offsets of the line; windows are
-                    // sized by char count so slicing stays valid.
-                    let boundaries: Vec<usize> = search_line
-                        .char_indices()
-                        .map(|(offset, _)| offset)
-                        .collect();
-                    if query_chars <= boundaries.len() {
-                        // Sliding window: find all windows whose edit distance is within threshold.
-                        // Return each match position so all results are highlighted, not just
-                        // the nearest one (which would miss overlapping near-matches).
-                        for (window_index, &start) in boundaries.iter().enumerate() {
-                            let end = boundaries
-                                .get(window_index + query_chars)
-                                .copied()
-                                .unwrap_or(search_line.len());
-                            let window = &search_line[start..end];
-                            let dist = levenshtein_distance(&search_query, window);
-                            if dist <= max_distance {
-                                // Convert byte offsets to character columns:
-                                // rendering highlights by CellData.col (char
-                                // index), not byte offset — CJK/emoji rows
-                                // would misalign otherwise.
-                                let start_col = search_line[..start].chars().count() as u32;
-                                let end_col = search_line[..end].chars().count() as u32;
-                                results.push(SearchMatch {
-                                    row,
-                                    start_col,
-                                    end_col,
-                                });
-                            }
-                        }
-                    }
-                } else {
-                    let mut start = 0;
-                    while let Some(col) = search_line[start..].find(&search_query) {
-                        let abs_col = start + col;
-                        // Byte offset -> character column (see above).
-                        let match_start_col = search_line[..abs_col].chars().count() as u32;
-                        let match_end = abs_col + search_query.len();
-                        let match_end_col = search_line[..match_end].chars().count() as u32;
-                        results.push(SearchMatch {
-                            row,
-                            start_col: match_start_col,
-                            end_col: match_end_col,
-                        });
-                        // Advance past this match to its end (always a char
-                        // boundary), then step to the next boundary so
-                        // overlapping matches are still found without
-                        // slicing mid-character.
-                        let mut next = abs_col + search_query.len();
-                        if next < search_line.len() {
+                let mut start = 0;
+                while let Some(col) = search_line[start..].find(&search_query) {
+                    let abs_col = start + col;
+                    // Byte offset -> character column (see above).
+                    let match_start_col = search_line[..abs_col].chars().count() as u32;
+                    let match_end = abs_col + search_query.len();
+                    let match_end_col = search_line[..match_end].chars().count() as u32;
+                    results.push(SearchMatch {
+                        row,
+                        start_col: match_start_col,
+                        end_col: match_end_col,
+                    });
+                    // Advance past this match to its end (always a char
+                    // boundary), then step to the next boundary so
+                    // overlapping matches are still found without
+                    // slicing mid-character.
+                    let mut next = abs_col + search_query.len();
+                    if next < search_line.len() {
+                        next += 1;
+                        while next < search_line.len() && !search_line.is_char_boundary(next) {
                             next += 1;
-                            while next < search_line.len() && !search_line.is_char_boundary(next) {
-                                next += 1;
-                            }
                         }
-                        start = next;
                     }
+                    start = next;
                 }
             }
         }
