@@ -1031,10 +1031,11 @@ fn write_key_inner(
                 }
             }
         } else {
-            // Encode modifiers into the key byte sequence.
-            // This is a basic encoder; the modern Ghostty key
-            // encoder path (internal.rs key::Encoder + key::Event)
-            // should be used for full Kitty keyboard protocol support.
+            // IME 可打印字符回退入口：Kotlin 侧已过滤 Ctrl（特殊键/组合键经
+            // TerminalInputEncoder 编码后走 feedPty），到达此处的仅为无 Ctrl 的
+            // 可打印字符（含 Alt 前缀处理）。完整 Kitty 键盘协议编码由上游
+            // key::Encoder 经 Query::KeyEncode 承担（需数字 keyCode，本入口仅有
+            // 字符故不适用），本函数不做 Kitty CSI-u 编码。
             let bytes = encode_modifiers(key_str.as_bytes(), modifiers);
             session.write(&bytes)
         };
