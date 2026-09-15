@@ -168,16 +168,18 @@ impl super::GhosttyTerminal {
         // chunk boundaries (common with PTY output on Linux). Without this
         // the LF→CRLF converter inserts a spurious `\r`, producing `\r\r\n`.
         let mut prev: u8 = self.last_pty_write_byte;
-        for &b in data {
+        for &raw in data {
+            // 与 vt_write 同规则清洗：0xF8–0xFF 非法 UTF-8 首字节会使 C 解析器崩溃，保长替换为空格。
+            let sanitized = if raw > 0xF7 { b' ' } else { raw };
             // Convert a bare LF to CRLF, but only when the LF is not already
             // preceded by a CR. Input that already contains CRLF (common from
             // PTY output) would otherwise become CRCRLF, producing a spurious
             // extra carriage return.
-            if b == b'\n' && prev != b'\r' {
+            if sanitized == b'\n' && prev != b'\r' {
                 buf.push(b'\r');
             }
-            buf.push(b);
-            prev = b;
+            buf.push(sanitized);
+            prev = sanitized;
         }
         // 分片直透：上游解析器在同一 Terminal 对象上跨调用保持状态，
         // CSI/OSC/DCS 分片由上游增量重组，此处不得提前闭合（ST 自动闭合
