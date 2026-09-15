@@ -1659,7 +1659,7 @@ constructor(
         }
     }
 
-    /** Keep only the final path segment and reject any traversal. */
+    /** 自由文本设置防抖写入（每次写入为完整文件重写）。 */
     private val shellTextDebounce = MutableStateFlow("")
     private val startDirTextDebounce = MutableStateFlow("")
     private val bootstrapUrlDebounce = MutableStateFlow("")
