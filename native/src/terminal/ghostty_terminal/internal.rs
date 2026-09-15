@@ -252,6 +252,14 @@ impl super::GhosttyTerminal {
                     "ghostty_terminal: query channel send failed",
                 );
             }
+            Query::TakeKittyPlacements { tx } => {
+                let placements = Self::collect_kitty_placements(terminal);
+                try_send(
+                    &tx,
+                    placements,
+                    "ghostty_terminal: query channel send failed",
+                );
+            }
             Query::KeyEncode {
                 key_code,
                 modifiers,
@@ -1196,8 +1204,9 @@ impl super::GhosttyTerminal {
                 if bytes.len() != pixel_count.checked_mul(3)? {
                     return None;
                 }
+                let (triples, _) = bytes.as_chunks::<3>();
                 let mut out = Vec::with_capacity(pixel_count * 4);
-                for triple in bytes.chunks_exact(3) {
+                for triple in triples {
                     out.extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
                 }
                 out
@@ -1216,8 +1225,9 @@ impl super::GhosttyTerminal {
                 if bytes.len() != pixel_count.checked_mul(2)? {
                     return None;
                 }
+                let (pairs, _) = bytes.as_chunks::<2>();
                 let mut out = Vec::with_capacity(pixel_count * 4);
-                for pair in bytes.chunks_exact(2) {
+                for pair in pairs {
                     out.extend_from_slice(&[pair[0], pair[0], pair[0], pair[1]]);
                 }
                 out
@@ -1227,8 +1237,9 @@ impl super::GhosttyTerminal {
                 if bytes.len() == pixel_count.checked_mul(4)? {
                     bytes.to_vec()
                 } else if bytes.len() == pixel_count.checked_mul(3)? {
+                    let (triples, _) = bytes.as_chunks::<3>();
                     let mut out = Vec::with_capacity(pixel_count * 4);
-                    for triple in bytes.chunks_exact(3) {
+                    for triple in triples {
                         out.extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
                     }
                     out
@@ -1239,6 +1250,68 @@ impl super::GhosttyTerminal {
             _ => return None,
         };
         Some((width, height, rgba))
+    }
+
+    /// 采集视口内全部可见 Kitty 放置（跳过虚拟占位与屏外项，按 z 排序）。
+    /// 虚拟放置（unicode 占位符）由字形管线渲染，不进图像通道。
+    fn collect_kitty_placements(terminal: &Terminal) -> Vec<KittyPlacementFrame> {
+        use libghostty_vt::kitty::graphics::PlacementIterator;
+        let Ok(graphics) = terminal.kitty_graphics() else {
+            return Vec::new();
+        };
+        let Ok(mut iterator) = PlacementIterator::new() else {
+            return Vec::new();
+        };
+        let Ok(mut placements) = iterator.update(&graphics) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        while let Some(placement) = placements.next() {
+            if placement.is_virtual().unwrap_or(true) {
+                continue;
+            }
+            let Ok(image_id) = placement.image_id() else {
+                continue;
+            };
+            let Some(image) = graphics.image(image_id) else {
+                continue;
+            };
+            let Some((image_width, image_height, image_rgba)) =
+                Self::kitty_image_to_rgba(&image)
+            else {
+                continue;
+            };
+            let Ok(info) = placement.placement_render_info(&image, terminal) else {
+                continue;
+            };
+            if !info.viewport_visible
+                || info.pixel_width == 0
+                || info.pixel_height == 0
+                || info.source_width == 0
+                || info.source_height == 0
+            {
+                continue;
+            }
+            out.push(KittyPlacementFrame {
+                image_id,
+                viewport_col: info.viewport_col,
+                viewport_row: info.viewport_row,
+                pixel_width: info.pixel_width,
+                pixel_height: info.pixel_height,
+                source_x: info.source_x,
+                source_y: info.source_y,
+                source_width: info.source_width,
+                source_height: info.source_height,
+                cell_offset_x: placement.x_offset().unwrap_or(0),
+                cell_offset_y: placement.y_offset().unwrap_or(0),
+                z: placement.z().unwrap_or(0),
+                image_width,
+                image_height,
+                image_rgba,
+            });
+        }
+        out.sort_by_key(|frame| frame.z);
+        out
     }
 
     /// Builds the full `CellData` grid for rendering, skipping clean rows.
@@ -1485,6 +1558,11 @@ impl super::GhosttyTerminal {
                 visible: cursor_visible,
                 style: cursor_style,
                 scrollback_length: terminal.scrollback_rows().unwrap_or(0) as u32,
+                kitty_generation: terminal
+                    .kitty_graphics()
+                    .ok()
+                    .and_then(|graphics| graphics.generation().ok())
+                    .unwrap_or(0),
             },
         ))
     }

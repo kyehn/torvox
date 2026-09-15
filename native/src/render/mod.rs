@@ -16,6 +16,7 @@
 // ── Sub-modules ──────────────────────────────────────────────────────────
 pub mod font;
 pub mod invalidation;
+pub mod kitty;
 
 pub(crate) mod cell_builder;
 pub mod context;
