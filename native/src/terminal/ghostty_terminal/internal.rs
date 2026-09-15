@@ -1170,15 +1170,15 @@ impl libghostty_vt::kitty::graphics::DecodePng for KittyPngDecoder {
             ColorType::Rgb => {
                 self.scratch.reserve(frame_bytes.len() / 3 * 4);
                 for triple in frame_bytes.as_chunks::<3>().0 {
-                    self.scratch.extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
+                    self.scratch
+                        .extend_from_slice(&[triple[0], triple[1], triple[2], 255]);
                 }
                 &self.scratch
             }
             ColorType::Grayscale => {
                 self.scratch.reserve(frame_bytes.len() * 4);
                 for gray in frame_bytes {
-                    self.scratch
-                        .extend_from_slice(&[*gray, *gray, *gray, 255]);
+                    self.scratch.extend_from_slice(&[*gray, *gray, *gray, 255]);
                 }
                 &self.scratch
             }
@@ -1192,8 +1192,7 @@ impl libghostty_vt::kitty::graphics::DecodePng for KittyPngDecoder {
             }
             _ => return None,
         };
-        let mut bytes =
-            libghostty_vt::alloc::Bytes::new_with_alloc(alloc, rgba.len()).ok()?;
+        let mut bytes = libghostty_vt::alloc::Bytes::new_with_alloc(alloc, rgba.len()).ok()?;
         bytes.copy_from_slice(rgba);
         reader.finish().ok()?;
         Some(libghostty_vt::kitty::graphics::DecodedImage {
