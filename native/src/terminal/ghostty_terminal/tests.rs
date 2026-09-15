@@ -380,14 +380,15 @@ fn encode_mouse_event_drag_sequence() {
 
 // ── OSC split-buffer tests ──────────────────────────────────────────────
 
-/// OSC 0 title — split across two writes.
+/// OSC 0 title — split across two writes (true reassembly: the second half
+/// must be consumed by the OSC, not rendered as text).
 #[test]
 fn osc_title_split_buffer() {
     let mut t = term();
     // Send the first and second parts of OSC 0 sequence
     t.vt_write(b"\x1b]0;My ");
     t.flush();
-    t.vt_write(b"Title\x07");
+    t.vt_write(b"QQQ\x07");
     t.flush();
     let _snap = t.take_snapshot();
     // After setting the title, terminal should not crash, text should still be writable
@@ -396,19 +397,28 @@ fn osc_title_split_buffer() {
     let snap2 = t.take_snapshot();
     let found = snap2.cells.iter().any(|c| c.codepoint == 'A' as u32);
     assert!(found, "OSC split: text after split title should render");
+    let leaked = snap2.cells.iter().any(|c| c.codepoint == 'Q' as u32);
+    assert!(!leaked, "OSC split: title second half must be consumed, not rendered");
     assert_invariants(&snap2);
 }
 
-/// OSC 52 clipboard — sent across split buffer.
+/// OSC 52 clipboard — sent across split buffer (true reassembly: the payload
+/// must reach the clipboard callback, not the grid).
 #[test]
 fn osc_clipboard_split_buffer() {
     let mut t = term();
     // OSC 52 sequence: first part sets clipboard selection, second provides data.
-    // No crash is the primary verification point.
     t.vt_write(b"\x1b]52;c;");
     t.flush();
     t.vt_write(b"SGVsbG8=\x07");
     t.flush();
+    // 分片必须由上游重组：剪贴板事件内容为解码后文本。
+    let event = t.poll_clipboard_event();
+    assert_eq!(
+        event,
+        Some(("c".to_string(), "Hello".to_string())),
+        "OSC 52 split: payload must reassemble into clipboard event"
+    );
     // Terminal should not crash, text should still be writable
     t.vt_write(b"PostClip");
     t.flush();
