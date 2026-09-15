@@ -2022,6 +2022,9 @@ impl super::GhosttyTerminal {
         let search_query = if case_sensitive {
             query.to_string()
         } else {
+            // 大小写不敏感路径在小写空间匹配，无 Unicode 规范化：
+            // 小写展开字符（如 U+0130）后方列可能漂移，组合/分解形式直接 miss。
+            // 主流 ASCII/CJK 场景不受影响，复杂场景按规范不处理。
             query.to_lowercase()
         };
         for row in 0..total {
