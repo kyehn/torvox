@@ -127,6 +127,37 @@ class BootstrapInstallerTest {
         assertFalse("prefix must not be reported installed on failure", installer.isInstalled())
     }
 
+    @Test
+    fun install_rejectsZipSlipTraversalEntry() {
+        // 恶意 bootstrap 压缩包不得写出 staging 目录（对等 ghostty
+        // restoreRejectsTraversalEscape）：../ 条目必须导致安装失败，
+        // 且 escape 目标文件不得被创建。
+        val escapeDir = File(context.cacheDir, "zipslip-escape-${UUID.randomUUID().toString().take(8)}")
+        escapeDir.mkdirs()
+        try {
+            ZipOutputStream(zipFile.outputStream()).use { zos ->
+                zos.putNextEntry(ZipEntry("bin/bash"))
+                zos.write("#!/bin/sh\n".toByteArray())
+                zos.closeEntry()
+                zos.putNextEntry(ZipEntry("../zipslip-pwned.txt"))
+                zos.write("PWNED\n".toByteArray())
+                zos.closeEntry()
+            }
+            val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
+
+            val result = runBlocking { installer.install(zipFile) }
+
+            assertTrue("install must fail on traversal entry", result.isFailure)
+            assertFalse(
+                "traversal payload must not escape staging",
+                File(stagingDir.parentFile, "zipslip-pwned.txt").exists(),
+            )
+            assertFalse("failed install must not report installed", installer.isInstalled())
+        } finally {
+            escapeDir.deleteRecursively()
+        }
+    }
+
     /** The archive's EXECUTABLES.txt is parsed and chmod failures are tolerated. */
     @Test
     fun install_parsesExecutablesTxt() {
