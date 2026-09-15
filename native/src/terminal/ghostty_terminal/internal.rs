@@ -1834,16 +1834,12 @@ impl super::GhosttyTerminal {
                         start_col: match_start_col,
                         end_col: match_end_col,
                     });
-                    // Advance past this match to its end (always a char
-                    // boundary), then step to the next boundary so
-                    // overlapping matches are still found without
-                    // slicing mid-character.
+                    // Advance past this match (its end is always a char
+                    // boundary): adjacent matches are still found,
+                    // overlapping matches are not reported.
                     let mut next = abs_col + search_query.len();
-                    if next < search_line.len() {
+                    while next < search_line.len() && !search_line.is_char_boundary(next) {
                         next += 1;
-                        while next < search_line.len() && !search_line.is_char_boundary(next) {
-                            next += 1;
-                        }
                     }
                     start = next;
                 }

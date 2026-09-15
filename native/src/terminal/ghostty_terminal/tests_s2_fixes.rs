@@ -254,6 +254,18 @@ fn search_all_in_scrollback_finds_all_matches() {
     }
 }
 
+/// 相邻匹配不跳过：`aaaa` 搜 `aa` 须返回 2 个不重叠匹配（列 0-2 与 2-4）。
+#[test]
+fn search_all_in_scrollback_finds_adjacent_matches() {
+    let mut t = GhosttyTerminal::new(3, 80, 100).expect("term");
+    t.vt_write(b"aaaa\n");
+    t.flush();
+    let results = t.search_all_in_scrollback("aa", true);
+    assert_eq!(results.len(), 2, "adjacent 'aa' in 'aaaa' must yield 2 matches");
+    assert_eq!((results[0].start_col, results[0].end_col), (0, 2));
+    assert_eq!((results[1].start_col, results[1].end_col), (2, 4));
+}
+
 /// P1-S3: search_all_in_scrollback with case-insensitive matching
 #[test]
 fn search_all_in_scrollback_case_insensitive() {
