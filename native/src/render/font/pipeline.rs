@@ -559,10 +559,11 @@ impl FontPipeline {
         let uv_w = info.width as f32 / atlas_width;
         let uv_h = info.height as f32 / atlas_height;
         let bearing_x = info.placement.left as f32;
-        let glyph_h = info.height as f32 / raster_scale;
+        // 物理像素对物理像素：与主字形路径同式（height 已含光栅缩放）。
+        let glyph_h_px = info.height as f32;
         let raw_bearing_y = ascent_pixels * raster_scale - info.placement.top as f32;
-        let bearing_y = if glyph_h > cell_h {
-            (cell_h - glyph_h) / 2.0 * raster_scale
+        let bearing_y = if glyph_h_px > cell_h {
+            (cell_h - glyph_h_px) / 2.0
         } else {
             raw_bearing_y
         };
