@@ -46,4 +46,4 @@ codegen-units = 1
 panic = "abort"
 strip = true
 [workspace.lints.clippy]
-too_many_lines = "allow"
+too_many_arguments = "allow"
