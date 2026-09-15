@@ -1899,7 +1899,11 @@ constructor(
         if (tenths < MIN_FONT_SIZE_TENTHS || tenths > MAX_FONT_SIZE_TENTHS) return
         val entry = sessions[activeSessionId] ?: return
         entry.bridge?.setFontSizeInPlace(tenths)
-        entry.bridge?.let { syncGridDimensions(it) }
+        // 预览只推字形度量不清网格：syncGridDimensions 会把 Kotlin 侧
+        // cell 宽高刷成新值，而 rows/cols 仍是旧网格，导致触摸格点与
+        // 渲染格点不一致（手势缩放后布局混乱/撕裂感）。网格重算只在
+        // finalize 的 applyFontSettings/recomputeGridFromFontMetrics 做。
+        appliedFontSizeTenths = tenths
     }
 
     /**

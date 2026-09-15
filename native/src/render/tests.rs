@@ -1629,14 +1629,10 @@ fn set_render_paused_idempotent() {
 /// varied colors, bold, italic, CJK, wide chars. This simulates a real
 /// terminal screen with syntax highlighting, git output, and Unicode.
 ///
-/// Thresholds are two-tiered (see docs/standards/TESTING.md,
-/// "Benchmarks & Performance Thresholds"): local runs assert the
-/// strict 200 fps floor; CI runs (software Vulkan/llvmpipe + parallel test
-/// contention) keep a ~2.5x anti-flake floor that still catches
-/// order-of-magnitude regressions.
-fn render_benchmarks_strict() -> bool {
-    std::env::var("CI").is_err() && std::env::var("GITHUB_ACTIONS").is_err()
-}
+/// Thresholds are single anti-flake floors (no environment checks per
+/// TESTING.md): parallel execution and software Vulkan contention make
+/// wall time noisy; the floor catches order-of-magnitude regressions only.
+/// Fine-grained tracking belongs to `cargo bench` (see check-rust.nu).
 
 #[test]
 fn bench_build_instances_from_cell_data() {
@@ -1715,11 +1711,7 @@ fn bench_build_instances_from_cell_data() {
         n,
         count
     );
-    let threshold_fps = if render_benchmarks_strict() {
-        200.0
-    } else {
-        80.0
-    };
+    let threshold_fps = 80.0;
     assert!(
         fps > threshold_fps,
         "Mixed-content render too slow: {:.0} fps (need >{threshold_fps:.0})",
@@ -2302,17 +2294,14 @@ mod vertical_shift_tests {
 // pipeline, and terminal modules must not reference render (rust-arch).
 // ══════════════════════════════════════════════════════════════════════════
 
-/// 本地严格阈值与 CI 防抖阈值的开关（与终端侧同名辅助保持一致）。
-fn strict_benchmarks() -> bool {
-    std::env::var("CI").is_err() && std::env::var("GITHUB_ACTIONS").is_err()
-}
+/// 归属说明：度量对象虽为终端快照，但本用例与相邻渲染 bench 共享
+/// `GPU_BENCH_LOCK`（防 Lavapipe 并行争用），故置于渲染 bench 套件内；
+/// 终端输入仅作夹具。阈值为单防抖地板（见本文件头注释）。
 
 /// Simulate scrolling through terminal history.
 /// Writes many lines of content, then measures take_snapshot_with_scroll
 /// at varying offset positions.
-/// 归属说明：度量对象虽为终端快照，但本用例与相邻渲染 bench 共享
-/// `GPU_BENCH_LOCK`（防 Lavapipe 并行争用）与 `strict_benchmarks` 阈值开关，
-/// 故置于渲染 bench 套件内；终端输入仅作夹具。
+/// 归属说明：见本用例上方注释（与渲染 bench 共享 `GPU_BENCH_LOCK`）。
 #[test]
 fn bench_scroll_throughput() {
     use std::hint::black_box;
@@ -2352,17 +2341,9 @@ fn bench_scroll_throughput() {
             elapsed.as_millis(),
             n,
         );
-        // Local single-run throughput is ~2000+ snaps/sec; the full suite
-        // runs tests in parallel and CPU contention (software Vulkan
-        // benches) cuts wall time significantly. The CI floor is ~5x below
-        // the single-run number; local runs assert the strict bound.
-        let threshold = if strict_benchmarks() {
-            if offset == 0 { 800.0 } else { 500.0 }
-        } else if offset == 0 {
-            400.0
-        } else {
-            250.0
-        };
+        // 单防抖地板：并行套件 + 软件 Vulkan 争用下吞吐波动大，
+        // 只捕获量级回退（见本文件头注释）。
+        let threshold = if offset == 0 { 400.0 } else { 250.0 };
         assert!(
             snaps_per_sec > threshold,
             "Scroll offset={offset} too slow: {:.0} snapshots/sec (need >{threshold:.0})",

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -73,7 +74,10 @@ fun SessionDrawer(
         modifier =
         modifier
             .fillMaxHeight()
-            .width(280.dp)
+            // 小屏/横屏可用宽度有限：抽屉占屏幕宽度的 84%，
+            // 上限 320.dp，下限 240.dp，保证按钮行与会话项不溢出。
+            .widthIn(min = 240.dp, max = 320.dp)
+            .fillMaxWidth(0.84f)
             .background(backgroundColor)
             .testTag("SessionDrawer")
             // Requires AndroidManifest `windowSoftInputMode="adjustNothing"` —
