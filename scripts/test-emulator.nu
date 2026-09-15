@@ -4,7 +4,7 @@ def main [] {
     let repo_dir = $env.PWD
     try { ^adb shell pm uninstall --user 0 com.termux } catch { null }
     let android_dir = ($repo_dir | path join "android")
-    pushd $android_dir
+    cd $android_dir
     ^./gradlew ":app:connectedDebugAndroidTest"
     try { ^adb shell am force-stop com.termux }
     try { ^adb uninstall com.termux } catch { null }
@@ -14,5 +14,5 @@ def main [] {
     ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#modifierKeyPressAnimation
     ^./gradlew ":benchmark:connectedReleaseAndroidTest" -Pandroid.testInstrumentationRunnerArguments.class=terminal.emulator.benchmark.InteractionAnimationBenchmark#imeShowAnimation
     ^./gradlew ":baselineprofile:generateBaselineProfile"
-    popd
+    cd $repo_dir
 }
