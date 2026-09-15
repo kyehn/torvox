@@ -24,6 +24,10 @@ pub struct GhosttyTerminal {
     pub(crate) cmd_tx: Sender<Command>,
     pub(crate) query_tx: Sender<Query>,
     pub(crate) cell_data_rx: Option<flume::Receiver<(Vec<CellData>, CursorInfo)>>,
+    /// 上游 OSC 回调事件接收端（VT 线程经 on_pwd_changed / on_clipboard_write 推送）。
+    /// session 在 flush 后收割到锁存槽；BDD 直接轮询断言。
+    pub(crate) cwd_rx: flume::Receiver<String>,
+    pub(crate) clipboard_rx: flume::Receiver<(String, String)>,
     pub(crate) handle: Option<thread::JoinHandle<()>>,
     pub(crate) pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
     pub(crate) snapshot_cache: Mutex<SnapshotCache>,
@@ -38,7 +42,7 @@ pub struct GhosttyTerminal {
     /// OSC/DCS string; `pty_write()` closes it with ST on the next chunk.
     pub(crate) last_in_string_mode: bool,
     /// Mirror of `Terminal::active_screen() == Alternate`, updated lock-free
-    /// by the VT thread on every `Query::AltScreen` query (internal.rs).
+    /// by the VT thread on every emitted frame (internal.rs build_cell_data).
     /// Lets the Android input path detect the alternate screen buffer
     /// (vim/less/htop) without a blocking RPC, so touch-scroll gestures can
     /// be forwarded as mouse-wheel escapes instead of scrolling local

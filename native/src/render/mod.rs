@@ -34,7 +34,7 @@ mod tests;
 // ── Re-exports ───────────────────────────────────────────────────────────
 pub use cell_builder::{CellCursor, CellRun, build_instances_from_cell_data, build_row_runs};
 #[cfg(test)]
-pub(crate) use cell_builder::{SearchHighlight, SelectionRange, blend_highlight, cell_highlight};
+pub(crate) use cell_builder::{SearchHighlight, blend_highlight, cell_highlight};
 pub use context::FrameContext;
 pub use context::Renderer;
 pub use context::apply_scroll_px_offset;
@@ -169,7 +169,7 @@ impl KittyGraphicsInstance {
 // builders) through this single module.
 pub mod gpu {
     pub use super::cell_builder::{CellCursor, CellInstanceConfig, build_instances_from_cell_data};
-    pub use super::cell_builder::{CellRun, SearchHighlight, SelectionRange, build_row_runs};
+    pub use super::cell_builder::{CellRun, SearchHighlight, build_row_runs};
     pub use super::context::{Renderer, orthographic_projection};
     pub use super::pipeline::GpuUniforms;
     pub use super::{
