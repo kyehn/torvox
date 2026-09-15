@@ -1,104 +1,63 @@
-//! OSC 7/8/52 步骤：驱动 [`OscHandler`] 并断言解码事件与透传输出。
+//! OSC 7/8/52 步骤：经 GhosttyTerminal 真实链路断言，不再直驱解析器。
+//! OSC 7/52 写入直达上游（回调推送事件）；OSC 52 读取请求上游忽略，
+//! 由 OutputProcessor 的最小扫描器拦截；超链接按单元格查询断言。
 
 use cucumber::{then, when};
-use native::terminal::osc_handler::{OscEvent, OscHandler};
+use native::terminal::ghostty_terminal::GhosttyTerminal;
+use native::terminal::output_processor::OutputProcessor;
 
 use super::{TerminalWorld, unescape};
 
-#[when(expr = "终端输出写入转义字节 {string}")]
-pub async fn feed_osc(world: &mut TerminalWorld, raw: String) {
-    let mut handler = OscHandler::new();
-    handler.process(&unescape(&raw));
-    world.osc_output = handler.output().to_vec();
-    world.osc_events = handler.events().to_vec();
+fn term(world: &mut TerminalWorld) -> &mut GhosttyTerminal {
+    world.term.expect_term()
+}
+
+#[then(expr = "工作目录为 {string}")]
+pub async fn expect_cwd(world: &mut TerminalWorld, expected: String) {
+    assert_eq!(term(world).cwd(), expected, "工作目录不符");
 }
 
 #[then(expr = "剪贴板事件文本为 {string}")]
 pub async fn expect_clipboard(world: &mut TerminalWorld, expected: String) {
-    let actual = world.osc_events.iter().find_map(|event| match event {
-        OscEvent::Clipboard(clipboard) => Some(clipboard.text.clone()),
-        _ => None,
-    });
-    assert_eq!(
-        actual.as_deref(),
-        Some(expected.as_str()),
-        "剪贴板事件不符：{events:?}",
-        events = world.osc_events,
-    );
+    let actual = term(world).poll_clipboard_event().map(|(_, text)| text);
+    assert_eq!(actual.as_deref(), Some(expected.as_str()), "剪贴板事件不符",);
+}
+
+#[when(expr = "会话层写入转义字节 {string}")]
+pub async fn feed_session_layer(world: &mut TerminalWorld, raw: String) {
+    let mut processor = OutputProcessor::new();
+    let snapshot = processor.process(&unescape(&raw));
+    world.clipboard_read = snapshot.clipboard_read;
 }
 
 #[then("收到剪贴板读取请求")]
 pub async fn expect_clipboard_read(world: &mut TerminalWorld) {
-    assert!(
-        world
-            .osc_events
-            .iter()
-            .any(|event| matches!(event, OscEvent::ClipboardRead(_))),
-        "缺少剪贴板读取请求：{events:?}",
-        events = world.osc_events,
-    );
+    assert!(world.clipboard_read.is_some(), "缺少剪贴板读取请求",);
 }
 
 #[then(expr = "读取请求选择器为 {string}")]
 pub async fn expect_clipboard_read_selection(world: &mut TerminalWorld, expected: String) {
-    let actual = world.osc_events.iter().find_map(|event| match event {
-        OscEvent::ClipboardRead(read) => Some(read.selection.clone()),
-        _ => None,
-    });
     assert_eq!(
-        actual.as_deref(),
+        world.clipboard_read.as_deref(),
         Some(expected.as_str()),
-        "读取请求选择器不符：{events:?}",
-        events = world.osc_events,
+        "读取请求选择器不符",
     );
 }
 
-#[then(expr = "超链接打开事件地址为 {string}")]
-pub async fn expect_hyperlink_open(world: &mut TerminalWorld, expected: String) {
-    let actual = world.osc_events.iter().find_map(|event| match event {
-        OscEvent::Hyperlink(link) => link.url.clone(),
-        _ => None,
-    });
+#[then(expr = "第 {int} 行第 {int} 列超链接为 {string}")]
+pub async fn expect_hyperlink(world: &mut TerminalWorld, row: usize, col: usize, expected: String) {
     assert_eq!(
-        actual.as_deref(),
+        term(world).hyperlink_at(row as u32, col as u32).as_deref(),
         Some(expected.as_str()),
-        "超链接打开事件不符：{events:?}",
-        events = world.osc_events,
+        "超链接不符",
     );
 }
 
-#[then("收到超链接关闭事件")]
-pub async fn expect_hyperlink_close(world: &mut TerminalWorld) {
-    assert!(
-        world.osc_events.iter().any(|event| matches!(
-            event,
-            OscEvent::Hyperlink(link) if link.url.is_none()
-        )),
-        "缺少超链接关闭事件：{events:?}",
-        events = world.osc_events,
-    );
-}
-
-#[then(expr = "工作目录事件路径为 {string}")]
-pub async fn expect_cwd(world: &mut TerminalWorld, expected: String) {
-    let actual = world.osc_events.iter().find_map(|event| match event {
-        OscEvent::Cwd(cwd) => Some(cwd.path.clone()),
-        _ => None,
-    });
+#[then(expr = "第 {int} 行第 {int} 列无超链接")]
+pub async fn expect_no_hyperlink(world: &mut TerminalWorld, row: usize, col: usize) {
     assert_eq!(
-        actual.as_deref(),
-        Some(expected.as_str()),
-        "工作目录事件不符：{events:?}",
-        events = world.osc_events,
-    );
-}
-
-#[then(expr = "透传输出为 {string}")]
-pub async fn expect_passthrough(world: &mut TerminalWorld, expected: String) {
-    assert_eq!(
-        world.osc_output,
-        expected.as_bytes(),
-        "透传输出不符：{output:?}",
-        output = String::from_utf8_lossy(&world.osc_output),
+        term(world).hyperlink_at(row as u32, col as u32),
+        None,
+        "不应存在超链接",
     );
 }
