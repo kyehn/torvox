@@ -9,7 +9,6 @@ import io.cucumber.java.zh_cn.假如
 import io.cucumber.java.zh_cn.当
 import io.cucumber.java.zh_cn.那么
 import terminal.emulator.cucumber.ComposeRuleHolder
-import terminal.emulator.getBridge
 import terminal.emulator.probeAssertion
 import javax.inject.Inject
 
@@ -63,13 +62,23 @@ constructor(
         // 双击前先让 shell 吐出可观测输出：若 PTY 桥尚未就绪（会话孵化中），
         // 先等就绪再点——之前失败的真正面目可能是桥未就绪时点击被吞，
         // 而非手势竞态。用输出存在性做可观测门禁，大声失败。
-        val bridge = rule.getBridge() ?: throw AssertionError("拿不到终端桥")
+        // 注意：cucumber 规则是 v2 createAndroidComposeRule，没有
+        // activityRule 字段（那是 v1 API），直接用 activity 拿桥。
         var echoed = false
+        var bridgeText: String? = null
         val deadline = System.currentTimeMillis() + 15000
         while (!echoed && System.currentTimeMillis() < deadline) {
-            bridge.writeToPty("echo CTRL_PROBE\n".toByteArray(Charsets.UTF_8))
+            val latch = java.util.concurrent.CountDownLatch(1)
+            rule.activity.runOnUiThread {
+                val runtime = rule.activity.terminalViewModel.runtime
+                val bridge = runtime.bridge()
+                bridge?.writeToPty("echo CTRL_PROBE\n".toByteArray(Charsets.UTF_8))
+                bridgeText = bridge?.getTerminalText()
+                latch.countDown()
+            }
+            latch.await(5, java.util.concurrent.TimeUnit.SECONDS)
             Thread.sleep(500)
-            echoed = bridge.getTerminalText()?.contains("CTRL_PROBE") == true
+            echoed = bridgeText?.contains("CTRL_PROBE") == true
         }
         check(echoed) { "shell 无回显，桥未就绪" }
         rule.onNodeWithTag("Key_CTRL").performClick()
