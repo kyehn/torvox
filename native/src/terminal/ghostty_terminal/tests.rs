@@ -1643,6 +1643,21 @@ fn kitty_graphics_png_decodes_to_rgba() {
     assert_eq!(image.data.len(), 4, "解码输出为 RGBA8");
 }
 
+/// Kitty 放置采集：传输并显示 1x1 图像后，可见放置恰为 1 个且几何非零。
+#[test]
+fn kitty_placements_collects_visible_display() {
+    let mut terminal = term();
+    terminal.set_cell_pixel_size(8, 16);
+    terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=7;/wAA\x1b\\");
+    terminal.flush();
+    let placements = terminal.take_kitty_placements();
+    assert_eq!(placements.len(), 1, "显示中的图像必须有可见放置");
+    let placement = &placements[0];
+    assert_eq!(placement.image_id, 7);
+    assert!(placement.pixel_width > 0 && placement.pixel_height > 0);
+    assert_eq!(placement.image_rgba, vec![255, 0, 0, 255]);
+}
+
 // ── : cursor/row coordinate consistency (D1 deterministic leg) ──
 
 /// The shell-echo path (prompt text + typed chars, no newline) must report a
