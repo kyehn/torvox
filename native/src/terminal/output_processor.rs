@@ -12,6 +12,7 @@ pub struct OutputSnapshot {
     /// 透传给 VT 引擎的字节（读取请求序列已剥离）。
     pub filtered: Vec<u8>,
     /// OSC 52 读取请求的选择器名，无请求为 None。
+    /// 同一块内多个请求为 last-wins：上游忽略读取且应用侧读取极低频，不设队列。
     pub clipboard_read: Option<String>,
 }
 
