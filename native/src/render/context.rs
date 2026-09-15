@@ -95,10 +95,9 @@ fn global_gpu() -> &'static GlobalGpu {
 ///
 /// # Thread safety
 ///
-/// `Renderer` is **not** `Send` or `Sync` (wgpu types carry that constraint).
-/// It is created on the JNI/render thread and accessed from exactly one thread
-/// its entire lifetime.  `begin_frame()` and `render_frame()` must be called
-/// from the same thread, with `&mut self`.
+/// `Renderer` is `Send + Sync` (verified by `send_check::renderer_is_send`).
+/// It lives behind the global `RENDER_STATE` mutex and `begin_frame()` and
+/// `render_frame()` are called from the single render thread, with `&mut self`.
 pub struct Renderer {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
