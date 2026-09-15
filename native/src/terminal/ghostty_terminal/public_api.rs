@@ -218,6 +218,9 @@ impl super::GhosttyTerminal {
         self.cmd_tx = dud_tx;
     }
 
+    /// 等待 VT 线程处理完此前全部命令（含本次 build）。只保证 build 完成，
+    /// 不保证推送 cell 数据帧：去重命中或通道满丢弃时 `receive_cell_data` 为
+    /// `None`，测试需先制造内容变更再 `expect`。
     pub fn flush(&self) {
         let (tx, rx) = bounded(1);
         if let Err(error) = self.cmd_tx.send(Command::FlushAck(tx)) {
