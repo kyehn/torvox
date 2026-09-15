@@ -558,6 +558,7 @@ impl Session {
             }
         }
         // Fall back to direct child kill
+        // SAFETY: `child` 为存活子进程 pid，仅发送已校验 `Signal`。
         let result = unsafe { libc::kill(child.as_raw() as libc::pid_t, signal as i32) };
         if result == 0 {
             Ok(())
