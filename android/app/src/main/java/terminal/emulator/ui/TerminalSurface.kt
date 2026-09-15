@@ -46,52 +46,6 @@ import terminal.emulator.util.runCatchingCancellable
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
-internal fun isWordChar(c: Char): Boolean = c.isLetterOrDigit() || c == '_' || c == '-' || c == '.' || c == '/'
-
-/**
- * True when the code point occupies two terminal cells (wide char). Covers the CJK and East-Asian
- * wide ranges from Markus Kuhn's wcwidth() tables (plus emoji ranges). Split into BMP/astral halves
- * to keep the cyclomatic complexity of each helper below the detekt threshold.
- */
-internal fun expandWordOnLine(
-    line: String,
-    col: Int,
-): Pair<Int, Int> {
-    if (col < 0) return Pair(0, 0)
-    if (col >= line.length) return Pair(col, col)
-    var pivot = col
-    val ch = line[col]
-    if (!isWordChar(ch)) {
-        var left = col - 1
-        while (left >= 0 && !isWordChar(line[left])) left--
-        var right = col + 1
-        while (right < line.length && !isWordChar(line[right])) right++
-        pivot =
-            when {
-                left >= 0 && right < line.length -> {
-                    if (col - left <= right - col) left else right
-                }
-
-                left >= 0 -> {
-                    left
-                }
-
-                right < line.length -> {
-                    right
-                }
-
-                else -> {
-                    return Pair(col, col)
-                }
-            }
-    }
-    var startCol = pivot
-    while (startCol > 0 && isWordChar(line[startCol - 1])) startCol--
-    var endCol = pivot + 1
-    while (endCol < line.length && isWordChar(line[endCol])) endCol++
-    return Pair(startCol, endCol)
-}
-
 class TerminalSurface
 @JvmOverloads
 constructor(
@@ -273,10 +227,10 @@ constructor(
         val bar =
             android.widget.LinearLayout(context).apply {
                 orientation = android.widget.LinearLayout.HORIZONTAL
-                val bg = android.graphics.drawable.GradientDrawable()
-                bg.setColor(0xEE2B2B2B.toInt())
-                bg.cornerRadius = dp(8).toFloat()
-                background = bg
+                val backgroundDrawable = android.graphics.drawable.GradientDrawable()
+                backgroundDrawable.setColor(MENU_BAR_BACKGROUND_ARGB.toInt())
+                backgroundDrawable.cornerRadius = dp(MENU_BAR_CORNER_RADIUS_DP).toFloat()
+                background = backgroundDrawable
                 elevation = dp(6).toFloat()
                 for ((label, action) in actions) {
                     val item =
@@ -1167,6 +1121,8 @@ constructor(
     companion object {
         private const val TAG = "TerminalSurface"
         private const val WIDE_CHAR_CACHE_TTL_MS = 500L
+        private const val MENU_BAR_BACKGROUND_ARGB = 0xEE2B2B2BL
+        private const val MENU_BAR_CORNER_RADIUS_DP = 8
 
         private const val SWIPE_THRESHOLD_PIXELS = 500f
         private const val DEFAULT_ROWS = 24
