@@ -45,7 +45,8 @@ impl super::GhosttyTerminal {
     ) -> Result<Self, TerminalError> {
         let (cmd_tx, cmd_rx) = bounded::<Command>(COMMAND_CHANNEL_CAPACITY);
         let (query_tx, query_rx) = flume::bounded::<Query>(QUERY_CHANNEL_CAPACITY);
-        let (cell_data_tx, cell_data_rx) = flume::bounded::<(Vec<CellData>, CursorInfo)>(CELL_DATA_CHANNEL_CAPACITY);
+        let (cell_data_tx, cell_data_rx) =
+            flume::bounded::<(Vec<CellData>, CursorInfo)>(CELL_DATA_CHANNEL_CAPACITY);
         let (cwd_tx, cwd_rx) = bounded::<String>(EVENT_CHANNEL_CAPACITY);
         let (clipboard_tx, clipboard_rx) = bounded::<(String, String)>(EVENT_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
