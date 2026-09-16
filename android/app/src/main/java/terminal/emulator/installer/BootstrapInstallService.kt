@@ -62,8 +62,8 @@ class BootstrapInstallService : Service() {
         // Move zip to a safe location before installing — it may live under homeDir.
         val preserved = File(filesDir, "bootstrap-preserved.zip")
         File(zipPath).copyTo(preserved, overwrite = true)
-        // 不得预删 prefix/home：原子换入路径负责旧目录随机备份与失败回滚，预删会绕过安全机制并丢失用户数据。
-        stagingDir.deleteRecursively()
+        // 不得预删 prefix/home/staging：原子换入路径负责旧目录随机备份、失败回滚与 staging
+        // 安全清理（含符号链接守卫），预删会绕过安全机制并丢失用户数据（服务侧 deleteRecursively 无符号链接守卫）。
         return runBlocking {
             val installer = BootstrapInstaller(prefixDir, homeDir, stagingDir)
             val install = installer.install(preserved)
