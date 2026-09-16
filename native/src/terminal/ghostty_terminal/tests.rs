@@ -1785,8 +1785,9 @@ fn osc7_and_osc1337_report_working_directory() {
 }
 
 /// SGR31 红色必须到达渲染 CellData 的前景（设备渲染通路的精确复刻）。
-/// 背景：设备上 SGR31/32/真彩红一律无红色像素，而 SGR34 蓝正常；
-/// 本测试在 host 复刻设备渲染输入（receive_cell_data），二分颜色通路。
+/// 背景：设备像素验收曾报 SGR 无红色，后证实为测试 harness 自废武功
+///（全局暂停与直接呈现互斥）；本测试在 host 复刻设备渲染输入
+///（receive_cell_data），锁定颜色通路。
 #[test]
 fn sgr31_red_reaches_cell_data_foreground() {
     // 1) 默认配置：基线。
@@ -1845,8 +1846,8 @@ fn sgr31_red_reaches_cell_data_foreground() {
 }
 
 /// FFI 默认主题（Catppuccin Mocha）下 SGR31 必须到达 CellData 前景。
-/// 背景：设备上 initSession 会话（Mocha 默认主题）SGR 无显色；
-/// 复刻其精确主题与几何，定位颜色通路。
+/// 背景：设备像素验收曾报 SGR 无显色，后证实为 harness 问题；
+/// 复刻其精确主题与几何，锁定颜色通路。
 #[test]
 fn sgr31_mocha_default_theme_reaches_foreground() {
     let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
@@ -1867,4 +1868,37 @@ fn sgr31_mocha_default_theme_reaches_foreground() {
         "Mocha 主题 SGR31 前景须为 #F38BA8，实际 {:?}",
         red_cell.foreground
     );
+}
+
+/// Mocha 主题下 SGR31/32/34 三色必须各自到达 CellData 前景。
+/// 背景：设备像素验收红绿显色而蓝计数为 0；先在 host 判定蓝是映射问题
+/// 还是设备侧问题（计数/呈现），再定跟进方向。
+#[test]
+fn sgr_tricolor_mocha_reaches_foreground() {
+    let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
+    // （码，标记字符，期望槽位色）
+    let cases: [(u8, u8, [u8; 3]); 3] = [
+        (31, b'R', [243, 139, 168]),
+        (32, b'G', [166, 227, 161]),
+        (34, b'B', [137, 180, 250]),
+    ];
+    for (code, marker, expected) in cases {
+        let mut terminal =
+            GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
+                .expect("mocha terminal");
+        terminal.vt_write(format!("\x1b[{code}m{}\x1b[0m", marker as char).as_bytes());
+        terminal.flush();
+        let (cells, _) = terminal.receive_cell_data().expect("cell data");
+        let marked = cells
+            .iter()
+            .find(|c| c.codepoint == marker as u32)
+            .expect("marked cell present");
+        assert!(
+            (marked.foreground[0] - expected[0] as f32 / 255.0).abs() < 0.02
+                && (marked.foreground[1] - expected[1] as f32 / 255.0).abs() < 0.05
+                && (marked.foreground[2] - expected[2] as f32 / 255.0).abs() < 0.05,
+            "Mocha 主题 SGR{code} 前景须为 {expected:?}，实际 {:?}",
+            marked.foreground
+        );
+    }
 }
