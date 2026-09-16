@@ -2159,6 +2159,35 @@ mod tests {
         assert!(cell.overline, "SGR 53 must set overline");
     }
 
+    /// SGR 3 斜体进入快照：斜体缺失首先排除 VT 层，回应对“斜体无法显示”。
+    #[test]
+    fn sgr3_italic_reaches_dumped_grid() {
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+        terminal.vt_write(b"\x1b[3mI");
+        terminal.flush();
+        let dumped = terminal.dump_grid();
+        let cell = &dumped.visible[0];
+        assert_eq!(cell.codepoint, 'I' as u32);
+        assert!(cell.italic, "SGR 3 must set italic");
+    }
+
+    /// SGR 31 红色前景进入快照：颜色缺失首先排除 VT 层，回应对“颜色只显示背景”。
+    #[test]
+    fn sgr31_red_foreground_reaches_dumped_grid() {
+        let mut terminal = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+        terminal.vt_write(b"\x1b[31mR");
+        terminal.flush();
+        let dumped = terminal.dump_grid();
+        let cell = &dumped.visible[0];
+        assert_eq!(cell.codepoint, 'R' as u32);
+        // 默认主题调色板索引 1 为 Catppuccin 红，非纯红：断言有效调色板色即证明链路。
+        assert_eq!(
+            cell.foreground,
+            GhosttyTerminal::byte_color_to_float([243, 139, 168]),
+            "SGR 31 must resolve to palette index 1"
+        );
+    }
+
     fn style_with_flags() -> Style {
         Style {
             bold: true,
