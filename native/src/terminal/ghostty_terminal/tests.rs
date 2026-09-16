@@ -1974,3 +1974,82 @@ fn bell_channel_stays_empty_without_bel() {
         "plain output must not raise a bell event"
     );
 }
+
+/// SGR 3/4/9（斜体/下划线/删除线）必须到达快照层与 CellData 标志位。
+/// 背景：用户报告斜体等文本缺失无法显示；颜色有 VT 端到端覆盖
+///（sgr_tricolor_mocha_reaches_foreground），样式属性只有 pack_style_flags
+/// 单元测试（Style 结构体→bits），无 VT 解析端到端。
+#[test]
+fn sgr_style_attributes_reach_snapshot_and_cell_data() {
+    use crate::terminal::ghostty_terminal::cell_flags;
+    // （SGR 码，标记字符）
+    for (code, marker) in [(3u8, b'I'), (4u8, b'U'), (9u8, b'S')] {
+        let flag_bit = match code {
+            3 => cell_flags::ITALIC,
+            4 => cell_flags::UNDERLINE,
+            _ => cell_flags::STRIKETHROUGH,
+        };
+        let mut styled = terminal();
+        styled.vt_write(format!("\x1b[{code}m{}\x1b[0m", marker as char).as_bytes());
+        styled.flush();
+        let (cells, _) = styled.receive_cell_data().expect("cell data");
+        let marked = cells
+            .iter()
+            .find(|c| c.codepoint == marker as u32)
+            .expect("marked cell present");
+        assert_eq!(
+            (marked.flags >> flag_bit) & 1,
+            1,
+            "SGR{code} must set CellData flag bit {flag_bit}"
+        );
+        let snapshot = styled.take_snapshot();
+        let snap_cell = snapshot
+            .cells
+            .iter()
+            .find(|c| c.codepoint == marker as u32)
+            .expect("marked snapshot cell present");
+        let snapshot_set = match code {
+            3 => snap_cell.italic,
+            4 => snap_cell.underline,
+            _ => snap_cell.strikethrough,
+        };
+        assert!(
+            snapshot_set,
+            "SGR{code} must set snapshot style attribute"
+        );
+    }
+}
+
+/// 选择端点翻转必须返回同范围文本：拖动手柄越过锚点时调用方按
+/// 触摸顺序传递端点（start > end），不得返回空串或 panic
+///（对标 selectionDragAcrossAnchorFlips 的端点重排语义）。
+#[test]
+fn selection_text_flipped_endpoints() {
+    let mut t = terminal();
+    t.vt_write(b"hello world");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    let forward = t.selection_text((row0, 0), (row0, 4), false);
+    assert_eq!(forward, "hello", "forward selection baseline (got {forward:?})");
+    let flipped = t.selection_text((row0, 4), (row0, 0), false);
+    assert_eq!(
+        flipped, "hello",
+        "flipped endpoints must yield the same range (got {flipped:?})"
+    );
+}
+
+/// OSC 2 会话标题必须可读（对标 titleChangeEventAndValue 的值断言；
+/// 我方无标题事件通道且 DESIGN 未声明，只断言值本身）。
+#[test]
+fn osc2_title_readable() {
+    let mut t = terminal();
+    t.vt_write(b"\x1b]2;my title\x07");
+    t.flush();
+    assert_eq!(
+        t.title(),
+        "my title",
+        "OSC 2 title must be readable (got {:?})",
+        t.title()
+    );
+}
