@@ -104,14 +104,19 @@ class BehaviorInstrumentedTest {
     @Test
     fun behavior_font_picker_opens_with_change_button() {
         openSettings()
-        val fontReady = device.wait(Until.hasObject(By.text("Change")), WAIT_TIMEOUT)
+        // 字体区文案均为中文：标题“字体”，按钮“更改”，对话框标题“选择字体”。
+        val fontReady = device.wait(Until.hasObject(By.text("更改")), WAIT_TIMEOUT)
         if (!fontReady) {
-            scrollTo("Font Family")
+            scrollTo("字体")
         }
-        device.findObject(By.text("Change"))?.click()
+        val changeBtn =
+            device.findObject(By.text("更改"))
+                ?: throw AssertionError("更改按钮必须存在")
+        changeBtn.click()
         Thread.sleep(2000)
         val dialog =
-            device.findObject(By.textContains("monospace"))
+            device.findObject(By.text("选择字体"))
+                ?: device.findObject(By.textContains("monospace"))
                 ?: device.findObject(By.textContains("Mono"))
                 ?: device.findObject(By.textContains("Noto"))
         assertTrue("Font picker dialog should appear", dialog != null)
