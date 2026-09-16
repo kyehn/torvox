@@ -122,7 +122,8 @@ class SgrColorPixelAcceptanceTest {
         try {
             val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
             val beforeRed = countRedPixels(before)
-            // 隔离会话自有 VT（shell 空闲无输出）：直写字节只过 Ghostty 解析器。
+            // 逐包呈现：落格（实时网格）不等于可呈现（CellData 推送滞后约一包），
+            // 每包落格后立即呈现一次，把推送节拍泵起来，尾部最大采样才采得全。
             val markers = listOf("RED_LINE" to 31, "GREEN_LINE" to 32, "BLUE_LINE" to 34)
             for ((marker, code) in markers) {
                 NativeBridge.feedTerminal(
@@ -136,6 +137,14 @@ class SgrColorPixelAcceptanceTest {
                 assertNotNull(
                     "颜色块必须落格, 实际尾部: ${NativeBridge.getTerminalText(sessionId)?.takeLast(200)}",
                     gridded,
+                )
+                val presented = NativeBridge.render(sessionId, 0, 0)
+                val packetShot = device.takeScreenshot() ?: throw AssertionError("截图失败")
+                android.util.Log.i(
+                    "SgrDiag",
+                    "packet code=$code rc=$presented red=${countRedPixels(packetShot)} " +
+                        "green=${countPixels(packetShot, ::isGreenish)} " +
+                        "blue=${countPixels(packetShot, ::isBluish)}",
                 )
             }
             // 运行时线程会重绘其自有会话帧：每轮先呈现本会话再立即截图，
