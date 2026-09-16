@@ -1014,7 +1014,11 @@ impl super::GhosttyTerminal {
                 rgb.b as f32 / 255.0,
                 1.0,
             ],
-            _ => default,
+            // TEMP-DIAG (SGR 设备无色)：回退即查询失败，设备取证后删除。
+            _ => {
+                log::info!("cell_color: FALLBACK to default (query failed)");
+                default
+            }
         }
     }
 
@@ -1070,6 +1074,14 @@ impl super::GhosttyTerminal {
                 .color_palette()
                 .map(|palette| {
                     let rgb = palette.get(*idx);
+                    // TEMP-DIAG (SGR 设备无色)：记录槽位解析值，取证后删除。
+                    log::info!(
+                        "resolve_style_color: palette idx={:?} -> rgb=({},{},{})",
+                        idx,
+                        rgb.r,
+                        rgb.g,
+                        rgb.b
+                    );
                     Self::byte_color_to_float([rgb.r, rgb.g, rgb.b])
                 })
                 .unwrap_or(default),
