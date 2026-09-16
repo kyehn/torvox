@@ -71,6 +71,7 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
         val pssKb: Long
         val pssStr: String?
         if (pssCounter % PSS_CHECK_INTERVAL == 0) {
+            // PSS 仍经 Debug.getPss() 同步读取；不可用时已兜底。
             @Suppress("DEPRECATION")
             pssKb =
                 try {
@@ -114,6 +115,7 @@ class MemoryMonitor(private val context: Context, private val scope: CoroutineSc
         }
     }
 
+    // 复写签名由框架固定，无法更名或迁移。
     @Suppress("DEPRECATION")
     fun onTrimMemory(level: Int) {
         when (level) {

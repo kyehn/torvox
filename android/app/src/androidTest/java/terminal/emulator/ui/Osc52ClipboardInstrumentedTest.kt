@@ -37,6 +37,7 @@ class Osc52ClipboardInstrumentedTest {
     @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
     @Test
+    // setPrimaryClip：API 36 起废弃但无替代，仍是唯一客户端 API。
     @SuppressLint("DeprecatedCall")
     fun osc52_sequence_sets_system_clipboard() {
         composeTestRule.waitForSession()
