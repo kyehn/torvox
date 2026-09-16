@@ -697,7 +697,6 @@ impl Drop for PtyPair {
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 fn configure_raw_mode(fd: std::os::unix::io::RawFd) -> Result<(), PtyError> {
     let mut termios = std::mem::MaybeUninit::<libc::termios>::uninit();
     // SAFETY: tcgetattr is safe with a valid fd. The caller must pass a

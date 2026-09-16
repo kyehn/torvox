@@ -230,6 +230,7 @@ pub fn load_expected(path: &Path) -> TestSnapshot {
 
 /// Manual reference tool (not called by automated tests): save a snapshot
 /// to a `.json` file for eyeball/ref comparison.
+// 手动回归基线工具：按 tests/ref 工作流手工执行，不随自动化测试调用。
 #[allow(dead_code)]
 pub fn save_snapshot(path: &Path, snap: &TestSnapshot) {
     let data = serde_json::to_string_pretty(snap)
@@ -241,6 +242,7 @@ pub fn save_snapshot(path: &Path, snap: &TestSnapshot) {
 /// from a `.seq` file and compare against the expected `.json`. Returns
 /// `true` if the test passed. Regenerate stale expectations with the
 /// `save_snapshot` manual tool, never from inside a test.
+// 手动回归基线工具：按 tests/ref 工作流手工执行，不随自动化测试调用。
 #[allow(dead_code)]
 pub fn run_ref_test(
     seq_path: &Path,
@@ -305,6 +307,7 @@ pub fn run_ref_test(
 
 /// Run all ref tests in a directory. Tests are `.seq` files with matching `.json`.
 /// Panics on the first failure.
+// 手动回归基线工具：按 tests/ref 工作流手工执行，不随自动化测试调用。
 #[allow(dead_code)]
 pub fn run_ref_test_dir(dir: &str, rows: u32, cols: u32, scrollback: u32) {
     let test_dir = Path::new(env!("CARGO_MANIFEST_DIR"))

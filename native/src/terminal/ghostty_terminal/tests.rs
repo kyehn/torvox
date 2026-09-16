@@ -539,6 +539,7 @@ fn resize_stress_100_cycles_with_scroll() {
 }
 
 #[test]
+// 与字面量默认值精确比较，不涉及浮点运算。
 #[allow(clippy::float_cmp)]
 fn cell_snapshot_default() {
     let c = CellSnapshot::default();
@@ -550,6 +551,7 @@ fn cell_snapshot_default() {
 }
 
 #[test]
+// 与字面量默认值精确比较，不涉及浮点运算。
 #[allow(clippy::float_cmp)]
 fn cell_snapshot_clone() {
     let c = CellSnapshot {

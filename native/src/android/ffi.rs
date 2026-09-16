@@ -873,6 +873,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedPty(
     })
 }
 
+// JNI exports receive raw handles (jbyteArray/jstring are pointer types)
+// whose validity is the JVM's contract, not a Rust lifetime guarantee;
+// each unsafe block below carries its own SAFETY comment.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 fn feed_pty_inner(env: &mut Env, _class: JClass, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
@@ -944,6 +947,9 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_feedTerminal(
     })
 }
 
+// JNI exports receive raw handles (jbyteArray/jstring are pointer types)
+// whose validity is the JVM's contract, not a Rust lifetime guarantee;
+// each unsafe block below carries its own SAFETY comment.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 fn feed_terminal_inner(env: &mut Env, session_id: jlong, data: jbyteArray) {
     let id = session_id as u64;
