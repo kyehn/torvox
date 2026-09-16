@@ -1,7 +1,3 @@
-// TODO(kotlin-2.4.0-false-positive): K2 smart-cast false positive, remove when upgrading Kotlin
-// compiler
-@file:Suppress("UNNECESSARY_SAFE_CALL")
-
 package terminal.emulator.ui
 
 import android.content.Context
@@ -28,6 +24,7 @@ import android.widget.OverScroller
 import android.widget.PopupWindow
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
+import androidx.core.view.HapticFeedbackConstantsCompat
 import kotlinx.coroutines.cancel
 import terminal.emulator.R
 import terminal.emulator.SelectionMode
@@ -722,7 +719,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                         // 注意：必须在编码之后消费，且只消费一次——
                         // 无修饰提交不清，避免偷走点亮后尚未使用的 Once。
                         if (ctrlActive || altActive) {
-                            terminalViewModel?.consumeOneShotModifiers()
+                            terminalViewModel.consumeOneShotModifiers()
                         }
                         lastCommitText = committedText
                         lastCommitMs = nowMs
@@ -1569,7 +1566,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     private fun reshowSelectionHandles() {
         val selection = viewModel?.state?.value?.selection
-        if (selection?.start != null && selection?.end != null) {
+        if (selection?.start != null && selection.end != null) {
             selectionHandles.hideSelectionHandles()
             selectionHandles.showSelectionHandles(
                 selection.start.row,
@@ -2062,8 +2059,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         if (scaleFactor < ZOOM_THRESHOLD_LOW || scaleFactor > ZOOM_THRESHOLD_HIGH) return
         isAfterLongPress = true
 
-        @Suppress("DEPRECATION")
-        performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+        performHapticFeedback(HapticFeedbackConstantsCompat.LONG_PRESS)
 
         selectionHandles.hideSelectionHandles()
 
@@ -2202,7 +2198,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 }
             }
             val selection = viewModel?.state?.value?.selection
-            if (selection?.start != null && selection?.end != null) {
+            if (selection?.start != null && selection.end != null) {
                 selectionHandles.repositionHandle(
                     HandleDrag.START,
                     selection.start.row,
@@ -2840,7 +2836,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     val gridRow = currentScrollbackLength() - scrollOffset + row
                     viewModel?.updateSelection(gridRow, col)
                     val sel = viewModel?.state?.value?.selection
-                    if (sel?.start != null && sel?.end != null) {
+                    if (sel?.start != null && sel.end != null) {
                         // reposition, don't rebuild: showSelectionHandles
                         // dismisses and recreates 2 PopupWindows (4
                         // WindowManager IPC + allocations) — at 60-120Hz
@@ -2862,7 +2858,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     // tap guard so the release tap cannot dismiss the menu.
                     lastHandleDragEndUptimeMs = SystemClock.uptimeMillis()
                     val sel = viewModel?.state?.value?.selection
-                    if (sel?.start != null && sel?.end != null) {
+                    if (sel?.start != null && sel.end != null) {
                         viewModel?.endSelection()
                         // (termux parity, design D7.5): paste-only
                         // single-cell selections ALSO get handles — dragging
