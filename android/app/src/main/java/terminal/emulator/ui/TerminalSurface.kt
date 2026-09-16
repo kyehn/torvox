@@ -1901,12 +1901,15 @@ constructor(
                 // Sub-cell accumulator: distanceY < cellHeight must not be dropped
                 // — otherwise slow drags produce 0 rows and feel卡顿/闪烁. Accumulate
                 // and emit whole rows only, carrying remainder to the next onScroll.
-                // Direction: finger UP (distanceY>0, previousY - currentY) → older history
-                // (offset increases, viewportTop = scrollbackLength - offset decreases) →
-                // termux TerminalView:170-187 mTopRow-- parity, verified against termux-app.
+                // Direction: finger DOWN (distanceY<0, currentY - previousY) → older history
+                // (offset increases, viewportTop decreases) →
+                // termux TerminalView:onScroll deltaRows = distanceY / lineSpacing +
+                // doScroll rowsDown>0 → mTopRow+1 newer, rowsDown<0 → mTopRow-1 older.
+                // 即 distanceY 为负(下移)时 deltaRows 为负,对应 older,与本实现 scrollOffset 增加一致。
                 // Use floor() for symmetric slow thresholds: trunc 0.9→0 but -0.9→0 would stall
                 // negative drags; floor -0.9→-1 keeps both directions equally responsive.
-                scrollAccumulatorPx += distanceY
+                // 注意符号:distanceY = previousY - currentY,下移为负,需取反累加才能使下移增加偏移。
+                scrollAccumulatorPx -= distanceY
                 val ch = cellHeight.coerceAtLeast(1f)
                 val rawAmount = floor((scrollAccumulatorPx / ch).toDouble()).toInt()
                 if (rawAmount != 0) {
@@ -1973,7 +1976,9 @@ constructor(
                 viewModel?.runtime?.setScrollRemainderPx(0f)
                 isScrolling = true
                 onScrollingStateChanged?.invoke(true)
-                val rowVelocity = (-velocityY / cellHeight.coerceAtLeast(1f)).toInt()
+                // velocityY 为像素/秒,下移为正:直接除以行高换算为行/秒,与 onScroll 同向(下移 older)。
+                // 旧代码取反导致惯性方向与拖动方向相反,已修正。
+                val rowVelocity = (velocityY / cellHeight.coerceAtLeast(1f)).toInt()
                 flingScroller.fling(
                     0,
                     scrollOffset,
