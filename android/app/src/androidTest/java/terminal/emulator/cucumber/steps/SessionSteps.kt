@@ -14,9 +14,7 @@ import javax.inject.Inject
 
 class SessionSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @假如("^应用已启动并创建了多个会话$")
     fun appHasLaunchedWithMultipleSessions() {
         composeRuleHolder.composeRule.waitForSession()

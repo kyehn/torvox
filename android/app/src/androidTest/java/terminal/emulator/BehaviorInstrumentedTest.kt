@@ -61,10 +61,7 @@ class BehaviorInstrumentedTest {
         Thread.sleep(3000)
     }
 
-    private fun scrollTo(
-        text: String,
-        maxSwipes: Int = 30,
-    ) {
+    private fun scrollTo(text: String, maxSwipes: Int = 30) {
         for (i in 0 until maxSwipes) {
             Thread.sleep(500)
             if (device.findObject(By.textContains(text)) != null) return

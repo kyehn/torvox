@@ -143,12 +143,7 @@ fun SessionDrawer(
 }
 
 @Composable
-private fun SessionDrawerHeader(
-    onClose: () -> Unit,
-    onAddSession: () -> Unit,
-    textColor: Color,
-    accent: Color,
-) {
+private fun SessionDrawerHeader(onClose: () -> Unit, onAddSession: () -> Unit, textColor: Color, accent: Color) {
     Row(
         modifier =
         Modifier

@@ -45,7 +45,9 @@ class NativeQueryPortTest {
 class NativeQueryPortValidationTest {
     @Test
     fun `drops matches with impossible ranges`() {
-        val json = """[{"row":0,"start_col":3,"end_col":2},{"row":1,"start_col":0,"end_col":5},{"row":-1,"start_col":0,"end_col":1}]"""
+        val json =
+            """[{"row":0,"start_col":3,"end_col":2},{"row":1,"start_col":0,"end_col":5},""" +
+                """{"row":-1,"start_col":0,"end_col":1}]"""
         val matches = parseSearchMatches(json)
         assertEquals("only the valid row=1 match survives", 1, matches.size)
         assertEquals(Triple(1, 0, 5), matches[0])

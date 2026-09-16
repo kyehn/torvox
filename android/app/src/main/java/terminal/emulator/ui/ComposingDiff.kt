@@ -21,18 +21,12 @@ object ComposingDiff {
      * Backspace counts use Unicode code points (not UTF-16 units) so an emoji in the removed suffix
      * is one backspace, never two.
      */
-    data class Edit(
-        val backspaces: Int,
-        val append: String,
-    ) {
+    data class Edit(val backspaces: Int, val append: String) {
         val isEmpty: Boolean
             get() = backspaces == 0 && append.isEmpty()
     }
 
-    fun reconcile(
-        previous: String,
-        next: String,
-    ): Edit {
+    fun reconcile(previous: String, next: String): Edit {
         if (previous == next) return Edit(0, "")
         // Longest common prefix (by UTF-16 index — the split point is the
         // same for code points since the prefix is identical in both).

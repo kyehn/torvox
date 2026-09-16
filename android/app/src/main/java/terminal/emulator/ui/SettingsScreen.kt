@@ -241,11 +241,7 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun SettingsHeader(
-    onBack: () -> Unit,
-    textColor: Color,
-    isSmallScreen: Boolean,
-) {
+private fun SettingsHeader(onBack: () -> Unit, textColor: Color, isSmallScreen: Boolean) {
     Column {
         Spacer(modifier = Modifier.height(8.dp))
         Row(
@@ -521,11 +517,7 @@ private fun ClearAppDataSectionItem(
 }
 
 @Composable
-private fun SettingsCard(
-    cardBackground: Color,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit,
-) {
+private fun SettingsCard(cardBackground: Color, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val isSmallScreen = rememberIsSmallScreen()
     Column(
         modifier =
@@ -540,10 +532,7 @@ private fun SettingsCard(
 }
 
 @Composable
-private fun SectionHeader(
-    title: String,
-    textColor: Color,
-) {
+private fun SectionHeader(title: String, textColor: Color) {
     val isSmallScreen = rememberIsSmallScreen()
     Text(
         text = title,
@@ -946,12 +935,7 @@ private fun StartDirInput(
 }
 
 @Composable
-private fun ShellInput(
-    shellPath: String,
-    onShellChanged: (String) -> Unit,
-    textColor: Color,
-    accentColor: Color,
-) {
+private fun ShellInput(shellPath: String, onShellChanged: (String) -> Unit, textColor: Color, accentColor: Color) {
     val isSmallScreen = rememberIsSmallScreen()
     val labelStyle =
         if (isSmallScreen) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge
@@ -1278,11 +1262,7 @@ private fun BootstrapInstallButton(
     }
 }
 
-private data class PresetColors(
-    val accent: Color,
-    val text: Color,
-    val secondary: Color,
-)
+private data class PresetColors(val accent: Color, val text: Color, val secondary: Color)
 
 @Composable
 private fun BootstrapPresetItem(
@@ -1323,10 +1303,7 @@ private fun BootstrapPresetItem(
 }
 
 @Composable
-private fun ClearAppDataSection(
-    onClearAppData: ((() -> Unit) -> Unit),
-    textColor: Color,
-) {
+private fun ClearAppDataSection(onClearAppData: ((() -> Unit) -> Unit), textColor: Color) {
     val context = LocalContext.current
     // Resolve once in composable scope: LocalContext-based resource reads
     // are not configuration-aware (lint LocalContextGetResourceValueCall),
@@ -1394,12 +1371,7 @@ private fun ClearAppDataSection(
 }
 
 @Composable
-private fun FontInfoSection(
-    fontInfo: FontInfoDto,
-    pixelPerSp: Float,
-    textColor: Color,
-    secondaryText: Color,
-) {
+private fun FontInfoSection(fontInfo: FontInfoDto, pixelPerSp: Float, textColor: Color, secondaryText: Color) {
     Column(modifier = Modifier.testTag("FontInfoSection")) {
         fontInfo.active?.let { active ->
             Text(

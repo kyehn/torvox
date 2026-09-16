@@ -33,10 +33,22 @@ class FastDeathRecoveryTest {
 
     @Test
     fun initialRenderRetry_retries_until_success_or_budget() {
-        assertTrue("failed result under budget retries", initialRenderRetryNeeded(result = -1, attempts = 1, maxAttempts = 3))
-        assertTrue("mid-budget failure still retries", initialRenderRetryNeeded(result = -1, attempts = 2, maxAttempts = 3))
+        assertTrue(
+            "failed result under budget retries",
+            initialRenderRetryNeeded(result = -1, attempts = 1, maxAttempts = 3),
+        )
+        assertTrue(
+            "mid-budget failure still retries",
+            initialRenderRetryNeeded(result = -1, attempts = 2, maxAttempts = 3),
+        )
         assertFalse("success stops the loop", initialRenderRetryNeeded(result = 0, attempts = 1, maxAttempts = 3))
-        assertFalse("positive result stops the loop", initialRenderRetryNeeded(result = 1, attempts = 1, maxAttempts = 3))
-        assertFalse("attempt == max stops even on failure", initialRenderRetryNeeded(result = -1, attempts = 3, maxAttempts = 3))
+        assertFalse(
+            "positive result stops the loop",
+            initialRenderRetryNeeded(result = 1, attempts = 1, maxAttempts = 3),
+        )
+        assertFalse(
+            "attempt == max stops even on failure",
+            initialRenderRetryNeeded(result = -1, attempts = 3, maxAttempts = 3),
+        )
     }
 }

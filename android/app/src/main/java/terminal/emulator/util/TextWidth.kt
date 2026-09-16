@@ -40,10 +40,7 @@ fun isWideChar(ch: Char): Boolean = isWideCodePoint(ch.code)
 fun charCellWidth(ch: Char): Int = if (isWideChar(ch)) 2 else 1
 
 /** Cell column of the character at [charIndex] on [line], summing cell widths. */
-fun charIndexToCellColumn(
-    line: String,
-    charIndex: Int,
-): Int {
+fun charIndexToCellColumn(line: String, charIndex: Int): Int {
     var col = 0
     for (i in 0 until charIndex.coerceAtMost(line.length)) {
         col += charCellWidth(line[i])

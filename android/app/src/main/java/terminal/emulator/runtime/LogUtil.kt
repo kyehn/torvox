@@ -15,38 +15,22 @@ import terminal.emulator.BuildConfig
  * termux-kotlin's Logger.
  */
 object LogUtil {
-    fun d(
-        tag: String,
-        message: String,
-        throwable: Throwable? = null,
-    ) {
+    fun d(tag: String, message: String, throwable: Throwable? = null) {
         // Logcat remains gated by DEBUG in debug builds.
         if (BuildConfig.DEBUG) {
             logChunked(Log.DEBUG, tag, message, throwable)
         }
     }
 
-    fun i(
-        tag: String,
-        message: String,
-        throwable: Throwable? = null,
-    ) {
+    fun i(tag: String, message: String, throwable: Throwable? = null) {
         logChunked(Log.INFO, tag, message, throwable)
     }
 
-    fun w(
-        tag: String,
-        message: String,
-        throwable: Throwable? = null,
-    ) {
+    fun w(tag: String, message: String, throwable: Throwable? = null) {
         logChunked(Log.WARN, tag, message, throwable)
     }
 
-    fun e(
-        tag: String,
-        message: String,
-        throwable: Throwable? = null,
-    ) {
+    fun e(tag: String, message: String, throwable: Throwable? = null) {
         logChunked(Log.ERROR, tag, message, throwable)
     }
 
@@ -54,22 +38,13 @@ object LogUtil {
      * Log sensitive data (e.g. user input) at VERBOSE priority with a `[PRIVATE]` prefix. Only active
      * in DEBUG builds — no-op in release builds, so secrets never reach logcat there.
      */
-    fun logPrivate(
-        tag: String,
-        message: String,
-        throwable: Throwable? = null,
-    ) {
+    fun logPrivate(tag: String, message: String, throwable: Throwable? = null) {
         if (BuildConfig.DEBUG) {
             logChunked(Log.VERBOSE, tag, "[PRIVATE] $message", throwable)
         }
     }
 
-    private fun logChunked(
-        priority: Int,
-        tag: String,
-        message: String,
-        throwable: Throwable?,
-    ) {
+    private fun logChunked(priority: Int, tag: String, message: String, throwable: Throwable?) {
         for (chunk in chunkMessage(tag, message)) {
             Log.println(priority, tag, chunk)
         }
@@ -123,11 +98,7 @@ object LogUtil {
      * Split [message] into chunks whose UTF-8 byte length fits `budget - prefixLen`, preferring cuts
      * at newlines.
      */
-    private fun splitIntoChunks(
-        message: String,
-        budget: Int,
-        prefixLen: Int,
-    ): MutableList<String> {
+    private fun splitIntoChunks(message: String, budget: Int, prefixLen: Int): MutableList<String> {
         val effective = (budget - prefixLen).coerceAtLeast(16)
         val chunks = mutableListOf<String>()
         var start = 0
