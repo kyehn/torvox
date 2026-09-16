@@ -28,7 +28,6 @@ import android.widget.OverScroller
 import android.widget.PopupWindow
 import androidx.core.content.FileProvider
 import androidx.core.net.toUri
-import java.io.File
 import kotlinx.coroutines.cancel
 import terminal.emulator.R
 import terminal.emulator.SelectionMode
@@ -45,6 +44,7 @@ import terminal.emulator.runtime.InputBatchBuffer
 import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.isWideCodePoint
 import terminal.emulator.util.runCatchingCancellable
+import java.io.File
 import kotlin.math.floor
 import kotlin.math.roundToInt
 
@@ -812,7 +812,7 @@ constructor(
                                 // drop that many from the end, walking over
                                 // surrogate pairs so emoji stay aligned with the
                                 // PTY content.同时累计每码点的终端列宽
-                                //（CJK 宽字符 2 列），退格数按列发。
+                                // （CJK 宽字符 2 列），退格数按列发。
                                 var removed = 0
                                 var end = composingBuffer.length
                                 var columns = 0
@@ -833,7 +833,7 @@ constructor(
                             } else {
                                 // 非组词直删：safeBefore 已按码点钳制，
                                 // 但无法反推已提交文本列宽，保守按 1:1 发
-                                //（已提交区退格由 shell 行编辑按列处理）。
+                                // （已提交区退格由 shell 行编辑按列处理）。
                                 val bs = ByteArray(safeBefore) { BACKSPACE_BYTE }
                                 viewModel?.writeToPty(bs)
                             }
