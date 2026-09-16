@@ -130,11 +130,12 @@ class ScrollBehaviorQuantifiedTest {
             val sampleCount = 14
             for (i in 0 until sampleCount) {
                 Thread.sleep(30)
-                // Drag upward slowly (into older content).
+                // Drag downward slowly (into older content):手指下移 distanceY 为负,
+                // 取反累加后偏移增加(older),与 termux doScroll 一致。
                 post(
                     android.view.MotionEvent.ACTION_MOVE,
                     centerX.toFloat(),
-                    (900 - (i + 1) * 25).toFloat(),
+                    (900 + (i + 1) * 25).toFloat(),
                 )
                 val current = view.getScrollOffset()
                 maxOffsetSeen = maxOf(maxOffsetSeen, current)
@@ -152,7 +153,7 @@ class ScrollBehaviorQuantifiedTest {
                 }
                 previous = current
             }
-            post(android.view.MotionEvent.ACTION_UP, centerX.toFloat(), 300f)
+            post(android.view.MotionEvent.ACTION_UP, centerX.toFloat(), 1250f)
             if (sawGestureMovement) gestures++
             Thread.sleep(400)
         }
