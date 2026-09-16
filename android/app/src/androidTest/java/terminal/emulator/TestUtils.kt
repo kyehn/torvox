@@ -67,10 +67,11 @@ fun grantNotificationPermission() {
 fun AndroidComposeTestRule<*, *>.getBridge(): Bridge? {
     var bridge: Bridge? = null
     // v2 createAndroidComposeRule 没有 activityRule 字段（v1 API）：
-    // 用 activity 直接进主线程读桥。runOnUiThread 本身同步返回，
-    // 无需 sleep 轮询；桥为 null（会话孵化中）则由调用方重试写入。
+    // 用 activity 直接进主线程读桥。必须用 runOnMainSync 同步等待：
+    // runOnUiThread 仅在本线程即主线程时同步执行，测试线程调用时只投递
+    // 就立即返回，读到的恒为 null；桥为 null（会话孵化中）则由调用方重试。
     try {
-        activity.runOnUiThread {
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().runOnMainSync {
             bridge = (activity as MainActivity).runtime.bridge()
         }
     } catch (_: Exception) {

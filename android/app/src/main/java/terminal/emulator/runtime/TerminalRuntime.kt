@@ -1224,7 +1224,8 @@ constructor(
             val renderThread =
                 Thread(
                     {
-                        runBlocking {
+                        try {
+                            runBlocking {
                             // Display-priority render thread: the frame pipeline
                             // competes with the UI thread for CPU when the IME is
                             // open or surfaces churn. THREAD_PRIORITY_DISPLAY puts
@@ -1687,6 +1688,14 @@ constructor(
                             }
                             entry.renderThreadExited = true
                             LogUtil.d("Runtime", "render thread stopped for session ${entry.id}")
+                            }
+                        } catch (expected: InterruptedException) {
+                            // runBlocking 体外的中断（join 前 interrupt 已送达
+                            // 但循环尚未进入 try 区）：join 是协作式关闭，
+                            // 中断即退出信号而非崩溃，instrumentation 不应报红。
+                            Thread.currentThread().interrupt()
+                            entry.renderThreadExited = true
+                            LogUtil.d("Runtime", "render thread interrupted for session ${entry.id}")
                         }
                     },
                     "Render-${entry.id}",
