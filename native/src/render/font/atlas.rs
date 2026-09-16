@@ -42,7 +42,7 @@ impl FontPipeline {
         let key = GlyphKey {
             font_id,
             glyph_id,
-            pixel_size: (self.font_size * self.raster_scale) as u16,
+            raster_size_bits: super::raster_size_key(self.font_size * self.raster_scale),
             synthesis: synthesis.bits(),
         };
 
