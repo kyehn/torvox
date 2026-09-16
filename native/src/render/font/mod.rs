@@ -267,6 +267,20 @@ mod tests {
         }
     }
 
+    /// 回应对“加粗中文空白”：合成样式不得跳过回退链，加粗汉字必须有位图。
+    #[test]
+    fn bold_cjk_fallback_not_blank() {
+        let (mut pipeline, _) = styled_test_pipeline();
+        pipeline.find_cjk_fallback_fonts("");
+        if pipeline.cjk_fallback_ids.is_empty() {
+            return;
+        }
+        let bold_han = pipeline.glyph_information_styled('中', true, false);
+        assert!(bold_han.is_some(), "加粗汉字必须解析出字形");
+        let info = bold_han.expect("bold CJK");
+        assert!(info.width > 0 && info.height > 0, "加粗汉字位图不得为空");
+    }
+
     #[test]
     fn font_pipeline_creation() {
         let pipeline = FontPipeline::new(1024, 1024, 14.0);
@@ -1652,6 +1666,26 @@ mod tests {
             .expect("italic A again");
         assert_eq!(bold.atlas_x, bold_again.atlas_x);
         assert_eq!(italic.atlas_x, italic_again.atlas_x);
+    }
+
+    /// 回应对“d 有些区域像 a”：相邻小写字母必须命中不同缓存条目与不同位图。
+    #[test]
+    fn distinct_lowercase_glyphs_do_not_collide() {
+        let (mut pipeline, _) = styled_test_pipeline();
+        let glyph_d = pipeline.glyph_information('d').expect("d");
+        let glyph_a = pipeline.glyph_information('a').expect("a");
+        assert_ne!(
+            (glyph_d.atlas_x, glyph_d.atlas_y),
+            (glyph_a.atlas_x, glyph_a.atlas_y),
+            "d and a must not share a cache entry"
+        );
+        let bitmap = pipeline.atlas_bitmap();
+        let atlas_width = pipeline.atlas_width as usize;
+        let alpha_d = glyph_region_alpha(&glyph_d, bitmap, atlas_width);
+        let alpha_a = glyph_region_alpha(&glyph_a, bitmap, atlas_width);
+        assert!(alpha_d.iter().any(|&alpha| alpha > 0), "d 必须有墨水");
+        assert!(alpha_a.iter().any(|&alpha| alpha > 0), "a 必须有墨水");
+        assert_ne!(alpha_d, alpha_a, "d 与 a 位图必须不同");
     }
 
     #[test]
