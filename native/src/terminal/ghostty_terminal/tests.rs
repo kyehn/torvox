@@ -1870,6 +1870,45 @@ fn sgr31_mocha_default_theme_reaches_foreground() {
     );
 }
 
+/// 同一终端连收三包同文本不同色时，三行必须各就其位各带其色。
+/// 背景：设备上三包同文本（EEEEEEEE）蓝/红/绿轮换时恒只有两行上屏，
+/// 第三包系统性缺席；先在 host 判定是构建层去重还是设备推送时序。
+#[test]
+fn sgr_same_text_tricolor_rows_all_present() {
+    let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
+    let mut terminal =
+        GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
+            .expect("mocha terminal");
+    for code in [34u8, 31, 32] {
+        terminal.vt_write(format!("\x1b[{code}mEEEEEEEE\x1b[0m\r\n").as_bytes());
+    }
+    terminal.flush();
+    let (cells, _) = terminal.receive_cell_data().expect("cell data");
+    // 三行 E 首字符：行0蓝、行1红、行2绿。
+    let expected: [(u32, [u8; 3]); 3] = [
+        (0, [137, 180, 250]),
+        (1, [243, 139, 168]),
+        (2, [166, 227, 161]),
+    ];
+    for (row, expected_rgb) in expected {
+        let cell = cells
+            .iter()
+            .find(|c| c.row == row && c.col == 0)
+            .unwrap_or_else(|| panic!("行{row}首格缺席"));
+        assert_eq!(
+            cell.codepoint, 'E' as u32,
+            "行{row}首格须为 E，实际 {}",
+            cell.codepoint
+        );
+        assert!(
+            (cell.foreground[0] - expected_rgb[0] as f32 / 255.0).abs() < 0.02
+                && (cell.foreground[1] - expected_rgb[1] as f32 / 255.0).abs() < 0.05
+                && (cell.foreground[2] - expected_rgb[2] as f32 / 255.0).abs() < 0.05,
+            "行{row}前景须为 {expected_rgb:?}，实际 {:?}",
+            cell.foreground
+        );
+    }
+}
 /// Mocha 主题下 SGR31/32/34 三色必须各自到达 CellData 前景。
 /// 背景：设备像素验收红绿显色而蓝计数为 0；先在 host 判定蓝是映射问题
 /// 还是设备侧问题（计数/呈现），再定跟进方向。
