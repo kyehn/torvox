@@ -792,10 +792,10 @@ constructor(
                         // NegativeArraySizeException / OutOfMemoryError on the
                         // main thread. Clamp to the composing-buffer length when
                         // composing, otherwise to a sane single-line maximum.
-                        // 注意：beforeLength 按码点计数（CJK 一个汉字 = 1），
-                        // 但每个码点需发的退格数 = 其终端列宽（CJK 宽字符占
-                        // 2 列，发 1 个 0x08 只删半个字，表现为退格卡顿/异常）。
-                        // 列宽从 composingBuffer 尾部按码点反推，避免再查终端。
+                        // 注意：beforeLength 按码点计数，退格按码点 1:1 发送
+                        // （shell 行编辑按字符删除，一个 0x08 删掉整个汉字，
+                        // 真机实测锁定：见 CjkBackspaceSemanticsTest）。
+                        // 不得按终端列宽加倍（CJK 发 2 个只会多删一个字符）。
                         val maxDeletes = composingBuffer.length.coerceAtLeast(MAX_SURROUNDING_DELETES)
                         val safeBefore = beforeLength.coerceIn(0, maxDeletes)
                         val safeAfter = afterLength.coerceIn(0, maxDeletes)
@@ -811,29 +811,20 @@ constructor(
                                 // beforeLength counts code points (API 33+);
                                 // drop that many from the end, walking over
                                 // surrogate pairs so emoji stay aligned with the
-                                // PTY content.同时累计每码点的终端列宽
-                                // （CJK 宽字符 2 列），退格数按列发。
+                                // PTY content.退格数与移除码点数 1:1。
                                 var removed = 0
                                 var end = composingBuffer.length
-                                var columns = 0
                                 while (removed < safeBefore && end > 0) {
                                     val codePoint = composingBuffer.codePointBefore(end)
                                     end -= Character.charCount(codePoint)
                                     removed++
-                                    columns +=
-                                        if (terminal.emulator.util.isWideCodePoint(codePoint)) {
-                                            2
-                                        } else {
-                                            1
-                                        }
                                 }
                                 composingBuffer = composingBuffer.substring(0, end)
-                                val bs = ByteArray(columns) { BACKSPACE_BYTE }
+                                val bs = ByteArray(removed) { BACKSPACE_BYTE }
                                 viewModel?.writeToPty(bs)
                             } else {
                                 // 非组词直删：safeBefore 已按码点钳制，
-                                // 但无法反推已提交文本列宽，保守按 1:1 发
-                                // （已提交区退格由 shell 行编辑按列处理）。
+                                // shell 按字符删除，1:1 发送。
                                 val bs = ByteArray(safeBefore) { BACKSPACE_BYTE }
                                 viewModel?.writeToPty(bs)
                             }
