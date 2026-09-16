@@ -6,10 +6,12 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
 import androidx.test.uiautomator.UiDevice
+import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import terminal.emulator.MainActivity
+import terminal.emulator.UxTestUtils
 import terminal.emulator.getBridge
 import terminal.emulator.grantNotificationPermission
 
@@ -49,7 +51,9 @@ class CursorPixelAcceptanceTest {
         }
         val deadline = System.currentTimeMillis() + 20_000
         while (System.currentTimeMillis() < deadline) {
-            val text = bridge().getTerminalText()
+            // 桥在会话孵化完成前为 null：容忍空桥继续轮询，而非首轮即抛。
+            val ready = runCatching { bridge() }.getOrNull()
+            val text = ready?.getTerminalText()
             if (!text.isNullOrBlank()) break
             Thread.sleep(200)
         }
@@ -98,11 +102,22 @@ class CursorPixelAcceptanceTest {
 
         var previous = assertCursorAtItsCell("T0-boot")
         bridge().writeToPty("abc".toByteArray())
-        Thread.sleep(900)
+        // 冷机首帧慢：固定睡眠不可靠，轮询至光标格变亮（超时仍按原断言失败）。
+        val t1ready =
+            UxTestUtils.pollUntilTrue(timeoutMs = 12_000, intervalMs = 500) {
+                val (row, col) = renderCursorRowCol()
+                row >= 0 && col >= 0 && cellCenterLuminance(row, col) > 140
+            }
+        assertNotNull("T1-after-abc: 光标格必须变亮", t1ready)
         val t1 = assertCursorAtItsCell("T1-after-abc")
         previous = t1
         bridge().writeToPty("\n".toByteArray())
-        Thread.sleep(900)
+        val t3ready =
+            UxTestUtils.pollUntilTrue(timeoutMs = 12_000, intervalMs = 500) {
+                val (row, col) = renderCursorRowCol()
+                row >= 0 && col >= 0 && cellCenterLuminance(row, col) > 140
+            }
+        assertNotNull("T3-after-enter: 光标格必须变亮", t3ready)
         val t3 = assertCursorAtItsCell("T3-after-enter")
         if (t3.first != previous.first) {
             val staleLum = cellCenterLuminance(previous.first, previous.second)
