@@ -100,7 +100,13 @@ object TerminalInputEncoder {
     private fun csi27(modifier: Int, code: Int): ByteArray = "\u001b[27;$modifier;$code~".toByteArray(Charsets.UTF_8)
 
     /** Prefixes ESC when Alt is held, matching xterm (Alt+X → ESC x). */
-    private fun withAltPrefix(altActive: Boolean, bytes: ByteArray): ByteArray = if (altActive) byteArrayOf(0x1B) + bytes else bytes
+    private fun withAltPrefix(altActive: Boolean, bytes: ByteArray): ByteArray = if (altActive) {
+        byteArrayOf(
+            0x1B,
+        ) + bytes
+    } else {
+        bytes
+    }
 
     private fun escapeSequenceForKeyCode(
         keyCode: Int,
@@ -183,11 +189,7 @@ object TerminalInputEncoder {
         }
     }
 
-    private fun csiSequenceWithModifier(
-        keyCode: Int,
-        ctrlActive: Boolean,
-        altActive: Boolean,
-    ): String? {
+    private fun csiSequenceWithModifier(keyCode: Int, ctrlActive: Boolean, altActive: Boolean): String? {
         val modifierParam = 1 + (if (altActive) 2 else 0) + (if (ctrlActive) 4 else 0)
         return when (keyCode) {
             KeyEvent.KEYCODE_F1 -> "\u001b[1;${modifierParam}P"

@@ -4,10 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class CursorColorTest {
-    private fun assertRgb(
-        expected: FloatArray,
-        actual: FloatArray,
-    ) {
+    private fun assertRgb(expected: FloatArray, actual: FloatArray) {
         assertEquals(expected.size, actual.size)
         for (i in expected.indices) {
             assertEquals("channel $i", expected[i], actual[i], 0.0001f)

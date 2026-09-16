@@ -17,9 +17,7 @@ import javax.inject.Inject
 
 class ThemeSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     // 跨场景共享的胶水实例会常驻，字段只在同一场景的当/那么之间传递。
     private var selectedThemeName: String? = null
 

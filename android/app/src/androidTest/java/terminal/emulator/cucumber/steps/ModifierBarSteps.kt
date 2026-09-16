@@ -14,9 +14,7 @@ import javax.inject.Inject
 
 class ModifierBarSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     companion object {
         // 跨场景共享 activity，CTRL 可能被之前场景留在 armed 态：归一到关闭态
         // 再断言切换，上限内仍未关闭则大声失败（不断言掩盖真坏）。

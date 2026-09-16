@@ -43,10 +43,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
                 Document.COLUMN_FLAGS,
             )
 
-        fun encodeDocId(
-            file: File,
-            rootDir: File,
-        ): String? {
+        fun encodeDocId(file: File, rootDir: File): String? {
             val rootPath = rootDir.canonicalPath
             // For symlinks, encode the link's own path rather than its
             // canonical target: SAF clients then address the link entry
@@ -75,10 +72,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             }
         }
 
-        fun decodeDocId(
-            docId: String,
-            rootDir: File,
-        ): File {
+        fun decodeDocId(docId: String, rootDir: File): File {
             if (docId == ROOT_ID) return rootDir.canonicalFile
             val resolved = File(rootDir, docId).canonicalFile
             requireInsideRoot(resolved, rootDir)
@@ -99,10 +93,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
             return linkPath.startsWith(rootPath + File.separator) || linkPath == rootPath
         }
 
-        internal fun requireInsideRoot(
-            file: File,
-            rootDir: File,
-        ) {
+        internal fun requireInsideRoot(file: File, rootDir: File) {
             val root = rootDir.canonicalFile
             val target = file.canonicalFile
             if (!(target.path.startsWith(root.path + File.separator) || target == root)) {
@@ -174,10 +165,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         return cursor
     }
 
-    override fun queryDocument(
-        documentId: String,
-        projection: Array<out String>?,
-    ): Cursor {
+    override fun queryDocument(documentId: String, projection: Array<out String>?): Cursor {
         val cols = projection ?: DOC_PROJECTION
         val cursor = MatrixCursor(cols)
         val rootDir = queries.rootDir()
@@ -218,11 +206,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         return cursor
     }
 
-    override fun openDocument(
-        documentId: String,
-        mode: String,
-        signal: CancellationSignal?,
-    ): ParcelFileDescriptor {
+    override fun openDocument(documentId: String, mode: String, signal: CancellationSignal?): ParcelFileDescriptor {
         val rootDir = queries.rootDir()
         val file = decodeDocId(documentId, rootDir)
         requireInsideRoot(file, rootDir)
@@ -274,21 +258,14 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         return AssetFileDescriptor(parcelFileDescriptor, 0, file.length())
     }
 
-    override fun createDocument(
-        parentDocumentId: String,
-        mimeType: String,
-        displayName: String,
-    ): String = mutations.createDocument(parentDocumentId, mimeType, displayName)
+    override fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String =
+        mutations.createDocument(parentDocumentId, mimeType, displayName)
 
-    override fun renameDocument(
-        documentId: String,
-        displayName: String,
-    ): String = mutations.renameDocument(documentId, displayName)
+    override fun renameDocument(documentId: String, displayName: String): String =
+        mutations.renameDocument(documentId, displayName)
 
-    override fun copyDocument(
-        sourceDocumentId: String,
-        targetParentDocumentId: String,
-    ): String = mutations.copyDocument(sourceDocumentId, targetParentDocumentId)
+    override fun copyDocument(sourceDocumentId: String, targetParentDocumentId: String): String =
+        mutations.copyDocument(sourceDocumentId, targetParentDocumentId)
 
     override fun moveDocument(
         sourceDocumentId: String,
@@ -300,10 +277,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         mutations.deleteDocument(documentId)
     }
 
-    override fun isChildDocument(
-        parentDocumentId: String,
-        documentId: String,
-    ): Boolean {
+    override fun isChildDocument(parentDocumentId: String, documentId: String): Boolean {
         val rootDir = queries.rootDir()
         return try {
             val parent = decodeDocId(parentDocumentId, rootDir)
@@ -325,11 +299,7 @@ class TerminalDocumentsProvider : DocumentsProvider() {
         return if (file.isDirectory) Document.MIME_TYPE_DIR else queries.getMimeType(file.name)
     }
 
-    override fun querySearchDocuments(
-        rootId: String,
-        query: String,
-        projection: Array<out String>?,
-    ): Cursor {
+    override fun querySearchDocuments(rootId: String, query: String, projection: Array<out String>?): Cursor {
         // 与 Termux 一致的按文件名搜索：迭代遍历、上限截断、符号链接
         // 不得跳出 home。查询词双向小写，修正 Termux 仅小写文件名的遗漏。
         val cols = projection ?: DOC_PROJECTION

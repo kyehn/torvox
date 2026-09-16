@@ -148,13 +148,7 @@ object ToolbarMacroExpander {
         return output
     }
 
-    private fun expandKey(
-        token: String,
-        ctrl: Boolean,
-        alt: Boolean,
-        shift: Boolean,
-        fn: Boolean,
-    ): String {
+    private fun expandKey(token: String, ctrl: Boolean, alt: Boolean, shift: Boolean, fn: Boolean): String {
         val special = specialKeySequences[token]
         if (special != null) {
             // Escape sequences follow the KeyHandler modifier transform:
@@ -210,10 +204,7 @@ object ToolbarMacroExpander {
             "F12" to "\u001b[24;%d~",
         )
 
-    private fun csiWithModifier(
-        token: String,
-        param: Int,
-    ): String? = csiWithModifierSequences[token]?.format(param)
+    private fun csiWithModifier(token: String, param: Int): String? = csiWithModifierSequences[token]?.format(param)
 
     /**
      * termux TerminalView.inputCodePoint Ctrl conversion: a-z → 0x01-0x1A,

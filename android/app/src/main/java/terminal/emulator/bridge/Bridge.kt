@@ -370,11 +370,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         val exitAliveMs: Long = 0,
     )
 
-    data class ClipboardRequest(
-        val sessionId: Long,
-        val requestId: Long,
-        val selection: String = "",
-    )
+    data class ClipboardRequest(val sessionId: Long, val requestId: Long, val selection: String = "")
 
     fun pollAll(): PollResult {
         // Drain up to MAX_EVENTS_PER_POLL queued events per frame so a
@@ -403,7 +399,11 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         return result
     }
 
-    private fun parseEvent(json: String): PollResult = when (val event = pollEventJson.decodeFromString<PollEvent>(json)) {
+    private fun parseEvent(json: String): PollResult = when (
+        val event = pollEventJson.decodeFromString<PollEvent>(
+            json,
+        )
+    ) {
         is PollEvent.Clipboard ->
             PollResult(clipboard = event.text.ifEmpty { null }, sessionId = event.sessionId)
 
@@ -600,14 +600,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
      * the PTY. Returns true when a sequence was produced and written; false when mouse reporting is
      * disabled, encoding failed, or the session is gone (event dropped).
      */
-    fun encodeMouseEvent(
-        xPx: Float,
-        yPx: Float,
-        action: Int,
-        button: Int,
-        cellW: Float,
-        cellH: Float,
-    ): Boolean {
+    fun encodeMouseEvent(xPx: Float, yPx: Float, action: Int, button: Int, cellW: Float, cellH: Float): Boolean {
         if (sessionId == 0L) return false
         val bytes =
             try {
@@ -650,13 +643,7 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         }
     }
 
-    fun processKeyEvent(
-        keyCode: Int,
-        modifiers: Byte,
-        action: Int,
-        unicodeChar: Int,
-        unshiftedChar: Int,
-    ): Boolean {
+    fun processKeyEvent(keyCode: Int, modifiers: Byte, action: Int, unicodeChar: Int, unshiftedChar: Int): Boolean {
         Log.d(TAG, "processKeyEvent($keyCode, $modifiers, $action)")
         if (sessionId == 0L) return false
         // Only ACTION_DOWN produces output: both onKeyDown and onKeyUp route
@@ -762,11 +749,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         queryPort.setSelection(startRow, startCol, endRow, endCol, hasSelection, mode, selectionBackgroundArgb)
     }
 
-    override fun expandAndSetSelection(
-        row: Int,
-        col: Int,
-        mode: Byte,
-    ): Pair<Pair<Int, Int>, Pair<Int, Int>>? = queryPort.expandAndSetSelection(row, col, mode)
+    override fun expandAndSetSelection(row: Int, col: Int, mode: Byte): Pair<Pair<Int, Int>, Pair<Int, Int>>? =
+        queryPort.expandAndSetSelection(row, col, mode)
 
     // ── Search / scrollback ────────────────────────────────────────────
     // Query methods delegate to the real native JNI path via
@@ -777,19 +761,30 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     override fun setSearchHighlights(data: ByteArray) = queryPort.setSearchHighlights(data)
 
-    override fun scrollbackLine(row: Int): String? = runCatchingCancellable { queryPort.scrollbackLine(row) }.getOrNull()
+    override fun scrollbackLine(row: Int): String? = runCatchingCancellable {
+        queryPort.scrollbackLine(
+            row,
+        )
+    }.getOrNull()
 
     override fun scrollbackLength(): Int = runCatchingCancellable { queryPort.scrollbackLength() }.getOrDefault(0)
 
-    override fun cursorViewportPacked(): Long = runCatchingCancellable { queryPort.cursorViewportPacked() }.getOrDefault(-1L)
+    override fun cursorViewportPacked(): Long = runCatchingCancellable {
+        queryPort.cursorViewportPacked()
+    }.getOrDefault(
+        -1L,
+    )
 
-    override fun isCellEmpty(row: Int, col: Int): Boolean = runCatchingCancellable { queryPort.isCellEmpty(row, col) }.getOrDefault(true)
+    override fun isCellEmpty(row: Int, col: Int): Boolean = runCatchingCancellable {
+        queryPort.isCellEmpty(
+            row,
+            col,
+        )
+    }.getOrDefault(true)
 
-    override fun searchAllInScrollback(
-        query: String,
-        caseSensitive: Boolean,
-    ): List<Triple<Int, Int, Int>>? = runCatchingCancellable { queryPort.searchAllInScrollback(query, caseSensitive) }
-        .getOrNull()
+    override fun searchAllInScrollback(query: String, caseSensitive: Boolean): List<Triple<Int, Int, Int>>? =
+        runCatchingCancellable { queryPort.searchAllInScrollback(query, caseSensitive) }
+            .getOrNull()
 
     override fun setScrollOffset(offset: Int) = queryPort.setScrollOffset(offset)
 
@@ -797,22 +792,24 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
 
     override fun getTerminalText(): String? = runCatchingCancellable { queryPort.getTerminalText() }.getOrNull()
 
-    override fun selectionText(
-        startRow: Int,
-        startCol: Int,
-        endRow: Int,
-        endCol: Int,
-        rectangle: Boolean,
-    ): String? = runCatchingCancellable {
-        queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle)
-    }
-        .getOrNull()
+    override fun selectionText(startRow: Int, startCol: Int, endRow: Int, endCol: Int, rectangle: Boolean): String? =
+        runCatchingCancellable {
+            queryPort.selectionText(startRow, startCol, endRow, endCol, rectangle)
+        }
+            .getOrNull()
 
-    override fun hyperlinkAt(row: Int, col: Int): String? = runCatchingCancellable { queryPort.hyperlinkAt(row, col) }.getOrNull()
+    override fun hyperlinkAt(row: Int, col: Int): String? = runCatchingCancellable {
+        queryPort.hyperlinkAt(
+            row,
+            col,
+        )
+    }.getOrNull()
 
     override fun listFontFamilies(): List<String>? = runCatchingCancellable { queryPort.listFontFamilies() }.getOrNull()
 
-    override fun getDefaultFontName(): String = runCatchingCancellable { queryPort.getDefaultFontName() }.getOrDefault("monospace")
+    override fun getDefaultFontName(): String = runCatchingCancellable { queryPort.getDefaultFontName() }.getOrDefault(
+        "monospace",
+    )
 
     override fun getFontInfo(): String? = runCatchingCancellable { queryPort.getFontInfo() }.getOrNull()
 

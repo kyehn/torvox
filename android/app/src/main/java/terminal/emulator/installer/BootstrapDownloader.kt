@@ -30,10 +30,7 @@ class BootstrapDownloader(
             .build()
     }
 
-    suspend fun download(
-        url: String,
-        arch: String,
-    ): Result<File> = withContext(TerminalDispatchers.inputOutput) {
+    suspend fun download(url: String, arch: String): Result<File> = withContext(TerminalDispatchers.inputOutput) {
         // Integrity gate: the bootstrap zip is extracted and its.postinst
         // script is executed, so the download must be authenticated.
         // Plain-http is trivially MITM-able; the default URL already ships
@@ -96,7 +93,9 @@ class BootstrapDownloader(
                             // partition without bound.
                             if (total > MAX_BOOTSTRAP_SIZE_BYTES) {
                                 cachedDir.delete()
-                                return@withContext Result.failure(Exception("Download exceeds $MAX_BOOTSTRAP_SIZE_BYTES bytes"))
+                                return@withContext Result.failure(
+                                    Exception("Download exceeds $MAX_BOOTSTRAP_SIZE_BYTES bytes"),
+                                )
                             }
                             val pct =
                                 if (contentLength > 0L) {

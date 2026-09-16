@@ -5,12 +5,8 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TerminalInputEncoderTest {
-    private fun enc(
-        text: String,
-        ctrl: Boolean = false,
-        alt: Boolean = false,
-        bracketed: Boolean = false,
-    ): ByteArray = TerminalInputEncoder.encodeCommittedText(text, ctrl, alt, bracketed)
+    private fun enc(text: String, ctrl: Boolean = false, alt: Boolean = false, bracketed: Boolean = false): ByteArray =
+        TerminalInputEncoder.encodeCommittedText(text, ctrl, alt, bracketed)
 
     private fun bytes(vararg values: Int): ByteArray = ByteArray(values.size) { values[it].toByte() }
 
@@ -141,7 +137,13 @@ class TerminalInputEncoderTest {
     fun `encodeKeyEvent arrow uses csi in normal cursor mode`() {
         assertArrayEquals(
             bytes(0x1B, 0x5B, 0x41),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_UP, 0, false, false, appCursorMode = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DPAD_UP,
+                0,
+                false,
+                false,
+                appCursorMode = false,
+            ),
         )
     }
 
@@ -150,19 +152,43 @@ class TerminalInputEncoderTest {
         // DECCKM (research-haven.md:141 P2): app mode must emit ESC O A.
         assertArrayEquals(
             bytes(0x1B, 0x4F, 0x41),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_UP, 0, false, false, appCursorMode = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DPAD_UP,
+                0,
+                false,
+                false,
+                appCursorMode = true,
+            ),
         )
         assertArrayEquals(
             bytes(0x1B, 0x4F, 0x42),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0, false, false, appCursorMode = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                0,
+                false,
+                false,
+                appCursorMode = true,
+            ),
         )
         assertArrayEquals(
             bytes(0x1B, 0x4F, 0x43),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, 0, false, false, appCursorMode = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+                0,
+                false,
+                false,
+                appCursorMode = true,
+            ),
         )
         assertArrayEquals(
             bytes(0x1B, 0x4F, 0x44),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_LEFT, 0, false, false, appCursorMode = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                0,
+                false,
+                false,
+                appCursorMode = true,
+            ),
         )
     }
 
@@ -171,7 +197,13 @@ class TerminalInputEncoderTest {
         // Modifier-carrying arrows use `CSI 1;mod A` regardless of DECCKM.
         assertArrayEquals(
             bytes(0x1B, 0x5B, 0x31, 0x3B, 0x35, 0x41),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_UP, 0, true, false, appCursorMode = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DPAD_UP,
+                0,
+                true,
+                false,
+                appCursorMode = true,
+            ),
         )
     }
 
@@ -262,9 +294,18 @@ class TerminalInputEncoderTest {
 
     @Test
     fun `encodeKeyEvent f2 f3 f4 use ss3 without modifiers`() {
-        assertArrayEquals(bytes(0x1B, 0x4F, 0x51), TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F2, 0, false, false))
-        assertArrayEquals(bytes(0x1B, 0x4F, 0x52), TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F3, 0, false, false))
-        assertArrayEquals(bytes(0x1B, 0x4F, 0x53), TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F4, 0, false, false))
+        assertArrayEquals(
+            bytes(0x1B, 0x4F, 0x51),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F2, 0, false, false),
+        )
+        assertArrayEquals(
+            bytes(0x1B, 0x4F, 0x52),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F3, 0, false, false),
+        )
+        assertArrayEquals(
+            bytes(0x1B, 0x4F, 0x53),
+            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F4, 0, false, false),
+        )
     }
 
     @Test
@@ -280,7 +321,10 @@ class TerminalInputEncoderTest {
             android.view.KeyEvent.KEYCODE_F12 to "\u001b[24~",
         )
         expected.forEach { (keyCode, sequence) ->
-            assertArrayEquals(sequence.toByteArray(Charsets.UTF_8), TerminalInputEncoder.encodeKeyEvent(keyCode, 0, false, false))
+            assertArrayEquals(
+                sequence.toByteArray(Charsets.UTF_8),
+                TerminalInputEncoder.encodeKeyEvent(keyCode, 0, false, false),
+            )
         }
     }
 
@@ -289,19 +333,39 @@ class TerminalInputEncoderTest {
         // xterm CSI 1;mod P: Shift=1, Alt=2, Ctrl=4 (modifier_code).
         assertArrayEquals(
             "\u001b[1;5P".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F1, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_F1,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
         assertArrayEquals(
             "\u001b[1;3Q".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F2, 0, ctrlActive = false, altActive = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_F2,
+                0,
+                ctrlActive = false,
+                altActive = true,
+            ),
         )
         assertArrayEquals(
             "\u001b[1;7P".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F1, 0, ctrlActive = true, altActive = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_F1,
+                0,
+                ctrlActive = true,
+                altActive = true,
+            ),
         )
         assertArrayEquals(
             "\u001b[15;5~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_F5, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_F5,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
     }
 
@@ -309,16 +373,32 @@ class TerminalInputEncoderTest {
     fun `encodeKeyEvent arrow with ctrl alt modifier combos`() {
         assertArrayEquals(
             "\u001b[1;5D".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_LEFT, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
         assertArrayEquals(
             "\u001b[1;7B".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_DOWN, 0, ctrlActive = true, altActive = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+                0,
+                ctrlActive = true,
+                altActive = true,
+            ),
         )
         // Modifier-carrying arrows stay CSI even in application cursor mode.
         assertArrayEquals(
             "\u001b[1;3A".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DPAD_UP, 0, ctrlActive = false, altActive = true, appCursorMode = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DPAD_UP,
+                0,
+                ctrlActive = false,
+                altActive = true,
+                appCursorMode = true,
+            ),
         )
     }
 
@@ -326,11 +406,21 @@ class TerminalInputEncoderTest {
     fun `encodeKeyEvent ctrl enter produces csi 13 mod`() {
         assertArrayEquals(
             "\u001b[13;5~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_ENTER, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_ENTER,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
         assertArrayEquals(
             "\u001b[13;7~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_ENTER, 0, ctrlActive = true, altActive = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_ENTER,
+                0,
+                ctrlActive = true,
+                altActive = true,
+            ),
         )
     }
 
@@ -338,7 +428,12 @@ class TerminalInputEncoderTest {
     fun `encodeKeyEvent ctrl alt tab encodes full modifier set`() {
         assertArrayEquals(
             "\u001b[9;7~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_TAB, 0, ctrlActive = true, altActive = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_TAB,
+                0,
+                ctrlActive = true,
+                altActive = true,
+            ),
         )
     }
 
@@ -347,15 +442,30 @@ class TerminalInputEncoderTest {
         // Some devices report unicodeChar=0 here, some 0x20 — both must fold.
         assertArrayEquals(
             bytes(0x00),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_SPACE, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_SPACE,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
         assertArrayEquals(
             bytes(0x00),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_SPACE, 0x20, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_SPACE,
+                0x20,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
         assertArrayEquals(
             bytes(0x1B, 0x00),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_SPACE, 0, ctrlActive = true, altActive = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_SPACE,
+                0,
+                ctrlActive = true,
+                altActive = true,
+            ),
         )
     }
 
@@ -364,7 +474,12 @@ class TerminalInputEncoderTest {
         // Ctrl+Shift+A reports unicodeChar='A'; fold must not care about case.
         assertArrayEquals(
             bytes(0x01),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_A, 'A'.code, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_A,
+                'A'.code,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
     }
 
@@ -372,11 +487,21 @@ class TerminalInputEncoderTest {
     fun `encodeKeyEvent del with modifiers uses csi 3 mod`() {
         assertArrayEquals(
             "\u001b[3;5~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DEL, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DEL,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
         assertArrayEquals(
             "\u001b[3;3~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_DEL, 0, ctrlActive = false, altActive = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_DEL,
+                0,
+                ctrlActive = false,
+                altActive = true,
+            ),
         )
     }
 
@@ -388,7 +513,12 @@ class TerminalInputEncoderTest {
         )
         assertArrayEquals(
             "\u001b[3;5~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_FORWARD_DEL, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_FORWARD_DEL,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
         assertArrayEquals(
             "\u001b[2~".toByteArray(Charsets.UTF_8),
@@ -396,7 +526,12 @@ class TerminalInputEncoderTest {
         )
         assertArrayEquals(
             "\u001b[2;5~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_INSERT, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_INSERT,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
     }
 
@@ -404,19 +539,39 @@ class TerminalInputEncoderTest {
     fun `encodeKeyEvent home and end with modifiers`() {
         assertArrayEquals(
             "\u001b[1;5H".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_MOVE_HOME, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_MOVE_HOME,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
         assertArrayEquals(
             "\u001b[1;3F".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_MOVE_END, 0, ctrlActive = false, altActive = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_MOVE_END,
+                0,
+                ctrlActive = false,
+                altActive = true,
+            ),
         )
         assertArrayEquals(
             "\u001b[5;5~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_PAGE_UP, 0, ctrlActive = true, altActive = false),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_PAGE_UP,
+                0,
+                ctrlActive = true,
+                altActive = false,
+            ),
         )
         assertArrayEquals(
             "\u001b[6;3~".toByteArray(Charsets.UTF_8),
-            TerminalInputEncoder.encodeKeyEvent(android.view.KeyEvent.KEYCODE_PAGE_DOWN, 0, ctrlActive = false, altActive = true),
+            TerminalInputEncoder.encodeKeyEvent(
+                android.view.KeyEvent.KEYCODE_PAGE_DOWN,
+                0,
+                ctrlActive = false,
+                altActive = true,
+            ),
         )
     }
 

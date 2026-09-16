@@ -155,10 +155,7 @@ private val COMPOSE_TABLE: Map<Pair<Char, Char>, Char> =
     )
 
 /** Look up a two-key compose sequence; null when no match exists. */
-private fun composeLookup(
-    first: Char,
-    second: Char,
-): Char? = COMPOSE_TABLE[first to second]
+private fun composeLookup(first: Char, second: Char): Char? = COMPOSE_TABLE[first to second]
 
 /** F1-F12 escape sequences (XTerm function-key codes). */
 internal val FN_KEY_SEQUENCES: List<Pair<String, String>> =
@@ -861,10 +858,7 @@ private fun secondaryLongPressAction(
     }
 
 /** The live toggle state for one [ToolbarKey], or null for non-toggle keys. */
-private fun modifierStateFor(
-    key: ToolbarKey?,
-    states: ModifierBarStates,
-): ModifierState? = when (key) {
+private fun modifierStateFor(key: ToolbarKey?, states: ModifierBarStates): ModifierState? = when (key) {
     ToolbarKey.CTRL -> states.ctrlState
     ToolbarKey.ALT -> states.altState
     ToolbarKey.FN -> states.fnState
@@ -919,10 +913,7 @@ private fun toolbarItemPresentation(
     )
 }
 
-private fun toolbarItemKeyHandler(
-    item: ToolbarItem,
-    actions: ModifierBarActions,
-): () -> Unit = when (item) {
+private fun toolbarItemKeyHandler(item: ToolbarItem, actions: ModifierBarActions): () -> Unit = when (item) {
     is ToolbarItem.Default ->
         when (item.key) {
             ToolbarKey.CTRL -> actions.onToggleCtrl
@@ -968,11 +959,7 @@ private fun toolbarItemKeyHandler(
 
 /** One full-width row of extra-key buttons from pre-computed presentations. */
 @Composable
-private fun ModifierBarButtonRow(
-    items: ImmutableList<ToolbarItemPresentation>,
-    buttonHeight: Dp,
-    textColor: Color,
-) {
+private fun ModifierBarButtonRow(items: ImmutableList<ToolbarItemPresentation>, buttonHeight: Dp, textColor: Color) {
     Row(
         modifier = Modifier.fillMaxWidth().height(buttonHeight),
         horizontalArrangement = Arrangement.SpaceEvenly,

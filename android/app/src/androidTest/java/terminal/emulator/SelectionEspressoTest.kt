@@ -59,7 +59,10 @@ class SelectionEspressoTest {
         // text, uppercase by the toolbar style) — visible to UiAutomator.
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         assertTrue("COPY action must be in the selection menu", device.wait(Until.hasObject(By.text("COPY")), 5000))
-        assertTrue("SELECT ALL action must be in the selection menu", device.wait(Until.hasObject(By.text("SELECT ALL")), 5000))
+        assertTrue(
+            "SELECT ALL action must be in the selection menu",
+            device.wait(Until.hasObject(By.text("SELECT ALL")), 5000),
+        )
     }
 
     @Test

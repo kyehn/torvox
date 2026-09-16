@@ -43,10 +43,7 @@ data class FontInfoDto(
 }
 
 @Serializable
-data class FontActiveDto(
-    val name: String = "",
-    val monospaced: Boolean = false,
-)
+data class FontActiveDto(val name: String = "", val monospaced: Boolean = false)
 
 /**
  * Font size sp → device pixels at a device density. Only used for display

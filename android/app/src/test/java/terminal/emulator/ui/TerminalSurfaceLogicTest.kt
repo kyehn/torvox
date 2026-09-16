@@ -57,11 +57,23 @@ class TerminalSurfaceLogicTest {
         val cellHeight = 20f
         val surfaceHeightPx = 200f
         // Top boundary is strict `<`: dead-center of the top half-cell is up.
-        assertEquals(EdgeScrollDirection.UP, edgeScrollDirection(y = 9f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight))
+        assertEquals(
+            EdgeScrollDirection.UP,
+            edgeScrollDirection(y = 9f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+        )
         // Bottom boundary is `>= surface - half`: exactly at the edge is down.
-        assertEquals(EdgeScrollDirection.DOWN, edgeScrollDirection(y = 190f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight))
-        assertEquals(EdgeScrollDirection.DOWN, edgeScrollDirection(y = 200f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight))
-        assertEquals(EdgeScrollDirection.STOP, edgeScrollDirection(y = 100f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight))
+        assertEquals(
+            EdgeScrollDirection.DOWN,
+            edgeScrollDirection(y = 190f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+        )
+        assertEquals(
+            EdgeScrollDirection.DOWN,
+            edgeScrollDirection(y = 200f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+        )
+        assertEquals(
+            EdgeScrollDirection.STOP,
+            edgeScrollDirection(y = 100f, surfaceHeightPx = surfaceHeightPx, cellHeight = cellHeight),
+        )
     }
 
     @Test

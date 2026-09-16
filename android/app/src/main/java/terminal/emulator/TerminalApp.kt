@@ -135,10 +135,7 @@ open class TerminalApp : Application() {
         }
     }
 
-    private fun writeCrashLog(
-        thread: Thread,
-        throwable: Throwable,
-    ) {
+    private fun writeCrashLog(thread: Thread, throwable: Throwable) {
         val logDirectory = getDir("logs", MODE_PRIVATE)
         logDirectory.mkdirs()
 

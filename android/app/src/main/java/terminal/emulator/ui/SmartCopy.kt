@@ -49,11 +49,7 @@ object SmartCopy {
      * consistent border left of it and the nearest border right of it,
      * trimmed per row and joined with '\n' (Haven:325-345).
      */
-    internal fun extractPanelContent(
-        lines: List<String>,
-        borderCols: Set<Int>,
-        startCol: Int,
-    ): String {
+    internal fun extractPanelContent(lines: List<String>, borderCols: Set<Int>, startCol: Int): String {
         val sortedBorders = borderCols.sorted()
         val leftBorder = sortedBorders.lastOrNull { it < startCol } ?: -1
         val rightBorder =

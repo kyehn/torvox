@@ -26,7 +26,13 @@ enum class ToolbarKey(
     val modifier: Boolean = false,
 ) {
     ESC("ESC", "\u001b", contentDescriptionRes = R.string.escape),
-    DRAWER("\u2261", "", symbol = "\u2630", testTag = "Key_DRAWER", contentDescriptionRes = R.string.open_session_drawer),
+    DRAWER(
+        "\u2261",
+        "",
+        symbol = "\u2630",
+        testTag = "Key_DRAWER",
+        contentDescriptionRes = R.string.open_session_drawer,
+    ),
     SCROLL("SCROLL", "", contentDescriptionRes = R.string.toggle_scroll),
     HOME("HOME", "\u001b[H", contentDescriptionRes = R.string.home_key),
     ARROW_UP("\u2191", "\u001b[A", contentDescriptionRes = R.string.arrow_up, repeatable = true),
@@ -100,9 +106,7 @@ sealed class ToolbarItem {
     }
 }
 
-class ToolbarPreferences(
-    context: Context,
-) {
+class ToolbarPreferences(context: Context) {
     private val sharedPreferences: SharedPreferences by lazy {
         context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
     }

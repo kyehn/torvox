@@ -81,7 +81,9 @@ class PollResultMergeTest {
     fun `clipboard request lists accumulate across frames`() {
         val read1 = Bridge.ClipboardRequest(1, 10, "c")
         val read2 = Bridge.ClipboardRequest(2, 20, "c")
-        val merged = Bridge.PollResult(clipboardReads = listOf(read1)).merge(Bridge.PollResult(clipboardReads = listOf(read2)))
+        val merged = Bridge.PollResult(
+            clipboardReads = listOf(read1),
+        ).merge(Bridge.PollResult(clipboardReads = listOf(read2)))
         assertEquals(listOf(read1, read2), merged.clipboardReads)
     }
 

@@ -19,10 +19,7 @@ object KeyModifiers {
      * used by the layout-aware hardware-key path where Shift is already
      * baked into the produced character).
      */
-    fun fromStickyStates(
-        ctrlState: ModifierState,
-        altState: ModifierState,
-    ): Int {
+    fun fromStickyStates(ctrlState: ModifierState, altState: ModifierState): Int {
         var mask = 0
         if (ctrlState == ModifierState.Locked || ctrlState == ModifierState.Once) {
             mask = mask or CTRL
@@ -37,11 +34,7 @@ object KeyModifiers {
      * Full mask for a hardware key event: physical key state OR sticky
      * toolbar states (used by the surface's onKeyDown/onKeyUp path).
      */
-    fun fromKeyEvent(
-        event: KeyEvent,
-        ctrlState: ModifierState,
-        altState: ModifierState,
-    ): Byte {
+    fun fromKeyEvent(event: KeyEvent, ctrlState: ModifierState, altState: ModifierState): Byte {
         var mask = 0
         if (event.isShiftPressed) mask = mask or SHIFT
         if (event.isAltPressed || altState == ModifierState.Locked || altState == ModifierState.Once) {

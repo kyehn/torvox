@@ -6,9 +6,7 @@ import javax.inject.Inject
 
 class Hooks
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @Before
     fun setUp(scenario: Scenario) {
         composeRuleHolder.composeRule.waitForIdle()

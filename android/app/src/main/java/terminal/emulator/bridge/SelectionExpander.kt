@@ -66,12 +66,7 @@ object SelectionExpander {
     private val TRAILING_URL_PUNCTUATION = setOf('.', ',', ';', ':', '!')
 
     /** True when [s] has more `closeChar` than `openChar` in [0, end). */
-    private fun countOpenLessThanClose(
-        s: String,
-        end: Int,
-        openChar: Char,
-        closeChar: Char,
-    ): Boolean {
+    private fun countOpenLessThanClose(s: String, end: Int, openChar: Char, closeChar: Char): Boolean {
         var openCount = 0
         var closeCount = 0
         for (i in 0 until end) {
@@ -149,12 +144,7 @@ object SelectionExpander {
      * - joined text must look like a full URL (`://` or `www.` prefix with a dotted host) — the final
      *   gate against sprawling into prose.
      */
-    internal data class UrlSpan(
-        val startRow: Int,
-        val startCol: Int,
-        val endRow: Int,
-        val endCol: Int,
-    )
+    internal data class UrlSpan(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
 
     @JvmStatic
     internal fun looksLikeFullUrl(s: String): Boolean = terminal.emulator.util.UrlToken.looksLikeFullUrl(s)
@@ -217,12 +207,7 @@ object SelectionExpander {
      * row and the previous row's last non-padding character is URL-safe. Returns the walked (row,
      * col).
      */
-    private fun walkBackwardAcrossWraps(
-        lines: List<String>,
-        row: Int,
-        startRow: Int,
-        startCol: Int,
-    ): Pair<Int, Int> {
+    private fun walkBackwardAcrossWraps(lines: List<String>, row: Int, startRow: Int, startCol: Int): Pair<Int, Int> {
         var currentRow = startRow
         var currentCol = startCol
         while (currentRow > 0) {

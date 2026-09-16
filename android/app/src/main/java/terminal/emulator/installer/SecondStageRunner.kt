@@ -14,7 +14,9 @@ import java.util.concurrent.TimeUnit
  * detectDpkgVersion on a dpkg-less prefix when the child exits first). Returns null when the read
  * raced the close. Drain results that nobody consumes stay discarded.
  */
-internal fun drainQuietly(stream: java.io.InputStream): String? = runCatchingCancellable { stream.bufferedReader().readText() }.getOrNull()
+internal fun drainQuietly(stream: java.io.InputStream): String? = runCatchingCancellable {
+    stream.bufferedReader().readText()
+}.getOrNull()
 
 class SecondStageRunner(
     private val prefixDir: File,
@@ -25,10 +27,7 @@ class SecondStageRunner(
         private const val THREAD_JOIN_TIMEOUT_MS = 5_000L
     }
 
-    data class Result(
-        val success: Boolean,
-        val errors: List<String> = emptyList(),
-    )
+    data class Result(val success: Boolean, val errors: List<String> = emptyList())
 
     suspend fun run(): Result = withContext(TerminalDispatchers.inputOutput) {
         val lockFile = File(prefixDir, "bin/termux-bootstrap-second-stage.sh.lock")
@@ -95,12 +94,7 @@ class SecondStageRunner(
      * Execute one dpkg postinst script with the DPKG_* environment and the linker-wrapped interpreter
      * ; extracted from runPostInstalls for the detekt LongMethod limit).
      */
-    private suspend fun runOnePostinst(
-        script: File,
-        dpkgVersion: String,
-        arch: String,
-        errors: MutableList<String>,
-    ) {
+    private suspend fun runOnePostinst(script: File, dpkgVersion: String, arch: String, errors: MutableList<String>) {
         val packageName = script.name.removeSuffix(".postinst")
         try {
             Os.chmod(script.absolutePath, BootstrapInstaller.EXECUTABLE_FILE_MODE)
@@ -231,7 +225,8 @@ class SecondStageRunner(
     private fun detectAbi(): String = terminal.emulator.detectArchFromAbi()
 
     /** The system linker used to exec app-data ELFs (SELinux workaround). */
-    internal fun systemLinker(): String = if (terminal.emulator.is64BitAbi()) "/system/bin/linker64" else "/system/bin/linker"
+    internal fun systemLinker(): String =
+        if (terminal.emulator.is64BitAbi()) "/system/bin/linker64" else "/system/bin/linker"
 
     /** Base env for prefix executables: spec-whitelist variables only. */
     internal fun prefixEnvironment(): Map<String, String> = mapOf(
@@ -252,7 +247,10 @@ class SecondStageRunner(
      * (SELinux execute_no_trans on app_data_file), so run it through the system linker which lives in
      * system_linker_exec.
      */
-    internal fun prefixExecutableCommand(executable: File, args: List<String>): Array<String> = arrayOf(systemLinker(), executable.absolutePath) + args
+    internal fun prefixExecutableCommand(executable: File, args: List<String>): Array<String> = arrayOf(
+        systemLinker(),
+        executable.absolutePath,
+    ) + args
 
     /**
      * Build the exec argv for a postinst shell script. The script's shebang points at $PREFIX/bin/sh

@@ -13,9 +13,7 @@ import javax.inject.Inject
 
 class LifecycleSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @假如("^应用已启动且会话处于活动状态$")
     fun appHasLaunchedAndSessionIsActive() {
         composeRuleHolder.composeRule.waitForSession()

@@ -65,10 +65,7 @@ class CursorPixelAcceptanceTest {
         return row to col
     }
 
-    private fun cellCenterLuminance(
-        row: Int,
-        col: Int,
-    ): Int {
+    private fun cellCenterLuminance(row: Int, col: Int): Int {
         val shot = device.takeScreenshot() ?: return -1
         val b = bridge()
         val density =

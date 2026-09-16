@@ -10,10 +10,7 @@ package terminal.emulator.runtime
  * [ClipboardAccess], chunk via [PasteChunker], hand each chunk to the
  * caller-supplied sink.
  */
-class ClipboardPaster(
-    private val clipboard: ClipboardAccess,
-    private val chunker: PasteChunker = PasteChunker(),
-) {
+class ClipboardPaster(private val clipboard: ClipboardAccess, private val chunker: PasteChunker = PasteChunker()) {
     /**
      * Paste the current clipboard through [sink] (one call per chunk).
      *

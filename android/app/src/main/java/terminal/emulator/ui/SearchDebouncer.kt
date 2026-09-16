@@ -17,9 +17,7 @@ interface DebounceScheduler {
  * in production Compose code. Not exercised by JVM unit tests (they use
  * a fake scheduler).
  */
-class HandlerDebounceScheduler(
-    private val handler: android.os.Handler,
-) : DebounceScheduler {
+class HandlerDebounceScheduler(private val handler: android.os.Handler) : DebounceScheduler {
     private var pendingRunnable: Runnable? = null
 
     override fun postDelayed(delayMillis: Long, action: () -> Unit) {
@@ -44,10 +42,7 @@ class HandlerDebounceScheduler(
  * Pure Kotlin (no Android dependencies): unit-tested on the JVM with a
  * fake [DebounceScheduler].
  */
-class SearchDebouncer(
-    private val debounceMillis: Long,
-    private val scheduler: DebounceScheduler,
-) {
+class SearchDebouncer(private val debounceMillis: Long, private val scheduler: DebounceScheduler) {
     private var pendingAction: (() -> Unit)? = null
 
     /** Schedule [action]; a previous pending action is replaced, not run. */
