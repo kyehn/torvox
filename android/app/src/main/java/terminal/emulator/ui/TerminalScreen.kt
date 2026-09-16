@@ -1,3 +1,4 @@
+// 文件内多处 LaunchedEffect 等非组合作用域必须经 context 取资源，stringResource 不可用。
 @file:Suppress("LocalContextGetResourceValueCall")
 
 package terminal.emulator.ui

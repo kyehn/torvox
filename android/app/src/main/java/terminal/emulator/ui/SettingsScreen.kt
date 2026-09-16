@@ -86,7 +86,6 @@ private val WARNING_ORANGE = Color(0xFFFF9800)
 
 @OptIn(ExperimentalMaterial3Api::class) // Material3 experimental API used intentionally
 @Composable
-@Suppress("LongMethod")
 fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -430,7 +429,6 @@ private fun TerminalThemeSection(
 }
 
 @Composable
-@Suppress("LongParameterList")
 private fun TerminalConfigSection(
     selectedShell: String,
     onShellChanged: (String) -> Unit,
@@ -1049,7 +1047,6 @@ private fun ThemePreview(
     }
 }
 
-@Suppress("LongParameterList")
 @Composable
 private fun BootstrapSection(
     bootstrapUrl: String,

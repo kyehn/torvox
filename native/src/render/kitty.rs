@@ -132,6 +132,7 @@ fn clamp_source(
 }
 
 /// 子矩形复制（RGBA8，逐行 memcpy）。
+// 标准 blit 签名（源矩形+目标矩形），单调用点，成组无收益。
 #[allow(clippy::too_many_arguments)]
 fn copy_sub_rect(
     source: &[u8],

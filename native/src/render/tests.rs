@@ -660,6 +660,7 @@ fn build_configured_cell_instance(
 /// Build one cursor-probe cell with white block cursor styling: covers the
 /// repeated single-cell cursor/reverse-video setup with varying codepoint,
 /// colors, flags and cursor visibility.
+// 测试辅助构造器：参数与被测调用一一对应，成组反而遮蔽映射关系。
 #[allow(clippy::too_many_arguments)]
 fn build_cursor_probe_instance(
     codepoint: u32,

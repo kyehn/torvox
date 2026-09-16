@@ -474,6 +474,7 @@ fn build_row_instances_into(
 
 /// Build instances for one grid row. Shared by the full and incremental
 /// builders so the cell-level logic stays identical in both paths.
+// 渲染热路径：参数由双构建路径共享调用，成组改结构体只增间接无收益。
 #[allow(clippy::too_many_arguments)]
 fn append_row_instances(
     cell_w: f32,

@@ -306,7 +306,6 @@ class MainActivity : ComponentActivity() {
         previousNightMode = currentNightMode
     }
 
-    @SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         val handled = terminalViewModel.handleLayoutAwareHardwareKey(event)
         if (handled) {
