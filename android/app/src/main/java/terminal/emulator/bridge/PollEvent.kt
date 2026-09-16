@@ -37,6 +37,12 @@ sealed class PollEvent {
         @SerialName("request_id") val requestId: Long = 0,
         val selection: String = "",
     ) : PollEvent()
+
+    // BEL 振铃（Rust native/src/event.rs `Bell`，单帧多响已合并为一）。
+    // 纯上报：提示动作（声音/振动/闪屏）待定行为后另起一步，本轮零行为改变。
+    @Serializable
+    @SerialName("bell")
+    data class Bell(@SerialName("session_id") val sessionId: Long = 0) : PollEvent()
 }
 
 /**

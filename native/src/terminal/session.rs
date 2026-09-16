@@ -165,6 +165,9 @@ pub struct Session {
     /// reports it exactly once.
     exit_reported: Arc<AtomicBool>,
     clipboard_text: Arc<Mutex<Option<String>>>,
+    /// 待上报的 BEL 振铃（上游 on_bell 回调经通道推送，drain_callback_events 收割）。
+    /// 瞬时提示：单帧多响合并为一，poll_bell 取走并清零（get-and-clear）。
+    bell_pending: Mutex<bool>,
     /// Pending OSC 52 clipboard read request: the requested selection name.
     /// Consumed by the JNI layer (`poll_clipboard_read`), which forwards it
     /// to the host app and writes the answer back via
@@ -447,6 +450,7 @@ impl Session {
             exit_reported,
             clipboard_text,
             clipboard_read,
+            bell_pending: Mutex::new(false),
             current_directory: Mutex::new(None),
             reader_handle: None,
             wait_handle: None,
@@ -656,7 +660,7 @@ impl Session {
         self.output_processor.take_new_output()
     }
 
-    /// 收割 VT 线程经上游 OSC 回调上报的事件（cwd/剪贴板写入）到锁存槽。
+    /// 收割 VT 线程经上游回调上报的事件（cwd/剪贴板写入/BEL 振铃）到锁存槽。
     /// 紧跟 flush 调用：flush 返回时 VT 线程已处理完本批输出，回调已触发。
     fn drain_callback_events(&self) {
         while let Some(path) = self.terminal.poll_cwd_event() {
@@ -665,6 +669,15 @@ impl Session {
         while let Some((_, text)) = self.terminal.poll_clipboard_event() {
             *self.clipboard_text.lock() = Some(text);
         }
+        while self.terminal.poll_bell_event().is_some() {
+            *self.bell_pending.lock() = true;
+        }
+    }
+
+    /// 取走待上报的 BEL 振铃并清零（get-and-clear，无振铃为 false）。
+    pub fn poll_bell(&self) -> bool {
+        let mut guard = self.bell_pending.lock();
+        std::mem::replace(&mut *guard, false)
     }
 
     /// Poll for clipboard text set by an OSC 52 escape sequence.

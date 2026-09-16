@@ -341,6 +341,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
         // they would leak (native exit_reported is set at push and never
         // re-sent).
         val exits: List<ExitInfo> = emptyList(),
+        // BEL 振铃到达（同帧 sticky；提示动作待定行为后另起一步）。
+        val bell: Boolean = false,
     ) {
         /** Merge a later polled event into this result; later wins for scalar fields. */
         fun merge(later: PollResult): PollResult = PollResult(
@@ -359,6 +361,8 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
             // request_id and must be dispatched exactly once.
             clipboardReads = clipboardReads + later.clipboardReads,
             exits = exits + later.exits,
+            // Bell is sticky like exit: once raised in a frame it stays.
+            bell = bell || later.bell,
         )
     }
 
@@ -434,6 +438,9 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
                     ),
                 ),
             )
+
+        is PollEvent.Bell ->
+            PollResult(bell = true, sessionId = event.sessionId)
     }
 
     // ── Theme / appearance ────────────────────────────────────────────

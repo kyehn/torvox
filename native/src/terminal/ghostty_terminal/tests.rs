@@ -1941,3 +1941,36 @@ fn sgr_tricolor_mocha_reaches_foreground() {
         );
     }
 }
+
+/// BEL（0x07）必须经上游 on_bell 回调到达振铃通道（对标 bellEventIsReported）。
+/// 背景：此前上游回调未接线，BEL 被静默吞掉，Kotlin 侧永远收不到振铃。
+#[test]
+fn bell_reaches_bell_channel() {
+    let mut bell_terminal = terminal();
+    bell_terminal.pty_write(b"\x07");
+    bell_terminal.flush();
+    assert_eq!(
+        bell_terminal.poll_bell_event(),
+        Some(()),
+        "BEL must surface a bell event"
+    );
+    // 通道级 get-and-clear：取走后即无（会话锁存另有同语义单测位）。
+    assert_eq!(
+        bell_terminal.poll_bell_event(),
+        None,
+        "bell channel must clear after poll"
+    );
+}
+
+/// 无 BEL 输入时振铃通道必须保持空（守卫：回调不得误触发）。
+#[test]
+fn bell_channel_stays_empty_without_bel() {
+    let mut plain_terminal = terminal();
+    plain_terminal.pty_write(b"hello");
+    plain_terminal.flush();
+    assert_eq!(
+        plain_terminal.poll_bell_event(),
+        None,
+        "plain output must not raise a bell event"
+    );
+}

@@ -69,6 +69,18 @@ class PollResultMergeTest {
     }
 
     @Test
+    fun `bell is sticky when later event has no bell`() {
+        val merged = Bridge.PollResult(bell = true).merge(Bridge.PollResult())
+        assertTrue(merged.bell)
+    }
+
+    @Test
+    fun `no bell anywhere stays inert`() {
+        val merged = Bridge.PollResult().merge(Bridge.PollResult())
+        assertFalse(merged.bell)
+    }
+
+    @Test
     fun `null scalar does not clobber an existing value`() {
         val first = Bridge.PollResult(clipboard = "a")
         val merged = first.merge(Bridge.PollResult())

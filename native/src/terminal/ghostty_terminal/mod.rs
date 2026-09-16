@@ -28,6 +28,8 @@ pub struct GhosttyTerminal {
     /// session 在 flush 后收割到锁存槽；BDD 直接轮询断言。
     pub(crate) cwd_rx: flume::Receiver<String>,
     pub(crate) clipboard_rx: flume::Receiver<(String, String)>,
+    /// 上游 BEL 回调事件接收端（VT 线程经 on_bell 推送，每次振铃一个空消息）。
+    pub(crate) bell_rx: flume::Receiver<()>,
     pub(crate) handle: Option<thread::JoinHandle<()>>,
     pub(crate) pty_write_responses: Arc<Mutex<Vec<Vec<u8>>>>,
     pub(crate) snapshot_cache: Mutex<SnapshotCache>,

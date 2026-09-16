@@ -24,6 +24,7 @@ const OVERFLOW_WARN_INTERVAL: std::time::Duration = std::time::Duration::from_se
 /// |---------|-------------|-------------|
 /// | `Clipboard` | OSC 52 **set** (terminal→clipboard) | `session` |
 /// | `ClipboardRead` | OSC 52 **read** (terminal asks the host) | `session` |
+/// | `Bell` | BEL (0x07, 上游 `on_bell` 回调) | `session` |
 /// | `Exit`  | `session.is_exited()` becomes true | `session` / `pollEvent` |
 ///
 /// All events are serialised as JSON before crossing the JNI boundary.
@@ -35,6 +36,10 @@ pub enum Event {
     /// in the SYSTEM clipboard. Kotlin applies it via `setPrimaryClip`.
     /// (OSC 52 read arrives via [`Event::ClipboardRead`] + `clipboardResult()`.)
     Clipboard { session_id: u64, text: String },
+    /// 终端收到 BEL（0x07）：上游 `on_bell` 回调经有界通道上报，
+    /// 会话锁存后由 `pollEvent` 逐帧上报一次（单帧多响合并为一，
+    /// 与对标实现的事件位置位/清零语义等价）。
+    Bell { session_id: u64 },
     /// Child process exited.
     Exit {
         session_id: u64,
@@ -360,5 +365,18 @@ mod tests {
             })
         );
         assert_eq!(q.pop(), None);
+    }
+}
+
+#[cfg(test)]
+mod bell_tests {
+    use super::*;
+
+    #[test]
+    fn bell_serializes_with_snake_case_discriminator() {
+        // Kotlin PollEvent.Bell 解码的契约：discriminator 必须为 "bell"。
+        let json = serde_json::to_string(&Event::Bell { session_id: 7 })
+            .expect("bell serializes");
+        assert_eq!(json, r#"{"event":"bell","session_id":7}"#);
     }
 }
