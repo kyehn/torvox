@@ -13,10 +13,7 @@ import java.nio.file.LinkOption
  * 从 [TerminalDocumentsProvider] 拆分出来，使提供者主体只剩查询与打开通道， 函数数回到 detekt TooManyFunctions
  * 阈值内。所有变更落盘后广播通知， 外部文件客户端才能即时刷新（否则复制进入、重命名看起来“没反应”）。
  */
-internal class DocumentMutations(
-    private val context: Context,
-    private val rootDir: () -> File,
-) {
+internal class DocumentMutations(private val context: Context, private val rootDir: () -> File) {
     fun createDocument(parentDocumentId: String, mimeType: String, displayName: String): String {
         val root = rootDir()
         val parent = TerminalDocumentsProvider.decodeDocId(parentDocumentId, root)
@@ -128,10 +125,7 @@ internal class DocumentMutations(
         return newId
     }
 
-    fun moveDocument(
-        sourceDocumentId: String,
-        targetParentDocumentId: String,
-    ): String {
+    fun moveDocument(sourceDocumentId: String, targetParentDocumentId: String): String {
         val root = rootDir()
         if (sourceDocumentId == TerminalDocumentsProvider.ROOT_ID) {
             throw java.io.FileNotFoundException("Refusing to move the root document")

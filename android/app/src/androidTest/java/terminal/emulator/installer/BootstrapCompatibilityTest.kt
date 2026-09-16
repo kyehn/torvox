@@ -20,7 +20,8 @@ class BootstrapCompatibilityTest {
         private const val HOME_DIR = "$PREFIX/home"
         private val BOOTSTRAP_URL by lazy {
             System.getProperty("test.bootstrapUrl")
-                ?: "https://github.com/termux/termux-packages/releases/download/bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-x86_64.zip"
+                ?: "https://github.com/termux/termux-packages/releases/download/" +
+                "bootstrap-2026.06.21-r1%2Bapt.android-7/bootstrap-x86_64.zip"
         }
         private const val TAG = "BootstrapTest"
 
@@ -106,7 +107,8 @@ class BootstrapCompatibilityTest {
 
     private fun pkgTermux(args: String): String = runAs("pkg $args 2>&1")
 
-    private fun aptInstall(args: String): String = runAs("DEBIAN_FRONTEND=noninteractive apt install -y --allow-unauthenticated $args 2>&1")
+    private fun aptInstall(args: String): String =
+        runAs("DEBIAN_FRONTEND=noninteractive apt install -y --allow-unauthenticated $args 2>&1")
 
     private fun aptUpdate(): String = runAs("apt update 2>&1")
 

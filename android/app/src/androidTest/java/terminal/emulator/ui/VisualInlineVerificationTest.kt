@@ -66,40 +66,24 @@ class VisualInlineVerificationTest {
         }
     }
 
-    private fun Bitmap.getPixel(
-        x: Int,
-        y: Int,
-    ): Int = if (x in 0 until width && y in 0 until height) {
+    private fun Bitmap.getPixel(x: Int, y: Int): Int = if (x in 0 until width && y in 0 until height) {
         getPixel(x, y)
     } else {
         0
     }
 
-    private fun colorDiff(
-        a: Int,
-        b: Int,
-    ): Int = abs(Color.red(a) - Color.red(b)) +
+    private fun colorDiff(a: Int, b: Int): Int = abs(Color.red(a) - Color.red(b)) +
         abs(Color.green(a) - Color.green(b)) +
         abs(Color.blue(a) - Color.blue(b))
 
-    private data class Blob(
-        val minX: Int,
-        val minY: Int,
-        val maxX: Int,
-        val maxY: Int,
-    ) {
+    private data class Blob(val minX: Int, val minY: Int, val maxX: Int, val maxY: Int) {
         val cx get() = (minX + maxX) / 2
         val cy get() = (minY + maxY) / 2
         val w get() = maxX - minX + 1
         val h get() = maxY - minY + 1
     }
 
-    private fun findChangedBlobs(
-        before: Bitmap,
-        after: Bitmap,
-        threshold: Int = 50,
-        minSize: Int = 8,
-    ): List<Blob> {
+    private fun findChangedBlobs(before: Bitmap, after: Bitmap, threshold: Int = 50, minSize: Int = 8): List<Blob> {
         val w = minOf(before.width, after.width)
         val h = minOf(before.height, after.height)
         val changed = Array(h) { BooleanArray(w) }
@@ -148,11 +132,7 @@ class VisualInlineVerificationTest {
         return blobs
     }
 
-    private fun pixelDiffCount(
-        before: Bitmap,
-        after: Bitmap,
-        threshold: Int = 50,
-    ): Int {
+    private fun pixelDiffCount(before: Bitmap, after: Bitmap, threshold: Int = 50): Int {
         val w = minOf(before.width, after.width)
         val h = minOf(before.height, after.height)
         var count = 0
@@ -168,12 +148,7 @@ class VisualInlineVerificationTest {
     // 80x24. The emulator's actual grid is 60 columns (1080/17.96), so
     // w/80f guesses the wrong column and a long-press can land on the
     // prompt instead of the target text.
-    private data class CellMetrics(
-        val cellWidth: Float,
-        val cellHeight: Float,
-        val cols: Int,
-        val rows: Int,
-    )
+    private data class CellMetrics(val cellWidth: Float, val cellHeight: Float, val cols: Int, val rows: Int)
 
     private fun estimateCellMetrics(): CellMetrics? {
         val surface = requireNotNull(tv)
@@ -196,10 +171,7 @@ class VisualInlineVerificationTest {
     // The software renderer lags behind the PTY data while the test
     // process is busy; wait until consecutive frames stop changing (the
     // echoed output has been rasterized) before long-pressing.
-    private fun waitForRenderStable(
-        logTag: String,
-        timeoutMs: Long = 12_000,
-    ): Bitmap {
+    private fun waitForRenderStable(logTag: String, timeoutMs: Long = 12_000): Bitmap {
         // takeScreenshot can transiently return null (surface swap /
         // renderer busy); retry before giving up.
         var prev: Bitmap? = null
@@ -282,7 +254,10 @@ class VisualInlineVerificationTest {
         val longPressX = cellW * 7f
         val longPressY = cellH * 1.5f
 
-        Log.i("VisualInline", "Long-press at ($longPressX, $longPressY) for 'world' (grid ${metrics.cols}x${metrics.rows})")
+        Log.i(
+            "VisualInline",
+            "Long-press at ($longPressX, $longPressY) for 'world' (grid ${metrics.cols}x${metrics.rows})",
+        )
 
         // Wait for the renderer to settle on the echoed output, then
         // long-press and poll for the handle popups.
@@ -337,7 +312,9 @@ class VisualInlineVerificationTest {
         // geometry as verifyWordSelectionPositions) instead of the input
         // row. Long-pressing the URL characters triggers Ghostty's URL
         // selection (expands to the whole URL).
-        requireNotNull(bridge).writeToPty("echo 'https://github.com/termux is the main url for terminal'\n".toByteArray())
+        requireNotNull(
+            bridge,
+        ).writeToPty("echo 'https://github.com/termux is the main url for terminal'\n".toByteArray())
         Thread.sleep(3000)
 
         val longPressX = cellW * 7f
@@ -374,8 +351,9 @@ class VisualInlineVerificationTest {
         Log.i("VisualInline", "URL selection verification PASSED")
     }
 
+    // setPrimaryClip deprecated without replacement (API 36) — still the only client API
     @Test
-    @SuppressLint("DeprecatedCall") // setPrimaryClip deprecated without replacement (API 36) — still the only client API
+    @SuppressLint("DeprecatedCall")
     fun verifyPasteMenuPosition() {
         Log.i("VisualInline", "==== Paste Menu Position Verification ====")
         composeRule.waitForSession()
@@ -436,10 +414,7 @@ class VisualInlineVerificationTest {
         Log.i("VisualInline", "Paste menu verification PASSED")
     }
 
-    private fun saveToExternal(
-        name: String,
-        bitmap: Bitmap,
-    ) {
+    private fun saveToExternal(name: String, bitmap: Bitmap) {
         val extDir = composeRule.activity.getExternalFilesDir("Pictures")
         if (extDir != null) {
             extDir.mkdirs()

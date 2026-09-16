@@ -11,9 +11,7 @@ import javax.inject.Inject
 
 class CommonSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @假如("^应用已启动$")
     fun appHasLaunched() {
         composeRuleHolder.composeRule.waitForSession()

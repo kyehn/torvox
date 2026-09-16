@@ -26,10 +26,7 @@ class TestBackdoorReceivers(
         listOf(
             Pair(
                 object : BroadcastReceiver() {
-                    override fun onReceive(
-                        context: Context,
-                        intent: Intent,
-                    ) {
+                    override fun onReceive(context: Context, intent: Intent) {
                         onDumpTerminal(context)
                     }
                 },
@@ -37,10 +34,7 @@ class TestBackdoorReceivers(
             ),
             Pair(
                 object : BroadcastReceiver() {
-                    override fun onReceive(
-                        context: Context,
-                        intent: Intent,
-                    ) {
+                    override fun onReceive(context: Context, intent: Intent) {
                         val text = intent.getStringExtra("text") ?: return
                         onInput(text, intent.getStringExtra("raw") == "1")
                     }
@@ -49,10 +43,7 @@ class TestBackdoorReceivers(
             ),
             Pair(
                 object : BroadcastReceiver() {
-                    override fun onReceive(
-                        context: Context,
-                        intent: Intent,
-                    ) {
+                    override fun onReceive(context: Context, intent: Intent) {
                         onSelectAll()
                     }
                 },
@@ -60,10 +51,7 @@ class TestBackdoorReceivers(
             ),
             Pair(
                 object : BroadcastReceiver() {
-                    override fun onReceive(
-                        context: Context,
-                        intent: Intent,
-                    ) {
+                    override fun onReceive(context: Context, intent: Intent) {
                         val text = intent.getStringExtra("text") ?: return
                         onVtWrite(text)
                     }
@@ -72,10 +60,7 @@ class TestBackdoorReceivers(
             ),
             Pair(
                 object : BroadcastReceiver() {
-                    override fun onReceive(
-                        context: Context,
-                        intent: Intent,
-                    ) {
+                    override fun onReceive(context: Context, intent: Intent) {
                         // Clamp: the receiver is NOT_EXPORTED, but
                         // instrumentation (same-uid) can still broadcast; a
                         // hostile broadcast could otherwise carry Int.MAX and
@@ -93,10 +78,7 @@ class TestBackdoorReceivers(
             ),
             Pair(
                 object : BroadcastReceiver() {
-                    override fun onReceive(
-                        context: Context,
-                        intent: Intent,
-                    ) {
+                    override fun onReceive(context: Context, intent: Intent) {
                         // Clamp defensively (see PARTIAL_SELECT).
                         val row = intent.getIntExtra("row", 10).coerceIn(0, 4095)
                         val col = intent.getIntExtra("col", 0).coerceIn(0, 4095)
@@ -107,10 +89,7 @@ class TestBackdoorReceivers(
             ),
             Pair(
                 object : BroadcastReceiver() {
-                    override fun onReceive(
-                        context: Context,
-                        intent: Intent,
-                    ) {
+                    override fun onReceive(context: Context, intent: Intent) {
                         val path = intent.getStringExtra("path") ?: return
                         onInstallBootstrap(context, path)
                     }

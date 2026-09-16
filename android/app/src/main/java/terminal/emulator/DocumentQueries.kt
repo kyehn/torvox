@@ -56,11 +56,7 @@ internal class DocumentQueries(private val context: Context) {
         null
     }
 
-    fun addDocRow(
-        cursor: MatrixCursor,
-        file: File,
-        rootDir: File,
-    ) {
+    fun addDocRow(cursor: MatrixCursor, file: File, rootDir: File) {
         val docId = TerminalDocumentsProvider.encodeDocId(file, rootDir) ?: return
         val mime = if (file.isDirectory) Document.MIME_TYPE_DIR else getMimeType(file.name)
         var flags = 0

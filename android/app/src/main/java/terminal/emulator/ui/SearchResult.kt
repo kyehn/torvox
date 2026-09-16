@@ -7,11 +7,7 @@ package terminal.emulator.ui
  * @property startIndex Column index of the first matching character.
  * @property endIndex Column index after the last matching character.
  */
-data class SearchResult(
-    val lineIndex: Int,
-    val startIndex: Int,
-    val endIndex: Int,
-) {
+data class SearchResult(val lineIndex: Int, val startIndex: Int, val endIndex: Int) {
     companion object {
         /**
          * Determines whether the current search query is a "narrowing" of the previous query.
@@ -28,10 +24,7 @@ data class SearchResult(
          * @param previousQuery The previous (longer) search query.
          * @return true if the current query narrows the previous query.
          */
-        fun isNarrowingDown(
-            query: String,
-            previousQuery: String,
-        ): Boolean = query.isNotEmpty() &&
+        fun isNarrowingDown(query: String, previousQuery: String): Boolean = query.isNotEmpty() &&
             previousQuery.isNotEmpty() &&
             query.length < previousQuery.length &&
             previousQuery.contains(query)

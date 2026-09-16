@@ -19,10 +19,7 @@ import kotlinx.serialization.json.Json
 sealed class PollEvent {
     @Serializable
     @SerialName("clipboard")
-    data class Clipboard(
-        @SerialName("session_id") val sessionId: Long = 0,
-        val text: String = "",
-    ) : PollEvent()
+    data class Clipboard(@SerialName("session_id") val sessionId: Long = 0, val text: String = "") : PollEvent()
 
     @Serializable
     @SerialName("exit")

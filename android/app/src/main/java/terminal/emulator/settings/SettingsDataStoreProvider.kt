@@ -16,9 +16,7 @@ import javax.inject.Singleton
 @Singleton
 class SettingsDataStoreProvider
 @Inject
-constructor(
-    @ApplicationContext private val context: Context,
-) {
+constructor(@ApplicationContext private val context: Context) {
     internal val prefsDir: File =
         StrictMode.allowThreadDiskReads().let { prev ->
             context.getDir("prefs", Context.MODE_PRIVATE).also {

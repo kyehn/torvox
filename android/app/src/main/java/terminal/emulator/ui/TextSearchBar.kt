@@ -127,11 +127,7 @@ private fun SearchToggleButtons(
 }
 
 @Composable
-private fun SearchResultCounter(
-    query: String,
-    resultCount: Int,
-    currentResultIndex: Int,
-) {
+private fun SearchResultCounter(query: String, resultCount: Int, currentResultIndex: Int) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Spacer(modifier = Modifier.width(4.dp))
         if (query.isNotEmpty()) {
@@ -156,11 +152,7 @@ private fun SearchResultCounter(
 }
 
 @Composable
-private fun SearchNavButtons(
-    resultCount: Int,
-    onPrevious: () -> Unit,
-    onNext: () -> Unit,
-) {
+private fun SearchNavButtons(resultCount: Int, onPrevious: () -> Unit, onNext: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Spacer(modifier = Modifier.width(4.dp))
         SearchNavButton(
@@ -247,10 +239,7 @@ private fun SearchTextField(
 }
 
 @Composable
-private fun SearchCloseButton(
-    onClose: () -> Unit,
-    keyboardController: SoftwareKeyboardController?,
-) {
+private fun SearchCloseButton(onClose: () -> Unit, keyboardController: SoftwareKeyboardController?) {
     IconButton(
         onClick = {
             keyboardController?.hide()

@@ -236,7 +236,10 @@ class MainActivity : ComponentActivity() {
         }
         LogUtil.d(
             "MainActivity",
-            "handleLaunchIntent: action=${intent.action} failsafe=${intent.getBooleanExtra(EXTRA_FAILSAFE_SESSION, false)}",
+            "handleLaunchIntent: action=${intent.action} failsafe=${intent.getBooleanExtra(
+                EXTRA_FAILSAFE_SESSION,
+                false,
+            )}",
         )
         if (
             Intent.ACTION_RUN == intent.action && intent.getBooleanExtra(EXTRA_FAILSAFE_SESSION, false)
@@ -314,10 +317,7 @@ class MainActivity : ComponentActivity() {
     }
 
     @Deprecated("Use View.OnKeyListener pattern")
-    override fun onKeyDown(
-        keyCode: Int,
-        event: KeyEvent?,
-    ): Boolean = super.onKeyDown(keyCode, event)
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean = super.onKeyDown(keyCode, event)
 }
 
 @Composable

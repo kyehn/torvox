@@ -77,13 +77,13 @@ class SessionDrawerNarrowTest {
                 Box(Modifier.width(240.dp)) {
                     SessionDrawer(
                         sessions =
-                            listOf(
-                                SessionInfo(
-                                    id = 1L,
-                                    title = "1",
-                                    directory = "/data/data/com.termux/files/home",
-                                ),
+                        listOf(
+                            SessionInfo(
+                                id = 1L,
+                                title = "1",
+                                directory = "/data/data/com.termux/files/home",
                             ),
+                        ),
                         activeSessionId = 1L,
                         onSwitchSession = {},
                         onCloseSession = {},

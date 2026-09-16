@@ -9,9 +9,7 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
-class BootGuard(
-    private val logDir: File,
-) {
+class BootGuard(private val logDir: File) {
     fun check() {
         synchronized(LOCK) {
             val counter = readCounter()
@@ -90,7 +88,10 @@ class BootGuard(
 
             try {
                 logDir.mkdirs()
-                val timestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.US).format(LocalDateTime.now())
+                val timestamp = DateTimeFormatter.ofPattern(
+                    "yyyy-MM-dd_HH-mm-ss",
+                    Locale.US,
+                ).format(LocalDateTime.now())
                 val logFile = File(logDir, "fatal_$timestamp.log")
                 val content =
                     buildString {
@@ -102,7 +103,10 @@ class BootGuard(
                     fos.write(content.toByteArray(Charsets.UTF_8))
                     fos.fd.sync()
                 }
-                Log.e(TAG, "${if (suppressed) "[SUPPRESSED] " else ""}Self-exit: $reason — log at ${logFile.absolutePath}")
+                Log.e(
+                    TAG,
+                    "${if (suppressed) "[SUPPRESSED] " else ""}Self-exit: $reason — log at ${logFile.absolutePath}",
+                )
             } catch (e: Exception) {
                 Log.e(
                     TAG,
@@ -119,10 +123,7 @@ class BootGuard(
         }
     }
 
-    private data class ExitCounter(
-        val count: Int,
-        val lastResetTime: Long,
-    )
+    private data class ExitCounter(val count: Int, val lastResetTime: Long)
 
     private fun readCounter(): ExitCounter {
         val counterFile = counterFile()

@@ -11,13 +11,9 @@ import org.robolectric.RobolectricTestRunner
 @RunWith(RobolectricTestRunner::class)
 class TerminalScreenMenuTest {
 
-    private fun sel(
-        startRow: Int,
-        startCol: Int,
-        endRow: Int,
-        endCol: Int,
-    ) = terminal.emulator.SelectionAnchor(row = startRow, col = startCol) to
-        terminal.emulator.SelectionAnchor(row = endRow, col = endCol)
+    private fun sel(startRow: Int, startCol: Int, endRow: Int, endCol: Int) =
+        terminal.emulator.SelectionAnchor(row = startRow, col = startCol) to
+            terminal.emulator.SelectionAnchor(row = endRow, col = endCol)
 
     @Test
     fun menu_below_selection_when_space() {

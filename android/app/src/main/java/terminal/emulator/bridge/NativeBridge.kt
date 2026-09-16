@@ -250,11 +250,7 @@ object NativeBridge {
      * from the UI thread.
      */
     @JvmStatic
-    external fun searchAllInScrollback(
-        sessionId: Long,
-        query: String,
-        caseSensitive: Boolean,
-    ): String?
+    external fun searchAllInScrollback(sessionId: Long, query: String, caseSensitive: Boolean): String?
 
     /** True when the cell at (row, col) has no printable codepoint. */
     @JvmStatic external fun isCellEmpty(sessionId: Long, row: Int, col: Int): Boolean

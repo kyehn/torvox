@@ -11,9 +11,7 @@ import org.junit.Test
  */
 class TerminalAccessibilityTest {
     /** Fake grid: rows outside the map are blank (null), like scrollbackLine. */
-    private class FakeLineSource(
-        private val grid: Map<Int, String>,
-    ) : AccessibilityLineSource {
+    private class FakeLineSource(private val grid: Map<Int, String>) : AccessibilityLineSource {
         override fun line(row: Int): String? = grid[row]
     }
 
@@ -90,7 +88,9 @@ class TerminalAccessibilityTest {
 
     // ── AccessibilityLineNavigator ────────────────────────────────────
 
-    private fun navigatorWith(lines: Map<Int, String>): AccessibilityLineNavigator = AccessibilityLineNavigator(AccessibilityLineProvider(FakeLineSource(lines)))
+    private fun navigatorWith(lines: Map<Int, String>): AccessibilityLineNavigator = AccessibilityLineNavigator(
+        AccessibilityLineProvider(FakeLineSource(lines)),
+    )
 
     @Test
     fun `next walks down and wraps to the first line`() {

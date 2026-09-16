@@ -533,11 +533,7 @@ fun resolveAppDarkMode(appThemeMode: String, systemDark: Boolean): Boolean = whe
  */
 @Composable
 @ReadOnlyComposable
-fun resolveMaterialColorScheme(
-    appThemeMode: String,
-    forceDark: Boolean,
-    isDarkTheme: Boolean,
-): ColorScheme {
+fun resolveMaterialColorScheme(appThemeMode: String, forceDark: Boolean, isDarkTheme: Boolean): ColorScheme {
     val context = LocalContext.current
     return when {
         appThemeMode == "follow_system" -> {
@@ -550,9 +546,7 @@ fun resolveMaterialColorScheme(
     }
 }
 
-enum class ThemeMode(
-    val label: String,
-) {
+enum class ThemeMode(val label: String) {
     DAY("Day"),
     NIGHT("Night"),
     FOLLOW_SYSTEM("Follow System"),

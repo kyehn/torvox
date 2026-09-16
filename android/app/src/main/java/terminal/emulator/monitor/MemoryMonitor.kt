@@ -20,20 +20,13 @@ internal enum class MemoryPressure { Critical, Warning, Ok }
 /** Pure decision for the memory-pressure log tier. `Critical` when the
  *  system reports low memory, `Warning` when free memory drops below twice
  *  the system threshold, otherwise `Ok`. */
-internal fun memoryPressure(
-    availMb: Long,
-    thresholdMb: Long,
-    lowMemory: Boolean,
-): MemoryPressure = when {
+internal fun memoryPressure(availMb: Long, thresholdMb: Long, lowMemory: Boolean): MemoryPressure = when {
     lowMemory -> MemoryPressure.Critical
     availMb < thresholdMb * LOW_MEMORY_FACTOR -> MemoryPressure.Warning
     else -> MemoryPressure.Ok
 }
 
-class MemoryMonitor(
-    private val context: Context,
-    private val scope: CoroutineScope,
-) {
+class MemoryMonitor(private val context: Context, private val scope: CoroutineScope) {
     private val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
     private val memInfo = ActivityManager.MemoryInfo()
     private var pollingJob: Job? = null
@@ -108,7 +101,10 @@ class MemoryMonitor(
 
             MemoryPressure.Warning -> {
                 lowMemoryReported = false
-                Log.w(TAG, "Memory pressure: avail=$availMb MB / $totalMb MB ($availPercent%), PSS=$pssStr, threshold=$thresholdMb MB")
+                Log.w(
+                    TAG,
+                    "Memory pressure: avail=$availMb MB / $totalMb MB ($availPercent%), PSS=$pssStr, threshold=$thresholdMb MB",
+                )
             }
 
             MemoryPressure.Ok -> {

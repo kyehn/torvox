@@ -27,9 +27,7 @@ import javax.inject.Inject
 
 class SelectionSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     // 跨场景共享的胶水实例会常驻，字段只在同一场景内传递，每次使用前重写。
     private var dragBeforeEnd: SelectionAnchor? = null
     private var copiedText: String? = null

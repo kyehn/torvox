@@ -20,9 +20,7 @@ import javax.inject.Inject
 
 class NavigationSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @当("^按下返回键$")
     fun backButtonIsPressed() {
         composeRuleHolder.composeRule.activityRule.scenario.onActivity { activity ->

@@ -69,10 +69,7 @@ class FontSwitchInstrumentedTest {
         )
     }
 
-    private fun scrollTo(
-        text: String,
-        maxSwipes: Int = 30,
-    ) {
+    private fun scrollTo(text: String, maxSwipes: Int = 30) {
         for (i in 0 until maxSwipes) {
             if (device.findObject(By.textContains(text)) != null) return
             val cx = device.displayWidth / 2
@@ -125,7 +122,10 @@ class FontSwitchInstrumentedTest {
     fun font_change_opens_dialog() {
         openSettings()
         scrollToChange()
-        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        val changeBtn =
+            checkNotNull(device.findObject(By.text("Change"))) {
+                "Change button must be visible in Font Family settings"
+            }
         changeBtn.click()
         Thread.sleep(2000)
         val dialogVisible =
@@ -140,7 +140,10 @@ class FontSwitchInstrumentedTest {
     fun font_dialog_shows_system_default() {
         openSettings()
         scrollToChange()
-        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        val changeBtn =
+            checkNotNull(device.findObject(By.text("Change"))) {
+                "Change button must be visible in Font Family settings"
+            }
         changeBtn.click()
         Thread.sleep(2000)
         val hasFonts =
@@ -153,7 +156,10 @@ class FontSwitchInstrumentedTest {
     fun font_dialog_shows_monospace_fonts() {
         openSettings()
         scrollToChange()
-        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        val changeBtn =
+            checkNotNull(device.findObject(By.text("Change"))) {
+                "Change button must be visible in Font Family settings"
+            }
         changeBtn.click()
         Thread.sleep(2000)
         val hasMono = device.findObject(By.textContains("Mono")) != null
@@ -164,7 +170,10 @@ class FontSwitchInstrumentedTest {
     fun font_select_changes_font_family() {
         openSettings()
         scrollToChange()
-        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        val changeBtn =
+            checkNotNull(device.findObject(By.text("Change"))) {
+                "Change button must be visible in Font Family settings"
+            }
         changeBtn.click()
         Thread.sleep(3000)
         val fonts = listOf("Roboto Mono", "Noto Sans Mono", "Fira Code", "Source Code Pro", "monospace")
@@ -181,7 +190,10 @@ class FontSwitchInstrumentedTest {
     fun app_survives_font_change() {
         openSettings()
         scrollToChange()
-        val changeBtn = checkNotNull(device.findObject(By.text("Change"))) { "Change button must be visible in Font Family settings" }
+        val changeBtn =
+            checkNotNull(device.findObject(By.text("Change"))) {
+                "Change button must be visible in Font Family settings"
+            }
         changeBtn.click()
         Thread.sleep(2000)
         // Emulator system font list (from FontInfoDto) contains Fira Code /

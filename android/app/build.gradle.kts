@@ -6,7 +6,7 @@ plugins {
   id("org.jetbrains.kotlin.plugin.serialization")
   id("com.google.dagger.hilt.android")
   id("com.google.devtools.ksp")
-  id("io.gitlab.arturbosch.detekt")
+  id("dev.detekt")
   id("com.ncorti.ktfmt.gradle")
   id("org.jlleitschuh.gradle.ktlint")
   id("de.infix.testBalloon")
@@ -16,6 +16,12 @@ detekt {
   config.setFrom(files("../detekt.yml"))
   buildUponDefaultConfig = true
   allRules = false
+}
+
+dependencies {
+  detektPlugins("dev.detekt:detekt-rules-ktlint-wrapper:2.0.0-alpha.6")
+  detektPlugins("dev.detekt:detekt-rules-libraries:2.0.0-alpha.6")
+  detektPlugins("dev.detekt:detekt-rules-ruleauthors:2.0.0-alpha.6")
 }
 
 android {

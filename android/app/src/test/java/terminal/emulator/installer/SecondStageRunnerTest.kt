@@ -25,7 +25,12 @@ class SecondStageRunnerTest {
         ShadowBuild.setSupportedAbis(arrayOf("arm64-v8a"))
     }
 
-    private fun runnerWith(prefix: File, home: File = File("/tmp/home")) = SecondStageRunner(prefixDir = prefix, homeDir = home)
+    private fun runnerWith(
+        prefix: File,
+        home: File = File(
+            "/tmp/home",
+        ),
+    ) = SecondStageRunner(prefixDir = prefix, homeDir = home)
 
     private fun tempPrefix(): File {
         val dir = kotlin.io.path.createTempDirectory("prefix")

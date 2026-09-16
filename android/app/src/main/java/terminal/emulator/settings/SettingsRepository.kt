@@ -14,9 +14,7 @@ import javax.inject.Singleton
 @Singleton
 class SettingsRepository
 @Inject
-constructor(
-    private val provider: SettingsDataStoreProvider,
-) {
+constructor(private val provider: SettingsDataStoreProvider) {
     private object Keys {
         val FONT_SIZE = floatPreferencesKey("font_size")
         val FONT_FAMILY = stringPreferencesKey("font_family")
@@ -53,7 +51,10 @@ constructor(
          * ~21.2px / ~51 cols vs ours 27px / 21.8px / ~49 cols — within the C_ref ±10% tolerance, no
          * further change needed.
          */
-        fun defaultFontSizeFor(screenWidthDp: Float): Float = (screenWidthDp / DEFAULT_FONT_COLUMNS_TARGET / MONOSPACE_CHAR_ASPECT).coerceIn(
+        fun defaultFontSizeFor(screenWidthDp: Float): Float = (
+            screenWidthDp / DEFAULT_FONT_COLUMNS_TARGET /
+                MONOSPACE_CHAR_ASPECT
+            ).coerceIn(
             MIN_FONT_SP,
             MAX_FONT_SP,
         )
@@ -175,10 +176,7 @@ constructor(
 
     suspend fun setKeyboardMode(mode: String) = put(Keys.KEYBOARD_MODE, mode)
 
-    private suspend fun <T> put(
-        key: Preferences.Key<T>,
-        value: T,
-    ) {
+    private suspend fun <T> put(key: Preferences.Key<T>, value: T) {
         provider.dataStore.edit { it[key] = value }
     }
 }

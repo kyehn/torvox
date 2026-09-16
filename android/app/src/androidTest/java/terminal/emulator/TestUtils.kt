@@ -334,11 +334,7 @@ fun analyzeNonBlackRatio(bitmap: Bitmap): Double {
     return nonBlack.toDouble() / pixels.size.toDouble()
 }
 
-fun injectLongPress(
-    view: View,
-    x: Float,
-    y: Float,
-) {
+fun injectLongPress(view: View, x: Float, y: Float) {
     val dt = SystemClock.uptimeMillis()
     // Must NOT block the main thread — GestureDetector uses a Handler on the
     // main-thread looper.  If we dispatch DOWN then sleep(800) on the main
@@ -374,11 +370,7 @@ fun injectLongPress(
     }
 }
 
-fun injectTap(
-    view: View,
-    x: Float,
-    y: Float,
-) {
+fun injectTap(view: View, x: Float, y: Float) {
     val dt = SystemClock.uptimeMillis()
     view.post {
         view.dispatchTouchEvent(MotionEvent.obtain(dt, dt, MotionEvent.ACTION_DOWN, x, y, 0))
@@ -393,11 +385,7 @@ fun injectTap(
     }
 }
 
-fun injectDoubleTap(
-    view: View,
-    x: Float,
-    y: Float,
-) {
+fun injectDoubleTap(view: View, x: Float, y: Float) {
     injectTap(view, x, y)
     try {
         Thread.sleep(200)
@@ -407,11 +395,7 @@ fun injectDoubleTap(
     injectTap(view, x, y)
 }
 
-fun injectTripleTap(
-    view: View,
-    x: Float,
-    y: Float,
-) {
+fun injectTripleTap(view: View, x: Float, y: Float) {
     injectTap(view, x, y)
     try {
         Thread.sleep(200)

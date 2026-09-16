@@ -426,9 +426,7 @@ constructor(
      * [NativeBridge.clipboardResult]. Empty text is a legitimate result; only exceptions produce an
      * empty fallback reply.
      */
-    private fun dispatchClipboardRequests(
-        requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>,
-    ) {
+    private fun dispatchClipboardRequests(requests: List<terminal.emulator.bridge.Bridge.ClipboardRequest>) {
         requests.forEach { request ->
             try {
                 val text = clipboardAccess.clipboardText().orEmpty()
@@ -830,10 +828,7 @@ constructor(
         }
     }
 
-    private suspend fun buildConfig(
-        rows: Int = DEFAULT_GRID_ROWS,
-        cols: Int = DEFAULT_GRID_COLS,
-    ): TerminalConfig {
+    private suspend fun buildConfig(rows: Int = DEFAULT_GRID_ROWS, cols: Int = DEFAULT_GRID_COLS): TerminalConfig {
         val configReads = coroutineScope {
             val shellDeferred = async { settingsRepository.shell.first() }
             val startDirDeferred = async { settingsRepository.startDir.first() }
@@ -1226,468 +1221,479 @@ constructor(
                     {
                         try {
                             runBlocking {
-                            // Display-priority render thread: the frame pipeline
-                            // competes with the UI thread for CPU when the IME is
-                            // open or surfaces churn. THREAD_PRIORITY_DISPLAY puts
-                            // frame production ahead of the UI thread's less
-                            // time-critical work, cutting frame-time jitter on
-                            // real devices (and SwiftShader emulators).
-                            Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
-                            var diagCount = 0
-                            var consecutiveErrors = 0
-                            var lastScrollOffset = Int.MAX_VALUE
-                            var lastScrollRemainderPx = Float.NaN
-                            var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
-                            // Per-thread frame-duration statistics: reset whenever the
-                            // render thread restarts (fresh lifetime, no stale history).
-                            val frameTiming = FrameTimingStats()
-                            // Whole-loop period statistics (render + pollAll + event
-                            // dispatch + waitOutput): `frameTiming` above covers only
-                            // bridge.render(); the loop window's inverse is the actual
-                            // frame rate and separates "native render is slow" from
-                            // "something else in the loop is slow".
-                            val loopTiming = FrameTimingStats()
-                            // Baseline-adaptive degradation detector: learns the
-                            // device's own frame-time baseline and alerts on windows
-                            // that regress ~3x above it — works on the software
-                            // emulator (~555ms/frame) and on real devices (~17ms)
-                            // with one mechanism instead of fixed thresholds.
-                            val frameTimingTrend = FrameTimingTrend()
-                            LogUtil.d(
-                                "Runtime",
-                                "render thread started for session ${entry.id} generation=$generation",
-                            )
-                            while (entry.running && renderGeneration.get() == generation) {
-                                // user pressed Enter on the
-                                // [Process completed] prompt — writeToPty only
-                                // signals; the close path runs here on the render
-                                // thread so the bridge is not destroyed under a
-                                // live render loop.
-                                if (entry.processCompletedConfirmed) {
-                                    handleSessionExit(entry, entry.processExitCode, 0L)
-                                    break
-                                }
-                                try {
-                                    val loopFrameStart = System.nanoTime()
-                                    val bridge = entry.bridge ?: break
-                                    // ── P2-1 vsync wake gate (design D3) ──────────
-                                    // The loop renders ONLY when a wake source fired:
-                                    //   ① vsyncRequested — Choreographer frame callback
-                                    //     (the display-frame signal; the callback is
-                                    //     signal-only and never touches the surface
-                                    //     Mutex or calls render itself),
-                                    //   ② forceRenderRequested — immediate-feedback
-                                    //     bypass (forceRender(); semantics unchanged),
-                                    //   ③ renderSignaled — any notifyRender() producer
-                                    //     (scroll/selection/PTY-adjacent UI signals).
-                                    // Otherwise it parks on the output latch. The latch
-                                    // timeout (active 16ms / idle 500ms) doubles as the
-                                    // safety-net cadence (M-10): a timeout return still
-                                    // falls through to one render attempt so deferred-
-                                    // field consumption never stalls if the main thread
-                                    // blocks or a vsync signal is lost. PTY output note:
-                                    // waitOutput is a pure park — PTY arrival cannot wake
-                                    // it early (pre-existing behavior); new output is
-                                    // picked up on the next vsync attempt (~16.7ms) or
-                                    // by this timeout fallback, where receive_cell_data
-                                    // consumes the pending data. After waking, render()
-                                    // is called UNCONDITIONALLY — idle-gate
-                                    // decisions live exclusively inside the native gate.
-                                    if (
-                                        !entry.vsyncRequested &&
-                                        !entry.forceRenderRequested &&
-                                        !entry.renderSignaled.get()
-                                    ) {
-                                        val idleNanos = System.nanoTime() - entry.lastSignalNanos
-                                        val timeoutNanos =
-                                            if (idleNanos > RENDER_IDLE_THRESHOLD_NANOS) {
-                                                RENDER_LATCH_IDLE_TIMEOUT_NANOS
-                                            } else {
-                                                RENDER_LATCH_TIMEOUT_NANOS
-                                            }
-                                        bridge.waitOutput(timeoutNanos / 1_000_000L)
-                                        if (Thread.interrupted()) throw InterruptedException()
+                                // Display-priority render thread: the frame pipeline
+                                // competes with the UI thread for CPU when the IME is
+                                // open or surfaces churn. THREAD_PRIORITY_DISPLAY puts
+                                // frame production ahead of the UI thread's less
+                                // time-critical work, cutting frame-time jitter on
+                                // real devices (and SwiftShader emulators).
+                                Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY)
+                                var diagCount = 0
+                                var consecutiveErrors = 0
+                                var lastScrollOffset = Int.MAX_VALUE
+                                var lastScrollRemainderPx = Float.NaN
+                                var lastSelection = SelectionStateSnapshot(0, 0, 0, 0, false, 0)
+                                // Per-thread frame-duration statistics: reset whenever the
+                                // render thread restarts (fresh lifetime, no stale history).
+                                val frameTiming = FrameTimingStats()
+                                // Whole-loop period statistics (render + pollAll + event
+                                // dispatch + waitOutput): `frameTiming` above covers only
+                                // bridge.render(); the loop window's inverse is the actual
+                                // frame rate and separates "native render is slow" from
+                                // "something else in the loop is slow".
+                                val loopTiming = FrameTimingStats()
+                                // Baseline-adaptive degradation detector: learns the
+                                // device's own frame-time baseline and alerts on windows
+                                // that regress ~3x above it — works on the software
+                                // emulator (~555ms/frame) and on real devices (~17ms)
+                                // with one mechanism instead of fixed thresholds.
+                                val frameTimingTrend = FrameTimingTrend()
+                                LogUtil.d(
+                                    "Runtime",
+                                    "render thread started for session ${entry.id} generation=$generation",
+                                )
+                                while (entry.running && renderGeneration.get() == generation) {
+                                    // user pressed Enter on the
+                                    // [Process completed] prompt — writeToPty only
+                                    // signals; the close path runs here on the render
+                                    // thread so the bridge is not destroyed under a
+                                    // live render loop.
+                                    if (entry.processCompletedConfirmed) {
+                                        handleSessionExit(entry, entry.processExitCode, 0L)
+                                        break
                                     }
-                                    // Consume the wake flags before rendering. ALL THREE are
-                                    // cleared unconditionally: a signal landing between the
-                                    // gate check and this clear folds into the render below;
-                                    // one landing mid-render waits for the next vsync/timeout
-                                    // tick — at most one frame of extra latency, never a lost
-                                    // wake-up. Clearing renderSignaled here (not inside the
-                                    // park branch) fixes a busy-spin leak: when vsyncRequested
-                                    // won the gate check, renderSignaled stayed true forever,
-                                    // every subsequent iteration skipped the park, and the
-                                    // thread spun at full speed burning CPU between renders.
-                                    entry.vsyncRequested = false
-                                    entry.forceRenderRequested = false
-                                    entry.renderSignaled.set(false)
-                                    val selectionSnapshot = selectionState.get()
-                                    if (selectionSnapshot != lastSelection) {
-                                        bridge.setSelection(
-                                            selectionSnapshot.startRow,
-                                            selectionSnapshot.startCol,
-                                            selectionSnapshot.endRow,
-                                            selectionSnapshot.endCol,
-                                            selectionSnapshot.hasSelection,
-                                            selectionSnapshot.mode,
-                                            selectionBackgroundColor,
-                                        )
-                                        lastSelection = selectionSnapshot
-                                    }
-                                    val currentScrollOffset = entry.scrollOffset
-                                    if (currentScrollOffset != lastScrollOffset) {
-                                        bridge.setScrollOffset(currentScrollOffset)
-                                        lastScrollOffset = currentScrollOffset
-                                    }
-                                    val currentRemainderPx = entry.scrollRemainderPx
-                                    if (currentRemainderPx != lastScrollRemainderPx) {
-                                        bridge.setScrollYPx(currentRemainderPx)
-                                        lastScrollRemainderPx = currentRemainderPx
-                                    }
-                                    entry.lastRenderStart = System.nanoTime()
-                                    // Combined render + consumeNewOutput in a single JNI
-                                    // crossing (~0.1-0.3ms saved per frame).
-                                    val (count, newOutput, cursorRow) = bridge.renderWithNewOutput()
-                                    if (cursorRow != entry.cursorRow) {
-                                        entry.cursorRow = cursorRow
-                                        if (entry.id == activeSessionId) {
-                                            cursorRowFlowInternal.value = cursorRow
-                                        }
-                                    }
-                                    val frameMs = (System.nanoTime() - entry.lastRenderStart) / 1_000_000.0
-                                    if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
-                                        LogUtil.w(
-                                            "Runtime",
-                                            "SLOW_FRAME session=${entry.id} render=$frameMs count=$count newOutput=$newOutput scrollOffset=$currentScrollOffset",
-                                        )
-                                    }
-                                    if (newOutput) {
-                                        // Latency probe echo pairing: this frame
-                                        // consumed PTY output; if an input stamp is
-                                        // pending, one input→echo sample lands.
-                                        entry.latencyProbe
-                                            .onEchoFrame(
-                                                SystemClock.elapsedRealtimeNanos(),
-                                            )
-                                            ?.let { latencyNanos ->
-                                                LogUtil.d(
-                                                    "Runtime",
-                                                    "latency session=${entry.id} echo=${latencyNanos / 1_000_000.0}ms",
-                                                )
-                                                // Periodic p50/p95 summary into logcat
-                                                // (LATENCY_REPORT marker is grep-stable
-                                                // for offline percentile collection).
-                                                val n = entry.latencyProbe.sampleCount
-                                                if (n % LATENCY_REPORT_EVERY == 0) {
-                                                    LogUtil.i(
-                                                        "Runtime",
-                                                        "LATENCY_REPORT session=${entry.id} ${entry.latencyProbe.report()}",
-                                                    )
-                                                }
-                                            }
-                                    }
-                                    if (newOutput) {
-                                        // Only real PTY ingest refreshes the idle
-                                        // clock: count also counts idle repaints of
-                                        // a static grid, which kept lastSignalNanos
-                                        // within the idle threshold forever so the
-                                        // 500ms idle latch never engaged. Sustained
-                                        // streams (tail -f, ping, gradle) always
-                                        // carry newOutput, so they stay active.
-                                        entry.lastSignalNanos = System.nanoTime()
-                                        // P1-1 scroll semantics (termux onScreenUpdated
-                                        // parity): consume the native new_output flag
-                                        // (PTY ingest → bypass flag, NOT the render()
-                                        // count which also counts idle repaints)
-                                        // and reset the viewport to the bottom only when
-                                        // no selection/drag is active, the SCROLL lock is
-                                        // off, and no scroll gesture happened within
-                                        // RECENT_SCROLL_WINDOW_NANOS. Skipped resets are
-                                        // dropped ("skip = give up"): the flag is already
-                                        // read-clear; the next output arrival resets
-                                        // again (termux: sustained output always wins).
+                                    try {
+                                        val loopFrameStart = System.nanoTime()
+                                        val bridge = entry.bridge ?: break
+                                        // ── P2-1 vsync wake gate (design D3) ──────────
+                                        // The loop renders ONLY when a wake source fired:
+                                        //   ① vsyncRequested — Choreographer frame callback
+                                        //     (the display-frame signal; the callback is
+                                        //     signal-only and never touches the surface
+                                        //     Mutex or calls render itself),
+                                        //   ② forceRenderRequested — immediate-feedback
+                                        //     bypass (forceRender(); semantics unchanged),
+                                        //   ③ renderSignaled — any notifyRender() producer
+                                        //     (scroll/selection/PTY-adjacent UI signals).
+                                        // Otherwise it parks on the output latch. The latch
+                                        // timeout (active 16ms / idle 500ms) doubles as the
+                                        // safety-net cadence (M-10): a timeout return still
+                                        // falls through to one render attempt so deferred-
+                                        // field consumption never stalls if the main thread
+                                        // blocks or a vsync signal is lost. PTY output note:
+                                        // waitOutput is a pure park — PTY arrival cannot wake
+                                        // it early (pre-existing behavior); new output is
+                                        // picked up on the next vsync attempt (~16.7ms) or
+                                        // by this timeout fallback, where receive_cell_data
+                                        // consumes the pending data. After waking, render()
+                                        // is called UNCONDITIONALLY — idle-gate
+                                        // decisions live exclusively inside the native gate.
                                         if (
-                                            shouldResetScroll(
-                                                scrollActive = entry.scrollActive,
-                                                hasSelectionOrDrag =
-                                                selectionSnapshot.hasSelection ||
-                                                    selectionSnapshot.dragging,
-                                                newOutput = newOutput,
-                                                recentlyScrolled =
-                                                System.nanoTime() - entry.lastScrollNanos <
-                                                    RECENT_SCROLL_WINDOW_NANOS,
-                                            )
+                                            !entry.vsyncRequested &&
+                                            !entry.forceRenderRequested &&
+                                            !entry.renderSignaled.get()
                                         ) {
-                                            // Single-point reset write on the render
-                                            // thread; lastScrollOffset stays untouched so
-                                            // the existing diff-push forwards offset 0 to
-                                            // native on the next frame.
-                                            entry.scrollOffset = 0
+                                            val idleNanos = System.nanoTime() - entry.lastSignalNanos
+                                            val timeoutNanos =
+                                                if (idleNanos > RENDER_IDLE_THRESHOLD_NANOS) {
+                                                    RENDER_LATCH_IDLE_TIMEOUT_NANOS
+                                                } else {
+                                                    RENDER_LATCH_TIMEOUT_NANOS
+                                                }
+                                            bridge.waitOutput(timeoutNanos / 1_000_000L)
+                                            if (Thread.interrupted()) throw InterruptedException()
                                         }
-                                    }
-                                    if (count < 0) {
-                                        // Transient render error (surface not ready, snapshot unavailable,
-                                        // etc.)
-                                        // These resolve on their own; don't count them toward the fatal limit.
-                                        if (consecutiveErrors == 0) {
+                                        // Consume the wake flags before rendering. ALL THREE are
+                                        // cleared unconditionally: a signal landing between the
+                                        // gate check and this clear folds into the render below;
+                                        // one landing mid-render waits for the next vsync/timeout
+                                        // tick — at most one frame of extra latency, never a lost
+                                        // wake-up. Clearing renderSignaled here (not inside the
+                                        // park branch) fixes a busy-spin leak: when vsyncRequested
+                                        // won the gate check, renderSignaled stayed true forever,
+                                        // every subsequent iteration skipped the park, and the
+                                        // thread spun at full speed burning CPU between renders.
+                                        entry.vsyncRequested = false
+                                        entry.forceRenderRequested = false
+                                        entry.renderSignaled.set(false)
+                                        val selectionSnapshot = selectionState.get()
+                                        if (selectionSnapshot != lastSelection) {
+                                            bridge.setSelection(
+                                                selectionSnapshot.startRow,
+                                                selectionSnapshot.startCol,
+                                                selectionSnapshot.endRow,
+                                                selectionSnapshot.endCol,
+                                                selectionSnapshot.hasSelection,
+                                                selectionSnapshot.mode,
+                                                selectionBackgroundColor,
+                                            )
+                                            lastSelection = selectionSnapshot
+                                        }
+                                        val currentScrollOffset = entry.scrollOffset
+                                        if (currentScrollOffset != lastScrollOffset) {
+                                            bridge.setScrollOffset(currentScrollOffset)
+                                            lastScrollOffset = currentScrollOffset
+                                        }
+                                        val currentRemainderPx = entry.scrollRemainderPx
+                                        if (currentRemainderPx != lastScrollRemainderPx) {
+                                            bridge.setScrollYPx(currentRemainderPx)
+                                            lastScrollRemainderPx = currentRemainderPx
+                                        }
+                                        entry.lastRenderStart = System.nanoTime()
+                                        // Combined render + consumeNewOutput in a single JNI
+                                        // crossing (~0.1-0.3ms saved per frame).
+                                        val (count, newOutput, cursorRow) = bridge.renderWithNewOutput()
+                                        if (cursorRow != entry.cursorRow) {
+                                            entry.cursorRow = cursorRow
+                                            if (entry.id == activeSessionId) {
+                                                cursorRowFlowInternal.value = cursorRow
+                                            }
+                                        }
+                                        val frameMs = (System.nanoTime() - entry.lastRenderStart) / 1_000_000.0
+                                        if (frameMs > SLOW_FRAME_LOG_THRESHOLD_MS) {
                                             LogUtil.w(
                                                 "Runtime",
-                                                "session ${entry.id} transient render error code=$count",
+                                                "SLOW_FRAME session=${entry.id} render=$frameMs count=$count newOutput=$newOutput scrollOffset=$currentScrollOffset",
                                             )
                                         }
-                                        consecutiveErrors++
-                                        if (consecutiveErrors > RENDER_MAX_TRANSIENT_ERRORS) {
-                                            LogUtil.e(
-                                                "Runtime",
-                                                "session ${entry.id} too many transient render errors ($consecutiveErrors), stopping render thread",
-                                            )
-                                            break
-                                        }
-                                        // Adaptive backoff: 50ms for first 10, then 200ms
-                                        val sleepMs =
-                                            if (consecutiveErrors > 10) {
-                                                RENDER_ERROR_BACKOFF_MS
-                                            } else {
-                                                RENDER_ERROR_SLEEP_MS
-                                            }
-                                        delay(sleepMs)
-                                    } else {
-                                        if (consecutiveErrors > 0) {
-                                            LogUtil.i(
-                                                "Runtime",
-                                                "session ${entry.id} recovered after $consecutiveErrors errors",
-                                            )
-                                        }
-                                        consecutiveErrors = 0
-                                        try {
-                                            val poll = bridge.pollAll()
-                                            // Exit is handled FIRST, in its own branch:
-                                            // the event was already consumed from the
-                                            // native queue and cannot be replayed, so an
-                                            // exception in clipboard
-                                            // handling below must never skip the cleanup.
-                                            if (poll.exit) {
-                                                // Reply empty FIRST, before any cleanup:
-                                                // these clipboard-read requests were already
-                                                // consumed from the native queue and can
-                                                // never be dispatched, so leaving them
-                                                // unanswered would hang the requester.
-                                                // Answering before
-                                                // handleSessionExit (which may close the
-                                                // bridge, ~100ms+) also minimizes latency.
-                                                // Each reply is guarded
-                                                // individually: a JNI failure here must
-                                                dispatchClipboardRequests(poll.clipboardReads)
-                                                if (poll.sessionId != 0L && poll.sessionId != entry.id) {
-                                                    // A background (non-active) session's
-                                                    // shell exited. Its render thread is
-                                                    // stopped, so nobody else would ever
-                                                    // reap it — the native sweep reports
-                                                    // it once through this queue. Close it
-                                                    // here (handleSessionExit is safe for
-                                                    // non-active sessions: the replacement
-                                                    // branch is gated on entry.id ==
-                                                    // activeSessionId).
-                                                    val exitedEntry =
-                                                        synchronized(sessionLock) { sessions[poll.sessionId] }
-                                                    if (exitedEntry != null) {
+                                        if (newOutput) {
+                                            // Latency probe echo pairing: this frame
+                                            // consumed PTY output; if an input stamp is
+                                            // pending, one input→echo sample lands.
+                                            entry.latencyProbe
+                                                .onEchoFrame(
+                                                    SystemClock.elapsedRealtimeNanos(),
+                                                )
+                                                ?.let { latencyNanos ->
+                                                    LogUtil.d(
+                                                        "Runtime",
+                                                        "latency session=${entry.id} echo=${latencyNanos / 1_000_000.0}ms",
+                                                    )
+                                                    // Periodic p50/p95 summary into logcat
+                                                    // (LATENCY_REPORT marker is grep-stable
+                                                    // for offline percentile collection).
+                                                    val n = entry.latencyProbe.sampleCount
+                                                    if (n % LATENCY_REPORT_EVERY == 0) {
                                                         LogUtil.i(
                                                             "Runtime",
-                                                            "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
+                                                            "LATENCY_REPORT session=${entry.id} ${entry.latencyProbe.report()}",
                                                         )
-                                                        handleSessionExit(exitedEntry, poll.exitCode, poll.exitAliveMs)
                                                     }
-                                                } else {
-                                                    // Full cleanup (bridge close, session removal,
-                                                    // state update) happens here; the render monitor
-                                                    // skips !running entries so it would never reap
-                                                    // an exited session.
-                                                    handleSessionExit(entry, poll.exitCode, poll.exitAliveMs)
                                                 }
-                                                // Shared by both branches: reap any
-                                                // ADDITIONAL sessions that exited in the
-                                                // same frame (the first one was handled
-                                                // above). Their native exit_reported
-                                                // flags are already set and never re-sent.
-                                                // Only poll.sessionId is excluded — every
-                                                // OTHER id in the list (including entry.id
-                                                // when this is the background branch) must
-                                                // be reaped or the Kotlin entry, native
-                                                // session and zombie child leak forever.
-                                                // handleSessionExit is idempotent
-                                                // (containsKey re-check).
-                                                poll.exits.forEach { exitInfo ->
-                                                    if (exitInfo.sessionId != poll.sessionId) {
-                                                        val extra =
-                                                            synchronized(sessionLock) { sessions[exitInfo.sessionId] }
-                                                        if (extra != null) {
+                                        }
+                                        if (newOutput) {
+                                            // Only real PTY ingest refreshes the idle
+                                            // clock: count also counts idle repaints of
+                                            // a static grid, which kept lastSignalNanos
+                                            // within the idle threshold forever so the
+                                            // 500ms idle latch never engaged. Sustained
+                                            // streams (tail -f, ping, gradle) always
+                                            // carry newOutput, so they stay active.
+                                            entry.lastSignalNanos = System.nanoTime()
+                                            // P1-1 scroll semantics (termux onScreenUpdated
+                                            // parity): consume the native new_output flag
+                                            // (PTY ingest → bypass flag, NOT the render()
+                                            // count which also counts idle repaints)
+                                            // and reset the viewport to the bottom only when
+                                            // no selection/drag is active, the SCROLL lock is
+                                            // off, and no scroll gesture happened within
+                                            // RECENT_SCROLL_WINDOW_NANOS. Skipped resets are
+                                            // dropped ("skip = give up"): the flag is already
+                                            // read-clear; the next output arrival resets
+                                            // again (termux: sustained output always wins).
+                                            if (
+                                                shouldResetScroll(
+                                                    scrollActive = entry.scrollActive,
+                                                    hasSelectionOrDrag =
+                                                    selectionSnapshot.hasSelection ||
+                                                        selectionSnapshot.dragging,
+                                                    newOutput = newOutput,
+                                                    recentlyScrolled =
+                                                    System.nanoTime() - entry.lastScrollNanos <
+                                                        RECENT_SCROLL_WINDOW_NANOS,
+                                                )
+                                            ) {
+                                                // Single-point reset write on the render
+                                                // thread; lastScrollOffset stays untouched so
+                                                // the existing diff-push forwards offset 0 to
+                                                // native on the next frame.
+                                                entry.scrollOffset = 0
+                                            }
+                                        }
+                                        if (count < 0) {
+                                            // Transient render error (surface not ready, snapshot unavailable,
+                                            // etc.)
+                                            // These resolve on their own; don't count them toward the fatal limit.
+                                            if (consecutiveErrors == 0) {
+                                                LogUtil.w(
+                                                    "Runtime",
+                                                    "session ${entry.id} transient render error code=$count",
+                                                )
+                                            }
+                                            consecutiveErrors++
+                                            if (consecutiveErrors > RENDER_MAX_TRANSIENT_ERRORS) {
+                                                LogUtil.e(
+                                                    "Runtime",
+                                                    "session ${entry.id} too many transient render errors ($consecutiveErrors), stopping render thread",
+                                                )
+                                                break
+                                            }
+                                            // Adaptive backoff: 50ms for first 10, then 200ms
+                                            val sleepMs =
+                                                if (consecutiveErrors > 10) {
+                                                    RENDER_ERROR_BACKOFF_MS
+                                                } else {
+                                                    RENDER_ERROR_SLEEP_MS
+                                                }
+                                            delay(sleepMs)
+                                        } else {
+                                            if (consecutiveErrors > 0) {
+                                                LogUtil.i(
+                                                    "Runtime",
+                                                    "session ${entry.id} recovered after $consecutiveErrors errors",
+                                                )
+                                            }
+                                            consecutiveErrors = 0
+                                            try {
+                                                val poll = bridge.pollAll()
+                                                // Exit is handled FIRST, in its own branch:
+                                                // the event was already consumed from the
+                                                // native queue and cannot be replayed, so an
+                                                // exception in clipboard
+                                                // handling below must never skip the cleanup.
+                                                if (poll.exit) {
+                                                    // Reply empty FIRST, before any cleanup:
+                                                    // these clipboard-read requests were already
+                                                    // consumed from the native queue and can
+                                                    // never be dispatched, so leaving them
+                                                    // unanswered would hang the requester.
+                                                    // Answering before
+                                                    // handleSessionExit (which may close the
+                                                    // bridge, ~100ms+) also minimizes latency.
+                                                    // Each reply is guarded
+                                                    // individually: a JNI failure here must
+                                                    dispatchClipboardRequests(poll.clipboardReads)
+                                                    if (poll.sessionId != 0L && poll.sessionId != entry.id) {
+                                                        // A background (non-active) session's
+                                                        // shell exited. Its render thread is
+                                                        // stopped, so nobody else would ever
+                                                        // reap it — the native sweep reports
+                                                        // it once through this queue. Close it
+                                                        // here (handleSessionExit is safe for
+                                                        // non-active sessions: the replacement
+                                                        // branch is gated on entry.id ==
+                                                        // activeSessionId).
+                                                        val exitedEntry =
+                                                            synchronized(sessionLock) { sessions[poll.sessionId] }
+                                                        if (exitedEntry != null) {
                                                             LogUtil.i(
                                                                 "Runtime",
-                                                                "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
+                                                                "reaping background session ${poll.sessionId} (exit ${poll.exitCode})",
                                                             )
                                                             handleSessionExit(
-                                                                extra,
-                                                                exitInfo.exitCode,
-                                                                exitInfo.exitAliveMs,
+                                                                exitedEntry,
+                                                                poll.exitCode,
+                                                                poll.exitAliveMs,
                                                             )
                                                         }
+                                                    } else {
+                                                        // Full cleanup (bridge close, session removal,
+                                                        // state update) happens here; the render monitor
+                                                        // skips !running entries so it would never reap
+                                                        // an exited session.
+                                                        handleSessionExit(entry, poll.exitCode, poll.exitAliveMs)
                                                     }
+                                                    // Shared by both branches: reap any
+                                                    // ADDITIONAL sessions that exited in the
+                                                    // same frame (the first one was handled
+                                                    // above). Their native exit_reported
+                                                    // flags are already set and never re-sent.
+                                                    // Only poll.sessionId is excluded — every
+                                                    // OTHER id in the list (including entry.id
+                                                    // when this is the background branch) must
+                                                    // be reaped or the Kotlin entry, native
+                                                    // session and zombie child leak forever.
+                                                    // handleSessionExit is idempotent
+                                                    // (containsKey re-check).
+                                                    poll.exits.forEach { exitInfo ->
+                                                        if (exitInfo.sessionId != poll.sessionId) {
+                                                            val extra =
+                                                                synchronized(
+                                                                    sessionLock,
+                                                                ) { sessions[exitInfo.sessionId] }
+                                                            if (extra != null) {
+                                                                LogUtil.i(
+                                                                    "Runtime",
+                                                                    "reaping same-frame exited session ${exitInfo.sessionId} (exit ${exitInfo.exitCode})",
+                                                                )
+                                                                handleSessionExit(
+                                                                    extra,
+                                                                    exitInfo.exitCode,
+                                                                    exitInfo.exitAliveMs,
+                                                                )
+                                                            }
+                                                        }
+                                                    }
+                                                    if (!entry.waitingForProcessCompleted) {
+                                                        break
+                                                    }
+                                                    // the [Process completed]
+                                                    // prompt is showing — keep the session
+                                                    // visible (running stays true) until the
+                                                    // user presses Enter. Native exit_reported
+                                                    // is set so no further exit events arrive.
                                                 }
-                                                if (!entry.waitingForProcessCompleted) {
-                                                    break
-                                                }
-                                                // the [Process completed]
-                                                // prompt is showing — keep the session
-                                                // visible (running stays true) until the
-                                                // user presses Enter. Native exit_reported
-                                                // is set so no further exit events arrive.
+                                                eventDispatcher.handle(poll)
+                                            } catch (exception: Exception) {
+                                                LogUtil.e(
+                                                    "Runtime",
+                                                    "pollAll failed for session ${entry.id}; deferred events dropped",
+                                                    exception,
+                                                )
                                             }
-                                            eventDispatcher.handle(poll)
-                                        } catch (exception: Exception) {
+                                            diagCount++
+                                            if (diagCount == 1) {
+                                                LogUtil.d("Runtime", "session ${entry.id} first render OK")
+                                            }
+                                            if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
+                                                val title =
+                                                    try {
+                                                        bridge.getActiveSessionTitle()
+                                                    } catch (exception: Exception) {
+                                                        LogUtil.e("Runtime", "title query failed", exception)
+                                                        ""
+                                                    }
+                                                if (title.isNotEmpty() && title != _state.value.title) {
+                                                    // CAS update: the collector and the IO
+                                                    // session functions also write _state; a
+                                                    // non-atomic read-modify-write here could
+                                                    // clobber their session list.
+                                                    _state.update { current -> current.copy(title = title) }
+                                                }
+                                            }
+                                            entry.lastRenderDone = System.nanoTime()
+                                            frameTiming.record(entry.lastRenderDone - entry.lastRenderStart)
+                                            frameTiming.takeReport()?.let { report ->
+                                                // Memory gauge alongside the timing window: a
+                                                // monotonically growing scrollback row count
+                                                // across windows indicates unbounded history.
+                                                val scrollbackRows =
+                                                    try {
+                                                        NativeBridge.getScrollbackRows(entry.id)
+                                                    } catch (exception: Exception) {
+                                                        LogUtil.w("Runtime", "scrollback query failed", exception)
+                                                        -1
+                                                    }
+                                                val summary =
+                                                    "session ${entry.id} frame timing window " +
+                                                        "(${report.frameCount} frames): " +
+                                                        "avg=${report.averageNanos / 1_000_000L}ms " +
+                                                        "p95=${report.p95Nanos / 1_000_000L}ms " +
+                                                        "max=${report.maxNanos / 1_000_000L}ms " +
+                                                        "scrollback=$scrollbackRows rows"
+                                                val trendDegraded = frameTimingTrend.observe(report.averageNanos)
+                                                val baselineNanos = frameTimingTrend.currentBaselineNanos()
+                                                val baselineMs = baselineNanos?.div(1_000_000L)
+                                                when {
+                                                    // Absolute pathology: a stall beyond any
+                                                    // device's expectation (emulator baseline
+                                                    // ~555ms/frame; real devices ~17ms).
+                                                    report.p95Nanos >= FRAME_TIME_WARN_P95_NANOS ||
+                                                        report.maxNanos >= FRAME_TIME_WARN_MAX_NANOS ->
+                                                        LogUtil.w(
+                                                            "Runtime",
+                                                            "$summary — severe stall(s), investigate render cost",
+                                                        )
+
+                                                    // Baseline-relative regression (~3x the
+                                                    // device's own learned baseline, at least
+                                                    // 100ms average): catches gradual and
+                                                    // device-specific degradations that an
+                                                    // absolute threshold cannot.
+                                                    trendDegraded ->
+                                                        LogUtil.w(
+                                                            "Runtime",
+                                                            "$summary — degraded vs baseline (${baselineMs}ms), " +
+                                                                "investigate render cost",
+                                                        )
+
+                                                    // Normal window: Info (not Debug) so the
+                                                    // gauge survives release builds — LogUtil.d
+                                                    // is gated on BuildConfig.DEBUG and would
+                                                    // hide every window on a release APK,
+                                                    // leaving gradual issues invisible.
+                                                    // One line per 60 rendered frames (~1s on
+                                                    // a real device, ~33s on the emulator) is
+                                                    // a quiet but always-present signal.
+                                                    else -> LogUtil.i("Runtime", summary)
+                                                }
+                                            }
+                                            // accessibility hook — the render loop
+                                            // is the only signal that terminal content
+                                            // changed, and the SurfaceView has no text nodes.
+                                            // The listener runs on the render thread and must
+                                            // return quickly (it may post to the main thread).
+                                            try {
+                                                onFrameRendered?.invoke()
+                                            } catch (exception: Exception) {
+                                                LogUtil.w("Runtime", "onFrameRendered callback failed", exception)
+                                            }
+                                            // P2-1: tail wait removed — parking now happens in
+                                            // the loop-top wake gate above (same latch, same
+                                            // active/idle timeouts). Falling through here goes
+                                            // straight back to the gate.
+                                        }
+                                        // Whole-loop period: the inverse of the average is
+                                        // the ACTUAL frame rate (waitOutput + pollAll +
+                                        // event dispatch included). If render avg is ~16ms
+                                        // but this is ~50ms, the frame time goes elsewhere
+                                        // in the loop, not the native render path.
+                                        loopTiming.record(System.nanoTime() - loopFrameStart)
+                                        loopTiming.takeReport()?.let { loopReport ->
+                                            val loopAvgMs = loopReport.averageNanos / 1_000_000L
+                                            val fps = if (loopAvgMs > 0) 1_000L / loopAvgMs else 0L
+                                            LogUtil.i(
+                                                "Runtime",
+                                                "session ${entry.id} loop timing window " +
+                                                    "(${loopReport.frameCount} frames): " +
+                                                    "avg=${loopAvgMs}ms p95=${loopReport.p95Nanos / 1_000_000L}ms " +
+                                                    "max=${loopReport.maxNanos / 1_000_000L}ms ≈${fps}fps",
+                                            )
+                                        }
+                                    } catch (exception: InterruptedException) {
+                                        // The render thread was interrupted during shutdown
+                                        // (session switch / runtime stop). This is an expected
+                                        // signal, not a render failure — exit the loop cleanly.
+                                        Thread.currentThread().interrupt()
+                                        break
+                                    } catch (exception: Exception) {
+                                        consecutiveErrors++
+                                        if (consecutiveErrors == 1) {
                                             LogUtil.e(
                                                 "Runtime",
-                                                "pollAll failed for session ${entry.id}; deferred events dropped",
+                                                "session ${entry.id} first render exception",
+                                                exception,
+                                            )
+                                        } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
+                                            LogUtil.e(
+                                                "Runtime",
+                                                "session ${entry.id} render exception (x$consecutiveErrors)",
                                                 exception,
                                             )
                                         }
-                                        diagCount++
-                                        if (diagCount == 1) {
-                                            LogUtil.d("Runtime", "session ${entry.id} first render OK")
+                                        if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
+                                            LogUtil.e(
+                                                "Runtime",
+                                                "session ${entry.id} too many render exceptions ($consecutiveErrors), stopping render thread",
+                                                exception,
+                                            )
+                                            break
                                         }
-                                        if (diagCount % RENDER_DIAGNOSTIC_FREQUENCY == 0) {
-                                            val title =
-                                                try {
-                                                    bridge.getActiveSessionTitle()
-                                                } catch (exception: Exception) {
-                                                    LogUtil.e("Runtime", "title query failed", exception)
-                                                    ""
-                                                }
-                                            if (title.isNotEmpty() && title != _state.value.title) {
-                                                // CAS update: the collector and the IO
-                                                // session functions also write _state; a
-                                                // non-atomic read-modify-write here could
-                                                // clobber their session list.
-                                                _state.update { current -> current.copy(title = title) }
-                                            }
-                                        }
-                                        entry.lastRenderDone = System.nanoTime()
-                                        frameTiming.record(entry.lastRenderDone - entry.lastRenderStart)
-                                        frameTiming.takeReport()?.let { report ->
-                                            // Memory gauge alongside the timing window: a
-                                            // monotonically growing scrollback row count
-                                            // across windows indicates unbounded history.
-                                            val scrollbackRows =
-                                                try {
-                                                    NativeBridge.getScrollbackRows(entry.id)
-                                                } catch (exception: Exception) {
-                                                    LogUtil.w("Runtime", "scrollback query failed", exception)
-                                                    -1
-                                                }
-                                            val summary =
-                                                "session ${entry.id} frame timing window (${report.frameCount} frames): " +
-                                                    "avg=${report.averageNanos / 1_000_000L}ms " +
-                                                    "p95=${report.p95Nanos / 1_000_000L}ms " +
-                                                    "max=${report.maxNanos / 1_000_000L}ms " +
-                                                    "scrollback=$scrollbackRows rows"
-                                            val trendDegraded = frameTimingTrend.observe(report.averageNanos)
-                                            when {
-                                                // Absolute pathology: a stall beyond any
-                                                // device's expectation (emulator baseline
-                                                // ~555ms/frame; real devices ~17ms).
-                                                report.p95Nanos >= FRAME_TIME_WARN_P95_NANOS ||
-                                                    report.maxNanos >= FRAME_TIME_WARN_MAX_NANOS ->
-                                                    LogUtil.w(
-                                                        "Runtime",
-                                                        "$summary — severe stall(s), investigate render cost",
-                                                    )
-
-                                                // Baseline-relative regression (~3x the
-                                                // device's own learned baseline, at least
-                                                // 100ms average): catches gradual and
-                                                // device-specific degradations that an
-                                                // absolute threshold cannot.
-                                                trendDegraded ->
-                                                    LogUtil.w(
-                                                        "Runtime",
-                                                        "$summary — degraded vs baseline (${frameTimingTrend.currentBaselineNanos()?.div(1_000_000L)}ms), investigate render cost",
-                                                    )
-
-                                                // Normal window: Info (not Debug) so the
-                                                // gauge survives release builds — LogUtil.d
-                                                // is gated on BuildConfig.DEBUG and would
-                                                // hide every window on a release APK,
-                                                // leaving gradual issues invisible.
-                                                // One line per 60 rendered frames (~1s on
-                                                // a real device, ~33s on the emulator) is
-                                                // a quiet but always-present signal.
-                                                else -> LogUtil.i("Runtime", summary)
-                                            }
-                                        }
-                                        // accessibility hook — the render loop
-                                        // is the only signal that terminal content
-                                        // changed, and the SurfaceView has no text nodes.
-                                        // The listener runs on the render thread and must
-                                        // return quickly (it may post to the main thread).
-                                        try {
-                                            onFrameRendered?.invoke()
-                                        } catch (exception: Exception) {
-                                            LogUtil.w("Runtime", "onFrameRendered callback failed", exception)
-                                        }
-                                        // P2-1: tail wait removed — parking now happens in
-                                        // the loop-top wake gate above (same latch, same
-                                        // active/idle timeouts). Falling through here goes
-                                        // straight back to the gate.
+                                        delay(RENDER_ERROR_SLEEP_MS)
                                     }
-                                    // Whole-loop period: the inverse of the average is
-                                    // the ACTUAL frame rate (waitOutput + pollAll +
-                                    // event dispatch included). If render avg is ~16ms
-                                    // but this is ~50ms, the frame time goes elsewhere
-                                    // in the loop, not the native render path.
-                                    loopTiming.record(System.nanoTime() - loopFrameStart)
-                                    loopTiming.takeReport()?.let { loopReport ->
-                                        val loopAvgMs = loopReport.averageNanos / 1_000_000L
-                                        val fps = if (loopAvgMs > 0) 1_000L / loopAvgMs else 0L
-                                        LogUtil.i(
-                                            "Runtime",
-                                            "session ${entry.id} loop timing window (${loopReport.frameCount} frames): " +
-                                                "avg=${loopAvgMs}ms p95=${loopReport.p95Nanos / 1_000_000L}ms " +
-                                                "max=${loopReport.maxNanos / 1_000_000L}ms ≈${fps}fps",
-                                        )
-                                    }
-                                } catch (exception: InterruptedException) {
-                                    // The render thread was interrupted during shutdown
-                                    // (session switch / runtime stop). This is an expected
-                                    // signal, not a render failure — exit the loop cleanly.
-                                    Thread.currentThread().interrupt()
-                                    break
-                                } catch (exception: Exception) {
-                                    consecutiveErrors++
-                                    if (consecutiveErrors == 1) {
-                                        LogUtil.e(
-                                            "Runtime",
-                                            "session ${entry.id} first render exception",
-                                            exception,
-                                        )
-                                    } else if (consecutiveErrors % RENDER_ERROR_LOG_FREQUENCY == 0) {
-                                        LogUtil.e(
-                                            "Runtime",
-                                            "session ${entry.id} render exception (x$consecutiveErrors)",
-                                            exception,
-                                        )
-                                    }
-                                    if (consecutiveErrors > RENDER_MAX_CONSECUTIVE_ERRORS) {
-                                        LogUtil.e(
-                                            "Runtime",
-                                            "session ${entry.id} too many render exceptions ($consecutiveErrors), stopping render thread",
-                                            exception,
-                                        )
-                                        break
-                                    }
-                                    delay(RENDER_ERROR_SLEEP_MS)
                                 }
-                            }
-                            entry.renderThreadExited = true
-                            LogUtil.d("Runtime", "render thread stopped for session ${entry.id}")
+                                entry.renderThreadExited = true
+                                LogUtil.d("Runtime", "render thread stopped for session ${entry.id}")
                             }
                         } catch (expected: InterruptedException) {
                             // runBlocking 体外的中断（join 前 interrupt 已送达
@@ -1971,9 +1977,7 @@ constructor(
         Shell.Custom(shellPath)
     }
 
-    private fun makeBridgeTheme(
-        resolvedTheme: terminal.emulator.ui.theme.TerminalTheme,
-    ): BridgeTheme {
+    private fun makeBridgeTheme(resolvedTheme: terminal.emulator.ui.theme.TerminalTheme): BridgeTheme {
         val backgroundColor = resolvedTheme.background.toArgb()
         val foregroundColor = resolvedTheme.foreground.toArgb()
         val cursor = resolvedTheme.cursor.toArgb()
@@ -2009,11 +2013,7 @@ constructor(
         )
     }
 
-    suspend fun start(
-        surface: Surface?,
-        width: Int,
-        height: Int,
-    ) {
+    suspend fun start(surface: Surface?, width: Int, height: Int) {
         synchronized(sessionLock) {
             if (sessions.isNotEmpty() || starting) return
             starting = true
@@ -2493,19 +2493,11 @@ constructor(
      * session and start a render thread, and two render threads consuming the single global event
      * queue misroute events (exit events dropped, sessions leaked).
      */
-    suspend fun createSession(
-        surface: Surface,
-        width: Int,
-        height: Int,
-    ): Long = createSessionMutex.withLock {
+    suspend fun createSession(surface: Surface, width: Int, height: Int): Long = createSessionMutex.withLock {
         createSessionInner(surface, width, height)
     }
 
-    private suspend fun createSessionInner(
-        surface: Surface,
-        width: Int,
-        height: Int,
-    ): Long {
+    private suspend fun createSessionInner(surface: Surface, width: Int, height: Int): Long {
         if (starting) {
             LogUtil.w(
                 "Runtime",
@@ -2756,22 +2748,12 @@ constructor(
         }
     }
 
-    suspend fun switchSession(
-        id: Long,
-        surface: Surface,
-        width: Int,
-        height: Int,
-    ) {
+    suspend fun switchSession(id: Long, surface: Surface, width: Int, height: Int) {
         switchSessionInternal(id, surface, width, height)
         updateState()
     }
 
-    private suspend fun switchSessionInternal(
-        id: Long,
-        surface: Surface,
-        width: Int,
-        height: Int,
-    ) {
+    private suspend fun switchSessionInternal(id: Long, surface: Surface, width: Int, height: Int) {
         // Phase 1 (locked): validate, stop the previous render thread,
         // (re)configure the target bridge. Phase 2 (UNLOCKED): the
         // synchronous first-frame render retry — bridge.render() can block
@@ -3377,11 +3359,7 @@ constructor(
         entry?.notifyRender()
     }
 
-    fun expandAndSetSelection(
-        row: Int,
-        col: Int,
-        mode: Byte = 0,
-    ): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
+    fun expandAndSetSelection(row: Int, col: Int, mode: Byte = 0): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
         LogUtil.d("Runtime", "expandAndSetSelection: row=$row col=$col mode=$mode")
         val entry = sessions[activeSessionId] ?: return null
         val bounds = entry.bridge?.expandAndSetSelection(row, col, mode) ?: return null
@@ -3397,10 +3375,7 @@ constructor(
      * Resize the active session's terminal grid. Values are clamped to the native u16 range
      * (1..=65535) BEFORE the bridge call so the PTY grid dimensions and the UI state agree.
      */
-    fun resize(
-        rows: Int,
-        cols: Int,
-    ) {
+    fun resize(rows: Int, cols: Int) {
         val entry = sessions[activeSessionId] ?: return
         // Clamp BEFORE the bridge call so native (PTY grid dims) and UI state
         // can never diverge: 0 is a legal native size but would break grid
@@ -3437,10 +3412,7 @@ constructor(
         entry.bridge?.setPixelSize(widthPx.coerceIn(0, 0xFFFF), heightPx.coerceIn(0, 0xFFFF))
     }
 
-    fun recomputeGrid(
-        width: Int,
-        height: Int,
-    ) {
+    fun recomputeGrid(width: Int, height: Int) {
         val bridge = sessions[activeSessionId]?.bridge ?: return
         bridge.recomputeGrid(width, height)
         syncGridDimensions(bridge)
@@ -3796,7 +3768,8 @@ internal fun shouldCloseDeadRender(restartAttempts: Int, maxAttempts: Int): Bool
  * a failure (< 0) and the attempt counter is still below [maxAttempts]. Pure decision extracted
  * from the retry loop.
  */
-internal fun initialRenderRetryNeeded(result: Int, attempts: Int, maxAttempts: Int): Boolean = result < 0 && attempts < maxAttempts
+internal fun initialRenderRetryNeeded(result: Int, attempts: Int, maxAttempts: Int): Boolean =
+    result < 0 && attempts < maxAttempts
 
 /**
  * switchSession Phase-3 concurrent-switch guard: while the first frame was rendering (outside
@@ -3820,7 +3793,8 @@ internal fun concurrentRenderThreadToStop(
  * switchSession Phase-1 failure restore: after a failed spawn the previous active session is
  * restarted unless it is the session that just failed.
  */
-internal fun shouldRestorePreviousSession(previousId: Long?, failedTargetId: Long): Boolean = previousId != null && previousId != failedTargetId
+internal fun shouldRestorePreviousSession(previousId: Long?, failedTargetId: Long): Boolean =
+    previousId != null && previousId != failedTargetId
 
 /**
  * Pure grid-dimension computation behind recomputeGridFromFontMetrics: cols = floor(surfaceWidth /

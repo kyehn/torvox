@@ -13,11 +13,7 @@ class GridToScreenTest {
 
     private val epsilon = 1e-4f
 
-    private fun assertPoint(
-        actual: Pair<Float, Float>,
-        expectedX: Float,
-        expectedY: Float,
-    ) {
+    private fun assertPoint(actual: Pair<Float, Float>, expectedX: Float, expectedY: Float) {
         assertEquals(expectedX, actual.first, epsilon)
         assertEquals(expectedY, actual.second, epsilon)
     }

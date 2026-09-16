@@ -82,10 +82,7 @@ class ThermalMonitor(
         }
     }
 
-    private fun writeThermalLog(
-        status: Int,
-        label: String,
-    ): File? = try {
+    private fun writeThermalLog(status: Int, label: String): File? = try {
         logDir.mkdirs()
         val timestamp = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss", Locale.US).format(LocalDateTime.now())
         val logFile = File(logDir, "thermal_$timestamp.log")

@@ -17,9 +17,7 @@ import javax.inject.Inject
 
 class FontSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @当("^打开设置$")
     fun userOpensSettings() {
         composeRuleHolder.composeRule.openSettings()

@@ -13,9 +13,7 @@ import javax.inject.Inject
 
 class SearchSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @假如("^终端会话处于活动状态$")
     fun terminalSessionIsActive() {
         composeRuleHolder.composeRule.waitForIdle()

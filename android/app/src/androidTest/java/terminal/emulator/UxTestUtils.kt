@@ -73,11 +73,7 @@ object UxTestUtils {
      * Count pixels that differ materially between two same-sized captures. Materially = any channel
      * delta > [tolerance], which absorbs codec noise while still counting real content changes.
      */
-    fun changedPixelCount(
-        before: Bitmap,
-        after: Bitmap,
-        tolerance: Int = 12,
-    ): Int {
+    fun changedPixelCount(before: Bitmap, after: Bitmap, tolerance: Int = 12): Int {
         require(before.width == after.width && before.height == after.height) {
             "capture size mismatch: ${before.width}x${before.height} vs ${after.width}x${after.height}"
         }
@@ -108,11 +104,7 @@ object UxTestUtils {
      * cursor-at-col-B isolates exactly the two cursor quads — their bbox IS the measurable cursor
      * geometry, independent of theme colors.
      */
-    fun changedBoundingBox(
-        before: Bitmap,
-        after: Bitmap,
-        tolerance: Int = 12,
-    ): Rect? {
+    fun changedBoundingBox(before: Bitmap, after: Bitmap, tolerance: Int = 12): Rect? {
         require(before.width == after.width && before.height == after.height) {
             "capture size mismatch: ${before.width}x${before.height} vs ${after.width}x${after.height}"
         }
@@ -150,11 +142,7 @@ object UxTestUtils {
      * Poll [predicate] until it turns true or [timeoutMs] elapses. Returns the elapsed milliseconds
      * on success (the measurable latency), null on timeout. [intervalMs] bounds polling cost.
      */
-    inline fun pollUntilTrue(
-        timeoutMs: Long,
-        intervalMs: Long = 15,
-        predicate: () -> Boolean,
-    ): Long? {
+    inline fun pollUntilTrue(timeoutMs: Long, intervalMs: Long = 15, predicate: () -> Boolean): Long? {
         val start = SystemClock.uptimeMillis()
         while (SystemClock.uptimeMillis() - start <= timeoutMs) {
             if (predicate()) return SystemClock.uptimeMillis() - start
@@ -164,21 +152,13 @@ object UxTestUtils {
     }
 
     /** Record one measurement for trend tracking (grep -e UX_METRIC). */
-    fun metric(
-        name: String,
-        value: Number,
-    ) {
+    fun metric(name: String, value: Number) {
         Log.i(TAG, "$name=$value")
     }
 }
 
 /** Minimal int rect used by [UxTestUtils.changedBoundingBox]. */
-class Rect(
-    val left: Int,
-    val top: Int,
-    val right: Int,
-    val bottom: Int,
-) {
+class Rect(val left: Int, val top: Int, val right: Int, val bottom: Int) {
     val width: Int
         get() = right - left + 1
 

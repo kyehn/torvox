@@ -97,7 +97,10 @@ class DocumentsProviderTest {
         }
     }
 
-    private fun rootDir(): java.io.File = java.io.File(org.robolectric.RuntimeEnvironment.getApplication().filesDir, "home").apply {
+    private fun rootDir(): java.io.File = java.io.File(
+        org.robolectric.RuntimeEnvironment.getApplication().filesDir,
+        "home",
+    ).apply {
         mkdirs()
     }
 
@@ -315,10 +318,7 @@ class DocumentsProviderTest {
         }
     }
 
-    private fun createSymlink(
-        linkName: String,
-        target: java.io.File,
-    ) {
+    private fun createSymlink(linkName: String, target: java.io.File) {
         java.nio.file.Files.createSymbolicLink(
             java.io.File(rootDir(), linkName).toPath(),
             target.toPath(),

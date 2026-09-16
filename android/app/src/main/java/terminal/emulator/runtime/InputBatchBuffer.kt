@@ -144,9 +144,7 @@ class InputBatchBuffer(
         private const val FALLBACK_FLUSH_TIMEOUT_MS = 50L
 
         /** Factory for test usage — avoids Choreographer dependency. */
-        fun forTest(
-            flushSink: (ByteArray) -> Unit,
-            capacity: Int = BATCH_CAPACITY,
-        ): InputBatchBuffer = InputBatchBuffer(flushSink, capacity, useChoreographer = false)
+        fun forTest(flushSink: (ByteArray) -> Unit, capacity: Int = BATCH_CAPACITY): InputBatchBuffer =
+            InputBatchBuffer(flushSink, capacity, useChoreographer = false)
     }
 }

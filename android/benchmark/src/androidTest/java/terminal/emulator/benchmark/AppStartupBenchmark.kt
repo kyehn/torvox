@@ -23,9 +23,7 @@ class AppStartupBenchmark {
     @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 
-    private fun grantNotificationPermission(
-        device: androidx.test.uiautomator.UiDevice,
-    ) {
+    private fun grantNotificationPermission(device: androidx.test.uiautomator.UiDevice) {
         // Macrobenchmark (re)installs the target app, which resets
         // runtime permissions; MainActivity.onCreate() then shows the
         // POST_NOTIFICATIONS dialog and startup metrics read zero

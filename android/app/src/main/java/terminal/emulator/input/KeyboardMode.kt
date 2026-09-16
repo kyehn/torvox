@@ -10,9 +10,7 @@ sealed interface KeyboardMode {
 
     data object Raw : KeyboardMode
 
-    data class Custom(
-        val flags: ImeFlagSet,
-    ) : KeyboardMode
+    data class Custom(val flags: ImeFlagSet) : KeyboardMode
 }
 
 data class ImeFlagSet(

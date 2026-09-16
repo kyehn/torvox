@@ -16,9 +16,7 @@ import javax.inject.Inject
 
 class SettingsSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     // 滑块槽位 8..48sp，手指停在 80% 处时期望值约 40sp（步进吸附后 39.67），
     // 触摸抖动与滑块内边距会导致小偏差，容差 2sp。
     private companion object {

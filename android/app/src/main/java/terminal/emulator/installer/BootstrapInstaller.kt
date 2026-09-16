@@ -211,7 +211,11 @@ class BootstrapInstaller(
         }
     }
 
-    private fun isExecutable(name: String): Boolean = EXEC_PREFIXES.any { name.startsWith(it) } || name.startsWith("lib/apt/methods/")
+    private fun isExecutable(name: String): Boolean = EXEC_PREFIXES.any {
+        name.startsWith(
+            it,
+        )
+    } || name.startsWith("lib/apt/methods/")
 
     internal val symlinkSeparator = Regex("""\s*(?:->|←|→|↔)\s*""")
 
@@ -329,7 +333,9 @@ class BootstrapInstaller(
             if (!renamed) {
                 // Restore the old prefix so the previous bootstrap stays usable.
                 if (!backup.renameTo(prefix)) {
-                    throw Exception("Atomic rename failed and rollback failed: staging=${staging.path} prefix=${prefix.path} backup=${backup.path}")
+                    throw Exception(
+                        "Atomic rename failed and rollback failed: staging=${staging.path} prefix=${prefix.path} backup=${backup.path}",
+                    )
                 }
                 throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
             }
