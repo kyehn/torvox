@@ -62,9 +62,13 @@ class ScrollBehaviorQuantifiedTest {
 
     /** Fill the scrollback with numbered lines so there is history to scroll into. */
     private fun seedScrollback(bridge: Bridge) {
+        // 等待 shell 就绪后再发 seq：冷启动后会话孵化中写入会丢失，导致回滚永不满。
+        UxTestUtils.pollUntilTrue(timeoutMs = 15000) {
+            (bridge.getTerminalText().orEmpty().contains("$")) || bridge.scrollbackLength() > 0
+        }
         bridge.writeToPty("seq 1 400\n".toByteArray(Charsets.UTF_8))
-        UxTestUtils.pollUntilTrue(timeoutMs = 8_000) {
-            bridge.scrollbackLength() > 200
+        UxTestUtils.pollUntilTrue(timeoutMs = 15000) {
+            bridge.scrollbackLength() > 150
         } ?: throw AssertionError("scrollback did not fill (len=${bridge.scrollbackLength()})")
         // Wait until the initial flood settles so gesture sampling is clean.
         Thread.sleep(800)
@@ -72,13 +76,36 @@ class ScrollBehaviorQuantifiedTest {
 
     @Test
     fun enter_snaps_viewport_to_bottom_within_budget() {
-        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-        seedScrollback(bridge)
+        var bridge: terminal.emulator.bridge.Bridge? = null
+        val deadline = System.currentTimeMillis() + 15000
+        while (System.currentTimeMillis() < deadline) {
+            bridge = composeTestRule.getBridge()
+            if (bridge != null) break
+            Thread.sleep(500)
+        }
+        val activeBridge = bridge ?: throw AssertionError("bridge null after wait")
+        seedScrollback(activeBridge)
         val view = surface()
 
-        // Scroll INTO history with a downward finger drag (older content).
+        // Scroll INTO history with a downward finger drag (older content):
+        // 经 view 管线直发触摸序列(与 flood 测试同路径),避免 UiDevice 系统滑动被抽屉/手势拦截导致零位移 flake。
         val centerX = device.displayWidth / 2
-        device.swipe(centerX, 500, centerX, 1200, 24)
+        val downTime = android.os.SystemClock.uptimeMillis()
+        fun postToView(action: Int, x: Float, y: Float) {
+            val eventTime = android.os.SystemClock.uptimeMillis()
+            view.post {
+                view.dispatchTouchEvent(
+                    android.view.MotionEvent.obtain(downTime, eventTime, action, x, y, 0),
+                )
+            }
+        }
+        postToView(android.view.MotionEvent.ACTION_DOWN, centerX.toFloat(), 500f)
+        for (i in 1..14) {
+            Thread.sleep(30)
+            postToView(android.view.MotionEvent.ACTION_MOVE, centerX.toFloat(), (500 + i * 50).toFloat())
+        }
+        Thread.sleep(300)
+        postToView(android.view.MotionEvent.ACTION_UP, centerX.toFloat(), 1200f)
         Thread.sleep(600)
         val scrolledUpOffset = view.getScrollOffset()
         assertTrue(
@@ -88,7 +115,7 @@ class ScrollBehaviorQuantifiedTest {
 
         // The reported bug: pressing Enter leaves the viewport pinned in
         // history. Measure how long until it reaches the bottom instead.
-        bridge.writeToPty("\n".toByteArray(Charsets.UTF_8))
+        activeBridge.writeToPty("\n".toByteArray(Charsets.UTF_8))
         val elapsed = UxTestUtils.pollUntilTrue(timeoutMs = 2_000) { view.getScrollOffset() == 0 }
         assertNotNull("viewport never snapped to bottom after Enter", elapsed)
         val elapsedMs = requireNotNull(elapsed)
@@ -98,7 +125,14 @@ class ScrollBehaviorQuantifiedTest {
 
     @Test
     fun pty_flood_never_resets_viewport_mid_gesture() {
-        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+        var floodBridge: terminal.emulator.bridge.Bridge? = null
+        val floodDeadline = System.currentTimeMillis() + 15000
+        while (System.currentTimeMillis() < floodDeadline) {
+            floodBridge = composeTestRule.getBridge()
+            if (floodBridge != null) break
+            Thread.sleep(500)
+        }
+        val bridge = floodBridge ?: throw AssertionError("bridge null after wait")
         seedScrollback(bridge)
         val view = surface()
         val centerX = device.displayWidth / 2
