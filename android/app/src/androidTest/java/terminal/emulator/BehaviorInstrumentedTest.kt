@@ -53,11 +53,17 @@ class BehaviorInstrumentedTest {
 
     private fun openSettings() {
         val drawerBtn =
-            device.findObject(By.desc("Open session drawer"))
-                ?: device.findObject(By.text("\u2261"))
-        drawerBtn?.click()
+            device.findObject(By.desc("打开会话抽屉"))
+                ?: device.findObject(By.text("☰"))
+                ?: throw AssertionError("抽屉按钮必须存在")
+        // 旧英文定位（Open session drawer/Settings）永远找不到，
+        // ?.click 静默吞失败，改为找不到直接抛。
+        drawerBtn.click()
         Thread.sleep(2000)
-        device.findObject(By.text("Settings"))?.click()
+        val settingsEntry =
+            device.findObject(By.text("设置"))
+                ?: throw AssertionError("设置入口必须存在")
+        settingsEntry.click()
         Thread.sleep(3000)
     }
 
@@ -172,10 +178,13 @@ class BehaviorInstrumentedTest {
     @Test
     fun behavior_settings_bootstrap_action_buttons() {
         openSettings()
-        scrollTo("Install", maxSwipes = 60)
-        val installBtn = device.findObject(By.text("Install"))
-        val termuxDefault = device.findObject(By.text("Termux Default"))
-        assertTrue("Termux Default should be visible", termuxDefault != null)
+        // 预设行在 Install 按钮上方：先滚到预设断言，再继续下滚到按钮断言
+        // （一次只保证一项在视口内，同时断言两项在窄屏上恒失败）。
+        scrollTo("Termux 默认", maxSwipes = 60)
+        val termuxDefault = device.findObject(By.text("Termux 默认"))
+        assertTrue("Termux 默认 should be visible", termuxDefault != null)
+        scrollTo("安装", maxSwipes = 60)
+        val installBtn = device.findObject(By.text("安装"))
         assertTrue("Install button should be visible", installBtn != null)
         goBack()
     }
@@ -213,7 +222,7 @@ class BehaviorInstrumentedTest {
     fun behavior_drawer_shows_sessions_and_settings() {
         val drawerBtn =
             device.findObject(By.desc("Open session drawer"))
-                ?: device.findObject(By.text("\u2261"))
+                ?: device.findObject(By.text("☰"))
         drawerBtn?.click()
         Thread.sleep(2000)
         val drawerReady = device.wait(Until.hasObject(By.text("Settings")), WAIT_TIMEOUT)

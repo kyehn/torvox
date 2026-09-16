@@ -1144,9 +1144,15 @@ private fun RowScope.ExtraKeyButton(
                             var repeatValid = true
                             while (currentOnRepeat != null) {
                                 val remaining = nextRepeatAt - System.currentTimeMillis()
+                                // withTimeout(0) 在 PointerEventHandlerCoroutine 内与事件送达竞态，
+                                // 触发重复恢复崩溃（Already resumed）；期限已过直接按超时走。
                                 val ev =
-                                    withTimeoutOrNull(remaining.coerceAtLeast(0L)) {
-                                        awaitPointerEvent()
+                                    if (remaining > 0) {
+                                        withTimeoutOrNull(remaining) {
+                                            awaitPointerEvent()
+                                        }
+                                    } else {
+                                        null
                                     }
                                 if (ev == null) {
                                     if (repeatValid && currentEnabled) {
