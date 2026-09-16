@@ -11,30 +11,21 @@ fun interface AccessibilityLineSource {
 }
 
 /** One readable grid line with its absolute row number. */
-data class AccessibilityLine(
-    val row: Int,
-    val text: String,
-)
+data class AccessibilityLine(val row: Int, val text: String)
 
 /**
  * Builds the visible-screen line list used for TalkBack line-by-line
  * navigation, termlib AccessibilityOverlay pattern). Pure
  * Kotlin: unit-tested on the JVM with a fake [AccessibilityLineSource].
  */
-class AccessibilityLineProvider(
-    private val lineSource: AccessibilityLineSource,
-) {
+class AccessibilityLineProvider(private val lineSource: AccessibilityLineSource) {
     /**
      * The lines currently visible in the viewport, top to bottom. Grid
      * rows run from `scrollbackLength - scrollOffset` up to `+ rows - 1`;
      * trailing whitespace is trimmed and blank rows are dropped so
      * TalkBack does not read empty lines.
      */
-    fun visibleLines(
-        rows: Int,
-        scrollbackLength: Int,
-        scrollOffset: Int,
-    ): List<AccessibilityLine> {
+    fun visibleLines(rows: Int, scrollbackLength: Int, scrollOffset: Int): List<AccessibilityLine> {
         if (rows <= 0) return emptyList()
         val firstRow = (scrollbackLength - scrollOffset).coerceAtLeast(0)
         val lastRowExclusive = firstRow + rows
@@ -70,17 +61,11 @@ class AccessibilityLineProvider(
  * keeps its position when the viewport scrolls (the row stays current as
  * long as it remains visible). Pure Kotlin: unit-tested on the JVM.
  */
-class AccessibilityLineNavigator(
-    private val lineProvider: AccessibilityLineProvider,
-) {
+class AccessibilityLineNavigator(private val lineProvider: AccessibilityLineProvider) {
     private var currentRow: Int? = null
 
     /** The line to read when the user asks for the current screen. */
-    fun current(
-        rows: Int,
-        scrollbackLength: Int,
-        scrollOffset: Int,
-    ): AccessibilityLine? {
+    fun current(rows: Int, scrollbackLength: Int, scrollOffset: Int): AccessibilityLine? {
         val lines = lineProvider.visibleLines(rows, scrollbackLength, scrollOffset)
         // The remembered row wins while it stays visible; otherwise fall
         // back to the top visible line. Either way the chosen line becomes
@@ -100,11 +85,7 @@ class AccessibilityLineNavigator(
     }
 
     /** The line after the current one, wrapping to the first line at the end. */
-    fun next(
-        rows: Int,
-        scrollbackLength: Int,
-        scrollOffset: Int,
-    ): AccessibilityLine? {
+    fun next(rows: Int, scrollbackLength: Int, scrollOffset: Int): AccessibilityLine? {
         val lines = visibleLines(rows, scrollbackLength, scrollOffset) ?: return null
         val index = currentIndexIn(lines)
         val target = if (index >= 0 && index < lines.size - 1) lines[index + 1] else lines[0]
@@ -113,11 +94,7 @@ class AccessibilityLineNavigator(
     }
 
     /** The line before the current one, wrapping to the last line at the top. */
-    fun previous(
-        rows: Int,
-        scrollbackLength: Int,
-        scrollOffset: Int,
-    ): AccessibilityLine? {
+    fun previous(rows: Int, scrollbackLength: Int, scrollOffset: Int): AccessibilityLine? {
         val lines = visibleLines(rows, scrollbackLength, scrollOffset) ?: return null
         val index = currentIndexIn(lines)
         val target = if (index > 0) lines[index - 1] else lines.last()
@@ -126,11 +103,7 @@ class AccessibilityLineNavigator(
     }
 
     /** The visible lines for the current viewport, or null when empty. */
-    private fun visibleLines(
-        rows: Int,
-        scrollbackLength: Int,
-        scrollOffset: Int,
-    ): List<AccessibilityLine>? {
+    private fun visibleLines(rows: Int, scrollbackLength: Int, scrollOffset: Int): List<AccessibilityLine>? {
         val lines = lineProvider.visibleLines(rows, scrollbackLength, scrollOffset)
         if (lines.isEmpty()) return null
         return lines
@@ -149,10 +122,7 @@ class AccessibilityLineNavigator(
  * refresh (500ms) so TalkBack is not flooded on every scroll frame.
  * Pure Kotlin: unit-tested on the JVM with a fake [DebounceScheduler].
  */
-class DebouncedTextUpdater(
-    private val debounceMillis: Long,
-    private val scheduler: DebounceScheduler,
-) {
+class DebouncedTextUpdater(private val debounceMillis: Long, private val scheduler: DebounceScheduler) {
     // Written from the render thread (accessibilityRenderTick) and cleared
     // from the main thread (navigateAccessibilityLine cancel/update), so
     // visibility is guaranteed across threads.

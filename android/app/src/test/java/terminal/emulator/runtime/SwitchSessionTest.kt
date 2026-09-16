@@ -70,13 +70,25 @@ class SwitchSessionTest {
 
     @Test
     fun restorePrevious_different_session_restores() {
-        assertTrue("previous session exists and differs from the failed target", shouldRestorePreviousSession(previousId = 1L, failedTargetId = 2L))
-        assertTrue("previous may be the null-active sentinel", shouldRestorePreviousSession(previousId = 0L, failedTargetId = 2L))
+        assertTrue(
+            "previous session exists and differs from the failed target",
+            shouldRestorePreviousSession(previousId = 1L, failedTargetId = 2L),
+        )
+        assertTrue(
+            "previous may be the null-active sentinel",
+            shouldRestorePreviousSession(previousId = 0L, failedTargetId = 2L),
+        )
     }
 
     @Test
     fun restorePrevious_no_previous_or_same_target_skips() {
-        assertFalse("no previous session → nothing to restore", shouldRestorePreviousSession(previousId = null, failedTargetId = 2L))
-        assertFalse("previous == failed target → do not restore it", shouldRestorePreviousSession(previousId = 2L, failedTargetId = 2L))
+        assertFalse(
+            "no previous session → nothing to restore",
+            shouldRestorePreviousSession(previousId = null, failedTargetId = 2L),
+        )
+        assertFalse(
+            "previous == failed target → do not restore it",
+            shouldRestorePreviousSession(previousId = 2L, failedTargetId = 2L),
+        )
     }
 }
