@@ -220,18 +220,23 @@ class BehaviorInstrumentedTest {
 
     @Test
     fun behavior_drawer_shows_sessions_and_settings() {
+        // 抽屉内文案均为中文：设置入口“设置”，会话项标题“会话 N”。
         val drawerBtn =
-            device.findObject(By.desc("Open session drawer"))
+            device.findObject(By.desc("打开会话抽屉"))
                 ?: device.findObject(By.text("☰"))
-        drawerBtn?.click()
+                ?: throw AssertionError("抽屉按钮必须存在")
+        drawerBtn.click()
         Thread.sleep(2000)
-        val drawerReady = device.wait(Until.hasObject(By.text("Settings")), WAIT_TIMEOUT)
+        val drawerReady = device.wait(Until.hasObject(By.text("设置")), WAIT_TIMEOUT)
         assertTrue("Drawer should load with Settings option", drawerReady)
-        val settings = device.findObject(By.text("Settings"))
-        val sessions = device.findObject(By.textContains("Session"))
-        assertTrue("Settings should be in drawer", settings != null)
-        assertTrue("Session should be in drawer", sessions != null)
-        settings?.click()
+        val settings =
+            device.findObject(By.text("设置"))
+                ?: throw AssertionError("Settings should be in drawer")
+        val sessions =
+            device.findObject(By.textContains("会话"))
+                ?: throw AssertionError("Session should be in drawer")
+        assertTrue("Session row must be enabled", sessions.isEnabled || sessions.isClickable)
+        settings.click()
         Thread.sleep(2000)
         goBack()
     }
