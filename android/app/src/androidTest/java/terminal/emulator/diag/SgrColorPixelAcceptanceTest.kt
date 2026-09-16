@@ -24,7 +24,7 @@ import terminal.emulator.grantNotificationPermission
  * 颜色像素验收：SGR 红色文本必须在屏幕上产生红色主导像素，
  * 而非只显示背景（回归“颜色文本只显示背景”类缺失）。
  *
- * 共享前台会话 + 直写 VT（feedTerminal）：静止门等启动风暴过后，
+ * 隔离会话 + 直写 VT（feedTerminal）：静止门等启动风暴过后，
  * shell 空闲无竞争。绝不经 shell 键入转义——shell 行编辑器把 ESC
  * 当元键前缀吃掉，命令不成形、无输出，网格断言只能匹配到自己的
  * 回显（空断言）。差分法：喂色块前后截图计数比较，不依赖光标行列定位，
@@ -102,15 +102,13 @@ class SgrColorPixelAcceptanceTest {
     private fun countRedPixels(shot: Bitmap): Int = countPixels(shot, ::isReddish)
 
     /**
-     * 同步直绘验收：隔离会话 + 直接 render()，与运行时零竞争。
+     * 直绘验收：隔离会话 + 直接 render()，与运行时共享 surface。
      *
-     * 前序共享会话方案被证伪（标记要么被行编辑器吞、要么落格无法区分
-     * 解析与回显）：隔离会话自有 VT（shell 空闲无输出），feedTerminal
-     * 字节只过 Ghostty 解析器；render(sessionId) 把该会话 CellData
-     * 同步画到已挂载的真 surface（surface 是全局单例，与会话无关；
-     * render_cell_data 不检查 render_paused，故暂停运行时绘制后仍可直绘，
-     * 暂停仅用于消除运行时线程的帧竞争，finally 必恢复）。
-     * render() 返回值即判决：1=已呈现，0=空闲，-1=原生渲染失败。
+     * 渲染暂停与直接呈现互斥（render_frame_with_plan 在 paused 时直接
+     * 返回 Ok 且不呈现），因此本测试全程不暂停：运行时线程约每 500ms
+     * 重绘其自有会话，可能覆盖本会话帧；每次迭代先呈现再立即截图，
+     * 取多轮最大红色计数判决——只要管线能呈现红色，必有一帧命中。
+     * 字节只过 Ghostty 解析器（直写 VT，不经 shell 行编辑器）。
      */
     @Test
     fun sgrRedTextProducesRedPixels() {
@@ -122,56 +120,54 @@ class SgrColorPixelAcceptanceTest {
         val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", 2000)
         assertTrue("隔离会话创建失败", sessionId != 0L)
         try {
-            // 暂停运行时绘制，独占 surface；直接 render() 不受暂停影响。
-            NativeBridge.setRenderPaused(sessionId, true)
-            try {
-                val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
-                val beforeRed = countRedPixels(before)
-                // 隔离会话自有 VT（shell 空闲无输出）：直写字节只过 Ghostty 解析器。
-                val markers = listOf("RED_LINE" to 31, "GREEN_LINE" to 32, "BLUE_LINE" to 34)
-                for ((marker, code) in markers) {
-                    NativeBridge.feedTerminal(
-                        sessionId,
-                        "\u001B[${code}m$marker\u001B[0m\r\n".toByteArray(Charsets.UTF_8),
-                    )
-                    val gridded =
-                        UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
-                            NativeBridge.getTerminalText(sessionId)?.replace("\n", "")?.contains(marker) == true
-                        }
-                    assertNotNull(
-                        "颜色块必须落格, 实际尾部: ${NativeBridge.getTerminalText(sessionId)?.takeLast(200)}",
-                        gridded,
-                    )
-                }
-                // 软件渲染滞后网格：每次截图前同步重绘本会话，覆盖运行时残帧；
-                // 绿/蓝计数用于鉴别“系统性丢色”与“单色特异”。
-                var after = device.takeScreenshot() ?: throw AssertionError("截图失败")
-                var redCount = countRedPixels(after)
-                var greenCount = countPixels(after, ::isGreenish)
-                var blueCount = countPixels(after, ::isBluish)
-                val deadline = android.os.SystemClock.uptimeMillis() + 20_000
-                while (redCount <= beforeRed + 20 && android.os.SystemClock.uptimeMillis() < deadline) {
-                    val rendered = NativeBridge.render(sessionId, 0, 0)
-                    android.util.Log.i("SgrDiag", "render rc=$rendered")
-                    Thread.sleep(1_500)
-                    after = device.takeScreenshot() ?: throw AssertionError("截图失败")
-                    redCount = countRedPixels(after)
-                    greenCount = countPixels(after, ::isGreenish)
-                    blueCount = countPixels(after, ::isBluish)
-                }
-                android.util.Log.i(
-                    "SgrDiag",
-                    "red=$redCount green=$greenCount blue=$blueCount (beforeRed=$beforeRed)",
+            val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
+            val beforeRed = countRedPixels(before)
+            // 隔离会话自有 VT（shell 空闲无输出）：直写字节只过 Ghostty 解析器。
+            val markers = listOf("RED_LINE" to 31, "GREEN_LINE" to 32, "BLUE_LINE" to 34)
+            for ((marker, code) in markers) {
+                NativeBridge.feedTerminal(
+                    sessionId,
+                    "\u001B[${code}m$marker\u001B[0m\r\n".toByteArray(Charsets.UTF_8),
                 )
-                assertTrue(
-                    "SGR 红色文本必须产生红色像素 (前=$beforeRed 后=$redCount 绿=$greenCount 蓝=$blueCount)",
-                    redCount > beforeRed + 20,
+                val gridded =
+                    UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+                        NativeBridge.getTerminalText(sessionId)?.replace("\n", "")?.contains(marker) == true
+                    }
+                assertNotNull(
+                    "颜色块必须落格, 实际尾部: ${NativeBridge.getTerminalText(sessionId)?.takeLast(200)}",
+                    gridded,
                 )
-            } finally {
-                runCatching { NativeBridge.setRenderPaused(sessionId, false) }
             }
+            // 运行时线程会重绘其自有会话帧：每轮先呈现本会话再立即截图，
+            // 取最大红色计数——呈现成功即有一轮命中红色。
+            var maxRed = 0
+            var maxGreen = 0
+            var maxBlue = 0
+            repeat(SamplingRoundCount) {
+                val rendered = NativeBridge.render(sessionId, 0, 0)
+                val shot = device.takeScreenshot() ?: throw AssertionError("截图失败")
+                maxRed = maxOf(maxRed, countRedPixels(shot))
+                maxGreen = maxOf(maxGreen, countPixels(shot, ::isGreenish))
+                maxBlue = maxOf(maxBlue, countPixels(shot, ::isBluish))
+                android.util.Log.i("SgrDiag", "render rc=$rendered red=$maxRed green=$maxGreen blue=$maxBlue")
+                Thread.sleep(SamplingIntervalMillis)
+            }
+            android.util.Log.i(
+                "SgrDiag",
+                "maxRed=$maxRed maxGreen=$maxGreen maxBlue=$maxBlue (beforeRed=$beforeRed)",
+            )
+            assertTrue(
+                "SGR 红色文本必须产生红色像素 (前=$beforeRed 最大红=$maxRed 绿=$maxGreen 蓝=$maxBlue)",
+                maxRed > beforeRed + RedPixelGainThreshold,
+            )
         } finally {
             runCatching { NativeBridge.destroySession(sessionId) }
         }
+    }
+
+    companion object {
+        private const val SamplingRoundCount = 10
+        private const val SamplingIntervalMillis = 400L
+        private const val RedPixelGainThreshold = 20
     }
 }
