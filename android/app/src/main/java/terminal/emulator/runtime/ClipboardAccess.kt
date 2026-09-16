@@ -15,10 +15,7 @@ import android.util.Log
  * "clipboard service not available" log so callers get a simple
  * `clipboardText()` / `setClipboardText()` pair.
  */
-class ClipboardAccess(
-    private val context: Context,
-    private val tag: String = "ClipboardAccess",
-) {
+class ClipboardAccess(private val context: Context, private val tag: String = "ClipboardAccess") {
     /**
      * Optional smart-copy transformation applied on every
      * [setClipboardText] write, Haven

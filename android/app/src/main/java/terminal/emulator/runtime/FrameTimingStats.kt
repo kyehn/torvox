@@ -20,9 +20,7 @@ package terminal.emulator.runtime
  * device, and ~33s on the software-rendered emulator (~1.8 FPS baseline) —
  * either way one summary line per window is a low-frequency diagnostic.
  */
-class FrameTimingStats(
-    private val windowSize: Int = DEFAULT_WINDOW_SIZE,
-) {
+class FrameTimingStats(private val windowSize: Int = DEFAULT_WINDOW_SIZE) {
     private val samplesNanos = LongArray(windowSize)
     private var count = 0
 
@@ -62,9 +60,4 @@ class FrameTimingStats(
 /**
  * Summary of one completed frame-timing window. All durations in nanoseconds.
  */
-data class FrameTimingReport(
-    val frameCount: Int,
-    val averageNanos: Long,
-    val p95Nanos: Long,
-    val maxNanos: Long,
-)
+data class FrameTimingReport(val frameCount: Int, val averageNanos: Long, val p95Nanos: Long, val maxNanos: Long)

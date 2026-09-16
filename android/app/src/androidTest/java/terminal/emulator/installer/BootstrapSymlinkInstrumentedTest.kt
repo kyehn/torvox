@@ -53,10 +53,7 @@ class BootstrapSymlinkInstrumentedTest {
     @Test
     fun symlinks_point_at_configured_targets_after_install() {
         ZipOutputStream(zipFile.outputStream()).use { zos ->
-            fun add(
-                name: String,
-                content: String = "x",
-            ) {
+            fun add(name: String, content: String = "x") {
                 zos.putNextEntry(ZipEntry(name))
                 zos.write(content.toByteArray())
                 zos.closeEntry()

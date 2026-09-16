@@ -54,10 +54,7 @@ class SelectionDragQuantifiedTest {
      * viewport row [row]. Handles hang below their cell corners, so this is where a grab lands on the
      * handle body.
      */
-    private fun cellAnchorOnScreen(
-        col: Int,
-        row: Int,
-    ): Pair<Int, Int> {
+    private fun cellAnchorOnScreen(col: Int, row: Int): Pair<Int, Int> {
         val surface = surfaceView()
         val loc = IntArray(2)
         surface.getLocationOnScreen(loc)
@@ -72,7 +69,8 @@ class SelectionDragQuantifiedTest {
         )
     }
 
-    private fun waitForMenuText(text: String, timeoutMs: Long = 4_000) = device.wait(Until.findObject(By.text(text)), timeoutMs)
+    private fun waitForMenuText(text: String, timeoutMs: Long = 4_000) =
+        device.wait(Until.findObject(By.text(text)), timeoutMs)
 
     private fun menuVisible(text: String): Boolean = device.findObject(By.text(text)) != null
 

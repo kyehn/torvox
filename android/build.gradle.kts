@@ -8,7 +8,7 @@ plugins {
   id("com.google.dagger.hilt.android") version "2.60.1" apply false
   id("com.google.devtools.ksp") version "2.3.12" apply false
   id("com.diffplug.spotless") version "8.10.2" apply false
-  id("io.gitlab.arturbosch.detekt") version "1.23.8" apply false
+  id("dev.detekt") version "2.0.0-alpha.6" apply false
   id("androidx.benchmark") version "1.5.0" apply false
   id("androidx.baselineprofile") version "1.5.0" apply false
   id("com.github.ben-manes.versions") version "0.62.0" apply false
@@ -34,6 +34,9 @@ subprojects {
           .editorConfigOverride(
               mapOf(
                   "ktlint_function_naming_ignore_when_annotated_with" to "Composable",
+                  // 与 detekt ktlint-wrapper（同为 ktlint 1.8.0，code_style intellij_idea 默认列宽 120）保持一致，
+                  // 否则两工具在表达式函数体换行上互斥，fmt 无法收敛。
+                  "max_line_length" to "120",
               ),
           )
       target("src/**/*.kt")

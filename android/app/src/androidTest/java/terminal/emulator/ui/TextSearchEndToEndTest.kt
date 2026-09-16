@@ -70,10 +70,7 @@ class TextSearchEndToEndTest {
 
     // ── Helper: generate multi-page content ──
 
-    private fun generateMultiPageContent(
-        bridge: Bridge,
-        marker: String,
-    ) {
+    private fun generateMultiPageContent(bridge: Bridge, marker: String) {
         // Generate enough content to fill >3 terminal pages
         val linesToFill = 200
         for (i in 1..linesToFill) {
@@ -170,7 +167,9 @@ class TextSearchEndToEndTest {
         composeTestRule.waitForIdle()
 
         // Verify search bar IS visible
-        composeTestRule.onNodeWithTag("TextSearchBar").assertExists("Search bar must be visible after opening from drawer")
+        composeTestRule.onNodeWithTag(
+            "TextSearchBar",
+        ).assertExists("Search bar must be visible after opening from drawer")
         composeTestRule.onNodeWithTag("SearchTextField").assertExists("Search text field must be visible")
         saveScreenshot("01_search_bar_opened")
     }
@@ -267,7 +266,9 @@ class TextSearchEndToEndTest {
         // Search with original case
         composeTestRule.onNodeWithTag("SearchTextField").performTextReplacement(uniqueMarker)
         waitForSearchStable()
-        composeTestRule.onNodeWithTag("SearchResultCount").assertExists("Results must be shown for case-sensitive search")
+        composeTestRule.onNodeWithTag(
+            "SearchResultCount",
+        ).assertExists("Results must be shown for case-sensitive search")
 
         saveScreenshot("05_case_sensitive_search")
     }

@@ -10,11 +10,11 @@ complexity:
   CognitiveComplexMethod:
     active: false
   ComplexCondition:
-    threshold: 12
+    allowedConditions: 12
   CyclomaticComplexMethod:
     active: false
   LargeClass:
-    threshold: 1600
+    allowedLines: 1600
   LongMethod:
     active: false
   LongParameterList:
@@ -35,6 +35,12 @@ exceptions:
   TooGenericExceptionCaught:
     active: false
   TooGenericExceptionThrown:
+    active: false
+libraries:
+  # app 模块无公开 API；Activity 等框架类与测试类须公开，库作者规则无法满足，故关闭。
+  ForbiddenPublicDataClass:
+    active: false
+  LibraryEntitiesShouldNotBePublic:
     active: false
 naming:
   ConstructorParameterNaming:
@@ -65,7 +71,7 @@ style:
     active: true
   ReturnCount:
     active: false # 卫语句风格与之冲突。
-  SpacingBetweenPackageAndImports:
+  SpacingAfterPackageAndImports:
     active: true
   ThrowsCount:
     active: false # 入口显式抛错，规范要求尽早报错。
@@ -75,7 +81,7 @@ style:
     active: true
   UnnecessaryLet:
     active: true
-  UnusedImports:
+  UnusedImport:
     active: true
   UnusedParameter:
     active: false # 测试桩必须镜像安卓 API 签名。

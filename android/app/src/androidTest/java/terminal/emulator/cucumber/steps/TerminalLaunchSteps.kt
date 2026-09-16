@@ -11,9 +11,7 @@ import javax.inject.Inject
 
 class TerminalLaunchSteps
 @Inject
-constructor(
-    private val composeRuleHolder: ComposeRuleHolder,
-) {
+constructor(private val composeRuleHolder: ComposeRuleHolder) {
     @那么("^修饰键栏可见$")
     fun modifierBarIsVisible() {
         composeRuleHolder.composeRule.onNodeWithTag("ModifierBar").assertIsDisplayed()

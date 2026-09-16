@@ -67,10 +67,7 @@ enum class TouchClass {
     Unknown,
 }
 
-data class SelectionAnchor(
-    val row: Int,
-    val col: Int,
-)
+data class SelectionAnchor(val row: Int, val col: Int)
 
 data class SelectionState(
     val active: Boolean = false,
@@ -91,11 +88,7 @@ data class SelectionState(
     val hasSelection: Boolean
         get() = active && start != null && end != null
 
-    fun applyHandleDrag(
-        draggingStart: Boolean,
-        targetRow: Int,
-        targetCol: Int,
-    ): HandleDragResult {
+    fun applyHandleDrag(draggingStart: Boolean, targetRow: Int, targetCol: Int): HandleDragResult {
         val currentEnd = end ?: return HandleDragResult(targetRow, targetCol, targetRow, targetCol)
         val currentStart = start ?: return HandleDragResult(targetRow, targetCol, targetRow, targetCol)
         if (
@@ -127,12 +120,7 @@ data class SelectionState(
      * [deltaRow]/[deltaCol], clamped to the grid so it never crosses the END anchor (the end stays
      * put as the moving end sweeps up to it). Pure and unit-testable.
      */
-    fun moveSelectionAnchorBy(
-        deltaRow: Int,
-        deltaCol: Int,
-        maxRow: Int,
-        maxCol: Int,
-    ): SelectionState {
+    fun moveSelectionAnchorBy(deltaRow: Int, deltaCol: Int, maxRow: Int, maxCol: Int): SelectionState {
         val currentStart = start ?: return this
         val currentEnd = end ?: return this
         if (!active) return this
@@ -156,19 +144,10 @@ data class SelectionState(
     }
 }
 
-data class HandleDragResult(
-    val startRow: Int,
-    val startCol: Int,
-    val endRow: Int,
-    val endCol: Int,
-)
+data class HandleDragResult(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
 
 /** Session info for the session drawer. */
-data class SessionInfo(
-    val id: Long,
-    val title: String,
-    val directory: String = "",
-)
+data class SessionInfo(val id: Long, val title: String, val directory: String = "")
 
 /** 会话目录显示的最大长度，超出时从中间省略。 */
 internal const val MAX_SESSION_DIRECTORY_LENGTH = 40
@@ -220,10 +199,7 @@ data class TerminalState(
  * @param hasSelectionOrDrag active selection or handle drag suppresses the snap exactly like the
  *   output-driven path does.
  */
-internal fun shouldResetScrollOnInput(
-    data: ByteArray,
-    hasSelectionOrDrag: Boolean,
-): Boolean = !hasSelectionOrDrag &&
+internal fun shouldResetScrollOnInput(data: ByteArray, hasSelectionOrDrag: Boolean): Boolean = !hasSelectionOrDrag &&
     data.any { byte -> byte == '\r'.code.toByte() || byte == '\n'.code.toByte() }
 
 internal fun shouldCreateDefaultSession(
@@ -274,11 +250,8 @@ constructor(
 
     // ── Selection forwards (implementation in SelectionManager) ────────────
 
-    fun startSelection(
-        row: Int,
-        col: Int,
-        touchClass: TouchClass = TouchClass.Unknown,
-    ) = selectionManager.startSelection(row, col, touchClass)
+    fun startSelection(row: Int, col: Int, touchClass: TouchClass = TouchClass.Unknown) =
+        selectionManager.startSelection(row, col, touchClass)
 
     fun updateSelection(row: Int, col: Int) = selectionManager.updateSelection(row, col)
 
@@ -291,13 +264,8 @@ constructor(
     /**
      * Fast drag path: bounds computed without Compose state writes; see [SelectionManager.dragMove].
      */
-    fun dragMove(
-        draggingStart: Boolean,
-        row: Int,
-        col: Int,
-        cachedMaxRow: Int,
-        cachedMaxCol: Int,
-    ): IntArray? = selectionManager.dragMove(draggingStart, row, col, cachedMaxRow, cachedMaxCol)
+    fun dragMove(draggingStart: Boolean, row: Int, col: Int, cachedMaxRow: Int, cachedMaxCol: Int): IntArray? =
+        selectionManager.dragMove(draggingStart, row, col, cachedMaxRow, cachedMaxCol)
 
     /**
      * Commit the last fast-path drag bounds to Compose state; see
@@ -361,11 +329,7 @@ constructor(
      * clamp a selection's anchors onto [rows]×[cols] after a grid resize so native setSelection never
      * receives out-of-bounds cells.
      */
-    private fun clampSelectionToGrid(
-        selection: SelectionState,
-        rows: Int,
-        cols: Int,
-    ): SelectionState {
+    private fun clampSelectionToGrid(selection: SelectionState, rows: Int, cols: Int): SelectionState {
         val start = selection.start ?: return selection
         val end = selection.end ?: return selection
         val maxRow = (rows - 1).coerceAtLeast(0)
@@ -457,11 +421,7 @@ constructor(
      * inner class: accesses _state, runtime and clipboardPaster via the outer view model.
      */
     inner class SelectionManager {
-        fun startSelection(
-            row: Int,
-            col: Int,
-            touchClass: TouchClass = TouchClass.Unknown,
-        ) {
+        fun startSelection(row: Int, col: Int, touchClass: TouchClass = TouchClass.Unknown) {
             val anchor = SelectionAnchor(row, col)
             // CAS: selection is touched from the main thread but
             // _state is also written by IO coroutines; a plain RMW could lose
@@ -484,17 +444,11 @@ constructor(
             }
         }
 
-        fun updateSelection(
-            row: Int,
-            col: Int,
-        ) {
+        fun updateSelection(row: Int, col: Int) {
             dragSelection(draggingStart = false, row = row, col = col)
         }
 
-        fun updateSelectionStart(
-            row: Int,
-            col: Int,
-        ) {
+        fun updateSelectionStart(row: Int, col: Int) {
             dragSelection(draggingStart = true, row = row, col = col)
         }
 
@@ -506,13 +460,7 @@ constructor(
          * The caller repositions handles directly from the returned bounds, avoiding the Compose _state
          * -> recomposition -> read-back round-trip that was the main per-MOVE frame bottleneck.
          */
-        fun dragMove(
-            draggingStart: Boolean,
-            row: Int,
-            col: Int,
-            cachedMaxRow: Int,
-            cachedMaxCol: Int,
-        ): IntArray? {
+        fun dragMove(draggingStart: Boolean, row: Int, col: Int, cachedMaxRow: Int, cachedMaxCol: Int): IntArray? {
             val current = _state.value.selection
             if (!current.active || current.pasteOnly) return null
             val result =
@@ -542,10 +490,7 @@ constructor(
          * JNI crossing + re-render on every MOVE frame. The final exact bounds are committed by
          * endSelection via runtime.setSelection on release.
          */
-        internal fun syncDragBoundsToNativeThrottled(
-            arr: IntArray,
-            modeOrdinal: Byte,
-        ) {
+        internal fun syncDragBoundsToNativeThrottled(arr: IntArray, modeOrdinal: Byte) {
             val nowMs = SystemClock.uptimeMillis()
             if (nowMs - lastDragNativeSyncUptimeMs < DRAG_NATIVE_SYNC_INTERVAL_MS) return
             lastDragNativeSyncUptimeMs = nowMs
@@ -580,11 +525,7 @@ constructor(
 
         private var lastDragBounds: IntArray? = null
 
-        private fun dragSelection(
-            draggingStart: Boolean,
-            row: Int,
-            col: Int,
-        ) {
+        private fun dragSelection(draggingStart: Boolean, row: Int, col: Int) {
             // Grid bounds for the drag-path clamp (see below); read once —
             // a concurrent resize only makes the bound stale by one frame.
             val runtimeState = runtime.state.value
@@ -691,10 +632,7 @@ constructor(
          * WORD expands both ends onto word boundaries, LINE spans the full rows, CHAR keeps the current
          * range as-is.
          */
-        private fun adjustSelectionForMode(
-            selection: SelectionState,
-            mode: SelectionMode,
-        ): SelectionState {
+        private fun adjustSelectionForMode(selection: SelectionState, mode: SelectionMode): SelectionState {
             val start = selection.start ?: return selection
             val end = selection.end ?: return selection
             return when (mode) {
@@ -798,10 +736,7 @@ constructor(
             runtime.forceRender()
         }
 
-        fun showPastePopup(
-            row: Int,
-            col: Int,
-        ) {
+        fun showPastePopup(row: Int, col: Int) {
             // an empty-cell long-press now creates a single-cell
             // selection (inverted background via the GPU path) with a
             // paste-only floating menu — matching the text-selection UX
@@ -948,11 +883,7 @@ constructor(
          * Extract a column-bounded rectangle slice from a single line, correctly handling CJK wide
          * characters that occupy 2 cell columns.
          */
-        private fun extractBlockColumn(
-            line: String,
-            startCol: Int,
-            endCol: Int,
-        ): String {
+        private fun extractBlockColumn(line: String, startCol: Int, endCol: Int): String {
             var col = 0
             var charStart = -1
             var charEnd = line.length
@@ -1237,11 +1168,7 @@ constructor(
 
     @Volatile var surfaceHeight: Int = 0
 
-    fun startRuntime(
-        surface: Surface?,
-        width: Int,
-        height: Int,
-    ) {
+    fun startRuntime(surface: Surface?, width: Int, height: Int) {
         currentSurface = surface
         surfaceWidth = width
         surfaceHeight = height
@@ -1522,9 +1449,7 @@ constructor(
      * [bootstrapRunning], resets progress state, and maps failures to the same error message. The
      * caller supplies the install body, which receives the shared progress callback.
      */
-    private fun startBootstrapJob(
-        block: suspend (terminal.emulator.installer.BootstrapProgressCallback) -> Unit,
-    ) {
+    private fun startBootstrapJob(block: suspend (terminal.emulator.installer.BootstrapProgressCallback) -> Unit) {
         // CAS so a rapid double-tap of the Install button cannot start two
         // concurrent installs.
         if (!_bootstrapRunning.compareAndSet(false, true)) return

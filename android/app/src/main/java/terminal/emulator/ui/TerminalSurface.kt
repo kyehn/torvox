@@ -50,11 +50,8 @@ import kotlin.math.roundToInt
 
 class TerminalSurface
 @JvmOverloads
-constructor(
-    context: Context,
-    attrs: AttributeSet? = null,
-    defStyleAttr: Int = 0,
-) : SurfaceView(context, attrs, defStyleAttr),
+constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0) :
+    SurfaceView(context, attrs, defStyleAttr),
     SurfaceHolder.Callback {
 
     override fun onDetachedFromWindow() {
@@ -125,13 +122,8 @@ constructor(
     fun setDimensions(rows: Int, cols: Int) = resizeManager.setDimensions(rows, cols)
 
     /** Forward: selection handle popups live in [SelectionHandles]. */
-    fun showSelectionHandles(
-        startRow: Int,
-        startCol: Int,
-        endRow: Int,
-        endCol: Int,
-        themeFgColor: Int,
-    ) = selectionHandles.showSelectionHandles(startRow, startCol, endRow, endCol, themeFgColor)
+    fun showSelectionHandles(startRow: Int, startCol: Int, endRow: Int, endCol: Int, themeFgColor: Int) =
+        selectionHandles.showSelectionHandles(startRow, startCol, endRow, endCol, themeFgColor)
 
     /** Forward: selection handle popups live in [SelectionHandles]. */
     fun hideSelectionHandles() = selectionHandles.hideSelectionHandles()
@@ -189,10 +181,7 @@ constructor(
     }
 
     /** Menu items for a selection: termux semantics (COPY|SHARE|SELECT ALL|OPEN LINK|OPEN FILE / PASTE-if-clipboard). */
-    private fun menuActions(
-        pasteOnly: Boolean,
-        pasteEnabled: Boolean,
-    ): List<Pair<String, () -> Unit>> {
+    private fun menuActions(pasteOnly: Boolean, pasteEnabled: Boolean): List<Pair<String, () -> Unit>> {
         val selectionText = viewModel?.state?.value?.selection?.selectedText.orEmpty()
         return menuActionsForSelection(pasteOnly, pasteEnabled, selectionText)
     }
@@ -452,10 +441,7 @@ constructor(
          * showing/hiding it must not change rows/cols (reflow flicker,
          * wrapped-line shuffle, lost bottom rows).
          */
-        internal fun applyGridResize(
-            width: Int,
-            height: Int,
-        ) {
+        internal fun applyGridResize(width: Int, height: Int) {
             val runtime = viewModel?.runtime ?: return
             val cellWidth = runtime.cellWidth
             val cellHeight = runtime.cellHeight
@@ -486,10 +472,7 @@ constructor(
             }
         }
 
-        internal fun recomputeRowsColsImmediate(
-            width: Int,
-            height: Int,
-        ) {
+        internal fun recomputeRowsColsImmediate(width: Int, height: Int) {
             val viewModel = viewModel
             if (viewModel != null) {
                 val cellWidth = viewModel.runtime.cellWidth
@@ -515,10 +498,7 @@ constructor(
             }
         }
 
-        internal fun applySurfaceResize(
-            width: Int,
-            height: Int,
-        ) {
+        internal fun applySurfaceResize(width: Int, height: Int) {
             if (width <= 0 || height <= 0) return
             if (
                 width == lastConfiguredWidth && height == lastConfiguredHeight && lastConfiguredWidth != 0
@@ -553,10 +533,7 @@ constructor(
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
         }
 
-        internal fun applySurfaceResizeNow(
-            width: Int,
-            height: Int,
-        ) {
+        internal fun applySurfaceResizeNow(width: Int, height: Int) {
             if (width <= 0 || height <= 0) return
             // A deferred fire after a size oscillation may land back on the
             // configured size — skip the redundant reconfigure.
@@ -574,11 +551,7 @@ constructor(
             applyResizeNormal(width, height, terminalViewModel)
         }
 
-        internal fun applyResizeNormal(
-            width: Int,
-            height: Int,
-            terminalViewModel: TerminalViewModel,
-        ) {
+        internal fun applyResizeNormal(width: Int, height: Int, terminalViewModel: TerminalViewModel) {
             terminalViewModel.runtime.recomputeGrid(width, height)
             val surface = holder.surface
             if (!surface.isValid) {
@@ -619,10 +592,7 @@ constructor(
             applyGridResize(width, height)
         }
 
-        internal fun setDimensions(
-            rows: Int,
-            cols: Int,
-        ) {
+        internal fun setDimensions(rows: Int, cols: Int) {
             this@TerminalSurface.rows = rows
             this@TerminalSurface.cols = cols
         }
@@ -654,11 +624,7 @@ constructor(
                     private var lastCommitMs: Long = 0L
                     private val commitSynthDebounceMs = 80L
 
-                    private fun encodeAndSend(
-                        text: String,
-                        ctrlActive: Boolean,
-                        altActive: Boolean,
-                    ) {
+                    private fun encodeAndSend(text: String, ctrlActive: Boolean, altActive: Boolean) {
                         inputBatchBuffer.write(
                             TerminalInputEncoder.encodeCommittedText(
                                 text = text,
@@ -669,10 +635,7 @@ constructor(
                         )
                     }
 
-                    override fun setComposingText(
-                        text: CharSequence?,
-                        newCursorPosition: Int,
-                    ): Boolean {
+                    override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         if (isPaused || System.nanoTime() < suppressUntilNanos) {
                             composingBuffer = ""
                             return true
@@ -716,10 +679,7 @@ constructor(
                         return true
                     }
 
-                    override fun commitText(
-                        text: CharSequence?,
-                        newCursorPosition: Int,
-                    ): Boolean {
+                    override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
                         if (isPaused || System.nanoTime() < suppressUntilNanos) {
                             composingBuffer = ""
                             return true
@@ -780,10 +740,7 @@ constructor(
                         }
                     }
 
-                    override fun deleteSurroundingText(
-                        beforeLength: Int,
-                        afterLength: Int,
-                    ): Boolean {
+                    override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
                         if (isPaused || System.nanoTime() < suppressUntilNanos) {
                             return true
                         }
@@ -878,9 +835,7 @@ constructor(
          * (android.R.attr.textSelectHandleLeft/Right) so the handle shape is the framework's teardrop,
          * not a custom vector.
          */
-        internal fun resolveSelectionHandleDrawable(
-            left: Boolean,
-        ): android.graphics.drawable.Drawable? {
+        internal fun resolveSelectionHandleDrawable(left: Boolean): android.graphics.drawable.Drawable? {
             val attr =
                 intArrayOf(
                     if (left) {
@@ -897,13 +852,7 @@ constructor(
             }
         }
 
-        fun showSelectionHandles(
-            startRow: Int,
-            startCol: Int,
-            endRow: Int,
-            endCol: Int,
-            themeFgColor: Int,
-        ) {
+        fun showSelectionHandles(startRow: Int, startCol: Int, endRow: Int, endCol: Int, themeFgColor: Int) {
             val existingContent = overlayContent
             val existingPopup = overlayPopup
             if (existingContent != null && existingContent.streamForwarding) {
@@ -975,11 +924,7 @@ constructor(
          * Move one dragged handle to its anchor cell. Pure in-process view updates: translationX/Y +
          * invalidate, NO WindowManager IPC (spec text-selection "拖拽流畅性" constraint a).
          */
-        internal fun repositionHandle(
-            which: HandleDrag,
-            row: Int,
-            col: Int,
-        ) {
+        internal fun repositionHandle(which: HandleDrag, row: Int, col: Int) {
             val content = overlayContent ?: return
             val viewportTopGrid = currentViewportTopGrid()
             val visibleRow = (row - viewportTopGrid).coerceIn(0, rows - 1)
@@ -996,12 +941,7 @@ constructor(
             updateHitRect(which, Math.round(anchorXF), Math.round(anchorYF))
         }
 
-        private fun positionAllHandles(
-            startRow: Int,
-            startCol: Int,
-            endRow: Int,
-            endCol: Int,
-        ) {
+        private fun positionAllHandles(startRow: Int, startCol: Int, endRow: Int, endCol: Int) {
             val viewportTopGrid = currentViewportTopGrid()
             val visibleStartRow = (startRow - viewportTopGrid).coerceIn(0, rows - 1)
             val (sx, sy) =
@@ -1032,11 +972,7 @@ constructor(
          * Anchor math shared by both positioning paths (termux hotspot): START hangs below-left of its
          * cell corner, END below-right.
          */
-        private fun updateHitRect(
-            which: HandleDrag,
-            anchorX: Int,
-            anchorY: Int,
-        ) {
+        private fun updateHitRect(which: HandleDrag, anchorX: Int, anchorY: Int) {
             val handleW = selectionHandleWidth
             if (handleW == 0) return
             val content = overlayContent ?: return
@@ -1128,11 +1064,7 @@ constructor(
                 addView(endView, LayoutParams(handleWidth, handleHeight))
             }
 
-            fun position(
-                which: HandleDrag,
-                anchorX: Int,
-                anchorY: Int,
-            ) {
+            fun position(which: HandleDrag, anchorX: Int, anchorY: Int) {
                 val view = if (which == HandleDrag.START) startView else endView
                 val targetX =
                     (anchorX - (if (which == HandleDrag.START) (handleWidth * 3) / 4 else handleWidth / 4))
@@ -1190,7 +1122,11 @@ constructor(
                 else -> null
             }
 
-            private fun lockedIndex(event: MotionEvent): Int = dragPointerLocked?.let { event.findPointerIndex(it) } ?: -1
+            private fun lockedIndex(event: MotionEvent): Int = dragPointerLocked?.let {
+                event.findPointerIndex(
+                    it,
+                )
+            } ?: -1
 
             /** MOVE: drive the owned drag; swallow stray pointers; else forward. */
             private fun routeMove(event: MotionEvent): Boolean {
@@ -1241,13 +1177,8 @@ constructor(
                 return true
             }
 
-            private inner class HandleView(
-                private val drawable: android.graphics.drawable.Drawable,
-            ) : View(context) {
-                override fun onMeasure(
-                    widthMeasureSpec: Int,
-                    heightMeasureSpec: Int,
-                ) {
+            private inner class HandleView(private val drawable: android.graphics.drawable.Drawable) : View(context) {
+                override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
                     setMeasuredDimension(handleWidth, handleHeight)
                 }
 
@@ -1758,10 +1689,7 @@ constructor(
      * Snap a column onto a wide-char boundary: when `col` lands on the trailing (second) half of a
      * wide char, step back one cell so the selection handle never splits a wide character in two.
      */
-    private fun snapToWideCharBoundary(
-        gridRow: Int,
-        col: Int,
-    ): Int {
+    private fun snapToWideCharBoundary(gridRow: Int, col: Int): Int {
         if (col <= 0) return col
         val bridge = viewModel?.runtime?.bridge() ?: return col
         // Cache the last queried row (time-bounded): during a handle drag
@@ -1790,10 +1718,7 @@ constructor(
         return snapColToWideChar(line, col)
     }
 
-    private fun latchDragAnchor(
-        which: HandleDrag,
-        pointerId: Int? = null,
-    ) {
+    private fun latchDragAnchor(which: HandleDrag, pointerId: Int? = null) {
         handleDragState = which
         // Lock onto the finger that started the drag: subsequent MOVE events
         // from other pointers must not steer the selection (issue #15).
@@ -1861,12 +1786,7 @@ constructor(
                 isAfterLongPress = false
             }
 
-            override fun onScroll(
-                e1: MotionEvent?,
-                e2: MotionEvent,
-                distanceX: Float,
-                distanceY: Float,
-            ): Boolean {
+            override fun onScroll(e1: MotionEvent?, e2: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
                 if (isSelectingText) return false
                 // Alternate-screen wheel forwarding (Haven research: altScreen
                 // wheel consumption). When the remote is on the alternate
@@ -1942,12 +1862,7 @@ constructor(
                 return true
             }
 
-            override fun onFling(
-                e1: MotionEvent?,
-                e2: MotionEvent,
-                velocityX: Float,
-                velocityY: Float,
-            ): Boolean {
+            override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
                 if (isSelectingText) return false
                 // On the alternate screen (vim/less/htop), a fling must not
                 // scroll local scrollback — the gesture belongs to the remote.
@@ -2135,10 +2050,7 @@ constructor(
             },
         )
 
-    fun handleLongPress(
-        x: Float,
-        y: Float,
-    ) {
+    fun handleLongPress(x: Float, y: Float) {
         // Reference (ghostty-android TerminalView.java:1085-1100):
         // ghostty-android uses tapCount (double-tap = word, triple-tap = line)
         // instead of long-press for word selection.  Our long-press → word
@@ -2238,11 +2150,7 @@ constructor(
      * cell (paste-only target). Long-press and double-tap share this exact expansion so both gestures
      * select identically.
      */
-    private fun whitespaceWordBounds(
-        bridge: Bridge?,
-        gridRow: Int,
-        col: Int,
-    ): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
+    private fun whitespaceWordBounds(bridge: Bridge?, gridRow: Int, col: Int): Pair<Pair<Int, Int>, Pair<Int, Int>>? {
         val line = bridge?.scrollbackLine(gridRow) ?: return null
         val length = line.length
         if (col >= length || line.getOrNull(col)?.isWhitespace() == true) return null
@@ -2329,10 +2237,8 @@ constructor(
 
     override fun onCheckIsTextEditor(): Boolean = keyboardRequested
 
-    override fun onResolvePointerIcon(
-        event: MotionEvent,
-        pointerIndex: Int,
-    ): PointerIcon = PointerIcon.getSystemIcon(context, PointerIcon.TYPE_TEXT)
+    override fun onResolvePointerIcon(event: MotionEvent, pointerIndex: Int): PointerIcon =
+        PointerIcon.getSystemIcon(context, PointerIcon.TYPE_TEXT)
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -2542,10 +2448,7 @@ constructor(
      * is delivered). Retry the detach+attach swapchain rebuild until the holder
      * is valid again, then unpause + resume + force one frame.
      */
-    fun postDelayedSurfaceRecreate(
-        viewModel: TerminalViewModel,
-        attemptsLeft: Int = SURFACE_RECREATE_ATTEMPTS,
-    ) {
+    fun postDelayedSurfaceRecreate(viewModel: TerminalViewModel, attemptsLeft: Int = SURFACE_RECREATE_ATTEMPTS) {
         postDelayed({
             val holderSurface = holder?.surface
             if (holderSurface != null && holderSurface.isValid && width > 0 && height > 0) {
@@ -2628,7 +2531,9 @@ constructor(
 
     private val inputBatchBuffer = InputBatchBuffer({ data -> viewModel?.writeToPty(data) })
 
-    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection = imeConnection.createInputConnection(outAttrs)
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection = imeConnection.createInputConnection(
+        outAttrs,
+    )
 
     fun pasteFromClipboardDirect() {
         clipboardPaster.pasteTo { inputBatchBuffer.write(it) }
@@ -2676,11 +2581,7 @@ constructor(
         }
     }
 
-    private fun startSelectionAt(
-        event: MotionEvent,
-        expandToWord: Boolean = false,
-        selectLine: Boolean = false,
-    ) {
+    private fun startSelectionAt(event: MotionEvent, expandToWord: Boolean = false, selectLine: Boolean = false) {
         val col = pixelToCell(event.x, cellWidth, cols)
         val row = pixelToCell(event.y, cellHeight, rows)
 
@@ -2744,10 +2645,7 @@ constructor(
         )
     }
 
-    override fun onKeyDown(
-        keyCode: Int,
-        event: KeyEvent,
-    ): Boolean {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         // while a selection is active, arrow keys move the
         // selection START anchor (termlib moveSelection* semantics) instead
         // of emitting escape sequences to the shell. Hardware arrows only —
@@ -2799,10 +2697,7 @@ constructor(
         return super.onKeyDown(keyCode, event)
     }
 
-    override fun onKeyUp(
-        keyCode: Int,
-        event: KeyEvent,
-    ): Boolean {
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
         // Key-up is intentionally NOT forwarded to the bridge: Bridge's
         // processKeyEvent drops every non-ACTION_DOWN (writing on UP would
         // double each keystroke), so it always returns false here. Fall
@@ -3049,12 +2944,7 @@ constructor(
     // ── TextureView's SurfaceTexture is consumed by the GL compositor and
     // ── blocks Vulkan dequeueBuffer on software emulators) ────────────────
 
-    override fun onSizeChanged(
-        width: Int,
-        height: Int,
-        previousWidth: Int,
-        previousHeight: Int,
-    ) {
+    override fun onSizeChanged(width: Int, height: Int, previousWidth: Int, previousHeight: Int) {
         super.onSizeChanged(width, height, previousWidth, previousHeight)
         if (width <= 0 || height <= 0) return
         if (width == previousWidth && height == previousHeight && previousWidth != 0) return
@@ -3122,12 +3012,7 @@ constructor(
         }
     }
 
-    override fun surfaceChanged(
-        holder: SurfaceHolder,
-        format: Int,
-        width: Int,
-        height: Int,
-    ) {
+    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
         if (width <= 0 || height <= 0) return
         surfaceWidthPixels = width
         surfaceHeightPixels = height
@@ -3177,7 +3062,13 @@ constructor(
  * Next multi-tap count: rapid tap within [windowMs] increments, older resets to 1 (strict `<` — a
  * tap exactly at the window edge starts a fresh click). Backs onSingleTapUp's tap counter.
  */
-internal fun nextTapCount(now: Long, lastTapTime: Long, tapCount: Int, windowMs: Long): Int = if (now - lastTapTime < windowMs) tapCount + 1 else 1
+internal fun nextTapCount(now: Long, lastTapTime: Long, tapCount: Int, windowMs: Long): Int = if (now - lastTapTime <
+    windowMs
+) {
+    tapCount + 1
+} else {
+    1
+}
 
 /**
  * Selection action for a tap count (ghostty-android pattern): 2 taps → word, 3 → line, 4+ →
@@ -3208,11 +3099,7 @@ internal enum class EdgeScrollDirection {
     STOP,
 }
 
-internal fun edgeScrollDirection(
-    y: Float,
-    surfaceHeightPx: Float,
-    cellHeight: Float,
-): EdgeScrollDirection = when {
+internal fun edgeScrollDirection(y: Float, surfaceHeightPx: Float, cellHeight: Float): EdgeScrollDirection = when {
     y < cellHeight / 2 -> EdgeScrollDirection.UP
     y >= surfaceHeightPx - cellHeight / 2 -> EdgeScrollDirection.DOWN
     else -> EdgeScrollDirection.STOP
@@ -3222,7 +3109,10 @@ internal fun edgeScrollDirection(
  * Pixel offset → clamped grid cell (0..maxCells-1; maxCells 0 stays 0). Backs openLinkAt and the
  * drag target mapping.
  */
-internal fun pixelToCell(px: Float, cellSize: Float, maxCells: Int): Int = (px / cellSize).toInt().coerceIn(0, (maxCells - 1).coerceAtLeast(0))
+internal fun pixelToCell(px: Float, cellSize: Float, maxCells: Int): Int = (px / cellSize).toInt().coerceIn(
+    0,
+    (maxCells - 1).coerceAtLeast(0),
+)
 
 /**
  * Snap a selection column left of a wide character's trailing half (the pure core of
@@ -3270,12 +3160,7 @@ internal fun gridToScreen(
  * [clampSelection]; consumed by the drag-handle update path so native setSelection never sees
  * inverted or out-of-bounds cells.
  */
-internal data class SelectionBounds(
-    val startRow: Int,
-    val startCol: Int,
-    val endRow: Int,
-    val endCol: Int,
-)
+internal data class SelectionBounds(val startRow: Int, val startCol: Int, val endRow: Int, val endCol: Int)
 
 /**
  * Order-preserving range clamp for a selection (termux TextSelectionCursorController.updatePosition
@@ -3315,10 +3200,7 @@ internal fun clampSelection(
  * end-of-line columns as TEXT and surfaced the full menu with PASTE there ( root cause A1). Pure;
  * backs handleLongPress.
  */
-internal fun isWhitespaceCell(
-    line: String?,
-    col: Int,
-): Boolean = when {
+internal fun isWhitespaceCell(line: String?, col: Int): Boolean = when {
     line == null -> true
     col >= line.length -> true
     else -> line[col].isWhitespace()
@@ -3332,10 +3214,7 @@ internal fun isWhitespaceCell(
  * finger must never hijack an existing drag. Pure; backs the ACTION_MOVE guards in TerminalSurface
  * and the handle popups.
  */
-internal fun acceptsDragPointer(
-    ownerPointerId: Int?,
-    candidatePointerId: Int?,
-): Boolean = when {
+internal fun acceptsDragPointer(ownerPointerId: Int?, candidatePointerId: Int?): Boolean = when {
     ownerPointerId == null -> true
     candidatePointerId == null -> false
     else -> ownerPointerId == candidatePointerId
@@ -3362,20 +3241,14 @@ internal fun shouldSuppressTapAfterDragEnd(
 internal const val MAX_SELECTION_ACTION_LENGTH = 2048
 
 /** 菜单显示用链接格式匹配（纯逻辑，不查可用性）。 */
-internal fun isLinkTextCandidate(
-    text: String,
-    maxLength: Int = MAX_SELECTION_ACTION_LENGTH,
-): Boolean {
+internal fun isLinkTextCandidate(text: String, maxLength: Int = MAX_SELECTION_ACTION_LENGTH): Boolean {
     val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
     if (trimmed.isEmpty() || trimmed.length > maxLength) return false
     return terminal.emulator.util.UrlToken.looksLikeFullUrl(trimmed)
 }
 
 /** 菜单显示用文件格式匹配（纯逻辑：绝对路径形态，不查存在性）。 */
-internal fun isFilePathCandidate(
-    text: String,
-    maxLength: Int = MAX_SELECTION_ACTION_LENGTH,
-): Boolean {
+internal fun isFilePathCandidate(text: String, maxLength: Int = MAX_SELECTION_ACTION_LENGTH): Boolean {
     val trimmed = text.trim().trim('"', '\'', '(', ')', '[', ']')
         .substringBefore("\n").trim()
     if (trimmed.isEmpty() || trimmed.length > maxLength) return false

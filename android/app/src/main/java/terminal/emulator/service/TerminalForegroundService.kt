@@ -31,12 +31,11 @@ class TerminalForegroundService : Service() {
             context.startForegroundService(intent)
         }
 
-        fun stop(context: Context): Boolean = context.stopService(Intent(context, TerminalForegroundService::class.java))
+        fun stop(context: Context): Boolean = context.stopService(
+            Intent(context, TerminalForegroundService::class.java),
+        )
 
-        fun updateSessionCount(
-            context: Context,
-            count: Int,
-        ) {
+        fun updateSessionCount(context: Context, count: Int) {
             if (count <= 0) {
                 // Return value intentionally ignored: stopService(false for
                 // a stopped service) is the desired end state either way.
@@ -78,11 +77,7 @@ class TerminalForegroundService : Service() {
         notificationManager.createNotificationChannel(channel)
     }
 
-    override fun onStartCommand(
-        intent: Intent?,
-        flags: Int,
-        startId: Int,
-    ): Int {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // START_STICKY restart after the process was killed: no sessions
         // survive a process death, so the service (and its PARTIAL_WAKE_LOCK)
         // has nothing to keep alive. Stop instead of re-pinning the
