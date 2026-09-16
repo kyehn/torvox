@@ -44,7 +44,7 @@
 
     <!-- Terminal -->
     <string name="terminal">终端</string>
-    <string name="shell">壳</string>
+    <string name="shell">Shell</string>
     <string name="start_dir">启动目录</string>
     <string name="start_dir_placeholder">默认家目录</string>
     <string name="action_new_session_failsafe">新建会话（Failsafe）</string>
@@ -105,7 +105,7 @@
     <string name="search_result_of">第 %d 个，共 %d 个</string>
 
     <!-- CJK Warning -->
-    <string name="cjk_fallback_missing_warning">未检测到中日韩备用字体。东亚字符可能无法正确渲染。</string>
+    <string name="cjk_fallback_missing_warning">未检测到 CJK 备用字体。东亚字符可能无法正确渲染。</string>
     <string name="install">安装</string>
 
     <string name="accessibility_next_line">下一行</string>
