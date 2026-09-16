@@ -49,6 +49,7 @@ impl super::GhosttyTerminal {
             flume::bounded::<(Vec<CellData>, CursorInfo)>(CELL_DATA_CHANNEL_CAPACITY);
         let (cwd_tx, cwd_rx) = bounded::<String>(EVENT_CHANNEL_CAPACITY);
         let (clipboard_tx, clipboard_rx) = bounded::<(String, String)>(EVENT_CHANNEL_CAPACITY);
+        let (bell_tx, bell_rx) = bounded::<()>(EVENT_CHANNEL_CAPACITY);
         let pty_write_responses = Arc::new(Mutex::new(Vec::<Vec<u8>>::new()));
         let pty_for_run = pty_write_responses.clone();
         let snapshot_rebuild_count = Arc::new(AtomicU64::new(0));
@@ -76,6 +77,7 @@ impl super::GhosttyTerminal {
                         cell_data_tx: Some(cell_data_tx),
                         cwd_tx,
                         clipboard_tx,
+                        bell_tx,
                     })
                 }));
                 if let Err(panic) = result {
@@ -98,6 +100,7 @@ impl super::GhosttyTerminal {
             cell_data_rx: Some(cell_data_rx),
             cwd_rx,
             clipboard_rx,
+            bell_rx,
             handle: Some(handle),
             pty_write_responses,
             snapshot_rebuild_count,
@@ -131,6 +134,11 @@ impl super::GhosttyTerminal {
     ///（选择器字母，文本）。不阻塞，无事件为 None。
     pub fn poll_clipboard_event(&self) -> Option<(String, String)> {
         self.clipboard_rx.try_recv().ok()
+    }
+
+    /// 取出 VT 线程经上游 BEL 回调（on_bell）上报的振铃（不阻塞，无事件为 None）。
+    pub fn poll_bell_event(&self) -> Option<()> {
+        self.bell_rx.try_recv().ok()
     }
 
     pub fn vt_write(&mut self, data: &[u8]) {

@@ -1209,6 +1209,10 @@ fn poll_event_inner<'local>(env: &mut Env<'local>, _class: JClass<'local>) -> js
             if let Some(text) = session.poll_clipboard() {
                 events.push(Event::Clipboard { session_id, text });
             }
+            // BEL 振铃与剪贴板同一优先级：锁存取走即上报（单帧多响已合并为一）。
+            if session.poll_bell() {
+                events.push(Event::Bell { session_id });
+            }
             // Only the first poll after the process exits reports it
             // (mark_exit_reported); the sweep branch uses the same dedup so a
             // slow consumer can never see duplicate Exit events for the same
