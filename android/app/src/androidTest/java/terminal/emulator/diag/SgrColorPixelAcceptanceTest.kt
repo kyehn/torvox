@@ -122,6 +122,8 @@ class SgrColorPixelAcceptanceTest {
         try {
             val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
             val beforeRed = countRedPixels(before)
+            val beforeGreen = countPixels(before, ::isGreenish)
+            val beforeBlue = countPixels(before, ::isBluish)
             // 逐包呈现：落格（实时网格）不等于可呈现（CellData 推送滞后约一包），
             // 每包落格后立即呈现一次，把推送节拍泵起来，尾部最大采样才采得全。
             val markers = listOf("RED_LINE" to 31, "GREEN_LINE" to 32, "BLUE_LINE" to 34)
@@ -163,11 +165,19 @@ class SgrColorPixelAcceptanceTest {
             }
             android.util.Log.i(
                 "SgrDiag",
-                "maxRed=$maxRed maxGreen=$maxGreen maxBlue=$maxBlue (beforeRed=$beforeRed)",
+                "maxRed=$maxRed maxGreen=$maxGreen maxBlue=$maxBlue (before=$beforeRed/$beforeGreen/$beforeBlue)",
             )
             assertTrue(
-                "SGR 红色文本必须产生红色像素 (前=$beforeRed 最大红=$maxRed 绿=$maxGreen 蓝=$maxBlue)",
+                "SGR 红色文本必须产生红色像素 (前=$beforeRed 最大红=$maxRed)",
                 maxRed > beforeRed + PixelGainThreshold,
+            )
+            assertTrue(
+                "SGR 绿色文本必须产生绿色像素 (前=$beforeGreen 最大绿=$maxGreen)",
+                maxGreen > beforeGreen + PixelGainThreshold,
+            )
+            assertTrue(
+                "SGR 蓝色文本必须产生蓝色像素 (前=$beforeBlue 最大蓝=$maxBlue)",
+                maxBlue > beforeBlue + PixelGainThreshold,
             )
         } finally {
             runCatching { NativeBridge.destroySession(sessionId) }
