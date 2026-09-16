@@ -76,9 +76,17 @@ impl GlyphSynthesis {
 pub struct GlyphKey {
     pub font_id: fontdb::ID,
     pub glyph_id: u16,
-    pub pixel_size: u16,
+    /// 光栅尺寸的精确位模式：不同子像素尺寸必须命中不同缓存条目
+    /// （此前 `as u16` 截断使 36.75px 与 36.22px 共用同一键，
+    /// 缩放后取到错误尺寸位图，表现为模糊/字形不对）。
+    pub raster_size_bits: u32,
     /// Glyph synthesis applied at rasterization time (0 = none).
     pub synthesis: u8,
+}
+
+/// 由光栅尺寸派生缓存键分量：精确区分，不截断。
+pub(crate) fn raster_size_key(raster_size: f32) -> u32 {
+    raster_size.to_bits()
 }
 
 #[derive(Debug, Clone)]
@@ -1763,6 +1771,25 @@ mod tests {
         assert!(
             result.is_some(),
             "load after set_font_family should succeed"
+        );
+    }
+
+    #[test]
+    fn glyph_cache_key_distinguishes_subpixel_raster_sizes() {
+        // 36.75px 与 36.22px 截断同为 36：旧 `as u16` 键共用同一条目，
+        // 缩放后取到错误尺寸位图（模糊/字形不对）。键必须精确区分。
+        let big = 14.0f32 * 2.625;
+        let small = 13.8f32 * 2.625;
+        assert_eq!(big as u16, small as u16, "用例前提：截断后同键");
+        assert_ne!(
+            super::raster_size_key(big),
+            super::raster_size_key(small),
+            "不同光栅尺寸必须命中不同缓存条目"
+        );
+        assert_eq!(
+            super::raster_size_key(big),
+            super::raster_size_key(big),
+            "同尺寸必须命中同一条目"
         );
     }
 }
