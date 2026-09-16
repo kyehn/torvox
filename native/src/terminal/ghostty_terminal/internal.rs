@@ -1003,12 +1003,18 @@ impl super::GhosttyTerminal {
     }
 
     /// Map a ghostty cursor visual style to the app-level cursor style.
-    /// The spec pins the cursor to the default block, so every upstream
-    /// style maps to [`CursorStyle::Block`].
+    /// Hollow block renders as solid block for now (shape subdivision later).
+    /// Unknown future upstream styles fall back to block: the cursor must
+    /// always paint something (DESIGN 极端崩溃不适用于每帧可见元素）。
     fn cursor_style_from_snapshot(
-        _snapshot: &libghostty_vt::render::Snapshot<'_, '_>,
+        snapshot: &libghostty_vt::render::Snapshot<'_, '_>,
     ) -> CursorStyle {
-        CursorStyle::Block
+        use libghostty_vt::render::CursorVisualStyle;
+        match snapshot.cursor_visual_style() {
+            Ok(CursorVisualStyle::Bar) => CursorStyle::Bar,
+            Ok(CursorVisualStyle::Underline) => CursorStyle::Underline,
+            _ => CursorStyle::Block,
+        }
     }
 
     /// Resolve a cell color to `[r, g, b, 1.0]` floats, falling back to the

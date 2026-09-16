@@ -2053,3 +2053,26 @@ fn osc2_title_readable() {
         t.title()
     );
 }
+
+/// DECSCUSR 程序光标样式必须到达快照（对标 cursorStyleDefaultApplies；
+/// 空章节 from Termux testSetCursorStyle 的正文）。
+#[test]
+fn decscusr_cursor_style_reaches_snapshot() {
+    use crate::terminal::ghostty_terminal::CursorStyle;
+    // （DECSCUSR 参数，期望快照样式）
+    for (param, expected) in [
+        (2u8, CursorStyle::Block),
+        (3u8, CursorStyle::Underline),
+        (5u8, CursorStyle::Bar),
+        (0u8, CursorStyle::Block),
+    ] {
+        let mut styled = terminal();
+        styled.vt_write(format!("\x1b[{param} q").as_bytes());
+        styled.flush();
+        let snapshot = styled.take_snapshot();
+        assert_eq!(
+            snapshot.cursor_style, expected,
+            "DECSCUSR {param} must yield {expected:?}"
+        );
+    }
+}
