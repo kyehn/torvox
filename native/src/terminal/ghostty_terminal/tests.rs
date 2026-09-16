@@ -2019,3 +2019,22 @@ fn sgr_style_attributes_reach_snapshot_and_cell_data() {
         );
     }
 }
+
+/// 选择端点翻转必须返回同范围文本：拖动手柄越过锚点时调用方按
+/// 触摸顺序传递端点（start > end），不得返回空串或 panic
+///（对标 selectionDragAcrossAnchorFlips 的端点重排语义）。
+#[test]
+fn selection_text_flipped_endpoints() {
+    let mut t = terminal();
+    t.vt_write(b"hello world");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    let forward = t.selection_text((row0, 0), (row0, 4), false);
+    assert_eq!(forward, "hello", "forward selection baseline (got {forward:?})");
+    let flipped = t.selection_text((row0, 4), (row0, 0), false);
+    assert_eq!(
+        flipped, "hello",
+        "flipped endpoints must yield the same range (got {flipped:?})"
+    );
+}
