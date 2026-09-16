@@ -66,7 +66,7 @@ class BootstrapInstallerTest {
                 zos.write(content.toByteArray())
                 zos.closeEntry()
             }
-            add("bin/bash", "#!/bin/sh\necho bash\n")
+            add("bin/bash", "#!/system/bin/sh\necho bash\n")
             add("bin/gawk", "gawk-binary")
             add("bin/busybox", "busybox-binary")
             add("lib/libfoo.so", "libfoo")
@@ -137,7 +137,7 @@ class BootstrapInstallerTest {
         try {
             ZipOutputStream(zipFile.outputStream()).use { zos ->
                 zos.putNextEntry(ZipEntry("bin/bash"))
-                zos.write("#!/bin/sh\n".toByteArray())
+                zos.write("#!/system/bin/sh\n".toByteArray())
                 zos.closeEntry()
                 zos.putNextEntry(ZipEntry("../zipslip-pwned.txt"))
                 zos.write("PWNED\n".toByteArray())
@@ -167,7 +167,7 @@ class BootstrapInstallerTest {
                 zos.write(content.toByteArray())
                 zos.closeEntry()
             }
-            add("bin/bash", "#!/bin/sh\n")
+            add("bin/bash", "#!/system/bin/sh\n")
             add("usr/bin/env", "env-binary")
             add("lib/libfoo.so", "libfoo")
             add("SYMLINKS.txt", "bin/bash←usr/bin/bash\n")
@@ -310,7 +310,7 @@ class BootstrapInstallerTest {
         assertTrue(runBlocking { installer.install(buildFakeBootstrapZip(true)) }.isSuccess)
         val backupsAfterFirst = prefixDir.parentFile?.listFiles { file -> file.name.startsWith("${prefixDir.name}.") } ?: emptyArray()
         assertTrue("no backup after first install", backupsAfterFirst.isEmpty())
-        File(prefixDir, "bin/bash").writeText("#!/bin/sh\nfirst\n")
+        File(prefixDir, "bin/bash").writeText("#!/system/bin/sh\nfirst\n")
         assertTrue(runBlocking { installer.install(buildFakeBootstrapZip(true)) }.isSuccess)
         val backups = prefixDir.parentFile?.listFiles { file -> file.isDirectory && file.name.startsWith("${prefixDir.name}.") } ?: emptyArray()
         assertEquals("previous prefix kept as single random backup", 1, backups.size)
