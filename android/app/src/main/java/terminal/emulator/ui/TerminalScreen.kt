@@ -744,7 +744,7 @@ fun TerminalScreen(
                     val menuSurface = surfaceRef.value
                     if (menuSurface != null && selectionActive && !selection.dragging) {
                         // 选择菜单走 Surface 侧 PopupWindow（showSelectionMenu+menuAnchor 定位）；定位参考算法
-                        //（computeMenuPosition/TerminalScreenMenuTest）仅测试行使，不参与生产定位。
+                        // （computeMenuPosition/TerminalScreenMenuTest）仅测试行使，不参与生产定位。
                         val menuVisible = !selection.menuDismissed
                         if (menuVisible) {
                             val themeAccentArgb =
