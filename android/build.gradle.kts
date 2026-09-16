@@ -1,7 +1,7 @@
 plugins {
-  id("com.android.application") version "9.4.0" apply false
-  id("com.android.library") version "9.4.0" apply false
-  id("org.jetbrains.dokka") version "2.2.0" apply false
+  id("com.android.application") version "9.5.0-alpha05" apply false
+  id("com.android.library") version "9.5.0-alpha05" apply false
+  id("org.jetbrains.dokka") version "2.3.0-Beta" apply false
   id("org.jetbrains.kotlin.plugin.compose") version "2.4.20" apply false
   id("org.jetbrains.kotlinx.kover") version "0.9.9" apply false
   id("org.jetbrains.kotlin.plugin.serialization") version "2.4.20" apply false
@@ -11,10 +11,10 @@ plugins {
   id("dev.detekt") version "2.0.0-alpha.6" apply false
   id("androidx.benchmark") version "1.5.0" apply false
   id("androidx.baselineprofile") version "1.5.0" apply false
-  id("com.github.ben-manes.versions") version "0.62.0" apply false
+  id("io.github.ben-manes.versions") version "0.63.1" apply false
   id("com.ncorti.ktfmt.gradle") version "0.27.0" apply false
   id("org.jlleitschuh.gradle.ktlint") version "14.2.0" apply false
-  id("de.infix.testBalloon") version "1.0.1-K2.4.0" apply false
+  id("de.infix.testBalloon") version "1.1.0" apply false
 }
 
 if (
@@ -62,4 +62,4 @@ subprojects {
   }
 }
 
-apply(plugin = "com.github.ben-manes.versions")
+apply(plugin = "io.github.ben-manes.versions")
