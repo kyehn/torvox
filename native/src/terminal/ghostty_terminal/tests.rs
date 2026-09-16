@@ -2038,3 +2038,18 @@ fn selection_text_flipped_endpoints() {
         "flipped endpoints must yield the same range (got {flipped:?})"
     );
 }
+
+/// OSC 2 会话标题必须可读（对标 titleChangeEventAndValue 的值断言；
+/// 我方无标题事件通道且 DESIGN 未声明，只断言值本身）。
+#[test]
+fn osc2_title_readable() {
+    let mut t = terminal();
+    t.vt_write(b"\x1b]2;my title\x07");
+    t.flush();
+    assert_eq!(
+        t.title(),
+        "my title",
+        "OSC 2 title must be readable (got {:?})",
+        t.title()
+    );
+}
