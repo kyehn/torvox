@@ -16,6 +16,7 @@ import org.junit.Test
 import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.Bridge
+import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.getBridge
 import terminal.emulator.grantNotificationPermission
 
@@ -23,7 +24,10 @@ import terminal.emulator.grantNotificationPermission
  * 颜色像素验收：SGR 红色文本必须在屏幕上产生红色主导像素，
  * 而非只显示背景（回归“颜色文本只显示背景”类缺失）。
  *
- * 差分法：喂红色块前后截图计数比较，不依赖光标行列定位，
+ * 共享前台会话 + 直写 VT（feedTerminal）：静止门等启动风暴过后，
+ * shell 空闲无竞争。绝不经 shell 键入转义——shell 行编辑器把 ESC
+ * 当元键前缀吃掉，命令不成形、无输出，网格断言只能匹配到自己的
+ * 回显（空断言）。差分法：喂色块前后截图计数比较，不依赖光标行列定位，
  * 避开共享 shell 会话滚动带来的行号漂移。
  */
 class SgrColorPixelAcceptanceTest {
@@ -95,97 +99,79 @@ class SgrColorPixelAcceptanceTest {
         return count
     }
 
-    private fun isLightish(pixel: Int): Boolean {
-        // Dracula 前景近白：有字形即有亮像素（与红色与否无关）。
-        return Color.red(pixel) > 150 && Color.green(pixel) > 150 && Color.blue(pixel) > 150
-    }
+    private fun countRedPixels(shot: Bitmap): Int = countPixels(shot, ::isReddish)
 
-    private fun countLightPixels(shot: Bitmap): Int {
-        var count = 0
-        for (y in 0 until shot.height step 3) {
-            for (x in 0 until shot.width step 3) {
-                if (isLightish(shot.getPixel(x, y))) count++
-            }
-        }
-        return count
-    }
-
-    private fun countRedPixels(shot: Bitmap): Int {
-        var count = 0
-        // 步进 3 像素采样：红色文本块远大于此粒度，速度与稳定性兼顾。
-        for (y in 0 until shot.height step 3) {
-            for (x in 0 until shot.width step 3) {
-                if (isReddish(shot.getPixel(x, y))) count++
-            }
-        }
-        return count
-    }
-
+    /**
+     * 同步直绘验收：隔离会话 + 直接 render()，与运行时零竞争。
+     *
+     * 前序共享会话方案被证伪（标记要么被行编辑器吞、要么落格无法区分
+     * 解析与回显）：隔离会话自有 VT（shell 空闲无输出），feedTerminal
+     * 字节只过 Ghostty 解析器；render(sessionId) 把该会话 CellData
+     * 同步画到已挂载的真 surface（surface 是全局单例，与会话无关；
+     * render_cell_data 不检查 render_paused，故暂停运行时绘制后仍可直绘，
+     * 暂停仅用于消除运行时线程的帧竞争，finally 必恢复）。
+     * render() 返回值即判决：1=已呈现，0=空闲，-1=原生渲染失败。
+     */
     @Test
     fun sgrRedTextProducesRedPixels() {
-        val bridge = awaitBridge()
-        val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        val beforeCount = countRedPixels(before)
-        // 三色标记：若全无色=系统性丢色；若唯红无=红色特异。
-        // 真 ESC 字节经 echo 原样送显：不依赖 shell printf 解释转义，
-        // Ghostty 收到即解析（单生产者有序，无直写 VT 的提示行竞态）。
-        val markers = listOf("RED_LINE" to 31, "GREEN_LINE" to 32, "BLUE_LINE" to 34)
-        for ((marker, code) in markers) {
-            // echo 不解释参数：真 ESC 原字节直达 PTY，Ghostty 必须解析出颜色。
-            val fed = bridge.writeToPty("echo '\u001B[${code}m$marker\u001B[0m'\n".toByteArray())
-            assertTrue("颜色块命令必须送达 shell: $marker", fed)
-            val gridded =
-                UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
-                    bridge.getTerminalText()?.contains(marker) == true
+        awaitBridge() // 运行时就绪（surface 已挂载）即可；本测试不用其会话。
+        // 固定 24x80（与 VtCorrectness 同口径）：getGridRowsColsPacked 的行数
+        // 含回滚、列数是内容区折算值，不可直接用作新会话视口几何。
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val home = context.filesDir.resolve("sgr-test-home").apply { mkdirs() }.absolutePath
+        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", 2000)
+        assertTrue("隔离会话创建失败", sessionId != 0L)
+        try {
+            // 暂停运行时绘制，独占 surface；直接 render() 不受暂停影响。
+            NativeBridge.setRenderPaused(sessionId, true)
+            try {
+                val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
+                val beforeRed = countRedPixels(before)
+                // 隔离会话自有 VT（shell 空闲无输出）：直写字节只过 Ghostty 解析器。
+                val markers = listOf("RED_LINE" to 31, "GREEN_LINE" to 32, "BLUE_LINE" to 34)
+                for ((marker, code) in markers) {
+                    NativeBridge.feedTerminal(
+                        sessionId,
+                        "\u001B[${code}m$marker\u001B[0m\r\n".toByteArray(Charsets.UTF_8),
+                    )
+                    val gridded =
+                        UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+                            NativeBridge.getTerminalText(sessionId)?.replace("\n", "")?.contains(marker) == true
+                        }
+                    assertNotNull(
+                        "颜色块必须落格, 实际尾部: ${NativeBridge.getTerminalText(sessionId)?.takeLast(200)}",
+                        gridded,
+                    )
                 }
-            assertNotNull("颜色块必须落格, 实际尾部: ${bridge.getTerminalText()?.takeLast(200)}", gridded)
+                // 软件渲染滞后网格：每次截图前同步重绘本会话，覆盖运行时残帧；
+                // 绿/蓝计数用于鉴别“系统性丢色”与“单色特异”。
+                var after = device.takeScreenshot() ?: throw AssertionError("截图失败")
+                var redCount = countRedPixels(after)
+                var greenCount = countPixels(after, ::isGreenish)
+                var blueCount = countPixels(after, ::isBluish)
+                val deadline = android.os.SystemClock.uptimeMillis() + 20_000
+                while (redCount <= beforeRed + 20 && android.os.SystemClock.uptimeMillis() < deadline) {
+                    val rendered = NativeBridge.render(sessionId, 0, 0)
+                    android.util.Log.i("SgrDiag", "render rc=$rendered")
+                    Thread.sleep(1_500)
+                    after = device.takeScreenshot() ?: throw AssertionError("截图失败")
+                    redCount = countRedPixels(after)
+                    greenCount = countPixels(after, ::isGreenish)
+                    blueCount = countPixels(after, ::isBluish)
+                }
+                android.util.Log.i(
+                    "SgrDiag",
+                    "red=$redCount green=$greenCount blue=$blueCount (beforeRed=$beforeRed)",
+                )
+                assertTrue(
+                    "SGR 红色文本必须产生红色像素 (前=$beforeRed 后=$redCount 绿=$greenCount 蓝=$blueCount)",
+                    redCount > beforeRed + 20,
+                )
+            } finally {
+                runCatching { NativeBridge.setRenderPaused(sessionId, false) }
+            }
+        } finally {
+            runCatching { NativeBridge.destroySession(sessionId) }
         }
-        // 取证：滚动位置（视口内/回滚区）。
-        val fullText = bridge.getTerminalText().orEmpty()
-        val lines = fullText.split("\n")
-        val markerRows = lines.mapIndexedNotNull { index, line -> if (line.contains("LINE")) index else null }
-        for ((index, line) in lines.withIndex().take(50)) {
-            val rowText = line.replace("\u001B", "<ESC>")
-            android.util.Log.i("SgrGrid", "row$index=[$rowText]")
-        }
-        android.util.Log.i(
-            "SgrDiag",
-            "scrollback=${bridge.scrollbackLength()} rows=${lines.size} " +
-                "markerRows=$markerRows",
-        )
-        Thread.sleep(1_200)
-        // 软件渲染滞后网格：多次采样等红色呈现，同时记亮像素数以切分
-        // “面空白”（亮≈0）与“有字无色”（亮≫0 但红≈0）两个故障域。
-        var after = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        var afterCount = countRedPixels(after)
-        var lightCount = countLightPixels(after)
-        var greenCount = countPixels(after, ::isGreenish)
-        var blueCount = countPixels(after, ::isBluish)
-        val deadline = android.os.SystemClock.uptimeMillis() + 20_000
-        while (afterCount <= beforeCount + 20 && android.os.SystemClock.uptimeMillis() < deadline) {
-            android.util.Log.i("SgrDiag", "red=$afterCount green=$greenCount blue=$blueCount light=$lightCount")
-            Thread.sleep(2_500)
-            after = device.takeScreenshot() ?: throw AssertionError("截图失败")
-            afterCount = countRedPixels(after)
-            lightCount = countLightPixels(after)
-            greenCount = countPixels(after, ::isGreenish)
-            blueCount = countPixels(after, ::isBluish)
-        }
-        val finalSummary =
-            "final red=$afterCount green=$greenCount blue=$blueCount light=$lightCount (before=$beforeCount)"
-        android.util.Log.i("SgrDiag", finalSummary)
-        // 临时诊断：强制全量重绘（resize 使脏带失效），看红色是否出现。
-        // 出现=脏带失效 bug；仍无=着色器 fg 通路 bug。诊断完即删。
-        bridge.resize(25, 80)
-        Thread.sleep(3_000)
-        val redrawn = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        android.util.Log.i(
-            "SgrDiag",
-            "after-resize red=" + countRedPixels(redrawn) + " light=" + countLightPixels(redrawn),
-        )
-        assertTrue(
-            "SGR 红色文本必须产生红色像素 (前=$beforeCount 后=$afterCount 亮=$lightCount)",
-            afterCount > beforeCount + 20,
-        )
     }
 }

@@ -1783,3 +1783,88 @@ fn osc7_and_osc1337_report_working_directory() {
         "OSC 1337 CurrentDir must surface the working directory"
     );
 }
+
+/// SGR31 红色必须到达渲染 CellData 的前景（设备渲染通路的精确复刻）。
+/// 背景：设备上 SGR31/32/真彩红一律无红色像素，而 SGR34 蓝正常；
+/// 本测试在 host 复刻设备渲染输入（receive_cell_data），二分颜色通路。
+#[test]
+fn sgr31_red_reaches_cell_data_foreground() {
+    // 1) 默认配置：基线。
+    let mut plain = terminal();
+    plain.vt_write(b"\x1b[31mRED\x1b[0m");
+    plain.flush();
+    let (cells, _) = plain.receive_cell_data().expect("cell data");
+    let red_cell = cells
+        .iter()
+        .find(|c| c.codepoint == 'R' as u32)
+        .expect("R cell present");
+    assert!(
+        red_cell.foreground[0] > 0.9
+            && (red_cell.foreground[1] - 0.545).abs() < 0.05
+            && (red_cell.foreground[2] - 0.659).abs() < 0.05,
+        "默认配置 SGR31 前景须为内置红（粉调），实际 {:?}",
+        red_cell.foreground
+    );
+
+    // 2) Dracula 主题配置：复刻设备 apply_theme 后的精确状态。
+    let dracula_ansi: [[u8; 3]; 16] = [
+        [0x21, 0x22, 0x2C],
+        [0xFF, 0x55, 0x55],
+        [0x50, 0xFA, 0x7B],
+        [0xFF, 0xCB, 0x6B],
+        [0x82, 0xAA, 0xFF],
+        [0xC7, 0x92, 0xEA],
+        [0x8B, 0xE9, 0xFD],
+        [0xF8, 0xF9, 0xF2],
+        [0x54, 0x54, 0x54],
+        [0xFF, 0x6E, 0x6E],
+        [0x69, 0xFF, 0x94],
+        [0xFF, 0xCB, 0x6B],
+        [0xD6, 0xAC, 0xFF],
+        [0xFF, 0x92, 0xDF],
+        [0xA4, 0xFF, 0xFF],
+        [0xF8, 0xF8, 0xF2],
+    ];
+    let mut dracula =
+        GhosttyTerminal::new_with_theme(24, 80, 1000, [0x21, 0x21, 0x21], [0xF8, 0xF8, 0xF2], dracula_ansi)
+            .expect("dracula terminal");
+    dracula.vt_write(b"\x1b[31mRED\x1b[0m");
+    dracula.flush();
+    let (cells, _) = dracula.receive_cell_data().expect("cell data");
+    let red_cell = cells
+        .iter()
+        .find(|c| c.codepoint == 'R' as u32)
+        .expect("R cell present");
+    assert!(
+        (red_cell.foreground[0] - 1.0).abs() < 0.02
+            && (red_cell.foreground[1] - 0x55 as f32 / 255.0).abs() < 0.02
+            && (red_cell.foreground[2] - 0x55 as f32 / 255.0).abs() < 0.02,
+        "Dracula 配置 SGR31 前景须为 #FF5555，实际 {:?}",
+        red_cell.foreground
+    );
+}
+
+/// FFI 默认主题（Catppuccin Mocha）下 SGR31 必须到达 CellData 前景。
+/// 背景：设备上 initSession 会话（Mocha 默认主题）SGR 无显色；
+/// 复刻其精确主题与几何，定位颜色通路。
+#[test]
+fn sgr31_mocha_default_theme_reaches_foreground() {
+    let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
+    let mut mocha =
+        GhosttyTerminal::new_with_theme(44, 48, 1000, background, foreground, ansi)
+            .expect("mocha terminal");
+    mocha.vt_write(b"\x1b[31mRED\x1b[0m");
+    mocha.flush();
+    let (cells, _) = mocha.receive_cell_data().expect("cell data");
+    let red_cell = cells
+        .iter()
+        .find(|c| c.codepoint == 'R' as u32)
+        .expect("R cell present");
+    assert!(
+        (red_cell.foreground[0] - 243.0 / 255.0).abs() < 0.02
+            && (red_cell.foreground[1] - 139.0 / 255.0).abs() < 0.05
+            && (red_cell.foreground[2] - 168.0 / 255.0).abs() < 0.05,
+        "Mocha 主题 SGR31 前景须为 #F38BA8，实际 {:?}",
+        red_cell.foreground
+    );
+}
