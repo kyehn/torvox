@@ -1,6 +1,7 @@
 package terminal.emulator.ui
 
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -8,6 +9,8 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.bridge.PollEvent
+import terminal.emulator.bridge.pollEventJson
 
 /**
  * 系统 Shell PTY 端到端覆盖（对标 sylirre ShellSessionTest）。
@@ -101,5 +104,42 @@ class ShellPtyInstrumentedTest {
             val text = shellLines(sessionId, "pwd")
             assertTrue("工作目录必须可读, 实际尾部: ${text.takeLast(200)}", text.contains("/"))
         }
+    }
+
+    @Test
+    fun shellExitReportsWaitpidCode() {
+        withShellSession { sessionId ->
+            // 退出码必须透出 waitpid 实测值，而非固定值。
+            NativeBridge.feedPty(sessionId, "exit 42\n".toByteArray(Charsets.UTF_8))
+            val exit = awaitSessionExit(sessionId)
+            assertEquals("退出码必须透出 waitpid 实测值", 42, exit?.code)
+        }
+    }
+
+    @Test
+    fun shellKilledBySignalReports128PlusSignal() {
+        withShellSession { sessionId ->
+            // 信号致死按 128+信号值上报（SIGKILL=9），不得呈现为正常退出码 0。
+            NativeBridge.feedPty(sessionId, "kill -9 $$\n".toByteArray(Charsets.UTF_8))
+            val exit = awaitSessionExit(sessionId)
+            assertEquals("信号致死必须上报 128+信号值 (SIGKILL=9)", 137, exit?.code)
+        }
+    }
+
+    private fun awaitSessionExit(sessionId: Long): PollEvent.Exit? {
+        var exit: PollEvent.Exit? = null
+        val seen =
+            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                val json = runCatching { NativeBridge.pollEvent() }.getOrNull()
+                val event = json?.let { runCatching { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull() }
+                if (event is PollEvent.Exit && event.sessionId == sessionId) {
+                    exit = event
+                    true
+                } else {
+                    false
+                }
+            }
+        assertNotNull("会话退出事件必须上报: $sessionId", seen)
+        return exit
     }
 }
