@@ -1850,6 +1850,8 @@ constructor(
             override fun onDown(e: MotionEvent): Boolean {
                 // Reset sub-cell accumulator at gesture start so the first
                 // onScroll distance is measured from a clean origin.
+                // 同步本地偏移与运行时真源：渲染线程回底后本地仍旧值，下次手势若从旧值起算会跳变。
+                viewModel?.runtime?.activeSessionScrollOffset()?.let { scrollOffset = it }
                 scrollAccumulatorPx = 0f
                 viewModel?.runtime?.setScrollRemainderPx(0f)
                 return true
@@ -2612,7 +2614,11 @@ constructor(
         }
     }
 
-    fun getScrollOffset(): Int = scrollOffset
+    fun getScrollOffset(): Int {
+        // 运行时为真源：新输出在渲染线程将 entry 置 0，若只读本地字段则回车后视图永不回底。
+        // 手势期间本地与运行时同步更新（onScroll 双写），此处优先读运行时保证回底可见。
+        return viewModel?.runtime?.activeSessionScrollOffset() ?: scrollOffset
+    }
 
     fun getMaxScrollOffset(): Int = currentScrollbackLength()
 
