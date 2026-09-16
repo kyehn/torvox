@@ -104,4 +104,69 @@ class ToolbarPreferencesTest {
 
         assertEquals(preferences.defaultLayout().size, preferences.getLayout().size)
     }
+
+    @Test
+    fun `width and secondary labels round-trip`() {
+        val layout =
+            listOf(
+                ToolbarItem.Default(
+                    ToolbarKey.ESC,
+                    width = 2,
+                    secondaryLabel = "F1",
+                    secondarySequence = "OP",
+                ),
+                ToolbarItem.Custom(
+                    label = "git",
+                    sequence = "git status\n",
+                    id = "custom_7",
+                    width = 3,
+                    secondaryLabel = "log",
+                    secondarySequence = "git log\n",
+                ),
+            )
+        preferences.saveLayout(layout)
+
+        val restored = preferences.getLayout()
+        assertEquals(2, restored.size)
+        val esc = restored[0] as ToolbarItem.Default
+        assertEquals(ToolbarKey.ESC, esc.key)
+        assertEquals(2, esc.width)
+        assertEquals("F1", esc.secondaryLabel)
+        assertEquals("OP", esc.secondarySequence)
+        val git = restored[1] as ToolbarItem.Custom
+        assertEquals("custom_7", git.id)
+        assertEquals(3, git.width)
+        assertEquals("log", git.secondaryLabel)
+        assertEquals("git log\n", git.secondarySequence)
+    }
+
+    @Test
+    fun `custom macro and id survive round-trip`() {
+        val layout =
+            listOf(
+                ToolbarItem.Custom(
+                    label = "ll",
+                    sequence = "",
+                    id = "custom_9",
+                    macro = "ls -la",
+                ),
+            )
+        preferences.saveLayout(layout)
+
+        val restored = preferences.getLayout()
+        assertEquals(1, restored.size)
+        val custom = restored[0] as ToolbarItem.Custom
+        assertEquals("ll", custom.label)
+        assertEquals("custom_9", custom.id)
+        assertEquals("ls -la", custom.macro)
+    }
+
+    @Test
+    fun `empty saved layout falls back to the default layout`() {
+        // 当前语义：空布局与未设置一样读出默认布局（与 ghostty 的
+        // emptyOrderIsDistinctFromUnset 不同，本测试锁定现有行为）。
+        preferences.saveLayout(emptyList())
+
+        assertEquals(preferences.defaultLayout().size, preferences.getLayout().size)
+    }
 }
