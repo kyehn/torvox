@@ -40,7 +40,8 @@ android {
     signingConfig = signingConfigs.getByName("testkey")
 
     testInstrumentationRunner = "io.cucumber.android.runner.CucumberAndroidJUnitRunner"
-    testInstrumentationRunnerArguments["notCucumber"] = "true"
+    testInstrumentationRunnerArguments["cucumberUseAndroidJUnitRunner"] = "true"
+    testInstrumentationRunnerArguments["notClass"] = "com.termux.test.CucumberOptionsClass"
     ndk {
       abiFilters += listOf("arm64-v8a", "x86_64")
     }
