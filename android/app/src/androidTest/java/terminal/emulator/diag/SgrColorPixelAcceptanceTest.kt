@@ -158,7 +158,7 @@ class SgrColorPixelAcceptanceTest {
             )
             assertTrue(
                 "SGR 红色文本必须产生红色像素 (前=$beforeRed 最大红=$maxRed 绿=$maxGreen 蓝=$maxBlue)",
-                maxRed > beforeRed + RedPixelGainThreshold,
+                maxRed > beforeRed + PixelGainThreshold,
             )
         } finally {
             runCatching { NativeBridge.destroySession(sessionId) }
@@ -168,6 +168,6 @@ class SgrColorPixelAcceptanceTest {
     companion object {
         private const val SamplingRoundCount = 10
         private const val SamplingIntervalMillis = 400L
-        private const val RedPixelGainThreshold = 20
+        private const val PixelGainThreshold = 20
     }
 }
