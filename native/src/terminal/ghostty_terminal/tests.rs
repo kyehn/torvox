@@ -1974,3 +1974,48 @@ fn bell_channel_stays_empty_without_bel() {
         "plain output must not raise a bell event"
     );
 }
+
+/// SGR 3/4/9（斜体/下划线/删除线）必须到达快照层与 CellData 标志位。
+/// 背景：用户报告斜体等文本缺失无法显示；颜色有 VT 端到端覆盖
+///（sgr_tricolor_mocha_reaches_foreground），样式属性只有 pack_style_flags
+/// 单元测试（Style 结构体→bits），无 VT 解析端到端。
+#[test]
+fn sgr_style_attributes_reach_snapshot_and_cell_data() {
+    use crate::terminal::ghostty_terminal::cell_flags;
+    // （SGR 码，标记字符）
+    for (code, marker) in [(3u8, b'I'), (4u8, b'U'), (9u8, b'S')] {
+        let flag_bit = match code {
+            3 => cell_flags::ITALIC,
+            4 => cell_flags::UNDERLINE,
+            _ => cell_flags::STRIKETHROUGH,
+        };
+        let mut styled = terminal();
+        styled.vt_write(format!("\x1b[{code}m{}\x1b[0m", marker as char).as_bytes());
+        styled.flush();
+        let (cells, _) = styled.receive_cell_data().expect("cell data");
+        let marked = cells
+            .iter()
+            .find(|c| c.codepoint == marker as u32)
+            .expect("marked cell present");
+        assert_eq!(
+            (marked.flags >> flag_bit) & 1,
+            1,
+            "SGR{code} must set CellData flag bit {flag_bit}"
+        );
+        let snapshot = styled.take_snapshot();
+        let snap_cell = snapshot
+            .cells
+            .iter()
+            .find(|c| c.codepoint == marker as u32)
+            .expect("marked snapshot cell present");
+        let snapshot_set = match code {
+            3 => snap_cell.italic,
+            4 => snap_cell.underline,
+            _ => snap_cell.strikethrough,
+        };
+        assert!(
+            snapshot_set,
+            "SGR{code} must set snapshot style attribute"
+        );
+    }
+}
