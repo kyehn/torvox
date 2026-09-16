@@ -32,6 +32,13 @@ class PollEventTest {
     }
 
     @Test
+    fun `bell event decodes with event discriminator`() {
+        val event: PollEvent =
+            pollEventJson.decodeFromString("""{"event":"bell","session_id":7}""")
+        assertEquals(PollEvent.Bell(sessionId = 7L), event)
+    }
+
+    @Test
     fun `unknown fields are ignored`() {
         val event: PollEvent =
             pollEventJson.decodeFromString("""{"event":"clipboard","session_id":1,"text":"x","future_field":42}""")
@@ -53,6 +60,7 @@ class PollEventTest {
                 """{"event":"clipboard","session_id":1,"text":"x"}""",
                 """{"event":"exit","session_id":1,"code":0}""",
                 """{"event":"clipboard_read","session_id":1,"request_id":2,"selection":"x"}""",
+                """{"event":"bell","session_id":1}""",
             )
         samples.forEach { sample ->
             // Decoding succeeding is the assertion: a missing/renamed

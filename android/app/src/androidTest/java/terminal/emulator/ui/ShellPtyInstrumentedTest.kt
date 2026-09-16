@@ -126,6 +126,21 @@ class ShellPtyInstrumentedTest {
         }
     }
 
+    @Test
+    fun shellBellReportsEvent() {
+        withShellSession { sessionId ->
+            // BEL 经 shell 送显：printf 解释 \a 为真 BEL，VT 解析触发振铃上报。
+            NativeBridge.feedPty(sessionId, "printf '\\a\\n'\n".toByteArray(Charsets.UTF_8))
+            val seen =
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                    val json = runCatching { NativeBridge.pollEvent() }.getOrNull()
+                    val event = json?.let { runCatching { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull() }
+                    event is PollEvent.Bell && event.sessionId == sessionId
+                }
+            assertNotNull("BEL 振铃事件必须上报: $sessionId", seen)
+        }
+    }
+
     private fun awaitSessionExit(sessionId: Long): PollEvent.Exit? {
         var exit: PollEvent.Exit? = null
         val seen =

@@ -506,6 +506,16 @@ impl super::GhosttyTerminal {
                 "ghostty_terminal: on_clipboard_write callback registration failed: {error}"
             );
         }
+        // BEL 振铃走上游 on_bell 回调：VT 线程推送空消息，调用方在 flush 后收割。
+        // try_send 永不阻塞 VT 线程；满则丢弃单次振铃（振铃是瞬时提示，可合并）。
+        if let Err(error) = terminal.on_bell({
+            let bell_tx = config.bell_tx.clone();
+            move |_terminal| {
+                let _ = bell_tx.try_send(());
+            }
+        }) {
+            log::error!("ghostty_terminal: on_bell callback registration failed: {error}");
+        }
 
         let mut default_background = Self::byte_color_to_float(config.background_color);
         let mut default_foreground = Self::byte_color_to_float(config.foreground_color);
