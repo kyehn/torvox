@@ -643,10 +643,7 @@ fun TerminalScreen(
                                         viewModel.setFontSize(sizeSp.coerceIn(FONT_SIZE_MIN, FONT_SIZE_MAX))
                                     }
                                     onZoomPreview = { sizeSp ->
-                                        // ⑥ live pinch preview: push font
-                                        // metrics to native without
-                                        // resizing; ghostty rows/cols
-                                        // settle on finalize.
+                                        // 手势预览走安全路径:同步字形度量并重算网格,避免触摸格点与渲染格点不一致的撕裂。
                                         viewModel.runtime.setFontSizePreview(sizeSp)
                                     }
                                     post {
