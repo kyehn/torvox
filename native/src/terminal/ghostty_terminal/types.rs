@@ -20,13 +20,17 @@ pub struct SearchMatch {
     pub end_col: u32,
 }
 
-/// Cursor style. Ghostty is the single source of truth for cursor style,
-/// but the spec pins the cursor to the default block: the snapshot
-/// conversion maps every upstream style to [`CursorStyle::Block`].
+/// Cursor style. Ghostty is the single source of truth for cursor style
+/// (DECSCUSR); the snapshot conversion maps the upstream visual style
+/// 1:1, except hollow block which renders as solid block for now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum CursorStyle {
     #[default]
     Block,
+    /// 竖线光标（DECSCUSR 5、6）。
+    Bar,
+    /// 下划线光标（DECSCUSR 3、4）。
+    Underline,
 }
 
 /// Bit positions in `CellData::flags`, the single source of truth shared by
