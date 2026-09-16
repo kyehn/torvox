@@ -20,7 +20,6 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
-@Suppress("DEPRECATION")
 class AnrWatchDog(
     private val logDir: File,
     private val timeoutMs: Long = ANR_TIMEOUT_MILLIS,
