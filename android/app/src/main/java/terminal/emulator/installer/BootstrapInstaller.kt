@@ -328,7 +328,9 @@ class BootstrapInstaller(
             val renamed = staging.renameTo(prefix)
             if (!renamed) {
                 // Restore the old prefix so the previous bootstrap stays usable.
-                backup.renameTo(prefix)
+                if (!backup.renameTo(prefix)) {
+                    throw Exception("Atomic rename failed and rollback failed: staging=${staging.path} prefix=${prefix.path} backup=${backup.path}")
+                }
                 throw Exception("Atomic rename failed: ${staging.path} -> ${prefix.path}")
             }
         } else if (!staging.renameTo(prefix)) {
