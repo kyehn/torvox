@@ -96,6 +96,36 @@ class VtCorrectnessInstrumentedTest {
     }
 
     @Test
+    fun cursorMovementSemantics() {
+        withSession { sessionId ->
+            // 对标 sylirre EmulatorVtTest.cursorMovement：纯文本推进、CUP
+            // 绝对定位、CUB/CUF 相对移动，光标坐标必须跟随。
+            // 视口行列 0 起（getCursorViewportPacked 高 32 位行、低 32 位列）。
+            feedText(sessionId, "AB")
+            awaitCursor(sessionId, 0, 2, "纯文本后")
+            feedText(sessionId, "\u001B[5;10H")
+            awaitCursor(sessionId, 4, 9, "CUP 5;10后")
+            feedText(sessionId, "\u001B[3D")
+            awaitCursor(sessionId, 4, 6, "左移3后")
+            feedText(sessionId, "\u001B[2C")
+            awaitCursor(sessionId, 4, 8, "右移2后")
+        }
+    }
+
+    private fun awaitCursor(sessionId: Long, row: Int, col: Int, what: String) {
+        // 光标查询走 VT 状态（异步通道），轮询而非单次读取。
+        val seen =
+            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
+                val packed = NativeBridge.getCursorViewportPacked(sessionId)
+                packed >= 0 &&
+                    (packed shr 32).toInt() == row &&
+                    (packed and 0xffffffffL).toInt() == col
+            }
+        val packed = NativeBridge.getCursorViewportPacked(sessionId)
+        assertNotNull("光标必须到达($row,$col) [$what], 实际packed=$packed", seen)
+    }
+
+    @Test
     fun eraseDisplayClearsMarker() {
         withSession { sessionId ->
             val marker = "VT_ERASE_${System.currentTimeMillis() % 100000}"
