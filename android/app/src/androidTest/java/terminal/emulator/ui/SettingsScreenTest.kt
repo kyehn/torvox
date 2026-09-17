@@ -10,9 +10,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeUp
 import androidx.test.rule.GrantPermissionRule
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -60,9 +59,23 @@ class SettingsScreenTest {
 
     @Test
     fun settings_screen_switches_day_theme() {
-        composeTestRule.onNodeWithText("外观").performTouchInput { swipeUp() }
-        composeTestRule.waitForIdle()
-        composeTestRule.onNodeWithText("日间主题").assertExists()
+        // 日间主题行只在跟随系统开时渲染（模式跨测试持久化，先确保打开）。
+        composeTestRule
+            .onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasTestTag("TerminalThemeFollowSystemSwitch"))
+        val followSwitch = composeTestRule.onNodeWithTag("TerminalThemeFollowSystemSwitch")
+        val followOn =
+            followSwitch.fetchSemanticsNode().config.contains(SemanticsProperties.ToggleableState) &&
+                followSwitch.fetchSemanticsNode().config[SemanticsProperties.ToggleableState] ==
+                ToggleableState.On
+        if (!followOn) {
+            followSwitch.performClick()
+            composeTestRule.waitForIdle()
+        }
+        composeTestRule
+            .onNodeWithTag("SettingsLazyColumn")
+            .performScrollToNode(hasText("日间主题"))
+        composeTestRule.onNodeWithText("日间主题").assertIsDisplayed()
     }
 
     @Test
@@ -76,7 +89,10 @@ class SettingsScreenTest {
         composeTestRule.onNodeWithText("终端主题").assertIsDisplayed()
         composeTestRule.onNodeWithTag("SettingsLazyColumn").performScrollToNode(hasText("软件主题"))
         composeTestRule.onNodeWithText("软件主题").assertIsDisplayed()
-        composeTestRule.onNodeWithText("跟随系统").assertExists()
+        // 软件主题与终端主题各有一个跟随系统开关，断言存在即可。
+        assertTrue(
+            composeTestRule.onAllNodes(hasText("跟随系统")).fetchSemanticsNodes().isNotEmpty(),
+        )
     }
 
     @Test
