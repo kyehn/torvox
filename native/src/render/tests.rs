@@ -2656,3 +2656,62 @@ fn merged_cluster_emits_single_primary_without_ghost_overlays() {
         instances.len()
     );
 }
+
+#[test]
+fn same_glyph_at_different_cells_samples_identical_atlas_region() {
+    // 回归网（d 像 a 类字形混淆）：同一字符在不同单元格必须采样同一图集
+    // 区域，仅 quad 原点随位置偏移；UV 与位置无关。
+    use crate::terminal::ghostty_terminal::CellData;
+    let mut font_pipeline = ascii_font();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell = |row: u32, col: u32| CellData {
+        codepoint: 'd' as u32,
+        width: 1,
+        grapheme_extra: [0; 7],
+        foreground: [1.0; 4],
+        background: [0.0; 4],
+        underline_color: [1.0; 4],
+        flags: 0,
+        row,
+        col,
+    };
+    let cell_data = vec![cell(0, 0), cell(0, 5)];
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 99,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 6,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
+            atlas_width: TEST_ATLAS_SIZE,
+            atlas_height: TEST_ATLAS_SIZE,
+            search_highlights: &[],
+        },
+        &mut font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
+    assert_eq!(instances.len(), 2, "two cells must emit two quads");
+    assert_eq!(
+        instances[0].atlas_offset, instances[1].atlas_offset,
+        "same glyph must sample the same atlas region"
+    );
+    assert_eq!(
+        instances[0].atlas_size, instances[1].atlas_size,
+        "same glyph must sample the same atlas extent"
+    );
+    let expected_dx = 5.0 * cell_w;
+    assert!(
+        (instances[1].quad_origin[0] - instances[0].quad_origin[0] - expected_dx).abs() < 1e-4,
+        "quad origin must shift exactly by columns"
+    );
+}
