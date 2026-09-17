@@ -126,7 +126,7 @@ class SgrColorPixelAcceptanceTest {
             val beforeBlue = countPixels(before, ::isBluish)
             // 逐包呈现：落格（实时网格）不等于可呈现（CellData 推送滞后约一包），
             // 每包落格后立即呈现一次，把推送节拍泵起来，尾部最大采样才采得全。
-            val markers = listOf("RED_LINE" to 31, "GREEN_LINE" to 32, "BLUE_LINE" to 34)
+            val markers = listOf("EEE_RED" to 31, "EEE_GREEN" to 32, "EEE_BLUE" to 34)
             for ((marker, code) in markers) {
                 NativeBridge.feedTerminal(
                     sessionId,
