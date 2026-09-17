@@ -13,6 +13,14 @@ use foldhash::fast::RandomState;
 /// (high-alpha = opaque highlight, swap is visually clearer).
 /// Below this threshold, only blending is applied (subtle tint).
 const SEARCH_HIGHLIGHT_SWAP_ALPHA_THRESHOLD: u8 = 128;
+/// 竖线光标宽度占单元格宽度比例（DECSCUSR 竖线样式）。
+const BAR_CURSOR_WIDTH_FRACTION: f32 = 0.25;
+/// 下划线光标高度占单元格高度比例（DECSCUSR 下划线样式）。
+const UNDERLINE_CURSOR_HEIGHT_FRACTION: f32 = 0.15;
+/// 光标标记最小厚度像素，保证低分辨率下仍然可见。
+const CURSOR_MARKER_MINIMUM_THICKNESS: f32 = 1.0;
+/// 方块光标背景透明度系数（半透明覆盖保证原文可读）。
+const BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE: f32 = 0.7;
 use std::collections::HashMap;
 
 /// Cursor state passed to build_instances_from_cell_data() for cursor rendering.
@@ -534,16 +542,15 @@ fn append_row_instances(
         // 420dpi looks like a giant filled rectangle around a ~66px glyph in
         // a 79px cell.
 
-        if is_cursor {
-            // Block cursor (the only style): keep text readable by using the
-            // original foreground; only the background is replaced by cursor
-            // color (semi-transparent overlay).
+        if is_cursor && matches!(cursor.style, CursorStyle::Block) {
+            // 方块光标（独占样式）：保留原文前景保证可读，仅把背景
+            // 替换为光标色半透明覆盖。
             let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
             effective_background = [
                 cursor_color[0],
                 cursor_color[1],
                 cursor_color[2],
-                cursor_color[3] * 0.7,
+                cursor_color[3] * BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE,
             ];
         }
 
@@ -566,21 +573,49 @@ fn append_row_instances(
                 // block one row below the text" report (, verified
                 // on the emulator: VT cursor (0,38), block pixels at row 1).
                 if is_cursor {
+                    let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                    let marker_background = [
+                        cursor_color[0],
+                        cursor_color[1],
+                        cursor_color[2],
+                        cursor_color[3] * BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE,
+                    ];
                     let reference = font_pipeline
                         .glyph_information('M')
                         .or_else(|| font_pipeline.glyph_information('0'));
-                    match reference {
-                        Some(info) => {
-                            origin[1] += ascent_pixels * raster_scale - info.placement.top as f32;
-                            size[1] = (info.height as f32).max(1.0);
+                    // 参考字形盒：顶边与高度与非空路径一致，保证空
+                    // 单元格光标与文本行对齐。
+                    let (glyph_top, glyph_height) = match reference {
+                        Some(info) => (
+                            ascent_pixels * raster_scale - info.placement.top as f32,
+                            (info.height as f32).max(1.0),
+                        ),
+                        None => (
+                            0.0,
+                            ((ascent_pixels + font_pipeline.descent_pixels()) * raster_scale)
+                                .max(1.0),
+                        ),
+                    };
+                    match cursor.style {
+                        CursorStyle::Block => {
+                            origin[1] += glyph_top;
+                            size[1] = glyph_height;
                         }
-                        None => {
-                            // No reference glyph available: block spans the
-                            // em box from the cell top (no origin shift —
-                            // the cell top is already the em-box top).
-                            size[1] = ((ascent_pixels + font_pipeline.descent_pixels())
-                                * raster_scale)
-                                .max(1.0);
+                        CursorStyle::Bar => {
+                            // 竖线光标：单元格左侧细竖条，高度与字形盒一致。
+                            origin[1] += glyph_top;
+                            size[0] =
+                                (cell_w * BAR_CURSOR_WIDTH_FRACTION).max(CURSOR_MARKER_MINIMUM_THICKNESS);
+                            size[1] = glyph_height;
+                            effective_background = marker_background;
+                        }
+                        CursorStyle::Underline => {
+                            // 下划线光标：字形盒底部细横条，宽度覆盖整格。
+                            let marker_height = (cell_h * UNDERLINE_CURSOR_HEIGHT_FRACTION)
+                                .max(CURSOR_MARKER_MINIMUM_THICKNESS);
+                            origin[1] += glyph_top + glyph_height - marker_height;
+                            size[1] = marker_height;
+                            effective_background = marker_background;
                         }
                     }
                 }
@@ -661,14 +696,9 @@ fn append_row_instances(
             };
             let mut origin = glyph_quad_origin;
             let mut size = glyph_quad_size;
-            // Block cursor quad tracks the glyph bitmap: same
-            // height AND top edge as the glyph. Centering the cursor in the
-            // cell misaligned it with the text because the glyph sits on the
-            // font baseline, not at the cell center (reported as "input
-            // pointer not vertically aligned with the text"). The glyph's
-            // top edge inside the cell is exactly raw_bearing_y, so the
-            // cursor quad starts there and keeps the glyph's bearing.
-            if is_cursor {
+            // 方块光标与字形位图同高同顶边：字形坐在基线上而非
+            // 单元格中心，顶边即基线减放置顶部偏移。
+            if is_cursor && matches!(cursor.style, CursorStyle::Block) {
                 let cursor_h = glyph_h_px.max(1.0);
                 origin[1] += raw_bearing_y;
                 size[1] = cursor_h;
@@ -686,6 +716,50 @@ fn append_row_instances(
                 bearing: [bearing_x, bearing_y],
                 glyph_advance_width: info.advance_width,
             });
+
+            // 竖线/下划线光标：在字形之上追加细标记（原文颜色不动，
+            // 标记盖在上层保证可见）。
+            if is_cursor && !matches!(cursor.style, CursorStyle::Block) {
+                let cursor_color = cursor.color.unwrap_or([1.0, 1.0, 1.0, 1.0]);
+                let marker_background = [
+                    cursor_color[0],
+                    cursor_color[1],
+                    cursor_color[2],
+                    cursor_color[3] * BLOCK_CURSOR_BACKGROUND_ALPHA_SCALE,
+                ];
+                let glyph_top = glyph_quad_origin[1] + raw_bearing_y;
+                let glyph_height = glyph_h_px.max(1.0);
+                let (marker_origin, marker_size) = match cursor.style {
+                    CursorStyle::Bar => (
+                        [glyph_quad_origin[0], glyph_top],
+                        [
+                            (cell_w * BAR_CURSOR_WIDTH_FRACTION)
+                                .max(CURSOR_MARKER_MINIMUM_THICKNESS),
+                            glyph_height,
+                        ],
+                    ),
+                    _ => {
+                        let marker_height = (cell_h * UNDERLINE_CURSOR_HEIGHT_FRACTION)
+                            .max(CURSOR_MARKER_MINIMUM_THICKNESS);
+                        (
+                            [glyph_quad_origin[0], glyph_top + glyph_height - marker_height],
+                            [cell_w * cell_span, marker_height],
+                        )
+                    }
+                };
+                instances.push(CellInstance {
+                    quad_origin: marker_origin,
+                    atlas_offset: [0.0; 2],
+                    atlas_size: [0.0; 2],
+                    foreground: effective_foreground,
+                    background: marker_background,
+                    underline_color: cd.underline_color,
+                    quad_size: marker_size,
+                    flags: cd.flags as f32,
+                    bearing: [0.0; 2],
+                    glyph_advance_width: 0.0,
+                });
+            }
 
             // Grapheme continuation codepoints (combining marks, emoji ZWJ, etc.)
             // Rendered as overlay instances on top of the base glyph, positioned
@@ -1371,5 +1445,113 @@ mod tests {
                 "empty-cell block top {origin_y} != reference glyph top {expected_top}"
             );
         }
+    }
+    /// 竖线光标在空单元格必须是左侧细竖条，而非整格方块。
+    #[test]
+    fn bar_cursor_on_empty_cell_is_thin_vertical() {
+        let cursor = CellCursor {
+            row: 0,
+            col: 5,
+            visible: true,
+            style: crate::terminal::ghostty_terminal::CursorStyle::Bar,
+            color: Some([1.0, 1.0, 1.0, 1.0]),
+        };
+        let cells = vec![cell_data(0, 5, '\0', [1.0; 4], [0.0; 4], 0)];
+        let instances = build(&cells, cursor, &[]);
+        assert_eq!(instances.len(), 1, "empty bar cursor emits one quad");
+        let cell_w = 1024.0 / 80.0;
+        let cell_h = 1024.0 / 24.0;
+        let width = instances[0].quad_size[0];
+        let height = instances[0].quad_size[1];
+        let origin_y = instances[0].quad_origin[1];
+        assert!(
+            width <= cell_w * 0.5,
+            "bar width {width} must stay thin within cell {cell_w}"
+        );
+        assert!(
+            width >= CURSOR_MARKER_MINIMUM_THICKNESS - 0.01,
+            "bar width {width} must stay visible"
+        );
+        assert!(
+            height >= CURSOR_MARKER_MINIMUM_THICKNESS - 0.01,
+            "bar height {height} must stay visible"
+        );
+        assert!(
+            origin_y >= 0.0 && origin_y + height <= cell_h + 0.5,
+            "bar spans y [{origin_y}, {}] but row 0 ends at {cell_h}",
+            origin_y + height
+        );
+        assert!(
+            (instances[0].quad_origin[0] - 5.0 * cell_w).abs() <= 0.5,
+            "bar must sit at the cell left edge"
+        );
+    }
+    /// 下划线光标在空单元格必须是底部细横条，而非整格方块。
+    #[test]
+    fn underline_cursor_on_empty_cell_is_thin_horizontal() {
+        let cursor = CellCursor {
+            row: 0,
+            col: 7,
+            visible: true,
+            style: crate::terminal::ghostty_terminal::CursorStyle::Underline,
+            color: Some([1.0, 1.0, 1.0, 1.0]),
+        };
+        let cells = vec![cell_data(0, 7, '\0', [1.0; 4], [0.0; 4], 0)];
+        let instances = build(&cells, cursor, &[]);
+        assert_eq!(instances.len(), 1, "empty underline cursor emits one quad");
+        let cell_w = 1024.0 / 80.0;
+        let cell_h = 1024.0 / 24.0;
+        let width = instances[0].quad_size[0];
+        let height = instances[0].quad_size[1];
+        assert!(
+            (width - cell_w).abs() <= 0.5,
+            "underline width {width} must span the cell {cell_w}"
+        );
+        assert!(
+            height <= cell_h * 0.5,
+            "underline height {height} must stay thin within cell {cell_h}"
+        );
+        let bottom = instances[0].quad_origin[1] + height;
+        assert!(
+            bottom <= cell_h + 0.5,
+            "underline bottom {bottom} must stay inside row 0 ({cell_h})"
+        );
+    }
+    /// 非空单元格竖线光标：字形保持原文色并追加一枚标记。
+    #[test]
+    fn bar_cursor_on_glyph_cell_emits_glyph_plus_marker() {
+        let cursor = CellCursor {
+            row: 0,
+            col: 0,
+            visible: true,
+            style: crate::terminal::ghostty_terminal::CursorStyle::Bar,
+            color: Some([1.0, 1.0, 1.0, 1.0]),
+        };
+        let cells = vec![cell_data(0, 0, 'A', [1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)];
+        let instances = build(&cells, cursor, &[]);
+        assert_eq!(
+            instances.len(),
+            2,
+            "bar cursor on a glyph emits the glyph plus one marker"
+        );
+        assert_eq!(
+            instances[0].foreground,
+            [1.0, 0.0, 0.0, 1.0],
+            "glyph keeps its own foreground under a bar cursor"
+        );
+        assert_eq!(
+            instances[0].background,
+            [0.0, 0.0, 0.0, 1.0],
+            "glyph keeps its own background under a bar cursor"
+        );
+        assert_eq!(
+            instances[1].atlas_size,
+            [0.0, 0.0],
+            "marker is a solid color quad without glyph content"
+        );
+        assert!(
+            instances[1].quad_size[0] <= instances[0].quad_size[0] * 0.5,
+            "marker must stay thin relative to the glyph quad"
+        );
     }
 }
