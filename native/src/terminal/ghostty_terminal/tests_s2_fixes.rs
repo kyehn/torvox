@@ -398,3 +398,44 @@ fn search_returns_character_columns_not_byte_offsets() {
         m.end_col
     );
 }
+
+/// 对标上游大小写折叠：非 ASCII 字母不敏感匹配（拉丁/捷克/西里尔/希腊），
+/// 且重音不等价（cafe 不得命中 café）。
+#[test]
+fn search_all_in_scrollback_unicode_case_folding() {
+    let mut t = GhosttyTerminal::new(6, 80, 100).expect("terminal");
+    t.vt_write("Café café CAFÉ\n".as_bytes());
+    t.vt_write("Čau čau\n".as_bytes());
+    t.vt_write("Я я\n".as_bytes());
+    t.vt_write("Σ σ\n".as_bytes());
+    t.flush();
+    assert_eq!(
+        t.search_all_in_scrollback("café", false).len(),
+        3,
+        "café 不敏感须命中三行变体"
+    );
+    assert_eq!(
+        t.search_all_in_scrollback("café", true).len(),
+        1,
+        "café 敏感仅命中全小写"
+    );
+    assert_eq!(
+        t.search_all_in_scrollback("čau", false).len(),
+        2,
+        "čau 不敏感须命中大小写"
+    );
+    assert_eq!(
+        t.search_all_in_scrollback("я", false).len(),
+        2,
+        "西里尔不敏感须命中大小写"
+    );
+    assert_eq!(
+        t.search_all_in_scrollback("σ", false).len(),
+        2,
+        "希腊不敏感须命中大小写"
+    );
+    assert!(
+        t.search_all_in_scrollback("cafe", false).is_empty(),
+        "无重音不得命中重音文本"
+    );
+}
