@@ -53,19 +53,21 @@ class FontSwitchInstrumentedTest {
     }
 
     private fun openSettings() {
+        val drawerBtn =
+            device.findObject(By.desc("打开会话抽屉"))
+                ?: device.findObject(By.text("☰"))
+                ?: throw AssertionError("抽屉按钮必须存在")
+        // 旧英文定位（Open session drawer/Settings）永远找不到，
+        // ?.click 静默吞失败，改为找不到直接抛。
+        drawerBtn.click()
+        Thread.sleep(2000)
+        val settingsEntry =
+            device.findObject(By.text("设置"))
+                ?: throw AssertionError("设置入口必须存在")
+        settingsEntry.click()
         assertTrue(
-            "Drawer button (Open session drawer) must appear",
-            device.wait(Until.hasObject(By.desc("Open session drawer")), WAIT_TIMEOUT),
-        )
-        device.findObject(By.desc("Open session drawer"))?.click()
-        assertTrue(
-            "Settings entry must appear in the session drawer",
-            device.wait(Until.hasObject(By.text("Settings")), WAIT_TIMEOUT),
-        )
-        device.findObject(By.text("Settings"))?.click()
-        assertTrue(
-            "Settings screen must open (Font Family section visible)",
-            device.wait(Until.hasObject(By.text("Font Family")), WAIT_TIMEOUT),
+            "设置页必须打开（字体分区可见）",
+            device.wait(Until.hasObject(By.text("字体")), WAIT_TIMEOUT),
         )
     }
 
@@ -78,12 +80,12 @@ class FontSwitchInstrumentedTest {
         }
     }
 
-    /** Scroll until the Font Family row (with its Change action) is visible. */
+    /** 滚动到字体行（含更改按钮）使其可见。 */
     private fun scrollToChange() {
-        scrollTo("Font Family")
+        scrollTo("字体")
         // The title enters the viewport at its bottom edge; the row below it
-        // (Change action) may still be off-screen. One extra swipe fixes it.
-        if (device.findObject(By.text("Change")) == null) {
+        // 更改按钮可能仍在屏外，多滑一次。
+        if (device.findObject(By.text("更改")) == null) {
             val cx = device.displayWidth / 2
             device.swipe(cx, device.displayHeight * 3 / 4, cx, device.displayHeight / 4, 10)
             Thread.sleep(1200)
@@ -93,29 +95,29 @@ class FontSwitchInstrumentedTest {
     @Test
     fun settings_shows_font_family_section() {
         openSettings()
-        scrollTo("Font Family")
-        val found = device.findObject(By.text("Font Family"))
-        assertNotNull("Settings should show Font Family section", found)
+        scrollTo("字体")
+        val found = device.findObject(By.text("字体"))
+        assertNotNull("Settings should show 字体 section", found)
     }
 
     @Test
     fun settings_shows_change_button_for_font() {
         openSettings()
         scrollToChange()
-        val changeBtn = device.findObject(By.text("Change"))
-        assertNotNull("Should see Change button for font family", changeBtn)
+        val changeBtn = device.findObject(By.text("更改"))
+        assertNotNull("必须看到字体更改按钮", changeBtn)
     }
 
     @Test
     fun settings_shows_pick_font_file_button() {
         openSettings()
         scrollToChange()
-        val changeBtn = device.findObject(By.text("Change"))
-        assertNotNull("Should see Change button", changeBtn)
+        val changeBtn = device.findObject(By.text("更改"))
+        assertNotNull("必须看到更改按钮", changeBtn)
         changeBtn?.click()
         Thread.sleep(2000)
-        val pickBtn = device.findObject(By.textContains("Pick"))
-        assertNotNull("Should see Pick font file button in dialog", pickBtn)
+        val pickBtn = device.findObject(By.text("从文件选择…"))
+        assertNotNull("对话框必须出现从文件选择按钮", pickBtn)
     }
 
     @Test
@@ -123,8 +125,8 @@ class FontSwitchInstrumentedTest {
         openSettings()
         scrollToChange()
         val changeBtn =
-            checkNotNull(device.findObject(By.text("Change"))) {
-                "Change button must be visible in Font Family settings"
+            checkNotNull(device.findObject(By.text("更改"))) {
+                "字体设置中更改按钮必须可见"
             }
         changeBtn.click()
         Thread.sleep(2000)
@@ -141,8 +143,8 @@ class FontSwitchInstrumentedTest {
         openSettings()
         scrollToChange()
         val changeBtn =
-            checkNotNull(device.findObject(By.text("Change"))) {
-                "Change button must be visible in Font Family settings"
+            checkNotNull(device.findObject(By.text("更改"))) {
+                "字体设置中更改按钮必须可见"
             }
         changeBtn.click()
         Thread.sleep(2000)
@@ -157,8 +159,8 @@ class FontSwitchInstrumentedTest {
         openSettings()
         scrollToChange()
         val changeBtn =
-            checkNotNull(device.findObject(By.text("Change"))) {
-                "Change button must be visible in Font Family settings"
+            checkNotNull(device.findObject(By.text("更改"))) {
+                "字体设置中更改按钮必须可见"
             }
         changeBtn.click()
         Thread.sleep(2000)
@@ -171,8 +173,8 @@ class FontSwitchInstrumentedTest {
         openSettings()
         scrollToChange()
         val changeBtn =
-            checkNotNull(device.findObject(By.text("Change"))) {
-                "Change button must be visible in Font Family settings"
+            checkNotNull(device.findObject(By.text("更改"))) {
+                "字体设置中更改按钮必须可见"
             }
         changeBtn.click()
         Thread.sleep(3000)
@@ -191,8 +193,8 @@ class FontSwitchInstrumentedTest {
         openSettings()
         scrollToChange()
         val changeBtn =
-            checkNotNull(device.findObject(By.text("Change"))) {
-                "Change button must be visible in Font Family settings"
+            checkNotNull(device.findObject(By.text("更改"))) {
+                "字体设置中更改按钮必须可见"
             }
         changeBtn.click()
         Thread.sleep(2000)
