@@ -46,7 +46,7 @@ class BehaviorVerificationTest {
 
     private fun openSettings() {
         openSessionDrawer()
-        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.onNodeWithText("设置").performClick()
         device.waitForIdle(2000)
     }
 
@@ -117,7 +117,7 @@ class BehaviorVerificationTest {
     fun settings_back_navigates_to_terminal() {
         composeRule.waitForSession()
         openSessionDrawer()
-        composeRule.onNodeWithText("Settings").performClick()
+        composeRule.onNodeWithText("设置").performClick()
         device.waitForIdle(2000)
 
         composeRule.onNodeWithTag("SettingsScreen").assertIsDisplayed()

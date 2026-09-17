@@ -103,10 +103,10 @@ class ThemeInstrumentedTest {
         setTerminalThemeFollowSystem(enabled = true)
         scrollToNode("DayNightThemeSection")
         composeTestRule.waitUntil(timeoutMillis = 10_000) {
-            composeTestRule.onAllNodes(hasText("Day Theme")).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodes(hasText("日间主题")).fetchSemanticsNodes().isNotEmpty()
         }
         composeTestRule.waitUntil(timeoutMillis = 10_000) {
-            composeTestRule.onAllNodes(hasText("Night Theme")).fetchSemanticsNodes().isNotEmpty()
+            composeTestRule.onAllNodes(hasText("夜间主题")).fetchSemanticsNodes().isNotEmpty()
         }
     }
 
