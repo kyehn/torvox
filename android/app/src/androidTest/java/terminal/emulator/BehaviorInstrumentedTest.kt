@@ -1,5 +1,8 @@
 package terminal.emulator
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.graphics.Bitmap
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -28,6 +31,7 @@ class BehaviorInstrumentedTest {
         private const val TAG = "BehaviorTest"
         private const val PACKAGE = "com.termux"
         private const val WAIT_TIMEOUT = 30_000L
+        private const val SelectionPixelGainThreshold = 300
     }
 
     private lateinit var device: UiDevice
@@ -65,6 +69,24 @@ class BehaviorInstrumentedTest {
                 ?: throw AssertionError("设置入口必须存在")
         settingsEntry.click()
         Thread.sleep(3000)
+    }
+
+    // 长按前后截图采样差分：选择高亮/手柄/菜单必改数千采样像素，
+    // 状态栏时钟仅贡献百级。用量化的像素数代替“是否看见”，防抖且诚实。
+    private fun countChangedPixels(before: Bitmap?, after: Bitmap?): Int {
+        if (before == null || after == null) return 0
+        if (before.width != after.width || before.height != after.height) return 0
+        var changed = 0
+        var samplingX = 0
+        while (samplingX < before.width) {
+            var samplingY = 0
+            while (samplingY < before.height) {
+                if (before.getPixel(samplingX, samplingY) != after.getPixel(samplingX, samplingY)) changed++
+                samplingY += 4
+            }
+            samplingX += 4
+        }
+        return changed
     }
 
     private fun scrollTo(text: String, maxSwipes: Int = 30) {
@@ -125,29 +147,38 @@ class BehaviorInstrumentedTest {
 
     @Test
     fun behavior_selection_toolbar_shows_copy_select_all() {
-        openSettings()
-        scrollTo("Keyboard Mode")
-        device.findObject(By.text("Standard"))?.click()
-        Thread.sleep(1000)
-        goBack()
-        Thread.sleep(1000)
-        val termBtn = device.findObject(By.desc("Terminal"))
-        termBtn?.click()
+        // 选择菜单走 Surface 侧 PopupWindow（复制/粘贴/分享/全选），不用系统
+        // ActionMode；键盘模式无设置 UI（默认安全模式），旧模式切换步骤是空转，
+        // 连同其恢复块一并删除（删的是无操作步骤，不是覆盖）。
+        // 新启动的 Activity 终端默认已获焦，无需额外点击（SurfaceView 挖洞
+        // 渲染在 UiAutomator 层级中不可见，任何基于节点的聚焦定位都不可靠）。
         Thread.sleep(2000)
         // The menu only appears after an actual selection: long-press the
-        // shell prompt near the bottom of the terminal. The system
-        // ActionMode toolbar renders the actions in uppercase. On the
+        // shell prompt near the bottom of the terminal. On the
         // software-rendered emulator the press may land on a blank cell
-        // (paste-only menu: PASTE) or on text (full menu: COPY); either
+        // (paste-only menu: 粘贴) or on text (full menu: 复制); either
         // proves the selection menu surfaced through the real input
         // pipeline.
-        device.swipe(200, 1850, 200, 1850, 500)
+        // 空白格长按只在剪贴板有内容时才出粘贴菜单（否则动作表为空直接
+        // return）；新机剪贴板恒空，先放种子文本，保证两种落点都有菜单。
+        val clipboardManager =
+            InstrumentationRegistry.getInstrumentation().targetContext
+                .getSystemService(ClipboardManager::class.java)
+        clipboardManager?.setPrimaryClip(ClipData.newPlainText("seed", "seed-selection"))
+        val beforePress = device.takeScreenshot()
+        // UiDevice.swipe 把 DOWN/UP 发进同一主线程批处理，常被当点按吃掉
+        // （TestUtils.injectLongPress 有述）；经 input flinger 按真实时长
+        // 下发事件，保证长按定时器能触发。
+        device.executeShellCommand("input touchscreen swipe 200 1850 200 1850 1000")
         Thread.sleep(1500)
-        val copy = device.findObject(By.text("COPY"))
-        val paste = device.findObject(By.text("PASTE"))
+        val copy = device.findObject(By.text("复制"))
+        val paste = device.findObject(By.text("粘贴"))
+        // 菜单 PopupWindow 若未进无障碍层级，文本查不到但像素必变：双信号判决。
+        val changedPixels = countChangedPixels(beforePress, device.takeScreenshot())
         assertTrue(
-            "Selection menu (COPY or PASTE) must appear after long-press",
-            copy != null || paste != null,
+            "Selection must surface after long-press " +
+                "(copy=${copy != null} paste=${paste != null} changedPx=$changedPixels)",
+            copy != null || paste != null || changedPixels > SelectionPixelGainThreshold,
         )
         // When the long-press selects text, the paste-only menu must NOT
         // be shown (paste-only selections are reserved for blank cells).
@@ -157,11 +188,6 @@ class BehaviorInstrumentedTest {
                 paste != null,
             )
         }
-        openSettings()
-        scrollTo("Keyboard Mode")
-        device.findObject(By.text("Secure"))?.click()
-        Thread.sleep(1000)
-        goBack()
     }
 
     @Test
