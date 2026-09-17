@@ -236,6 +236,41 @@ class VtCorrectnessInstrumentedTest {
         }
     }
 
+    @Test
+    fun selectionTextExtractsFedWord() {
+        withSession { sessionId ->
+            // 对标 sylirre EmulatorVtTest.selectWordHighlightsAndExtractsText 的文本部分
+            //（反白属性因架构分叉不搬）：直写标记行，经 scrollbackLine 定位绝对行，
+            // selectionText 按网格坐标提取必须原样返回。
+            val marker = "SEL_WD_${System.currentTimeMillis() % 100000}"
+            feedText(sessionId, marker)
+            awaitText(sessionId, marker)
+            val depth = NativeBridge.scrollbackLength(sessionId)
+            var foundRow = -1
+            var foundCol = -1
+            for (row in 0..(depth + ROWS)) {
+                val line = NativeBridge.scrollbackLine(sessionId, row) ?: continue
+                val col = line.indexOf(marker)
+                if (col >= 0) {
+                    foundRow = row
+                    foundCol = col
+                    break
+                }
+            }
+            assertTrue("必须经 scrollbackLine 定位到标记行: $marker", foundRow >= 0)
+            val extracted =
+                NativeBridge.selectionText(
+                    sessionId,
+                    foundRow,
+                    foundCol,
+                    foundRow,
+                    foundCol + marker.length,
+                    false,
+                )
+            assertTrue("选区提取必须原样返回标记, 实际: [$extracted]", extracted == marker)
+        }
+    }
+
     private fun awaitCursor(sessionId: Long, row: Int, col: Int, what: String) {
         // 光标查询走 VT 状态（异步通道），轮询而非单次读取。
         val seen =
