@@ -96,6 +96,19 @@ class VtCorrectnessInstrumentedTest {
     }
 
     @Test
+    fun wideCharacterOccupiesTwoCells() {
+        withSession { sessionId ->
+            // 对标 sylirre EmulatorVtTest.wideCharacterOccupiesTwoCells +
+            // TESTING.md 简体中文显示宽度：CJK 宽字符必须占两列。
+            // A(1) + 中(2) + B(1) = 光标落在第 4 列；若按单列处理则为第 3 列。
+            feedText(sessionId, "A中B")
+            val text = awaitText(sessionId, "中")
+            assertTrue("宽字符必须可见", text.contains("中"))
+            awaitCursor(sessionId, 0, 4, "宽字符后")
+        }
+    }
+
+    @Test
     fun cursorMovementSemantics() {
         withSession { sessionId ->
             // 对标 sylirre EmulatorVtTest.cursorMovement：纯文本推进、CUP
