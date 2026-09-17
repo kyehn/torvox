@@ -1691,6 +1691,20 @@ fn kitty_placements_collects_visible_display() {
     assert_eq!(placement.image_rgba, vec![255, 0, 0, 255]);
 }
 
+/// Kitty 载荷杂散 NUL 不得丢图（对标上游 kittyStrayNulInPayloadStillStores：
+/// mpv --vo=kitty 在末块追加 NUL，ECMA-48 忽略控制字符，不得污染 base64）。
+#[test]
+fn kitty_graphics_stray_nul_still_stores() {
+    let mut terminal = terminal();
+    terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=8;/wAA\x00\x1b\\");
+    terminal.flush();
+    let image = terminal
+        .take_kitty_graphics_image(8)
+        .expect("杂散 NUL 不得丢弃整图");
+    assert_eq!((image.width, image.height), (1, 1));
+    assert_eq!(image.data, vec![255, 0, 0, 255]);
+}
+
 // ── : cursor/row coordinate consistency (D1 deterministic leg) ──
 
 /// The shell-echo path (prompt text + typed chars, no newline) must report a

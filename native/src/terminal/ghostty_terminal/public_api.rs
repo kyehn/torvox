@@ -143,12 +143,16 @@ impl super::GhosttyTerminal {
 
     pub fn vt_write(&mut self, data: &[u8]) {
         // Sanitize bytes that the underlying C library cannot handle.
-        // 0xF8–0xFF are not valid UTF-8 lead bytes and are not standard
-        // VT100 C1 control codes. The C parser may crash on long runs of
-        // these bytes, so we replace them with spaces to preserve input
-        // length while avoiding the crash.
+        // NUL is an ECMA-48 ignore control character: strip it before the
+        // parser sees it, otherwise one stray NUL (mpv --vo=kitty appends
+        // one per frame) corrupts the whole payload, e.g. drops a Kitty
+        // image entirely. 0xF8–0xFF are not valid UTF-8 lead bytes and are
+        // not standard VT100 C1 control codes. The C parser may crash on
+        // long runs of these bytes, so we replace them with spaces to
+        // preserve input length while avoiding the crash.
         let sanitized: Vec<u8> = data
             .iter()
+            .filter(|&&b| b != 0x00)
             .map(|&b| if b > 0xF7 { b' ' } else { b })
             .collect();
         let mut buf = Vec::with_capacity(data.len() + 4);
@@ -178,6 +182,10 @@ impl super::GhosttyTerminal {
         // the LF→CRLF converter inserts a spurious `\r`, producing `\r\r\n`.
         let mut prev: u8 = self.last_pty_write_byte;
         for &raw in data {
+            // NUL 是 ECMA-48 忽略控制字符：直接跳过，不计入 LF 前导判定。
+            if raw == 0x00 {
+                continue;
+            }
             // 与 vt_write 同规则清洗：0xF8–0xFF 非法 UTF-8 首字节会使 C 解析器崩溃，保长替换为空格。
             let sanitized = if raw > 0xF7 { b' ' } else { raw };
             // Convert a bare LF to CRLF, but only when the LF is not already
