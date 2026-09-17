@@ -1879,7 +1879,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 onScrollingStateChanged?.invoke(true)
                 // velocityY 为像素/秒,下移为正:直接除以行高换算为行/秒,与 onScroll 同向(下移 older)。
                 // 旧代码取反导致惯性方向与拖动方向相反,已修正。
-                val rowVelocity = (velocityY / cellHeight.coerceAtLeast(1f)).toInt()
+                val rowVelocity = flingRowsPerSecond(velocityY, cellHeight)
                 flingScroller.fling(
                     0,
                     scrollOffset,
@@ -3270,3 +3270,11 @@ internal fun applyScrollDistance(
     }
     return ScrollStep(newOffset, accumulator)
 }
+
+/**
+ * 惯性行速度换算（onFling 可测核心，与拖动同向）。
+ * velocityY 为手势约定（像素/秒，下移为正）：下移进入更早历史（正行速度），
+ * 上移回到更新内容（负行速度）。行高归一避免除零过速撞边。
+ */
+internal fun flingRowsPerSecond(velocityYPxPerSecond: Float, cellHeightPx: Float): Int =
+    (velocityYPxPerSecond / cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)).toInt()

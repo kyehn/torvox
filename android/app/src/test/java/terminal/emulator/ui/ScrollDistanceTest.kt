@@ -77,4 +77,27 @@ class ScrollDistanceTest {
         val step = applyScrollDistance(0f, -10f, 0f, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
         assertEquals(MIDDLE_OFFSET + 10, step.newOffset)
     }
+
+    @Test
+    fun `fling down keeps drag direction into older history`() {
+        // 下移为正：惯性行速度为正，与拖动下移（偏移增加）同向。
+        assertEquals(10, flingRowsPerSecond(600f, CELL_HEIGHT))
+    }
+
+    @Test
+    fun `fling up keeps drag direction into newer content`() {
+        // 上移为负：惯性行速度为负，与拖动上移（偏移减少）同向。
+        assertEquals(-10, flingRowsPerSecond(-600f, CELL_HEIGHT))
+    }
+
+    @Test
+    fun `drag and fling share the same direction sign`() {
+        // 同一物理方向：拖动增量符号与惯性速度符号一致，锁定方向错误回归。
+        val dragDown = applyScrollDistance(0f, -60f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        val flingDown = flingRowsPerSecond(600f, CELL_HEIGHT)
+        assert(dragDown.newOffset > MIDDLE_OFFSET && flingDown > 0)
+        val dragUp = applyScrollDistance(0f, 60f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        val flingUp = flingRowsPerSecond(-600f, CELL_HEIGHT)
+        assert(dragUp.newOffset < MIDDLE_OFFSET && flingUp < 0)
+    }
 }
