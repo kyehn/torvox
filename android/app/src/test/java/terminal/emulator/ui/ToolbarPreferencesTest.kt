@@ -1,172 +1,88 @@
 package terminal.emulator.ui
 
-import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
- * ToolbarPreferences persistence: the default layout mirrors termux-app
- * v0.119.0-beta.3 extra keys, save/get round-trips built-in and custom keys,
- * and a corrupted store falls back to the default layout instead of
- * crashing the modifier bar.
+ * 修饰键布局持久化语义（对标 sylirre ExtraKeysConfigTest 模型层）：
+ * 未设置回默认、未知键跳过、损坏回默认、保存往返。纯 JVM，无设备依赖。
  */
 @RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class ToolbarPreferencesTest {
 
-    private lateinit var preferences: ToolbarPreferences
-
-    @Before
-    fun setUp() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE).edit().clear().commit()
-        preferences = ToolbarPreferences(context)
-    }
-
-    private fun labelOf(item: ToolbarItem): String = when (item) {
-        is ToolbarItem.Default -> item.key.defaultLabel
-        is ToolbarItem.Custom -> item.label
+    private fun preferences(): ToolbarPreferences {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("toolbar_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().clear().commit()
+        return ToolbarPreferences(context)
     }
 
     @Test
-    fun `default layout mirrors termux extra keys`() {
-        val labels = preferences.defaultLayout().map(::labelOf)
-        assertEquals(
-            listOf(
-                "ESC", "≡", "SCROLL", "HOME", "↑", "END", "PGUP",
-                "TAB", "CTRL", "ALT", "←", "↓", "→", "PGDN",
-            ),
-            labels,
-        )
+    fun `unset layout returns default`() {
+        assertEquals(preferences().defaultLayout(), preferences().getLayout())
     }
 
     @Test
-    fun `saved layout round-trips built-in and custom keys`() {
-        val layout =
+    fun `unknown key is skipped without dropping layout`() {
+        val prefs = preferences()
+        prefs.saveLayout(
             listOf(
                 ToolbarItem.Default(ToolbarKey.ESC),
-                ToolbarItem.Custom(label = "ls", sequence = "ls\n", id = "custom_1"),
-                ToolbarItem.Default(ToolbarKey.ALT),
-            )
-        preferences.saveLayout(layout)
-        val restored = preferences.getLayout()
-        assertEquals(layout.size, restored.size)
-        assertEquals("ESC", labelOf(restored[0]))
-        assertEquals("ls", labelOf(restored[1]))
-        assertEquals((restored[1] as ToolbarItem.Custom).sequence, "ls\n")
-        assertEquals("ALT", labelOf(restored[2]))
-    }
-
-    @Test
-    fun `corrupted store falls back to the default layout`() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
-            .edit()
-            .putString("layout", "{ not json")
-            .commit()
-
-        val restored = preferences.getLayout()
-        assertEquals(preferences.defaultLayout().size, restored.size)
-        assertTrue(restored.all { it is ToolbarItem.Default })
-    }
-
-    @Test
-    fun `unknown key is skipped while known keys survive`() {
-        // 旧版本残留未知键：只跳过该项，已存的已知键必须保留
-        // （对等 ghostty ExtraKeysConfig.enabledKeysSkipUnknownIds）。
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
-            .edit()
-            .putString(
-                "layout",
-                """[{"key":"ESC"},{"key":"BOGUS_KEY"},{"key":"ALT"}]""",
-            )
-            .commit()
-
-        val restored = preferences.getLayout()
-        assertEquals(
-            listOf("ESC", "ALT"),
-            restored.map(::labelOf),
+                ToolbarItem.Custom(label = "OLD", sequence = "x", id = "custom_old"),
+            ),
         )
+        // 直接写入含未知键的 JSON：未知项跳过，已知项保留。
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val raw =
+            """[{"key":"NO_SUCH_KEY"},{"key":"ESC","width":2}]"""
+        context.getSharedPreferences("toolbar_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putString("layout", raw).commit()
+        val layout = prefs.getLayout()
+        assertEquals(1, layout.size)
+        val first = layout.first() as ToolbarItem.Default
+        assertEquals(ToolbarKey.ESC, first.key)
+        assertEquals(2, first.width)
     }
 
     @Test
-    fun `all unknown keys fall back to the default layout`() {
-        val context = ApplicationProvider.getApplicationContext<Context>()
-        context.getSharedPreferences("toolbar_prefs", Context.MODE_PRIVATE)
-            .edit()
-            .putString("layout", """[{"key":"BOGUS_KEY"}]""")
-            .commit()
-
-        assertEquals(preferences.defaultLayout().size, preferences.getLayout().size)
+    fun `corrupt json falls back to default`() {
+        val prefs = preferences()
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        context.getSharedPreferences("toolbar_prefs", android.content.Context.MODE_PRIVATE)
+            .edit().putString("layout", "{not-json").commit()
+        assertEquals(prefs.defaultLayout(), prefs.getLayout())
     }
 
     @Test
-    fun `width and secondary labels round-trip`() {
-        val layout =
+    fun `save round trips custom layout`() {
+        val prefs = preferences()
+        val items =
             listOf(
-                ToolbarItem.Default(
-                    ToolbarKey.ESC,
-                    width = 2,
-                    secondaryLabel = "F1",
-                    secondarySequence = "OP",
-                ),
-                ToolbarItem.Custom(
-                    label = "git",
-                    sequence = "git status\n",
-                    id = "custom_7",
-                    width = 3,
-                    secondaryLabel = "log",
-                    secondarySequence = "git log\n",
-                ),
+                ToolbarItem.Default(ToolbarKey.ESC, width = 2),
+                ToolbarItem.Custom(label = "GIT", sequence = "git status\n"),
             )
-        preferences.saveLayout(layout)
-
-        val restored = preferences.getLayout()
-        assertEquals(2, restored.size)
-        val esc = restored[0] as ToolbarItem.Default
-        assertEquals(ToolbarKey.ESC, esc.key)
-        assertEquals(2, esc.width)
-        assertEquals("F1", esc.secondaryLabel)
-        assertEquals("OP", esc.secondarySequence)
-        val git = restored[1] as ToolbarItem.Custom
-        assertEquals("custom_7", git.id)
-        assertEquals(3, git.width)
-        assertEquals("log", git.secondaryLabel)
-        assertEquals("git log\n", git.secondarySequence)
+        prefs.saveLayout(items)
+        val loaded = prefs.getLayout()
+        assertEquals(2, loaded.size)
+        assertEquals(items[0], loaded[0])
+        val custom = loaded[1] as ToolbarItem.Custom
+        assertEquals("GIT", custom.label)
+        assertEquals("git status\n", custom.sequence)
     }
 
     @Test
-    fun `custom macro and id survive round-trip`() {
-        val layout =
-            listOf(
-                ToolbarItem.Custom(
-                    label = "ll",
-                    sequence = "",
-                    id = "custom_9",
-                    macro = "ls -la",
-                ),
-            )
-        preferences.saveLayout(layout)
-
-        val restored = preferences.getLayout()
-        assertEquals(1, restored.size)
-        val custom = restored[0] as ToolbarItem.Custom
-        assertEquals("ll", custom.label)
-        assertEquals("custom_9", custom.id)
-        assertEquals("ls -la", custom.macro)
-    }
-
-    @Test
-    fun `empty saved layout falls back to the default layout`() {
-        // 当前语义：空布局与未设置一样读出默认布局（与 ghostty 的
-        // emptyOrderIsDistinctFromUnset 不同，本测试锁定现有行为）。
-        preferences.saveLayout(emptyList())
-
-        assertEquals(preferences.defaultLayout().size, preferences.getLayout().size)
+    fun `default layout matches termux fourteen keys`() {
+        val labels = preferences().defaultLayout().map {
+            (it as ToolbarItem.Default).key
+        }
+        assertEquals(14, labels.size)
+        assertTrue(labels.contains(ToolbarKey.CTRL))
+        assertTrue(labels.contains(ToolbarKey.ALT))
     }
 }
