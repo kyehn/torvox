@@ -115,6 +115,33 @@ mod tests {
         fn _assert_pod_zeroable<T: bytemuck::Pod + bytemuck::Zeroable>() {}
         _assert_pod_zeroable::<CellData>();
     }
+    #[test]
+    fn cell_flags_bits_are_disjoint_and_reserve_bit_four() {
+        // 对标上游闪烁/下划线位重叠回归：已定义位必须互不重叠，位 4 保留。
+        let defined_bits = [
+            cell_flags::BOLD,
+            cell_flags::ITALIC,
+            cell_flags::REVERSE,
+            cell_flags::UNDERLINE,
+            cell_flags::STRIKETHROUGH,
+            cell_flags::OVERLINE,
+            cell_flags::FAINT,
+            cell_flags::DOUBLE_UNDERLINE,
+        ];
+        let mut used_mask = 0u32;
+        for bit in defined_bits {
+            assert!(bit < 32, "样式位必须在单个 u32 内：{bit}");
+            assert_eq!(used_mask & (1 << bit), 0, "样式位重叠：{bit}");
+            used_mask |= 1 << bit;
+        }
+        assert_eq!(used_mask & (1 << 4), 0, "位 4 为保留位不得占用");
+        // 着色器装饰掩码与位定义一致（cell.wgsl 读取 8/32/64/128/256）。
+        assert_eq!(1 << cell_flags::UNDERLINE, 8);
+        assert_eq!(1 << cell_flags::STRIKETHROUGH, 32);
+        assert_eq!(1 << cell_flags::OVERLINE, 64);
+        assert_eq!(1 << cell_flags::FAINT, 128);
+        assert_eq!(1 << cell_flags::DOUBLE_UNDERLINE, 256);
+    }
 }
 
 /// Render snapshot of the terminal grid.
