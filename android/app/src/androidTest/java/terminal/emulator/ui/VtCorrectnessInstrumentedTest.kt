@@ -8,6 +8,8 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.UxTestUtils
 import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.bridge.PollEvent
+import terminal.emulator.bridge.pollEventJson
 
 /**
  * 真机 VT 直达通道的确定性正确性覆盖（对标 sylirre EmulatorVtTest）。
@@ -92,6 +94,28 @@ class VtCorrectnessInstrumentedTest {
                     lines[row].startsWith(marker),
                 )
             }
+        }
+    }
+
+    @Test
+    fun bellEventIsReportedViaVtFeed() {
+        withSession { sessionId ->
+            // 对标 sylirre EmulatorVtTest.bellEventIsReported：BEL 直写 VT
+            // 解析器（不经 shell），振铃事件必须经事件通道上报。
+            // 事件泵仅服务活跃会话：先切活跃再送显（ShellPty 同口径）。
+            NativeBridge.switchSession(sessionId)
+            feedText(sessionId, "\u0007")
+            val seen =
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                    // 事件通道单次消费：一次 poll 即解码，重复 poll 会丢事件。
+                    val json = runCatching { NativeBridge.pollEvent() }.getOrNull()
+                    val event =
+                        json?.let {
+                            runCatching { pollEventJson.decodeFromString<PollEvent>(it) }.getOrNull()
+                        }
+                    event is PollEvent.Bell && event.sessionId == sessionId
+                }
+            assertNotNull("BEL 振铃事件必须上报: $sessionId", seen)
         }
     }
 
