@@ -20,14 +20,9 @@ import terminal.emulator.MainActivity
 import terminal.emulator.waitForSession
 
 /**
- * Selection flows through the ViewModel + the system ActionMode menu.
- *
- * The original broadcast-backdoor variants (PARTIAL_SELECT / SELECT_ALL /
- * SHOW_PASTE) were rewritten because instrumentation broadcasts did not
- * reliably reach the dynamically registered TestBackdoorReceivers, and the
- * legacy "SelectionMenuOverlay" compose tag was removed when the menu moved
- * to the system ActionMode toolbar (Termux pattern). The system toolbar is
- * platform UI, so menu items are asserted via UiAutomator (By.text).
+ * Selection flows through the ViewModel + the Surface-side PopupWindow menu
+ * (复制/分享/全选/粘贴） — not the system ActionMode toolbar. The popup hosts
+ * real TextViews, so menu items are asserted via UiAutomator (By.text).
  */
 class SelectionEspressoTest {
     @get:Rule
@@ -55,13 +50,13 @@ class SelectionEspressoTest {
     fun partialSelectShowsSelectionMenu() {
         composeTestRule.waitForSession()
         startPartialSelection()
-        // The selection menu is the system ActionMode toolbar (platform
-        // text, uppercase by the toolbar style) — visible to UiAutomator.
+        // The selection menu is the app PopupWindow (platform text comes
+        // from R.string.copy/share/select_all) — visible to UiAutomator.
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        assertTrue("COPY action must be in the selection menu", device.wait(Until.hasObject(By.text("COPY")), 5000))
+        assertTrue("复制 action must be in the selection menu", device.wait(Until.hasObject(By.text("复制")), 5000))
         assertTrue(
-            "SELECT ALL action must be in the selection menu",
-            device.wait(Until.hasObject(By.text("SELECT ALL")), 5000),
+            "全选 action must be in the selection menu",
+            device.wait(Until.hasObject(By.text("全选")), 5000),
         )
     }
 
@@ -73,7 +68,7 @@ class SelectionEspressoTest {
         }
         composeTestRule.waitForIdle()
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        assertTrue("Selection menu must appear after Select All", device.wait(Until.hasObject(By.text("COPY")), 5000))
+        assertTrue("Selection menu must appear after Select All", device.wait(Until.hasObject(By.text("复制")), 5000))
     }
 
     @Test
@@ -107,8 +102,8 @@ class SelectionEspressoTest {
         composeTestRule.waitForIdle()
 
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
-        val copy = device.wait(Until.findObject(By.text("COPY")), 5000)
-        assertTrue("COPY action must be present", copy != null)
+        val copy = device.wait(Until.findObject(By.text("复制")), 5000)
+        assertTrue("复制 action must be present", copy != null)
         requireNotNull(copy).click()
         // Clipboard write happens on the native side after the action callback
         // — poll for it.
