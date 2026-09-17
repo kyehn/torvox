@@ -2266,4 +2266,27 @@ mod tests {
         let flags = GhosttyTerminal::pack_style_flags(&style);
         assert_eq!(flags, 1 << cell_flags::UNDERLINE);
     }
+
+    #[test]
+    fn pack_style_flags_curly_dashed_dotted_keep_underline_without_double() {
+        // 对标上游下划线样式回归：Curly/Dashed/Dotted 必须保留下划线，
+        // 且不得误置双下划线位。
+        for underline in [Underline::Curly, Underline::Dashed, Underline::Dotted] {
+            let style = Style {
+                underline,
+                ..Default::default()
+            };
+            let flags = GhosttyTerminal::pack_style_flags(&style);
+            assert_eq!(
+                flags & (1 << cell_flags::UNDERLINE),
+                1 << cell_flags::UNDERLINE,
+                "underline bit must survive"
+            );
+            assert_eq!(
+                flags & (1 << cell_flags::DOUBLE_UNDERLINE),
+                0,
+                "double bit must stay clear"
+            );
+        }
+    }
 }
