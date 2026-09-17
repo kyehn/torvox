@@ -50,7 +50,9 @@ class SelectionTapDismissTest {
         }
         val deadline = System.currentTimeMillis() + 20_000
         while (System.currentTimeMillis() < deadline) {
-            if (!bridge().getTerminalText().isNullOrBlank()) break
+            // 桥在会话孵化完成前为 null：容忍空桥继续轮询，而非首轮即抛。
+            val ready = runCatching { bridge() }.getOrNull()
+            if (!ready?.getTerminalText().isNullOrBlank()) break
             Thread.sleep(200)
         }
         Thread.sleep(1_000)
@@ -87,7 +89,9 @@ class SelectionTapDismissTest {
     @Test
     fun tapDismissesSelectionWithoutPhantomLongPress() {
         // Long-press on prompt text (row 0): creates a word selection.
-        device.swipe(300, 146, 300, 146, 54) // ~900ms hold
+        // UiDevice.swipe 把 DOWN/UP 发进同一主线程批处理，常被当点按吃掉；
+        // 经 input flinger 按真实时长下发，保证长按定时器能触发。
+        device.executeShellCommand("input touchscreen swipe 300 146 300 146 1000")
         Thread.sleep(800)
         val afterLongPress = selectionStateForTest()
         org.junit.Assert.assertTrue(
