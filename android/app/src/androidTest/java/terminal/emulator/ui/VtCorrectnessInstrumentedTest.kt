@@ -98,6 +98,34 @@ class VtCorrectnessInstrumentedTest {
     }
 
     @Test
+    fun scrollbackKeepsOverflowInOrder() {
+        withSession { sessionId ->
+            // 对标 sylirre scrollbackAndViewport + TESTING.md 回滚要求：
+            // 超屏旧行按序进入滚区（scrollbackLength 增长），新行在底部。
+            val stamp = System.currentTimeMillis() % 100000
+            val total = 60 // 远超 24 行视口，必溢出。
+            val payload = (1..total).joinToString("") { "SB_%03d_$stamp\r\n".format(it) }
+            feedText(sessionId, payload)
+            val last = "SB_%03d_$stamp".format(total)
+            awaitText(sessionId, last)
+            val grown =
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                    NativeBridge.scrollbackLength(sessionId) > 0
+                }
+            val depth = NativeBridge.scrollbackLength(sessionId)
+            assertNotNull("超屏输出必须进入回滚区, 实际深度=$depth", grown)
+            val full = NativeBridge.getTerminalText(sessionId).orEmpty()
+            val first = "SB_%03d_$stamp".format(1)
+            assertTrue(
+                "旧行必须按序在新行之前 (首尾均可见: $depth)",
+                full.contains(first) && full.indexOf(first) < full.indexOf(last),
+            )
+            val visibleTail = full.lines().takeLast(3).joinToString("\n")
+            assertTrue("新行必须显示在底部, 实际尾部: [$visibleTail]", visibleTail.contains(last))
+        }
+    }
+
+    @Test
     fun bellEventIsReportedViaVtFeed() {
         withSession { sessionId ->
             // 对标 sylirre EmulatorVtTest.bellEventIsReported：BEL 直写 VT
