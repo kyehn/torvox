@@ -216,6 +216,26 @@ class VtCorrectnessInstrumentedTest {
         }
     }
 
+    @Test
+    fun cursorKeyModeSwitchesViaDecPrivateMode() {
+        withSession { sessionId ->
+            // 对标 sylirre EmulatorVtTest.arrowKeyEncodingHonorsCursorKeyMode 的模式部分：
+            // DECCKM（DEC 私有模式 1）切换必须经 getMode 查询可见。
+            feedText(sessionId, "\u001B[?1h")
+            val enabled =
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
+                    NativeBridge.getMode(sessionId, 1, 0)
+                }
+            assertNotNull("DECCKM 置位后 getMode(1) 必须为真", enabled)
+            feedText(sessionId, "\u001B[?1l")
+            val disabled =
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
+                    !NativeBridge.getMode(sessionId, 1, 0)
+                }
+            assertNotNull("DECCKM 复位后 getMode(1) 必须为假", disabled)
+        }
+    }
+
     private fun awaitCursor(sessionId: Long, row: Int, col: Int, what: String) {
         // 光标查询走 VT 状态（异步通道），轮询而非单次读取。
         val seen =
