@@ -1828,25 +1828,12 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // Use floor() for symmetric slow thresholds: trunc 0.9→0 but -0.9→0 would stall
                 // negative drags; floor -0.9→-1 keeps both directions equally responsive.
                 // 注意符号:distanceY = previousY - currentY,下移为负,需取反累加才能使下移增加偏移。
-                scrollAccumulatorPx -= distanceY
-                val ch = cellHeight.coerceAtLeast(1f)
-                val rawAmount = floor((scrollAccumulatorPx / ch).toDouble()).toInt()
-                if (rawAmount != 0) {
-                    val newOffset = (scrollOffset + rawAmount).coerceIn(0, scrollbackLen)
-                    // Deduct only applied rows, then clamp the remainder at
-                    // the edges: truncated rows at a clamped edge would
-                    // otherwise keep accumulating and expose empty space.
-                    scrollAccumulatorPx -= (newOffset - scrollOffset) * ch
-                    if (
-                        (newOffset == 0 && scrollAccumulatorPx < 0f) ||
-                        (newOffset == scrollbackLen && scrollAccumulatorPx > 0f)
-                    ) {
-                        scrollAccumulatorPx = 0f
-                    }
-                    if (newOffset != scrollOffset) {
-                        scrollOffset = newOffset
-                        onScrollChanged?.invoke(scrollOffset)
-                    }
+                val scrollStep =
+                    applyScrollDistance(scrollAccumulatorPx, distanceY, cellHeight, scrollOffset, scrollbackLen)
+                scrollAccumulatorPx = scrollStep.newAccumulatorPx
+                if (scrollStep.newOffset != scrollOffset) {
+                    scrollOffset = scrollStep.newOffset
+                    onScrollChanged?.invoke(scrollOffset)
                 }
                 // Per-pixel remainder: mirror the sub-row accumulator to the
                 // renderer so content follows the finger within the row.
@@ -3250,4 +3237,36 @@ internal fun isFilePathCandidate(text: String, maxLength: Int = MAX_SELECTION_AC
     if (trimmed.isEmpty() || trimmed.length > maxLength) return false
     if (!trimmed.startsWith("/")) return false
     return !trimmed.contains("\u0000")
+}
+
+/** 滚动行高下限：避免除零，保持手势可用。 */
+internal const val MIN_CELL_HEIGHT_PX = 1f
+
+/** 滚动一步结果：钳制后的偏移与剩余亚行余量。 */
+internal data class ScrollStep(val newOffset: Int, val newAccumulatorPx: Float)
+
+/**
+ * 手指滚动增量换算（onScroll 可测核心，同向逻辑）。
+ * distanceY 为手势约定（previousY - currentY）：下移为负，进入更早历史（偏移增加）；
+ * 上移为正，回到更新内容（偏移减少）。亚行余量累积，整行才移动；边缘钳制并清余量。
+ */
+internal fun applyScrollDistance(
+    accumulatorPx: Float,
+    distanceY: Float,
+    cellHeightPx: Float,
+    scrollOffset: Int,
+    scrollbackLength: Int,
+): ScrollStep {
+    var accumulator = accumulatorPx - distanceY
+    val cellHeight = cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)
+    val rawAmount = floor((accumulator / cellHeight).toDouble()).toInt()
+    if (rawAmount == 0) {
+        return ScrollStep(scrollOffset, accumulator)
+    }
+    val newOffset = (scrollOffset + rawAmount).coerceIn(0, scrollbackLength)
+    accumulator -= (newOffset - scrollOffset) * cellHeight
+    if ((newOffset == 0 && accumulator < 0f) || (newOffset == scrollbackLength && accumulator > 0f)) {
+        accumulator = 0f
+    }
+    return ScrollStep(newOffset, accumulator)
 }
