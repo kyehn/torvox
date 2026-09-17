@@ -73,6 +73,29 @@ class VtCorrectnessInstrumentedTest {
     }
 
     @Test
+    fun newlineAndCarriageReturnSemantics() {
+        withSession { sessionId ->
+            // 对标 sylirre EmulatorVtTest.newlineAndCarriageReturn：
+            // \r\n 必须换行且回车，每标记独占一行行首。
+            val stamp = System.currentTimeMillis() % 100000
+            val first = "NLCR_A_$stamp"
+            val second = "NLCR_B_$stamp"
+            val third = "NLCR_C_$stamp"
+            feedText(sessionId, "$first\r\n$second\r\n$third")
+            val text = awaitText(sessionId, third)
+            val lines = text.lines()
+            for (marker in listOf(first, second, third)) {
+                val row = lines.indexOfFirst { it.contains(marker) }
+                assertTrue("必须定位到标记行: $marker", row >= 0)
+                assertTrue(
+                    "\\r\\n 后标记必须独占行首, 实际: [${lines[row]}]",
+                    lines[row].startsWith(marker),
+                )
+            }
+        }
+    }
+
+    @Test
     fun eraseDisplayClearsMarker() {
         withSession { sessionId ->
             val marker = "VT_ERASE_${System.currentTimeMillis() % 100000}"
