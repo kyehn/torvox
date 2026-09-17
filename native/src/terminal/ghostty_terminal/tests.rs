@@ -2090,3 +2090,20 @@ fn decscusr_cursor_style_reaches_snapshot() {
         );
     }
 }
+
+/// 回滚上限透传：建会参数必须约束回滚深度（设备 instrumented 测试的 host 复刻）。
+/// 上游按页粒度修剪（文档：实际值通常高于配置几十到一百行），故断言
+/// 上限生效（远小于无约束时的全部保留），而非精确等于配置值。
+#[test]
+fn scrollback_cap_is_honored() {
+    let mut terminal = GhosttyTerminal::new(24, 80, 10).expect("terminal");
+    for index in 0..2000 {
+        terminal.vt_write(format!("CAP_{index:04}\r\n").as_bytes());
+    }
+    terminal.flush();
+    let depth = terminal.scrollback_length();
+    assert!(
+        depth < 2000,
+        "回滚上限必须生效（2000 行输入不得全保留）, 实际={depth}",
+    );
+}

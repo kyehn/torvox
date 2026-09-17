@@ -98,6 +98,45 @@ class VtCorrectnessInstrumentedTest {
     }
 
     @Test
+    fun scrollbackHonorsConfiguredLineCount() {
+        // 对标 sylirre scrollbackHonorsConfiguredLineCount：回滚深度受建会
+        // 参数约束（withSession 固定 2000 行，此处自建小容量会话）。
+        // 上游按页粒度修剪（实际值可高于配置几十到一百行），故断言上限
+        // 生效（远小于无约束保留量）而非精确等于配置值。
+        val context = appContext()
+        val home = context.filesDir.resolve("vt-test-home").apply { mkdirs() }.absolutePath
+        val cap = 10
+        val sessionId = NativeBridge.initSession(24, 80, "/system/bin/sh", home, home, "", cap)
+        assertTrue("原生会话创建失败", sessionId != 0L)
+        try {
+            val stamp = System.currentTimeMillis() % 100000
+            // 上游按页粒度修剪（不满一页不剪）：必须喂足跨页量级才能观测到上限生效。
+            val total = 2000
+            val payload = (1..total).joinToString("") { "CAP_%04d_$stamp\r\n".format(it) }
+            feedText(sessionId, payload)
+            val last = "CAP_%04d_$stamp".format(total)
+            awaitText(sessionId, last)
+            // 上游修剪发生在滚动推进时：追加输出泵一次再判决。
+            val extra = "CAP_XTRA_$stamp"
+            feedText(sessionId, "$extra\r\n")
+            awaitText(sessionId, extra)
+            val depth = NativeBridge.scrollbackLength(sessionId)
+            assertTrue("回滚上限必须生效（$total 行不得全保留）, 实际深度=$depth", depth < total)
+            // 页粒度修剪的完成度因端而异（本机实测 241/2000）：只锁“砍掉一半以上”，
+            // 留足页大小方差余量，避免把上游页尺寸波动误判为产品回归。
+            assertTrue("修剪必须砍掉一半以上, 实际=$depth", depth < total / 2)
+            val full = NativeBridge.getTerminalText(sessionId).orEmpty()
+            assertTrue("新行必须保留", full.contains(extra))
+            assertTrue(
+                "超量旧行必须被淘汰: CAP_0001_$stamp",
+                !full.contains("CAP_%04d_$stamp".format(1)),
+            )
+        } finally {
+            runCatching { NativeBridge.destroySession(sessionId) }
+        }
+    }
+
+    @Test
     fun scrollbackKeepsOverflowInOrder() {
         withSession { sessionId ->
             // 对标 sylirre scrollbackAndViewport + TESTING.md 回滚要求：
