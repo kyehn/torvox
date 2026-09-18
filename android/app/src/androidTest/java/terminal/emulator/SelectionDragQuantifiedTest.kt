@@ -137,6 +137,25 @@ class SelectionDragQuantifiedTest {
         Thread.sleep(1_500)
     }
 
+    /**
+     * 真实手势滑动（屏坐标）：控制柄拖拽归属 surface 上方的 overlay 弹窗，
+     * 直接 dispatch 到 surface 的 DOWN 会被当成非控制柄点击而清选择；
+     * 经 UiAutomator 走窗口层级，overlay 消费拖拽（真实用户路径）。
+     * 入参为 surface 本地坐标，内部换算屏坐标。
+     */
+    private fun realSwipe(x0Local: Float, y0Local: Float, x1Local: Float, y1Local: Float, steps: Int) {
+        val loc = IntArray(2)
+        surfaceView().getLocationOnScreen(loc)
+        device.swipe(
+            (loc[0] + x0Local).toInt(),
+            (loc[1] + y0Local).toInt(),
+            (loc[0] + x1Local).toInt(),
+            (loc[1] + y1Local).toInt(),
+            steps,
+        )
+        Thread.sleep(150)
+    }
+
     private fun waitForMenuText(text: String, timeoutMs: Long = 4_000) =
         device.wait(Until.findObject(By.text(text)), timeoutMs)
 
@@ -217,15 +236,16 @@ class SelectionDragQuantifiedTest {
         var currentX = grabX
         repeat(4) {
             currentX += cwInt
-            UxTestUtils.injectDrag(
-                surfaceView(),
-                x0 = currentX - cwInt / 2,
-                y0 = grabY,
-                x1 = currentX,
-                y1 = grabY,
-                steps = 2,
-                stepDelayMs = 110,
+            // 每步一次真实滑动（down/move/up）：选择在步间保持，控制柄随末端走，
+            // 下一步 DOWN 落在新柄位重新抓住（与原注入步进语义一致）。
+            realSwipe(
+                x0Local = currentX - cwInt / 2,
+                y0Local = grabY,
+                x1Local = currentX,
+                y1Local = grabY,
+                steps = 4,
             )
+            Thread.sleep(110)
             val capture = UxTestUtils.screenshot(device)
             if (UxTestUtils.changedPixelCount(previous, capture) > 150) liveUpdates++
             previous = capture
@@ -268,14 +288,12 @@ class SelectionDragQuantifiedTest {
         // 全 surface 本地坐标；终点落入标记词内（约第 10 列、标记行中部）。
         val (handleX, handleY) = cellAnchorLocal(col = blankCol + 1, row = blankRow)
         val targetX = (10 + 0.5f) * cw
-        UxTestUtils.injectDrag(
-            surfaceView(),
-            x0 = handleX,
-            y0 = handleY,
-            x1 = targetX,
-            y1 = (markerRow + 0.5f) * ch,
-            steps = 6,
-            stepDelayMs = 100,
+        realSwipe(
+            x0Local = handleX,
+            y0Local = handleY,
+            x1Local = targetX,
+            y1Local = (markerRow + 0.5f) * ch,
+            steps = 12,
         )
 
         // The upgrade is observable exactly through the menu transition:
