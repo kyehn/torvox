@@ -239,7 +239,9 @@ class SelectionDragQuantifiedTest {
         assertTrue("双击后必须有选择末端 (col=$endCol row=$endGridRow)", endCol >= 0 && endGridRow >= 0)
         val depthNow = bridge().scrollbackLength()
         val endViewportRow = endGridRow - depthNow
-        val (grabX, grabY) = cellAnchorLocal(col = endCol, row = endViewportRow)
+        // END 锚点 = (endCol+1, endRow+1) 格点（positionAllHandles：END 取 endCol+1），
+        // 抓取必须落在命中矩形内，tap+2 猜测与少一格都会脱靶。
+        val (grabX, grabY) = cellAnchorLocal(col = endCol + 1, row = endViewportRow)
         val before = UxTestUtils.screenshot(device)
 
         var liveUpdates = 0
