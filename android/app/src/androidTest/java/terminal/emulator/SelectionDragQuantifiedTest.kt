@@ -101,7 +101,7 @@ class SelectionDragQuantifiedTest {
      */
     private fun prepareWordTarget(
         words: String,
-        tapWordOffset: Int = 2,
+        tapWordOffset: Int = 5,
         warmKeyboard: Boolean = false,
         targetViewportRow: Int = 7,
     ): Triple<Float, Float, Int> {
@@ -135,6 +135,13 @@ class SelectionDragQuantifiedTest {
         val surface = attachedSurface()
         val tapX = (col + 0.5f) * cw
         val tapY = (viewportRow + 0.5f) * ch
+        // surface 左侧 32dp 为抽屉边缘区（触摸直达丢弃）：点中词中部使其落在区外
+        // （MultiTap 同断言；col 2 会落入区内被吞）。
+        val density = composeTestRule.activity.resources.displayMetrics.density
+        assertTrue(
+            "点击必须在抽屉边缘区外 (x=$tapX)",
+            tapX > 32f * density,
+        )
         assertTrue("点击必须在 surface 内 (x=$tapX w=${surface.width})", tapX > 0f && tapX < surface.width)
         assertTrue("点击必须在 surface 内 (y=$tapY h=${surface.height})", tapY > 0f && tapY < surface.height)
         return Triple(tapX, tapY, viewportRow)
@@ -219,11 +226,15 @@ class SelectionDragQuantifiedTest {
 
     @Test
     fun word_longpress_shows_copy_selectall_without_paste() {
-        val (tapX, tapY, _) = prepareWordTarget("targetword targetword targetword")
+        val (tapX, tapY, tapRow) = prepareWordTarget("targetword targetword targetword")
         injectLongPress(attachedSurface(), tapX, tapY)
 
         // 应用仅简体中文：菜单为中文 PopupWindow（复制/分享/全选），英文 COPY 永不出现。
-        assertNotNull("COPY item missing for word long-press", waitForMenuText("复制"))
+        val gridDbg = currentText()?.takeLast(400)
+        assertNotNull(
+            "COPY item missing for word long-press (tap=$tapX,$tapY row=$tapRow grid=[$gridDbg])",
+            waitForMenuText("复制"),
+        )
         assertTrue("SELECT_ALL item missing", menuVisible("全选"))
         assertTrue(
             "word long-press must NOT show PASTE (the reported 'paste always visible' bug)",
