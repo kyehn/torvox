@@ -101,6 +101,15 @@ class PasteButtonInstrumentedTest {
                 text != null && (text.contains("$") || text.contains("#"))
             }
         assertNotNull("shell prompt 必须先就绪, 实际: ${currentText()?.takeLast(200)}", promptSeen)
+        // shell 耳聋探针：直写单字符验“写入→回显”链在此时健康；若 15s 无回显，
+        // 说明 shell 尚未消费 stdin（慢模拟器冷启动），等健康后再继续。
+        val echoProbe = "Q${System.currentTimeMillis() % 1000}"
+        bridge().writeToPty(echoProbe.toByteArray(Charsets.UTF_8))
+        val echoHealthy =
+            UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 200) {
+                currentText()?.replace("\n", "")?.contains(echoProbe) == true
+            }
+        assertNotNull("shell 回显链必须健康 (探针=$echoProbe)", echoHealthy)
         awaitQuiet()
         // 清屏：prompt 回到视口首行，其余行全空，长按落点必为空白。
         assertTrue("清屏送显失败", bridge().feedTerminal("\u001B[2J".toByteArray(Charsets.UTF_8)))
