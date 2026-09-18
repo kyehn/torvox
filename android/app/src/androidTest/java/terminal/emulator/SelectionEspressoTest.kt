@@ -68,6 +68,10 @@ class SelectionEspressoTest {
         // 唯一标记，全选后 selectedText 必须全部包含，不止菜单出现。
         val stamp = System.currentTimeMillis() % 100000
         val markers = listOf("SELL_ALL_A_$stamp", "SELL_ALL_B_$stamp", "SELL_ALL_C_$stamp")
+        // 桥单次读取：会话孵化中为 null，由调用方轮询重试（getBridge 契约）。
+        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+            composeTestRule.getBridge() != null
+        }
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
         assertTrue(
             "标记送显失败",
