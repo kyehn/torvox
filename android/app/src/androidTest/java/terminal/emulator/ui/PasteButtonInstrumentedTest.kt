@@ -134,6 +134,15 @@ class PasteButtonInstrumentedTest {
         val pasteText = composeTestRule.activity.getString(terminal.emulator.R.string.paste)
         val menu = device.wait(Until.findObject(By.text(pasteText)), MENU_TIMEOUT_MS)
         assertNotNull("粘贴菜单必须出现", menu)
+        // 诊断：转储窗口层级（菜单 bounds/可点击性）与截图，定位点击未投递根因。
+        val hierarchyFile = java.io.File("/sdcard/paste_menu_hierarchy.xml")
+        runCatching { device.dumpWindowHierarchy(hierarchyFile) }
+        runCatching { device.takeScreenshot(java.io.File("/sdcard/paste_menu_shot.png")) }
+        // 点击前重设剪贴板：排除菜单展示期间 clip 被冲掉的假设。
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("test", marker))
+        }
         menu.click()
 
         // 粘贴文本经 pty 进入 shell，回显在输入行（参考实现去换行比对）。
