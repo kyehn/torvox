@@ -186,6 +186,48 @@ class SelectionDragQuantifiedTest {
         Thread.sleep(150)
     }
 
+    /**
+     * 长按至选择出现再抬手（慢模拟器主线程卡顿会把固定 1200ms 长按吞成点击）：
+     * DOWN 后轮询选择激活（4s），见选择才 MOVE/UP；无选择则抬手重试一轮。
+     */
+    private fun longPressUntilSelected(x: Float, y: Float, attempts: Int = 2) {
+        repeat(attempts) {
+            val surface = attachedSurface()
+            val downTime = android.os.SystemClock.uptimeMillis()
+            surface.post {
+                surface.dispatchTouchEvent(
+                    android.view.MotionEvent.obtain(
+                        downTime,
+                        downTime,
+                        android.view.MotionEvent.ACTION_DOWN,
+                        x,
+                        y,
+                        0,
+                    ),
+                )
+            }
+            val selected =
+                UxTestUtils.pollUntilTrue(timeoutMs = 4_000, intervalMs = 100) {
+                    var active = false
+                    InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                        active = composeTestRule.activity.terminalViewModel.state.value.selection.active
+                    }
+                    active
+                }
+            val now = android.os.SystemClock.uptimeMillis()
+            surface.post {
+                surface.dispatchTouchEvent(
+                    android.view.MotionEvent.obtain(downTime, now, android.view.MotionEvent.ACTION_MOVE, x + 1f, y + 1f, 0),
+                )
+                surface.dispatchTouchEvent(
+                    android.view.MotionEvent.obtain(downTime, now, android.view.MotionEvent.ACTION_UP, x + 1f, y + 1f, 0),
+                )
+            }
+            Thread.sleep(300)
+            if (selected != null && menuVisible("粘贴")) return
+        }
+    }
+
     private fun waitForMenuText(text: String, timeoutMs: Long = 4_000) =
         device.wait(Until.findObject(By.text(text)), timeoutMs)
 
@@ -323,7 +365,7 @@ class SelectionDragQuantifiedTest {
         assertTrue("长按行尾必须空白 (行=$blankRow 内容=[$blankLine])", blankLine.drop(blankCol).isBlank())
         val blankX = (blankCol + 0.5f) * cw
         val blankY = (blankRow + 0.5f) * ch
-        injectLongPress(surface, blankX, blankY)
+        longPressUntilSelected(blankX, blankY)
         assertNotNull("precondition: PASTE-only menu missing", waitForMenuText("粘贴"))
         assertTrue("precondition: COPY must be absent on blank selection", !menuVisible("复制"))
 
@@ -343,8 +385,18 @@ class SelectionDragQuantifiedTest {
         // The upgrade is observable exactly through the menu transition:
         // paste-only {PASTE} → full {COPY,...} with non-empty text.
         val copy = waitForMenuText("复制", 4_000)
+        var endDbg = "?"
+        var startDbg = "?"
+        var draggingDbg = "?"
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            val selection = activity.terminalViewModel.state.value.selection
+            startDbg = "${selection.start?.row},${selection.start?.col}"
+            endDbg = "${selection.end?.row},${selection.end?.col}"
+            draggingDbg = "${selection.dragging} active=${selection.active} pasteOnly=${selection.pasteOnly}"
+        }
         assertNotNull(
-            "D7.5 failed: dragging a blank-selection handle did not grow a text range",
+            "D7.5 failed: dragging a blank-selection handle did not grow a text range " +
+                "(start=[$startDbg] end=[$endDbg] $draggingDbg)",
             copy,
         )
         assertTrue("grown range has no selectable text", requireNotNull(copy).isEnabled)
