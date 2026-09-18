@@ -506,6 +506,25 @@ impl super::GhosttyTerminal {
                 "ghostty_terminal: on_clipboard_write callback registration failed: {error}"
             );
         }
+        // XTWINOPS 尺寸查询（CSI 14/16/18t）走上游 on_size 回调：行列取终端
+        // 实时值，单元格像素取本层回填的共享几何（Resize 填默认，
+        // SetCellPixelSize 填真实字形度量）。无锁读取，永不阻塞 VT 线程。
+        if let Err(error) = terminal.on_size({
+            let cell_size_px = config.cell_size_px.clone();
+            move |terminal| {
+                let (Ok(rows), Ok(cols)) = (terminal.rows(), terminal.cols()) else {
+                    return None;
+                };
+                Some(libghostty_vt::terminal::SizeReportSize {
+                    rows,
+                    columns: cols,
+                    cell_width: cell_size_px.0.load(Ordering::Acquire),
+                    cell_height: cell_size_px.1.load(Ordering::Acquire),
+                })
+            }
+        }) {
+            log::error!("ghostty_terminal: on_size callback registration failed: {error}");
+        }
         // BEL 振铃走上游 on_bell 回调：VT 线程推送空消息，调用方在 flush 后收割。
         // try_send 永不阻塞 VT 线程；满则丢弃单次振铃（振铃是瞬时提示，可合并）。
         if let Err(error) = terminal.on_bell({
@@ -715,6 +734,10 @@ impl super::GhosttyTerminal {
                             terminal.resize(cols, rows, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT)
                         {
                             log::error!("ghostty_terminal: resize failed: {error}");
+                        } else {
+                            // 整网重调回填默认几何，XTWINOPS 应答与上游实际一致。
+                            config.cell_size_px.0.store(DEFAULT_CELL_WIDTH, Ordering::Release);
+                            config.cell_size_px.1.store(DEFAULT_CELL_HEIGHT, Ordering::Release);
                         }
                         // zelland row-cache pattern: row count changed on resize,
                         // the row cache is stale and must be invalidated.
@@ -736,6 +759,9 @@ impl super::GhosttyTerminal {
                         }
                         if let Err(error) = terminal.resize(cols, rows, cell_width, cell_height) {
                             log::error!("ghostty_terminal: cell resize failed: {error}");
+                        } else {
+                            config.cell_size_px.0.store(cell_width, Ordering::Release);
+                            config.cell_size_px.1.store(cell_height, Ordering::Release);
                         }
                     }
                     Command::ScrollViewport(delta) => {

@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -58,6 +58,10 @@ impl super::GhosttyTerminal {
         let panicked_for_run = panicked.clone();
         let alt_screen_active = Arc::new(AtomicBool::new(false));
         let alt_screen_active_for_run = alt_screen_active.clone();
+        let cell_size_px_for_run = Arc::new((
+            AtomicU32::new(DEFAULT_CELL_WIDTH),
+            AtomicU32::new(DEFAULT_CELL_HEIGHT),
+        ));
         let handle = thread::Builder::new()
             .name("ghostty-terminal".into())
             .spawn(move || {
@@ -74,6 +78,7 @@ impl super::GhosttyTerminal {
                         response_buffer: pty_for_run,
                         snapshot_rebuild_count: snapshot_rebuild_count_for_run,
                         alt_screen_active: alt_screen_active_for_run,
+                        cell_size_px: cell_size_px_for_run,
                         cell_data_tx: Some(cell_data_tx),
                         cwd_tx,
                         clipboard_tx,
