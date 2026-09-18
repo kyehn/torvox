@@ -55,23 +55,63 @@ class SelectionDragQuantifiedTest {
     private fun surfaceView(): android.view.View = findTerminalSurface(composeTestRule.activity)
 
     /**
-     * Screen coordinates of the anchor point of a grid cell: column [col], row-bottom boundary of
-     * viewport row [row]. Handles hang below their cell corners, so this is where a grab lands on the
-     * handle body.
+     * 物理单元格（运行时触摸数学同口径：桥逻辑值 × density；直接拿桥值当 px
+     * 会小 2~3 倍——历史拖拽测试在该错尺度上“恰好”自洽，绝对点击则整体漂移）。
      */
-    private fun cellAnchorOnScreen(col: Int, row: Int): Pair<Int, Int> {
-        val surface = surfaceView()
-        val loc = IntArray(2)
-        surface.getLocationOnScreen(loc)
-        val cw = bridge().getCellWidth()
-        val ch = bridge().getCellHeight()
-        assertTrue("cell metrics unavailable (cw=$cw ch=$ch)", cw > 0f && ch > 0f)
-        // Viewport rows are 0-based from the top of the grid; add one row so
-        // the anchor sits at the row's bottom boundary where handles hang.
-        return Pair(
-            (loc[0] + col * cw).toInt(),
-            (loc[1] + (row + 1) * ch).toInt(),
+    private fun cellPx(): Pair<Float, Float> {
+        val density = composeTestRule.activity.resources.displayMetrics.density
+        val cw = bridge().getCellWidth() * density
+        val ch = bridge().getCellHeight() * density
+        assertTrue("cell metrics unavailable ($cw x $ch)", cw > 0f && ch > 0f)
+        return Pair(cw, ch)
+    }
+
+    /** surface 本地坐标的单元格锚点：第 [col] 列、视口 [row] 行底边（控制柄悬挂处）。 */
+    private fun cellAnchorLocal(col: Int, row: Int): Pair<Float, Float> {
+        val (cw, ch) = cellPx()
+        return Pair(col * cw, (row + 1) * ch)
+    }
+
+    private fun currentText(): String? {
+        runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
+        return composeTestRule.getBridge()?.getTerminalText()
+    }
+
+    /**
+     * 经 shell 真实执行打印 [words]，返回词内点击的 surface 本地坐标与视口行。
+     * prompt 门控 + 回显轮询：冷启动 shell 未消费 stdin 前的输入会丢失（粘贴案），
+     * 盲 sleep 后按绝对屏坐标点是双重不可靠——行列由落格位置算出。
+     */
+    private fun prepareWordTarget(words: String, tapWordOffset: Int = 2): Triple<Float, Float, Int> {
+        val promptSeen =
+            UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
+                val text = currentText()
+                text != null && (text.contains("$") || text.contains("#"))
+            }
+        assertNotNull("shell prompt 必须先就绪", promptSeen)
+        assertTrue(
+            "printf 送显失败",
+            bridge().writeToPty("printf '$words\\n'\n".toByteArray(Charsets.UTF_8)),
         )
+        val echoed =
+            UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+                currentText()?.contains(words) == true
+            }
+        assertNotNull("shell 必须执行并回显: $words", echoed)
+        val depth = bridge().scrollbackLength()
+        val lines = currentText().orEmpty().lines()
+        val index = lines.indexOfFirst { it.contains(words) }
+        assertTrue("输出行定位失败: $words", index >= 0)
+        val viewportRow = index - depth
+        assertTrue("输出必须在可见视口内 (行=$viewportRow)", viewportRow >= 0)
+        val col = lines[index].indexOf(words) + tapWordOffset
+        val (cw, ch) = cellPx()
+        val surface = surfaceView()
+        val tapX = (col + 0.5f) * cw
+        val tapY = (viewportRow + 0.5f) * ch
+        assertTrue("点击必须在 surface 内 (x=$tapX w=${surface.width})", tapX > 0f && tapX < surface.width)
+        assertTrue("点击必须在 surface 内 (y=$tapY h=${surface.height})", tapY > 0f && tapY < surface.height)
+        return Triple(tapX, tapY, viewportRow)
     }
 
     private fun waitForMenuText(text: String, timeoutMs: Long = 4_000) =
@@ -114,13 +154,8 @@ class SelectionDragQuantifiedTest {
 
     @Test
     fun word_longpress_shows_copy_selectall_without_paste() {
-        val b = bridge()
-        b.writeToPty("printf 'targetword targetword targetword\\n'\n".toByteArray(Charsets.UTF_8))
-        Thread.sleep(1_500)
-
-        // Fresh output prints just above the prompt: left margin of the
-        // last line reliably lands on printed text.
-        injectLongPress(surfaceView(), 120f, (device.displayHeight - 300).toFloat())
+        val (tapX, tapY, _) = prepareWordTarget("targetword targetword targetword")
+        injectLongPress(surfaceView(), tapX, tapY)
 
         // 应用仅简体中文：菜单为中文 PopupWindow（复制/分享/全选），英文 COPY 永不出现。
         assertNotNull("COPY item missing for word long-press", waitForMenuText("复制"))
@@ -137,30 +172,20 @@ class SelectionDragQuantifiedTest {
 
     @Test
     fun handle_drag_updates_highlight_live_between_steps() {
-        val b = bridge()
-        b.writeToPty("printf 'dragstart dragend dragend dragend\\n'\n".toByteArray(Charsets.UTF_8))
-        Thread.sleep(1_500)
-
+        val (tapX, tapY, tappedRow) = prepareWordTarget("dragstart dragend dragend dragend")
         // Double-tap selects the word under the finger; its END handle then
         // anchors at that word's right cell edge.
-        val tapX = 130
-        val tapYBottomRow = device.displayHeight - 300
-        injectDoubleTap(surfaceView(), tapX.toFloat(), tapYBottomRow.toFloat())
+        injectDoubleTap(surfaceView(), tapX, tapY)
         Thread.sleep(900)
         assertNotNull("double-tap did not open the selection menu", waitForMenuText("复制"))
 
         // Grab the END handle: ~2 cells right of the tap (the selected word
         // spans about one cell per 5-6 chars at default metrics; 2 cells is
         // safely past its right edge) and exactly on the row-bottom anchor.
-        val surfaceLocTap = IntArray(2)
-        surfaceView().getLocationOnScreen(surfaceLocTap)
-        val cw = bridge().getCellWidth()
-        val ch = bridge().getCellHeight()
-        val tappedCol = ((tapX - surfaceLocTap[0]) / cw).toInt()
-        val tappedRow = ((tapYBottomRow - surfaceLocTap[1]) / ch).toInt()
-        // The double-tapped word spans ~9 chars; its END handle hangs ~2 cells
-        // right of the tap column at the same row-bottom anchor.
-        val (grabX, grabY) = cellAnchorOnScreen(col = tappedCol + 2, row = tappedRow)
+        // 全 surface 本地坐标（injectDrag 直达 dispatchTouchEvent）：屏坐标在此整体漂移。
+        val (cw, _) = cellPx()
+        val tappedCol = (tapX / cw).toInt()
+        val (grabX, grabY) = cellAnchorLocal(col = tappedCol + 2, row = tappedRow)
         val before = UxTestUtils.screenshot(device)
 
         var liveUpdates = 0
@@ -171,10 +196,10 @@ class SelectionDragQuantifiedTest {
             currentX += cwInt
             UxTestUtils.injectDrag(
                 surfaceView(),
-                x0 = (currentX - cwInt / 2).toFloat(),
-                y0 = grabY.toFloat(),
-                x1 = currentX.toFloat(),
-                y1 = grabY.toFloat(),
+                x0 = currentX - cwInt / 2,
+                y0 = grabY,
+                x1 = currentX,
+                y1 = grabY,
                 steps = 2,
                 stepDelayMs = 110,
             )
@@ -199,34 +224,33 @@ class SelectionDragQuantifiedTest {
 
     @Test
     fun paste_only_handle_drag_upgrades_selection_and_grows_D75() {
-        val b = bridge()
-        b.writeToPty("printf 'growme growme growme\\n'\n".toByteArray(Charsets.UTF_8))
-        Thread.sleep(1_500)
-
-        // Long-press blank space right of the prompt → single-cell
-        // paste-only selection with stacked handles.
-        val blankX = device.displayWidth - 160
-        val blankY = device.displayHeight - 260
-        injectLongPress(surfaceView(), blankX.toFloat(), blankY.toFloat())
+        val (_, _, markerRow) = prepareWordTarget("growme growme growme")
+        val (cw, ch) = cellPx()
+        val surface = surfaceView()
+        // prompt 行空白 far-right：标记行下一行是 prompt（"$ "占前两列），
+        // 取末列前二格必为空白——长按落点与原测试“prompt 右空白”等价但可定位。
+        val cols = (surface.width / cw).toInt()
+        val blankCol = (cols - 2).coerceAtLeast(10)
+        val blankRow = markerRow + 1
+        val blankLine = currentText().orEmpty().lines().getOrNull(bridge().scrollbackLength() + blankRow).orEmpty()
+        assertTrue("长按行尾必须空白 (行=$blankRow 内容=[$blankLine])", blankLine.drop(blankCol).isBlank())
+        val blankX = (blankCol + 0.5f) * cw
+        val blankY = (blankRow + 0.5f) * ch
+        injectLongPress(surface, blankX, blankY)
         assertNotNull("precondition: PASTE-only menu missing", waitForMenuText("粘贴"))
         assertTrue("precondition: COPY must be absent on blank selection", !menuVisible("复制"))
 
-        // Grab the stacked END handle of the pressed cell itself: derive the
-        // pressed (col,row) from the surface's on-screen origin, then anchor at
+        // Grab the stacked END handle of the pressed cell itself: anchor at
         // that cell's bottom-right corner where the END handle hangs.
-        val surfaceLoc = IntArray(2)
-        surfaceView().getLocationOnScreen(surfaceLoc)
-        val cwPx = bridge().getCellWidth()
-        val chPx = bridge().getCellHeight()
-        val pressedCol = (((blankX - surfaceLoc[0]) / cwPx).toInt() + 1).coerceAtLeast(2)
-        val pressedRow = ((blankY - surfaceLoc[1]) / chPx).toInt()
-        val (handleX, handleY) = cellAnchorOnScreen(col = pressedCol, row = pressedRow)
+        // 全 surface 本地坐标；x1 取文本区内（标记词内列），向上两行落入 growme 行。
+        val (handleX, handleY) = cellAnchorLocal(col = blankCol + 1, row = blankRow)
+        val targetX = handleX - cw * 30
         UxTestUtils.injectDrag(
             surfaceView(),
-            x0 = handleX.toFloat(),
-            y0 = handleY.toFloat(),
-            x1 = 110f,
-            y1 = (handleY - chPx.toInt() * 2).toFloat(),
+            x0 = handleX,
+            y0 = handleY,
+            x1 = targetX.coerceAtLeast(cw * 2),
+            y1 = handleY - ch * 2,
             steps = 6,
             stepDelayMs = 100,
         )
