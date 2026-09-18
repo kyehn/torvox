@@ -338,6 +338,58 @@ class VtCorrectnessInstrumentedTest {
     }
 
     @Test
+    fun altScreenStateMirrorsSwitch() {
+        withSession { sessionId ->
+            // 备用屏状态查询必须与切换语义一致：主屏 false，切入 true，切回 false。
+            assertTrue("初始必须在主屏", !NativeBridge.getAltScreenState(sessionId))
+            feedText(sessionId, "\u001b[?1049h")
+            val entered =
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
+                    NativeBridge.getAltScreenState(sessionId)
+                }
+            assertNotNull("切入备用屏后状态必须为真", entered)
+            feedText(sessionId, "\u001b[?1049l")
+            val exited =
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 50) {
+                    !NativeBridge.getAltScreenState(sessionId)
+                }
+            assertNotNull("切回主屏后状态必须为假", exited)
+        }
+    }
+
+    @Test
+    fun isCellEmptyDistinguishesContent() {
+        withSession { sessionId ->
+            // 有可打印码点的格非空，视口底部远端格为空。
+            val marker = "CELLEMPTY_${System.currentTimeMillis() % 100000}"
+            feedText(sessionId, marker)
+            awaitText(sessionId, marker)
+            val depth = NativeBridge.scrollbackLength(sessionId)
+            var foundRow = -1
+            var foundCol = -1
+            for (row in 0..(depth + ROWS)) {
+                val line = NativeBridge.scrollbackLine(sessionId, row) ?: continue
+                val col = line.indexOf(marker)
+                if (col >= 0) {
+                    foundRow = row
+                    foundCol = col
+                    break
+                }
+            }
+            assertTrue("必须定位到标记行: $marker", foundRow >= 0)
+            assertTrue(
+                "标记格必须非空",
+                !NativeBridge.isCellEmpty(sessionId, foundRow, foundCol),
+            )
+            val bottomRow = depth + ROWS - 1
+            assertTrue(
+                "视口底部远端格必须为空",
+                NativeBridge.isCellEmpty(sessionId, bottomRow, COLS - 1),
+            )
+        }
+    }
+
+    @Test
     fun osc8HyperlinkQueryable() {
         withSession { sessionId ->
             val host = "example.com"
