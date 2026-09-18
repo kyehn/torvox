@@ -13,6 +13,7 @@ import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -63,10 +64,33 @@ class SelectionEspressoTest {
     @Test
     fun selectAllShowsSelectionMenu() {
         composeTestRule.waitForSession()
+        // 全量内容断言（对标 selectAllFromToolbarSelectsWholeBuffer）：先送显三行
+        // 唯一标记，全选后 selectedText 必须全部包含，不止菜单出现。
+        val stamp = System.currentTimeMillis() % 100000
+        val markers = listOf("SELL_ALL_A_$stamp", "SELL_ALL_B_$stamp", "SELL_ALL_C_$stamp")
+        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+        assertTrue(
+            "标记送显失败",
+            bridge.feedTerminal((markers.joinToString("\n") + "\n").toByteArray(Charsets.UTF_8)),
+        )
+        val settled =
+            UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+                runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
+                val text = composeTestRule.getBridge()?.getTerminalText().orEmpty()
+                markers.all { text.contains(it) }
+            }
+        assertNotNull("标记必须落格", settled)
         composeTestRule.activityRule.scenario.onActivity { activity ->
             activity.terminalViewModel.selectAll(0)
         }
         composeTestRule.waitForIdle()
+        var selectedText = ""
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            selectedText = activity.terminalViewModel.state.value.selection.selectedText
+        }
+        for (marker in markers) {
+            assertTrue("全选必须包含整缓冲区内容 [$marker], 实际=[$selectedText]", selectedText.contains(marker))
+        }
         val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         assertTrue("Selection menu must appear after Select All", device.wait(Until.hasObject(By.text("复制")), 5000))
     }
