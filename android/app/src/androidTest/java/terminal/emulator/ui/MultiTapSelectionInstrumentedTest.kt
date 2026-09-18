@@ -146,8 +146,8 @@ class MultiTapSelectionInstrumentedTest {
         val col = lines[index].indexOf(marker) + tapColInMarker
         // 物理单元格（运行时触摸数学同口径：逻辑值 × density）。
         val density = composeTestRule.activity.resources.displayMetrics.density
-        val cellWidth = bridge.getCellWidth() * density
-        val cellHeight = bridge.getCellHeight() * density
+        val cellWidth = bridge().getCellWidth() * density
+        val cellHeight = bridge().getCellHeight() * density
         assertTrue("单元格度量不可用 ($cellWidth x $cellHeight)", cellWidth > 0f && cellHeight > 0f)
         val tapX = (col + 0.5f) * cellWidth
         // surface 左侧 32dp 为抽屉边缘区（触摸直达丢弃）：断言点击在其外。
