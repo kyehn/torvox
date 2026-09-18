@@ -2053,6 +2053,39 @@ fn selection_text_flipped_endpoints() {
     );
 }
 
+/// 拖动手柄只移动被抓端点：锚点固定，另一端点跟随落点
+///（对标 selectionDragMovesGrabbedEndpoint：先拖尾端点 0→8，再拖首端点 0→6）。
+#[test]
+fn selection_text_grabbed_endpoint_moves() {
+    let mut t = terminal();
+    t.vt_write(b"hello world");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row = snap.scrollback_length;
+    let extended = t.selection_text((row, 0), (row, 8), false);
+    assert_eq!(extended, "hello wor", "drag end handle must extend (got {extended:?})");
+    let shrunk = t.selection_text((row, 6), (row, 8), false);
+    assert_eq!(shrunk, "wor", "drag start handle must shrink (got {shrunk:?})");
+}
+
+/// 选中文本滚入回滚后同端点仍取回原文：端点为绝对行号，不随视口漂移
+///（对标 selectionTracksTextIntoScrollback）。
+#[test]
+fn selection_text_tracks_scrolled_content() {
+    let mut t = GhosttyTerminal::new(4, 20, 100).expect("terminal");
+    t.vt_write(b"alpha\n");
+    t.flush();
+    let first = t.selection_text((0, 0), (0, 4), false);
+    assert_eq!(first, "alpha", "baseline selection (got {first:?})");
+    for filler in 0..8 {
+        t.vt_write(format!("filler{filler}\n").as_bytes());
+    }
+    t.flush();
+    assert!(t.scrollback_length() > 0, "content must have scrolled");
+    let tracked = t.selection_text((0, 0), (0, 4), false);
+    assert_eq!(tracked, "alpha", "selection must track into scrollback (got {tracked:?})");
+}
+
 /// OSC 2 会话标题必须可读（对标 titleChangeEventAndValue 的值断言；
 /// 我方无标题事件通道且 DESIGN 未声明，只断言值本身）。
 #[test]
@@ -2089,6 +2122,18 @@ fn decscusr_cursor_style_reaches_snapshot() {
             "DECSCUSR {param} must yield {expected:?}"
         );
     }
+    // 程序覆盖后重置必须回到默认（对标 programCursorStyleOverridesDefaultUntilReset）。
+    let mut reset = terminal();
+    reset.vt_write(b"\x1b[5 q");
+    reset.flush();
+    assert_eq!(reset.take_snapshot().cursor_style, CursorStyle::Bar);
+    reset.vt_write(b"\x1b[0 q");
+    reset.flush();
+    assert_eq!(
+        reset.take_snapshot().cursor_style,
+        CursorStyle::Block,
+        "reset must restore default"
+    );
 }
 
 /// 回滚上限透传：建会参数必须约束回滚深度（设备 instrumented 测试的 host 复刻）。
