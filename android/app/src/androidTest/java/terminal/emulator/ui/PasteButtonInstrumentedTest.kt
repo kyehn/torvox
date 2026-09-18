@@ -6,9 +6,13 @@ import android.content.Context
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
-import androidx.test.uiautomator.By
 import androidx.test.uiautomator.UiDevice
-import androidx.test.uiautomator.Until
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.action.ViewActions.click
+import androidx.test.espresso.assertion.ViewAssertions.matches
+import androidx.test.espresso.matcher.RootMatchers.isPlatformPopup
+import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
+import androidx.test.espresso.matcher.ViewMatchers.withText
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -38,7 +42,6 @@ class PasteButtonInstrumentedTest {
     companion object {
         private const val GRID_TIMEOUT_MS = 15_000L
         private const val QUIET_WINDOW_MS = 2_000L
-        private const val MENU_TIMEOUT_MS = 5_000L
         private const val PASTE_TIMEOUT_MS = 10_000L
         /** 点击列：6.5 列宽处，远在 32dp 抽屉边缘区外。 */
         private const val TAP_COL = 6
@@ -146,8 +149,13 @@ class PasteButtonInstrumentedTest {
         assertTrue("测试进程必须读回剪贴板标记, 实际=[$clipRead]", clipRead == marker)
 
         val pasteText = composeTestRule.activity.getString(terminal.emulator.R.string.paste)
-        val menu = device.wait(Until.findObject(By.text(pasteText)), MENU_TIMEOUT_MS)
-        assertNotNull("粘贴菜单必须出现", menu)
+        // 参考实现同款：Espresso 点击 popup 内“粘贴”（UiAutomator 按 accessibility
+        // 坐标点击曾出现“清选择但未粘贴”——疑似点中 surface 而非按钮；Espresso 直点
+        // 活视图，缺席则大声失败，不会误清选择）。
+        onView(withText(pasteText))
+            .inRoot(isPlatformPopup())
+            .check(matches(isDisplayed()))
+            .perform(click())
         // 诊断：截图落盘到应用外部目录（免权限可 pull），目视确认菜单位置。
         runCatching {
             val dir = composeTestRule.activity.getExternalFilesDir(null)
