@@ -42,6 +42,11 @@ class SelectionDragQuantifiedTest {
     fun setUp() {
         device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
+        // 桥单次读取：会话孵化中为 null，由调用方轮询重试（getBridge 契约）。
+        terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+            composeTestRule.getBridge() != null
+        }
+        assertNotNull("运行时桥必须就绪（30s 未孵化）", composeTestRule.getBridge())
     }
 
     private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
@@ -98,10 +103,10 @@ class SelectionDragQuantifiedTest {
         val y = device.displayHeight - 260
         injectLongPress(surfaceView(), x.toFloat(), y.toFloat())
 
-        assertNotNull("PASTE item missing for whitespace long-press", waitForMenuText("PASTE"))
+        assertNotNull("PASTE item missing for whitespace long-press", waitForMenuText("粘贴"))
         assertTrue(
             "whitespace long-press must not offer COPY",
-            !menuVisible("COPY"),
+            !menuVisible("复制"),
         )
         UxTestUtils.metric("menu_whitespace_paste_only", 1)
         resetSelection()
@@ -117,11 +122,12 @@ class SelectionDragQuantifiedTest {
         // last line reliably lands on printed text.
         injectLongPress(surfaceView(), 120f, (device.displayHeight - 300).toFloat())
 
-        assertNotNull("COPY item missing for word long-press", waitForMenuText("COPY"))
-        assertTrue("SELECT_ALL item missing", menuVisible("SELECT ALL") || menuVisible("Select all"))
+        // 应用仅简体中文：菜单为中文 PopupWindow（复制/分享/全选），英文 COPY 永不出现。
+        assertNotNull("COPY item missing for word long-press", waitForMenuText("复制"))
+        assertTrue("SELECT_ALL item missing", menuVisible("全选"))
         assertTrue(
             "word long-press must NOT show PASTE (the reported 'paste always visible' bug)",
-            !menuVisible("PASTE"),
+            !menuVisible("粘贴"),
         )
         UxTestUtils.metric("menu_word_full_set", 1)
         resetSelection()
@@ -141,7 +147,7 @@ class SelectionDragQuantifiedTest {
         val tapYBottomRow = device.displayHeight - 300
         injectDoubleTap(surfaceView(), tapX.toFloat(), tapYBottomRow.toFloat())
         Thread.sleep(900)
-        assertNotNull("double-tap did not open the selection menu", waitForMenuText("COPY"))
+        assertNotNull("double-tap did not open the selection menu", waitForMenuText("复制"))
 
         // Grab the END handle: ~2 cells right of the tap (the selected word
         // spans about one cell per 5-6 chars at default metrics; 2 cells is
@@ -183,7 +189,7 @@ class SelectionDragQuantifiedTest {
             liveUpdates >= 3,
         )
 
-        val copy = waitForMenuText("COPY", 3_000)
+        val copy = waitForMenuText("复制", 3_000)
         assertNotNull("selection menu vanished after handle drag", copy)
         assertTrue("COPY disabled after drag — range did not grow to real text", requireNotNull(copy).isEnabled)
         resetSelection()
@@ -202,8 +208,8 @@ class SelectionDragQuantifiedTest {
         val blankX = device.displayWidth - 160
         val blankY = device.displayHeight - 260
         injectLongPress(surfaceView(), blankX.toFloat(), blankY.toFloat())
-        assertNotNull("precondition: PASTE-only menu missing", waitForMenuText("PASTE"))
-        assertTrue("precondition: COPY must be absent on blank selection", !menuVisible("COPY"))
+        assertNotNull("precondition: PASTE-only menu missing", waitForMenuText("粘贴"))
+        assertTrue("precondition: COPY must be absent on blank selection", !menuVisible("复制"))
 
         // Grab the stacked END handle of the pressed cell itself: derive the
         // pressed (col,row) from the surface's on-screen origin, then anchor at
@@ -227,13 +233,13 @@ class SelectionDragQuantifiedTest {
 
         // The upgrade is observable exactly through the menu transition:
         // paste-only {PASTE} → full {COPY,...} with non-empty text.
-        val copy = waitForMenuText("COPY", 4_000)
+        val copy = waitForMenuText("复制", 4_000)
         assertNotNull(
             "D7.5 failed: dragging a blank-selection handle did not grow a text range",
             copy,
         )
         assertTrue("grown range has no selectable text", requireNotNull(copy).isEnabled)
-        assertTrue("full menu still shows PASTE after growth to text", !menuVisible("PASTE"))
+        assertTrue("full menu still shows PASTE after growth to text", !menuVisible("粘贴"))
         UxTestUtils.metric("d75_blank_drag_upgrade", 1)
         resetSelection()
     }
