@@ -1,5 +1,8 @@
 package terminal.emulator
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
@@ -233,6 +236,18 @@ class SelectionDragQuantifiedTest {
 
     private fun menuVisible(text: String): Boolean = device.findObject(By.text(text)) != null
 
+    /**
+     * 粘贴项是否进菜单取决于剪贴板非空（pasteEnabled 门控）：测试必须自建
+     * 剪贴板内容，不能依赖系统剪贴板历史（会被清，届时菜单无粘贴项）。
+     */
+    private fun seedClipboard(text: String = "CLIPSEED") {
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val clipboard =
+                composeTestRule.activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("test", text))
+        }
+    }
+
     private fun resetSelection() {
         injectTap(
             attachedSurface(),
@@ -246,6 +261,7 @@ class SelectionDragQuantifiedTest {
 
     @Test
     fun whitespace_longpress_shows_paste_only_menu() {
+        seedClipboard()
         val b = bridge()
         b.writeToPty("clear\n".toByteArray(Charsets.UTF_8))
         Thread.sleep(1_200)
@@ -354,6 +370,7 @@ class SelectionDragQuantifiedTest {
     @Test
     fun paste_only_handle_drag_upgrades_selection_and_grows_D75() {
         val (_, _, markerRow) = prepareWordTarget("growme growme growme")
+        seedClipboard()
         val (cw, ch) = cellPx()
         val surface = attachedSurface()
         // prompt 行空白 far-right：标记行下一行是 prompt（"$ "占前两列），
