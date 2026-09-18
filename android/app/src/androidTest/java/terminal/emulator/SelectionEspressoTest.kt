@@ -72,18 +72,25 @@ class SelectionEspressoTest {
         UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
             composeTestRule.getBridge() != null
         }
-        val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
-        assertTrue(
-            "标记送显失败",
-            bridge.feedTerminal((markers.joinToString("\n") + "\n").toByteArray(Charsets.UTF_8)),
-        )
+        // house 模式：桥每次现取（Activity 重建/会话切换会替换桥实例，缓存实例
+        // 读到的是旧会话）。送显与轮询都用现取桥；若中途切换导致标记丢失则补送。
+        fun freshBridge() = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+        val payload = (markers.joinToString("\n") + "\n").toByteArray(Charsets.UTF_8)
+        var fed = false
         val settled =
-            UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 500) {
                 runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
                 val text = composeTestRule.getBridge()?.getTerminalText().orEmpty()
-                markers.all { text.contains(it) }
+                if (markers.all { text.contains(it) }) {
+                    true
+                } else {
+                    // 补送幂等：同一标记重复送显不影响 contains 断言。
+                    fed = (runCatching { freshBridge().feedTerminal(payload) }.getOrDefault(false)) || fed
+                    false
+                }
             }
         assertNotNull("标记必须落格", settled)
+        assertTrue("标记送显失败", fed)
         composeTestRule.activityRule.scenario.onActivity { activity ->
             activity.terminalViewModel.selectAll(0)
         }
