@@ -55,6 +55,22 @@ class SelectionDragQuantifiedTest {
     private fun surfaceView(): android.view.View = findTerminalSurface(composeTestRule.activity)
 
     /**
+     * 已挂载的 surface（轮询）：类内多测试共享 Activity 时，测试中途可能发生
+     * Activity 重建——缓存/过早解析的旧 surface 已 detached，向其 post 触摸永不
+     * 执行且无日志。每次注入前现取并确认 attached。
+     */
+    private fun attachedSurface(timeoutMs: Long = 10_000): android.view.View {
+        val deadline = android.os.SystemClock.uptimeMillis() + timeoutMs
+        var view = surfaceView()
+        while (!view.isAttachedToWindow && android.os.SystemClock.uptimeMillis() < deadline) {
+            Thread.sleep(100)
+            view = surfaceView()
+        }
+        assertTrue("surface 必须已挂载", view.isAttachedToWindow)
+        return view
+    }
+
+    /**
      * 物理单元格（运行时触摸数学同口径：桥逻辑值 × density；直接拿桥值当 px
      * 会小 2~3 倍——历史拖拽测试在该错尺度上“恰好”自洽，绝对点击则整体漂移）。
      */
@@ -116,7 +132,7 @@ class SelectionDragQuantifiedTest {
         assertTrue("输出必须在可见视口内 (行=$viewportRow)", viewportRow >= 0)
         val col = lines[index].indexOf(words) + tapWordOffset
         val (cw, ch) = cellPx()
-        val surface = surfaceView()
+        val surface = attachedSurface()
         val tapX = (col + 0.5f) * cw
         val tapY = (viewportRow + 0.5f) * ch
         assertTrue("点击必须在 surface 内 (x=$tapX w=${surface.width})", tapX > 0f && tapX < surface.width)
@@ -129,7 +145,7 @@ class SelectionDragQuantifiedTest {
      * inset 翻转会清掉刚建的选择（MultiTap 同根因；单击本身不建选择）。
      */
     private fun settleKeyboard() {
-        val surface = surfaceView()
+        val surface = attachedSurface()
         injectTap(surface, surface.width / 2f, surface.height / 2f)
         val shown =
             UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 200) {
@@ -152,7 +168,7 @@ class SelectionDragQuantifiedTest {
      */
     private fun realSwipe(x0Local: Float, y0Local: Float, x1Local: Float, y1Local: Float, steps: Int) {
         val loc = IntArray(2)
-        surfaceView().getLocationOnScreen(loc)
+        attachedSurface().getLocationOnScreen(loc)
         device.swipe(
             (loc[0] + x0Local).toInt(),
             (loc[1] + y0Local).toInt(),
@@ -170,7 +186,7 @@ class SelectionDragQuantifiedTest {
 
     private fun resetSelection() {
         injectTap(
-            surfaceView(),
+            attachedSurface(),
             (device.displayWidth / 2).toFloat(),
             (device.displayHeight - 120).toFloat(),
         )
@@ -190,7 +206,7 @@ class SelectionDragQuantifiedTest {
         // the whole line).
         val x = device.displayWidth - 160
         val y = device.displayHeight - 260
-        injectLongPress(surfaceView(), x.toFloat(), y.toFloat())
+        injectLongPress(attachedSurface(), x.toFloat(), y.toFloat())
 
         assertNotNull("PASTE item missing for whitespace long-press", waitForMenuText("粘贴"))
         assertTrue(
@@ -204,7 +220,7 @@ class SelectionDragQuantifiedTest {
     @Test
     fun word_longpress_shows_copy_selectall_without_paste() {
         val (tapX, tapY, _) = prepareWordTarget("targetword targetword targetword")
-        injectLongPress(surfaceView(), tapX, tapY)
+        injectLongPress(attachedSurface(), tapX, tapY)
 
         // 应用仅简体中文：菜单为中文 PopupWindow（复制/分享/全选），英文 COPY 永不出现。
         assertNotNull("COPY item missing for word long-press", waitForMenuText("复制"))
@@ -224,7 +240,7 @@ class SelectionDragQuantifiedTest {
         val (tapX, tapY, _) = prepareWordTarget("dragstart dragend dragend dragend", warmKeyboard = true)
         // Double-tap selects the word under the finger; its END handle then
         // anchors at that word's right cell edge.
-        injectDoubleTap(surfaceView(), tapX, tapY)
+        injectDoubleTap(attachedSurface(), tapX, tapY)
         Thread.sleep(900)
         assertNotNull("double-tap did not open the selection menu", waitForMenuText("复制"))
 
@@ -286,7 +302,7 @@ class SelectionDragQuantifiedTest {
     fun paste_only_handle_drag_upgrades_selection_and_grows_D75() {
         val (_, _, markerRow) = prepareWordTarget("growme growme growme")
         val (cw, ch) = cellPx()
-        val surface = surfaceView()
+        val surface = attachedSurface()
         // prompt 行空白 far-right：标记行下一行是 prompt（"$ "占前两列），
         // 取末列前二格必为空白——长按落点与原测试“prompt 右空白”等价但可定位。
         val cols = (surface.width / cw).toInt()
