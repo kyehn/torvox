@@ -84,14 +84,19 @@ class SelectionDragQuantifiedTest {
      * 含键盘预热（MultiTap 同因）：单击/双击会拉起 IME，若手势期发生 inset 翻转，
      * 刚建的选择会被清掉；预热后手势期无翻转。
      */
-    private fun prepareWordTarget(words: String, tapWordOffset: Int = 2): Triple<Float, Float, Int> {
+    private fun prepareWordTarget(
+        words: String,
+        tapWordOffset: Int = 2,
+        warmKeyboard: Boolean = false,
+    ): Triple<Float, Float, Int> {
         val promptSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
                 val text = currentText()
                 text != null && (text.contains("$") || text.contains("#"))
             }
         assertNotNull("shell prompt 必须先就绪", promptSeen)
-        settleKeyboard()
+        // 仅点选手势需要预热（长按不拉键盘，预热反而增加失败面）。
+        if (warmKeyboard) settleKeyboard()
         assertTrue(
             "printf 送显失败",
             bridge().writeToPty("printf '$words\\n'\n".toByteArray(Charsets.UTF_8)),
@@ -214,25 +219,33 @@ class SelectionDragQuantifiedTest {
 
     @Test
     fun handle_drag_updates_highlight_live_between_steps() {
-        val (tapX, tapY, tappedRow) = prepareWordTarget("dragstart dragend dragend dragend")
+        val (tapX, tapY, _) = prepareWordTarget("dragstart dragend dragend dragend", warmKeyboard = true)
         // Double-tap selects the word under the finger; its END handle then
         // anchors at that word's right cell edge.
         injectDoubleTap(surfaceView(), tapX, tapY)
         Thread.sleep(900)
         assertNotNull("double-tap did not open the selection menu", waitForMenuText("复制"))
 
-        // Grab the END handle: ~2 cells right of the tap (the selected word
-        // spans about one cell per 5-6 chars at default metrics; 2 cells is
-        // safely past its right edge) and exactly on the row-bottom anchor.
-        // 全 surface 本地坐标（injectDrag 直达 dispatchTouchEvent）：屏坐标在此整体漂移。
-        val (cw, _) = cellPx()
-        val tappedCol = (tapX / cw).toInt()
-        val (grabX, grabY) = cellAnchorLocal(col = tappedCol + 2, row = tappedRow)
+        // Grab the END handle at its real anchor: read the selection END from
+        // state (grid rows → viewport), rather than guessing tap+2 (misses when
+        // the word is longer than 2 cells past the tap).
+        var endCol = -1
+        var endGridRow = -1
+        InstrumentationRegistry.getInstrumentation().runOnMainSync {
+            val selection = composeTestRule.activity.terminalViewModel.state.value.selection
+            endCol = selection.end?.col ?: -1
+            endGridRow = selection.end?.row ?: -1
+        }
+        assertTrue("双击后必须有选择末端 (col=$endCol row=$endGridRow)", endCol >= 0 && endGridRow >= 0)
+        val depthNow = bridge().scrollbackLength()
+        val endViewportRow = endGridRow - depthNow
+        val (grabX, grabY) = cellAnchorLocal(col = endCol, row = endViewportRow)
         val before = UxTestUtils.screenshot(device)
 
         var liveUpdates = 0
         var previous = before
-        val cwInt = cw.toInt().coerceAtLeast(20)
+        val (stepCw, _) = cellPx()
+        val cwInt = stepCw.toInt().coerceAtLeast(20)
         var currentX = grabX
         repeat(4) {
             currentX += cwInt
