@@ -161,12 +161,7 @@ class PasteButtonInstrumentedTest {
             val dir = composeTestRule.activity.getExternalFilesDir(null)
             device.takeScreenshot(java.io.File(dir, "paste_menu_shot.png"))
         }
-        // 点击前重设剪贴板：排除菜单展示期间 clip 被冲掉的假设。
-        composeTestRule.activityRule.scenario.onActivity { activity ->
-            val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-            clipboard.setPrimaryClip(ClipData.newPlainText("test", marker))
-        }
-        menu.click()
+        // 点击前剪贴板已由 clipRead 预读断言确认，无需重设。
 
         // 粘贴文本经 pty 进入 shell，回显在输入行（参考实现去换行比对）。
         val pasted =
