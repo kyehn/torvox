@@ -373,10 +373,11 @@ class SelectionDragQuantifiedTest {
         seedClipboard()
         val (cw, ch) = cellPx()
         val surface = attachedSurface()
-        // prompt 行空白 far-right：标记行下一行是 prompt（"$ "占前两列），
-        // 取末列前二格必为空白——长按落点与原测试“prompt 右空白”等价但可定位。
+        // prompt 行空白中部：取中列（两侧 ~32dp 皆为系统/抽屉手势区，从边缘起笔
+        // 会被系统 edge-swipe 夺走并触发返回、手势流中断、Activity 销毁）。
+        // 原测试“prompt 右空白”等价但落点须可定位，取中列同样为空白。
         val cols = (surface.width / cw).toInt()
-        val blankCol = (cols - 2).coerceAtLeast(10)
+        val blankCol = (cols / 2).coerceAtLeast(10)
         val blankRow = markerRow + 1
         val blankLine = currentText().orEmpty().lines().getOrNull(bridge().scrollbackLength() + blankRow).orEmpty()
         assertTrue("长按行尾必须空白 (行=$blankRow 内容=[$blankLine])", blankLine.drop(blankCol).isBlank())
