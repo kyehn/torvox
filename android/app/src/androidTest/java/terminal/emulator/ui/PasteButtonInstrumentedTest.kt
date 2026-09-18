@@ -131,13 +131,28 @@ class PasteButtonInstrumentedTest {
         assertTrue("长按空白后选择必须激活 (active=$active pasteOnly=$pasteOnly)", active)
         assertTrue("长按空白必须为纯粘贴选择 (pasteOnly=$pasteOnly)", pasteOnly)
 
+        // 与应用 ClipboardAccess.clipboardText() 同逻辑预读：切分“剪贴板”与“粘贴写入”。
+        var clipRead: String? = "<unread>"
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            val clipboard =
+                activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipRead =
+                if (!clipboard.hasPrimaryClip()) {
+                    "<no-primary-clip>"
+                } else {
+                    clipboard.primaryClip?.getItemAt(0)?.text?.toString()
+                }
+        }
+        assertTrue("测试进程必须读回剪贴板标记, 实际=[$clipRead]", clipRead == marker)
+
         val pasteText = composeTestRule.activity.getString(terminal.emulator.R.string.paste)
         val menu = device.wait(Until.findObject(By.text(pasteText)), MENU_TIMEOUT_MS)
         assertNotNull("粘贴菜单必须出现", menu)
-        // 诊断：转储窗口层级（菜单 bounds/可点击性）与截图，定位点击未投递根因。
-        val hierarchyFile = java.io.File("/sdcard/paste_menu_hierarchy.xml")
-        runCatching { device.dumpWindowHierarchy(hierarchyFile) }
-        runCatching { device.takeScreenshot(java.io.File("/sdcard/paste_menu_shot.png")) }
+        // 诊断：截图落盘到应用外部目录（免权限可 pull），目视确认菜单位置。
+        runCatching {
+            val dir = composeTestRule.activity.getExternalFilesDir(null)
+            device.takeScreenshot(java.io.File(dir, "paste_menu_shot.png"))
+        }
         // 点击前重设剪贴板：排除菜单展示期间 clip 被冲掉的假设。
         composeTestRule.activityRule.scenario.onActivity { activity ->
             val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -150,6 +165,20 @@ class PasteButtonInstrumentedTest {
             UxTestUtils.pollUntilTrue(timeoutMs = PASTE_TIMEOUT_MS, intervalMs = 100) {
                 currentText()?.replace("\n", "")?.contains(marker) == true
             }
-        assertNotNull("剪贴板内容必须到达 shell, 标记: $marker", pasted)
+        if (pasted == null) {
+            // 二分：菜单点击后仍无回显，直调 ViewModel 粘贴切分“菜单投递”与“写入回显”。
+            composeTestRule.activityRule.scenario.onActivity { activity ->
+                activity.terminalViewModel.pasteFromClipboard()
+            }
+            val directPasted =
+                UxTestUtils.pollUntilTrue(timeoutMs = PASTE_TIMEOUT_MS, intervalMs = 100) {
+                    currentText()?.replace("\n", "")?.contains(marker) == true
+                }
+            assertNotNull(
+                "直调粘贴亦无回显：写入/回显链路故障 (clip=[$clipRead])",
+                directPasted,
+            )
+            assertNotNull("菜单点击未投递粘贴，但直调成功：菜单动作故障", null)
+        }
     }
 }
