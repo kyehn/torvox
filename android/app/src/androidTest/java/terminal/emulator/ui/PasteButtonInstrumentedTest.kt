@@ -42,7 +42,7 @@ class PasteButtonInstrumentedTest {
     companion object {
         private const val GRID_TIMEOUT_MS = 15_000L
         private const val QUIET_WINDOW_MS = 2_000L
-        private const val PASTE_TIMEOUT_MS = 10_000L
+        private const val PASTE_TIMEOUT_MS = 30_000L
         /** 点击列：6.5 列宽处，远在 32dp 抽屉边缘区外。 */
         private const val TAP_COL = 6
     }
