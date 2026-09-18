@@ -81,6 +81,8 @@ class SelectionDragQuantifiedTest {
      * 经 shell 真实执行打印 [words]，返回词内点击的 surface 本地坐标与视口行。
      * prompt 门控 + 回显轮询：冷启动 shell 未消费 stdin 前的输入会丢失（粘贴案），
      * 盲 sleep 后按绝对屏坐标点是双重不可靠——行列由落格位置算出。
+     * 含键盘预热（MultiTap 同因）：单击/双击会拉起 IME，若手势期发生 inset 翻转，
+     * 刚建的选择会被清掉；预热后手势期无翻转。
      */
     private fun prepareWordTarget(words: String, tapWordOffset: Int = 2): Triple<Float, Float, Int> {
         val promptSeen =
@@ -89,6 +91,7 @@ class SelectionDragQuantifiedTest {
                 text != null && (text.contains("$") || text.contains("#"))
             }
         assertNotNull("shell prompt 必须先就绪", promptSeen)
+        settleKeyboard()
         assertTrue(
             "printf 送显失败",
             bridge().writeToPty("printf '$words\\n'\n".toByteArray(Charsets.UTF_8)),
@@ -112,6 +115,26 @@ class SelectionDragQuantifiedTest {
         assertTrue("点击必须在 surface 内 (x=$tapX w=${surface.width})", tapX > 0f && tapX < surface.width)
         assertTrue("点击必须在 surface 内 (y=$tapY h=${surface.height})", tapY > 0f && tapY < surface.height)
         return Triple(tapX, tapY, viewportRow)
+    }
+
+    /**
+     * 键盘预热：首击 surface 中部把 IME 拉起并等动画落定，否则首个点选手势的
+     * inset 翻转会清掉刚建的选择（MultiTap 同根因；单击本身不建选择）。
+     */
+    private fun settleKeyboard() {
+        val surface = surfaceView()
+        injectTap(surface, surface.width / 2f, surface.height / 2f)
+        val shown =
+            UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 200) {
+                var visible = false
+                InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                    visible = composeTestRule.activity.window.decorView.rootWindowInsets
+                        ?.isVisible(android.view.WindowInsets.Type.ime()) == true
+                }
+                visible
+            }
+        assertNotNull("IME 必须弹起（20s 未可见）", shown)
+        Thread.sleep(1_500)
     }
 
     private fun waitForMenuText(text: String, timeoutMs: Long = 4_000) =
@@ -242,15 +265,15 @@ class SelectionDragQuantifiedTest {
 
         // Grab the stacked END handle of the pressed cell itself: anchor at
         // that cell's bottom-right corner where the END handle hangs.
-        // 全 surface 本地坐标；x1 取文本区内（标记词内列），向上两行落入 growme 行。
+        // 全 surface 本地坐标；终点落入标记词内（约第 10 列、标记行中部）。
         val (handleX, handleY) = cellAnchorLocal(col = blankCol + 1, row = blankRow)
-        val targetX = handleX - cw * 30
+        val targetX = (10 + 0.5f) * cw
         UxTestUtils.injectDrag(
             surfaceView(),
             x0 = handleX,
             y0 = handleY,
-            x1 = targetX.coerceAtLeast(cw * 2),
-            y1 = handleY - ch * 2,
+            x1 = targetX,
+            y1 = (markerRow + 0.5f) * ch,
             steps = 6,
             stepDelayMs = 100,
         )
