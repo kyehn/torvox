@@ -1,0 +1,146 @@
+package terminal.emulator.ui
+
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
+import androidx.test.uiautomator.By
+import androidx.test.uiautomator.UiDevice
+import androidx.test.uiautomator.Until
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.runner.RunWith
+import org.junit.runners.JUnit4
+import terminal.emulator.MainActivity
+import terminal.emulator.UxTestUtils
+import terminal.emulator.bridge.Bridge
+import terminal.emulator.bridge.NativeBridge
+import terminal.emulator.findTerminalSurface
+import terminal.emulator.getBridge
+import terminal.emulator.injectLongPress
+import terminal.emulator.waitForSession
+
+/**
+ * 粘贴端到端（对标 sylirre TerminalUiTest.pasteButtonTypesClipboardIntoShell）：
+ * 剪贴板置入唯一标记 → 真实长按空白区 → 粘贴菜单出现 → 点击“粘贴” →
+ * 标记出现在 shell 输入回显中。
+ *
+ * 路径与真实用户一致（空白长按 → paste-only 选择 → PopupWindow 粘贴项 →
+ * pasteFromClipboardDirect → writeToPty），不用 showPastePopup 直调后门。
+ */
+@RunWith(JUnit4::class)
+class PasteButtonInstrumentedTest {
+    companion object {
+        private const val GRID_TIMEOUT_MS = 15_000L
+        private const val QUIET_WINDOW_MS = 2_000L
+        private const val MENU_TIMEOUT_MS = 5_000L
+        private const val PASTE_TIMEOUT_MS = 10_000L
+        /** 点击列：6.5 列宽处，远在 32dp 抽屉边缘区外。 */
+        private const val TAP_COL = 6
+    }
+
+    @get:Rule
+    val notificationPermission =
+        GrantPermissionRule.grant(android.Manifest.permission.POST_NOTIFICATIONS)
+
+    @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
+
+    private lateinit var device: UiDevice
+
+    @Before
+    fun setUp() {
+        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        composeTestRule.waitForSession()
+        UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+            composeTestRule.getBridge() != null
+        }
+        assertNotNull("运行时桥必须就绪（30s 未孵化）", composeTestRule.getBridge())
+    }
+
+    private fun bridge(): Bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+
+    /** 泵送事件队列后读全量文本（运行时输出收割需 pollEvent 驱动）。 */
+    private fun currentText(): String? {
+        runCatching { NativeBridge.pollEvent() }
+        return composeTestRule.getBridge()?.getTerminalText()
+    }
+
+    /** 等终端输出静默（shell 启动输出落定），避免标记行被追加污染。 */
+    private fun awaitQuiet(timeoutMs: Long = 60_000) {
+        var lastText = currentText()
+        var quietSince = android.os.SystemClock.uptimeMillis()
+        val quiet =
+            UxTestUtils.pollUntilTrue(timeoutMs = timeoutMs, intervalMs = 200) {
+                val current = currentText()
+                if (current != lastText) {
+                    lastText = current
+                    quietSince = android.os.SystemClock.uptimeMillis()
+                    false
+                } else {
+                    android.os.SystemClock.uptimeMillis() - quietSince > QUIET_WINDOW_MS
+                }
+            }
+        assertNotNull("终端输出未静默", quiet)
+    }
+
+    @Test
+    fun pasteMenuTypesClipboardIntoShell() {
+        awaitQuiet()
+        // 清屏：prompt 回到视口首行，其余行全空，长按落点必为空白。
+        assertTrue("清屏送显失败", bridge().feedTerminal("\u001B[2J".toByteArray(Charsets.UTF_8)))
+        awaitQuiet()
+        val depth = bridge().scrollbackLength()
+        val lines = currentText().orEmpty().lines()
+        // 视口第 5 行（0 基）必须空白：prompt 占首行，其余无输出。
+        val blankIndex = depth + 5
+        val blankLine = lines.getOrNull(blankIndex).orEmpty()
+        assertTrue("长按行必须空白 (行=$blankIndex 内容=[$blankLine])", blankLine.isBlank())
+
+        val marker = "PASTEXYZ${System.currentTimeMillis() % 100000}"
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            val clipboard = activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("test", marker))
+        }
+
+        val density = composeTestRule.activity.resources.displayMetrics.density
+        val cellWidth = bridge().getCellWidth() * density
+        val cellHeight = bridge().getCellHeight() * density
+        assertTrue("单元格度量不可用 ($cellWidth x $cellHeight)", cellWidth > 0f && cellHeight > 0f)
+        val tapX = (TAP_COL + 0.5f) * cellWidth
+        assertTrue(
+            "点击必须在抽屉边缘区外 (x=$tapX)",
+            tapX > 32f * composeTestRule.activity.resources.displayMetrics.density,
+        )
+        val tapY = (5 + 0.5f) * cellHeight
+        injectLongPress(findTerminalSurface(composeTestRule.activity), tapX, tapY)
+        composeTestRule.waitForIdle()
+
+        // 分段断言：手势/选择 vs 菜单/粘贴。
+        var active = false
+        var pasteOnly = false
+        composeTestRule.activityRule.scenario.onActivity { activity ->
+            val selection = activity.terminalViewModel.state.value.selection
+            active = selection.active
+            pasteOnly = selection.pasteOnly
+        }
+        assertTrue("长按空白后选择必须激活 (active=$active pasteOnly=$pasteOnly)", active)
+        assertTrue("长按空白必须为纯粘贴选择 (pasteOnly=$pasteOnly)", pasteOnly)
+
+        val pasteText = composeTestRule.activity.getString(terminal.emulator.R.string.paste)
+        val menu = device.wait(Until.findObject(By.text(pasteText)), MENU_TIMEOUT_MS)
+        assertNotNull("粘贴菜单必须出现", menu)
+        menu.click()
+
+        // 粘贴文本经 pty 进入 shell，回显在输入行（参考实现去换行比对）。
+        val pasted =
+            UxTestUtils.pollUntilTrue(timeoutMs = PASTE_TIMEOUT_MS, intervalMs = 100) {
+                currentText()?.replace("\n", "")?.contains(marker) == true
+            }
+        assertNotNull("剪贴板内容必须到达 shell, 标记: $marker", pasted)
+    }
+}
