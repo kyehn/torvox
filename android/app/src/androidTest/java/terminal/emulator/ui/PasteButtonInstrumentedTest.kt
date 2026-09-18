@@ -6,7 +6,6 @@ import android.content.Context
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.rule.GrantPermissionRule
-import androidx.test.uiautomator.UiDevice
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.assertion.ViewAssertions.matches
@@ -42,7 +41,7 @@ class PasteButtonInstrumentedTest {
     companion object {
         private const val GRID_TIMEOUT_MS = 15_000L
         private const val QUIET_WINDOW_MS = 2_000L
-        private const val PASTE_TIMEOUT_MS = 30_000L
+        private const val PASTE_TIMEOUT_MS = 15_000L
         /** 点击列：6.5 列宽处，远在 32dp 抽屉边缘区外。 */
         private const val TAP_COL = 6
     }
@@ -53,11 +52,8 @@ class PasteButtonInstrumentedTest {
 
     @get:Rule val composeTestRule = createAndroidComposeRule<MainActivity>()
 
-    private lateinit var device: UiDevice
-
     @Before
     fun setUp() {
-        device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
         composeTestRule.waitForSession()
         UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
             composeTestRule.getBridge() != null
@@ -173,40 +169,14 @@ class PasteButtonInstrumentedTest {
             .inRoot(isPlatformPopup())
             .check(matches(isDisplayed()))
             .perform(click())
-        // 诊断：截图落盘到应用外部目录（免权限可 pull），目视确认菜单位置。
-        runCatching {
-            val dir = composeTestRule.activity.getExternalFilesDir(null)
-            device.takeScreenshot(java.io.File(dir, "paste_menu_shot.png"))
-        }
-        // 点击前剪贴板已由 clipRead 预读断言确认，无需重设。
-
         // 粘贴文本经 pty 进入 shell，回显在输入行（参考实现去换行比对）。
+        // 前置 prompt 门控 + 回显探针已保证 shell 消费链健康：此前无门控时，
+        // 冷启动 shell 尚未消费 stdin 阶段的粘贴字节会丢失（native 写入成功
+        // 但无回显，直调对照却成功——双标记二分确认 A 永不出现、B 2s 即达）。
         val pasted =
             UxTestUtils.pollUntilTrue(timeoutMs = PASTE_TIMEOUT_MS, intervalMs = 100) {
                 currentText()?.replace("\n", "")?.contains(marker) == true
             }
-        if (pasted == null) {
-            // 双标记二分：菜单字节是“丢失”还是“延迟31s+才到”？直调用不同标记，
-            // 若最终只见 B 不见 A → 菜单字节真丢；若 A 也出现 → 延迟投递。
-            val markerB = "PASTEB${System.currentTimeMillis() % 100000}"
-            composeTestRule.activityRule.scenario.onActivity { activity ->
-                val clipboard =
-                    activity.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                clipboard.setPrimaryClip(ClipData.newPlainText("test", markerB))
-                activity.terminalViewModel.pasteFromClipboard()
-            }
-            var seenA = false
-            var seenB = false
-            UxTestUtils.pollUntilTrue(timeoutMs = PASTE_TIMEOUT_MS, intervalMs = 100) {
-                val text = currentText()?.replace("\n", "")
-                seenA = text?.contains(marker) == true
-                seenB = text?.contains(markerB) == true
-                seenB
-            }
-            assertNotNull(
-                "菜单字节去向不明 (menu见A=$seenA, direct见B=$seenB)",
-                if (seenB && !seenA) null else true,
-            )
-        }
+        assertNotNull("剪贴板内容必须到达 shell, 标记: $marker", pasted)
     }
 }
