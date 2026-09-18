@@ -78,16 +78,16 @@ class SelectionDragQuantifiedTest {
     }
 
     /**
-     * 经 shell 真实执行打印 [words]，返回词内点击的 surface 本地坐标与视口行。
-     * prompt 门控 + 回显轮询：冷启动 shell 未消费 stdin 前的输入会丢失（粘贴案），
-     * 盲 sleep 后按绝对屏坐标点是双重不可靠——行列由落格位置算出。
-     * 含键盘预热（MultiTap 同因）：单击/双击会拉起 IME，若手势期发生 inset 翻转，
-     * 刚建的选择会被清掉；预热后手势期无翻转。
+     * 经 parser 直写把 [words] 放到固定视口行（对标 MultiTap 确定性放置）：不经
+     * shell 行编辑，网格稳定。返回词内点击的 surface 本地坐标与视口行。
+     * 行取 7（0 基）：双击/长按后菜单在选择上方弹出，不会压住下方控制柄——
+     * 行 0 选择的菜单被迫落下方，正压 END 柄位，柄抓变菜单点击（全选）。
      */
     private fun prepareWordTarget(
         words: String,
         tapWordOffset: Int = 2,
         warmKeyboard: Boolean = false,
+        targetViewportRow: Int = 7,
     ): Triple<Float, Float, Int> {
         val promptSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
@@ -97,15 +97,17 @@ class SelectionDragQuantifiedTest {
         assertNotNull("shell prompt 必须先就绪", promptSeen)
         // 仅点选手势需要预热（长按不拉键盘，预热反而增加失败面）。
         if (warmKeyboard) settleKeyboard()
-        assertTrue(
-            "printf 送显失败",
-            bridge().writeToPty("printf '$words\\n'\n".toByteArray(Charsets.UTF_8)),
-        )
-        val echoed =
+        // CUP 到目标行首列后直写（列参数实测不生效，列 0 起笔即可）。
+        val fed =
+            bridge().feedTerminal(
+                "\u001B[${targetViewportRow + 1};1H$words".toByteArray(Charsets.UTF_8),
+            )
+        assertTrue("标记送显失败", fed)
+        val landed =
             UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
                 currentText()?.contains(words) == true
             }
-        assertNotNull("shell 必须执行并回显: $words", echoed)
+        assertNotNull("标记必须落格: $words", landed)
         val depth = bridge().scrollbackLength()
         val lines = currentText().orEmpty().lines()
         val index = lines.indexOfFirst { it.contains(words) }
