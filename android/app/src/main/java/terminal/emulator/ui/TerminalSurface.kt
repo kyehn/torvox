@@ -1280,6 +1280,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     @Volatile private var scrollOffset: Int = 0
     private var lastImeBottom: Int = 0
+    private var lastImeVisible: Boolean = false
 
     // IME show/hide animations fire onApplyWindowInsets with a changing
     // imeBottom every frame; each distinct value used to trigger a ghostty
@@ -1599,6 +1600,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         lastHandleDragEndUptimeMs = SystemClock.uptimeMillis()
         reshowSelectionHandles()
         reshowToolbar()
+        showSelectionMenuForCurrentSelection()
         viewModel?.runtime?.forceRender()
     }
 
@@ -1897,9 +1899,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             override fun onSingleTapUp(event: MotionEvent): Boolean {
                 // Multi-tap selection (ghostty-android pattern): count
                 // rapid taps and handle word/line/select-all on tap 2/3/4+.
+                // 用事件时间而非处理时间计数：慢设备/模拟器上主线程卡顿
+                // （软件渲染帧 1s+）会把处理间隔撑过 400ms 窗口，导致三击
+                // 的第 3 击被重置为单击并清掉选词；事件时间是用户真实点速。
                 val now = SystemClock.uptimeMillis()
-                tapCount = nextTapCount(now, lastTapTime, tapCount, DOUBLE_TAP_WINDOW_MS)
-                lastTapTime = now
+                val tapTime = event.eventTime
+                tapCount = nextTapCount(tapTime, lastTapTime, tapCount, DOUBLE_TAP_WINDOW_MS)
+                lastTapTime = tapTime
 
                 if (handleMultiTap(event)) return true
 
@@ -1965,11 +1971,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 return true
             }
 
-            override fun onDoubleTap(event: MotionEvent): Boolean {
-                // Multi-tap is handled in onSingleTapUp using tapCount self-counting
-                return true
-            }
-
             override fun onLongPress(event: MotionEvent) {
                 if (scaleFactor < ZOOM_THRESHOLD_LOW || scaleFactor > ZOOM_THRESHOLD_HIGH) return
                 isAfterLongPress = true
@@ -1980,7 +1981,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         }
 
-    private val gestureDetector = GestureDetector(context, gestureListener)
+    private val gestureDetector =
+        GestureDetector(context, gestureListener).also {
+            // ghostty-android 模式：禁用框架双击检测，使每次点击都触发
+            // onSingleTapUp，由 tapCount 自计数驱动 选词/选行/全选。检测开启时
+            // 框架把第 2 击的 onSingleTapUp 吞入 onDoubleTap（此处无操作），
+            // tapCount 永不到 2，多击选择整体失效。
+            it.setOnDoubleTapListener(null)
+        }
 
     private val scaleDetector =
         ScaleGestureDetector(
@@ -2245,12 +2253,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
         val result = super.onApplyWindowInsets(insets)
         val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
-        if (imeBottom != lastImeBottom) {
-            lastImeBottom = imeBottom
-            // Spec ime-translation: any IME inset delta must dismiss the selection
-            // handles + context menu — popups positioned at show time can never be
-            // stale relative to the pan. Do NOT resize here; the hybrid
-            // pan-then-reflow defers the single grid reflow to onImeSettled(48ms).
+        // Spec ime-translation: only a shown/hidden FLIP dismisses the selection
+        // handles + context menu — popups positioned at show time can never be
+        // stale relative to the pan. Gating on the flip (not every px delta)
+        // matters: the show/hide animation fires insets every frame, and clearing
+        // per-frame wipes a selection made mid-animation (e.g. double-tap select
+        // right after tap-to-focus shows the keyboard). Do NOT resize here; the
+        // hybrid pan-then-reflow defers the single grid reflow to onImeSettled(48ms).
+        val imeVisible = insets.isVisible(WindowInsets.Type.ime())
+        lastImeBottom = imeBottom
+        if (imeVisible != lastImeVisible) {
+            lastImeVisible = imeVisible
             viewModel?.clearSelection()
             selectionHandles.hideSelectionHandles()
             hideSelectionMenu()
@@ -2266,6 +2279,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     fun onImeSettled(settledBottom: Int) {
         lastImeBottom = settledBottom
+        lastImeVisible = settledBottom > 0
         // 纯 Compose 偏移已承担键盘跟随，Surface 自身不再平移：双重位移会遮挡底部行并触发重绘闪烁。
         if (translationY != 0f) translationY = 0f
     }
@@ -2527,28 +2541,39 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * (tapCount >= 2).
      */
     private fun handleMultiTap(event: MotionEvent): Boolean {
-        when (multiTapAction(tapCount)) {
-            MultiTapAction.SELECT_ALL -> {
-                viewModel?.selectAll()
-                showHandlesIfActive()
-                return true
-            }
+        val consumed =
+            when (multiTapAction(tapCount)) {
+                MultiTapAction.SELECT_ALL -> {
+                    viewModel?.selectAll()
+                    showHandlesIfActive()
+                    true
+                }
 
-            MultiTapAction.LINE -> {
-                startSelectionAt(event, selectLine = true)
-                showHandlesIfActive()
-                return true
-            }
+                MultiTapAction.LINE -> {
+                    startSelectionAt(event, selectLine = true)
+                    showHandlesIfActive()
+                    true
+                }
 
-            MultiTapAction.WORD -> {
-                startSelectionAt(event, expandToWord = true)
-                showHandlesIfActive()
-                return true
-            }
+                MultiTapAction.WORD -> {
+                    startSelectionAt(event, expandToWord = true)
+                    showHandlesIfActive()
+                    true
+                }
 
-            MultiTapAction.NOT_A_MULTI_TAP -> return false
-        }
-        return false
+                MultiTapAction.NOT_A_MULTI_TAP -> false
+            }
+        // 手势完成点同步亮出菜单（控制柄同模式）：只靠 Compose LaunchedEffect
+        // 会漏掉短促手势的单次重组，菜单永不出现；它是幂等的同步备份。
+        if (consumed) showSelectionMenuForCurrentSelection()
+        return consumed
+    }
+
+    /** 手势完成点同步亮出当前选择的菜单（控制柄同模式），Compose 侧作为同步备份。 */
+    private fun showSelectionMenuForCurrentSelection() {
+        val selection = viewModel?.state?.value?.selection ?: return
+        if (!selection.active || selection.start == null || selection.end == null) return
+        showSelectionMenu(selection.pasteOnly)
     }
 
     private fun showHandlesIfActive() {
@@ -2859,6 +2884,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             sel.end.col,
                             getAccentColor(),
                         )
+                        showSelectionMenuForCurrentSelection()
                     }
                 }
                 edgeScrollRunning = false
