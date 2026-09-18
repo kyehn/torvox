@@ -93,6 +93,14 @@ class PasteButtonInstrumentedTest {
 
     @Test
     fun pasteMenuTypesClipboardIntoShell() {
+        // 参考实现首步即等 prompt：静默等待在空屏（shell 未就绪）也会通过，
+        // 而 shell 就绪前的粘贴字节去向不明，必须门控 prompt 存在。
+        val promptSeen =
+            UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
+                val text = currentText()
+                text != null && (text.contains("$") || text.contains("#"))
+            }
+        assertNotNull("shell prompt 必须先就绪, 实际: ${currentText()?.takeLast(200)}", promptSeen)
         awaitQuiet()
         // 清屏：prompt 回到视口首行，其余行全空，长按落点必为空白。
         assertTrue("清屏送显失败", bridge().feedTerminal("\u001B[2J".toByteArray(Charsets.UTF_8)))
