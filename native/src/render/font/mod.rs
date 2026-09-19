@@ -70,6 +70,18 @@ impl GlyphSynthesis {
             GlyphSynthesis::BoldItalic => 3,
         }
     }
+
+    /// Inverse of [`GlyphSynthesis::bits`]: restore the synthesis mode
+    /// stored in a cache key. Unknown bit patterns fall back to no
+    /// synthesis rather than inventing a style.
+    pub(crate) fn from_bits(bits: u8) -> Self {
+        match bits {
+            1 => GlyphSynthesis::Bold,
+            2 => GlyphSynthesis::Italic,
+            3 => GlyphSynthesis::BoldItalic,
+            _ => GlyphSynthesis::None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1666,6 +1678,72 @@ mod tests {
             .expect("italic A again");
         assert_eq!(bold.atlas_x, bold_again.atlas_x);
         assert_eq!(italic.atlas_x, italic_again.atlas_x);
+    }
+
+    /// 图集重建必须保留合成位：满图重建把合成字形降级为常规位图，
+    /// 斜体重建成常规体（满图后斜体退化缺失）。
+    #[test]
+    fn rebuild_atlas_preserves_synthesis_keyed_entries() {
+        let (mut pipeline, _) = styled_test_pipeline();
+        let regular = pipeline.glyph_information('A').expect("regular A");
+        let glyph_id = pipeline.caches.ascii_glyph_ids['A' as usize].expect("ascii gid cached");
+        let font_id = pipeline.font_id.expect("primary font set");
+        let italic = pipeline
+            .glyph_information_from_font_with_synthesis(font_id, glyph_id, GlyphSynthesis::Italic)
+            .expect("synthesized italic A");
+        assert!(
+            italic.width > 0 && italic.height > 0,
+            "synthesized italic bitmap must exist"
+        );
+        let atlas_width = pipeline.atlas_width as usize;
+        let italic_alpha_before = glyph_region_alpha(&italic, pipeline.atlas_bitmap(), atlas_width);
+        assert!(
+            italic_alpha_before.iter().any(|&alpha| alpha > 0),
+            "synthesized italic region must have ink"
+        );
+        assert!(
+            pipeline
+                .caches
+                .glyph_cache
+                .iter()
+                .any(|(key, _)| key.synthesis == GlyphSynthesis::Italic.bits()),
+            "precondition: italic synthesis entry must be cached"
+        );
+        let generation = pipeline.atlas_generation();
+        pipeline.rebuild_atlas();
+        assert!(
+            pipeline.atlas_generation() > generation,
+            "rebuild must bump the atlas generation"
+        );
+        assert!(
+            pipeline
+                .caches
+                .glyph_cache
+                .iter()
+                .any(|(key, _)| key.synthesis == GlyphSynthesis::Italic.bits()),
+            "rebuild must preserve synthesis-keyed entries"
+        );
+        let italic_after = pipeline
+            .lookup_glyph(font_id, glyph_id, GlyphSynthesis::Italic)
+            .expect("synthesized italic must stay cached after rebuild");
+        let bitmap_after = pipeline.atlas_bitmap().to_vec();
+        let atlas_width_after = pipeline.atlas_width as usize;
+        let italic_alpha_after =
+            glyph_region_alpha(&italic_after, &bitmap_after, atlas_width_after);
+        assert_eq!(
+            italic_alpha_before, italic_alpha_after,
+            "rebuilt synthesized bitmap must match the pre-rebuild content"
+        );
+        let regular_after = pipeline
+            .glyph_information('A')
+            .expect("regular A after rebuild");
+        let regular_alpha_after =
+            glyph_region_alpha(&regular_after, &bitmap_after, atlas_width_after);
+        assert_ne!(
+            regular_alpha_after, italic_alpha_after,
+            "synthesized italic must still differ from regular after rebuild"
+        );
+        let _ = regular;
     }
 
     /// 回应对“d 有些区域像 a”：相邻小写字母必须命中不同缓存条目与不同位图。

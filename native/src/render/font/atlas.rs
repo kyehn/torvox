@@ -277,7 +277,8 @@ impl FontPipeline {
         self.atlas_bitmap.fill(0);
         self.caches.glyph_cache.clear();
         for (key, _old_info) in &entries {
-            self.glyph_information_from_font(key.font_id, '\0', key.glyph_id);
+            let synthesis = GlyphSynthesis::from_bits(key.synthesis);
+            self.glyph_information_from_font_with_synthesis(key.font_id, key.glyph_id, synthesis);
         }
         self.atlas_generation = self.atlas_generation.saturating_add(1);
         self.reset_dirty_rect_full();
