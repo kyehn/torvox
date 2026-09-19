@@ -1739,6 +1739,28 @@ fn kitty_graphics_absent_when_no_images() {
     );
 }
 
+/// DECCKM 应用光标键模式必须改变方向键编码（对标
+/// arrowKeyEncodingHonorsCursorKeyMode：普通模式 ESC[A，应用模式 ESC OA）。
+#[test]
+fn arrow_key_encoding_honors_cursor_key_mode() {
+    let normal = terminal();
+    normal.flush();
+    let plain = normal
+        .key_encode(19, 0, 0, 0, 0)
+        .expect("arrow up must encode");
+    assert_eq!(plain, b"\x1b[A", "normal mode arrow up (got {plain:?})");
+    let mut applied = terminal();
+    applied.vt_write(b"\x1b[?1h");
+    applied.flush();
+    let application = applied
+        .key_encode(19, 0, 0, 0, 0)
+        .expect("arrow up must encode");
+    assert_eq!(
+        application, b"\x1bOA",
+        "application mode arrow up (got {application:?})"
+    );
+}
+
 // ── : cursor/row coordinate consistency (D1 deterministic leg) ──
 
 /// The shell-echo path (prompt text + typed chars, no newline) must report a
