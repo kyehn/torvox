@@ -98,6 +98,17 @@ class TextSearchEndToEndTest {
         assertNotNull("标记必须落格: $marker", landed)
     }
 
+    private fun awaitBridge(): Bridge {
+        // 会话孵化慢于 UI 呈现：waitForSession 只等界面节点，桥可能仍为 null
+        //（Osc52 同门控）。单次直读必竞态。
+        val ready =
+            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+                composeTestRule.getBridge() != null
+            }
+        assertNotNull("运行时桥必须就绪（30s 未孵化）", ready)
+        return composeTestRule.getBridge() ?: throw AssertionError("bridge null")
+    }
+
     private fun waitForOutput() {
         Thread.sleep(1500) // Wait for PTY output to process
     }
@@ -191,7 +202,7 @@ class TextSearchEndToEndTest {
     @Test
     fun searchFindsAndHighlightsMatches() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         // Verify marker exists in terminal
@@ -229,7 +240,7 @@ class TextSearchEndToEndTest {
     @Test
     fun searchNavigatesWithScroll() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
@@ -260,7 +271,7 @@ class TextSearchEndToEndTest {
     @Test
     fun smartCaseToggle() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         // Open search with lowercase version of marker
@@ -290,7 +301,7 @@ class TextSearchEndToEndTest {
     @Test
     fun closeSearchRestoresModifierBar() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
@@ -318,7 +329,7 @@ class TextSearchEndToEndTest {
     @Test
     fun multiLineSearch() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
 
         // Generate content on multiple lines
         for (i in 1..30) {
@@ -379,7 +390,7 @@ class TextSearchEndToEndTest {
     @Test
     fun searchBarNotObscuredByIme() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
 
         openSearchAndType(uniqueMarker)
         waitForSearchStable()
@@ -415,7 +426,7 @@ class TextSearchEndToEndTest {
     @Test
     fun searchHighlightColors() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)

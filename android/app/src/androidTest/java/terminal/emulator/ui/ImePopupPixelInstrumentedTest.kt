@@ -154,7 +154,7 @@ class ImePopupPixelInstrumentedTest {
         val stamp = System.currentTimeMillis() % 100000
         val last = "IME_MANY_120_$stamp"
         printAndAwait(
-            "for i in \$(seq 1 120); do echo IME_MANY_\$i" + "_$stamp; done",
+            "for i in \$(seq 1 120); do echo IME_MANY_\${i}" + "_$stamp; done",
             last,
         )
         Thread.sleep(SETTLE_MILLIS)
@@ -162,20 +162,31 @@ class ImePopupPixelInstrumentedTest {
         tapAndAwaitIme()
         val imeHeight = imeHeightPx()
         assertTrue("输入法必须占据高度", imeHeight > 0)
-        val moved = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        // 内容较多时终端内容上移：输入法上方区域像素必须显著变化。
+        // 内容较多时终端内容上移：慢模拟器上内边距动画可滞后数秒，固定等待即拍即判必抖动。轮询至上移出现（15s 上限），成功帧留给闪烁/缝线检查。
         val regionTop = before.height / 10
         val regionBottom = before.height - imeHeight - 40
-        val moveDiff = countDifferingPixels(before, moved, regionTop, regionBottom)
+        var moved: android.graphics.Bitmap? = null
+        var moveDiff = 0
+        val moveDeadline = android.os.SystemClock.uptimeMillis() + 15_000L
+        while (android.os.SystemClock.uptimeMillis() < moveDeadline) {
+            val shot = device.takeScreenshot() ?: throw AssertionError("截图失败")
+            moveDiff = countDifferingPixels(before, shot, regionTop, regionBottom)
+            if (moveDiff > 20) {
+                moved = shot
+                break
+            }
+            Thread.sleep(500)
+        }
         assertTrue("内容较多时弹出输入法终端内容必须上移 (差分=$moveDiff)", moveDiff > 20)
+        val movedFrame = moved ?: throw AssertionError("上移帧缺失")
         // 上移后无闪烁：稳定后连续两帧必须一致。
         Thread.sleep(SETTLE_MILLIS)
         val settled = device.takeScreenshot() ?: throw AssertionError("截图失败")
-        val flickerDiff = countDifferingPixels(moved, settled, regionTop, regionBottom)
+        val flickerDiff = countDifferingPixels(movedFrame, settled, regionTop, regionBottom)
         assertTrue("上移稳定后必须无闪烁 (差分=$flickerDiff)", flickerDiff <= 5)
         // 上移前后底部像素完全相同：贴输入法上沿的缝线行必须一致。
         val seamTop = regionBottom - 12
-        val seamDiff = countDifferingPixels(moved, settled, seamTop, regionBottom)
+        val seamDiff = countDifferingPixels(movedFrame, settled, seamTop, regionBottom)
         assertTrue("底部缝线像素必须完全相同 (差分=$seamDiff)", seamDiff == 0)
         // 弹出时输入文本正确显示，底部不被吞。
         val typed = "IME_TYPED_$stamp"
