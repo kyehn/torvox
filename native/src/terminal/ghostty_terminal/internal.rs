@@ -736,8 +736,14 @@ impl super::GhosttyTerminal {
                             log::error!("ghostty_terminal: resize failed: {error}");
                         } else {
                             // 整网重调回填默认几何，XTWINOPS 应答与上游实际一致。
-                            config.cell_size_px.0.store(DEFAULT_CELL_WIDTH, Ordering::Release);
-                            config.cell_size_px.1.store(DEFAULT_CELL_HEIGHT, Ordering::Release);
+                            config
+                                .cell_size_px
+                                .0
+                                .store(DEFAULT_CELL_WIDTH, Ordering::Release);
+                            config
+                                .cell_size_px
+                                .1
+                                .store(DEFAULT_CELL_HEIGHT, Ordering::Release);
                         }
                         // zelland row-cache pattern: row count changed on resize,
                         // the row cache is stale and must be invalidated.

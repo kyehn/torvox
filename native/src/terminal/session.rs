@@ -843,7 +843,9 @@ impl Drop for Session {
                 let pgid_raw = pgid.as_raw();
                 // 自杀 guard：子进程 fork 后 setsid 前与本进程同组，
                 // 组杀会连带杀死本进程（设备实证 SIGKILL 自杀），退化为直杀子进程。
-                let own_pgid = nix::unistd::getpgid(None).map(|group| group.as_raw()).unwrap_or(-1);
+                let own_pgid = nix::unistd::getpgid(None)
+                    .map(|group| group.as_raw())
+                    .unwrap_or(-1);
                 if pgid_raw == own_pgid {
                     log::warn!("session drop: child shares our process group, direct kill only");
                 }

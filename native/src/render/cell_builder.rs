@@ -604,8 +604,8 @@ fn append_row_instances(
                         CursorStyle::Bar => {
                             // 竖线光标：单元格左侧细竖条，高度与字形盒一致。
                             origin[1] += glyph_top;
-                            size[0] =
-                                (cell_w * BAR_CURSOR_WIDTH_FRACTION).max(CURSOR_MARKER_MINIMUM_THICKNESS);
+                            size[0] = (cell_w * BAR_CURSOR_WIDTH_FRACTION)
+                                .max(CURSOR_MARKER_MINIMUM_THICKNESS);
                             size[1] = glyph_height;
                             effective_background = marker_background;
                         }
@@ -742,7 +742,10 @@ fn append_row_instances(
                         let marker_height = (cell_h * UNDERLINE_CURSOR_HEIGHT_FRACTION)
                             .max(CURSOR_MARKER_MINIMUM_THICKNESS);
                         (
-                            [glyph_quad_origin[0], glyph_top + glyph_height - marker_height],
+                            [
+                                glyph_quad_origin[0],
+                                glyph_top + glyph_height - marker_height,
+                            ],
                             [cell_w * cell_span, marker_height],
                         )
                     }
@@ -1527,7 +1530,14 @@ mod tests {
             style: crate::terminal::ghostty_terminal::CursorStyle::Bar,
             color: Some([1.0, 1.0, 1.0, 1.0]),
         };
-        let cells = vec![cell_data(0, 0, 'A', [1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)];
+        let cells = vec![cell_data(
+            0,
+            0,
+            'A',
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0],
+            0,
+        )];
         let instances = build(&cells, cursor, &[]);
         assert_eq!(
             instances.len(),

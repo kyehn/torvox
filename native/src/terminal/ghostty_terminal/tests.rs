@@ -1856,9 +1856,15 @@ fn sgr31_red_reaches_cell_data_foreground() {
         [0xA4, 0xFF, 0xFF],
         [0xF8, 0xF8, 0xF2],
     ];
-    let mut dracula =
-        GhosttyTerminal::new_with_theme(24, 80, 1000, [0x21, 0x21, 0x21], [0xF8, 0xF8, 0xF2], dracula_ansi)
-            .expect("dracula terminal");
+    let mut dracula = GhosttyTerminal::new_with_theme(
+        24,
+        80,
+        1000,
+        [0x21, 0x21, 0x21],
+        [0xF8, 0xF8, 0xF2],
+        dracula_ansi,
+    )
+    .expect("dracula terminal");
     dracula.vt_write(b"\x1b[31mRED\x1b[0m");
     dracula.flush();
     let (cells, _) = dracula.receive_cell_data().expect("cell data");
@@ -1881,9 +1887,8 @@ fn sgr31_red_reaches_cell_data_foreground() {
 #[test]
 fn sgr31_mocha_default_theme_reaches_foreground() {
     let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
-    let mut mocha =
-        GhosttyTerminal::new_with_theme(44, 48, 1000, background, foreground, ansi)
-            .expect("mocha terminal");
+    let mut mocha = GhosttyTerminal::new_with_theme(44, 48, 1000, background, foreground, ansi)
+        .expect("mocha terminal");
     mocha.vt_write(b"\x1b[31mRED\x1b[0m");
     mocha.flush();
     let (cells, _) = mocha.receive_cell_data().expect("cell data");
@@ -1906,9 +1911,8 @@ fn sgr31_mocha_default_theme_reaches_foreground() {
 #[test]
 fn sgr_same_text_tricolor_rows_all_present() {
     let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
-    let mut terminal =
-        GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
-            .expect("mocha terminal");
+    let mut terminal = GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
+        .expect("mocha terminal");
     for code in [34u8, 31, 32] {
         terminal.vt_write(format!("\x1b[{code}mEEEEEEEE\x1b[0m\r\n").as_bytes());
     }
@@ -2043,10 +2047,7 @@ fn sgr_style_attributes_reach_snapshot_and_cell_data() {
             4 => snap_cell.underline,
             _ => snap_cell.strikethrough,
         };
-        assert!(
-            snapshot_set,
-            "SGR{code} must set snapshot style attribute"
-        );
+        assert!(snapshot_set, "SGR{code} must set snapshot style attribute");
     }
 }
 
@@ -2061,7 +2062,10 @@ fn selection_text_flipped_endpoints() {
     let snap = t.take_snapshot();
     let row0 = snap.scrollback_length;
     let forward = t.selection_text((row0, 0), (row0, 4), false);
-    assert_eq!(forward, "hello", "forward selection baseline (got {forward:?})");
+    assert_eq!(
+        forward, "hello",
+        "forward selection baseline (got {forward:?})"
+    );
     let flipped = t.selection_text((row0, 4), (row0, 0), false);
     assert_eq!(
         flipped, "hello",
@@ -2079,9 +2083,15 @@ fn selection_text_grabbed_endpoint_moves() {
     let snap = t.take_snapshot();
     let row = snap.scrollback_length;
     let extended = t.selection_text((row, 0), (row, 8), false);
-    assert_eq!(extended, "hello wor", "drag end handle must extend (got {extended:?})");
+    assert_eq!(
+        extended, "hello wor",
+        "drag end handle must extend (got {extended:?})"
+    );
     let shrunk = t.selection_text((row, 6), (row, 8), false);
-    assert_eq!(shrunk, "wor", "drag start handle must shrink (got {shrunk:?})");
+    assert_eq!(
+        shrunk, "wor",
+        "drag start handle must shrink (got {shrunk:?})"
+    );
 }
 
 /// 选中文本滚入回滚后同端点仍取回原文：端点为绝对行号，不随视口漂移
@@ -2099,7 +2109,10 @@ fn selection_text_tracks_scrolled_content() {
     t.flush();
     assert!(t.scrollback_length() > 0, "content must have scrolled");
     let tracked = t.selection_text((0, 0), (0, 4), false);
-    assert_eq!(tracked, "alpha", "selection must track into scrollback (got {tracked:?})");
+    assert_eq!(
+        tracked, "alpha",
+        "selection must track into scrollback (got {tracked:?})"
+    );
 }
 
 /// OSC 2 会话标题必须可读（对标 titleChangeEventAndValue 的值断言；
