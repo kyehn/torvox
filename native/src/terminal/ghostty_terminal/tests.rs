@@ -2051,6 +2051,53 @@ fn sgr_style_attributes_reach_snapshot_and_cell_data() {
     }
 }
 
+/// SGR 4:x 下划线形状必须到达渲染层（对标 sgrUnderlineStyles：单/双/卷/点/虚
+/// 均置下划线位，仅双线另置双下划线位）。
+#[test]
+fn underline_styles_reach_cell_data_and_snapshot() {
+    use crate::terminal::ghostty_terminal::cell_flags;
+    for (sequence, marker, double) in [
+        ("4:1", b'A', false),
+        ("4:2", b'B', true),
+        ("4:3", b'C', false),
+        ("4:4", b'D', false),
+        ("4:5", b'E', false),
+    ] {
+        let mut styled = terminal();
+        styled.vt_write(format!("\x1b[{sequence}m{}", marker as char).as_bytes());
+        styled.flush();
+        let (cells, _) = styled.receive_cell_data().expect("cell data");
+        let marked = cells
+            .iter()
+            .find(|c| c.codepoint == marker as u32)
+            .expect("marked cell present");
+        assert_eq!(
+            (marked.flags >> cell_flags::UNDERLINE) & 1,
+            1,
+            "SGR {sequence} must set UNDERLINE bit"
+        );
+        assert_eq!(
+            (marked.flags >> cell_flags::DOUBLE_UNDERLINE) & 1,
+            u32::from(double),
+            "SGR {sequence} double bit must be {double}"
+        );
+        let snapshot = styled.take_snapshot();
+        let snap_cell = snapshot
+            .cells
+            .iter()
+            .find(|c| c.codepoint == marker as u32)
+            .expect("marked snapshot cell present");
+        assert!(
+            snap_cell.underline,
+            "SGR {sequence} must set snapshot underline"
+        );
+        assert_eq!(
+            snap_cell.double_underline, double,
+            "SGR {sequence} snapshot double must be {double}"
+        );
+    }
+}
+
 /// 选择端点翻转必须返回同范围文本：拖动手柄越过锚点时调用方按
 /// 触摸顺序传递端点（start > end），不得返回空串或 panic
 ///（对标 selectionDragAcrossAnchorFlips 的端点重排语义）。
