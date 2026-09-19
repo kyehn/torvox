@@ -134,8 +134,31 @@ class ImePopupPixelInstrumentedTest {
         return count
     }
 
+    /** 确保输入法收起：Gboard 系统级持久，跨用例仍展开会使 before 拍到已上移态导致差分为零。 */
+    private fun hideImeAndSettle() {
+        composeTestRule.activity.runOnUiThread {
+            val imm =
+                composeTestRule.activity.getSystemService(
+                    android.content.Context.INPUT_METHOD_SERVICE,
+                ) as android.view.inputmethod.InputMethodManager
+            imm.hideSoftInputFromWindow(
+                composeTestRule.activity.window.decorView.windowToken,
+                0,
+            )
+        }
+        UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 200) {
+            var hidden = false
+            InstrumentationRegistry.getInstrumentation().runOnMainSync {
+                hidden = findTerminalSurface(composeTestRule.activity).rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == false
+            }
+            hidden
+        }
+        Thread.sleep(SETTLE_MILLIS)
+    }
+
     @Test
     fun contentFewImePopupTerminalUnchanged() {
+        hideImeAndSettle()
         val marker = "IME_FEW_${System.currentTimeMillis() % 100000}"
         printAndAwait("printf '$marker\\n'", marker)
         Thread.sleep(SETTLE_MILLIS)
@@ -158,6 +181,8 @@ class ImePopupPixelInstrumentedTest {
             last,
         )
         Thread.sleep(SETTLE_MILLIS)
+        // 启动期自动弹键盘与本用例竞态（实测 spawn 后 3s 才 show）：截图前一刻强制收起并确认，否则 before 即上移态差分为零。
+        hideImeAndSettle()
         val before = device.takeScreenshot() ?: throw AssertionError("截图失败")
         tapAndAwaitIme()
         val imeHeight = imeHeightPx()
@@ -189,25 +214,27 @@ class ImePopupPixelInstrumentedTest {
         val seamDiff = countDifferingPixels(movedFrame, settled, seamTop, regionBottom)
         assertTrue("底部缝线像素必须完全相同 (差分=$seamDiff)", seamDiff == 0)
         // 弹出时输入文本正确显示，底部不被吞。
+        // 回车后缀：输入即执行，断言执行输出而非行回显——行回显依赖从机回显开关（mksh 自管理），内边距动画期的 SIGWINCH 重绘会擦掉未提交行并造成抖动；执行输出稳定可断言，覆盖同一“输入正确显示、底部不被吞”条款。
         val typed = "IME_TYPED_$stamp"
+        val typedEnter = "$typed\n"
         composeTestRule.activity.runOnUiThread {
             val editorInfo = android.view.inputmethod.EditorInfo()
             findTerminalSurface(composeTestRule.activity).onCreateInputConnection(editorInfo)
-                ?.commitText(typed, 1)
+                ?.commitText(typedEnter, 1)
         }
+        // 回显行可能在视口边缘换行（提示符 39 列 + 输入 15 列 > 48 列宽），逐行 contains 会把换行切断的针误判为缺失：压平换行后再判。
         val typedSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                pumpAndText()?.contains(typed) == true
+                pumpAndText()?.replace("\n", "")?.contains(typed) == true
             }
         assertNotNull("输入文本必须落格: $typed", typedSeen)
-        val lines = bridge().getTerminalText().orEmpty().lines()
-        val markerIndex = lines.indexOfFirst { it.contains(typed) }
-        assertTrue("输入文本必须落格", markerIndex >= 0)
         val packed = bridge().getGridRowsColsPacked()
         val rows = (packed shr 32).toInt()
+        val cols = (packed and 0xFFFFFFFFL).toInt()
+        val flattened = bridge().getTerminalText().orEmpty().replace("\n", "")
         assertTrue(
-            "输入文本必须在可见视口内（底部不被吞）, 行=$markerIndex 可见=${lines.size - rows}..${lines.size}",
-            markerIndex >= lines.size - rows,
+            "输入文本必须在可见视口内（底部不被吞）, 视口=${rows}x$cols",
+            flattened.takeLast(rows * cols).contains(typed),
         )
     }
 }

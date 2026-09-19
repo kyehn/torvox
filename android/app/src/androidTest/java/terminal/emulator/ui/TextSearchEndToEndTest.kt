@@ -72,11 +72,15 @@ class TextSearchEndToEndTest {
     // ── Helper: generate multi-page content ──
 
     private fun generateMultiPageContent(bridge: Bridge, marker: String) {
-        // 先等 prompt：冷启动 stdin 未消费阶段的字节会丢失（粘贴案定案同类）。
+        // 先等 prompt：冷启动 stdin 未消费阶段的字节会丢失（粘贴案定案同类）。轮询自带 pump（pollEvent 驱动 native 输出处理）：生产泵是渲染线程，跨用例 surface 重建后可能停转，只读格不泵送会永远卡死，本用例自己驱动队列。
         val promptReady =
             terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+                runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
                 runCatching { bridge.getTerminalText() }.getOrNull().orEmpty().contains("$")
             }
+        // TEMP-DIAG-GRID (revert after diagnosis): trace $ across the class to find where prompts vanish.
+        val gateText = runCatching { bridge.getTerminalText() }.getOrNull().orEmpty()
+        android.util.Log.d("GridDiag", "len=" + gateText.length + " dollars=" + gateText.count { it == '$' } + " head=" + gateText.take(80).replace("\n", "|"))
         assertNotNull("shell prompt 未就绪", promptReady)
         // Generate enough content to fill >3 terminal pages
         val linesToFill = 200
@@ -90,9 +94,10 @@ class TextSearchEndToEndTest {
                 }
             bridge.writeToPty("echo '$content'\n".toByteArray())
         }
-        // 落格门控替代裸睡：慢模拟器上 200 行回显滞后，内容未齐即搜即错。
+        // 落格门控替代裸睡：慢模拟器上 200 行回显滞后，内容未齐即搜即错。自带 pump（同 prompt 门控注释）。
         val landed =
             terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
+                runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
                 runCatching { bridge.getTerminalText() }.getOrNull()?.contains(marker) == true
             }
         assertNotNull("标记必须落格: $marker", landed)

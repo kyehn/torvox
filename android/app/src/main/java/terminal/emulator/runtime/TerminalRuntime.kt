@@ -1424,20 +1424,17 @@ constructor(
                                             // Transient render error (surface not ready, snapshot unavailable,
                                             // etc.)
                                             // These resolve on their own; don't count them toward the fatal limit.
-                                            if (consecutiveErrors == 0) {
+                                            // Never break here: this thread also drives pollAll pumping — exiting
+                                            // freezes native output processing with no guaranteed restart (rotation /
+                                            // app-switch surface outage would wedge the terminal forever). Legitimate
+                                            // exit stays via entry.running / generation conditions above.
+                                            if (consecutiveErrors == 0 || consecutiveErrors % RENDER_MAX_TRANSIENT_ERRORS == 0) {
                                                 LogUtil.w(
                                                     "Runtime",
-                                                    "session ${entry.id} transient render error code=$count",
+                                                    "session ${entry.id} transient render error code=$count (consecutive=$consecutiveErrors, surviving)",
                                                 )
                                             }
                                             consecutiveErrors++
-                                            if (consecutiveErrors > RENDER_MAX_TRANSIENT_ERRORS) {
-                                                LogUtil.e(
-                                                    "Runtime",
-                                                    "session ${entry.id} too many transient render errors ($consecutiveErrors), stopping render thread",
-                                                )
-                                                break
-                                            }
                                             // Adaptive backoff: 50ms for first 10, then 200ms
                                             val sleepMs =
                                                 if (consecutiveErrors > 10) {
