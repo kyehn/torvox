@@ -13,7 +13,7 @@ fn cjk_resolve_steady_state(criterion: &mut Criterion) {
         pipeline.set_font_family("DejaVu Sans Mono"),
         "宿主必须有主字体"
     );
-    pipeline.find_cjk_fallback_fonts("");
+    pipeline.set_system_locale("");
     let line: Vec<char> = "中文测试字体渲染速度".chars().collect();
     for glyph in &line {
         pipeline.glyph_information(*glyph);

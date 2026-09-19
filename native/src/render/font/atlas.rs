@@ -257,7 +257,9 @@ impl FontPipeline {
         };
 
         self.caches.glyph_cache.put(key, info.clone());
-        self.atlas_generation += 1;
+        // 注意：此处不推进 atlas_generation。新分配只占用空闲区，
+        // 已有 UV 不变；代际只在驱逐/重建（真正搬迁 UV 时）推进，
+        // 否则每帧新字形都会误杀增量实例缓存（NFR-010 失效致卡顿）。
         Some(info)
     }
 
