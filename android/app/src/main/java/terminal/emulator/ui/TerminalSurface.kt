@@ -1204,9 +1204,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // clamp; the preview rate is a few updates per second so sculpting
         // feels smooth without reflowing ghostty per frame (41ms frame
         // baseline on the emulator).
-        private const val ZOOM_FONT_SIZE_MIN_SP = 14f
-        private const val ZOOM_FONT_SIZE_MAX_SP = 48f
-        private const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
         private const val ZOOM_PREVIEW_INTERVAL_NANOS = 60_000_000L // 60ms
 
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
@@ -2007,11 +2004,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
                     if (!zoomActive || isSelectingText) return false
                     scaleFactor *= detector.scaleFactor
-                    val sizeSp =
-                        (zoomBaseFontSizeSp * scaleFactor).coerceIn(
-                            ZOOM_FONT_SIZE_MIN_SP,
-                            ZOOM_FONT_SIZE_MAX_SP,
-                        )
+                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor)
                     val now = System.nanoTime()
                     if (now - lastZoomPreviewNanos >= ZOOM_PREVIEW_INTERVAL_NANOS) {
                         lastZoomPreviewNanos = now
@@ -2023,13 +2016,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     if (!zoomActive) return
                     zoomActive = false
-                    val sizeSp =
-                        (zoomBaseFontSizeSp * scaleFactor).coerceIn(
-                            ZOOM_FONT_SIZE_MIN_SP,
-                            ZOOM_FONT_SIZE_MAX_SP,
-                        )
+                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor)
                     scaleFactor = 1.0f
-                    if (kotlin.math.abs(sizeSp - zoomBaseFontSizeSp) > ZOOM_FONT_SIZE_EPSILON_SP) {
+                    if (zoomSettledOnNewSize(zoomBaseFontSizeSp, sizeSp)) {
                         // The gesture settled on a new size: persist + full
                         // apply (single grid reflow).
                         onZoomChanged?.invoke(sizeSp)
@@ -3304,3 +3293,24 @@ internal fun applyScrollDistance(
  */
 internal fun flingRowsPerSecond(velocityYPxPerSecond: Float, cellHeightPx: Float): Int =
     (velocityYPxPerSecond / cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)).toInt()
+
+/** 缩放手势字号上下限（与 TerminalScreen 最终钳制一致）。 */
+internal const val ZOOM_FONT_SIZE_MIN_SP = 14f
+internal const val ZOOM_FONT_SIZE_MAX_SP = 48f
+
+/** 缩放手势收敛阈值：小于此差值视为回到锚点，只撤销预览不持久化。 */
+internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
+
+/**
+ * 缩放手势字号换算（onScale 可测核心）。
+ * 基准字号乘以累计缩放因子后钳制到字号上下限。
+ */
+internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float): Float =
+    (baseFontSizeSp * scaleFactor).coerceIn(ZOOM_FONT_SIZE_MIN_SP, ZOOM_FONT_SIZE_MAX_SP)
+
+/**
+ * 缩放手势是否收敛到新字号（onScaleEnd 可测核心）。
+ * 终值与基准差值超过阈值才持久化，否则撤销预览恢复基准。
+ */
+internal fun zoomSettledOnNewSize(baseFontSizeSp: Float, finalSizeSp: Float): Boolean =
+    kotlin.math.abs(finalSizeSp - baseFontSizeSp) > ZOOM_FONT_SIZE_EPSILON_SP

@@ -222,4 +222,36 @@ class TerminalSurfaceLogicTest {
     fun `no prior drag end means the guard is inactive`() {
         assert(!shouldSuppressTapAfterDragEnd(nowMs = 100, lastDragEndMs = 0L))
     }
+
+    // ── pinch zoom mapping ───────────────────────────────────────────────────
+
+    @Test
+    fun `zoom scales around the gesture base size`() {
+        assertEquals(25f, zoomFontSize(20f, 1.25f))
+        assertEquals(15f, zoomFontSize(20f, 0.75f))
+    }
+
+    @Test
+    fun `zoom clamps to the same bounds as the settings screen`() {
+        assertEquals(48f, zoomFontSize(16f, 5f))
+        assertEquals(14f, zoomFontSize(16f, 0.1f))
+    }
+
+    @Test
+    fun `pinch sequence accumulates then settles on a new size`() {
+        // Begin(16sp) → previews → end: cumulative factor decides one outcome.
+        var factor = 1.0f
+        factor *= 1.1f
+        assertEquals(17.6f, zoomFontSize(16f, factor))
+        factor *= 1.1f
+        val finalSize = zoomFontSize(16f, factor)
+        assert(zoomSettledOnNewSize(16f, finalSize))
+    }
+
+    @Test
+    fun `pinch returning to base only reverts the preview`() {
+        // Tiny drift under epsilon: no persist, just revert to the base size.
+        val finalSize = zoomFontSize(16f, 1.001f)
+        assert(!zoomSettledOnNewSize(16f, finalSize))
+    }
 }
