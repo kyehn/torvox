@@ -777,7 +777,11 @@ fn cluster_cell_merged_precomposed_emits_single_primary() {
         instances.len()
     );
     assert!(
-        font_pipeline.caches.shape_cache.get("e\u{301}").is_some(),
+        font_pipeline
+            .caches
+            .shape_cache
+            .iter()
+            .any(|(key, _)| key.text == "e\u{301}"),
         "cluster shape must be cached"
     );
 }
@@ -893,8 +897,8 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
         font_pipeline
             .caches
             .shape_cache
-            .get("a\u{301}\u{302}")
-            .is_some(),
+            .iter()
+            .any(|(key, _)| key.text == "a\u{301}\u{302}"),
         "cluster shape must be cached"
     );
 }

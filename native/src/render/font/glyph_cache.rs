@@ -11,11 +11,23 @@ use lru::LruCache;
 ///
 /// All five caches are evicted together when `clear()` is called
 /// (e.g. on font family change).
+///
+/// 整形缓存键：文本 + 字号 + 光栅缩放 + 主字体 + 回退代际。整形结果依赖
+/// 全部五项（Metrics 字号、Attrs 字体族、回退 span），单文本键在字号/
+/// 字体切换时串味（旧字号的 glyph_id 与 x 偏移被复用，“d 像 a”类错字）。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ShapeKey {
+    pub text: String,
+    pub font_size_bits: u32,
+    pub raster_scale_bits: u32,
+    pub font_id: Option<fontdb::ID>,
+    pub fallback_generation: u64,
+}
 pub struct GlyphCache {
     /// Full glyph-info cache (keyed by glyph key → rasterized info).
     pub glyph_cache: LruCache<GlyphKey, GlyphInfo>,
-    /// Cache for shaped runs (keyed by text string).
-    pub shape_cache: LruCache<String, Vec<super::ShapedGlyphInfo>>,
+    /// Cache for shaped runs (keyed by text + font/size/fallback generation).
+    pub shape_cache: LruCache<ShapeKey, Vec<super::ShapedGlyphInfo>>,
     /// ASCII fast-path: pre-allocated array of glyph IDs for ' '..'~'.
     pub ascii_glyph_ids: [Option<swash::GlyphId>; 128],
     /// Non-ASCII glyph ID lookups (codepoint → glyph_id in primary font).

@@ -73,6 +73,10 @@ pub struct FontPipeline {
     pub(crate) font_size: f32,
     pub(crate) raster_scale: f32,
     pub(crate) atlas_generation: u64,
+    /// 回退层代际：cjk/symbol/nerd/emoji 任一层重发现即递增。
+    /// 整形缓存键携带此代际，回退字体变化时旧整形结果自动失配，
+    /// 不依赖显式清缓存（清缓存只处理字号/字体/尺寸维度）。
+    pub(crate) fallback_generation: u64,
     pub(crate) dirty_rect: Option<(u32, u32, u32, u32)>,
     system_locale: String,
     pub(crate) shaping_buffer: Option<cosmic_text::Buffer>,
@@ -152,6 +156,7 @@ impl FontPipeline {
             emoji_fallback_ids: Vec::new(),
             font_size,
             atlas_generation: 0,
+            fallback_generation: 0,
             dirty_rect: None,
             system_locale: String::new(),
             shaping_buffer: None,
@@ -220,6 +225,7 @@ impl FontPipeline {
             emoji_fallback_ids: Vec::new(),
             font_size,
             atlas_generation: 0,
+            fallback_generation: 0,
             dirty_rect: None,
             system_locale: String::new(),
             shaping_buffer: None,
@@ -417,6 +423,7 @@ impl FontPipeline {
     /// and re-rasterize ASCII glyphs. Called after any font change that
     /// may affect which fallback fonts are available.
     fn rediscover_fallback_fonts(&mut self) {
+        self.fallback_generation = self.fallback_generation.wrapping_add(1);
         self.cjk_fallback_ids.clear();
         self.symbol_fallback_ids.clear();
         self.nerd_fallback_ids.clear();
