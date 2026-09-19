@@ -1081,6 +1081,29 @@ mod tests {
         assert_eq!(instances[0].background, [1.0, 0.0, 0.0, 1.0]);
     }
 
+    /// SGR 1/3 bold+italic flags reach the GPU instance (shader style bits).
+    #[test]
+    fn bold_italic_flags_reach_instance() {
+        let flags = (1 << cell_flags::BOLD) | (1 << cell_flags::ITALIC);
+        let cells = vec![cell_data(
+            0,
+            0,
+            'I',
+            [1.0, 1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0],
+            flags,
+        )];
+        let instances = build(&cells, CellCursor::default(), &[]);
+        assert_eq!(
+            instances[0].flags, flags as f32,
+            "bold+italic flags must reach the instance"
+        );
+        assert!(
+            instances[0].atlas_size[0] > 0.0 && instances[0].atlas_size[1] > 0.0,
+            "styled cell must carry a real atlas quad, not a blank fallback"
+        );
+    }
+
     /// SGR 58 underline color reaches the GPU instance for the shader deco pass.
     #[test]
     fn underline_color_reaches_instance() {
