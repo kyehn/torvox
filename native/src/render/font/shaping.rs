@@ -170,4 +170,24 @@ mod tests {
         let glyphs = pipeline.shape_run("A中B");
         assert!(!glyphs.is_empty(), "mixed text must produce glyphs");
     }
+
+    #[test]
+    fn shape_cache_invalidated_by_font_size_change() {
+        const SAMPLE_TEXT: &str = "Hello";
+        const SCALED_FONT_SIZE: f32 = 28.0;
+        let mut pipeline = fixture();
+        let before = pipeline.shape_run(SAMPLE_TEXT);
+        assert!(!before.is_empty(), "baseline shape must produce glyphs");
+        pipeline.set_font_size_in_place(SCALED_FONT_SIZE);
+        let after = pipeline.shape_run(SAMPLE_TEXT);
+        assert!(!after.is_empty(), "resized shape must produce glyphs");
+        let before_advance: f32 = before.iter().map(|shaped| shaped.w).sum();
+        let after_advance: f32 = after.iter().map(|shaped| shaped.w).sum();
+        assert!(
+            after_advance > before_advance,
+            "larger font must advance wider (before={before_advance}, after={after_advance})"
+        );
+        let cached = pipeline.shape_run(SAMPLE_TEXT);
+        assert_eq!(after, cached, "resized shape must come from cache");
+    }
 }
