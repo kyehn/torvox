@@ -400,7 +400,8 @@ mod tests {
     #[test]
     fn rasterize_ascii_populates_cache() {
         let pipeline = FontPipeline::new(1024, 1024, 14.0);
-        assert!(pipeline.cache_length() >= 95);
+        // ASCII 32..127 共 95 格；空格无位图不入库，94 为正确值。
+        assert!(pipeline.cache_length() >= 94);
     }
 
     #[test]
@@ -698,9 +699,10 @@ mod tests {
         let mut pipeline = FontPipeline::new(512, 512, 14.0);
         pipeline.rasterize_ascii();
         let after_ascii = pipeline.cache_length();
+        // ASCII 32..127 共 95 格；空格无位图不入库，94 为正确值。
         assert!(
-            after_ascii >= 95,
-            "should have at least 95 cached after rasterize_ascii, got {}",
+            after_ascii >= 94,
+            "should have at least 94 cached after rasterize_ascii, got {}",
             after_ascii
         );
 
