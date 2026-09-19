@@ -13,6 +13,7 @@ import org.junit.runner.RunWith
 import org.junit.runners.JUnit4
 import terminal.emulator.MainActivity
 import terminal.emulator.UxTestUtils
+import terminal.emulator.bridge.NativeBridge
 import terminal.emulator.getBridge
 import terminal.emulator.waitForSession
 
@@ -61,10 +62,19 @@ class Osc52ClipboardInstrumentedTest {
                 marker.toByteArray(Charsets.UTF_8),
                 android.util.Base64.NO_WRAP,
             )
-        val sequence = "\u001b]52;c;$encoded\u0007"
+        // 经 shell 打印序列：程序经 stdout 输出才是 OSC52 被 Ghostty 解析的
+        // 真实路径（vim/tmux 皆如此）。裸写 stdin 依赖行规程回显，ECHOCTL 下
+        // ESC 被回显为 ^[，序列永不到达解析器——等 prompt 确认 shell 就绪后执行。
+        val promptSeen =
+            UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                runCatching { NativeBridge.pollEvent() }
+                bridge.getTerminalText().orEmpty().contains("$") ||
+                    bridge.getTerminalText().orEmpty().contains("#")
+            }
+        assertNotNull("shell prompt 未出现", promptSeen)
         assertTrue(
             "PTY write rejected",
-            bridge.writeToPty(sequence.toByteArray(Charsets.UTF_8)),
+            bridge.writeToPty("printf '\u001B]52;c;$encoded\u0007'\n".toByteArray(Charsets.UTF_8)),
         )
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
