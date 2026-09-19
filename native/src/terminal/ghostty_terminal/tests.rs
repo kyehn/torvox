@@ -1721,6 +1721,24 @@ fn kitty_graphics_stray_nul_still_stores() {
     assert_eq!(image.data, vec![255, 0, 0, 255]);
 }
 
+/// 无图像时 Kitty 查询必须为空（对标 kittyGraphicsAbsentWhenNoImages：
+/// 未传输返回空放置，未知 id 取图返回 None）。
+#[test]
+fn kitty_graphics_absent_when_no_images() {
+    let terminal = terminal();
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "no images must yield no placements"
+    );
+    assert_eq!(
+        terminal
+            .take_kitty_graphics_image(123)
+            .map(|image| image.width),
+        None,
+        "unknown image id must yield None"
+    );
+}
+
 // ── : cursor/row coordinate consistency (D1 deterministic leg) ──
 
 /// The shell-echo path (prompt text + typed chars, no newline) must report a
