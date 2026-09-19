@@ -1918,18 +1918,40 @@ constructor(
      * gesture finalizes through [appliedFontSizeSp]/setFontSize, which runs the full apply (including
      * the grid reflow). Caller rate-limits this — it is cheap enough to run a few times per second
      * even on software-GPU emulators.
+     *
+     * 手势期间不得 resize 网格：每次 preview 都重排会高频发 SIGWINCH +
+     * ghostty 重排 + native 清图集重光栅，触摸格点与渲染格点持续处于
+     * 中间态（布局混乱/撕裂）。网格只在手势结束 finalize 时重算一次。
      */
     fun setFontSizePreview(sizeSp: Float) {
         val tenths = (sizeSp * TENTHS_PER_UNIT.toFloat()).toInt()
         if (tenths < MIN_FONT_SIZE_TENTHS || tenths > MAX_FONT_SIZE_TENTHS) return
+        // 同值跳过：手势 preview 高频推送同一字号时不走 JNI，
+        // 与 native 侧跳过配合，缩放期间不抖动。
+        if (tenths == appliedFontSizeTenths) return
         val entry = sessions[activeSessionId] ?: return
         val bridge = entry.bridge ?: return
         bridge.setFontSizeInPlace(tenths)
-        // 预览必须同步网格:只推字形不清网格会导致触摸格点与渲染格点不一致(布局混乱/撕裂)。
-        // 与 finalize 同路径,同步度量后立即重算网格,保证手势期间无中间态错位。
-        syncGridDimensions(bridge)
-        recomputeGridFromFontMetrics()
+        // 只同步触摸/渲染度量，不重算网格不 resize：触摸映射跟上新字形，
+        // 网格行列保持到 finalize，避免手势期间中间态错位。
+        syncCellMetricsOnly(bridge)
         appliedFontSizeTenths = tenths
+    }
+
+    /**
+     * 只同步单元格度量（触摸/渲染用），不碰网格行列、不 resize。
+     * 手势 preview 路径专用；finalize/设置路径仍走全量同步 + 重算。
+     */
+    private fun syncCellMetricsOnly(bridge: Bridge) {
+        val density = context.resources.displayMetrics.density
+        val rawCellWidth = bridge.getCellWidth()
+        val rawCellHeight = bridge.getCellHeight()
+        if (rawCellWidth > 0f) logicalCellWidth = rawCellWidth
+        if (rawCellHeight > 0f) logicalCellHeight = rawCellHeight
+        val newCellWidth = rawCellWidth * density
+        val newCellHeight = rawCellHeight * density
+        if (newCellWidth > 0f) cellWidth = newCellWidth
+        if (newCellHeight > 0f) cellHeight = newCellHeight
     }
 
     /**

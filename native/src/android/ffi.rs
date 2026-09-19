@@ -2996,6 +2996,11 @@ pub extern "system" fn Java_terminal_emulator_bridge_NativeBridge_setFontSizeInP
         }
         let mut state = render_state_mut();
         if let Some(render_state) = state.as_mut() {
+            // 同值跳过：手势 preview 高频推送同一字号时不清图集，
+            // 避免每帧重光栅 ASCII + 丢实例缓存（缩放撕裂/卡顿）。
+            if (render_state.font_pipeline.font_size - size).abs() < f32::EPSILON {
+                return Ok(());
+            }
             let (cw, ch) = render_state.font_pipeline.set_font_size_in_place(size);
             // P2-1 dirty: font-size changes must repaint even on an idle
             // terminal (glyph metrics changed → cached frame is stale).
