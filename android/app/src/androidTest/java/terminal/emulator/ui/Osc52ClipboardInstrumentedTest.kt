@@ -41,6 +41,13 @@ class Osc52ClipboardInstrumentedTest {
     @SuppressLint("DeprecatedCall")
     fun osc52_sequence_sets_system_clipboard() {
         composeTestRule.waitForSession()
+        // 会话孵化慢于 UI 呈现：TerminalScreen 可见时活动会话可能仍为 0
+        //（runtime.bridge() 取活动会话桥），单次直读必竞态。与 ImePopup 同门控轮询。
+        val bridgeReady =
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+                composeTestRule.getBridge() != null
+            }
+        assertNotNull("运行时桥必须就绪（30s 未孵化）", bridgeReady)
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
         val activity = composeTestRule.activity
         val clipboard =
