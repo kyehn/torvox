@@ -78,9 +78,6 @@ class TextSearchEndToEndTest {
                 runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
                 runCatching { bridge.getTerminalText() }.getOrNull().orEmpty().contains("$")
             }
-        // TEMP-DIAG-GRID (revert after diagnosis): trace $ across the class to find where prompts vanish.
-        val gateText = runCatching { bridge.getTerminalText() }.getOrNull().orEmpty()
-        android.util.Log.d("GridDiag", "len=" + gateText.length + " dollars=" + gateText.count { it == '$' } + " head=" + gateText.take(80).replace("\n", "|"))
         assertNotNull("shell prompt 未就绪", promptReady)
         // Generate enough content to fill >3 terminal pages
         val linesToFill = 200
