@@ -429,6 +429,22 @@ fn osc_clipboard_split_buffer() {
     assert_invariants(&snap);
 }
 
+/// OSC 52 clipboard via pty_write (the production output path:
+/// Session::poll_pty_output feeds PTY bytes through pty_write, NOT
+/// vt_write). LF→CRLF conversion must not corrupt the sequence.
+#[test]
+fn osc_clipboard_via_pty_write_path() {
+    let mut t = terminal();
+    t.pty_write(b"\x1b]52;c;SGVsbG8=\x07");
+    t.flush();
+    let event = t.poll_clipboard_event();
+    assert_eq!(
+        event,
+        Some(("c".to_string(), "Hello".to_string())),
+        "OSC 52 via pty_write must reach the clipboard callback"
+    );
+}
+
 /// OSC color reset — sent across split buffer.
 #[test]
 fn osc_color_reset_split_buffer() {
