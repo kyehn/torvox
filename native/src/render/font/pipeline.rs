@@ -489,6 +489,9 @@ impl FontPipeline {
         self.clear_identity_caches();
         self.system_locale = locale.to_string();
         self.cjk_fallback_ids.clear();
+        // 回退层变化必须推进代际，否则整形缓存按旧回退 span 摆字
+        //（中文字形错位/用了错误 locale 变体）。
+        self.fallback_generation = self.fallback_generation.wrapping_add(1);
         self.find_cjk_fallback_fonts(&self.system_locale.clone());
     }
 

@@ -1838,9 +1838,10 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // renderer so content follows the finger within the row.
                 // Gated on non-empty scrollback — with no history any offset
                 // would expose empty space.
+                // setScrollRemainderPx 已含 notifyRender，不再额外 forceRender
+                // （双重唤醒致手势期间渲染线程空转，滚动卡顿）。
                 if (scrollbackLen > 0) {
                     viewModel?.runtime?.setScrollRemainderPx(scrollAccumulatorPx)
-                    viewModel?.runtime?.forceRender()
                 }
                 return true
             }
