@@ -60,7 +60,7 @@ class ImePopupPixelInstrumentedTest {
         return bridge().getTerminalText()
     }
 
-    /** 等 shell 提示符就绪后经 shell 打印输出（writeToPty 口径）。 */
+    /** 等 shell 提示符就绪后经 shell 打印输出（writeToPty 口径），回显重发防冷 stdin 丢失。 */
     private fun printAndAwait(command: String, needle: String) {
         val promptSeen =
             UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
@@ -68,11 +68,17 @@ class ImePopupPixelInstrumentedTest {
                 text.contains("$") || text.contains("#")
             }
         assertNotNull("shell prompt 未出现", promptSeen)
-        bridge().writeToPty("$command\n".toByteArray(Charsets.UTF_8))
-        val seen =
-            UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
-                pumpAndText()?.contains(needle) == true
-            }
+        // 冷启动 stdin 竞态：prompt 落格不等于 shell 已消费 stdin，单次写入
+        // 可能丢失（粘贴案定案同类）。幂等重发至多 3 次，回显即停。
+        var seen: Long? = null
+        repeat(3) {
+            bridge().writeToPty("$command\n".toByteArray(Charsets.UTF_8))
+            seen =
+                UxTestUtils.pollUntilTrue(timeoutMs = GRID_TIMEOUT_MS, intervalMs = 100) {
+                    pumpAndText()?.contains(needle) == true
+                }
+            if (seen != null) return
+        }
         assertNotNull("标记必须落格: $needle", seen)
     }
 

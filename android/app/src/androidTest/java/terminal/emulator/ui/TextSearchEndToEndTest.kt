@@ -16,6 +16,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.FixMethodOrder
 import org.junit.Rule
@@ -71,6 +72,12 @@ class TextSearchEndToEndTest {
     // ── Helper: generate multi-page content ──
 
     private fun generateMultiPageContent(bridge: Bridge, marker: String) {
+        // 先等 prompt：冷启动 stdin 未消费阶段的字节会丢失（粘贴案定案同类）。
+        val promptReady =
+            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+                runCatching { bridge.getTerminalText() }.getOrNull().orEmpty().contains("$")
+            }
+        assertNotNull("shell prompt 未就绪", promptReady)
         // Generate enough content to fill >3 terminal pages
         val linesToFill = 200
         for (i in 1..linesToFill) {
@@ -83,7 +90,12 @@ class TextSearchEndToEndTest {
                 }
             bridge.writeToPty("echo '$content'\n".toByteArray())
         }
-        waitForOutput()
+        // 落格门控替代裸睡：慢模拟器上 200 行回显滞后，内容未齐即搜即错。
+        val landed =
+            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
+                runCatching { bridge.getTerminalText() }.getOrNull()?.contains(marker) == true
+            }
+        assertNotNull("标记必须落格: $marker", landed)
     }
 
     private fun waitForOutput() {
