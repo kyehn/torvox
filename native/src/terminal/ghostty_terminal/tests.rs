@@ -2181,3 +2181,58 @@ fn scrollback_cap_is_honored() {
         "回滚上限必须生效（2000 行输入不得全保留）, 实际={depth}",
     );
 }
+
+/// SGR 7 反白必须到达渲染层（对标 inverseIsResolvedNatively；本仓反白在
+/// cell_builder 做前景背景互换，VT 层只断言标志位到达）。
+#[test]
+fn inverse_reaches_cell_data_and_snapshot() {
+    use crate::terminal::ghostty_terminal::cell_flags;
+    let mut inverse = terminal();
+    inverse.vt_write(b"\x1b[7mX");
+    inverse.flush();
+    let (cells, _) = inverse.receive_cell_data().expect("cell data");
+    let marked = cells
+        .iter()
+        .find(|c| c.codepoint == 'X' as u32)
+        .expect("X cell present");
+    assert_eq!(
+        (marked.flags >> cell_flags::REVERSE) & 1,
+        1,
+        "SGR 7 must set CellData REVERSE bit"
+    );
+    let snapshot = inverse.take_snapshot();
+    let snap_cell = snapshot
+        .cells
+        .iter()
+        .find(|c| c.codepoint == 'X' as u32)
+        .expect("snapshot X present");
+    assert!(snap_cell.reverse, "SGR 7 must set snapshot reverse flag");
+}
+
+/// 组合重音必须以 grapheme 形式到达 VT 层（对标 graphemeClusterCombiningMark
+/// 的文本部分：基码点 e 在主格，U+0301 进 grapheme_extra/快照 graphemes）。
+#[test]
+fn combining_mark_reaches_grapheme_channel() {
+    let mut clustered = terminal();
+    clustered.vt_write("e\u{301}x".as_bytes());
+    clustered.flush();
+    let (cells, _) = clustered.receive_cell_data().expect("cell data");
+    let base = cells
+        .iter()
+        .find(|c| c.codepoint == 'e' as u32)
+        .expect("base e present");
+    assert_eq!(
+        base.grapheme_extra[0], 0x301,
+        "combining acute must ride grapheme_extra[0]"
+    );
+    let snapshot = clustered.take_snapshot();
+    let snap_cell = snapshot
+        .cells
+        .iter()
+        .find(|c| c.codepoint == 'e' as u32)
+        .expect("snapshot e present");
+    assert!(
+        snap_cell.graphemes.contains(&0x301),
+        "snapshot graphemes must contain U+0301"
+    );
+}
