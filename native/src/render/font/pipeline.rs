@@ -1011,7 +1011,8 @@ impl FontPipeline {
         // synthesis applies to the rasterized mask)
         if !synthesized && glyph_id != 0 && (ch as u32) >= CJK_IDEOGRAPHIC_START && has_cjk_fallback
         {
-            let is_outline = self.glyph_source_is_outline(primary_font_id, glyph_id);
+            // cached 版：scaler 构建 + Render 约 20µs/次，不缓存则每字重复探测。
+            let is_outline = self.glyph_source_is_outline_cached(primary_font_id, glyph_id);
             if !is_outline && let Some(fallback_info) = self.try_cjk_outline_fallback(ch) {
                 return Some(fallback_info);
             }
