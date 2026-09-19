@@ -41,10 +41,12 @@ import terminal.emulator.waitForSession
 class MultiTapSelectionInstrumentedTest {
     companion object {
         private const val GRID_TIMEOUT_MS = 15_000L
+
         /** 输出静默窗口：shell 启动输出落定后才送显标记。 */
         private const val QUIET_WINDOW_MS = 2_000L
         private const val MENU_TIMEOUT_MS = 5_000L
         private const val CLIPBOARD_TIMEOUT_MS = 5_000L
+
         /** 0 基中带行：24 行视口第 13 行，上下留白，IME 与状态栏均不干扰。 */
         private const val MARKER_VIEWPORT_ROW = 12
     }

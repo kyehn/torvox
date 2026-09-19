@@ -240,7 +240,7 @@ class VtCorrectnessInstrumentedTest {
     fun selectionTextExtractsFedWord() {
         withSession { sessionId ->
             // 对标 sylirre EmulatorVtTest.selectWordHighlightsAndExtractsText 的文本部分
-            //（反白属性因架构分叉不搬）：直写标记行，经 scrollbackLine 定位绝对行，
+            // （反白属性因架构分叉不搬）：直写标记行，经 scrollbackLine 定位绝对行，
             // selectionText 按网格坐标提取必须原样返回。
             val marker = "SEL_WD_${System.currentTimeMillis() % 100000}"
             feedText(sessionId, marker)

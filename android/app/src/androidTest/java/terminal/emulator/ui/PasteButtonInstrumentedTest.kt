@@ -4,14 +4,14 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
-import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.rule.GrantPermissionRule
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click
 import androidx.test.espresso.assertion.ViewAssertions.matches
 import androidx.test.espresso.matcher.RootMatchers.isPlatformPopup
 import androidx.test.espresso.matcher.ViewMatchers.isDisplayed
 import androidx.test.espresso.matcher.ViewMatchers.withText
+import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -42,6 +42,7 @@ class PasteButtonInstrumentedTest {
         private const val GRID_TIMEOUT_MS = 15_000L
         private const val QUIET_WINDOW_MS = 2_000L
         private const val PASTE_TIMEOUT_MS = 15_000L
+
         /** 点击列：6.5 列宽处，远在 32dp 抽屉边缘区外。 */
         private const val TAP_COL = 6
     }

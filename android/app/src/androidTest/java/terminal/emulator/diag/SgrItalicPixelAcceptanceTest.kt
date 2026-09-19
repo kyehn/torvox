@@ -58,7 +58,7 @@ class SgrItalicPixelAcceptanceTest {
      */
     private fun renderAndScreenshot(sessionId: Long): Bitmap {
         NativeBridge.render(sessionId, 0, 0)
-        Thread.sleep(PresentSettleMillis)
+        Thread.sleep(PRESENT_SETTLE_MILLIS)
         return device.takeScreenshot() ?: throw AssertionError("截图失败")
     }
 
@@ -74,10 +74,19 @@ class SgrItalicPixelAcceptanceTest {
         for (y in cropTop until cropBottom step 3) {
             for (x in 0 until first.width step 3) {
                 val delta =
-                    kotlin.math.abs(android.graphics.Color.red(first.getPixel(x, y)) - android.graphics.Color.red(second.getPixel(x, y))) +
-                        kotlin.math.abs(android.graphics.Color.green(first.getPixel(x, y)) - android.graphics.Color.green(second.getPixel(x, y))) +
-                        kotlin.math.abs(android.graphics.Color.blue(first.getPixel(x, y)) - android.graphics.Color.blue(second.getPixel(x, y)))
-                if (delta > PixelDeltaThreshold) count++
+                    kotlin.math.abs(
+                        android.graphics.Color.red(first.getPixel(x, y)) -
+                            android.graphics.Color.red(second.getPixel(x, y)),
+                    ) +
+                        kotlin.math.abs(
+                            android.graphics.Color.green(first.getPixel(x, y)) -
+                                android.graphics.Color.green(second.getPixel(x, y)),
+                        ) +
+                        kotlin.math.abs(
+                            android.graphics.Color.blue(first.getPixel(x, y)) -
+                                android.graphics.Color.blue(second.getPixel(x, y)),
+                        )
+                if (delta > PIXEL_DELTA_THRESHOLD) count++
             }
         }
         return count
@@ -87,11 +96,11 @@ class SgrItalicPixelAcceptanceTest {
         // \e[2J 清屏 + CUP 13;1（1 基，即 0 基第 12 行中带）+ 标记。
         NativeBridge.feedTerminal(
             sessionId,
-            "\u001B[2J\u001B[13;1H$sgrPrefix$MarkerText\u001B[0m".toByteArray(Charsets.UTF_8),
+            "\u001B[2J\u001B[13;1H$sgrPrefix$MARKER_TEXT\u001B[0m".toByteArray(Charsets.UTF_8),
         )
         val gridded =
             UxTestUtils.pollUntilTrue(timeoutMs = 15_000, intervalMs = 100) {
-                NativeBridge.getTerminalText(sessionId)?.contains(MarkerText) == true
+                NativeBridge.getTerminalText(sessionId)?.contains(MARKER_TEXT) == true
             }
         assertNotNull(
             "标记必须落格, 实际尾部: ${NativeBridge.getTerminalText(sessionId)?.takeLast(200)}",
@@ -136,7 +145,7 @@ class SgrItalicPixelAcceptanceTest {
             var plainSecond = renderAndScreenshot(sessionId)
             var plainSelfDiff = countDifferingPixels(plainFirst, plainSecond)
             var attempts = 1
-            while (plainSelfDiff > DeterminismSelfDiffLimit && attempts < DeterminismMaxAttempts) {
+            while (plainSelfDiff > DETERMINISM_SELF_DIFF_LIMIT && attempts < DETERMINISM_MAX_ATTEMPTS) {
                 android.util.Log.i("SgrItalic", "selfDiff=$plainSelfDiff attempt=$attempts retry")
                 feedAtMiddleRow(sessionId, "")
                 plainFirst = renderAndScreenshot(sessionId)
@@ -147,7 +156,7 @@ class SgrItalicPixelAcceptanceTest {
             android.util.Log.i("SgrItalic", "selfDiff=$plainSelfDiff attempts=$attempts")
             assertTrue(
                 "同状态两帧必须一致 (自差分=$plainSelfDiff, attempts=$attempts)",
-                plainSelfDiff <= DeterminismSelfDiffLimit,
+                plainSelfDiff <= DETERMINISM_SELF_DIFF_LIMIT,
             )
             // 斜体帧：同列同标记改 \e[3m，字形像素必须与正体不同。
             feedAtMiddleRow(sessionId, "\u001B[3m")
@@ -156,7 +165,7 @@ class SgrItalicPixelAcceptanceTest {
             android.util.Log.i("SgrItalic", "italicDiff=$italicDiff")
             assertTrue(
                 "斜体字形像素必须与正体不同 (差分=$italicDiff)",
-                italicDiff > PixelGainThreshold,
+                italicDiff > PIXEL_GAIN_THRESHOLD,
             )
         } finally {
             // 先切回运行时原会话再销毁隔离会话：顺序反了会短暂无活跃会话。
@@ -166,21 +175,21 @@ class SgrItalicPixelAcceptanceTest {
     }
 
     companion object {
-        private const val MarkerText = "STYLE_MARK_X"
+        private const val MARKER_TEXT = "STYLE_MARK_X"
 
         /** 逐像素通道和差分阈值：低于视为同一字形。 */
-        private const val PixelDeltaThreshold = 40
+        private const val PIXEL_DELTA_THRESHOLD = 40
 
         /** 斜体与正体差分下限：低于视为斜体未生效。 */
-        private const val PixelGainThreshold = 20
+        private const val PIXEL_GAIN_THRESHOLD = 20
 
         /** 同状态自差分上限：渲染确定性余量。 */
-        private const val DeterminismSelfDiffLimit = 5
+        private const val DETERMINISM_SELF_DIFF_LIMIT = 5
 
         /** render 与截图之间的呈现沉降等待：新帧上屏需要一个呈现节拍。 */
-        private const val PresentSettleMillis = 600L
+        private const val PRESENT_SETTLE_MILLIS = 600L
 
         /** 自差分超限时的重拍上限：shell 偶发输出只重试，不直接失败。 */
-        private const val DeterminismMaxAttempts = 3
+        private const val DETERMINISM_MAX_ATTEMPTS = 3
     }
 }

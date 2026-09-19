@@ -31,7 +31,7 @@ class BehaviorInstrumentedTest {
         private const val TAG = "BehaviorTest"
         private const val PACKAGE = "com.termux"
         private const val WAIT_TIMEOUT = 30_000L
-        private const val SelectionPixelGainThreshold = 300
+        private const val SELECTION_PIXEL_GAIN_THRESHOLD = 300
     }
 
     private lateinit var device: UiDevice
@@ -178,7 +178,7 @@ class BehaviorInstrumentedTest {
         assertTrue(
             "Selection must surface after long-press " +
                 "(copy=${copy != null} paste=${paste != null} changedPx=$changedPixels)",
-            copy != null || paste != null || changedPixels > SelectionPixelGainThreshold,
+            copy != null || paste != null || changedPixels > SELECTION_PIXEL_GAIN_THRESHOLD,
         )
         // When the long-press selects text, the paste-only menu must NOT
         // be shown (paste-only selections are reserved for blank cells).

@@ -42,7 +42,7 @@ class Osc52ClipboardInstrumentedTest {
     fun osc52_sequence_sets_system_clipboard() {
         composeTestRule.waitForSession()
         // 会话孵化慢于 UI 呈现：TerminalScreen 可见时活动会话可能仍为 0
-        //（runtime.bridge() 取活动会话桥），单次直读必竞态。与 ImePopup 同门控轮询。
+        // （runtime.bridge() 取活动会话桥），单次直读必竞态。与 ImePopup 同门控轮询。
         val bridgeReady =
             UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
                 composeTestRule.getBridge() != null
@@ -62,7 +62,7 @@ class Osc52ClipboardInstrumentedTest {
                 android.util.Base64.NO_WRAP,
             )
         // 经 feedTerminal 直写 VT 解析器：注入转义序列必须走解析器
-        //（与 MultiTap/SgrItalic 同口径）。stdin 回显在 ECHOCTL 下把 ESC
+        // （与 MultiTap/SgrItalic 同口径）。stdin 回显在 ECHOCTL 下把 ESC
         // 芒化为 ^[，序列永不到达解析器；shell printf 同理依赖回显链。
         assertTrue(
             "VT inject rejected",

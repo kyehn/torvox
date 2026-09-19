@@ -49,8 +49,8 @@ class MenuDiagTest {
             val popup = popupField.get(surface) as android.widget.PopupWindow?
             report =
                 "popupShown=${popup != null} popupShowing=${popup?.isShowing} " +
-                    "content=${popup?.contentView?.width}x${popup?.contentView?.height} " +
-                    "active=${selection.active} dismissed=${selection.menuDismissed}"
+                "content=${popup?.contentView?.width}x${popup?.contentView?.height} " +
+                "active=${selection.active} dismissed=${selection.menuDismissed}"
         }
         assertTrue("DIAG $report", false)
     }

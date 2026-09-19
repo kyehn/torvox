@@ -58,7 +58,10 @@ class FontSizeReflowInstrumentedTest {
         }
         try {
             val (originalSizeSp, colsBefore, cellHeightBefore) = readRuntimeMetrics()
-            android.util.Log.i("FontSizeReflow", "before sizeSp=$originalSizeSp cols=$colsBefore cellH=$cellHeightBefore")
+            android.util.Log.i(
+                "FontSizeReflow",
+                "before sizeSp=$originalSizeSp cols=$colsBefore cellH=$cellHeightBefore",
+            )
             assertTrue("应用字号必须为正, 实际: $originalSizeSp", originalSizeSp > 0)
             assertTrue("网格列数必须为正, 实际: $colsBefore", colsBefore > 0)
             assertTrue("单元格高必须为正, 实际: $cellHeightBefore", cellHeightBefore > 0)

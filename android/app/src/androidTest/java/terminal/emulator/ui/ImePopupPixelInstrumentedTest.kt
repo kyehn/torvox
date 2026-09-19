@@ -125,9 +125,18 @@ class ImePopupPixelInstrumentedTest {
         for (y in top until bottom step 3) {
             for (x in 0 until first.width step 3) {
                 val delta =
-                    kotlin.math.abs(android.graphics.Color.red(first.getPixel(x, y)) - android.graphics.Color.red(second.getPixel(x, y))) +
-                        kotlin.math.abs(android.graphics.Color.green(first.getPixel(x, y)) - android.graphics.Color.green(second.getPixel(x, y))) +
-                        kotlin.math.abs(android.graphics.Color.blue(first.getPixel(x, y)) - android.graphics.Color.blue(second.getPixel(x, y)))
+                    kotlin.math.abs(
+                        android.graphics.Color.red(first.getPixel(x, y)) -
+                            android.graphics.Color.red(second.getPixel(x, y)),
+                    ) +
+                        kotlin.math.abs(
+                            android.graphics.Color.green(first.getPixel(x, y)) -
+                                android.graphics.Color.green(second.getPixel(x, y)),
+                        ) +
+                        kotlin.math.abs(
+                            android.graphics.Color.blue(first.getPixel(x, y)) -
+                                android.graphics.Color.blue(second.getPixel(x, y)),
+                        )
                 if (delta > 40) count++
             }
         }
@@ -149,7 +158,11 @@ class ImePopupPixelInstrumentedTest {
         UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 200) {
             var hidden = false
             InstrumentationRegistry.getInstrumentation().runOnMainSync {
-                hidden = findTerminalSurface(composeTestRule.activity).rootWindowInsets?.isVisible(WindowInsets.Type.ime()) == false
+                hidden =
+                    findTerminalSurface(
+                        composeTestRule.activity,
+                    ).rootWindowInsets?.isVisible(WindowInsets.Type.ime()) ==
+                    false
             }
             hidden
         }

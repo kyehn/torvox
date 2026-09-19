@@ -220,10 +220,24 @@ class SelectionDragQuantifiedTest {
             val now = android.os.SystemClock.uptimeMillis()
             surface.post {
                 surface.dispatchTouchEvent(
-                    android.view.MotionEvent.obtain(downTime, now, android.view.MotionEvent.ACTION_MOVE, x + 1f, y + 1f, 0),
+                    android.view.MotionEvent.obtain(
+                        downTime,
+                        now,
+                        android.view.MotionEvent.ACTION_MOVE,
+                        x + 1f,
+                        y + 1f,
+                        0,
+                    ),
                 )
                 surface.dispatchTouchEvent(
-                    android.view.MotionEvent.obtain(downTime, now, android.view.MotionEvent.ACTION_UP, x + 1f, y + 1f, 0),
+                    android.view.MotionEvent.obtain(
+                        downTime,
+                        now,
+                        android.view.MotionEvent.ACTION_UP,
+                        x + 1f,
+                        y + 1f,
+                        0,
+                    ),
                 )
             }
             Thread.sleep(300)

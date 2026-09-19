@@ -102,7 +102,7 @@ class TextSearchEndToEndTest {
 
     private fun awaitBridge(): Bridge {
         // 会话孵化慢于 UI 呈现：waitForSession 只等界面节点，桥可能仍为 null
-        //（Osc52 同门控）。单次直读必竞态。
+        // （Osc52 同门控）。单次直读必竞态。
         val ready =
             terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
                 composeTestRule.getBridge() != null
