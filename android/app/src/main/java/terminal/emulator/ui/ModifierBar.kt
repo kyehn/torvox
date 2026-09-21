@@ -231,6 +231,10 @@ fun ModifierBar(
     onDismiss: (() -> Unit)? = null,
     /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
     isAppCursorMode: () -> Boolean = { false },
+    /** Raw-byte channel for modifier-combined keys (avoids String charset round-trip). */
+    onKeyBytesClick: ((ByteArray) -> Unit)? = null,
+    /** Consumes Once sticky modifiers after a modified key is sent. */
+    onConsumeModifiers: () -> Unit = {},
 ) {
     fun label(key: String): String = if (useNerdFontGlyphs) NerdKeyLabels.label(key) else key
     val buttonHeight = BUTTON_HEIGHT_DP.dp
@@ -335,6 +339,8 @@ fun ModifierBar(
             composeActive = composeActive,
             onToggleCompose = ::toggleCompose,
             isAppCursorMode = isAppCursorMode,
+            onKeyBytesClick = onKeyBytesClick,
+            onConsumeModifiers = onConsumeModifiers,
             onPaste = onPaste,
             textColor = textColor,
             backgroundColor = backgroundColor,
@@ -716,6 +722,8 @@ private fun ConfigurableModifierBar(
     onLockCtrl: () -> Unit = {},
     onLockAlt: () -> Unit = {},
     isAppCursorMode: () -> Boolean = { false },
+    onKeyBytesClick: ((ByteArray) -> Unit)? = null,
+    onConsumeModifiers: () -> Unit = {},
     label: (String) -> String,
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
@@ -737,6 +745,8 @@ private fun ConfigurableModifierBar(
             onLockCtrl = onLockCtrl,
             onLockAlt = onLockAlt,
             isAppCursorMode = isAppCursorMode,
+            onKeyBytesClick = onKeyBytesClick,
+            onConsumeModifiers = onConsumeModifiers,
             onPaste = onPaste,
         )
     val modifierStates =
@@ -834,6 +844,10 @@ private data class ModifierBarActions(
     val onLockAlt: () -> Unit = {},
     /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
     val isAppCursorMode: () -> Boolean = { false },
+    /** Raw-byte channel for modifier-combined keys (avoids String charset round-trip). */
+    val onKeyBytesClick: ((ByteArray) -> Unit)? = null,
+    /** Consumes Once sticky modifiers after a modified key is sent. */
+    val onConsumeModifiers: () -> Unit = {},
     /** Long-press paste on DRAWER (termux default `popup: 'PASTE'`). */
     val onPaste: (() -> Unit)?,
 )
@@ -882,12 +896,21 @@ private fun toolbarItemPresentation(
     isAppCursorMode: () -> Boolean = { false },
 ): ToolbarItemPresentation {
     val modifierState = modifierStateFor((item as? ToolbarItem.Default)?.key, modifierStates)
-    val keyCode = (item as? ToolbarItem.Default)?.key?.let(::arrowKeyCode)
-    val fallbackSequence = (item as? ToolbarItem.Default)?.key?.sequence.orEmpty()
+    val toolbarKey = (item as? ToolbarItem.Default)?.key
+    val fallbackSequence = toolbarKey?.sequence.orEmpty()
     val onRepeat =
         (item as? ToolbarItem.Default)
             ?.takeIf { it.key.repeatable }
-            ?.let { { actions.onKeyClick(arrowOrPlainSequence(keyCode, fallbackSequence, actions.isAppCursorMode)) } }
+            ?.let { entry ->
+                {
+                    sendPlainOrModified(
+                        entry.key,
+                        arrowOrPlainSequence(arrowKeyCode(entry.key), fallbackSequence, actions.isAppCursorMode),
+                        actions,
+                        modifierStates,
+                    )
+                }
+            }
     val itemLabel =
         when (item) {
             is ToolbarItem.Default -> item.key.symbol ?: label(item.key.defaultLabel)
@@ -911,13 +934,13 @@ private fun toolbarItemPresentation(
     val secondaryAction = secondaryLongPressAction(item, actions, isDrawer)
     return ToolbarItemPresentation(
         label = itemLabel,
-        onClick = toolbarItemKeyHandler(item, actions, isAppCursorMode),
+        onClick = toolbarItemKeyHandler(item, actions, modifierStates, isAppCursorMode),
         modifierState = modifierState,
         testTag = testTag,
         contentDescription = contentDescription,
         onRepeat = onRepeat,
         widthWeight = item.width,
-        secondaryLabel = item.secondaryLabel,
+        secondaryLabel = secondaryLabel,
         secondaryAction = secondaryAction,
     )
 }
@@ -942,9 +965,54 @@ private fun arrowOrPlainSequence(
     return TerminalInputEncoder.arrowSequence(keyCode, isAppCursorMode())
 }
 
+/** 可配置键栏普通按键的键码，无对应返回空（修饰键/功能键不参与组合编码）。 */
+private fun plainKeyCode(key: ToolbarKey): Int? =
+    when (key) {
+        ToolbarKey.ESC -> KeyEvent.KEYCODE_ESCAPE
+        ToolbarKey.TAB -> KeyEvent.KEYCODE_TAB
+        ToolbarKey.HOME -> KeyEvent.KEYCODE_MOVE_HOME
+        ToolbarKey.END -> KeyEvent.KEYCODE_MOVE_END
+        ToolbarKey.PGUP -> KeyEvent.KEYCODE_PAGE_UP
+        ToolbarKey.PGDN -> KeyEvent.KEYCODE_PAGE_DOWN
+        else -> arrowKeyCode(key)
+    }
+
+/**
+ * 普通按键发送：无修饰时原序列直发（零行为变化）；CTRL/ALT 激活时经编码器
+ * 组合编码后走字节通道，并消费 Once 粘滞态（Locked 不受影响）。
+ */
+private fun sendPlainOrModified(
+    key: ToolbarKey,
+    sequence: String,
+    actions: ModifierBarActions,
+    modifierStates: ModifierBarStates,
+) {
+    val ctrlActive =
+        modifierStates.ctrlState == ModifierState.Locked || modifierStates.ctrlState == ModifierState.Once
+    val altActive =
+        modifierStates.altState == ModifierState.Locked || modifierStates.altState == ModifierState.Once
+    val keyCode = plainKeyCode(key)
+    val bytesClick = actions.onKeyBytesClick
+    if (!ctrlActive && !altActive || keyCode == null || bytesClick == null) {
+        actions.onKeyClick(sequence)
+        return
+    }
+    val encoded =
+        TerminalInputEncoder.encodeKeyEvent(
+            keyCode = keyCode,
+            unicodeChar = 0,
+            ctrlActive = ctrlActive,
+            altActive = altActive,
+            appCursorMode = actions.isAppCursorMode(),
+        ) ?: return
+    bytesClick(encoded)
+    actions.onConsumeModifiers()
+}
+
 private fun toolbarItemKeyHandler(
     item: ToolbarItem,
     actions: ModifierBarActions,
+    modifierStates: ModifierBarStates,
     isAppCursorMode: () -> Boolean = { false },
 ): () -> Unit =
     when (item) {
@@ -969,14 +1037,13 @@ private fun toolbarItemKeyHandler(
                 ToolbarKey.ARROW_LEFT,
                 ToolbarKey.ARROW_RIGHT,
                 -> {
+                    // 无修饰走 DECCKM 感知序列；有修饰走 CSI mod 编码（与硬件路径一致）。
                     val keyCode = arrowKeyCode(item.key)
                     if (keyCode == null) {
                         {}
                     } else {
                         {
-                            actions.onKeyClick(
-                                arrowOrPlainSequence(keyCode, item.key.sequence, isAppCursorMode),
-                            )
+                            sendPlainOrModified(item.key, arrowOrPlainSequence(keyCode, item.key.sequence, isAppCursorMode), actions, modifierStates)
                         }
                     }
                 }
@@ -984,7 +1051,7 @@ private fun toolbarItemKeyHandler(
                 else -> {
                     val sequence = item.key.sequence
                     if (sequence.isNotEmpty()) {
-                        { actions.onKeyClick(sequence) }
+                        { sendPlainOrModified(item.key, sequence, actions, modifierStates) }
                     } else {
                         {}
                     }

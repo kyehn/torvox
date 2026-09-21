@@ -984,6 +984,12 @@ fun TerminalScreen(
                         onKeyClick = { data ->
                             viewModel.writeToPty(data.toByteArray())
                         },
+                        onKeyBytesClick = { bytes ->
+                            viewModel.writeToPty(bytes)
+                        },
+                        onConsumeModifiers = {
+                            viewModel.consumeOneShotModifiers()
+                        },
                         onDrawerClick = {
                             scope.launch { drawerState.open() }
                         },
