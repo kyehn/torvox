@@ -1,6 +1,6 @@
 //! Glyph atlas — packing rasterized glyphs into GPU texture.
 use swash::scale::{Render, Source};
-use swash::zeno::{Placement, Transform};
+use swash::zeno::Transform;
 
 use super::{FontPipeline, GlyphInfo, GlyphKey, GlyphSynthesis};
 
@@ -94,17 +94,10 @@ impl FontPipeline {
         let image = match image {
             Some(img) => img,
             None => {
-                let info = GlyphInfo {
-                    atlas_x: 0,
-                    atlas_y: 0,
-                    width: 0,
-                    height: 0,
-                    placement: Placement::default(),
-                    advance_width,
-                    allocation_id: None,
-                };
-                self.caches.glyph_cache.put(key, info.clone());
-                return Some(info);
+                // 光栅无输出：返回 None 让上层回退链继续试下一层字体。
+                // 不得缓存零尺寸占位——零尺寸 Some 入库后毒化后续所有帧
+                //（快路直接命中返回空白，整批同字形持续消失）。
+                return None;
             }
         };
 
@@ -115,17 +108,8 @@ impl FontPipeline {
         let height = image.placement.height as i32;
 
         if width == 0 || height == 0 {
-            let info = GlyphInfo {
-                atlas_x: 0,
-                atlas_y: 0,
-                width: 0,
-                height: 0,
-                placement: image.placement,
-                advance_width,
-                allocation_id: None,
-            };
-            self.caches.glyph_cache.put(key, info.clone());
-            return Some(info);
+            // 空位图同样返回 None，理由同上。
+            return None;
         }
 
         let allocation = match self
@@ -257,7 +241,9 @@ impl FontPipeline {
         };
 
         self.caches.glyph_cache.put(key, info.clone());
-        self.atlas_generation += 1;
+        // 注意：此处不推进 atlas_generation。新分配只占用空闲区，
+        // 已有 UV 不变；代际只在驱逐/重建（真正搬迁 UV 时）推进，
+        // 否则每帧新字形都会误杀增量实例缓存（NFR-010 失效致卡顿）。
         Some(info)
     }
 
@@ -275,7 +261,8 @@ impl FontPipeline {
         self.atlas_bitmap.fill(0);
         self.caches.glyph_cache.clear();
         for (key, _old_info) in &entries {
-            self.glyph_information_from_font(key.font_id, '\0', key.glyph_id);
+            let synthesis = GlyphSynthesis::from_bits(key.synthesis);
+            self.glyph_information_from_font_with_synthesis(key.font_id, key.glyph_id, synthesis);
         }
         self.atlas_generation = self.atlas_generation.saturating_add(1);
         self.reset_dirty_rect_full();

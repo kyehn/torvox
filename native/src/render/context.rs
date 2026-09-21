@@ -120,6 +120,10 @@ pub struct Renderer {
     /// regression fix).
     pub(crate) cell_full_mask_cache: Vec<bool>,
     pub(crate) viewport_scroll_px: f32,
+    /// 上一呈现帧实际使用的视口像素偏移。当前偏移非零或与此值不同
+    /// 时，pass.rs 禁用脏带部分路径：纹理拷贝无法亚像素平移累加器，
+    /// 部分路径会把旧像素与平移后的新几何混叠（滚动残留/撕裂）。
+    pub(crate) last_drawn_viewport_scroll_px: f32,
     pub(crate) atlas_texture: Option<wgpu::Texture>,
     pub(crate) atlas_view: Option<wgpu::TextureView>,
     pub(crate) atlas_sampler: Option<wgpu::Sampler>,
@@ -312,6 +316,7 @@ impl Renderer {
             cell_cache: None,
             cell_full_mask_cache: Vec::new(),
             viewport_scroll_px: 0.0,
+            last_drawn_viewport_scroll_px: 0.0,
             atlas_texture: None,
             atlas_view: None,
             atlas_sampler: None,
@@ -530,6 +535,18 @@ impl Renderer {
         self.projection_width = scaled_width;
         self.projection_height = scaled_height;
         self.surface = Some(surface);
+        // ── 启动黑屏防护（渲染稳定性 spec §4）────────────────────
+        // 首个内容帧要等 shell 输出 + 冷启动（SwiftShader 上实测数百
+        // 毫秒：字形整形、整幅 atlas 上传、纹理分配）；期间交换链一帧
+        // 未提交，屏幕保持空黑，静默 shell（无任何 New 数据）甚至永远
+        // 黑屏。这里在 attach 线程上（渲染线程未启动，无竞争）：
+        //   1. 预先创建 frame accumulator，把一次性纹理分配移出首个
+        //      渲染帧（创建时 frame_invalidated=true，首帧仍全量重绘）；
+        //   2. warmup() 立即呈现一帧背景色，让表面立刻可见。
+        if let Some(config) = &self.surface_config {
+            let _ = self.ensure_frame_texture(config.width, config.height, config.format);
+        }
+        self.warmup();
         log::info!("attach_surface: configured {scaled_width}x{scaled_height}");
         Ok(())
     }
@@ -893,14 +910,14 @@ impl Renderer {
     /// of an `allow(dead_code)`.
     #[cfg(any(target_os = "android", test))]
     pub(crate) fn select_present_mode(caps: &wgpu::SurfaceCapabilities) -> wgpu::PresentMode {
-        // 120fps+ requires decoupling from display vsync: fps and Hz are
-        // unrelated. Prefer Immediate (no vsync, no backpressure) when
-        // available so the pipeline can sustain 120+ present calls per
-        // second even on 60Hz panels (tearing preferred over stalling).
-        // Mailbox/Fifo would cap at display Hz and throttle the terminal.
-        if caps.present_modes.contains(&wgpu::PresentMode::Immediate) {
-            wgpu::PresentMode::Immediate
-        } else if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
+        // 渲染稳定性 spec §3「滚动不得有可见撕裂」：Immediate 无 vsync 直通
+        // 扫描线，滚动时必然撕裂，且让渲染线程无界冲刷（真机实测 166fps，
+        // 多数帧被显示端丢弃）。优先 Mailbox（vsync 节拍 + 新帧覆盖旧帧、
+        // 无背压——滚动终端里「最新帧永远胜出」正是所需取舍，见下方
+        // attach_surface 对 desired_maximum_frame_latency=3 的注释），其次
+        // Fifo（标准 vsync），再 AutoVsync；Immediate 仅作驱动只支持它时的
+        // 最后兜底。
+        if caps.present_modes.contains(&wgpu::PresentMode::Mailbox) {
             wgpu::PresentMode::Mailbox
         } else if caps.present_modes.contains(&wgpu::PresentMode::Fifo) {
             wgpu::PresentMode::Fifo
