@@ -47,24 +47,22 @@ fn acquire_worker_tx() -> &'static SyncSender<AcquireRequest> {
 }
 
 impl Renderer {
+    /// Present one background-colored frame immediately (启动黑屏防护、
+    /// 渲染稳定性 spec §4)：首个内容帧要等 shell 输出 + 冷启动
+    /// （SwiftShader 上实测数百毫秒），期间交换链一帧未提交，屏幕保持
+    /// 空黑；静默 shell 时甚至永远不会来内容帧。由 attach_surface 在
+    /// 渲染线程启动前调用（无竞争），用带超时的 acquire worker 取回
+    /// 当前纹理、清为背景色并提交，让表面立即可见。
     pub fn warmup(&self) {
         let surface = match self.surface.as_ref() {
             Some(s) => s,
             None => return,
         };
-
-        let output = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            surface.get_current_texture()
-        })) {
-            Ok(
-                wgpu::CurrentSurfaceTexture::Success(tex)
-                | wgpu::CurrentSurfaceTexture::Suboptimal(tex),
-            ) => tex,
-            Ok(_) => return,
-            Err(_) => {
-                log::warn!("warmup: get_current_texture panicked (SwiftShader compat)");
-                return;
-            }
+        let Some(config) = self.surface_config.as_ref() else {
+            return;
+        };
+        let Some(output) = self.acquire_texture(surface, config.width, config.height) else {
+            return;
         };
         let mut encoder = self
             .device
@@ -81,12 +79,7 @@ impl Renderer {
                     view: &view,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.0,
-                            g: 0.0,
-                            b: 0.0,
-                            a: 1.0,
-                        }),
+                        load: wgpu::LoadOp::Clear(self.background),
                         store: wgpu::StoreOp::Store,
                     },
                     depth_slice: None,
@@ -251,6 +244,33 @@ impl Renderer {
         accumulator_ready && !frame_invalidated && band_count > 0 && !kgp_present
     }
 
+    /// 滚动一致性门控：视口像素偏移非零，或自上一呈现帧发生变化时为 true。
+    /// 纹理拷贝无法亚像素平移累加器，这两种情况下脏带部分路径会把旧像素
+    /// 与平移后的新几何混叠（滚动残留/撕裂），必须强制全量重绘。
+    fn is_scroll_offset_active(
+        viewport_scroll_px: f32,
+        last_drawn_viewport_scroll_px: f32,
+    ) -> bool {
+        viewport_scroll_px != 0.0
+            || (viewport_scroll_px - last_drawn_viewport_scroll_px).abs() > f32::EPSILON
+    }
+    /// 部分/全量合成门控：纯函数——脏带部分路径候选与滚动一致性门控的合成。
+    /// 滚动激活时一律全量（判定见 is_scroll_offset_active），偏移归零且稳定后恢复部分渲染。
+    fn should_render_partial_frame(
+        accumulator_ready: bool,
+        frame_invalidated: bool,
+        band_count: usize,
+        kitty_graphics_present: bool,
+        scroll_active: bool,
+    ) -> bool {
+        Self::should_render_partial(
+            accumulator_ready,
+            frame_invalidated,
+            band_count,
+            kitty_graphics_present,
+        ) && !scroll_active
+    }
+
     pub fn render_frame(
         &mut self,
         instances: &[crate::render::CellInstance],
@@ -313,8 +333,11 @@ impl Renderer {
         plan: &crate::render::cell_builder::FramePatch,
     ) -> Result<(), GpuError> {
         let dirty_bands = &plan.bands[..];
+        // 暂停期不呈现且必须报“未呈现”：调用方以 Ok 即推进 last_frame，
+        // 会把从未上屏的新帧记为已呈现，后续 Idle 误判“已最新”不再补刷
+        //（IME 弹出时输入不可见、隐藏后才出现的主因）。
         if self.render_paused {
-            return Ok(());
+            return Err(GpuError::Surface("render paused".to_string()));
         }
         // Surface and config must be available when not paused.
         if self.surface.is_none() || self.surface_config.is_none() {
@@ -355,11 +378,21 @@ impl Renderer {
         // ── Overlay / partial-path state (must precede the instance
         // upload: band-clear instances are concatenated into it) ─────
         let kgp_present = !kgp_instances.is_empty();
-        let partial = Self::should_render_partial(
+        // 滚动一致性（scroll-residual）：viewport_scroll_px 只平移当帧新
+        // 绘几何，累加器的旧像素不会移动；脏带部分路径以 Load 叠在新内容
+        // 上，旧偏移位置与屏幕边缘条带残留旧像素（用户主诉滚动底部残留/
+        // 撕裂）。偏移非零或自上一呈现帧发生变化时强制全量自包含重绘
+        // （Clear(背景)+全部实例），偏移归零且稳定后恢复部分渲染。
+        let scroll_active = Self::is_scroll_offset_active(
+            self.viewport_scroll_px,
+            self.last_drawn_viewport_scroll_px,
+        );
+        let partial = Self::should_render_partial_frame(
             accumulator_view.is_some(),
             self.frame_invalidated,
             dirty_bands.len(),
             kgp_present,
+            scroll_active,
         );
         // Band clear instances (partial frames only): empty cells emit no
         // covering quads, so a band redraw over LoadOp::Load left stale
@@ -546,6 +579,8 @@ impl Renderer {
         if accumulator_view.is_some() {
             self.frame_invalidated = false;
         }
+        // 本帧已按当前偏移呈现：作为下一帧滚动变化判定基准。
+        self.last_drawn_viewport_scroll_px = self.viewport_scroll_px;
 
         // Submit + present
         let encoder = frame_ctx.encoder;
@@ -666,6 +701,18 @@ impl Renderer {
                 )
             }
         };
+
+        // 字形首帧完整性：实例构建（build_instances_cached/…）期间新光栅化
+        // 的字形只写入了 CPU 侧 atlas_bitmap 并登记 dirty_rect，尚未到达
+        // GPU 纹理。render_inner 的上传发生在实例构建之前（下一帧才轮到
+        // 本帧的脏区），若此处不补传，本帧绘制将按空纹理采样，而 Idle
+        // 门控又不会为重绘触发额外帧——斜体/新字形首帧缺失直到下次输出。
+        // 必须在 encoder submit 之前调用：write_texture 以调用顺序入队，
+        // 先于本帧绘制命令执行。
+        if let Some(rect) = font_pipeline.take_dirty_rect() {
+            let (atlas_w, atlas_h) = font_pipeline.atlas_dimensions();
+            self.upload_atlas(font_pipeline.atlas_bitmap(), atlas_w, atlas_h, Some(rect));
+        }
         if converted.is_none() {
             return Err(GpuError::Surface("CellData conversion failed".into()));
         }
@@ -677,9 +724,16 @@ impl Renderer {
         // for the GPU dirty-band path. Only valid when the cache is
         // coherent (incremental build actually happened); otherwise the
         // empty band list forces a full redraw.
+        // 代际必须一致：atlas 重建/驱逐搬迁 UV 后实例已全量重建（新 UV），
+        // 若 bands 仍稀疏，partial 路径只画 bands，干净行残留 stale UV
+        //（`nix --help` 斜体/新字形部分不可见、滑动后部分出现）。
+        // 与增量发射的代际门控（cell_builder 428 行）同条件。
         let bands = self.cell_cache.as_ref().and_then(|cache| {
             let mask = dirty_rows?;
             if !cache.is_compatible(rows, cols) {
+                return None;
+            }
+            if cache.built_atlas_generation() != font_pipeline.atlas_generation() {
                 return None;
             }
             Some(
@@ -947,6 +1001,30 @@ mod tests {
         Renderer::should_render_partial(args.0, args.1, args.2, args.3)
     }
 
+    // ── scroll-coherence gate (fix-scroll-residual-tearing) ──────────────
+
+    /// 滚动一致性门控决策表：偏移非零或相对上一呈现帧变化 → 强制全量。
+    #[test]
+    fn scroll_offset_active_decision_table() {
+        let active = Renderer::is_scroll_offset_active;
+        // 偏移为零且与上一帧一致：可走部分路径。
+        assert!(!active(0.0, 0.0), "rest state must allow partial bands");
+        // 偏移非零（拖动中），无论是否变化都必须全量。
+        assert!(active(15.375, 15.375), "held non-zero offset stays active");
+        assert!(active(15.375, 0.0), "starting a drag must force full");
+        // 偏移变化（含归零），即使目标为零也要全量重绘。
+        assert!(active(0.0, 15.375), "settling back to zero must force full");
+        assert!(active(1.0, 2.0), "offset change must force full");
+        // 任何非零偏移都强制全量（保守：EPSILON 量级抖动也走全量，
+        // 只是浪费一次重绘，绝不允许残留）。
+        assert!(active(f32::EPSILON, 0.0), "non-zero offset must force full");
+        // 亚 EPSILON 的变化视为浮点噪声，不强制全量。
+        assert!(
+            !active(0.0, f32::EPSILON),
+            "sub-epsilon change must not force full"
+        );
+    }
+
     /// Band clear instances: one flat quad per band, covering the band's
     /// full pixel rect (: stale cursor pixels persisted because
     /// empty cells emit no covering quads over LoadOp::Load).
@@ -1009,5 +1087,62 @@ mod tests {
     fn partial_rejected_by_overlays() {
         // Any full-screen overlay forces a full redraw.
         assert!(!partial((true, false, 1, true))); // kgp
+    }
+    // ── scroll-gate composition decision table：partial 候选与 scroll 门控的合成 ──
+    // 覆盖生产合成（render_frame_with_plan 经 should_render_partial_frame 求值）：
+    // 归零稳定基线接受部分渲染；滚动激活（含惯性滚动中、归零复位瞬间、
+    // 持屏拖动非零保持）一律强制全量，不依赖 GPU。
+    /// `(accumulator_ready, frame_invalidated, band_count, kitty_graphics_present, scroll_active) -> partial`
+    fn planned_frame(decision: (bool, bool, usize, bool, bool)) -> bool {
+        let (
+            accumulator_ready,
+            frame_invalidated,
+            band_count,
+            kitty_graphics_present,
+            scroll_active,
+        ) = decision;
+        Renderer::should_render_partial_frame(
+            accumulator_ready,
+            frame_invalidated,
+            band_count,
+            kitty_graphics_present,
+            scroll_active,
+        )
+    }
+
+    #[test]
+    fn scroll_gate_composition_accepts_clean_partial() {
+        // 归零且稳定：累加器在、未失效、有脏带、无 overlay、无滚动 → 部分。
+        assert!(planned_frame((true, false, 1, false, false)));
+    }
+
+    #[test]
+    fn scroll_gate_composition_forces_full_on_hold_nonzero() {
+        // 滚动激活（偏移非零保持），即使累加器/脏带齐全也必须全量。
+        assert!(!planned_frame((true, false, 1, false, true)));
+    }
+
+    #[test]
+    fn scroll_gate_composition_survives_predicate_flips() {
+        // 其余四个谓词位各自独立翻转时，scroll 门控始终压过部分判定；
+        // 复位瞬间（scroll_active 仍为真）绝不允许脏带残留路径。
+        for accumulator_ready in [true, false] {
+            for frame_invalidated in [true, false] {
+                for band_count in [0usize, 1usize] {
+                    for kitty_graphics_present in [true, false] {
+                        assert!(
+                            !planned_frame((
+                                accumulator_ready,
+                                frame_invalidated,
+                                band_count,
+                                kitty_graphics_present,
+                                true
+                            )),
+                            "scroll_active must always veto partial",
+                        );
+                    }
+                }
+            }
+        }
     }
 }

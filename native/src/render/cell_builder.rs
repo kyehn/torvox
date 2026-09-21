@@ -212,6 +212,14 @@ impl CachedInstances {
         self.built && self.rows == rows && self.cols == cols && self.row_ends.len() == rows as usize
     }
 
+    /// Atlas generation the cached instances were built against.
+    /// Dirty-band slicing must additionally require generation equality:
+    /// rebuilds/evictions relocate UVs, and a stale-generation sparse band
+    /// leaves clean rows sampling relocated regions (blank/wrong glyphs).
+    pub fn built_atlas_generation(&self) -> u64 {
+        self.atlas_generation
+    }
+
     /// `[start, end)` instance slice belonging to `row`.
     pub(crate) fn row_slice(&self, row: usize) -> (usize, usize) {
         let start = if row == 0 { 0 } else { self.row_ends[row - 1] };
@@ -428,14 +436,42 @@ fn build_row_instances_into(
             c.is_compatible(rows, cols) && c.atlas_generation == font_pipeline.atlas_generation()
         });
 
+    // 发射前预热：本帧所有字形先光栅化（结果丢弃）。atlas 驱逐搬迁 UV，
+    // 帧内 rasterize 会使同帧早建实例失效（同字不同区渲染不一致）。
+    // 预热后发射遍为纯查表，UV 稳定；若代际仍变化（防御），缓存已热，
+    // 重建一遍即稳定，最多两遍。
+    let generation_at_entry = font_pipeline.atlas_generation();
+    warm_frame_glyphs(cell_data, cursor, cell_w, cell_h, font_pipeline);
+    // 预热本身可能驱逐并搬迁 UV：此时缓存行的旧 UV 已失效，
+    // 必须降级为全量重建（预热后为纯查表，代价低且正确）。
+    let mut incremental = incremental && font_pipeline.atlas_generation() == generation_at_entry;
     let mut row_ends: Vec<usize> = Vec::with_capacity(rows as usize);
-    for (row, range) in row_ranges.iter().enumerate() {
-        let is_clean = incremental && dirty_rows.is_some_and(|dirty| !dirty[row]);
-        if is_clean {
-            // Clean row: reuse the instances built last frame (NFR-010).
-            if let Some(cache_ref) = cache.as_ref() {
-                let (cs, ce) = cache_ref.row_slice(row);
-                instances.extend_from_slice(&cache_ref.instances()[cs..ce]);
+    for _ in 0..2 {
+        instances.clear();
+        row_ends.clear();
+        let generation_before_emit = font_pipeline.atlas_generation();
+        for (row, range) in row_ranges.iter().enumerate() {
+            let is_clean = incremental && dirty_rows.is_some_and(|dirty| !dirty[row]);
+            if is_clean {
+                // Clean row: reuse the instances built last frame (NFR-010).
+                if let Some(cache_ref) = cache.as_ref() {
+                    let (cs, ce) = cache_ref.row_slice(row);
+                    instances.extend_from_slice(&cache_ref.instances()[cs..ce]);
+                } else {
+                    append_row_instances(
+                        cell_w,
+                        cell_h,
+                        ascent_pixels,
+                        raster_scale,
+                        atlas_width,
+                        atlas_height,
+                        cursor,
+                        &highlights_by_row,
+                        font_pipeline,
+                        instances,
+                        &cell_data[range.clone()],
+                    );
+                }
             } else {
                 append_row_instances(
                     cell_w,
@@ -451,22 +487,14 @@ fn build_row_instances_into(
                     &cell_data[range.clone()],
                 );
             }
-        } else {
-            append_row_instances(
-                cell_w,
-                cell_h,
-                ascent_pixels,
-                raster_scale,
-                atlas_width,
-                atlas_height,
-                cursor,
-                &highlights_by_row,
-                font_pipeline,
-                instances,
-                &cell_data[range.clone()],
-            );
+            row_ends.push(instances.len());
         }
-        row_ends.push(instances.len());
+        if font_pipeline.atlas_generation() == generation_before_emit {
+            break;
+        }
+        // 发射中代际变更：已建实例与缓存 clean 行部分 stale，
+        // 降级为全量再建一遍（缓存已热，收敛）。
+        incremental = false;
     }
     if let Some(c) = cache.as_mut() {
         c.update(
@@ -478,6 +506,77 @@ fn build_row_instances_into(
         );
     }
     Some(())
+}
+
+/// 预热本帧全部字形（结果丢弃），保证发射遍为纯查表、UV 稳定。
+/// 字形附加项走与发射遍完全相同的 overlay/shaping 入口，
+/// 使回退链光栅化也在发射前完成。
+fn warm_frame_glyphs(
+    cell_data: &[crate::terminal::ghostty_terminal::CellData],
+    cursor: CellCursor,
+    cell_w: f32,
+    cell_h: f32,
+    font_pipeline: &mut crate::render::font::FontPipeline,
+) {
+    if cursor.visible {
+        // 空单元格光标路径的参考字形（'M' 优先，'0' 兜底），与发射遍一致。
+        let _ = font_pipeline.glyph_information('M');
+        let _ = font_pipeline.glyph_information('0');
+    }
+    for cd in cell_data {
+        let ch = char::from_u32(cd.codepoint).unwrap_or(' ');
+        if ch == ' ' || ch == '\0' || cd.codepoint == 0 {
+            continue;
+        }
+        let bold = (cd.flags >> cell_flags::BOLD) & 1 == 1;
+        let italic = (cd.flags >> cell_flags::ITALIC) & 1 == 1;
+        if bold || italic {
+            let _ = font_pipeline.glyph_information_styled(ch, bold, italic);
+        } else {
+            let _ = font_pipeline.glyph_information(ch);
+        }
+        let has_cluster = cd.grapheme_extra.iter().any(|&codepoint| codepoint != 0);
+        if !has_cluster {
+            continue;
+        }
+        let mut cluster_text = String::new();
+        cluster_text.push(ch);
+        for codepoint in &cd.grapheme_extra {
+            if *codepoint == 0 {
+                continue;
+            }
+            if let Some(mark) = char::from_u32(*codepoint) {
+                cluster_text.push(mark);
+            }
+        }
+        if cluster_text.chars().count() <= 1 {
+            continue;
+        }
+        let shaped = font_pipeline.shape_run(&cluster_text);
+        if shaped.len() == 1 {
+            let glyph = &shaped[0];
+            let _ = font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
+        } else if shaped.len() > 1 {
+            for glyph in shaped.iter().skip(1) {
+                let _ = font_pipeline.glyph_information_for_glyph(glyph.font_id, glyph.glyph_id);
+            }
+        } else {
+            let dummy_quad = || crate::render::font::OverlayQuad {
+                origin: [0.0; 2],
+                size: [cell_w, cell_h],
+                foreground: [0.0; 4],
+                background: [0.0; 4],
+                deco: [0.0; 4],
+                flags: 0.0,
+            };
+            for codepoint in &cd.grapheme_extra {
+                if *codepoint == 0 {
+                    continue;
+                }
+                let _ = font_pipeline.overlay_glyph_instance(*codepoint, dummy_quad(), cell_h);
+            }
+        }
+    }
 }
 
 /// Build instances for one grid row. Shared by the full and incremental
@@ -604,8 +703,8 @@ fn append_row_instances(
                         CursorStyle::Bar => {
                             // 竖线光标：单元格左侧细竖条，高度与字形盒一致。
                             origin[1] += glyph_top;
-                            size[0] =
-                                (cell_w * BAR_CURSOR_WIDTH_FRACTION).max(CURSOR_MARKER_MINIMUM_THICKNESS);
+                            size[0] = (cell_w * BAR_CURSOR_WIDTH_FRACTION)
+                                .max(CURSOR_MARKER_MINIMUM_THICKNESS);
                             size[1] = glyph_height;
                             effective_background = marker_background;
                         }
@@ -742,7 +841,10 @@ fn append_row_instances(
                         let marker_height = (cell_h * UNDERLINE_CURSOR_HEIGHT_FRACTION)
                             .max(CURSOR_MARKER_MINIMUM_THICKNESS);
                         (
-                            [glyph_quad_origin[0], glyph_top + glyph_height - marker_height],
+                            [
+                                glyph_quad_origin[0],
+                                glyph_top + glyph_height - marker_height,
+                            ],
                             [cell_w * cell_span, marker_height],
                         )
                     }
@@ -985,6 +1087,29 @@ mod tests {
         let instances = build(&cells, CellCursor::default(), &[]);
         assert_eq!(instances[0].foreground, [0.0, 0.0, 1.0, 1.0]);
         assert_eq!(instances[0].background, [1.0, 0.0, 0.0, 1.0]);
+    }
+
+    /// SGR 1/3 bold+italic flags reach the GPU instance (shader style bits).
+    #[test]
+    fn bold_italic_flags_reach_instance() {
+        let flags = (1 << cell_flags::BOLD) | (1 << cell_flags::ITALIC);
+        let cells = vec![cell_data(
+            0,
+            0,
+            'I',
+            [1.0, 1.0, 1.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0],
+            flags,
+        )];
+        let instances = build(&cells, CellCursor::default(), &[]);
+        assert_eq!(
+            instances[0].flags, flags as f32,
+            "bold+italic flags must reach the instance"
+        );
+        assert!(
+            instances[0].atlas_size[0] > 0.0 && instances[0].atlas_size[1] > 0.0,
+            "styled cell must carry a real atlas quad, not a blank fallback"
+        );
     }
 
     /// SGR 58 underline color reaches the GPU instance for the shader deco pass.
@@ -1301,6 +1426,151 @@ mod tests {
         );
     }
 
+    /// 帧内驱逐回归：小 atlas 上混合旧字形（clean 行）与大量新字形
+    /// （dirty 行，迫使驱逐）的一帧，增量结果中每个实例的 UV 必须与
+    /// 当前缓存查询一致。驱逐前构建/服务的旧 UV 即 stale（同字不同区
+    /// 渲染不一致，如 "d 部分区域像 a"），必须被预热 + 全量降级消除。
+    #[test]
+    fn incremental_frame_with_midframe_eviction_has_current_uvs() {
+        const ATLAS: f32 = 128.0;
+        const ROWS: u32 = 24;
+        const COLS_PER_ROW: u32 = 8;
+        let pool: Vec<char> = ('A'..='Z')
+            .chain('a'..='z')
+            .chain('0'..='9')
+            .chain("!@#$%^&*()_+-=[]{}|;:,.<>?/~`".chars())
+            .collect();
+        // 帧工作集（95 ASCII）适配 atlas；帧间 churn 逐出旧条目，
+        // 第二帧预热/发射中必再次驱逐，覆盖“帧内驱逐致 stale”路径。
+        assert!(pool.len() >= 90, "frame working set must be substantial");
+        let mk = |row: u32, col: u32, ch: char, bold: bool| {
+            cell_data(
+                row,
+                col,
+                ch,
+                [1.0, 1.0, 1.0, 1.0],
+                [0.0, 0.0, 0.0, 1.0],
+                if bold { 1 << cell_flags::BOLD } else { 0 },
+            )
+        };
+        let cursor = CellCursor {
+            row: 0,
+            col: 0,
+            visible: false,
+            style: CursorStyle::Block,
+            color: None,
+        };
+        let config = CellInstanceConfig {
+            rows: ROWS,
+            cols: 80,
+            grid_cell_w: 1024.0 / 80.0,
+            grid_cell_h: 1024.0 / 24.0,
+            cursor,
+            atlas_width: ATLAS,
+            atlas_height: ATLAS,
+            search_highlights: &[],
+        };
+        let mut font_pipeline =
+            crate::render::font::FontPipeline::new(ATLAS as i32, ATLAS as i32, 14.0);
+        let mut instances = Vec::new();
+        let mut cache = CachedInstances::new(ROWS, 80);
+        // Frame 1：全 dirty 播种缓存。
+        let mut frame1 = Vec::new();
+        for r in 0..ROWS {
+            for c in 0..COLS_PER_ROW {
+                let ch = pool[((r * COLS_PER_ROW + c) as usize) % pool.len()];
+                frame1.push(mk(r, c, ch, (r + c) % 7 == 0));
+            }
+        }
+        let all_dirty = vec![true; ROWS as usize];
+        let ok = build_instances_cached(
+            &frame1,
+            config,
+            &mut font_pipeline,
+            &all_dirty,
+            &mut cache,
+            &mut instances,
+        );
+        assert!(ok.is_some(), "seed build should succeed");
+        // 帧间 churn：直接光栅化 300+ 帧外字形，逐出第一帧条目
+        // （DejaVu Sans Mono 覆盖希腊/西里尔/拉丁扩展-A/箭头，
+        // 主字体直命中，无慢速全库扫描）。
+        // 下一帧预热必须重新载入它们，再次驱逐——stale 场景。
+        let churn: Vec<char> = ('\u{0391}'..='\u{03C9}')
+            .chain('\u{0410}'..='\u{044F}')
+            .chain('\u{0100}'..='\u{017F}')
+            .chain('\u{2190}'..='\u{21FF}')
+            .collect();
+        assert!(churn.len() > 300, "churn set must exceed atlas headroom");
+        for &ch in &churn {
+            let _ = font_pipeline.glyph_information(ch);
+        }
+        // Frame 2：偶数行不变（clean），奇数行换新字形（dirty，迫使驱逐）。
+        let mut frame2 = Vec::new();
+        for r in 0..ROWS {
+            for c in 0..COLS_PER_ROW {
+                let idx = (r * COLS_PER_ROW + c) as usize;
+                let ch = if r % 2 == 0 {
+                    pool[idx % pool.len()]
+                } else {
+                    pool[(idx + 45) % pool.len()]
+                };
+                frame2.push(mk(r, c, ch, (r + c) % 7 == 0));
+            }
+        }
+        let mut dirty = vec![false; ROWS as usize];
+        for (r, d) in dirty.iter_mut().enumerate() {
+            *d = r % 2 == 1;
+        }
+        instances.clear();
+        let ok = build_instances_cached(
+            &frame2,
+            config,
+            &mut font_pipeline,
+            &dirty,
+            &mut cache,
+            &mut instances,
+        );
+        assert!(ok.is_some(), "incremental build should succeed");
+        assert_eq!(
+            instances.len(),
+            frame2.len(),
+            "each non-empty cell yields exactly one instance (no cursor/highlights)"
+        );
+        // 逐实例断言 UV 与当前查询一致；验证查询本身必须零变更
+        // （纯命中），否则断言失去意义。
+        let generation_before_verify = font_pipeline.atlas_generation();
+        for (cell, instance) in frame2.iter().zip(instances.iter()) {
+            let ch = char::from_u32(cell.codepoint).expect("test cells are valid");
+            let bold = (cell.flags >> cell_flags::BOLD) & 1 == 1;
+            let info = font_pipeline.glyph_information_styled(ch, bold, false);
+            let info = info.expect("frame glyphs must resolve");
+            assert!(
+                info.width > 0 && info.height > 0,
+                "glyph {ch:?} must have a bitmap"
+            );
+            assert_eq!(
+                instance.atlas_offset,
+                [info.atlas_x as f32 / ATLAS, info.atlas_y as f32 / ATLAS],
+                "stale UV for {ch:?} (row {}, col {})",
+                cell.row,
+                cell.col
+            );
+            assert_eq!(
+                instance.atlas_size,
+                [info.width as f32 / ATLAS, info.height as f32 / ATLAS],
+                "stale UV size for {ch:?} (row {}, col {})",
+                cell.row,
+                cell.col
+            );
+        }
+        assert_eq!(
+            font_pipeline.atlas_generation(),
+            generation_before_verify,
+            "verification lookups must be pure cache hits"
+        );
+    }
+
     /// Degenerate incremental inputs (stale cache grid size or a dirty mask
     /// shorter than the grid) must fall back to a full rebuild instead of
     /// serving stale rows.
@@ -1527,7 +1797,14 @@ mod tests {
             style: crate::terminal::ghostty_terminal::CursorStyle::Bar,
             color: Some([1.0, 1.0, 1.0, 1.0]),
         };
-        let cells = vec![cell_data(0, 0, 'A', [1.0, 0.0, 0.0, 1.0], [0.0, 0.0, 0.0, 1.0], 0)];
+        let cells = vec![cell_data(
+            0,
+            0,
+            'A',
+            [1.0, 0.0, 0.0, 1.0],
+            [0.0, 0.0, 0.0, 1.0],
+            0,
+        )];
         let instances = build(&cells, cursor, &[]);
         assert_eq!(
             instances.len(),

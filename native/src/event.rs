@@ -375,8 +375,7 @@ mod bell_tests {
     #[test]
     fn bell_serializes_with_snake_case_discriminator() {
         // Kotlin PollEvent.Bell 解码的契约：discriminator 必须为 "bell"。
-        let json = serde_json::to_string(&Event::Bell { session_id: 7 })
-            .expect("bell serializes");
+        let json = serde_json::to_string(&Event::Bell { session_id: 7 }).expect("bell serializes");
         assert_eq!(json, r#"{"event":"bell","session_id":7}"#);
     }
 }

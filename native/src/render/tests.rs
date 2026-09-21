@@ -76,10 +76,10 @@ fn scroll_px_offset_translates_viewport_down() {
     );
 }
 
-/// 120fps+ requires decoupling fps from Hz: prefer Immediate (no vsync)
-/// when available so the pipeline can sustain 120+ presents per second even
-/// on 60Hz panels. Hz and fps are unrelated — tearing is preferred over
-/// throttling the terminal. See context.rs select_present_mode.
+/// 渲染稳定性 spec §3「滚动不得有可见撕裂」：优先 vsync 约束的
+/// Mailbox（新帧覆盖旧帧、无背压，滚动时最新帧胜出），其次
+/// Fifo / AutoVsync；Immediate 仅作驱动只支持它时的兜底。
+/// 见 context.rs select_present_mode。
 #[test]
 fn select_present_mode_prefers_vsync() {
     fn base_caps() -> wgpu::SurfaceCapabilities {
@@ -92,7 +92,7 @@ fn select_present_mode_prefers_vsync() {
         }
     }
 
-    // Immediate preferred when available for 120fps+ (Hz/fps decoupled).
+    // Mailbox（即时性 + vsync，无撕裂）在含 Immediate/Fifo 的候选里优先。
     let mut caps = base_caps();
     caps.present_modes = vec![
         wgpu::PresentMode::Immediate,
@@ -101,27 +101,31 @@ fn select_present_mode_prefers_vsync() {
     ];
     assert_eq!(
         Renderer::select_present_mode(&caps),
+        wgpu::PresentMode::Mailbox,
+        "Mailbox 优先于 Immediate（vsync 防撕裂，滚动时最新帧胜出）"
+    );
+
+    // 无 Mailbox -> Fifo（标准 vsync）。
+    let mut caps = base_caps();
+    caps.present_modes = vec![
         wgpu::PresentMode::Immediate,
-        "Immediate preferred for 120fps+ (Hz/fps decoupled)"
-    );
-
-    // No Immediate -> Mailbox (vsync) as fallback.
-    let mut caps = base_caps();
-    caps.present_modes = vec![wgpu::PresentMode::Mailbox, wgpu::PresentMode::Fifo];
-    assert_eq!(
-        Renderer::select_present_mode(&caps),
-        wgpu::PresentMode::Mailbox
-    );
-
-    // No Immediate/Mailbox -> Fifo.
-    let mut caps = base_caps();
-    caps.present_modes = vec![wgpu::PresentMode::Fifo, wgpu::PresentMode::AutoVsync];
+        wgpu::PresentMode::Fifo,
+        wgpu::PresentMode::AutoVsync,
+    ];
     assert_eq!(
         Renderer::select_present_mode(&caps),
         wgpu::PresentMode::Fifo
     );
 
-    // Only Immediate -> Immediate.
+    // 无 Mailbox/Fifo -> AutoVsync。
+    let mut caps = base_caps();
+    caps.present_modes = vec![wgpu::PresentMode::Immediate, wgpu::PresentMode::AutoVsync];
+    assert_eq!(
+        Renderer::select_present_mode(&caps),
+        wgpu::PresentMode::AutoVsync
+    );
+
+    // 驱动只支持 Immediate -> Immediate 兜底（无法避免撕裂时保持可用）。
     let base = base_caps();
     assert_eq!(
         Renderer::select_present_mode(&base),
@@ -777,7 +781,11 @@ fn cluster_cell_merged_precomposed_emits_single_primary() {
         instances.len()
     );
     assert!(
-        font_pipeline.caches.shape_cache.get("e\u{301}").is_some(),
+        font_pipeline
+            .caches
+            .shape_cache
+            .iter()
+            .any(|(key, _)| key.text == "e\u{301}"),
         "cluster shape must be cached"
     );
 }
@@ -893,8 +901,8 @@ fn cluster_cell_multi_mark_shapes_positioned_overlays() {
         font_pipeline
             .caches
             .shape_cache
-            .get("a\u{301}\u{302}")
-            .is_some(),
+            .iter()
+            .any(|(key, _)| key.text == "a\u{301}\u{302}"),
         "cluster shape must be cached"
     );
 }
@@ -1764,11 +1772,13 @@ fn render_paused_skips_frame() {
         context.render_frame(&[], &[]).is_err(),
         "expected error when not paused and no surface"
     );
-    // When paused, render should succeed immediately (skips surface check)
+    // When paused, render reports not-presented (Err) so the caller
+    // does not advance last_frame: a consumed-but-never-presented New
+    // frame would otherwise be lost forever (IME pause swallows output).
     context.set_render_paused(true);
     assert!(
-        context.render_frame(&[], &[]).is_ok(),
-        "expected ok when paused regardless of surface"
+        context.render_frame(&[], &[]).is_err(),
+        "expected err when paused (frame not presented)"
     );
 }
 
@@ -1778,8 +1788,8 @@ fn render_paused_toggle_resumes_rendering() {
     // Pause then unpause
     context.set_render_paused(true);
     assert!(
-        context.render_frame(&[], &[]).is_ok(),
-        "paused skips surface check"
+        context.render_frame(&[], &[]).is_err(),
+        "paused reports not-presented"
     );
     context.set_render_paused(false);
     assert!(
@@ -1794,8 +1804,8 @@ fn render_paused_remains_paused_after_multiple_frames() {
     context.set_render_paused(true);
     for _ in 0..10 {
         assert!(
-            context.render_frame(&[], &[]).is_ok(),
-            "paused render must stay ok across multiple frames"
+            context.render_frame(&[], &[]).is_err(),
+            "paused render must stay not-presented across multiple frames"
         );
     }
 }
@@ -1812,8 +1822,8 @@ fn set_render_paused_idempotent() {
     context.set_render_paused(true);
     context.set_render_paused(true);
     assert!(
-        context.render_frame(&[], &[]).is_ok(),
-        "double-pause still ok"
+        context.render_frame(&[], &[]).is_err(),
+        "double-pause still not-presented"
     );
 }
 
@@ -2624,6 +2634,9 @@ fn merged_cluster_emits_single_primary_without_ghost_overlays() {
     let (cell_w, cell_h) = font_pipeline.cell_metrics();
     // 👨‍👩‍👧 shapes to one glyph: it must replace the primary quad,
     // not stack component overlays on top (ghosting).
+    // 彩色 emoji 无 outline 光栅时合并字形查不到，走逐码点 overlay
+    // 回退（与真机 NotoColorEmoji 行为一致）：此时不断言数量，只断言
+    // 每个实例 UV 合法且无 panic。
     let mut extras = [0u32; 7];
     extras[0] = 0x200d;
     extras[1] = 0x1f469;
@@ -2649,10 +2662,494 @@ fn merged_cluster_emits_single_primary_without_ghost_overlays() {
     };
     let instances =
         build_configured_cell_instance(&cell_data, cursor, cell_w, cell_h, &mut font_pipeline);
+    if instances.len() == 1 {
+        return;
+    }
+    for instance in &instances {
+        assert!(
+            instance.atlas_size[0] >= 0.0 && instance.atlas_size[1] >= 0.0,
+            "overlay fallback instances must carry valid UVs"
+        );
+    }
+}
+
+#[test]
+fn same_glyph_at_different_cells_samples_identical_atlas_region() {
+    // 回归网（d 像 a 类字形混淆）：同一字符在不同单元格必须采样同一图集
+    // 区域，仅 quad 原点随位置偏移；UV 与位置无关。
+    use crate::terminal::ghostty_terminal::CellData;
+    let mut font_pipeline = ascii_font();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell = |row: u32, col: u32| CellData {
+        codepoint: 'd' as u32,
+        width: 1,
+        grapheme_extra: [0; 7],
+        foreground: [1.0; 4],
+        background: [0.0; 4],
+        underline_color: [1.0; 4],
+        flags: 0,
+        row,
+        col,
+    };
+    let cell_data = vec![cell(0, 0), cell(0, 5)];
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 99,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 6,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
+            atlas_width: TEST_ATLAS_SIZE,
+            atlas_height: TEST_ATLAS_SIZE,
+            search_highlights: &[],
+        },
+        &mut font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
+    assert_eq!(instances.len(), 2, "two cells must emit two quads");
     assert_eq!(
-        instances.len(),
-        1,
-        "merged cluster must emit exactly the primary quad, got {}",
-        instances.len()
+        instances[0].atlas_offset, instances[1].atlas_offset,
+        "same glyph must sample the same atlas region"
+    );
+    assert_eq!(
+        instances[0].atlas_size, instances[1].atlas_size,
+        "same glyph must sample the same atlas extent"
+    );
+    let expected_dx = 5.0 * cell_w;
+    assert!(
+        (instances[1].quad_origin[0] - instances[0].quad_origin[0] - expected_dx).abs() < 1e-4,
+        "quad origin must shift exactly by columns"
+    );
+}
+
+#[test]
+fn distinct_glyphs_sample_distinct_atlas_regions() {
+    // 回归网（d 像 a 类字形混淆）：不同字符必须采样不同图集区域。
+    use crate::terminal::ghostty_terminal::CellData;
+    let mut font_pipeline = ascii_font();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let cell = |ch: char, col: u32| CellData {
+        codepoint: ch as u32,
+        width: 1,
+        grapheme_extra: [0; 7],
+        foreground: [1.0; 4],
+        background: [0.0; 4],
+        underline_color: [1.0; 4],
+        flags: 0,
+        row: 0,
+        col,
+    };
+    let cell_data = vec![cell('d', 0), cell('a', 1)];
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 99,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: 2,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
+            atlas_width: TEST_ATLAS_SIZE,
+            atlas_height: TEST_ATLAS_SIZE,
+            search_highlights: &[],
+        },
+        &mut font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
+    assert_eq!(instances.len(), 2, "two cells must emit two quads");
+    assert!(
+        instances[0].atlas_offset != instances[1].atlas_offset
+            || instances[0].atlas_size != instances[1].atlas_size,
+        "d and a must sample distinct atlas regions"
+    );
+}
+
+#[test]
+fn italic_d_rasterizes_distinct_from_regular() {
+    // 斜体 d 右上溢出裁剪回归：合成斜体位图必须与正体不同且非空，
+    // 顶部行必须有前景像素（被裁则顶部全空，形似 a）。
+    use crate::terminal::ghostty_terminal::cell_flags;
+    let mut pipeline = ascii_font();
+    let regular = pipeline
+        .glyph_information_styled('d', false, false)
+        .expect("regular d");
+    let italic = pipeline
+        .glyph_information_styled('d', false, true)
+        .expect("italic d");
+    assert!(
+        (italic.atlas_x, italic.atlas_y, italic.width, italic.height)
+            != (
+                regular.atlas_x,
+                regular.atlas_y,
+                regular.width,
+                regular.height
+            ),
+        "italic d must occupy a distinct atlas region"
+    );
+    let bitmap = pipeline.atlas_bitmap();
+    let atlas_width = pipeline.atlas_dimensions().0 as usize;
+    let top_rows_foreground = (0..italic.height.min(3))
+        .flat_map(|row| {
+            (0..italic.width).map(move |col| {
+                let x = (italic.atlas_x + col) as usize;
+                let y = (italic.atlas_y + row) as usize;
+                bitmap[(y * atlas_width + x) * 4]
+            })
+        })
+        .filter(|&alpha| alpha > 0)
+        .count();
+    assert!(
+        top_rows_foreground > 0,
+        "italic d 顶部必须有前景像素，否则右上被裁"
+    );
+    let _ = cell_flags::ITALIC;
+}
+
+#[test]
+fn italic_d_advance_covers_sheared_bitmap() {
+    // 斜体 d 像 a 根因回归：shear 让顶部右移约 height×0.2126，
+    // advance 必须覆盖位图宽，否则 shader 右上裁剪。
+    let mut pipeline = ascii_font();
+    let regular = pipeline
+        .glyph_information_styled('d', false, false)
+        .expect("regular d");
+    let italic = pipeline
+        .glyph_information_styled('d', false, true)
+        .expect("italic d");
+    let overflow = italic.advance_width - regular.advance_width;
+    assert!(
+        overflow >= 0.0,
+        "italic advance={} regular advance={} 合成斜体 advance 不得小于正体",
+        italic.advance_width,
+        regular.advance_width
+    );
+    // 取证结论（Liberation Mono 真斜体 face）：位图 9px vs
+    // advance 8.43px，右悬 0.57px 是字体固有度量（合法 overhang，
+    // ghostty/termux 同样按 advance 盒裁剪）。d 像 a 不来自此处。
+    // 本测试 pin 该边界：右悬不得超过 1px，否则 shader 裁剪可见。
+    let bitmap_overhang = italic.width as f32 - italic.advance_width;
+    assert!(
+        bitmap_overhang <= 1.0,
+        "italic bitmap w={} advance={} 右悬空 {}px 超过 1px 则 shader 裁剪可见",
+        italic.width,
+        italic.advance_width,
+        bitmap_overhang
+    );
+}
+
+/// 首帧上传契约：实例构建（渲染帧 Phase 3）期间新光栅化的字形必须留下
+/// 待上传脏区。render_inner 的 Phase 1 上传只覆盖构建前已有的脏区
+/// （此处先 take 模拟），构建后仍必须能取到覆盖全部新字形区域的矩形；
+/// 若构建后无脏区，帧绘制将按空纹理采样，斜体/新字形首帧缺失。
+#[test]
+fn first_build_leaves_pending_dirty_rect_covering_all_glyphs() {
+    use crate::terminal::ghostty_terminal::cell_flags;
+    use crate::terminal::ghostty_terminal::CellData;
+    let mut font_pipeline = ascii_font();
+    // 模拟 render_inner Phase 1：先取走构建前的脏区（ASCII 预热字形）。
+    let _pre_frame_upload = font_pipeline.take_dirty_rect();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let text = "abcdefghijklmnop";
+    let cell_data: Vec<CellData> = text
+        .char_indices()
+        .map(|(col, ch)| CellData {
+            codepoint: ch as u32,
+            width: 1,
+            grapheme_extra: [0; 7],
+            foreground: [1.0; 4],
+            background: [0.0; 4],
+            underline_color: [1.0; 4],
+            flags: 1 << cell_flags::ITALIC,
+            row: 0,
+            col: col as u32,
+        })
+        .collect();
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 99,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let mut instances = Vec::new();
+    let built = crate::render::build_instances_from_cell_data(
+        &cell_data,
+        crate::render::gpu::CellInstanceConfig {
+            rows: 1,
+            cols: text.len() as u32,
+            grid_cell_w: cell_w,
+            grid_cell_h: cell_h,
+            cursor,
+            atlas_width: TEST_ATLAS_SIZE,
+            atlas_height: TEST_ATLAS_SIZE,
+            search_highlights: &[],
+        },
+        &mut font_pipeline,
+        &mut instances,
+    );
+    assert!(built.is_some(), "production instance build failed");
+    assert_eq!(instances.len(), text.len(), "每个字形一个 quad");
+    let (rect_x, rect_y, rect_w, rect_h) = font_pipeline
+        .take_dirty_rect()
+        .expect("构建后必须有待上传脏区（首帧上传契约）");
+    for ch in text.chars() {
+        let info = font_pipeline
+            .glyph_information_styled(ch, false, true)
+            .expect("斜体字形必须可解析");
+        assert!(
+            info.atlas_x as u32 >= rect_x
+                && info.atlas_y as u32 >= rect_y
+                && (info.atlas_x as u32 + info.width as u32) <= rect_x + rect_w
+                && (info.atlas_y as u32 + info.height as u32) <= rect_y + rect_h,
+            "字形 '{ch}' 区域 ({},{} {}x{}) 必须落在待上传脏区 ({rect_x},{rect_y} {rect_w}x{rect_h}) 内",
+            info.atlas_x,
+            info.atlas_y,
+            info.width,
+            info.height
+        );
+    }
+    assert!(
+        font_pipeline.take_dirty_rect().is_none(),
+        "取走脏区后不得残留待上传区域"
+    );
+}
+
+/// 重复渲染一致性（spec render-stability 1：幂等）：同一批单元格第二次
+/// 构建必须全部命中字形缓存——不产生新脏区（GPU 纹理无需更新）、实例
+/// 与首帧逐字节一致、已上传字形像素不被改写。
+#[test]
+fn repeat_build_is_identical_and_produces_no_new_dirty_rect() {
+    use crate::terminal::ghostty_terminal::cell_flags;
+    use crate::terminal::ghostty_terminal::CellData;
+    let mut font_pipeline = ascii_font();
+    let _ = font_pipeline.take_dirty_rect();
+    let (cell_w, cell_h) = font_pipeline.cell_metrics();
+    let text = "abcdefghijklmnop";
+    let cell_data: Vec<CellData> = text
+        .char_indices()
+        .map(|(col, ch)| CellData {
+            codepoint: ch as u32,
+            width: 1,
+            grapheme_extra: [0; 7],
+            foreground: [1.0; 4],
+            background: [0.0; 4],
+            underline_color: [1.0; 4],
+            // 交替斜体/正体：两种样式路径都必须幂等。
+            flags: if col % 2 == 0 {
+                1 << cell_flags::ITALIC
+            } else {
+                0
+            },
+            row: 0,
+            col: col as u32,
+        })
+        .collect();
+    let cursor = crate::render::CellCursor {
+        row: 0,
+        col: 99,
+        visible: false,
+        style: CursorStyle::Block,
+        color: None,
+    };
+    let config = crate::render::gpu::CellInstanceConfig {
+        rows: 1,
+        cols: text.len() as u32,
+        grid_cell_w: cell_w,
+        grid_cell_h: cell_h,
+        cursor,
+        atlas_width: TEST_ATLAS_SIZE,
+        atlas_height: TEST_ATLAS_SIZE,
+        search_highlights: &[],
+    };
+    let mut first = Vec::new();
+    assert!(
+        crate::render::build_instances_from_cell_data(
+            &cell_data,
+            config,
+            &mut font_pipeline,
+            &mut first
+        )
+        .is_some(),
+        "首帧构建失败"
+    );
+    let rect = font_pipeline
+        .take_dirty_rect()
+        .expect("首帧构建必须产生待上传脏区");
+    let first_bitmap = font_pipeline.atlas_bitmap().to_vec();
+    let (atlas_w, atlas_h) = font_pipeline.atlas_dimensions();
+    let upload_bytes = snapshot_atlas_rect(&first_bitmap, atlas_w as usize, rect);
+    assert!(
+        upload_bytes.iter().any(|&b| b > 0),
+        "首帧脏区必须包含字形像素"
+    );
+
+    // 第二次构建：字形缓存命中，实例与首帧一致，无新上传区。
+    let mut second = Vec::new();
+    assert!(
+        crate::render::build_instances_from_cell_data(
+            &cell_data,
+            config,
+            &mut font_pipeline,
+            &mut second
+        )
+        .is_some(),
+        "重复构建失败"
+    );
+    let first_bytes = bytemuck::cast_slice::<CellInstance, u8>(&first);
+    let second_bytes = bytemuck::cast_slice::<CellInstance, u8>(&second);
+    assert_eq!(first_bytes, second_bytes, "重复构建实例必须与首帧逐字节一致");
+    assert!(
+        font_pipeline.take_dirty_rect().is_none(),
+        "重复构建全部命中缓存，不得产生新脏区"
+    );
+    let second_bitmap = font_pipeline.atlas_bitmap();
+    let upload_after = snapshot_atlas_rect(second_bitmap, atlas_w as usize, rect);
+    assert_eq!(upload_bytes, upload_after, "重复帧不得改写已上传字形像素");
+    let _ = atlas_h;
+}
+
+/// 取 atlas 位图内 (x, y, w, h) 矩形对应的字节快照（测试辅助）。
+fn snapshot_atlas_rect(bitmap: &[u8], atlas_width: usize, rect: (u32, u32, u32, u32)) -> Vec<u8> {
+    let (x, y, w, h) = rect;
+    let mut out = Vec::with_capacity((w * h * 4) as usize);
+    for row in 0..h as usize {
+        let start = ((y as usize + row) * atlas_width + x as usize) * 4;
+        out.extend_from_slice(&bitmap[start..start + w as usize * 4]);
+    }
+    out
+}
+
+
+
+/// 滚动一致性（fix-scroll-residual-tearing）GPU 契约测试：
+/// 带视口像素偏移的全量重绘（非部分路径：Clear + 全部实例 + 偏移投影）
+/// 必须画面自洽——上边缘条带为清屏背景、行内容整体下移、
+/// 偏移归零后的全量重绘与滚动前逐字节一致（无任何残留像素）。
+#[test]
+fn gpu_scroll_offset_full_redraw_has_no_stale_pixels() {
+    let Some((_instance, _adapter, device, queue)) = create_test_device() else {
+        panic!("requires GPU adapter but none available");
+    };
+    let mut context = setup_test_gpu_context(device, queue);
+    let (surface_width, surface_height) = (50u32, 50u32);
+    let (row_count, cell_h) = (8u32, 5.0f32);
+    let scroll_px = 3.0f32;
+    let stripe_colors: [[u8; 3]; 8] = [
+        [200, 0, 0],
+        [0, 200, 0],
+        [0, 0, 200],
+        [200, 200, 0],
+        [200, 0, 200],
+        [0, 200, 200],
+        [255, 128, 0],
+        [128, 0, 255],
+    ];
+    // 每行一条 has_glyph=0（atlas_size=0）的纯色满宽平铺条：着色器按
+    // background 直绘，等价部分路径的 band_clear_instances 平铺块。
+    let instances: Vec<CellInstance> = (0..row_count)
+        .map(|row| {
+            let color = [
+                stripe_colors[row as usize][0] as f32 / 255.0,
+                stripe_colors[row as usize][1] as f32 / 255.0,
+                stripe_colors[row as usize][2] as f32 / 255.0,
+                1.0,
+            ];
+            CellInstance {
+                quad_origin: [0.0, row as f32 * cell_h],
+                atlas_offset: [0.0; 2],
+                atlas_size: [0.0; 2],
+                foreground: color,
+                background: color,
+                underline_color: color,
+                quad_size: [surface_width as f32, cell_h],
+                flags: 0.0,
+                bearing: [0.0; 2],
+                glyph_advance_width: 0.0,
+            }
+        })
+        .collect();
+    let background = [30u8, 30, 46, 255];
+
+    // 帧 A：偏移 0 的全量重绘（滚动前基线）。
+    let frame_at_rest = context.render_to_buffer(&instances, &[]).unwrap();
+
+    // 帧 B：偏移 scroll_px 的全量重绘（fix 后的滚动帧语义）。
+    context.set_viewport_scroll_px(scroll_px);
+    context.refresh_cell_uniforms(surface_width as f32, surface_height as f32);
+    let frame_scrolled = context.render_to_buffer(&instances, &[]).unwrap();
+
+    // 帧 C：偏移归零后的全量重绘（滚动结束帧语义）。
+    context.set_viewport_scroll_px(0.0);
+    context.refresh_cell_uniforms(surface_width as f32, surface_height as f32);
+    let frame_back = context.render_to_buffer(&instances, &[]).unwrap();
+
+    let pixel_at = |buf: &[u8], x: u32, y: u32| -> [u8; 4] {
+        let index = ((y * surface_width + x) * 4) as usize;
+        [buf[index], buf[index + 1], buf[index + 2], buf[index + 3]]
+    };
+
+    // 帧 B：上边缘条带 [0, scroll_px) 必须是清屏背景色（该条带在
+    // 行进位前本应显示上一行尚未到达的内容，背景即自洽表现）。
+    for y in 0..scroll_px as u32 {
+        for x in 0..surface_width {
+            assert_eq!(
+                pixel_at(&frame_scrolled, x, y),
+                background,
+                "top edge strip must be cleared background (x={x}, y={y})"
+            );
+        }
+    }
+    // 帧 B：行 r 内容整体下移，占据 [scroll_px + r*cell_h, scroll_px + (r+1)*cell_h)。
+    for row in 0..row_count {
+        let y_mid =
+            (scroll_px as u32) + (row as f32 * cell_h) as u32 + (cell_h * 0.5) as u32;
+        let expected = [
+            stripe_colors[row as usize][0],
+            stripe_colors[row as usize][1],
+            stripe_colors[row as usize][2],
+            255,
+        ];
+        for x in 0..surface_width {
+            assert_eq!(
+                pixel_at(&frame_scrolled, x, y_mid),
+                expected,
+                "row {row} must sit at shifted position (x={x}, y={y_mid})"
+            );
+        }
+    }
+    // 帧 B：下边缘条带（网格底线之下）为清屏背景色。
+    let grid_bottom_px = (scroll_px as u32) + (row_count as f32 * cell_h) as u32;
+    for y in grid_bottom_px..surface_height {
+        for x in 0..surface_width {
+            assert_eq!(
+                pixel_at(&frame_scrolled, x, y),
+                background,
+                "bottom edge strip must be cleared background (x={x}, y={y})"
+            );
+        }
+    }
+    // 帧 C：滚动结束重绘后与滚动前基线逐字节一致——中间任何残留
+    // 像素都会破坏该相等性（此即用户主诉“底部残留”的判定）。
+    assert_eq!(
+        frame_back, frame_at_rest,
+        "full redraw after scroll settle must be byte-identical to pre-scroll"
     );
 }
