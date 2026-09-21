@@ -37,12 +37,14 @@ pub enum CursorStyle {
 /// the style packer (`ghostty_terminal::internal::pack_style_flags`), the GPU
 /// cell builder (`render::cell_builder`)
 /// and the shader `cell.wgsl`. Keep in sync with `pack_style_flags` and
-/// `shaders/cell.wgsl` (which reads bits 3/5/6/7/8 for decorations).
+/// `shaders/cell.wgsl` (which reads bits 3/5/6/7/8 for decorations;
+/// bit 4 blink is carried for information, the shader ignores it).
 pub mod cell_flags {
     pub const BOLD: u32 = 0;
     pub const ITALIC: u32 = 1;
     pub const REVERSE: u32 = 2;
     pub const UNDERLINE: u32 = 3;
+    pub const BLINK: u32 = 4;
     pub const STRIKETHROUGH: u32 = 5;
     pub const OVERLINE: u32 = 6;
     pub const FAINT: u32 = 7;
@@ -114,6 +116,36 @@ mod tests {
         // Compile-time check: CellData implements Pod + Zeroable
         fn _assert_pod_zeroable<T: bytemuck::Pod + bytemuck::Zeroable>() {}
         _assert_pod_zeroable::<CellData>();
+    }
+    #[test]
+    fn cell_flags_bits_are_disjoint_and_reserve_bit_four() {
+        // 对标上游闪烁/下划线位重叠回归：已定义位必须互不重叠。
+        let defined_bits = [
+            cell_flags::BOLD,
+            cell_flags::ITALIC,
+            cell_flags::REVERSE,
+            cell_flags::UNDERLINE,
+            cell_flags::BLINK,
+            cell_flags::STRIKETHROUGH,
+            cell_flags::OVERLINE,
+            cell_flags::FAINT,
+            cell_flags::DOUBLE_UNDERLINE,
+        ];
+        let mut used_mask = 0u32;
+        for bit in defined_bits {
+            assert!(bit < 32, "样式位必须在单个 u32 内：{bit}");
+            assert_eq!(used_mask & (1 << bit), 0, "样式位重叠：{bit}");
+            used_mask |= 1 << bit;
+        }
+        // blink 占位 4：下划线形状字段不得与其交叠（上游真实踩坑）。
+        assert_eq!(cell_flags::BLINK, 4);
+        // 着色器装饰掩码与位定义一致（cell.wgsl 读取 8/32/64/128/256）。
+        assert_eq!(1 << cell_flags::UNDERLINE, 8);
+        assert_eq!(1 << cell_flags::BLINK, 16);
+        assert_eq!(1 << cell_flags::STRIKETHROUGH, 32);
+        assert_eq!(1 << cell_flags::OVERLINE, 64);
+        assert_eq!(1 << cell_flags::FAINT, 128);
+        assert_eq!(1 << cell_flags::DOUBLE_UNDERLINE, 256);
     }
 }
 

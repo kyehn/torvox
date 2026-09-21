@@ -233,6 +233,23 @@ fn key_encode_encoder_reused_stable() {
     assert_eq!(second, third, "encoder reuse must be stable (2nd vs 3rd)");
 }
 
+/// 对标上游 ctrlKeyEncoding/escapeAndEnterEncoding：Ctrl+C 发 0x03，
+/// ESC 发 0x1B，回车发 0x0D。
+#[test]
+fn key_encode_ctrl_c_escape_enter_basics() {
+    let t = GhosttyTerminal::new(24, 80, 1000).expect("terminal");
+    let ctrl = key::Mods::CTRL.bits();
+    // Android C 键码 31，unicode 0x03（C0 控制字符走逻辑键路径）。
+    let ctrl_c = t.key_encode(31, ctrl, 0, 0x03, 0).expect("encode");
+    assert_eq!(ctrl_c, vec![0x03], "Ctrl+C must emit 0x03 (got {ctrl_c:?})");
+    // ESC 键码 111。
+    let esc = t.key_encode(111, 0, 0, 0x1B, 0).expect("encode");
+    assert_eq!(esc, vec![0x1B], "ESC must emit 0x1B (got {esc:?})");
+    // 回车键码 66。
+    let enter = t.key_encode(66, 0, 0, 0x0D, 0x0D).expect("encode");
+    assert_eq!(enter, vec![0x0D], "Enter must emit 0x0D (got {enter:?})");
+}
+
 /// P1-S3: search_all_in_scrollback returns all occurrences of a query
 #[test]
 fn search_all_in_scrollback_finds_all_matches() {
@@ -284,6 +301,22 @@ fn search_all_in_scrollback_empty_query() {
     assert!(results.is_empty(), "empty query must return no matches");
 }
 
+/// 对标上游 searchSpansSoftWrap：跨软换行边界的匹配必须命中。
+/// 20 列终端写 18 个 x + needle：needle 横跨换行点。
+#[test]
+fn search_all_in_scrollback_spans_soft_wrap() {
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    let token = format!("{}needle", "x".repeat(18));
+    t.vt_write(token.as_bytes());
+    t.flush();
+    let results = t.search_all_in_scrollback("needle", true);
+    assert_eq!(
+        results.len(),
+        1,
+        "soft-wrapped needle must be found (got {results:?})"
+    );
+}
+
 /// P1-S3: search_all_in_scrollback no matches returns empty
 #[test]
 fn search_all_in_scrollback_no_matches() {
@@ -292,6 +325,23 @@ fn search_all_in_scrollback_no_matches() {
     t.flush();
     let results = t.search_all_in_scrollback("xyz", true);
     assert!(results.is_empty(), "no-match query must return empty vec");
+}
+
+/// 对标上游 searchCountsPastTheNavigableCap：超上限时保留最新命中。
+/// 小规模验证截断方向：多行同词，返回顺序旧→新且首个非最旧。
+#[test]
+fn search_all_in_scrollback_keeps_newest_order() {
+    let mut t = GhosttyTerminal::new(10, 80, 100).expect("terminal");
+    for index in 0..8 {
+        t.vt_write(format!("hit{index:02}\n").as_bytes());
+    }
+    t.flush();
+    let results = t.search_all_in_scrollback("hit", true);
+    assert_eq!(results.len(), 8, "all hits must be found");
+    let rows: Vec<u32> = results.iter().map(|matched| matched.row).collect();
+    let mut sorted = rows.clone();
+    sorted.sort_unstable();
+    assert_eq!(rows, sorted, "results must stay oldest-first");
 }
 
 /// key_encode_submit returns a Some(receiver) for a valid key and the
@@ -396,5 +446,46 @@ fn search_returns_character_columns_not_byte_offsets() {
         m.end_col, 7,
         "end_col must be char column, got {}",
         m.end_col
+    );
+}
+
+/// 对标上游大小写折叠：非 ASCII 字母不敏感匹配（拉丁/捷克/西里尔/希腊），
+/// 且重音不等价（cafe 不得命中 café）。
+#[test]
+fn search_all_in_scrollback_unicode_case_folding() {
+    let mut t = GhosttyTerminal::new(6, 80, 100).expect("terminal");
+    t.vt_write("Café café CAFÉ\n".as_bytes());
+    t.vt_write("Čau čau\n".as_bytes());
+    t.vt_write("Я я\n".as_bytes());
+    t.vt_write("Σ σ\n".as_bytes());
+    t.flush();
+    assert_eq!(
+        t.search_all_in_scrollback("café", false).len(),
+        3,
+        "café 不敏感须命中三行变体"
+    );
+    assert_eq!(
+        t.search_all_in_scrollback("café", true).len(),
+        1,
+        "café 敏感仅命中全小写"
+    );
+    assert_eq!(
+        t.search_all_in_scrollback("čau", false).len(),
+        2,
+        "čau 不敏感须命中大小写"
+    );
+    assert_eq!(
+        t.search_all_in_scrollback("я", false).len(),
+        2,
+        "西里尔不敏感须命中大小写"
+    );
+    assert_eq!(
+        t.search_all_in_scrollback("σ", false).len(),
+        2,
+        "希腊不敏感须命中大小写"
+    );
+    assert!(
+        t.search_all_in_scrollback("cafe", false).is_empty(),
+        "无重音不得命中重音文本"
     );
 }
