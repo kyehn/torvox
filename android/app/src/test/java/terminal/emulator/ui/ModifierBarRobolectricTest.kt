@@ -196,4 +196,52 @@ class ModifierBarRobolectricTest {
         composeRule.waitForIdle()
         org.junit.Assert.assertEquals(listOf("\u001bOA"), sent)
     }
+
+    @Test
+    fun `configurable plain key sends raw sequence without modifiers`() {
+        // 无修饰时行为零变化：PGUP 原序列直发，不走字节通道，不消费。
+        val sent = mutableListOf<String>()
+        val sentBytes = mutableListOf<ByteArray>()
+        var consumed = 0
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onKeyClick = { sent.add(it) },
+                    onKeyBytesClick = { sentBytes.add(it) },
+                    onConsumeModifiers = { consumed++ },
+                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.PGUP)),
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_PGUP").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(listOf("\u001b[5~"), sent)
+        org.junit.Assert.assertEquals(0, sentBytes.size)
+        org.junit.Assert.assertEquals(0, consumed)
+    }
+
+    @Test
+    fun `configurable key with ctrl active encodes CSI modifier and consumes once`() {
+        // CTRL 点亮后点 PGUP：发 CSI 5;5~ 走字节通道，并消费 Once。
+        val sent = mutableListOf<String>()
+        val sentBytes = mutableListOf<ByteArray>()
+        var consumed = 0
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onKeyClick = { sent.add(it) },
+                    onKeyBytesClick = { sentBytes.add(it) },
+                    onConsumeModifiers = { consumed++ },
+                    ctrlState = ModifierState.Once,
+                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.PGUP)),
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_PGUP").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(0, sent.size)
+        org.junit.Assert.assertEquals(1, sentBytes.size)
+        org.junit.Assert.assertEquals("\u001b[5;5~", sentBytes[0].toString(Charsets.UTF_8))
+        org.junit.Assert.assertEquals(1, consumed)
+    }
 }
