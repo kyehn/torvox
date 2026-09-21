@@ -41,6 +41,13 @@ class Osc52ClipboardInstrumentedTest {
     @SuppressLint("DeprecatedCall")
     fun osc52_sequence_sets_system_clipboard() {
         composeTestRule.waitForSession()
+        // 会话孵化慢于 UI 呈现：TerminalScreen 可见时活动会话可能仍为 0
+        // （runtime.bridge() 取活动会话桥），单次直读必竞态。与 ImePopup 同门控轮询。
+        val bridgeReady =
+            UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+                composeTestRule.getBridge() != null
+            }
+        assertNotNull("运行时桥必须就绪（30s 未孵化）", bridgeReady)
         val bridge = composeTestRule.getBridge() ?: throw AssertionError("bridge null")
         val activity = composeTestRule.activity
         val clipboard =
@@ -54,10 +61,12 @@ class Osc52ClipboardInstrumentedTest {
                 marker.toByteArray(Charsets.UTF_8),
                 android.util.Base64.NO_WRAP,
             )
-        val sequence = "\u001b]52;c;$encoded\u0007"
+        // 经 feedTerminal 直写 VT 解析器：注入转义序列必须走解析器
+        // （与 MultiTap/SgrItalic 同口径）。stdin 回显在 ECHOCTL 下把 ESC
+        // 芒化为 ^[，序列永不到达解析器；shell printf 同理依赖回显链。
         assertTrue(
-            "PTY write rejected",
-            bridge.writeToPty(sequence.toByteArray(Charsets.UTF_8)),
+            "VT inject rejected",
+            bridge.feedTerminal("\u001B]52;c;$encoded\u0007".toByteArray(Charsets.UTF_8)),
         )
         val seen =
             UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {

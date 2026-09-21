@@ -89,15 +89,22 @@ class CursorPixelAcceptanceTest {
         val b = bridge()
         Thread.sleep(250)
 
-        fun assertCursorAtItsCell(stage: String): Pair<Int, Int> {
+        fun cursorBrightAtItsCell(): Pair<Int, Int>? {
             val (row, col) = renderCursorRowCol()
-            org.junit.Assert.assertTrue("$stage: render cursor hidden (-1)", row >= 0 && col >= 0)
-            val lum = cellCenterLuminance(row, col)
-            org.junit.Assert.assertTrue(
-                "$stage: cursor cell ($row,$col) luminance $lum must be bright (>140)",
-                lum > 140,
-            )
+            if (row < 0 || col < 0) return null
+            if (cellCenterLuminance(row, col) <= 140) return null
             return row to col
+        }
+
+        fun assertCursorAtItsCell(stage: String): Pair<Int, Int> {
+            // 首帧 CellData 推送滞后约一包：T0 即判隐藏是时序误报，轮询至光标格变亮。
+            val ready =
+                UxTestUtils.pollUntilTrue(timeoutMs = 12_000, intervalMs = 500) {
+                    cursorBrightAtItsCell() != null
+                }
+            assertNotNull("$stage: 光标格必须变亮", ready)
+            return cursorBrightAtItsCell()
+                ?: throw AssertionError("$stage: render cursor hidden (-1)")
         }
 
         var previous = assertCursorAtItsCell("T0-boot")

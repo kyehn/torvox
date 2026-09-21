@@ -154,14 +154,14 @@ class SgrColorPixelAcceptanceTest {
             var maxRed = 0
             var maxGreen = 0
             var maxBlue = 0
-            repeat(SamplingRoundCount) {
+            repeat(SAMPLING_ROUND_COUNT) {
                 val rendered = NativeBridge.render(sessionId, 0, 0)
                 val shot = device.takeScreenshot() ?: throw AssertionError("截图失败")
                 maxRed = maxOf(maxRed, countRedPixels(shot))
                 maxGreen = maxOf(maxGreen, countPixels(shot, ::isGreenish))
                 maxBlue = maxOf(maxBlue, countPixels(shot, ::isBluish))
                 android.util.Log.i("SgrDiag", "render rc=$rendered red=$maxRed green=$maxGreen blue=$maxBlue")
-                Thread.sleep(SamplingIntervalMillis)
+                Thread.sleep(SAMPLING_INTERVAL_MILLIS)
             }
             android.util.Log.i(
                 "SgrDiag",
@@ -169,15 +169,15 @@ class SgrColorPixelAcceptanceTest {
             )
             assertTrue(
                 "SGR 红色文本必须产生红色像素 (前=$beforeRed 最大红=$maxRed)",
-                maxRed > beforeRed + PixelGainThreshold,
+                maxRed > beforeRed + PIXEL_GAIN_THRESHOLD,
             )
             assertTrue(
                 "SGR 绿色文本必须产生绿色像素 (前=$beforeGreen 最大绿=$maxGreen)",
-                maxGreen > beforeGreen + PixelGainThreshold,
+                maxGreen > beforeGreen + PIXEL_GAIN_THRESHOLD,
             )
             assertTrue(
                 "SGR 蓝色文本必须产生蓝色像素 (前=$beforeBlue 最大蓝=$maxBlue)",
-                maxBlue > beforeBlue + PixelGainThreshold,
+                maxBlue > beforeBlue + PIXEL_GAIN_THRESHOLD,
             )
         } finally {
             runCatching { NativeBridge.destroySession(sessionId) }
@@ -185,8 +185,8 @@ class SgrColorPixelAcceptanceTest {
     }
 
     companion object {
-        private const val SamplingRoundCount = 10
-        private const val SamplingIntervalMillis = 400L
-        private const val PixelGainThreshold = 20
+        private const val SAMPLING_ROUND_COUNT = 10
+        private const val SAMPLING_INTERVAL_MILLIS = 400L
+        private const val PIXEL_GAIN_THRESHOLD = 20
     }
 }

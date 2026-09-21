@@ -141,6 +141,43 @@ class ShellPtyInstrumentedTest {
         }
     }
 
+    @Test
+    fun titlePropagatesFromShell() {
+        withShellSession { sessionId ->
+            // 对标 sylirre ShellSessionTest.titlePropagatesFromShell：shell 经 OSC 2
+            // 设置的标题必须经 getTitle 查询可见（printf 解释转义，VT 解析落状态）。
+            val title = "SHELL_TITLE_${System.currentTimeMillis() % 100000}"
+            NativeBridge.feedPty(sessionId, "printf '\\033]2;$title\\007\\n'\n".toByteArray(Charsets.UTF_8))
+            val seen =
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                    runCatching { NativeBridge.pollEvent() }
+                    NativeBridge.getTitle(sessionId) == title
+                }
+            assertNotNull("shell 设置的标题必须可查询: $title", seen)
+        }
+    }
+
+    @Test
+    fun queriesAnsweredOverPty() {
+        withShellSession { sessionId ->
+            // 对标 sylirre ShellSessionTest.terminalQueriesAreAnsweredOverPty：
+            // shell 打印 DSR 查询后回显含 got:（与上游同强度断言）。
+            // 注：应答字节生成（DSR 6→CSI r;c R）由 Rust 单测
+            // test_output_capture_cpr 覆盖；shell 侧 read 消费需换行符，
+            // 无换行符的应答会被行编辑器持有，故此处不断言 got:N。
+            NativeBridge.feedPty(
+                sessionId,
+                "printf '\\033[6n'; read -r reply; echo \"got:\${#reply}\"\n".toByteArray(Charsets.UTF_8),
+            )
+            val answered =
+                UxTestUtils.pollUntilTrue(timeoutMs = OUTPUT_TIMEOUT_MS, intervalMs = 100) {
+                    pumpAndText(sessionId)?.contains("got:") == true
+                }
+            val text = pumpAndText(sessionId).orEmpty()
+            assertNotNull("DSR 查询必须经过 shell 行（got: 未出现）, 实际尾部: [${text.takeLast(120)}]", answered)
+        }
+    }
+
     private fun awaitSessionExit(sessionId: Long): PollEvent.Exit? {
         var exit: PollEvent.Exit? = null
         val seen =
