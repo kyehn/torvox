@@ -429,6 +429,22 @@ fn osc_clipboard_split_buffer() {
     assert_invariants(&snap);
 }
 
+/// OSC 52 clipboard via pty_write (the production output path:
+/// Session::poll_pty_output feeds PTY bytes through pty_write, NOT
+/// vt_write). LF→CRLF conversion must not corrupt the sequence.
+#[test]
+fn osc_clipboard_via_pty_write_path() {
+    let mut t = terminal();
+    t.pty_write(b"\x1b]52;c;SGVsbG8=\x07");
+    t.flush();
+    let event = t.poll_clipboard_event();
+    assert_eq!(
+        event,
+        Some(("c".to_string(), "Hello".to_string())),
+        "OSC 52 via pty_write must reach the clipboard callback"
+    );
+}
+
 /// OSC color reset — sent across split buffer.
 #[test]
 fn osc_color_reset_split_buffer() {
@@ -1548,7 +1564,255 @@ fn selection_text_wide_char_columns() {
     );
 }
 
+/// 空格选字：点空格选中该格（对标 selectWordOnBlankCellSelectsThatCell）。
+/// 上游格式化器把纯空白选区 trim 为空串：不断言文本，只断言选区反白
+/// 烘焙到了该格（选区存在且可见）。
+#[test]
+fn selection_text_blank_cell_selects_itself() {
+    let mut t = terminal();
+    t.vt_write(b"a b");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    t.set_selection((row0, 1), (row0, 1), false);
+    t.flush();
+    let (selected, _) = t.receive_cell_data().expect("selected cell data");
+    let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
+    let picked = selected
+        .iter()
+        .find(|cell| cell.row == 0 && cell.col == 1)
+        .expect("row 0 col 1 present");
+    assert_eq!(
+        picked.foreground, theme_background,
+        "blank cell under selection must be inverted"
+    );
+    t.clear_selection();
+    t.flush();
+}
+
+/// 选择清除往返：装选区烘焙反白，清除后恢复基线（对标 selectionClearRemovesSelection）。
+#[test]
+fn selection_clear_restores_baseline_colors() {
+    let mut t = terminal();
+    t.vt_write(b"hello");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    t.set_selection((row0, 0), (row0, 4), false);
+    t.flush();
+    let (selected, _) = t.receive_cell_data().expect("selected cell data");
+    let theme_background = GhosttyTerminal::byte_color_to_float([30, 30, 46]);
+    let picked = selected
+        .iter()
+        .find(|cell| cell.row == 0 && cell.col == 0)
+        .expect("row 0 col 0 present");
+    assert_eq!(picked.foreground, theme_background);
+    t.clear_selection();
+    t.flush();
+    let (cleared, _) = t.receive_cell_data().expect("cleared cell data");
+    let theme_foreground = GhosttyTerminal::byte_color_to_float([205, 214, 244]);
+    let restored = cleared
+        .iter()
+        .find(|cell| cell.row == 0 && cell.col == 0)
+        .expect("row 0 col 0 present");
+    assert_eq!(
+        restored.foreground, theme_foreground,
+        "clear must restore baseline foreground"
+    );
+}
+
 /// 终端持有选区反白（spec 文本选择：选区存于终端，跟踪引用）：
+/// 对标上游 selectWordHighlightsAndExtractsText：上游原生 select_word
+/// 派生选区并经格式化器提取文本。本仓单测经“解析出词边界→
+/// 用 install 链路安装→格式化器提取”验证同一语义（本仓 selection
+/// 接口即 install+format，无独立 select_word 命令）。
+#[test]
+fn select_word_via_boundary_resolve_extracts_hello() {
+    let mut t = terminal();
+    t.vt_write(b"hello world");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    // 词边界解析：col 1（hello 内）→ 词起止 (0, 5)。
+    let (word_start, word_end) = resolve_word_bounds(&t, row0, 1);
+    assert_eq!(
+        (word_start, word_end),
+        (0, 5),
+        "col 1 must resolve to hello"
+    );
+    t.set_selection((row0, word_start), (row0, word_end - 1), false);
+    t.flush();
+    assert_eq!(t.selection_text((row0, 0), (row0, 4), false), "hello");
+}
+
+/// 词边界解析辅助：沿行左右扫描词字符（空格/行尾为界）。
+fn resolve_word_bounds(terminal: &GhosttyTerminal, row: u32, col: u32) -> (u32, u32) {
+    let line = terminal.read_line_text(row).unwrap_or_default();
+    let chars: Vec<char> = line.chars().collect();
+    if chars.is_empty() {
+        return (col, col + 1);
+    }
+    let mut start = (col as usize).min(chars.len());
+    // 空格格自身即词：直接选中本格（对标上游空白选中该格）。
+    if chars.get(start).is_none_or(|ch| *ch == ' ') {
+        return (start as u32, (start + 1) as u32);
+    }
+    while start > 0 && chars[start - 1] != ' ' {
+        start -= 1;
+    }
+    let mut end = (col as usize).min(chars.len());
+    while end < chars.len() && chars[end] != ' ' {
+        end += 1;
+    }
+    (start as u32, end.max(start + 1) as u32)
+}
+
+/// 对标上游 selectWordOnBlankCellSelectsThatCell：空格格解析为空长度
+/// 词边界并经 install 链路反白烘焙（文本断言见
+/// selection_text_blank_cell_selects_itself）。
+#[test]
+fn select_word_blank_cell_resolves_empty_bounds() {
+    let mut t = terminal();
+    t.vt_write(b"a b");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    let (word_start, word_end) = resolve_word_bounds(&t, row0, 1);
+    assert_eq!(
+        (word_start, word_end),
+        (1, 2),
+        "blank cell must resolve to its own cell"
+    );
+}
+
+/// 对标上游 selectLineSelectsWholeLine：整行解析出起止并经
+/// install+format 提取整行文本。
+#[test]
+fn select_line_via_full_row_extracts_whole_line() {
+    let mut t = terminal();
+    t.vt_write(b"hello world");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    let line = t.read_line_text(row0).expect("line text");
+    assert_eq!(line, "hello world");
+    let end_col = (line.chars().count() as u32).saturating_sub(1);
+    t.set_selection((row0, 0), (row0, end_col), false);
+    t.flush();
+    assert_eq!(
+        t.selection_text((row0, 0), (row0, end_col), false),
+        "hello world"
+    );
+}
+
+/// 对标上游 selectAllCoversScrollback：首行滚入历史后，跨全缓冲
+/// 的 install+format 仍覆盖首尾行。
+#[test]
+fn select_all_via_range_covers_scrollback() {
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    t.vt_write(b"alpha\n");
+    for index in 0..8 {
+        t.vt_write(format!("filler{index}\n").as_bytes());
+    }
+    t.flush();
+    let total = t.take_snapshot();
+    let last_row = total.rows + total.scrollback_length - 1;
+    let text = t.selection_text((0, 0), (last_row, 19), false);
+    assert!(
+        text.starts_with("alpha"),
+        "must include scrolled-off first line"
+    );
+    assert!(text.contains("filler7"), "must include the latest line");
+}
+
+/// 对标上游 selectionTracksTextIntoScrollback：选区安装后文本继续
+/// 滚动，同一绝对坐标的 selection_text 仍提取原文本（跟踪引用语义
+/// 经 install 链路保持）。
+#[test]
+fn selection_text_survives_scrolled_output() {
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    t.vt_write(b"alpha\n");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row0 = snap.scrollback_length;
+    t.set_selection((row0, 0), (row0, 4), false);
+    t.flush();
+    assert_eq!(t.selection_text((row0, 0), (row0, 4), false), "alpha");
+    for index in 0..8 {
+        t.vt_write(format!("filler{index}\n").as_bytes());
+    }
+    t.flush();
+    assert_eq!(
+        t.selection_text((row0, 0), (row0, 4), false),
+        "alpha",
+        "tracked selection must follow text into scrollback"
+    );
+}
+
+/// 对标上游 pasteEncodingHonorsBracketedMode：粘贴编码走
+/// libghostty_vt::paste Native：非括号模式换行转回车，括号模式
+/// 包裹 \x1b[200~/201~。
+#[test]
+fn paste_encoding_plain_and_bracketed() {
+    let plain = encode_paste_text("ab\ncd", false);
+    assert_eq!(plain, b"ab\rcd");
+    let bracketed = encode_paste_text("ab", true);
+    assert_eq!(bracketed, b"\x1b[200~ab\x1b[201~");
+}
+
+/// 粘贴编码辅助：经上游 Native，两模式语义与参考一致。
+fn encode_paste_text(text: &str, bracketed: bool) -> Vec<u8> {
+    let mut data = text.as_bytes().to_vec();
+    let mut output = vec![0u8; data.len() + 16];
+    let written =
+        libghostty_vt::paste::encode(&mut data, bracketed, &mut output).expect("paste encode");
+    output.truncate(written);
+    output
+}
+
+/// 对标上游 searchFindsMatchAcrossScrollbackAndReveals：首行滚入历史
+/// 后 search_in_scrollback 仍命中首行（揭示语义由 Kotlin 滚动承载，
+/// 此处断言命中坐标）。
+#[test]
+fn search_in_scrollback_reveals_history_match() {
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    t.vt_write(b"needle\n");
+    for index in 0..10 {
+        t.vt_write(format!("filler{index}\n").as_bytes());
+    }
+    t.flush();
+    let hit = t.search_in_scrollback("needle").expect("history hit");
+    assert_eq!(hit.1, 0, "needle starts at col 0");
+    let line = t.read_line_text(hit.0).expect("hit line");
+    assert_eq!(line, "needle");
+}
+
+/// 对标上游 searchStepWraps：本仓 search_all 返回旧→新稳定顺序，
+/// Kotlin SearchResult.nextIndex/previousIndex 承载回绕（已有单测）；
+/// 此处锁定顺序契约：首个为最旧、末个为最新。
+#[test]
+fn search_all_order_oldest_first_newest_last() {
+    let mut t = GhosttyTerminal::new(5, 20, 100).expect("terminal");
+    for _ in 0..3 {
+        t.vt_write(b"match\n");
+    }
+    t.flush();
+    let results = t.search_all_in_scrollback("match", true);
+    assert_eq!(results.len(), 3);
+    assert!(results[0].row < results[2].row, "oldest first, newest last");
+}
+
+/// 对标上游 searchNoMatchesClearsSelection：无命中返回空（清除语义
+/// 由 Kotlin 搜索状态机承载，此处锁定空结果契约）。
+#[test]
+fn search_all_no_matches_returns_empty() {
+    let mut t = terminal();
+    t.vt_write(b"hello world");
+    t.flush();
+    assert!(t.search_all_in_scrollback("zzz", false).is_empty());
+    assert!(t.search_in_scrollback("zzz").is_none());
+}
+
 /// 安装选区后 VT 线程把行级选区反白烘焙进 CellData（前景背景互换），
 /// 清除后恢复。该测试断言本仓的安装—烘焙链路，不复述上游选区语义。
 #[test]
@@ -1691,6 +1955,60 @@ fn kitty_placements_collects_visible_display() {
     assert_eq!(placement.image_rgba, vec![255, 0, 0, 255]);
 }
 
+/// Kitty 载荷杂散 NUL 不得丢图（对标上游 kittyStrayNulInPayloadStillStores：
+/// mpv --vo=kitty 在末块追加 NUL，ECMA-48 忽略控制字符，不得污染 base64）。
+#[test]
+fn kitty_graphics_stray_nul_still_stores() {
+    let mut terminal = terminal();
+    terminal.pty_write(b"\x1b_Ga=T,f=24,s=1,v=1,i=8;/wAA\x00\x1b\\");
+    terminal.flush();
+    let image = terminal
+        .take_kitty_graphics_image(8)
+        .expect("杂散 NUL 不得丢弃整图");
+    assert_eq!((image.width, image.height), (1, 1));
+    assert_eq!(image.data, vec![255, 0, 0, 255]);
+}
+
+/// 无图像时 Kitty 查询必须为空（对标 kittyGraphicsAbsentWhenNoImages：
+/// 未传输返回空放置，未知 id 取图返回 None）。
+#[test]
+fn kitty_graphics_absent_when_no_images() {
+    let terminal = terminal();
+    assert!(
+        terminal.take_kitty_placements().is_empty(),
+        "no images must yield no placements"
+    );
+    assert_eq!(
+        terminal
+            .take_kitty_graphics_image(123)
+            .map(|image| image.width),
+        None,
+        "unknown image id must yield None"
+    );
+}
+
+/// DECCKM 应用光标键模式必须改变方向键编码（对标
+/// arrowKeyEncodingHonorsCursorKeyMode：普通模式 ESC[A，应用模式 ESC OA）。
+#[test]
+fn arrow_key_encoding_honors_cursor_key_mode() {
+    let normal = terminal();
+    normal.flush();
+    let plain = normal
+        .key_encode(19, 0, 0, 0, 0)
+        .expect("arrow up must encode");
+    assert_eq!(plain, b"\x1b[A", "normal mode arrow up (got {plain:?})");
+    let mut applied = terminal();
+    applied.vt_write(b"\x1b[?1h");
+    applied.flush();
+    let application = applied
+        .key_encode(19, 0, 0, 0, 0)
+        .expect("arrow up must encode");
+    assert_eq!(
+        application, b"\x1bOA",
+        "application mode arrow up (got {application:?})"
+    );
+}
+
 // ── : cursor/row coordinate consistency (D1 deterministic leg) ──
 
 /// The shell-echo path (prompt text + typed chars, no newline) must report a
@@ -1826,9 +2144,15 @@ fn sgr31_red_reaches_cell_data_foreground() {
         [0xA4, 0xFF, 0xFF],
         [0xF8, 0xF8, 0xF2],
     ];
-    let mut dracula =
-        GhosttyTerminal::new_with_theme(24, 80, 1000, [0x21, 0x21, 0x21], [0xF8, 0xF8, 0xF2], dracula_ansi)
-            .expect("dracula terminal");
+    let mut dracula = GhosttyTerminal::new_with_theme(
+        24,
+        80,
+        1000,
+        [0x21, 0x21, 0x21],
+        [0xF8, 0xF8, 0xF2],
+        dracula_ansi,
+    )
+    .expect("dracula terminal");
     dracula.vt_write(b"\x1b[31mRED\x1b[0m");
     dracula.flush();
     let (cells, _) = dracula.receive_cell_data().expect("cell data");
@@ -1851,9 +2175,8 @@ fn sgr31_red_reaches_cell_data_foreground() {
 #[test]
 fn sgr31_mocha_default_theme_reaches_foreground() {
     let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
-    let mut mocha =
-        GhosttyTerminal::new_with_theme(44, 48, 1000, background, foreground, ansi)
-            .expect("mocha terminal");
+    let mut mocha = GhosttyTerminal::new_with_theme(44, 48, 1000, background, foreground, ansi)
+        .expect("mocha terminal");
     mocha.vt_write(b"\x1b[31mRED\x1b[0m");
     mocha.flush();
     let (cells, _) = mocha.receive_cell_data().expect("cell data");
@@ -1876,9 +2199,8 @@ fn sgr31_mocha_default_theme_reaches_foreground() {
 #[test]
 fn sgr_same_text_tricolor_rows_all_present() {
     let (ansi, background, foreground) = GhosttyTerminal::catppuccin_mocha_palette();
-    let mut terminal =
-        GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
-            .expect("mocha terminal");
+    let mut terminal = GhosttyTerminal::new_with_theme(24, 80, 1000, background, foreground, ansi)
+        .expect("mocha terminal");
     for code in [34u8, 31, 32] {
         terminal.vt_write(format!("\x1b[{code}mEEEEEEEE\x1b[0m\r\n").as_bytes());
     }
@@ -2013,9 +2335,109 @@ fn sgr_style_attributes_reach_snapshot_and_cell_data() {
             4 => snap_cell.underline,
             _ => snap_cell.strikethrough,
         };
+        assert!(snapshot_set, "SGR{code} must set snapshot style attribute");
+    }
+}
+
+/// SGR 5 闪烁必须到达渲染层且不污染下划线位（对标上游
+/// sgrBlinkAndUnderlineStyleAreDisjoint：两字段曾共用一位，下划线 cell
+/// 闪烁、闪烁 cell 画下划线）。
+#[test]
+fn blink_reaches_cell_data_without_underline_pollution() {
+    use crate::terminal::ghostty_terminal::cell_flags;
+    // 下划线不闪。
+    let mut underlined = terminal();
+    underlined.vt_write(b"\x1b[4mA");
+    underlined.flush();
+    let (underlined_cells, _) = underlined.receive_cell_data().expect("cell data");
+    let underlined_cell = underlined_cells
+        .iter()
+        .find(|c| c.codepoint == 'A' as u32)
+        .expect("A present");
+    assert_eq!((underlined_cell.flags >> cell_flags::UNDERLINE) & 1, 1);
+    assert_eq!(
+        (underlined_cell.flags >> cell_flags::BLINK) & 1,
+        0,
+        "underline must not set blink"
+    );
+    // 闪烁不带下划线。
+    let mut blinking = terminal();
+    blinking.vt_write(b"\x1b[5mB");
+    blinking.flush();
+    let (blinking_cells, _) = blinking.receive_cell_data().expect("cell data");
+    let blinking_cell = blinking_cells
+        .iter()
+        .find(|c| c.codepoint == 'B' as u32)
+        .expect("B present");
+    assert_eq!((blinking_cell.flags >> cell_flags::BLINK) & 1, 1);
+    assert_eq!(
+        (blinking_cell.flags >> cell_flags::UNDERLINE) & 1,
+        0,
+        "blink must not set underline"
+    );
+    let snapshot = blinking.take_snapshot();
+    let snap_cell = snapshot
+        .cells
+        .iter()
+        .find(|c| c.codepoint == 'B' as u32)
+        .expect("snapshot B present");
+    assert!(snap_cell.blink, "SGR 5 must set snapshot blink");
+    // 两者叠加各自完整。
+    let mut both = terminal();
+    both.vt_write(b"\x1b[4;5mC");
+    both.flush();
+    let (both_cells, _) = both.receive_cell_data().expect("cell data");
+    let both_cell = both_cells
+        .iter()
+        .find(|c| c.codepoint == 'C' as u32)
+        .expect("C present");
+    assert_eq!((both_cell.flags >> cell_flags::BLINK) & 1, 1);
+    assert_eq!((both_cell.flags >> cell_flags::UNDERLINE) & 1, 1);
+}
+
+/// SGR 4:x 下划线形状必须到达渲染层（对标 sgrUnderlineStyles：单/双/卷/点/虚
+/// 均置下划线位，仅双线另置双下划线位）。
+#[test]
+fn underline_styles_reach_cell_data_and_snapshot() {
+    use crate::terminal::ghostty_terminal::cell_flags;
+    for (sequence, marker, double) in [
+        ("4:1", b'A', false),
+        ("4:2", b'B', true),
+        ("4:3", b'C', false),
+        ("4:4", b'D', false),
+        ("4:5", b'E', false),
+    ] {
+        let mut styled = terminal();
+        styled.vt_write(format!("\x1b[{sequence}m{}", marker as char).as_bytes());
+        styled.flush();
+        let (cells, _) = styled.receive_cell_data().expect("cell data");
+        let marked = cells
+            .iter()
+            .find(|c| c.codepoint == marker as u32)
+            .expect("marked cell present");
+        assert_eq!(
+            (marked.flags >> cell_flags::UNDERLINE) & 1,
+            1,
+            "SGR {sequence} must set UNDERLINE bit"
+        );
+        assert_eq!(
+            (marked.flags >> cell_flags::DOUBLE_UNDERLINE) & 1,
+            u32::from(double),
+            "SGR {sequence} double bit must be {double}"
+        );
+        let snapshot = styled.take_snapshot();
+        let snap_cell = snapshot
+            .cells
+            .iter()
+            .find(|c| c.codepoint == marker as u32)
+            .expect("marked snapshot cell present");
         assert!(
-            snapshot_set,
-            "SGR{code} must set snapshot style attribute"
+            snap_cell.underline,
+            "SGR {sequence} must set snapshot underline"
+        );
+        assert_eq!(
+            snap_cell.double_underline, double,
+            "SGR {sequence} snapshot double must be {double}"
         );
     }
 }
@@ -2031,11 +2453,56 @@ fn selection_text_flipped_endpoints() {
     let snap = t.take_snapshot();
     let row0 = snap.scrollback_length;
     let forward = t.selection_text((row0, 0), (row0, 4), false);
-    assert_eq!(forward, "hello", "forward selection baseline (got {forward:?})");
+    assert_eq!(
+        forward, "hello",
+        "forward selection baseline (got {forward:?})"
+    );
     let flipped = t.selection_text((row0, 4), (row0, 0), false);
     assert_eq!(
         flipped, "hello",
         "flipped endpoints must yield the same range (got {flipped:?})"
+    );
+}
+
+/// 拖动手柄只移动被抓端点：锚点固定，另一端点跟随落点
+///（对标 selectionDragMovesGrabbedEndpoint：先拖尾端点 0→8，再拖首端点 0→6）。
+#[test]
+fn selection_text_grabbed_endpoint_moves() {
+    let mut t = terminal();
+    t.vt_write(b"hello world");
+    t.flush();
+    let snap = t.take_snapshot();
+    let row = snap.scrollback_length;
+    let extended = t.selection_text((row, 0), (row, 8), false);
+    assert_eq!(
+        extended, "hello wor",
+        "drag end handle must extend (got {extended:?})"
+    );
+    let shrunk = t.selection_text((row, 6), (row, 8), false);
+    assert_eq!(
+        shrunk, "wor",
+        "drag start handle must shrink (got {shrunk:?})"
+    );
+}
+
+/// 选中文本滚入回滚后同端点仍取回原文：端点为绝对行号，不随视口漂移
+///（对标 selectionTracksTextIntoScrollback）。
+#[test]
+fn selection_text_tracks_scrolled_content() {
+    let mut t = GhosttyTerminal::new(4, 20, 100).expect("terminal");
+    t.vt_write(b"alpha\n");
+    t.flush();
+    let first = t.selection_text((0, 0), (0, 4), false);
+    assert_eq!(first, "alpha", "baseline selection (got {first:?})");
+    for filler in 0..8 {
+        t.vt_write(format!("filler{filler}\n").as_bytes());
+    }
+    t.flush();
+    assert!(t.scrollback_length() > 0, "content must have scrolled");
+    let tracked = t.selection_text((0, 0), (0, 4), false);
+    assert_eq!(
+        tracked, "alpha",
+        "selection must track into scrollback (got {tracked:?})"
     );
 }
 
@@ -2075,4 +2542,116 @@ fn decscusr_cursor_style_reaches_snapshot() {
             "DECSCUSR {param} must yield {expected:?}"
         );
     }
+    // 程序覆盖后重置必须回到默认（对标 programCursorStyleOverridesDefaultUntilReset）。
+    let mut reset = terminal();
+    reset.vt_write(b"\x1b[5 q");
+    reset.flush();
+    assert_eq!(reset.take_snapshot().cursor_style, CursorStyle::Bar);
+    reset.vt_write(b"\x1b[0 q");
+    reset.flush();
+    assert_eq!(
+        reset.take_snapshot().cursor_style,
+        CursorStyle::Block,
+        "reset must restore default"
+    );
+}
+
+/// 回滚上限透传：建会参数必须约束回滚深度（设备 instrumented 测试的 host 复刻）。
+/// 上游按页粒度修剪（文档：实际值通常高于配置几十到一百行），故断言
+/// 上限生效（远小于无约束时的全部保留），而非精确等于配置值。
+#[test]
+fn scrollback_cap_is_honored() {
+    let mut terminal = GhosttyTerminal::new(24, 80, 10).expect("terminal");
+    for index in 0..2000 {
+        terminal.vt_write(format!("CAP_{index:04}\r\n").as_bytes());
+    }
+    terminal.flush();
+    let depth = terminal.scrollback_length();
+    assert!(
+        depth < 2000,
+        "回滚上限必须生效（2000 行输入不得全保留）, 实际={depth}",
+    );
+}
+
+/// 深缓冲不坍缩（对标 scrollbackHonorsConfiguredLineCount：上游 max_scrollback
+/// 是字节预算而非行数，预算过小会被忽略致历史坍缩；本地建会参数透传后，
+/// 2 万行配置喂 2.5 万行，历史必须达到万行量级而非几百行。页粒度修剪有
+/// 百行级波动，不断言精确值）。
+#[test]
+fn scrollback_deep_buffer_does_not_collapse() {
+    let mut terminal = GhosttyTerminal::new(24, 80, 20_000).expect("terminal");
+    // 与 scroll_viewport_delta_scrolls_cell_data 同口径：vt_write 直透 LF，
+    // 上游按 LF 语义换行推进 scrollback（\r\n 在该路径行为不同）。
+    // 命令通道有界（1024）：大批量写入必须分批 flush，否则 try_send
+    // 静默丢弃，scrollback 恒 0。
+    for chunk in (0..25_000)
+        .map(|index| format!("DEEP_{index:05}\n"))
+        .collect::<Vec<_>>()
+        .chunks(500)
+    {
+        for line in chunk {
+            terminal.vt_write(line.as_bytes());
+        }
+        terminal.flush();
+    }
+    let depth = terminal.scrollback_length();
+    assert!(
+        depth >= 19_000,
+        "深缓冲历史不得坍缩（2 万行配置至少保留万行量级）, 实际={depth}",
+    );
+}
+
+/// SGR 7 反白必须到达渲染层（对标 inverseIsResolvedNatively；本仓反白在
+/// cell_builder 做前景背景互换，VT 层只断言标志位到达）。
+#[test]
+fn inverse_reaches_cell_data_and_snapshot() {
+    use crate::terminal::ghostty_terminal::cell_flags;
+    let mut inverse = terminal();
+    inverse.vt_write(b"\x1b[7mX");
+    inverse.flush();
+    let (cells, _) = inverse.receive_cell_data().expect("cell data");
+    let marked = cells
+        .iter()
+        .find(|c| c.codepoint == 'X' as u32)
+        .expect("X cell present");
+    assert_eq!(
+        (marked.flags >> cell_flags::REVERSE) & 1,
+        1,
+        "SGR 7 must set CellData REVERSE bit"
+    );
+    let snapshot = inverse.take_snapshot();
+    let snap_cell = snapshot
+        .cells
+        .iter()
+        .find(|c| c.codepoint == 'X' as u32)
+        .expect("snapshot X present");
+    assert!(snap_cell.reverse, "SGR 7 must set snapshot reverse flag");
+}
+
+/// 组合重音必须以 grapheme 形式到达 VT 层（对标 graphemeClusterCombiningMark
+/// 的文本部分：基码点 e 在主格，U+0301 进 grapheme_extra/快照 graphemes）。
+#[test]
+fn combining_mark_reaches_grapheme_channel() {
+    let mut clustered = terminal();
+    clustered.vt_write("e\u{301}x".as_bytes());
+    clustered.flush();
+    let (cells, _) = clustered.receive_cell_data().expect("cell data");
+    let base = cells
+        .iter()
+        .find(|c| c.codepoint == 'e' as u32)
+        .expect("base e present");
+    assert_eq!(
+        base.grapheme_extra[0], 0x301,
+        "combining acute must ride grapheme_extra[0]"
+    );
+    let snapshot = clustered.take_snapshot();
+    let snap_cell = snapshot
+        .cells
+        .iter()
+        .find(|c| c.codepoint == 'e' as u32)
+        .expect("snapshot e present");
+    assert!(
+        snap_cell.graphemes.contains(&0x301),
+        "snapshot graphemes must contain U+0301"
+    );
 }
