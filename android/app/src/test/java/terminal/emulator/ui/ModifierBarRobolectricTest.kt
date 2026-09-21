@@ -161,4 +161,39 @@ class ModifierBarRobolectricTest {
         composeRule.waitForIdle()
         org.junit.Assert.assertEquals(listOf("\u001bOC"), sent)
     }
+
+    @Test
+    fun `configurable arrow sends CSI in normal cursor mode`() {
+        // 生产路径恒走可配置键栏：方向键须同样跟随光标模式，普通模式发 CSI。
+        val sent = mutableListOf<String>()
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onKeyClick = { sent.add(it) },
+                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.ARROW_UP)),
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_↑").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(listOf("\u001b[A"), sent)
+    }
+
+    @Test
+    fun `configurable arrow sends SS3 in application cursor mode`() {
+        // 应用光标模式（less/vim）下可配置键栏方向键须发 SS3，否则分页器无反应。
+        val sent = mutableListOf<String>()
+        composeRule.setContent {
+            MaterialTheme {
+                ModifierBar(
+                    onKeyClick = { sent.add(it) },
+                    toolbarLayout = persistentListOf(ToolbarItem.Default(ToolbarKey.ARROW_UP)),
+                    isAppCursorMode = { true },
+                )
+            }
+        }
+        composeRule.onNodeWithTag("Key_↑").performClick()
+        composeRule.waitForIdle()
+        org.junit.Assert.assertEquals(listOf("\u001bOA"), sent)
+    }
 }
