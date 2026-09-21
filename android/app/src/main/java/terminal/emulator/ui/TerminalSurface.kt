@@ -2862,6 +2862,15 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             MotionEvent.ACTION_UP,
             MotionEvent.ACTION_CANCEL,
             -> {
+                // 手势收尾（慢速拖放无 fling、无 tap 回调时唯一的 settle 点）：
+                // 不重置行偏移（保留滚动位置），只结束滚动态并归零余量，
+                // 否则残留半行偏移且新输出不再回底（飘移虚浮）。
+                if (isScrolling) {
+                    isScrolling = false
+                    scrollAccumulatorPx = 0f
+                    viewModel?.runtime?.setScrollRemainderPx(0f)
+                    onScrollingStateChanged?.invoke(false)
+                }
                 if (longPressDragging) {
                     longPressDragging = false
                     // Long-press drag also ends a selection gesture: arm the
