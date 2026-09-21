@@ -23,6 +23,7 @@
             android:exported="true"
             android:enableOnBackInvokedCallback="true"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode"
+            android:theme="@style/Theme.Terminal.Splash"
             android:windowSoftInputMode="adjustNothing">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -2,7 +2,6 @@ package terminal.emulator.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -184,56 +182,67 @@ private fun SessionDrawerActions(
     onSettings: () -> Unit,
     textColor: Color,
 ) {
-    Row(
+    Column(
         modifier =
         Modifier
             .fillMaxWidth()
-            // 窄屏（最小 240.dp）下四个带中文标签的按钮总宽可能溢出：
-            // 允许横向滚动兜底，宽屏时无变化，不截断标签。
-            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        DrawerActionButton(
-            icon = Icons.Default.Search,
-            label = stringResource(R.string.text_search),
-            onClick = {
-                onClose()
-                onSearch()
-            },
-            textColor = textColor,
-            testTag = "SearchButton",
-        )
-        DrawerActionButton(
-            icon = Icons.Default.Keyboard,
-            label = stringResource(R.string.toggle_keyboard),
-            onClick = {
-                onClose()
-                onKeyboardToggle()
-            },
-            textColor = textColor,
-            testTag = "KeyboardToggle",
-        )
-        DrawerActionButton(
-            icon = Icons.Default.Refresh,
-            label = stringResource(R.string.reset_terminal),
-            onClick = {
-                onClose()
-                onResetTerminal()
-            },
-            textColor = textColor,
-            testTag = "ResetTerminalButton",
-        )
-        DrawerActionButton(
-            icon = Icons.Default.Settings,
-            label = stringResource(R.string.settings_button),
-            onClick = {
-                onClose()
-                onSettings()
-            },
-            textColor = textColor,
-            testTag = "SettingsButton",
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            DrawerActionButton(
+                icon = Icons.Default.Search,
+                label = stringResource(R.string.text_search),
+                onClick = {
+                    onClose()
+                    onSearch()
+                },
+                textColor = textColor,
+                testTag = "SearchButton",
+                modifier = Modifier.weight(1f),
+            )
+            DrawerActionButton(
+                icon = Icons.Default.Keyboard,
+                label = stringResource(R.string.toggle_keyboard),
+                onClick = {
+                    onClose()
+                    onKeyboardToggle()
+                },
+                textColor = textColor,
+                testTag = "KeyboardToggle",
+                modifier = Modifier.weight(1f),
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            DrawerActionButton(
+                icon = Icons.Default.Refresh,
+                label = stringResource(R.string.reset_terminal),
+                onClick = {
+                    onClose()
+                    onResetTerminal()
+                },
+                textColor = textColor,
+                testTag = "ResetTerminalButton",
+                modifier = Modifier.weight(1f),
+            )
+            DrawerActionButton(
+                icon = Icons.Default.Settings,
+                label = stringResource(R.string.settings_button),
+                onClick = {
+                    onClose()
+                    onSettings()
+                },
+                textColor = textColor,
+                testTag = "SettingsButton",
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
 }
 
@@ -312,14 +321,15 @@ private fun DrawerActionButton(
     onClick: () -> Unit,
     textColor: Color,
     testTag: String,
+    modifier: Modifier = Modifier,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier =
-        Modifier
+        modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
+            .padding(horizontal = 4.dp, vertical = 8.dp)
             .testTag(testTag),
     ) {
         Icon(
@@ -333,6 +343,7 @@ private fun DrawerActionButton(
             text = label,
             color = textColor.copy(alpha = 0.7f),
             fontSize = 11.sp,
+            maxLines = 1,
         )
     }
 }

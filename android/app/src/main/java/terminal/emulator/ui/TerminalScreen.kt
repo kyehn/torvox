@@ -33,11 +33,15 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -523,52 +527,76 @@ fun TerminalScreen(
             }
 
             // IME 跟随：纯平移不重排（修复闪烁与底部行遮挡）。动画与定居均用 placement 阶段 offset，
-            // Surface 尺寸永不变化，不触发交换链重建与网格重排；定居态用 settled 值避免每帧重组。
+            // Surface 尺寸永不变化，不触发交换链重建与网格重排；定居态用 settled 值避免每帧抖动。
             // 终端区按光标最小平移（稀疏会话不再整体上抬播黑屏），修饰键栏仍整体跟随到键盘上方。
-            val density = LocalDensity.current
-            val rawImeBottomPx = WindowInsets.ime.getBottom(density)
-            var settledImePx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            var isImeSettled by remember { mutableStateOf(true) }
+            // 性能结构（T2 ime-omp）：insets 逐帧值只在 WindowImeBottomPx 叶节点读取并写入状态，
+            // 位移经 snapshotFlow 收集器 + 布局期 offset lambda 应用——动画期间主组合不逐帧重组。
+            val imeBottomPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            WindowImeBottomPx { imeBottomPx.intValue = it }
+            val settledImePx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
             var heldTerminalPanPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            // 修饰键栏位移：动画期间逐帧跟随 live 值（与键盘同步），定居后锁定 settled 值。
+            val barPanPx = remember { androidx.compose.runtime.mutableIntStateOf(0) }
             // 与网格同一预留（runtime.modifierBarHeightPx）：平移与行数严格一致，
             // 光标行恰好停在键栏上方，不多不少。
             val reservedBarPx = viewModel.runtime.modifierBarHeightPx
-            val imeOpen = rawImeBottomPx > 0 || settledImePx > 0
             // 仅键盘打开时订阅光标行：关闭时不为此重组。
             var followedCursorRow by remember {
                 androidx.compose.runtime.mutableIntStateOf(Bridge.CURSOR_ROW_UNKNOWN)
             }
-            LaunchedEffect(imeOpen) {
-                if (!imeOpen) {
-                    followedCursorRow = Bridge.CURSOR_ROW_UNKNOWN
-                    return@LaunchedEffect
-                }
-                viewModel.runtime.cursorRowFlow.collect { followedCursorRow = it }
+            LaunchedEffect(Unit) {
+                snapshotFlow { imeBottomPx.intValue > 0 || settledImePx.intValue > 0 }
+                    .distinctUntilChanged()
+                    .collectLatest { imeOpen ->
+                        if (!imeOpen) {
+                            followedCursorRow = Bridge.CURSOR_ROW_UNKNOWN
+                            return@collectLatest
+                        }
+                        viewModel.runtime.cursorRowFlow.collect { followedCursorRow = it }
+                    }
             }
-            LaunchedEffect(rawImeBottomPx) {
-                if (rawImeBottomPx == settledImePx) {
-                    isImeSettled = true
-                    return@LaunchedEffect
-                }
-                isImeSettled = false
-                delay(IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES)
-                settledImePx = rawImeBottomPx
-                isImeSettled = true
-                surfaceRef.value?.onImeSettled(rawImeBottomPx)
+            // 定居节流：键盘动画逐帧更新 imeBottomPx；值停止变化 IME_SETTLE_FRAMES×轮询间隔后
+            // 锁定 settled 值（等价于旧 LaunchedEffect(rawImeBottomPx) 的取消/重启语义）。
+            // 修饰键栏 live 跟随必须先行：每帧立即写入 barPanPx，不被定居延迟阻塞，
+            // 否则动画期间键栏冻结、定居后跳变（违反逐帧跟随）。
+            LaunchedEffect(Unit) {
+                snapshotFlow { imeBottomPx.intValue }
+                    .distinctUntilChanged()
+                    .collectLatest { imeBottom ->
+                        // 每个 insets 帧都跟随（弹出/隐藏动画期间为 live 值，
+                        // 值稳定后与 settled 一致）：修饰键栏与键盘同步移动。
+                        barPanPx.intValue = imeBottom
+                        if (imeBottom != settledImePx.intValue) {
+                            delay(IME_POLL_INTERVAL_MS * IME_SETTLE_FRAMES)
+                            settledImePx.intValue = imeBottom
+                            surfaceRef.value?.onImeSettled(imeBottom)
+                        }
+                    }
             }
-            val settledBarPx = (if (isImeSettled) settledImePx else rawImeBottomPx).coerceAtLeast(0)
             // 光标最小平移：只把被键盘挡住的光标行抬到可见区；光标隐藏
-            // （上滑浏览历史）时保持上次位置，不抢夺视图。
-            LaunchedEffect(followedCursorRow, settledBarPx, terminalBoxSize, reservedBarPx) {
-                val cellHeightPx = viewModel.runtime.cellHeight
-                computeTerminalPanPx(
-                    cursorRow = followedCursorRow,
-                    cellHeightPx = cellHeightPx,
-                    boxHeightPx = terminalBoxSize.height,
-                    imePx = settledBarPx,
-                    barPx = reservedBarPx,
-                )?.let { heldTerminalPanPx = it }
-                if (settledBarPx <= 0) heldTerminalPanPx = 0
+            // （上滑浏览历史）时保持上次位置，不抢夺视图。动画期间 barPanPx=live 值，
+            // 定居后=settled 值——位移只重排布局，不重组合成。
+            LaunchedEffect(Unit) {
+                snapshotFlow {
+                    listOf(
+                        followedCursorRow,
+                        barPanPx.intValue,
+                        terminalBoxSize.height,
+                        reservedBarPx,
+                    )
+                }
+                    .distinctUntilChanged()
+                    .collect { (cursorRow, barPx, boxHeightPx, barReservedPx) ->
+                        val cellHeightPx = viewModel.runtime.cellHeight
+                        computeTerminalPanPx(
+                            cursorRow = cursorRow,
+                            cellHeightPx = cellHeightPx,
+                            boxHeightPx = boxHeightPx,
+                            imePx = barPx,
+                            barPx = barReservedPx,
+                        )?.let { heldTerminalPanPx = it }
+                        if (barPx <= 0) heldTerminalPanPx = 0
+                    }
             }
 
             // v5: 全程 placement 阶段 offset（无重测）。终端区用光标最小平移，
@@ -644,7 +672,8 @@ fun TerminalScreen(
                                         viewModel.setFontSize(sizeSp.coerceIn(FONT_SIZE_MIN, FONT_SIZE_MAX))
                                     }
                                     onZoomPreview = { sizeSp ->
-                                        // 手势预览走安全路径:同步字形度量并重算网格,避免触摸格点与渲染格点不一致的撕裂。
+                                        // 手势预览只推字形度量不重算网格，网格只在
+                                        // finalize 重算一次，避免手势期间中间态撕裂。
                                         viewModel.runtime.setFontSizePreview(sizeSp)
                                     }
                                     post {
@@ -856,7 +885,7 @@ fun TerminalScreen(
                 Modifier.fillMaxWidth()
                     .align(Alignment.BottomCenter)
                     .background(resolvedTerminalTheme.background)
-                    .offset { IntOffset(0, -settledBarPx) }
+                    .offset { IntOffset(0, -barPanPx.intValue) }
                     .testTag("ModifierBarOverlay"),
             ) {
                 // Bottom bar — below terminal, above IME
@@ -881,11 +910,10 @@ fun TerminalScreen(
                         onPrevious = {
                             if (searchState.hasResults) {
                                 val newIndex =
-                                    if (searchState.currentIndex > 0) {
-                                        searchState.currentIndex - 1
-                                    } else {
-                                        searchState.resultCount - 1
-                                    }
+                                    SearchResult.previousIndex(
+                                        searchState.currentIndex,
+                                        searchState.resultCount,
+                                    )
                                 val match = searchState.results[newIndex]
                                 scrollToMatchIfNeeded(match)
                                 Log.d("TerminalScreen", "Search prev: match row=${match.lineIndex}")
@@ -895,11 +923,7 @@ fun TerminalScreen(
                         onNext = {
                             if (searchState.hasResults) {
                                 val newIndex =
-                                    if (searchState.currentIndex < searchState.resultCount - 1) {
-                                        searchState.currentIndex + 1
-                                    } else {
-                                        0
-                                    }
+                                    SearchResult.nextIndex(searchState.currentIndex, searchState.resultCount)
                                 val match = searchState.results[newIndex]
                                 scrollToMatchIfNeeded(match)
                                 Log.d("TerminalScreen", "Search next: match row=${match.lineIndex}")
@@ -1034,6 +1058,18 @@ fun TerminalScreen(
             // content on narrow screens.
         }
     }
+}
+
+/**
+ * IME insets 叶节点观察器（T2 ime-omp）：键盘动画期间 insets 逐帧变化只重组本节点——
+ * 读取发生在 composition，写入 [onChanged] 的状态后，终端区/修饰键栏位移经布局期
+ * offset lambda 应用，主组合（Column/ModifierBar/搜索层）不随之逐帧重组。
+ */
+@Composable
+private fun WindowImeBottomPx(onChanged: (Int) -> Unit) {
+    val density = LocalDensity.current
+    val imeBottom = WindowInsets.ime.getBottom(density)
+    SideEffect { onChanged(imeBottom) }
 }
 
 @VisibleForTesting
