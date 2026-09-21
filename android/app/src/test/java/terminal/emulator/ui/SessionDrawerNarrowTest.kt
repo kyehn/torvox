@@ -8,7 +8,6 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -20,8 +19,8 @@ import org.robolectric.annotation.GraphicsMode
 import terminal.emulator.SessionInfo
 
 /**
- * 抽屉窄屏不断言：最小 240.dp 宽度下四个操作按钮必须存在且可滚达，
- * 不溢出崩溃、不截断标签（横向滚动兜底）。
+ * 抽屉窄屏不断言：最小 240.dp 宽度下四个操作按钮必须直接可见
+ * （两行两列网格，无需横向滚动），不溢出崩溃、不截断标签。
  */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -64,9 +63,9 @@ class SessionDrawerNarrowTest {
     }
 
     @Test
-    fun narrow_drawer_last_button_scrollable_into_view() {
+    fun narrow_drawer_last_button_visible_without_scrolling() {
         setDrawer()
-        composeRule.onNodeWithTag("SettingsButton").performScrollTo()
+        // 两行两列网格：设置按钮必须直接可见，无需滚动。
         composeRule.onNodeWithTag("SettingsButton").assertIsDisplayed()
     }
 

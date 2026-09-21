@@ -595,4 +595,26 @@ class TerminalInputEncoderTest {
         assertArrayEquals(bytes(0x1B), enc("[", ctrl = true))
         assertArrayEquals(bytes(0x00), enc("2", ctrl = true))
     }
+
+    @Test
+    fun `cjk commit is utf8 passthrough`() {
+        // 拼音候选上屏：单汉字与多汉字词组均按 UTF-8 直通，不得折叠。
+        assertArrayEquals("中".toByteArray(Charsets.UTF_8), enc("中"))
+        assertArrayEquals("中文测试".toByteArray(Charsets.UTF_8), enc("中文测试"))
+    }
+
+    @Test
+    fun `cjk commit with ctrl held is not folded`() {
+        // 粘滞 Ctrl 点亮时提交中文：CJK 码点无 Ctrl 映射，必须直通 UTF-8，
+        // 不得丢弃或折叠为控制字节。
+        assertArrayEquals("中".toByteArray(Charsets.UTF_8), enc("中", ctrl = true))
+        assertArrayEquals("中文".toByteArray(Charsets.UTF_8), enc("中文", ctrl = true))
+    }
+
+    @Test
+    fun `cjk commit with alt prefixes esc per code point`() {
+        // Alt+中文：每码点前加 ESC（与西文 alt 路径一致的码点语义）。
+        val expected = bytes(0x1B) + "中".toByteArray(Charsets.UTF_8)
+        assertArrayEquals(expected, enc("中", alt = true))
+    }
 }
