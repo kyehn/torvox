@@ -16,7 +16,8 @@ import org.junit.runner.RunWith
  *
  *  1. ModifierBar key press feedback (spring scale 0.90 + 100ms tween
  *     background in ModifierBar.kt).
- *  2. IME show animation (imePadding pushes the terminal layout).
+ *  2. IME show animation (Compose offset pan: bar follows keyboard, grid
+ *     untouched — replaced the old imePadding reflow path).
  *  3. IME hide animation (back press).
  *
  * Each benchmark drives the real animation inside measureBlock so

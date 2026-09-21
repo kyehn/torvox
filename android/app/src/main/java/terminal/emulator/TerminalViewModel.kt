@@ -302,7 +302,11 @@ constructor(
             if (!current.active || !current.pasteOnly) {
                 state
             } else {
-                state.copy(selection = current.copy(touchClass = TouchClass.Text))
+                // dragging=true 与升级同批次：Compose 侧 showSelectionHandles
+                // 在 dragging 下跳过重建——否则升级引发的重组会重建 overlay
+                // 弹窗，杀死正进行的手势流（柄刚抓住就松手，拖拽永不生长）。
+                // endSelection（松手）负责清回 false，生命周期闭环。
+                state.copy(selection = current.copy(touchClass = TouchClass.Text, dragging = true))
             }
         }
     }
