@@ -42,7 +42,6 @@ import terminal.emulator.runtime.LogUtil
 import terminal.emulator.util.isWideCodePoint
 import terminal.emulator.util.runCatchingCancellable
 import java.io.File
-import kotlin.math.floor
 import kotlin.math.roundToInt
 
 class TerminalSurface
@@ -538,6 +537,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
         }
 
+        /**
+         * 尺寸在 Surface 生效前到达时的暂存值。`onSizeChanged` 先于
+         * `surfaceCreated`/`surfaceChanged` 触发（布局阶段 SurfaceHolder 尚无有效 Surface），
+         * [applyResizeNormal] 在该分支直接返回、尺寸被永久丢弃：网格停在上次 spawn 的默认
+         * 24×80，屏幕下半部空白，直到下一次外部尺寸事件（旋转）才恢复。
+         */
+        private var pendingRetryWidth: Int = 0
+        private var pendingRetryHeight: Int = 0
+
+        /** Surface 生效后重放被丢弃的尺寸；无暂存值或尺寸未变时为空操作。 */
+        internal fun applyPendingSurfaceResize() {
+            val width = pendingRetryWidth
+            val height = pendingRetryHeight
+            if (width <= 0 || height <= 0) return
+            pendingRetryWidth = 0
+            pendingRetryHeight = 0
+            applySurfaceResizeNow(width, height)
+        }
+
         internal fun applySurfaceResizeNow(width: Int, height: Int) {
             if (width <= 0 || height <= 0) return
             // A deferred fire after a size oscillation may land back on the
@@ -561,6 +579,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             val surface = holder.surface
             if (!surface.isValid) {
                 Log.w(TAG, "applySurfaceResize: surface not valid yet, deferring")
+                pendingRetryWidth = width
+                pendingRetryHeight = height
                 return
             }
             terminalViewModel.currentSurface = surface
@@ -1442,11 +1462,21 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         postOnAnimation(flingStepRunnable)
     }
 
-    /** Stop any in-flight fling animation (touch down, programmatic scroll). */
+    /** Stop any in-flight fling animation (touch down, programmatic scroll).
+     *  When the fling is still in progress (not yet naturally ended), this also
+     *  performs the settle semantics — clears sub-pixel remainder and fires
+     *  onScrollingStateChanged(false) — so render-loop's shouldResetScroll is
+     *  not blocked by a stale scroll-active flag after the interrupt. */
     private fun stopFlingAnimation() {
         if (!flingScroller.isFinished) {
             flingScroller.forceFinished(true)
             removeCallbacks(flingStepRunnable)
+            // 惯性中断收尾：与 finishFlingAnimation 同语义，
+            // 否则 scrollActive 残留阻塞 render-loop 自动回底。
+            scrollAccumulatorPx = 0f
+            viewModel?.runtime?.setScrollRemainderPx(0f)
+            isScrolling = false
+            onScrollingStateChanged?.invoke(false)
         }
     }
 
@@ -1832,8 +1862,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // termux TerminalView:onScroll deltaRows = distanceY / lineSpacing +
                 // doScroll rowsDown>0 → mTopRow+1 newer, rowsDown<0 → mTopRow-1 older.
                 // 即 distanceY 为负(下移)时 deltaRows 为负,对应 older,与本实现 scrollOffset 增加一致。
-                // Use floor() for symmetric slow thresholds: trunc 0.9→0 but -0.9→0 would stall
-                // negative drags; floor -0.9→-1 keeps both directions equally responsive.
+                // 截断趋向零（toInt）：正/负亚行阈值对称，消除 floor 非对称导致的漂移。
                 // 注意符号:distanceY = previousY - currentY,下移为负,需取反累加才能使下移增加偏移。
                 val scrollStep =
                     applyScrollDistance(scrollAccumulatorPx, distanceY, cellHeight, scrollOffset, scrollbackLen)
@@ -3022,10 +3051,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     rows = runtimeState.rows
                     cols = runtimeState.cols
                 }
+                // attachSurface 之后 pendingSurface 尺寸才权威：必须在此重算网格，
+                // 否则冷启动（会话由 ensureDefaultSession 先建）与后台返回时网格
+                // 停在上次 spawn 的默认 24×80，屏幕下半部空白。
+                resizeManager.applyGridResize(width, height)
                 lastConfiguredWidth = width
                 lastConfiguredHeight = height
             }
         }
+        // 重放 Surface 生效前被丢弃的尺寸：否则冷启动网格停在上次 spawn 的默认 24×80
+        // （下半屏空白），直到旋转等外部事件才恢复。
+        resizeManager.applyPendingSurfaceResize()
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -3282,6 +3318,10 @@ internal data class ScrollStep(val newOffset: Int, val newAccumulatorPx: Float)
  * 手指滚动增量换算（onScroll 可测核心，同向逻辑）。
  * distanceY 为手势约定（previousY - currentY）：下移为负，进入更早历史（偏移增加）；
  * 上移为正，回到更新内容（偏移减少）。亚行余量累积，整行才移动；边缘钳制并清余量。
+ *
+ * 取整使用截断趋向零（toInt），正/负余量的亚行阈值对称：
+ * floor 在负方向过激（-0.9px → -1 行而 +0.9px → 0 行），
+ * 导致连续拖动累加 1 行级漂移；toInt 两端均需超过 1 行才触发行变。
  */
 internal fun applyScrollDistance(
     accumulatorPx: Float,
@@ -3292,7 +3332,8 @@ internal fun applyScrollDistance(
 ): ScrollStep {
     var accumulator = accumulatorPx - distanceY
     val cellHeight = cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)
-    val rawAmount = floor((accumulator / cellHeight).toDouble()).toInt()
+    // 截断趋向零：正/负亚行余量对称，消除 floor 非对称导致的 1 行级漂移
+    val rawAmount = (accumulator / cellHeight).toInt()
     if (rawAmount == 0) {
         return ScrollStep(scrollOffset, accumulator)
     }

@@ -100,4 +100,40 @@ class ScrollDistanceTest {
         val flingUp = flingRowsPerSecond(-600f, CELL_HEIGHT)
         assert(dragUp.newOffset < MIDDLE_OFFSET && flingUp < 0)
     }
+
+    // ── R3: 截断趋向零对称性 ─────────────────────────────────────────────
+
+    @Test
+    fun `sub cell movement is symmetric across zero`() {
+        // floor 非对称修复：+0.9px 和 -0.9px 均不触发行变（截断趋向零）。
+        val up = applyScrollDistance(0f, 0.9f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        val down = applyScrollDistance(0f, -0.9f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        assertEquals(MIDDLE_OFFSET, up.newOffset)
+        assertEquals(MIDDLE_OFFSET, down.newOffset)
+    }
+
+    @Test
+    fun `round trip of equal magnitude drag cancels out`() {
+        // 往返等量拖动（1.5 行上 + 1.5 行下）应回到原位。
+        val upStep = applyScrollDistance(0f, 1.5f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        assertEquals(MIDDLE_OFFSET - 1, upStep.newOffset)
+        val downStep = applyScrollDistance(upStep.newAccumulatorPx, -1.5f * CELL_HEIGHT, CELL_HEIGHT, upStep.newOffset, SCROLLBACK_LENGTH)
+        assertEquals(MIDDLE_OFFSET, downStep.newOffset)
+    }
+
+    @Test
+    fun `slightly over one cell triggers row change in both directions`() {
+        // 超过 1 行余量时双向均触发行变。
+        val up = applyScrollDistance(0f, 1.1f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        val down = applyScrollDistance(0f, -1.1f * CELL_HEIGHT, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        assertEquals(MIDDLE_OFFSET - 1, up.newOffset)
+        assertEquals(MIDDLE_OFFSET + 1, down.newOffset)
+    }
+
+    @Test
+    fun `zero distance does not change offset`() {
+        val step = applyScrollDistance(0f, 0f, CELL_HEIGHT, MIDDLE_OFFSET, SCROLLBACK_LENGTH)
+        assertEquals(MIDDLE_OFFSET, step.newOffset)
+        assertEquals(0f, step.newAccumulatorPx)
+    }
 }
