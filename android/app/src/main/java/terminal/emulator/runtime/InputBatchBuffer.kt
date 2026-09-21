@@ -38,11 +38,12 @@ class InputBatchBuffer(
         }
 
     fun write(data: ByteArray) {
-        // 小提交直发：单个字符量级（含 4 字节 emoji/CJK 扩展）的 IME 增量
-        // 跳过帧同步，延迟与退格直连路径对齐；中文输入事件数是英文
-        // 数倍，帧等待按次累加即体感退格慢。大批量仍走批缓冲合并写。
-        // 保序：先排空驻留字节再直发，避免后写先到。
-        if (data.size <= DIRECT_WRITE_MAX_BYTES) {
+        // 组合提交直发：单次 IME 组合提交量级（UTF-8 多码点短语，含 3 字节/码点
+        // 汉字与 4 字节 emoji）的 write 跳过帧同步，延迟与退格直连路径对齐；
+        // 中文一次 commitText 常含多个码点，编码后超单码点上限即被帧调度钳制，
+        // 帧等待按次累加即体感退格慢。仅超过组合提交量级的（粘贴、大批量、
+        // 编程性写入）仍走批缓冲合并写。保序：先排空驻留字节再直发，避免后写先到。
+        if (data.size <= COMPOSITION_COMMIT_MAX_BYTES) {
             val pending = synchronized(lock) { drainLocked() }
             if (pending.isNotEmpty()) send(pending)
             if (data.isNotEmpty()) send(data)
@@ -153,8 +154,9 @@ class InputBatchBuffer(
         private const val BATCH_CAPACITY = 8192
         private const val FALLBACK_FLUSH_TIMEOUT_MS = 50L
 
-        /** 单字符直发上限：UTF-8 单码点最多 4 字节，取 2 倍余量覆盖带修饰提交。 */
-        private const val DIRECT_WRITE_MAX_BYTES = 8
+        /** 组合提交直发上限：UTF-8 汉字 3 字节/码点，64B 覆盖整句级 commitText
+         *  （约 21 汉字）；粘贴/大批量/编程性写入通常数百字节以上，仍走批缓冲。 */
+        private const val COMPOSITION_COMMIT_MAX_BYTES = 64
 
         /** Factory for test usage — avoids Choreographer dependency. */
         fun forTest(flushSink: (ByteArray) -> Unit, capacity: Int = BATCH_CAPACITY): InputBatchBuffer =
