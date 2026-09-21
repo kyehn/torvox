@@ -334,6 +334,7 @@ fun ModifierBar(
             onLockAlt = onLockAlt,
             composeActive = composeActive,
             onToggleCompose = ::toggleCompose,
+            isAppCursorMode = isAppCursorMode,
             onPaste = onPaste,
             textColor = textColor,
             backgroundColor = backgroundColor,
@@ -714,6 +715,7 @@ private fun ConfigurableModifierBar(
     modifier: Modifier = Modifier,
     onLockCtrl: () -> Unit = {},
     onLockAlt: () -> Unit = {},
+    isAppCursorMode: () -> Boolean = { false },
     label: (String) -> String,
 ) {
     val buttonHeight = BUTTON_HEIGHT_DP.dp
@@ -734,6 +736,7 @@ private fun ConfigurableModifierBar(
             onToggleKeyboard = onToggleKeyboard,
             onLockCtrl = onLockCtrl,
             onLockAlt = onLockAlt,
+            isAppCursorMode = isAppCursorMode,
             onPaste = onPaste,
         )
     val modifierStates =
@@ -757,6 +760,7 @@ private fun ConfigurableModifierBar(
             contentDescriptionResolver = { key ->
                 defaultContentDescriptions[key] ?: key.defaultLabel
             },
+            isAppCursorMode = isAppCursorMode,
         )
     }
 
@@ -828,6 +832,8 @@ private data class ModifierBarActions(
     /** Termux-parity long-press lock for CTRL/ALT (tap only toggles one-shot). */
     val onLockCtrl: () -> Unit = {},
     val onLockAlt: () -> Unit = {},
+    /** DECCKM application-cursor state — queried on each arrow tap so vim/less arrows work. */
+    val isAppCursorMode: () -> Boolean = { false },
     /** Long-press paste on DRAWER (termux default `popup: 'PASTE'`). */
     val onPaste: (() -> Unit)?,
 )
@@ -873,12 +879,15 @@ private fun toolbarItemPresentation(
     modifierStates: ModifierBarStates,
     label: (String) -> String,
     contentDescriptionResolver: (ToolbarKey) -> String,
+    isAppCursorMode: () -> Boolean = { false },
 ): ToolbarItemPresentation {
     val modifierState = modifierStateFor((item as? ToolbarItem.Default)?.key, modifierStates)
+    val keyCode = (item as? ToolbarItem.Default)?.key?.let(::arrowKeyCode)
+    val fallbackSequence = (item as? ToolbarItem.Default)?.key?.sequence.orEmpty()
     val onRepeat =
         (item as? ToolbarItem.Default)
             ?.takeIf { it.key.repeatable }
-            ?.let { { actions.onKeyClick(it.key.sequence) } }
+            ?.let { { actions.onKeyClick(arrowOrPlainSequence(keyCode, fallbackSequence, actions.isAppCursorMode)) } }
     val itemLabel =
         when (item) {
             is ToolbarItem.Default -> item.key.symbol ?: label(item.key.defaultLabel)
@@ -902,43 +911,85 @@ private fun toolbarItemPresentation(
     val secondaryAction = secondaryLongPressAction(item, actions, isDrawer)
     return ToolbarItemPresentation(
         label = itemLabel,
-        onClick = toolbarItemKeyHandler(item, actions),
+        onClick = toolbarItemKeyHandler(item, actions, isAppCursorMode),
         modifierState = modifierState,
         testTag = testTag,
         contentDescription = contentDescription,
         onRepeat = onRepeat,
         widthWeight = item.width,
-        secondaryLabel = secondaryLabel,
+        secondaryLabel = item.secondaryLabel,
         secondaryAction = secondaryAction,
     )
 }
 
-private fun toolbarItemKeyHandler(item: ToolbarItem, actions: ModifierBarActions): () -> Unit = when (item) {
-    is ToolbarItem.Default ->
-        when (item.key) {
-            ToolbarKey.CTRL -> actions.onToggleCtrl
+/** DECCKM 感知的方向键码，无对应返回空。 */
+private fun arrowKeyCode(key: ToolbarKey): Int? =
+    when (key) {
+        ToolbarKey.ARROW_UP -> KeyEvent.KEYCODE_DPAD_UP
+        ToolbarKey.ARROW_DOWN -> KeyEvent.KEYCODE_DPAD_DOWN
+        ToolbarKey.ARROW_LEFT -> KeyEvent.KEYCODE_DPAD_LEFT
+        ToolbarKey.ARROW_RIGHT -> KeyEvent.KEYCODE_DPAD_RIGHT
+        else -> null
+    }
 
-            ToolbarKey.ALT -> actions.onToggleAlt
+/** 方向键按应用光标模式编码，其余键保持原序列。 */
+private fun arrowOrPlainSequence(
+    keyCode: Int?,
+    fallbackSequence: String,
+    isAppCursorMode: () -> Boolean,
+): String {
+    if (keyCode == null) return fallbackSequence
+    return TerminalInputEncoder.arrowSequence(keyCode, isAppCursorMode())
+}
 
-            ToolbarKey.FN -> actions.onToggleFn
+private fun toolbarItemKeyHandler(
+    item: ToolbarItem,
+    actions: ModifierBarActions,
+    isAppCursorMode: () -> Boolean = { false },
+): () -> Unit =
+    when (item) {
+        is ToolbarItem.Default ->
+            when (item.key) {
+                ToolbarKey.CTRL -> actions.onToggleCtrl
 
-            ToolbarKey.COMPOSE -> actions.onToggleCompose
+                ToolbarKey.ALT -> actions.onToggleAlt
 
-            ToolbarKey.KEYBOARD -> actions.onToggleKeyboard
+                ToolbarKey.FN -> actions.onToggleFn
 
-            ToolbarKey.DRAWER -> actions.onDrawerClick
+                ToolbarKey.COMPOSE -> actions.onToggleCompose
 
-            ToolbarKey.SCROLL -> actions.onScrollClick
+                ToolbarKey.KEYBOARD -> actions.onToggleKeyboard
 
-            else -> {
-                val seq = item.key.sequence
-                if (seq.isNotEmpty()) {
-                    { actions.onKeyClick(seq) }
-                } else {
-                    {}
+                ToolbarKey.DRAWER -> actions.onDrawerClick
+
+                ToolbarKey.SCROLL -> actions.onScrollClick
+
+                ToolbarKey.ARROW_UP,
+                ToolbarKey.ARROW_DOWN,
+                ToolbarKey.ARROW_LEFT,
+                ToolbarKey.ARROW_RIGHT,
+                -> {
+                    val keyCode = arrowKeyCode(item.key)
+                    if (keyCode == null) {
+                        {}
+                    } else {
+                        {
+                            actions.onKeyClick(
+                                arrowOrPlainSequence(keyCode, item.key.sequence, isAppCursorMode),
+                            )
+                        }
+                    }
+                }
+
+                else -> {
+                    val sequence = item.key.sequence
+                    if (sequence.isNotEmpty()) {
+                        { actions.onKeyClick(sequence) }
+                    } else {
+                        {}
+                    }
                 }
             }
-        }
 
     is ToolbarItem.Custom -> {
         val macro = item.macro
