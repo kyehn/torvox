@@ -28,5 +28,19 @@ data class SearchResult(val lineIndex: Int, val startIndex: Int, val endIndex: I
             previousQuery.isNotEmpty() &&
             query.length < previousQuery.length &&
             previousQuery.contains(query)
+
+        /**
+         * 上一个/下一个导航索引（含回绕，对标参考搜索步进语义）。
+         * 空结果返回负一，调用方不得索引。
+         */
+        fun nextIndex(currentIndex: Int, resultCount: Int): Int {
+            if (resultCount <= 0) return -1
+            return if (currentIndex < resultCount - 1) currentIndex + 1 else 0
+        }
+
+        fun previousIndex(currentIndex: Int, resultCount: Int): Int {
+            if (resultCount <= 0) return -1
+            return if (currentIndex > 0) currentIndex - 1 else resultCount - 1
+        }
     }
 }
