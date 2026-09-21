@@ -112,6 +112,7 @@ dependencies {
   implementation(composeBom)
 
   implementation("androidx.core:core-ktx:1.19.0")
+  implementation("androidx.core:core-splashscreen:1.2.0")
   implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.5.2")
   implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.12.0-alpha03")
   implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.12.0-alpha03")

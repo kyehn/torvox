@@ -23,6 +23,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -173,6 +174,9 @@ class MainActivity : ComponentActivity() {
         )
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // 系统启动屏：冷启动首帧前显示主题背景，与 windowBackground 同色，
+        // 首帧就绪后自动切回 Theme.Terminal。
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         previousNightMode =
