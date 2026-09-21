@@ -38,6 +38,16 @@ class InputBatchBuffer(
         }
 
     fun write(data: ByteArray) {
+        // 小提交直发：单个字符量级（含 4 字节 emoji/CJK 扩展）的 IME 增量
+        // 跳过帧同步，延迟与退格直连路径对齐；中文输入事件数是英文
+        // 数倍，帧等待按次累加即体感退格慢。大批量仍走批缓冲合并写。
+        // 保序：先排空驻留字节再直发，避免后写先到。
+        if (data.size <= DIRECT_WRITE_MAX_BYTES) {
+            val pending = synchronized(lock) { drainLocked() }
+            if (pending.isNotEmpty()) send(pending)
+            if (data.isNotEmpty()) send(data)
+            return
+        }
         val toSend = ArrayList<ByteArray>(2)
         synchronized(lock) {
             if (data.size > capacity) {
@@ -142,6 +152,9 @@ class InputBatchBuffer(
     companion object {
         private const val BATCH_CAPACITY = 8192
         private const val FALLBACK_FLUSH_TIMEOUT_MS = 50L
+
+        /** 单字符直发上限：UTF-8 单码点最多 4 字节，取 2 倍余量覆盖带修饰提交。 */
+        private const val DIRECT_WRITE_MAX_BYTES = 8
 
         /** Factory for test usage — avoids Choreographer dependency. */
         fun forTest(flushSink: (ByteArray) -> Unit, capacity: Int = BATCH_CAPACITY): InputBatchBuffer =
