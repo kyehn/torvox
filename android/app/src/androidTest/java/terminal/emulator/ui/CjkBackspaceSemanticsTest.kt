@@ -41,9 +41,20 @@ class CjkBackspaceSemanticsTest {
             assertNotNull("基线回显失败", echoed)
             // 新一行：echo AB中Y，不换行，退 1 BS，再换行。
             NativeBridge.feedPty(sessionId, "echo AB中Y".toByteArray(Charsets.UTF_8))
-            Thread.sleep(800)
+            val lineReady =
+                UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {
+                    runCatching { NativeBridge.pollEvent() }
+                    NativeBridge.getTerminalText(sessionId)?.contains("AB中Y") == true
+                }
+            assertNotNull("输入行未回显", lineReady)
             NativeBridge.feedPty(sessionId, byteArrayOf(0x08))
-            Thread.sleep(500)
+            // BS 生效后编辑行回显擦掉 Y：轮询代替固定休眠，慢机不 flake，快机不等足。
+            val erased =
+                UxTestUtils.pollUntilTrue(timeoutMs = 5_000, intervalMs = 50) {
+                    runCatching { NativeBridge.pollEvent() }
+                    NativeBridge.getTerminalText(sessionId)?.contains("AB中Y") == false
+                }
+            assertNotNull("退格未生效", erased)
             NativeBridge.feedPty(sessionId, "\n".toByteArray(Charsets.UTF_8))
             val probe =
                 UxTestUtils.pollUntilTrue(timeoutMs = 20_000, intervalMs = 100) {

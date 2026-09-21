@@ -370,25 +370,34 @@ fun injectLongPress(view: View, x: Float, y: Float) {
     }
 }
 
+// 点击时序（实测根因：DOWN→UP 100ms 恰压在框架 TAP_TIMEOUT 边界上，
+// GestureDetector 不认 tap，onSingleTapUp 永不触发，多击选择整体无日志；
+// 真实触摸 DOWN→UP 约 50ms。DOWN→UP 取 50ms、击间隙 150ms：
+// DOWN1→DOWN2 ≈ 200ms < 300ms 双击超时，处理间隔 < 400ms 自计数窗口。）
+private const val TAP_DOWN_UP_MILLIS = 50L
+private const val MULTI_TAP_GAP_MILLIS = 150L
+
 fun injectTap(view: View, x: Float, y: Float) {
     val dt = SystemClock.uptimeMillis()
     view.post {
         view.dispatchTouchEvent(MotionEvent.obtain(dt, dt, MotionEvent.ACTION_DOWN, x, y, 0))
     }
     try {
-        Thread.sleep(100)
+        Thread.sleep(TAP_DOWN_UP_MILLIS)
     } catch (_: InterruptedException) {
         Thread.currentThread().interrupt()
     }
     view.post {
-        view.dispatchTouchEvent(MotionEvent.obtain(dt, dt + 100, MotionEvent.ACTION_UP, x, y, 0))
+        view.dispatchTouchEvent(
+            MotionEvent.obtain(dt, dt + TAP_DOWN_UP_MILLIS, MotionEvent.ACTION_UP, x, y, 0),
+        )
     }
 }
 
 fun injectDoubleTap(view: View, x: Float, y: Float) {
     injectTap(view, x, y)
     try {
-        Thread.sleep(200)
+        Thread.sleep(MULTI_TAP_GAP_MILLIS)
     } catch (_: InterruptedException) {
         Thread.currentThread().interrupt()
     }
@@ -398,13 +407,13 @@ fun injectDoubleTap(view: View, x: Float, y: Float) {
 fun injectTripleTap(view: View, x: Float, y: Float) {
     injectTap(view, x, y)
     try {
-        Thread.sleep(200)
+        Thread.sleep(MULTI_TAP_GAP_MILLIS)
     } catch (_: InterruptedException) {
         Thread.currentThread().interrupt()
     }
     injectTap(view, x, y)
     try {
-        Thread.sleep(200)
+        Thread.sleep(MULTI_TAP_GAP_MILLIS)
     } catch (_: InterruptedException) {
         Thread.currentThread().interrupt()
     }
