@@ -4,7 +4,7 @@
 
 可配置修饰键栏方向键跟随 DECCKM 应用光标模式编码，与输入法/硬件箭头路径一致。
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: 可配置方向键跟随 DECCKM
 
