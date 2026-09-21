@@ -3720,8 +3720,16 @@ constructor(
         // Physical pixel dimensions (for rendering/touch): density-scaled
         val newCellWidth = rawCellWidth * density
         val newCellHeight = rawCellHeight * density
+        val hadCellMetrics = cellWidth > 0f && cellHeight > 0f
         if (newCellWidth > 0f) cellWidth = newCellWidth
         if (newCellHeight > 0f) cellHeight = newCellHeight
+        // 单元格度量首次可用时必须重算网格：启动序列里 [attachPendingSurface] 的这次
+        // 同步可能早于 native 字体度量就绪，[recomputeGridFromFontMetrics] 会因
+        // cellWidth/cellHeight == 0 提前返回，而此后没有任何路径重试——网格会永久停在
+        // spawn 默认 24×80（屏幕下半部空白），直到旋转等外部尺寸事件。
+        if (!hadCellMetrics && cellWidth > 0f && cellHeight > 0f) {
+            recomputeGridFromFontMetrics()
+        }
         // CAS with the size check INSIDE the lambda: the old code
         // read rows/cols outside the update, so a concurrent title CAS could
         // land between the check and the write. rows/cols are a snapshot

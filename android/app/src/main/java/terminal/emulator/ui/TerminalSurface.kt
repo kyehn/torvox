@@ -537,6 +537,25 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     .also { postDelayed(it, IME_RESIZE_DEBOUNCE_MS) }
         }
 
+        /**
+         * 尺寸在 Surface 生效前到达时的暂存值。`onSizeChanged` 先于
+         * `surfaceCreated`/`surfaceChanged` 触发（布局阶段 SurfaceHolder 尚无有效 Surface），
+         * [applyResizeNormal] 在该分支直接返回、尺寸被永久丢弃：网格停在上次 spawn 的默认
+         * 24×80，屏幕下半部空白，直到下一次外部尺寸事件（旋转）才恢复。
+         */
+        private var pendingRetryWidth: Int = 0
+        private var pendingRetryHeight: Int = 0
+
+        /** Surface 生效后重放被丢弃的尺寸；无暂存值或尺寸未变时为空操作。 */
+        internal fun applyPendingSurfaceResize() {
+            val width = pendingRetryWidth
+            val height = pendingRetryHeight
+            if (width <= 0 || height <= 0) return
+            pendingRetryWidth = 0
+            pendingRetryHeight = 0
+            applySurfaceResizeNow(width, height)
+        }
+
         internal fun applySurfaceResizeNow(width: Int, height: Int) {
             if (width <= 0 || height <= 0) return
             // A deferred fire after a size oscillation may land back on the
@@ -560,6 +579,8 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             val surface = holder.surface
             if (!surface.isValid) {
                 Log.w(TAG, "applySurfaceResize: surface not valid yet, deferring")
+                pendingRetryWidth = width
+                pendingRetryHeight = height
                 return
             }
             terminalViewModel.currentSurface = surface
@@ -3030,10 +3051,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                     rows = runtimeState.rows
                     cols = runtimeState.cols
                 }
+                // attachSurface 之后 pendingSurface 尺寸才权威：必须在此重算网格，
+                // 否则冷启动（会话由 ensureDefaultSession 先建）与后台返回时网格
+                // 停在上次 spawn 的默认 24×80，屏幕下半部空白。
+                resizeManager.applyGridResize(width, height)
                 lastConfiguredWidth = width
                 lastConfiguredHeight = height
             }
         }
+        // 重放 Surface 生效前被丢弃的尺寸：否则冷启动网格停在上次 spawn 的默认 24×80
+        // （下半屏空白），直到旋转等外部事件才恢复。
+        resizeManager.applyPendingSurfaceResize()
     }
 
     override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
