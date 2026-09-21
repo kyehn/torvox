@@ -432,6 +432,11 @@ impl super::GhosttyTerminal {
         // scrollback is configured with the `set_scrollback_max_lines` setter.
         // A non-zero value enables scrollback (scrollback_rows query returned
         // 0 when scrollback was disabled).
+        // 字节预算必须同步解除：上游默认字节上限先于行数触发，深缓冲
+        // （2 万行）会被拦腰截断到几百行。行数是唯一约束。
+        if let Err(error) = terminal.set_scrollback_max_bytes(None) {
+            log::error!("ghostty_terminal: set_scrollback_max_bytes failed: {error}");
+        }
         if let Err(error) =
             terminal.set_scrollback_max_lines(Some(config.scrollback_lines as usize))
         {
@@ -505,6 +510,25 @@ impl super::GhosttyTerminal {
             log::error!(
                 "ghostty_terminal: on_clipboard_write callback registration failed: {error}"
             );
+        }
+        // XTWINOPS 尺寸查询（CSI 14/16/18t）走上游 on_size 回调：行列取终端
+        // 实时值，单元格像素取本层回填的共享几何（Resize 填默认，
+        // SetCellPixelSize 填真实字形度量）。无锁读取，永不阻塞 VT 线程。
+        if let Err(error) = terminal.on_size({
+            let cell_size_px = config.cell_size_px.clone();
+            move |terminal| {
+                let (Ok(rows), Ok(cols)) = (terminal.rows(), terminal.cols()) else {
+                    return None;
+                };
+                Some(libghostty_vt::terminal::SizeReportSize {
+                    rows,
+                    columns: cols,
+                    cell_width: cell_size_px.0.load(Ordering::Acquire),
+                    cell_height: cell_size_px.1.load(Ordering::Acquire),
+                })
+            }
+        }) {
+            log::error!("ghostty_terminal: on_size callback registration failed: {error}");
         }
         // BEL 振铃走上游 on_bell 回调：VT 线程推送空消息，调用方在 flush 后收割。
         // try_send 永不阻塞 VT 线程；满则丢弃单次振铃（振铃是瞬时提示，可合并）。
@@ -715,6 +739,16 @@ impl super::GhosttyTerminal {
                             terminal.resize(cols, rows, DEFAULT_CELL_WIDTH, DEFAULT_CELL_HEIGHT)
                         {
                             log::error!("ghostty_terminal: resize failed: {error}");
+                        } else {
+                            // 整网重调回填默认几何，XTWINOPS 应答与上游实际一致。
+                            config
+                                .cell_size_px
+                                .0
+                                .store(DEFAULT_CELL_WIDTH, Ordering::Release);
+                            config
+                                .cell_size_px
+                                .1
+                                .store(DEFAULT_CELL_HEIGHT, Ordering::Release);
                         }
                         // zelland row-cache pattern: row count changed on resize,
                         // the row cache is stale and must be invalidated.
@@ -736,6 +770,9 @@ impl super::GhosttyTerminal {
                         }
                         if let Err(error) = terminal.resize(cols, rows, cell_width, cell_height) {
                             log::error!("ghostty_terminal: cell resize failed: {error}");
+                        } else {
+                            config.cell_size_px.0.store(cell_width, Ordering::Release);
+                            config.cell_size_px.1.store(cell_height, Ordering::Release);
                         }
                     }
                     Command::ScrollViewport(delta) => {
@@ -1618,8 +1655,8 @@ impl super::GhosttyTerminal {
 
     /// Pack style attributes into a bitmask matching `cell.wgsl` shader layout:
     /// Bit 0=bold, 1=italic, 2=reverse, 3=underline,
-    /// 5=strikethrough, 6=overline, 7=dim, 8=double_underline
-    /// Bits 4,9+ reserved for future use (not read by current shader).
+    /// 4=blink, 5=strikethrough, 6=overline, 7=dim, 8=double_underline
+    /// (blink is carried, the shader ignores it; reserved for future use).
     fn pack_style_flags(style: &libghostty_vt::style::Style) -> u32 {
         use crate::terminal::ghostty_terminal::cell_flags;
         let mut flags = 0u32;
@@ -1631,6 +1668,9 @@ impl super::GhosttyTerminal {
         }
         if style.inverse {
             flags |= 1 << cell_flags::REVERSE;
+        }
+        if style.blink {
+            flags |= 1 << cell_flags::BLINK;
         }
         if matches!(
             style.underline,
@@ -2051,6 +2091,9 @@ impl super::GhosttyTerminal {
         if query.is_empty() {
             return vec![];
         }
+        // 可导航上限（对标上游 50k 窗口）：超长回滚全匹配会卡死 UI，
+        // 保留最新的 MAX 命中（用户最可能要看的是最新输出）。
+        const MAX_NAVIGABLE_MATCHES: usize = 50_000;
         let total = terminal.total_rows().unwrap_or(0) as u32;
         let mut results = Vec::new();
         let search_query = if case_sensitive {
@@ -2061,36 +2104,76 @@ impl super::GhosttyTerminal {
             // 主流 ASCII/CJK 场景不受影响，复杂场景按规范不处理。
             query.to_lowercase()
         };
-        for row in 0..total {
-            if let Some(line) = Self::read_line_text_impl(terminal, row) {
-                let search_line = if case_sensitive {
-                    line.clone()
-                } else {
-                    line.to_lowercase()
+        // 逻辑行缓存：软换行续接时相邻物理行拼接后再匹配
+        //（对标上游 searchSpansSoftWrap）。
+        let mut logical_lines: Vec<(u32, String)> = Vec::new();
+        {
+            let mut current_row: Option<u32> = None;
+            let mut current_text = String::new();
+            for row in 0..total {
+                let Some(line) = Self::read_line_text_impl(terminal, row) else {
+                    continue;
                 };
-                let mut start = 0;
-                while let Some(col) = search_line[start..].find(&search_query) {
-                    let abs_col = start + col;
-                    // Byte offset -> character column (see above).
-                    let match_start_col = search_line[..abs_col].chars().count() as u32;
-                    let match_end = abs_col + search_query.len();
-                    let match_end_col = search_line[..match_end].chars().count() as u32;
-                    results.push(SearchMatch {
-                        row,
-                        start_col: match_start_col,
-                        end_col: match_end_col,
-                    });
-                    // Advance past this match (its end is always a char
-                    // boundary): adjacent matches are still found,
-                    // overlapping matches are not reported.
-                    let mut next = abs_col + search_query.len();
-                    while next < search_line.len() && !search_line.is_char_boundary(next) {
-                        next += 1;
-                    }
-                    start = next;
+                // 软换行判定：行被写满（尾列非空）且下一行是续接。
+                // 保守启发式：本行长度达到列宽则与下一行拼接。
+                let cols = terminal.cols().unwrap_or(80) as usize;
+                let full = line.chars().count() >= cols;
+                if current_row.is_none() {
+                    current_row = Some(row);
                 }
+                current_text.push_str(&line);
+                if full && row + 1 < total {
+                    continue;
+                }
+                logical_lines.push((
+                    current_row.unwrap_or(row),
+                    std::mem::take(&mut current_text),
+                ));
+                current_row = None;
+            }
+            if !current_text.is_empty() {
+                logical_lines.push((current_row.unwrap_or(total.saturating_sub(1)), current_text));
             }
         }
+        // 从最新行倒序扫描：超上限时保留最新命中（用户最可能要看
+        // 最新输出），对标上游可导航窗口语义。
+        for (row, line) in logical_lines.iter().rev() {
+            let search_line = if case_sensitive {
+                line.clone()
+            } else {
+                line.to_lowercase()
+            };
+            let mut start = 0;
+            while let Some(col) = search_line[start..].find(&search_query) {
+                let abs_col = start + col;
+                // Byte offset -> character column (see above).
+                let match_start_col = search_line[..abs_col].chars().count() as u32;
+                let match_end = abs_col + search_query.len();
+                let match_end_col = search_line[..match_end].chars().count() as u32;
+                results.push(SearchMatch {
+                    row: *row,
+                    start_col: match_start_col,
+                    end_col: match_end_col,
+                });
+                // Advance past this match (its end is always a char
+                // boundary): adjacent matches are still found,
+                // overlapping matches are not reported.
+                let mut next = abs_col + search_query.len();
+                while next < search_line.len() && !search_line.is_char_boundary(next) {
+                    next += 1;
+                }
+                start = next;
+                if results.len() >= MAX_NAVIGABLE_MATCHES {
+                    break;
+                }
+            }
+            if results.len() >= MAX_NAVIGABLE_MATCHES {
+                break;
+            }
+        }
+        // 倒序扫描 + 上限截断：结果已是最新窗口内的 50k，按
+        // (row, start_col) 恢复旧→新稳定顺序（同行内匹配保持正序）。
+        results.sort_by_key(|matched| (matched.row, matched.start_col));
         results
     }
 }
@@ -2265,5 +2348,28 @@ mod tests {
         };
         let flags = GhosttyTerminal::pack_style_flags(&style);
         assert_eq!(flags, 1 << cell_flags::UNDERLINE);
+    }
+
+    #[test]
+    fn pack_style_flags_curly_dashed_dotted_keep_underline_without_double() {
+        // 对标上游下划线样式回归：Curly/Dashed/Dotted 必须保留下划线，
+        // 且不得误置双下划线位。
+        for underline in [Underline::Curly, Underline::Dashed, Underline::Dotted] {
+            let style = Style {
+                underline,
+                ..Default::default()
+            };
+            let flags = GhosttyTerminal::pack_style_flags(&style);
+            assert_eq!(
+                flags & (1 << cell_flags::UNDERLINE),
+                1 << cell_flags::UNDERLINE,
+                "underline bit must survive"
+            );
+            assert_eq!(
+                flags & (1 << cell_flags::DOUBLE_UNDERLINE),
+                0,
+                "double bit must stay clear"
+            );
+        }
     }
 }
