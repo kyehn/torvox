@@ -16,6 +16,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.filters.LargeTest
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.FixMethodOrder
 import org.junit.Rule
@@ -71,6 +72,13 @@ class TextSearchEndToEndTest {
     // ── Helper: generate multi-page content ──
 
     private fun generateMultiPageContent(bridge: Bridge, marker: String) {
+        // 先等 prompt：冷启动 stdin 未消费阶段的字节会丢失（粘贴案定案同类）。轮询自带 pump（pollEvent 驱动 native 输出处理）：生产泵是渲染线程，跨用例 surface 重建后可能停转，只读格不泵送会永远卡死，本用例自己驱动队列。
+        val promptReady =
+            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+                runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
+                runCatching { bridge.getTerminalText() }.getOrNull().orEmpty().contains("$")
+            }
+        assertNotNull("shell prompt 未就绪", promptReady)
         // Generate enough content to fill >3 terminal pages
         val linesToFill = 200
         for (i in 1..linesToFill) {
@@ -83,7 +91,24 @@ class TextSearchEndToEndTest {
                 }
             bridge.writeToPty("echo '$content'\n".toByteArray())
         }
-        waitForOutput()
+        // 落格门控替代裸睡：慢模拟器上 200 行回显滞后，内容未齐即搜即错。自带 pump（同 prompt 门控注释）。
+        val landed =
+            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 60_000, intervalMs = 200) {
+                runCatching { terminal.emulator.bridge.NativeBridge.pollEvent() }
+                runCatching { bridge.getTerminalText() }.getOrNull()?.contains(marker) == true
+            }
+        assertNotNull("标记必须落格: $marker", landed)
+    }
+
+    private fun awaitBridge(): Bridge {
+        // 会话孵化慢于 UI 呈现：waitForSession 只等界面节点，桥可能仍为 null
+        // （Osc52 同门控）。单次直读必竞态。
+        val ready =
+            terminal.emulator.UxTestUtils.pollUntilTrue(timeoutMs = 30_000, intervalMs = 200) {
+                composeTestRule.getBridge() != null
+            }
+        assertNotNull("运行时桥必须就绪（30s 未孵化）", ready)
+        return composeTestRule.getBridge() ?: throw AssertionError("bridge null")
     }
 
     private fun waitForOutput() {
@@ -179,7 +204,7 @@ class TextSearchEndToEndTest {
     @Test
     fun searchFindsAndHighlightsMatches() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         // Verify marker exists in terminal
@@ -217,7 +242,7 @@ class TextSearchEndToEndTest {
     @Test
     fun searchNavigatesWithScroll() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
@@ -248,7 +273,7 @@ class TextSearchEndToEndTest {
     @Test
     fun smartCaseToggle() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         // Open search with lowercase version of marker
@@ -278,7 +303,7 @@ class TextSearchEndToEndTest {
     @Test
     fun closeSearchRestoresModifierBar() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
@@ -306,7 +331,7 @@ class TextSearchEndToEndTest {
     @Test
     fun multiLineSearch() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
 
         // Generate content on multiple lines
         for (i in 1..30) {
@@ -367,7 +392,7 @@ class TextSearchEndToEndTest {
     @Test
     fun searchBarNotObscuredByIme() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
 
         openSearchAndType(uniqueMarker)
         waitForSearchStable()
@@ -403,7 +428,7 @@ class TextSearchEndToEndTest {
     @Test
     fun searchHighlightColors() {
         composeTestRule.waitForSession()
-        val bridge = requireNotNull(composeTestRule.getBridge())
+        val bridge = awaitBridge()
         generateMultiPageContent(bridge, uniqueMarker)
 
         openSearchAndType(uniqueMarker)
