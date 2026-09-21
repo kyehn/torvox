@@ -21,20 +21,20 @@
 - 禁止使用 `| ignore` 压制预期失败 — 须显式处理错误。
 - 禁止 `print "=== step_name ==="` 形式的步骤标签 — 输出仅保留结果。
 - 禁止无意义输出：如 `print "Done!"`、`print "Boot verified"` 等。
-- 禁止冗余的 `which X | length` 检查 — Shebang 已进入 `nix develop` 环境，无需重复探测。
+- 禁止冗余的 `which X | length` 检查，Shebang 已进入 `nix develop` 环境，无需重复探测。
 - 禁止仅使用一次的中间变量别名（如 `let sdkmanager = ...`、`let adb = ...`）— 请直接使用路径。
 - 禁止环境变量遮蔽：不要设置 `$env.AVD_DIR = $avd_home` — 请直接使用 `$env.ANDROID_AVD_HOME`。
 - 对于必须存在的目录，禁止使用 `if ($dir | path exists)` 预检 — 让命令以清晰的错误直接失败。
 - 对于应当存在的目录：须显式检查，若缺失则以非零状态退出。
 - 禁止无助于提升清晰度的中间变量，如 `let start = ... let elapsed = ...`。
-- 禁止使用 `$env.ANDROID_HOME/platform-tools/adb` 或硬编码路径调用二进制 — `adb`、`emulator`、`sdkmanager`、`avdmanager` 均来自 `nix` 开发环境（`android-tools` 包）。
+- 禁止使用 `$env.ANDROID_HOME/platform-tools/adb` 或硬编码路径调用二进制，`adb`、`emulator`、`sdkmanager`、`avdmanager` 命令可直接使用。
 - 禁止在 Nushell 脚本内部使用 `nu scripts/xxx.nu` 调用 — 请使用 `./scripts/xxx.nu`（依赖 Shebang）。
-- 禁止在检查脚本中执行 `rustup target add` 或声明交叉编译目标 — 仅运行工作区测试。
+- 禁止执行 `rustup target add` 或类似命令，仅运行工作区测试。
 
 ### 风格规则
 
 - 使用 `is-not-empty` / `is-empty`，而非 `| length > 0` / `| length == 0`。
-- detekt 和 clippy 以及其他类似工具只允许抑制必要的规则，如 参数数量 行数 嵌套层数 缺失文档，忽略的规则必须在最小范围，确保简洁 可靠 正确。
+- detekt 和 clippy 以及其他类似工具只允许抑制必要的规则，如 参数数量 行数 嵌套层数 缺失文档（这些仅风格问题可全局设置规则），抑制的规则必须在最小范围，不重复设置默认规则。
 
 ## Nix
 
@@ -45,8 +45,7 @@
 
 ## GitHub Actions
 
-- Action 版本：使用默认分支（`@main` 或 `@master`），而非标签。
-- 例外：`reactivecircus/android-emulator-runner@v2` — `@main` 未包含已编译的 `node_modules`。
+- Action 版本：使用默认分支（`@main` 或 `@master`），而非标签，例外：`reactivecircus/android-emulator-runner@v2` — `@main` 未包含已编译的 `node_modules`。
 - 禁止设置步骤 `name`。
 - 将相邻的 `run` 步骤合并为多行块。
 - `||` 仅用于显式错误处理，禁止用于吞没错误。
@@ -58,11 +57,11 @@
 - 变量与函数一律使用完整描述性名称：禁止单字母变量（如 `s`、`p`、`w`、`h`、`t`、`e`），禁止缩写（如 `config` 而非 `cfg`、`background` 而非 `bg`、`application` 而非 `app`）。
 - 使用简体中文编写注释和文档，表述需要简明扼要。
 - Torvox/torvox 仅为软件名称，除部分介绍文档外一律不得出现，使用如 terminal 等通用词
-- `nix` 仅在 nix-on-droid bootstrap测试 这一个代码文件中出现，其他 rs/kt 代码不得出现/使用。`nix/store` 不得出现在任何代码/文档中。
+- `nix/store` 不得出现在任何代码/文档中。
 - `fish` `dash` `zsh` 不得出现在任何文件中。
 - 不得定义任何 crate features
 - 不得保留死代码
-- 代码量绝对不得超过 ghostty-android-terminal + termux，必须最小实现
+- 代码量不得超过 ghostty-android-terminal + termux，必须最小实现
 - 不允许实现任何未在 docs/specification/ 声明的功能/逻辑
 - 注释 和 文档 保持极简，避免不必要或意义不大的文本内容。
 - 功能代码文件可以包括相关测试代码，但测试必须是联系紧密的
@@ -76,4 +75,4 @@
 
 - 每个提交消息保持简洁，仅一行。
 - 保持和旧提交相同作者，不允许其他作者/提交者/协作者。
-- 不得轻易还原会话外修改的文件（无论修改发生的原因是什么都不得轻易还原），`git checkout --` 未经允许不得使用
+- 不得轻易还原会话外修改的文件（无论修改发生的原因是什么都不得轻易还原，如果不影响当前工作禁止修改），`git checkout --` 未经允许不得使用
