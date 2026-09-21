@@ -11,11 +11,23 @@ use lru::LruCache;
 ///
 /// All five caches are evicted together when `clear()` is called
 /// (e.g. on font family change).
+///
+/// 整形缓存键：文本 + 字号 + 光栅缩放 + 主字体 + 回退代际。整形结果依赖
+/// 全部五项（Metrics 字号、Attrs 字体族、回退 span），单文本键在字号/
+/// 字体切换时串味（旧字号的 glyph_id 与 x 偏移被复用，“d 像 a”类错字）。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ShapeKey {
+    pub text: String,
+    pub font_size_bits: u32,
+    pub raster_scale_bits: u32,
+    pub font_id: Option<fontdb::ID>,
+    pub fallback_generation: u64,
+}
 pub struct GlyphCache {
     /// Full glyph-info cache (keyed by glyph key → rasterized info).
     pub glyph_cache: LruCache<GlyphKey, GlyphInfo>,
-    /// Cache for shaped runs (keyed by text string).
-    pub shape_cache: LruCache<String, Vec<super::ShapedGlyphInfo>>,
+    /// Cache for shaped runs (keyed by text + font/size/fallback generation).
+    pub shape_cache: LruCache<ShapeKey, Vec<super::ShapedGlyphInfo>>,
     /// ASCII fast-path: pre-allocated array of glyph IDs for ' '..'~'.
     pub ascii_glyph_ids: [Option<swash::GlyphId>; 128],
     /// Non-ASCII glyph ID lookups (codepoint → glyph_id in primary font).
@@ -32,11 +44,14 @@ pub struct GlyphCache {
     /// re-entering `with_face_data` (font-data decompression + charmap
     /// build) for every styled cell every frame.
     pub style_glyph_id_cache: LruCache<(fontdb::ID, u32), swash::GlyphId>,
-    /// Outline source cache ((font ID, glyph ID) → is outline). Swash
-    /// scaler construction + Render is ~20µs per probe; caching makes
+    /// Outline source cache ((font ID, glyph ID, raster size) → is outline).
+    /// Swash scaler construction + Render is ~20µs per probe; caching makes
     /// subsequent CJK resolutions ~0.2µs and drops first-screen 400
     /// builds to ~3 (majority vote needs one probe per distinct gid).
-    pub outline_cache: LruCache<(fontdb::ID, swash::GlyphId), bool>,
+    /// 键必须带光栅尺寸：embedded bitmap 只在特定尺寸存在，同样
+    /// (font, gid) 在不同字号/缩放下结论可能相反（bitmap-strike 误分类
+    /// 致 CJK 整字缺失或错走回退）。
+    pub outline_cache: LruCache<(fontdb::ID, swash::GlyphId, u32), bool>,
 }
 
 impl Default for GlyphCache {
@@ -112,10 +127,26 @@ mod tests {
     #[test]
     fn outline_cache_evicts_with_clear() {
         let mut gc = GlyphCache::new();
-        gc.outline_cache
-            .put((fontdb::ID::default(), swash::GlyphId::from(42u16)), true);
+        gc.outline_cache.put(
+            (fontdb::ID::default(), swash::GlyphId::from(42u16), 0),
+            true,
+        );
         assert_eq!(gc.outline_cache.len(), 1);
         gc.clear();
         assert_eq!(gc.outline_cache.len(), 0);
+    }
+
+    #[test]
+    fn outline_cache_key_distinguishes_raster_size() {
+        // 同一 (font, gid) 在不同光栅尺寸下结论可能相反（bitmap strike
+        // 只在特定尺寸存在）：键必须区分尺寸，否则缩放后沿用旧结论。
+        let mut gc = GlyphCache::new();
+        let font = fontdb::ID::default();
+        let gid = swash::GlyphId::from(42u16);
+        gc.outline_cache.put((font, gid, 100), true);
+        gc.outline_cache.put((font, gid, 200), false);
+        assert_eq!(gc.outline_cache.len(), 2);
+        assert_eq!(gc.outline_cache.get(&(font, gid, 100)), Some(&true));
+        assert_eq!(gc.outline_cache.get(&(font, gid, 200)), Some(&false));
     }
 }

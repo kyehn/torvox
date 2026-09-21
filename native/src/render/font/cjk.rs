@@ -454,6 +454,9 @@ impl FontPipeline {
     /// Render-time failures (color fonts) are handled by the caller. The
     /// result is cached by the caller in `cjk_glyph_cache`, so this only
     /// runs once per character.
+    /// 候选按 CJK 优先级排序后尝试：en-US 等非 CJK locale 下 CJK 层被
+    /// 跳过，中文只能靠本扫描；数据库顺序（Serif 可能先于 Sans）不得
+    /// 决定字形归属，否则中文显示为宋体。
     pub(crate) fn find_glyph_anywhere(&mut self, ch: char) -> Option<(fontdb::ID, u16)> {
         let primary = self.font_id?;
         let db = self.font_system.db();
@@ -476,10 +479,22 @@ impl FontPipeline {
                 candidates.push((face.id, gid));
             }
         }
+        // Sans 优先：同为 CJK 候选时宋体（serif）排后，避免 en-US 下
+        // 中文落到 NotoSerifCJK 而非 NotoSansCJK。分数越高越优先
+        // （升序排完倒序取），故用加法。
+        let locale_snapshot = self.system_locale_tag();
+        candidates.sort_by_key(|(id, _)| {
+            let family = db
+                .face(*id)
+                .and_then(|face| face.families.first().map(|(name, _)| name.to_lowercase()))
+                .unwrap_or_default();
+            i16::from(Self::is_cjk_candidate_family(&family)) * 100
+                + cjk_family_priority(&family, locale_tag(&locale_snapshot))
+        });
         // Return the first candidate that actually renders (charmap hits
         // in color fonts such as Noto Color Emoji cannot be outlined by
         // swash and must be skipped —).
-        for (id, gid) in candidates {
+        for (id, gid) in candidates.into_iter().rev() {
             if let Some(info) = self.glyph_information_from_font(id, ch, gid)
                 && info.width > 0
                 && info.height > 0
@@ -496,12 +511,17 @@ impl FontPipeline {
     }
 
     /// Cached outline probe: checks `outline_cache` before building a scaler.
+    /// Key includes the raster size (see `outline_cache` docs).
     pub(crate) fn glyph_source_is_outline_cached(
         &mut self,
         font_id: fontdb::ID,
         glyph_id: swash::GlyphId,
     ) -> bool {
-        let key = (font_id, glyph_id);
+        let key = (
+            font_id,
+            glyph_id,
+            super::raster_size_key(self.font_size * self.raster_scale.max(1.0)),
+        );
         if let Some(&cached) = self.caches.outline_cache.get(&key) {
             return cached;
         }
@@ -877,6 +897,24 @@ mod cjk_priority_tests {
         assert_eq!(
             cjk_family_priority("some han font", ""),
             CJK_PRIORITY_FALLBACK as i16
+        );
+    }
+
+    /// 全库扫描的排序分必须让 Sans 压过 Serif：en-US 下 CJK 层被跳过，
+    /// 中文只能靠 find_glyph_anywhere，数据库顺序不得决定字形归属。
+    #[test]
+    fn anywhere_scan_score_prefers_sans_over_serif() {
+        let score = |family: &str| {
+            i16::from(FontPipeline::is_cjk_candidate_family(family)) * 100
+                + cjk_family_priority(family, "")
+        };
+        assert!(
+            score("noto sans cjk sc") > score("noto serif cjk sc"),
+            "anywhere scan must rank Sans CJK above Serif CJK"
+        );
+        assert!(
+            score("noto sans cjk sc") > score("noto color emoji"),
+            "anywhere scan must rank CJK above emoji"
         );
     }
 }

@@ -100,10 +100,14 @@ class Bridge(private val config: TerminalConfig) : TerminalQueryPort {
     @Volatile private var lastSurfaceHeight: Int = 0
 
     /**
-     * Input→echo latency hook (emulator-performance-verification): invoked with
-     * `SystemClock.elapsedRealtimeNanos()` on EVERY PTY write path (Bridge.writeToPty,
-     * processKeyEvent, encodeMouseEvent) so hardware keys — which bypass TerminalRuntime.writeToPty —
-     * are stamped too. Wired by SessionEntry to its [LatencyProbe].
+     * Every-PTY-write hook: invoked with `SystemClock.elapsedRealtimeNanos()` on EVERY PTY write
+     * path ([Bridge.writeToPty], [processKeyEvent], [encodeMouseEvent]) so hardware keys — which
+     * bypass [terminal.emulator.runtime.TerminalRuntime.writeToPty] — are stamped for the
+     * input→echo latency probe (emulator-performance-verification).
+     *
+     * Also the T3 render-wake seam: called on the same paths that would otherwise never notify the
+     * render loop, so the SessionEntry wiring raises [terminal.emulator.runtime.SessionEntry.notifyRender]
+     * here and a backspace after >5s idle no longer waits out the 500ms idle-latch tick for its echo.
      */
     @Volatile var onPtyWrite: ((Long) -> Unit)? = null
 

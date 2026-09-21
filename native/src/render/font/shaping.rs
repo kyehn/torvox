@@ -1,5 +1,5 @@
 //! Text shaping — cosmic-text integration for Unicode ligature and complex script support.
-use super::{FontPipeline, ShapedGlyphInfo};
+use super::{FontPipeline, ShapedGlyphInfo, glyph_cache::ShapeKey};
 
 /// Line height as a multiple of font size for cosmic-text Metrics.
 const DEFAULT_LINE_HEIGHT_RATIO: f32 = 1.2;
@@ -12,7 +12,16 @@ impl FontPipeline {
         if text.is_empty() {
             return Vec::new();
         }
-        if let Some(cached) = self.caches.shape_cache.get(text) {
+        // 整形结果依赖字号/字体/光栅缩放/回退层：单文本键在任一维度
+        // 变化时串味（旧字号的 glyph_id 与 x 偏移被复用，“d 像 a”类错字）。
+        let shape_key = ShapeKey {
+            text: text.to_string(),
+            font_size_bits: self.font_size.to_bits(),
+            raster_scale_bits: self.raster_scale.to_bits(),
+            font_id: self.font_id,
+            fallback_generation: self.fallback_generation,
+        };
+        if let Some(cached) = self.caches.shape_cache.get(&shape_key) {
             return cached.clone();
         }
 
@@ -105,9 +114,7 @@ impl FontPipeline {
             .collect();
 
         self.shaping_buffer = Some(buffer);
-        self.caches
-            .shape_cache
-            .put(text.to_string(), result.clone());
+        self.caches.shape_cache.put(shape_key, result.clone());
         result
     }
 }
@@ -169,5 +176,65 @@ mod tests {
         // the ASCII part.
         let glyphs = pipeline.shape_run("A中B");
         assert!(!glyphs.is_empty(), "mixed text must produce glyphs");
+    }
+
+    #[test]
+    fn shape_cache_invalidated_by_font_size_change() {
+        const SAMPLE_TEXT: &str = "Hello";
+        const SCALED_FONT_SIZE: f32 = 28.0;
+        let mut pipeline = fixture();
+        let before = pipeline.shape_run(SAMPLE_TEXT);
+        assert!(!before.is_empty(), "baseline shape must produce glyphs");
+        pipeline.set_font_size_in_place(SCALED_FONT_SIZE);
+        let after = pipeline.shape_run(SAMPLE_TEXT);
+        assert!(!after.is_empty(), "resized shape must produce glyphs");
+        let before_advance: f32 = before.iter().map(|shaped| shaped.w).sum();
+        let after_advance: f32 = after.iter().map(|shaped| shaped.w).sum();
+        assert!(
+            after_advance > before_advance,
+            "larger font must advance wider (before={before_advance}, after={after_advance})"
+        );
+        let cached = pipeline.shape_run(SAMPLE_TEXT);
+        assert_eq!(after, cached, "resized shape must come from cache");
+    }
+
+    #[test]
+    fn shape_cache_key_distinguishes_font_size() {
+        // 同文本不同字号必须命中不同缓存条目：单文本键在字号切换
+        // 时串味（旧字号的 glyph_id 与 x 偏移被复用，“d 像 a”类错字）。
+        // set_font_size_in_place 本来就清缓存；这里验证键本身携带维度，
+        // 即使不清缓存也不会串味。
+        let mut pipeline = fixture();
+        let before = pipeline.shape_run("Hello");
+        assert!(!before.is_empty());
+        let key_small = ShapeKey {
+            text: "Hello".to_string(),
+            font_size_bits: pipeline.font_size.to_bits(),
+            raster_scale_bits: pipeline.raster_scale.to_bits(),
+            font_id: pipeline.font_id,
+            fallback_generation: pipeline.fallback_generation,
+        };
+        pipeline.font_size = 28.0;
+        let key_large = ShapeKey {
+            text: "Hello".to_string(),
+            font_size_bits: pipeline.font_size.to_bits(),
+            raster_scale_bits: pipeline.raster_scale.to_bits(),
+            font_id: pipeline.font_id,
+            fallback_generation: pipeline.fallback_generation,
+        };
+        assert_ne!(key_small, key_large, "shape key must distinguish font size");
+        let after = pipeline.shape_run("Hello");
+        let before_advance: f32 = before.iter().map(|shaped| shaped.w).sum();
+        let after_advance: f32 = after.iter().map(|shaped| shaped.w).sum();
+        assert!(
+            after_advance > before_advance,
+            "larger font must advance wider without reusing stale shaping"
+        );
+        assert_eq!(
+            pipeline.caches.shape_cache.len(),
+            2,
+            "both sizes must coexist as distinct entries when the cache is not cleared"
+        );
+        let _ = key_small;
     }
 }
