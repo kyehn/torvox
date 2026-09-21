@@ -14,15 +14,40 @@ class InputBatchBufferTest {
     }
 
     @Test
-    fun `small writes stay buffered until flush`() {
+    fun `small writes send immediately without flush`() {
+        // 小提交直发：单字符量级不再驻留缓冲，延迟与退格直连对齐。
         val sent = mutableListOf<ByteArray>()
         val buffer = InputBatchBuffer.forTest({ sent.add(it) }, capacity = 16)
         buffer.write(byteArrayOf(1, 2, 3))
+        awaitSize(sent, 1)
+        assertEquals(1, sent.size)
+        assertArrayEquals(byteArrayOf(1, 2, 3), sent[0])
+        buffer.close()
+    }
+
+    @Test
+    fun `large writes stay buffered until flush`() {
+        val sent = mutableListOf<ByteArray>()
+        val buffer = InputBatchBuffer.forTest({ sent.add(it) }, capacity = 16)
+        buffer.write(ByteArray(20) { 7 })
         assertEquals(0, sent.size)
         buffer.flush()
         awaitSize(sent, 1)
         assertEquals(1, sent.size)
-        assertArrayEquals(byteArrayOf(1, 2, 3), sent[0])
+        assertEquals(20, sent[0].size)
+        buffer.close()
+    }
+
+    @Test
+    fun `small write drains buffered bytes first preserving order`() {
+        val sent = mutableListOf<ByteArray>()
+        val buffer = InputBatchBuffer.forTest({ sent.add(it) }, capacity = 32)
+        buffer.write(ByteArray(20) { 7 })
+        buffer.write(byteArrayOf(1, 2, 3))
+        awaitSize(sent, 2)
+        assertEquals(2, sent.size)
+        assertEquals(20, sent[0].size)
+        assertArrayEquals(byteArrayOf(1, 2, 3), sent[1])
         buffer.close()
     }
 
