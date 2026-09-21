@@ -89,6 +89,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         pendingUnpauseRunnable = null
         resizeDebounceRunnable?.let { removeCallbacks(it) }
         resizeDebounceRunnable = null
+        // IME 防抖 resume 回调同样持有本视图：detach 恰在防抖窗内则
+        // setRenderPaused(true) 后 resume 丢失，渲染永久暂停。
+        // 直接取消会吞掉配对的 resume——先 resume 再取消。
+        if (pendingSurfaceResize != null) {
+            pendingSurfaceResize?.let { removeCallbacks(it) }
+            pendingSurfaceResize = null
+            viewModel?.runtime?.setRenderPaused(false)
+        }
         // Dismiss the floating selection UI: an action mode, the selection
         // handle popups and the magnifier all own system windows that hold
         // this view (and the whole viewModel chain) alive after the view is
@@ -1204,9 +1212,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         // clamp; the preview rate is a few updates per second so sculpting
         // feels smooth without reflowing ghostty per frame (41ms frame
         // baseline on the emulator).
-        private const val ZOOM_FONT_SIZE_MIN_SP = 14f
-        private const val ZOOM_FONT_SIZE_MAX_SP = 48f
-        private const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
         private const val ZOOM_PREVIEW_INTERVAL_NANOS = 60_000_000L // 60ms
 
         private const val SUPPRESS_GRACE_PERIOD_NS = 50_000_000L
@@ -1280,6 +1285,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
 
     @Volatile private var scrollOffset: Int = 0
     private var lastImeBottom: Int = 0
+    private var lastImeVisible: Boolean = false
 
     // IME show/hide animations fire onApplyWindowInsets with a changing
     // imeBottom every frame; each distinct value used to trigger a ghostty
@@ -1599,6 +1605,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
         lastHandleDragEndUptimeMs = SystemClock.uptimeMillis()
         reshowSelectionHandles()
         reshowToolbar()
+        showSelectionMenuForCurrentSelection()
         viewModel?.runtime?.forceRender()
     }
 
@@ -1828,33 +1835,21 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 // Use floor() for symmetric slow thresholds: trunc 0.9→0 but -0.9→0 would stall
                 // negative drags; floor -0.9→-1 keeps both directions equally responsive.
                 // 注意符号:distanceY = previousY - currentY,下移为负,需取反累加才能使下移增加偏移。
-                scrollAccumulatorPx -= distanceY
-                val ch = cellHeight.coerceAtLeast(1f)
-                val rawAmount = floor((scrollAccumulatorPx / ch).toDouble()).toInt()
-                if (rawAmount != 0) {
-                    val newOffset = (scrollOffset + rawAmount).coerceIn(0, scrollbackLen)
-                    // Deduct only applied rows, then clamp the remainder at
-                    // the edges: truncated rows at a clamped edge would
-                    // otherwise keep accumulating and expose empty space.
-                    scrollAccumulatorPx -= (newOffset - scrollOffset) * ch
-                    if (
-                        (newOffset == 0 && scrollAccumulatorPx < 0f) ||
-                        (newOffset == scrollbackLen && scrollAccumulatorPx > 0f)
-                    ) {
-                        scrollAccumulatorPx = 0f
-                    }
-                    if (newOffset != scrollOffset) {
-                        scrollOffset = newOffset
-                        onScrollChanged?.invoke(scrollOffset)
-                    }
+                val scrollStep =
+                    applyScrollDistance(scrollAccumulatorPx, distanceY, cellHeight, scrollOffset, scrollbackLen)
+                scrollAccumulatorPx = scrollStep.newAccumulatorPx
+                if (scrollStep.newOffset != scrollOffset) {
+                    scrollOffset = scrollStep.newOffset
+                    onScrollChanged?.invoke(scrollOffset)
                 }
                 // Per-pixel remainder: mirror the sub-row accumulator to the
                 // renderer so content follows the finger within the row.
                 // Gated on non-empty scrollback — with no history any offset
                 // would expose empty space.
+                // setScrollRemainderPx 已含 notifyRender，不再额外 forceRender
+                // （双重唤醒致手势期间渲染线程空转，滚动卡顿）。
                 if (scrollbackLen > 0) {
                     viewModel?.runtime?.setScrollRemainderPx(scrollAccumulatorPx)
-                    viewModel?.runtime?.forceRender()
                 }
                 return true
             }
@@ -1892,7 +1887,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 onScrollingStateChanged?.invoke(true)
                 // velocityY 为像素/秒,下移为正:直接除以行高换算为行/秒,与 onScroll 同向(下移 older)。
                 // 旧代码取反导致惯性方向与拖动方向相反,已修正。
-                val rowVelocity = (velocityY / cellHeight.coerceAtLeast(1f)).toInt()
+                val rowVelocity = flingRowsPerSecond(velocityY, cellHeight)
                 flingScroller.fling(
                     0,
                     scrollOffset,
@@ -1910,9 +1905,13 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             override fun onSingleTapUp(event: MotionEvent): Boolean {
                 // Multi-tap selection (ghostty-android pattern): count
                 // rapid taps and handle word/line/select-all on tap 2/3/4+.
+                // 用事件时间而非处理时间计数：慢设备/模拟器上主线程卡顿
+                // （软件渲染帧 1s+）会把处理间隔撑过 400ms 窗口，导致三击
+                // 的第 3 击被重置为单击并清掉选词；事件时间是用户真实点速。
                 val now = SystemClock.uptimeMillis()
-                tapCount = nextTapCount(now, lastTapTime, tapCount, DOUBLE_TAP_WINDOW_MS)
-                lastTapTime = now
+                val tapTime = event.eventTime
+                tapCount = nextTapCount(tapTime, lastTapTime, tapCount, DOUBLE_TAP_WINDOW_MS)
+                lastTapTime = tapTime
 
                 if (handleMultiTap(event)) return true
 
@@ -1978,11 +1977,6 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 return true
             }
 
-            override fun onDoubleTap(event: MotionEvent): Boolean {
-                // Multi-tap is handled in onSingleTapUp using tapCount self-counting
-                return true
-            }
-
             override fun onLongPress(event: MotionEvent) {
                 if (scaleFactor < ZOOM_THRESHOLD_LOW || scaleFactor > ZOOM_THRESHOLD_HIGH) return
                 isAfterLongPress = true
@@ -1993,7 +1987,14 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
             }
         }
 
-    private val gestureDetector = GestureDetector(context, gestureListener)
+    private val gestureDetector =
+        GestureDetector(context, gestureListener).also {
+            // ghostty-android 模式：禁用框架双击检测，使每次点击都触发
+            // onSingleTapUp，由 tapCount 自计数驱动 选词/选行/全选。检测开启时
+            // 框架把第 2 击的 onSingleTapUp 吞入 onDoubleTap（此处无操作），
+            // tapCount 永不到 2，多击选择整体失效。
+            it.setOnDoubleTapListener(null)
+        }
 
     private val scaleDetector =
         ScaleGestureDetector(
@@ -2012,11 +2013,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScale(detector: ScaleGestureDetector): Boolean {
                     if (!zoomActive || isSelectingText) return false
                     scaleFactor *= detector.scaleFactor
-                    val sizeSp =
-                        (zoomBaseFontSizeSp * scaleFactor).coerceIn(
-                            ZOOM_FONT_SIZE_MIN_SP,
-                            ZOOM_FONT_SIZE_MAX_SP,
-                        )
+                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor)
                     val now = System.nanoTime()
                     if (now - lastZoomPreviewNanos >= ZOOM_PREVIEW_INTERVAL_NANOS) {
                         lastZoomPreviewNanos = now
@@ -2028,13 +2025,9 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                 override fun onScaleEnd(detector: ScaleGestureDetector) {
                     if (!zoomActive) return
                     zoomActive = false
-                    val sizeSp =
-                        (zoomBaseFontSizeSp * scaleFactor).coerceIn(
-                            ZOOM_FONT_SIZE_MIN_SP,
-                            ZOOM_FONT_SIZE_MAX_SP,
-                        )
+                    val sizeSp = zoomFontSize(zoomBaseFontSizeSp, scaleFactor)
                     scaleFactor = 1.0f
-                    if (kotlin.math.abs(sizeSp - zoomBaseFontSizeSp) > ZOOM_FONT_SIZE_EPSILON_SP) {
+                    if (zoomSettledOnNewSize(zoomBaseFontSizeSp, sizeSp)) {
                         // The gesture settled on a new size: persist + full
                         // apply (single grid reflow).
                         onZoomChanged?.invoke(sizeSp)
@@ -2258,12 +2251,17 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
         val result = super.onApplyWindowInsets(insets)
         val imeBottom = insets.getInsets(WindowInsets.Type.ime()).bottom
-        if (imeBottom != lastImeBottom) {
-            lastImeBottom = imeBottom
-            // Spec ime-translation: any IME inset delta must dismiss the selection
-            // handles + context menu — popups positioned at show time can never be
-            // stale relative to the pan. Do NOT resize here; the hybrid
-            // pan-then-reflow defers the single grid reflow to onImeSettled(48ms).
+        // Spec ime-translation: only a shown/hidden FLIP dismisses the selection
+        // handles + context menu — popups positioned at show time can never be
+        // stale relative to the pan. Gating on the flip (not every px delta)
+        // matters: the show/hide animation fires insets every frame, and clearing
+        // per-frame wipes a selection made mid-animation (e.g. double-tap select
+        // right after tap-to-focus shows the keyboard). Do NOT resize here; the
+        // hybrid pan-then-reflow defers the single grid reflow to onImeSettled(48ms).
+        val imeVisible = insets.isVisible(WindowInsets.Type.ime())
+        lastImeBottom = imeBottom
+        if (imeVisible != lastImeVisible) {
+            lastImeVisible = imeVisible
             viewModel?.clearSelection()
             selectionHandles.hideSelectionHandles()
             hideSelectionMenu()
@@ -2279,6 +2277,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      */
     fun onImeSettled(settledBottom: Int) {
         lastImeBottom = settledBottom
+        lastImeVisible = settledBottom > 0
         // 纯 Compose 偏移已承担键盘跟随，Surface 自身不再平移：双重位移会遮挡底部行并触发重绘闪烁。
         if (translationY != 0f) translationY = 0f
     }
@@ -2540,28 +2539,39 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
      * (tapCount >= 2).
      */
     private fun handleMultiTap(event: MotionEvent): Boolean {
-        when (multiTapAction(tapCount)) {
-            MultiTapAction.SELECT_ALL -> {
-                viewModel?.selectAll()
-                showHandlesIfActive()
-                return true
-            }
+        val consumed =
+            when (multiTapAction(tapCount)) {
+                MultiTapAction.SELECT_ALL -> {
+                    viewModel?.selectAll()
+                    showHandlesIfActive()
+                    true
+                }
 
-            MultiTapAction.LINE -> {
-                startSelectionAt(event, selectLine = true)
-                showHandlesIfActive()
-                return true
-            }
+                MultiTapAction.LINE -> {
+                    startSelectionAt(event, selectLine = true)
+                    showHandlesIfActive()
+                    true
+                }
 
-            MultiTapAction.WORD -> {
-                startSelectionAt(event, expandToWord = true)
-                showHandlesIfActive()
-                return true
-            }
+                MultiTapAction.WORD -> {
+                    startSelectionAt(event, expandToWord = true)
+                    showHandlesIfActive()
+                    true
+                }
 
-            MultiTapAction.NOT_A_MULTI_TAP -> return false
-        }
-        return false
+                MultiTapAction.NOT_A_MULTI_TAP -> false
+            }
+        // 手势完成点同步亮出菜单（控制柄同模式）：只靠 Compose LaunchedEffect
+        // 会漏掉短促手势的单次重组，菜单永不出现；它是幂等的同步备份。
+        if (consumed) showSelectionMenuForCurrentSelection()
+        return consumed
+    }
+
+    /** 手势完成点同步亮出当前选择的菜单（控制柄同模式），Compose 侧作为同步备份。 */
+    private fun showSelectionMenuForCurrentSelection() {
+        val selection = viewModel?.state?.value?.selection ?: return
+        if (!selection.active || selection.start == null || selection.end == null) return
+        showSelectionMenu(selection.pasteOnly)
     }
 
     private fun showHandlesIfActive() {
@@ -2872,6 +2882,7 @@ constructor(context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
                             sel.end.col,
                             getAccentColor(),
                         )
+                        showSelectionMenuForCurrentSelection()
                     }
                 }
                 edgeScrollRunning = false
@@ -3251,3 +3262,64 @@ internal fun isFilePathCandidate(text: String, maxLength: Int = MAX_SELECTION_AC
     if (!trimmed.startsWith("/")) return false
     return !trimmed.contains("\u0000")
 }
+
+/** 滚动行高下限：避免除零，保持手势可用。 */
+internal const val MIN_CELL_HEIGHT_PX = 1f
+
+/** 滚动一步结果：钳制后的偏移与剩余亚行余量。 */
+internal data class ScrollStep(val newOffset: Int, val newAccumulatorPx: Float)
+
+/**
+ * 手指滚动增量换算（onScroll 可测核心，同向逻辑）。
+ * distanceY 为手势约定（previousY - currentY）：下移为负，进入更早历史（偏移增加）；
+ * 上移为正，回到更新内容（偏移减少）。亚行余量累积，整行才移动；边缘钳制并清余量。
+ */
+internal fun applyScrollDistance(
+    accumulatorPx: Float,
+    distanceY: Float,
+    cellHeightPx: Float,
+    scrollOffset: Int,
+    scrollbackLength: Int,
+): ScrollStep {
+    var accumulator = accumulatorPx - distanceY
+    val cellHeight = cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)
+    val rawAmount = floor((accumulator / cellHeight).toDouble()).toInt()
+    if (rawAmount == 0) {
+        return ScrollStep(scrollOffset, accumulator)
+    }
+    val newOffset = (scrollOffset + rawAmount).coerceIn(0, scrollbackLength)
+    accumulator -= (newOffset - scrollOffset) * cellHeight
+    if ((newOffset == 0 && accumulator < 0f) || (newOffset == scrollbackLength && accumulator > 0f)) {
+        accumulator = 0f
+    }
+    return ScrollStep(newOffset, accumulator)
+}
+
+/**
+ * 惯性行速度换算（onFling 可测核心，与拖动同向）。
+ * velocityY 为手势约定（像素/秒，下移为正）：下移进入更早历史（正行速度），
+ * 上移回到更新内容（负行速度）。行高归一避免除零过速撞边。
+ */
+internal fun flingRowsPerSecond(velocityYPxPerSecond: Float, cellHeightPx: Float): Int =
+    (velocityYPxPerSecond / cellHeightPx.coerceAtLeast(MIN_CELL_HEIGHT_PX)).toInt()
+
+/** 缩放手势字号上下限（与 TerminalScreen 最终钳制一致）。 */
+internal const val ZOOM_FONT_SIZE_MIN_SP = 14f
+internal const val ZOOM_FONT_SIZE_MAX_SP = 48f
+
+/** 缩放手势收敛阈值：小于此差值视为回到锚点，只撤销预览不持久化。 */
+internal const val ZOOM_FONT_SIZE_EPSILON_SP = 0.05f
+
+/**
+ * 缩放手势字号换算（onScale 可测核心）。
+ * 基准字号乘以累计缩放因子后钳制到字号上下限。
+ */
+internal fun zoomFontSize(baseFontSizeSp: Float, scaleFactor: Float): Float =
+    (baseFontSizeSp * scaleFactor).coerceIn(ZOOM_FONT_SIZE_MIN_SP, ZOOM_FONT_SIZE_MAX_SP)
+
+/**
+ * 缩放手势是否收敛到新字号（onScaleEnd 可测核心）。
+ * 终值与基准差值超过阈值才持久化，否则撤销预览恢复基准。
+ */
+internal fun zoomSettledOnNewSize(baseFontSizeSp: Float, finalSizeSp: Float): Boolean =
+    kotlin.math.abs(finalSizeSp - baseFontSizeSp) > ZOOM_FONT_SIZE_EPSILON_SP
