@@ -53,3 +53,7 @@ harness = false
 name = "vt_typing"
 path = "benches/vt_typing.rs"
 harness = false
+[[bench]]
+name = "cjk_resolve"
+path = "benches/cjk_resolve.rs"
+harness = false
