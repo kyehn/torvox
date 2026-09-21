@@ -1,12 +1,9 @@
-# 仅收录与 detekt 默认配置的差异项（buildUponDefaultConfig=true 会继承其余全部默认）。
-# 不要回填默认条目；必要抑制见 STYLE.md，需附理由。
 config:
   warningsAsErrors: true
 comments:
   DeprecatedBlockTag:
     active: true
 complexity:
-  # 规范允许抑制参数数量/行数/嵌套层数类规则。
   CognitiveComplexMethod:
     active: false
   ComplexCondition:
@@ -27,7 +24,6 @@ empty-blocks:
   EmptyFunctionBlock:
     ignoreOverridden: true
 exceptions:
-  # 规范要求捕获后记录并继续或崩溃退出，与这几条冲突，故关闭。
   InstanceOfCheckForException:
     active: false
   SwallowedException:
@@ -37,14 +33,13 @@ exceptions:
   TooGenericExceptionThrown:
     active: false
 libraries:
-  # app 模块无公开 API；Activity 等框架类与测试类须公开，库作者规则无法满足，故关闭。
   ForbiddenPublicDataClass:
     active: false
   LibraryEntitiesShouldNotBePublic:
     active: false
 naming:
   ConstructorParameterNaming:
-    active: false #  wire 格式兼容（JSON/原生 snake_case），不可改名。
+    active: false
   FunctionNaming:
     ignoreAnnotated: ['Composable']
 potential-bugs:
@@ -70,11 +65,11 @@ style:
   RedundantExplicitType:
     active: true
   ReturnCount:
-    active: false # 卫语句风格与之冲突。
+    active: false
   SpacingAfterPackageAndImports:
     active: true
   ThrowsCount:
-    active: false # 入口显式抛错，规范要求尽早报错。
+    active: false
   TrailingWhitespace:
     active: true
   UnnecessaryBracesAroundTrailingLambda:
@@ -84,6 +79,6 @@ style:
   UnusedImport:
     active: true
   UnusedParameter:
-    active: false # 测试桩必须镜像安卓 API 签名。
+    active: false
   UseDataClass:
     active: true
