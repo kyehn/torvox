@@ -1858,8 +1858,10 @@ constructor(
         private const val MIN_FONT_SIZE_TENTHS = 40
         private const val MAX_FONT_SIZE_TENTHS = 1000
 
-        /** ModifierBar overlay height reserved when recomputing the grid from font metrics. */
-        private const val MODIFIER_BAR_HEIGHT_DP = 80f
+        /** ModifierBar overlay height reserved when recomputing the grid from font metrics.
+         *  Equals two button rows (BUTTON_HEIGHT_DP 36 × 2, zero spacing) so the
+         *  grid reservation and the IME-follow pan agree on which rows the bar covers. */
+        private const val MODIFIER_BAR_HEIGHT_DP = 72f
         private const val FONT_SIZE_DISPLAY_RATIO = 0.6f
         private const val FONT_SIZE_MIN_PX = 300
         private const val FONT_SIZE_MAX_PX = 600
