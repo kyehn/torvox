@@ -67,4 +67,45 @@ class TerminalImePanTest {
             computeTerminalPanPx(cursorRow = 5, cellHeightPx = 0f, boxHeightPx = 2100, imePx = 1100, barPx = 240),
         )
     }
+
+    @Test
+    fun pan_grows_with_live_frame_during_show() {
+        // 同一光标行，动画中间帧（ime=550）位移小于定居值（ime=1100）：
+        // 调用方必须逐帧喂 live 值，冻结 settled 值会在此断言失败。
+        assertEquals(
+            250,
+            computeTerminalPanPx(cursorRow = 25, cellHeightPx = 60f, boxHeightPx = 2100, imePx = 550, barPx = 240),
+        )
+        assertEquals(
+            800,
+            computeTerminalPanPx(cursorRow = 25, cellHeightPx = 60f, boxHeightPx = 2100, imePx = 1100, barPx = 240),
+        )
+    }
+
+    @Test
+    fun pan_shrinks_when_cursor_moves_up() {
+        // 退格/回车后光标上移：同一键盘高度下位移必须跟随缩小（20 行→500px，12 行→20px）。
+        assertEquals(
+            20,
+            computeTerminalPanPx(cursorRow = 12, cellHeightPx = 60f, boxHeightPx = 2100, imePx = 1100, barPx = 240),
+        )
+    }
+
+    @Test
+    fun pan_follows_live_value_during_hide() {
+        // 隐藏动画中间帧不得冻结在定居值 1100：live ime=100 时位移必须已回落到 100。
+        assertEquals(
+            100,
+            computeTerminalPanPx(cursorRow = 30, cellHeightPx = 60f, boxHeightPx = 2100, imePx = 100, barPx = 240),
+        )
+    }
+
+    @Test
+    fun pan_never_exceeds_keyboard_height() {
+        // 光标远超可视区时位移钳制在键盘高度内，不向上超调遮挡更多内容。
+        assertEquals(
+            1100,
+            computeTerminalPanPx(cursorRow = 100, cellHeightPx = 60f, boxHeightPx = 2100, imePx = 1100, barPx = 240),
+        )
+    }
 }

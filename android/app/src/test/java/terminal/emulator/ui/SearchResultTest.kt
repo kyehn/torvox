@@ -1,10 +1,53 @@
 package terminal.emulator.ui
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SearchResultTest {
+    @Test
+    fun `next index advances without wrap`() {
+        assertEquals(1, SearchResult.nextIndex(currentIndex = 0, resultCount = 3))
+        assertEquals(2, SearchResult.nextIndex(currentIndex = 1, resultCount = 3))
+    }
+
+    @Test
+    fun `next index wraps at end`() {
+        assertEquals(0, SearchResult.nextIndex(currentIndex = 2, resultCount = 3))
+    }
+
+    @Test
+    fun `next index single result stays`() {
+        assertEquals(0, SearchResult.nextIndex(currentIndex = 0, resultCount = 1))
+    }
+
+    @Test
+    fun `next index empty returns negative`() {
+        assertEquals(-1, SearchResult.nextIndex(currentIndex = 0, resultCount = 0))
+    }
+
+    @Test
+    fun `previous index retreats without wrap`() {
+        assertEquals(1, SearchResult.previousIndex(currentIndex = 2, resultCount = 3))
+        assertEquals(0, SearchResult.previousIndex(currentIndex = 1, resultCount = 3))
+    }
+
+    @Test
+    fun `previous index wraps at start`() {
+        assertEquals(2, SearchResult.previousIndex(currentIndex = 0, resultCount = 3))
+    }
+
+    @Test
+    fun `previous index single result stays`() {
+        assertEquals(0, SearchResult.previousIndex(currentIndex = 0, resultCount = 1))
+    }
+
+    @Test
+    fun `previous index empty returns negative`() {
+        assertEquals(-1, SearchResult.previousIndex(currentIndex = 0, resultCount = 0))
+    }
+
     // --- isNarrowingDown tests (GNOME Console kgx-tab.c:191-250 equivalent) ---
 
     @Test
